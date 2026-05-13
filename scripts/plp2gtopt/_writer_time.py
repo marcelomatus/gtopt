@@ -285,6 +285,8 @@ class TimeMixin:
             num_stages=num_stages,
             max_scenario_uid=max_scenario_uid,
             aperture_directory=str(aperture_dir),
+            aflce_parser=self.parser.parsed_data.get("aflce_parser", None),
+            block_parser=self.parser.parsed_data.get("block_parser", None),
         )
 
         if not result.aperture_array:
@@ -343,9 +345,9 @@ class TimeMixin:
 
         # Populate per-phase apertures from stage-indexed PLP data.
         # Pass aflce + block parsers so each phase's aperture list is
-        # sorted from driest to wettest (total flow × duration over the
-        # phase's blocks), grouping similar bounds adjacently for
-        # warm-start reuse under gtopt's chunked SDDP backward pass.
+        # sorted **wettest → driest** (total flow × duration over the
+        # phase's blocks).  Pairs with ``SddpOptions.num_apertures`` to
+        # let each cascade level pick its top-N wettest per phase.
         phase_array = self.planning["simulation"].get("phase_array", [])
         build_phase_apertures(
             idap2_parser=idap2_parser,

@@ -60,9 +60,13 @@ struct Phase
   OptBool continuous {};
 
   /// Optional aperture UIDs to use in this phase's SDDP backward pass.
-  /// When empty, all apertures from the global `aperture_array` are used.
+  /// When empty, all apertures from the global `aperture_array` are used
+  /// (iterated in `aperture_array` order).
   /// When non-empty, only the listed aperture UIDs participate in the
-  /// backward-pass cut computation for this phase.
+  /// backward-pass cut computation for this phase.  The list is emitted
+  /// by `plp2gtopt` sorted **wettest → driest** so that
+  /// `SddpOptions::num_apertures = N` picks the N wettest per phase via
+  /// `truncate_apertures` (see `sddp_aperture_pass.cpp`).
   Array<Uid> apertures {};
 
   /// Class name constant used for serialisation/deserialisation

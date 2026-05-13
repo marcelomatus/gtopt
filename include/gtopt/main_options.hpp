@@ -538,12 +538,13 @@ inline void apply_cli_options(
   }
 
   if (sddp_num_apertures) {
-    // Legacy CLI: convert num_apertures int to apertures array.
-    // 0 → empty (no apertures), >0 or <0 handled at solve time.
-    if (*sddp_num_apertures == 0) {
-      planning.options.sddp_options.apertures = Array<Uid> {};
-    }
-    // Non-zero: leave apertures as nullopt (use per-phase apertures)
+    // Direct mapping to SddpOptions::num_apertures — the C++ side
+    // truncates each phase's Phase.apertures to the first N entries.
+    // Combined with the wettest-first sort applied by plp2gtopt this
+    // selects the N wettest apertures per phase.  Per-level overrides
+    // are available via --set
+    // cascade_options.level_array.N.sddp_options.num_apertures=K.
+    planning.options.sddp_options.num_apertures = *sddp_num_apertures;
   }
 
   if (lp_debug) {

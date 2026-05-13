@@ -53,6 +53,12 @@ template<typename Range>
   return result;
 }
 
+// `select_apertures` (head | stride sub-selection) was moved out of
+// the anonymous namespace into `namespace gtopt` (declared in
+// `sddp_aperture.hpp`) so the selection semantics can be covered by
+// unit tests without reaching into translation-unit-private symbols.
+// See the header for the full contract.
+
 // `resolve_effective_apertures` was moved out of the anonymous
 // namespace into `namespace gtopt` (declared in `sddp_aperture.hpp`)
 // so the four-way decision (filter / synthetic / pass-through /
@@ -500,6 +506,16 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     apply_terminal_alpha_floor(planning_lp(), scene_index);
   }
 
+  // Apply per-level `num_apertures` sub-selection to the per-phase list.
+  // Composes with `aperture_defs` (resolved upstream from any
+  // `opts.apertures` whitelist): selection happens first on
+  // `Phase::apertures`, then `build_effective_apertures` resolves each
+  // surviving UID against the (possibly whitelisted) aperture pool.
+  const auto selected_phase_apertures =
+      select_apertures(plp.apertures(),
+                       m_options_.num_apertures,
+                       m_options_.aperture_selection_mode);
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
@@ -508,7 +524,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       base_scenario,
       all_scenarios,
       aperture_defs,
-      plp.apertures(),
+      selected_phase_apertures,
       cut_offset,
       target_sys,
       plp,
@@ -739,6 +755,11 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
       apply_terminal_alpha_floor(planning_lp(), scene_index);
     }
 
+    const auto selected_phase_apertures_async =
+        select_apertures(plp.apertures(),
+                         m_options_.num_apertures,
+                         m_options_.aperture_selection_mode);
+
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
@@ -747,7 +768,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         base_scenario,
         all_scenarios,
         effective_defs,
-        plp.apertures(),
+        selected_phase_apertures_async,
         total_cuts,
         target_sys,
         plp,

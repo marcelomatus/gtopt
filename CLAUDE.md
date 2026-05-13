@@ -292,7 +292,8 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 | `scale_objective` | 1000 | Divides obj coefficients for numerics |
 | `input_format` / `output_format` | `"parquet"` | I/O format |
 | `method` | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
-| `aperture_chunk_size` | `0` (auto = 1) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto (currently resolves to `1`, empirically fastest under the parallel-safe manual-clone path on juan/IPLP-scale workloads), `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the wetness sort applied in `plp2gtopt`. CLI: `--aperture-chunk-size`. |
+| `aperture_chunk_size` | `0` (auto = 1) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto (currently resolves to `1`, empirically fastest under the parallel-safe manual-clone path on juan/IPLP-scale workloads), `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the **wettest → driest** sort applied to `Phase.apertures` by `plp2gtopt`. CLI: `--aperture-chunk-size`. |
+| `num_apertures` | unset | First-N selector applied to each phase's `Phase.apertures`. Combined with the wettest-first sort emitted by `plp2gtopt`, `num_apertures = N` picks the N wettest apertures per phase. Cascade defaults: L0 = 4, L1 = 8, L2 = unset (full per-phase list). CLI: `--sddp-num-apertures`. Per-level override: `--set cascade_options.level_array.N.sddp_options.num_apertures=K`. |
 
 ### LP solver backends
 

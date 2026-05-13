@@ -454,7 +454,14 @@ class TestCascadeOptionKeys:
 
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
-        expected = {"max_iterations", "min_iterations", "apertures", "convergence_tol"}
+        expected = {
+            "max_iterations",
+            "min_iterations",
+            "apertures",
+            "num_apertures",
+            "aperture_selection_mode",
+            "convergence_tol",
+        }
         assert expected == cpp_fields, (
             f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"
         )

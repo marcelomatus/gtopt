@@ -89,6 +89,59 @@ auto build_effective_apertures(std::span<const Aperture> aperture_defs,
   return result;
 }
 
+// ─── select_apertures ───────────────────────────────────────────────────────
+
+auto select_apertures(std::span<const Uid> phase_apertures,
+                      const std::optional<int>& num_apertures,
+                      ApertureSelectionMode mode) -> std::vector<Uid>
+{
+  // No truncation requested or empty input → return a full copy.
+  if (!num_apertures || phase_apertures.empty()) {
+    return {phase_apertures.begin(), phase_apertures.end()};
+  }
+
+  const auto total = phase_apertures.size();
+  const auto n = static_cast<std::size_t>(std::max(0, *num_apertures));
+
+  if (n == 0) {
+    return {};
+  }
+  if (n >= total) {
+    return {phase_apertures.begin(), phase_apertures.end()};
+  }
+
+  std::vector<Uid> out;
+  out.reserve(n);
+
+  switch (mode) {
+    case ApertureSelectionMode::head:
+      // First N (= N wettest when input is wettest-first).
+      for (std::size_t i = 0; i < n; ++i) {
+        out.push_back(phase_apertures[i]);
+      }
+      break;
+    case ApertureSelectionMode::stride:
+      // N entries evenly spaced across the full ordered list.
+      // Indices i*total/n for i = 0..n-1 — guaranteed strictly
+      // increasing and < total because n < total (checked above).
+      for (std::size_t i = 0; i < n; ++i) {
+        const auto idx = (i * total) / n;
+        out.push_back(phase_apertures[idx]);
+      }
+      break;
+    case ApertureSelectionMode::tail:
+      // Last N (= N driest when input is wettest-first).  Mirror of
+      // head: original wetness order is preserved within the picks
+      // (wetter of the surviving N first, then drier ones).
+      for (std::size_t i = total - n; i < total; ++i) {
+        out.push_back(phase_apertures[i]);
+      }
+      break;
+  }
+
+  return out;
+}
+
 // ─── partition_apertures ────────────────────────────────────────────────────
 
 auto partition_apertures(std::span<const ApertureEntry> apertures,

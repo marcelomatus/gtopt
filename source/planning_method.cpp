@@ -65,6 +65,8 @@ namespace
   sddp_opts.cut_coeff_eps = options.sddp_cut_coeff_eps();
   sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
   sddp_opts.apertures = options.sddp_apertures();
+  sddp_opts.num_apertures = options.sddp_num_apertures();
+  sddp_opts.aperture_selection_mode = options.sddp_aperture_selection_mode();
   sddp_opts.aperture_timeout = options.sddp_aperture_timeout();
   sddp_opts.save_aperture_lp = options.sddp_save_aperture_lp();
   sddp_opts.lp_debug_passes = std::string(options.sddp_lp_debug_passes());

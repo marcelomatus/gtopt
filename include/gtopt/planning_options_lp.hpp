@@ -1191,6 +1191,28 @@ public:
     return m_options_.sddp_options.apertures;
   }
 
+  /// First-N selector applied to each phase's `Phase::apertures` list.
+  /// nullopt = no truncation (use full per-phase list).
+  /// See `SddpOptions::num_apertures` for full semantics.
+  [[nodiscard]] const auto& sddp_num_apertures() const noexcept
+  {
+    return m_options_.sddp_options.num_apertures;
+  }
+
+  /// Selection rule used by `num_apertures` (head | stride | tail).
+  /// Returns the parsed enum value; defaults to `head` when the
+  /// option is unset.
+  [[nodiscard]] auto sddp_aperture_selection_mode() const
+      -> ApertureSelectionMode
+  {
+    const auto& opt = m_options_.sddp_options.aperture_selection_mode;
+    if (!opt) {
+      return ApertureSelectionMode::head;
+    }
+    return gtopt::require_enum<ApertureSelectionMode>("aperture_selection_mode",
+                                                      *opt);
+  }
+
   /// Directory for aperture-specific scenario data (empty = use
   /// input_directory)
   [[nodiscard]] auto sddp_aperture_directory() const -> Name

@@ -127,6 +127,54 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   overriding per-phase apertures
    */
   std::optional<Array<Uid>> apertures {};
+
+  /** @brief First-N selector applied to each phase's `Phase::apertures`.
+   *
+   * - absent (nullopt) – no truncation; use the full per-phase list
+   * - `0`              – no apertures (pure Benders, same as `apertures=[]`)
+   * - `N > 0`          – take `Phase::apertures.first(N)` per phase
+   *
+   * Designed to pair with the wettest-first sort applied to
+   * `Phase::apertures` by `plp2gtopt`: `num_apertures = N` picks the N
+   * wettest apertures *per phase*, without the writer having to
+   * materialise an explicit cross-phase UID whitelist.
+   *
+   * **Interaction with `apertures`**: the two compose.  `apertures` is
+   * the global UID whitelist for `aperture_array` lookup; truncation
+   * by `num_apertures` happens on `Phase::apertures` first, then each
+   * surviving UID is resolved against the (possibly whitelisted)
+   * aperture pool by `build_effective_apertures`.  A UID truncated
+   * away by `num_apertures` is dropped before the whitelist check;
+   * a UID present after truncation but absent from the whitelist is
+   * dropped at lookup time.
+   *
+   * **Cascade levels**: each `CascadeLevelMethod` can override
+   * `num_apertures` via the existing `merge_opt` path — e.g. L0
+   * (uninodal) sets `num_apertures = 4`, L1 (transport) sets
+   * `num_apertures = 8`, L2 (full) leaves it absent (= all apertures
+   * per phase).  No `apertures` whitelist is needed at any level.
+   */
+  OptInt num_apertures {};
+
+  /** @brief Selection rule used by `num_apertures` to pick a subset
+   *  from each phase's `Phase::apertures` list.
+   *
+   * - `"head"` (default): take the first N entries = the N **wettest**
+   *   apertures per phase.  Best when the level wants to concentrate
+   *   on the wet tail (e.g. cascade L0 uninodal).
+   * - `"stride"` / `"interleave"` / `"spread"`: take N entries evenly
+   *   spaced across the full ordered list (indices `i × total / N`).
+   *   Samples the full wetness spectrum — first pick is still wettest,
+   *   last pick is near driest.  Best for representative coverage.
+   * - `"tail"` / `"last"`: take the last N entries = the N **driest**
+   *   apertures per phase (mirror of `head`).  Useful for value-function
+   *   exploration of dry-tail scenarios.
+   *
+   * Has no effect when `num_apertures` is absent or `≥ len(Phase::apertures)`.
+   * Each cascade level can override via its own `sddp_options`.
+   */
+  OptName aperture_selection_mode {};
+
   /** @brief Directory for aperture-specific scenario data.
    *
    * When present, scenarios referenced by `Aperture::source_scenario` are
@@ -620,6 +668,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(elastic_mode, opts.elastic_mode);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     merge_opt(apertures, std::move(opts.apertures));
+    merge_opt(num_apertures, opts.num_apertures);
+    merge_opt(aperture_selection_mode, std::move(opts.aperture_selection_mode));
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);

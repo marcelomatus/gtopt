@@ -687,6 +687,32 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// trial values.
   std::optional<std::vector<Uid>> apertures {};
 
+  /// First-N selector applied to each phase's `Phase::apertures` list.
+  ///
+  /// - `nullopt`  – no truncation; use the full per-phase list (default).
+  /// - `0`        – no apertures (pure Benders).
+  /// - `N > 0`    – take `Phase::apertures.first(N)` per phase.
+  ///
+  /// Pairs with the wettest-first sort applied by `plp2gtopt` to
+  /// `Phase::apertures`: `num_apertures = N` picks the N wettest
+  /// apertures per phase.  Each cascade level can override this value
+  /// (e.g. L0 = 4, L1 = 8, L2 absent → all).
+  ///
+  /// `apertures` and `num_apertures` compose: truncation happens on
+  /// `Phase::apertures` first, then each surviving UID is resolved
+  /// against the (possibly whitelisted) aperture pool.
+  std::optional<int> num_apertures {};
+
+  /// Selection rule used by `num_apertures` to pick a subset from
+  /// each phase's `Phase::apertures` list.
+  ///
+  /// - `head` (default): first N entries = N wettest per phase.
+  /// - `stride`: N entries evenly spaced across the full list.
+  ///
+  /// See `ApertureSelectionMode` for details.  Ignored when
+  /// `num_apertures` is `nullopt` or ≥ the per-phase list length.
+  ApertureSelectionMode aperture_selection_mode {ApertureSelectionMode::head};
+
   /// Timeout in seconds for individual aperture LP solves in the backward
   /// pass.  When an aperture LP exceeds this time, it is treated as
   /// infeasible (skipped), a WARNING is logged, and the solver continues

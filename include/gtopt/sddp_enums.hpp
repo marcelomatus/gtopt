@@ -148,6 +148,71 @@ inline constexpr auto elastic_filter_mode_entries =
   return std::span {elastic_filter_mode_entries};
 }
 
+// ─── ApertureSelectionMode ─────────────────────────────────────────────────
+
+/**
+ * @brief How `SddpOptions::num_apertures` selects a subset from each
+ * phase's `Phase::apertures` list.
+ *
+ * `Phase::apertures` is emitted by `plp2gtopt` sorted **wettest →
+ * driest**, so the choice of selection rule controls which N entries
+ * survive truncation:
+ *
+ * - `head` (default): pick the **first N** entries — i.e. the N
+ *   wettest apertures per phase.  Concentrates effort on the
+ *   high-water tail of the distribution.  Best for cascade L0 where
+ *   the uninodal relaxation needs only the worst-case wet tail.
+ *
+ * - `stride`: pick N entries **evenly spaced** across the full
+ *   ordered list (indices `i × total / N` for `i = 0..N-1`).  Samples
+ *   the whole wetness spectrum — first index is still the wettest,
+ *   last index is near the driest.  Best when the level wants a
+ *   representative cross-section rather than the tail.
+ *
+ * When `num_apertures` is `nullopt`, the full per-phase list is used
+ * regardless of mode.  When `num_apertures >= len(Phase::apertures)`,
+ * the full list survives in either mode.
+ */
+enum class ApertureSelectionMode : uint8_t
+{
+  head = 0,  ///< Pick first N (wettest-N when list is wettest-first).
+  stride = 1,  ///< Pick N entries evenly spaced across the full list.
+  tail = 2,  ///< Pick last N (driest-N when list is wettest-first).
+};
+
+inline constexpr auto aperture_selection_mode_entries =
+    std::to_array<EnumEntry<ApertureSelectionMode>>({
+        {.name = "head", .value = ApertureSelectionMode::head},
+        {
+            .name = "first",
+            .value = ApertureSelectionMode::head,
+            .is_alias = true,
+        },
+        {.name = "stride", .value = ApertureSelectionMode::stride},
+        {
+            .name = "interleave",
+            .value = ApertureSelectionMode::stride,
+            .is_alias = true,
+        },
+        {
+            .name = "spread",
+            .value = ApertureSelectionMode::stride,
+            .is_alias = true,
+        },
+        {.name = "tail", .value = ApertureSelectionMode::tail},
+        {
+            .name = "last",
+            .value = ApertureSelectionMode::tail,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(
+    ApertureSelectionMode /*tag*/) noexcept
+{
+  return std::span {aperture_selection_mode_entries};
+}
+
 // ─── HotStartMode ──────────────────────────────────────────────────────────
 
 /**

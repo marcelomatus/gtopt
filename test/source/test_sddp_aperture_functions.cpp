@@ -820,6 +820,177 @@ static_assert(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
 static_assert(compute_auto_aperture_chunk_size(80, 64, 16, 2.0) == 80);
 static_assert(compute_auto_aperture_chunk_size(16, 16, 20, 2.0) == 4);
 
+// ─── select_apertures ──────────────────────────────────────────────────────
+
+TEST_CASE(
+    "select_apertures — nullopt num_apertures returns full copy")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
+  const auto out = select_apertures(phase_aps, std::nullopt);
+  REQUIRE(out.size() == 3);
+  CHECK(out[0] == Uid {1});
+  CHECK(out[1] == Uid {2});
+  CHECK(out[2] == Uid {3});
+}
+
+TEST_CASE("select_apertures — head mode picks first N entries")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+      Uid {50},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {2}, ApertureSelectionMode::head);
+  REQUIRE(out.size() == 2);
+  CHECK(out[0] == Uid {10});
+  CHECK(out[1] == Uid {20});
+}
+
+TEST_CASE("select_apertures — head is the default mode")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+  const auto out = select_apertures(phase_aps, std::optional<int> {2});
+  REQUIRE(out.size() == 2);
+  CHECK(out[0] == Uid {1});
+  CHECK(out[1] == Uid {2});
+}
+
+TEST_CASE("select_apertures — N = 0 returns empty (every mode)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
+  CHECK(select_apertures(
+            phase_aps, std::optional<int> {0}, ApertureSelectionMode::head)
+            .empty());
+  CHECK(select_apertures(
+            phase_aps, std::optional<int> {0}, ApertureSelectionMode::stride)
+            .empty());
+  CHECK(select_apertures(
+            phase_aps, std::optional<int> {0}, ApertureSelectionMode::tail)
+            .empty());
+}
+
+TEST_CASE(
+    "select_apertures — N >= size returns full copy (every mode)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}};
+  for (auto mode : {ApertureSelectionMode::head,
+                    ApertureSelectionMode::stride,
+                    ApertureSelectionMode::tail})
+  {
+    const auto out = select_apertures(phase_aps, std::optional<int> {99}, mode);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0] == Uid {1});
+    CHECK(out[1] == Uid {2});
+  }
+}
+
+TEST_CASE("select_apertures — negative N is treated as 0")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}};
+  CHECK(select_apertures(
+            phase_aps, std::optional<int> {-5}, ApertureSelectionMode::head)
+            .empty());
+}
+
+TEST_CASE("select_apertures — empty input passes through")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {};
+  CHECK(select_apertures(phase_aps, std::nullopt).empty());
+  CHECK(select_apertures(phase_aps, std::optional<int> {4}).empty());
+}
+
+TEST_CASE(
+    "select_apertures — stride mode picks evenly spaced entries")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // 8 entries; pick 4 with stride → indices 0, 2, 4, 6.
+  const std::vector<Uid> phase_aps {
+      Uid {1},
+      Uid {2},
+      Uid {3},
+      Uid {4},
+      Uid {5},
+      Uid {6},
+      Uid {7},
+      Uid {8},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {4}, ApertureSelectionMode::stride);
+  REQUIRE(out.size() == 4);
+  CHECK(out[0] == Uid {1});  // index 0 (wettest)
+  CHECK(out[1] == Uid {3});  // index 2
+  CHECK(out[2] == Uid {5});  // index 4
+  CHECK(out[3] == Uid {7});  // index 6 (mid-driest)
+}
+
+TEST_CASE("select_apertures — stride mode N=1 picks the wettest")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {1}, ApertureSelectionMode::stride);
+  REQUIRE(out.size() == 1);
+  CHECK(out[0] == Uid {10});
+}
+
+TEST_CASE("select_apertures — tail mode picks last N entries")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+      Uid {50},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {2}, ApertureSelectionMode::tail);
+  REQUIRE(out.size() == 2);
+  CHECK(out[0] == Uid {40});
+  CHECK(out[1] == Uid {50});
+}
+
+TEST_CASE("select_apertures — tail mode N=1 picks the driest")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {1}, ApertureSelectionMode::tail);
+  REQUIRE(out.size() == 1);
+  CHECK(out[0] == Uid {3});
+}
+
+TEST_CASE("select_apertures — head and tail are mirrors")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+  const auto head = select_apertures(
+      phase_aps, std::optional<int> {2}, ApertureSelectionMode::head);
+  const auto tail = select_apertures(
+      phase_aps, std::optional<int> {2}, ApertureSelectionMode::tail);
+  REQUIRE(head.size() == 2);
+  REQUIRE(tail.size() == 2);
+  CHECK(head[0] == Uid {1});
+  CHECK(head[1] == Uid {2});
+  CHECK(tail[0] == Uid {3});
+  CHECK(tail[1] == Uid {4});
+}
+
 // ─── partition_apertures ───────────────────────────────────────────────────
 
 namespace

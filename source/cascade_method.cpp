@@ -20,6 +20,7 @@
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -75,6 +76,13 @@ auto CascadePlanningMethod::build_level_sddp_opts(
         level_solver->max_iterations.value_or(opts.max_iterations);
     if (level_solver->apertures.has_value()) {
       opts.apertures = level_solver->apertures;
+    }
+    if (level_solver->num_apertures.has_value()) {
+      opts.num_apertures = level_solver->num_apertures;
+    }
+    if (level_solver->aperture_selection_mode.has_value()) {
+      opts.aperture_selection_mode = gtopt::require_enum<ApertureSelectionMode>(
+          "aperture_selection_mode", *level_solver->aperture_selection_mode);
     }
     opts.min_iterations =
         level_solver->min_iterations.value_or(opts.min_iterations);

@@ -41,6 +41,7 @@
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -96,6 +97,40 @@ struct ApertureEntry
     std::span<const Aperture> aperture_defs,
     std::span<const Uid> phase_apertures) -> std::vector<ApertureEntry>;
 
+// ─── Per-phase aperture sub-selection ───────────────────────────────────────
+
+/// Select a subset of a per-phase aperture-UID list according to
+/// `SDDPOptions::num_apertures` and `aperture_selection_mode`.
+///
+/// `Phase::apertures` is emitted by `plp2gtopt` sorted wettest → driest;
+/// this helper produces the effective per-phase list the backward pass
+/// will actually solve for.
+///
+/// Semantics:
+///   * `num_apertures = nullopt`        → return a copy of the full input.
+///   * `num_apertures = 0`              → return an empty vector.
+///   * `num_apertures = N ≥ size()`     → return a copy of the full input.
+///   * `num_apertures = N > 0` with:
+///       - `mode = head`   → `phase_apertures.first(N)` (N wettest).
+///       - `mode = stride` → `N` entries at indices `i*size/N`,
+///                            `i = 0..N-1` (evenly spaced across
+///                            the full ordered list — wettest is
+///                            still index 0, last pick is near driest).
+///       - `mode = tail`   → `phase_apertures.last(N)` (N driest);
+///                            mirror of `head`.
+///
+/// @param phase_apertures Per-phase aperture UIDs (assumed wettest-first).
+/// @param num_apertures   `SDDPOptions::num_apertures` value to apply.
+/// @param mode            Selection rule (head | stride; default head).
+/// @return Owned vector of selected UIDs (preserves input order in `head`
+///         mode; stride mode walks indices in ascending order so
+///         wetness order is preserved within the picks).
+[[nodiscard]] auto select_apertures(
+    std::span<const Uid> phase_apertures,
+    const std::optional<int>& num_apertures,
+    ApertureSelectionMode mode = ApertureSelectionMode::head)
+    -> std::vector<Uid>;
+
 // ─── Aperture partitioning (chunked backward pass) ──────────────────────────
 
 /// Partition a span of @p ApertureEntry into contiguous chunks of size
@@ -108,8 +143,10 @@ struct ApertureEntry
 /// single SDDP work-pool task that clones the phase LP once and solves
 /// its inner apertures serially with warm-start reuse on the shared
 /// clone.  Order is preserved end-to-end so the wetness sort applied
-/// in `plp2gtopt` (driest → wettest within a phase) keeps similar
-/// bounds adjacent within each chunk.
+/// in `plp2gtopt` (wettest → driest within a phase) keeps similar
+/// bounds adjacent within each chunk.  Pairs with
+/// `SddpOptions::num_apertures = N` which truncates each phase's list
+/// to its first N (= wettest N) entries before chunking.
 ///
 /// Edge cases:
 ///   * `apertures` empty                → empty vector.

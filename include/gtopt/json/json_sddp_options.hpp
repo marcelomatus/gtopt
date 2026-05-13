@@ -50,6 +50,8 @@ struct SddpOptionsConstructor
       OptName elastic_mode_str,
       OptInt multi_cut_threshold,
       std::optional<Array<Uid>> apertures,
+      OptInt num_apertures,
+      OptName aperture_selection_mode,
       OptName aperture_directory,
       OptReal aperture_timeout,
       OptBool save_aperture_lp,
@@ -117,6 +119,8 @@ struct SddpOptionsConstructor
     }
     opts.multi_cut_threshold = multi_cut_threshold;
     opts.apertures = std::move(apertures);
+    opts.num_apertures = num_apertures;
+    opts.aperture_selection_mode = std::move(aperture_selection_mode);
     opts.aperture_directory = std::move(aperture_directory);
     opts.aperture_timeout = aperture_timeout;
     opts.save_aperture_lp = save_aperture_lp;
@@ -201,6 +205,8 @@ struct json_data_contract<SddpOptions>
       json_array_null<"apertures",
                       std::optional<Array<Uid>>,
                       json_number_no_name<Uid>>,
+      json_number_null<"num_apertures", OptInt>,
+      json_string_null<"aperture_selection_mode", OptName>,
       json_string_null<"aperture_directory", OptName>,
       json_number_null<"aperture_timeout", OptReal>,
       json_bool_null<"save_aperture_lp", OptBool>,
@@ -258,6 +264,8 @@ struct json_data_contract<SddpOptions>
         detail::enum_to_opt_name(opt.elastic_mode),
         opt.multi_cut_threshold,
         opt.apertures,
+        opt.num_apertures,
+        opt.aperture_selection_mode,
         opt.aperture_directory,
         opt.aperture_timeout,
         opt.save_aperture_lp,

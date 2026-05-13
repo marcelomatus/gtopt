@@ -11,6 +11,7 @@ from plp2gtopt.idap2_parser import IdAp2Parser
 from plp2gtopt.aperture_writer import (
     build_aperture_array,
     build_phase_apertures,
+    compute_global_wetness,
     compute_phase_wetness,
 )
 
@@ -346,20 +347,27 @@ def _make_idap2_uniform(tmp_path: Path, hydros, num_stages=3) -> IdAp2Parser:
     return parser
 
 
-def test_wetness_sort_driest_first(tmp_path: Path) -> None:
-    """3 hydros with known totals sort driest → wettest (uid tiebreak unused)."""
+def test_wetness_sort_wettest_first(tmp_path: Path) -> None:
+    """3 hydros with known totals sort wettest → driest (uid tiebreak unused)."""
     # Two blocks: durations [1, 2].  One central with flows:
     #   h0 (uid 1) = [10, 10] → total = 10*1 + 10*2 = 30
     #   h1 (uid 2) = [ 1,  1] → total =  1*1 +  1*2 =  3
     #   h2 (uid 3) = [ 5,  5] → total =  5*1 +  5*2 = 15
-    # Expected order (driest → wettest): [2, 3, 1]
+    # Expected order (wettest → driest): [1, 3, 2]
     aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0, 5.0], [10.0, 1.0, 5.0]])])
     block_parser = _make_block_parser([(1, 1, 1.0), (2, 1, 2.0)])
     idap2 = _make_idap2_uniform(tmp_path, hydros=[1, 2, 3], num_stages=1)
     scenario_hydro_map = {0: 1, 1: 2, 2: 3}
     aperture_array = build_aperture_array(
-        idap2, scenario_hydro_map, num_stages=1
+        idap2,
+        scenario_hydro_map,
+        num_stages=1,
+        aflce_parser=aflce,
+        block_parser=block_parser,
     ).aperture_array
+    # With aflce/block parsers, aperture_array is sorted by global
+    # wetness desc — for a 1-stage case that equals phase wetness.
+    assert [a["uid"] for a in aperture_array] == [1, 3, 2]
     phase_array = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
     build_phase_apertures(
         idap2,
@@ -369,21 +377,17 @@ def test_wetness_sort_driest_first(tmp_path: Path) -> None:
         aflce_parser=aflce,
         block_parser=block_parser,
     )
-    # Single phase but the JSON-compaction path skips because `all_same`
-    # over a 1-element list is trivially True — we re-emit anyway only
-    # when phases differ or there are duplicates.  So check the wetness
-    # helper directly to assert ordering correctness.
     w = compute_phase_wetness(aflce, block_parser, phase_array[0], 1)
     assert w[1] == pytest.approx(30.0)
     assert w[2] == pytest.approx(3.0)
     assert w[3] == pytest.approx(15.0)
-    # Confirm sort key produces the expected ordering.
-    ordered = sorted([1, 2, 3], key=lambda uid: (w.get(uid, 0.0), uid))
-    assert ordered == [2, 3, 1]
+    # Confirm sort key produces the expected ordering (wettest first).
+    ordered = sorted([1, 2, 3], key=lambda uid: (-w.get(uid, 0.0), uid))
+    assert ordered == [1, 3, 2]
 
 
 def test_wetness_sort_stable_tiebreak_by_uid(tmp_path: Path) -> None:
-    """Equal wetness → ascending UID."""
+    """Equal wetness → ascending UID (tiebreak under wettest-first sort)."""
     # Two hydros with identical flows → identical totals.  Tiebreak on uid.
     aflce = _make_aflce([("c1", [1], [[7.0, 7.0]])])
     block_parser = _make_block_parser([(1, 1, 1.0)])
@@ -394,7 +398,8 @@ def test_wetness_sort_stable_tiebreak_by_uid(tmp_path: Path) -> None:
         num_stages=1,
     )
     assert w[1] == w[2]
-    ordered = sorted([2, 1], key=lambda uid: (w.get(uid, 0.0), uid))
+    # Wettest-first sort with uid-asc tiebreak: equal wetness ⇒ uid asc.
+    ordered = sorted([2, 1], key=lambda uid: (-w.get(uid, 0.0), uid))
     assert ordered == [1, 2]
 
 
@@ -410,9 +415,9 @@ def test_wetness_sort_duplicates_adjacent(tmp_path: Path) -> None:
         num_stages=1,
     )
     multiset = [1, 2, 1, 2, 2]  # mixed-order input with duplicates
-    ordered = sorted(multiset, key=lambda uid: (w.get(uid, 0.0), uid))
-    # Driest first (uid 2 ×3), then wettest (uid 1 ×2), all adjacent.
-    assert ordered == [2, 2, 2, 1, 1]
+    ordered = sorted(multiset, key=lambda uid: (-w.get(uid, 0.0), uid))
+    # Wettest first (uid 1 ×2), then driest (uid 2 ×3), all adjacent.
+    assert ordered == [1, 1, 2, 2, 2]
 
 
 def test_wetness_sort_no_aflce_falls_back_to_uid(tmp_path: Path) -> None:
@@ -424,8 +429,9 @@ def test_wetness_sort_no_aflce_falls_back_to_uid(tmp_path: Path) -> None:
         num_stages=1,
     )
     assert not w_none
-    # Sort key falls back to uid order.
-    ordered = sorted([3, 1, 2], key=lambda uid: (w_none.get(uid, 0.0), uid))
+    # With wettest-first key and empty wetness map: all wetness values are
+    # 0, so the negation is also 0 → sort falls back to uid ascending.
+    ordered = sorted([3, 1, 2], key=lambda uid: (-w_none.get(uid, 0.0), uid))
     assert ordered == [1, 2, 3]
 
 
@@ -458,6 +464,140 @@ def test_wetness_sort_per_phase_ranking_can_flip(tmp_path: Path) -> None:
     # Phase A: h1 wetter than h2.  Phase B: flipped.
     assert w_a[1] > w_a[2]
     assert w_b[2] > w_b[1]
-    # Sort orderings flip accordingly.
-    assert sorted([1, 2], key=lambda u: (w_a.get(u, 0.0), u)) == [2, 1]
-    assert sorted([1, 2], key=lambda u: (w_b.get(u, 0.0), u)) == [1, 2]
+    # Wettest-first sort: phase A puts h1 first; phase B puts h2 first.
+    assert sorted([1, 2], key=lambda u: (-w_a.get(u, 0.0), u)) == [1, 2]
+    assert sorted([1, 2], key=lambda u: (-w_b.get(u, 0.0), u)) == [2, 1]
+
+
+# ----------------------------------------------------------------------------
+# Tests for the global wetness sort applied to aperture_array
+# ----------------------------------------------------------------------------
+
+
+def test_global_wetness_orders_aperture_array(tmp_path: Path) -> None:
+    """aperture_array entries are ordered wettest → driest when affluent
+    data is wired through."""
+    # Same fixture as test_wetness_sort_wettest_first but verified at the
+    # aperture_array layer instead of the per-phase sort key.
+    #   h0 (uid 1) = 30 (wettest)
+    #   h1 (uid 2) = 3  (driest)
+    #   h2 (uid 3) = 15
+    aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0, 5.0], [10.0, 1.0, 5.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 1, 2.0)])
+    idap2 = _make_idap2_uniform(tmp_path, hydros=[1, 2, 3], num_stages=1)
+    scenario_hydro_map = {0: 1, 1: 2, 2: 3}
+    res = build_aperture_array(
+        idap2,
+        scenario_hydro_map,
+        num_stages=1,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    )
+    assert [a["uid"] for a in res.aperture_array] == [1, 3, 2]
+
+
+def test_aperture_array_first_appearance_fallback_no_aflce(
+    tmp_path: Path,
+) -> None:
+    """Without aflce/block parsers, aperture_array stays in first-appearance
+    order from plpidap2.dat (legacy behaviour preserved)."""
+    idap2 = _make_idap2_uniform(tmp_path, hydros=[3, 1, 2], num_stages=1)
+    scenario_hydro_map = {0: 1, 1: 2, 2: 3}
+    res = build_aperture_array(idap2, scenario_hydro_map, num_stages=1)
+    assert [a["uid"] for a in res.aperture_array] == [3, 1, 2]
+
+
+def test_compute_global_wetness_sums_all_stages(tmp_path: Path) -> None:
+    """Global wetness aggregates flow × duration across the full horizon."""
+    aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0], [1.0, 10.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 2, 1.0)])
+    w_global = compute_global_wetness(aflce, block_parser, num_stages=2)
+    # Stage 1 contribs: h1=10, h2=1.  Stage 2 contribs: h1=1, h2=10.
+    # Global totals: h1 = 11, h2 = 11.
+    assert w_global[1] == pytest.approx(11.0)
+    assert w_global[2] == pytest.approx(11.0)
+
+
+def test_compute_global_wetness_empty_without_parsers() -> None:
+    """Missing parsers → empty dict (callers fall back to UID order)."""
+    assert compute_global_wetness(None, None, num_stages=3) == {}
+
+
+def test_compute_global_wetness_zero_stages() -> None:
+    """num_stages <= 0 → empty dict."""
+    aflce = _make_aflce([("c1", [1], [[1.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0)])
+    assert not compute_global_wetness(aflce, block_parser, num_stages=0)
+
+
+# ----------------------------------------------------------------------------
+# Tests for the per-phase apertures emission rule (omit-when-matches-global)
+# ----------------------------------------------------------------------------
+
+
+def test_phase_apertures_emitted_when_order_differs_from_global(
+    tmp_path: Path,
+) -> None:
+    """Two phases that re-rank hydros differently → both phases carry
+    their own ``apertures`` field."""
+    # Phase A: stage 1; h1 wet, h2 dry.
+    # Phase B: stage 2; flipped — h1 dry, h2 wet.
+    aflce = _make_aflce([("c1", [1, 2], [[10.0, 1.0], [1.0, 10.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0), (2, 2, 1.0)])
+    idap2 = _make_idap2_uniform(tmp_path, hydros=[1, 2], num_stages=2)
+    scenario_hydro_map = {0: 1, 1: 2}
+    aperture_array = build_aperture_array(
+        idap2,
+        scenario_hydro_map,
+        num_stages=2,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    ).aperture_array
+    phase_array = [
+        {"uid": 1, "first_stage": 0, "count_stage": 1},
+        {"uid": 2, "first_stage": 1, "count_stage": 1},
+    ]
+    build_phase_apertures(
+        idap2,
+        aperture_array,
+        phase_array,
+        2,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    )
+    # Phase A should rank [1, 2]; phase B should rank [2, 1] — different
+    # from global ordering, so apertures must be emitted on every phase.
+    assert "apertures" in phase_array[0]
+    assert "apertures" in phase_array[1]
+    assert phase_array[0]["apertures"] == [1, 2]
+    assert phase_array[1]["apertures"] == [2, 1]
+
+
+def test_phase_apertures_omitted_when_match_global_projection(
+    tmp_path: Path,
+) -> None:
+    """When every phase's ordered list equals its projection onto the
+    global aperture_array order, the per-phase field is omitted."""
+    # Single stage → phase wetness equals global wetness → identical
+    # ordering.  Hence no per-phase override is needed.
+    aflce = _make_aflce([("c1", [1], [[10.0, 1.0, 5.0]])])
+    block_parser = _make_block_parser([(1, 1, 1.0)])
+    idap2 = _make_idap2_uniform(tmp_path, hydros=[1, 2, 3], num_stages=1)
+    scenario_hydro_map = {0: 1, 1: 2, 2: 3}
+    aperture_array = build_aperture_array(
+        idap2,
+        scenario_hydro_map,
+        num_stages=1,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    ).aperture_array
+    phase_array = [{"uid": 1, "first_stage": 0, "count_stage": 1}]
+    build_phase_apertures(
+        idap2,
+        aperture_array,
+        phase_array,
+        1,
+        aflce_parser=aflce,
+        block_parser=block_parser,
+    )
+    assert "apertures" not in phase_array[0]

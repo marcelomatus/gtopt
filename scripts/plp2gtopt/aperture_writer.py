@@ -5,7 +5,13 @@ Reads the parsed PLP aperture index files (``plpidape.dat`` /
 
 1. An ``aperture_array`` in the simulation JSON block — each entry maps an
    aperture UID to a ``source_scenario`` UID with equal probability.
-2. Optionally, Parquet files in an ``aperture_directory`` when the aperture
+   Sorted **wettest → driest** by global ``flow × duration`` across the
+   whole horizon when affluent data is available; falls back to PLP
+   first-appearance order otherwise.
+2. Per-phase ``Phase.apertures`` lists sorted **wettest → driest** by
+   per-phase wetness — pairs with ``SddpOptions.num_apertures`` to pick
+   the top-N wettest per phase per cascade level.
+3. Optionally, Parquet files in an ``aperture_directory`` when the aperture
    references a hydrology class that is *not* part of the forward-scenario
    set, requiring separate affluent data.
 """
@@ -25,10 +31,16 @@ from .base_writer import _DEFAULT_COMPRESSION, _probe_parquet_codec
 def _make_wetness_sort_key(
     wetness: Dict[int, float],
 ) -> Callable[[int], Tuple[float, int]]:
-    """Return a sort key over aperture UIDs: ascending wetness, then uid."""
+    """Return a sort key over aperture UIDs: wettest first, then uid asc.
+
+    The returned key produces ``(-wetness, uid)`` so ``sorted(...)``
+    yields apertures **wettest → driest** (descending wetness) with
+    deterministic uid-ascending tiebreak.  Hydrologies missing from
+    ``wetness`` are treated as zero.
+    """
 
     def key(uid: int) -> Tuple[float, int]:
-        return (wetness.get(uid, 0.0), uid)
+        return (-wetness.get(uid, 0.0), uid)
 
     return key
 
@@ -86,15 +98,26 @@ def build_aperture_array(
     num_stages: int,
     max_scenario_uid: int = 0,
     aperture_directory: str = "",
+    aflce_parser: Any = None,
+    block_parser: Any = None,
 ) -> ApertureResult:
     """Build the ``aperture_array`` for the simulation JSON block.
 
     Uses ``plpidap2.dat`` (simulation-independent) as the primary source.
     ``plpidap2.dat`` is **stage-indexed**: each stage entry lists the 1-based
     hydrology class indices that serve as apertures at that stage.  The global
-    aperture set is the union of all stages 1..``num_stages``, collected in
-    first-appearance order so that late-stage wrapping indices (e.g. hydros
-    ``01``, ``02`` at the end of a two-year case) are included.
+    aperture set is the union of all stages 1..``num_stages``.
+
+    Ordering:
+      * When ``aflce_parser`` and ``block_parser`` are provided, entries are
+        sorted by **global wetness descending** (wettest first → driest last)
+        via :func:`compute_global_wetness`, with deterministic uid-ascending
+        tiebreak.  The C++ solver, when ``Phase.apertures`` is empty, falls
+        back to iterating ``aperture_array`` in this order.
+      * When either parser is ``None`` (thermal-only / partial data),
+        entries fall back to **first-appearance order** from
+        ``plpidap2.dat`` — preserves legacy behaviour for callers that
+        don't have affluent data wired through.
 
     Hydrologies that are in the forward scenario set reuse the existing
     scenario UID.  Hydrologies that are **not** in the forward set get a
@@ -116,6 +139,10 @@ def build_aperture_array(
     aperture_directory : str
         Path to the aperture data directory (used as ``input_directory``
         for aperture-only scenarios).
+    aflce_parser, block_parser
+        Parsed ``plpaflce.dat`` / ``plpblo.dat`` data.  Optional — passing
+        ``None`` disables the global wetness sort and falls back to
+        first-appearance order.
 
     Returns
     -------
@@ -146,6 +173,18 @@ def build_aperture_array(
 
     if not unique_hydros:
         return ApertureResult([], [])
+
+    # Sort by global wetness desc when affluent data is available.
+    # Hydros not seen in the wetness map fall back to 0.0 → sort to the
+    # dry end with uid-ascending tiebreak; preserves determinism.
+    if aflce_parser is not None and block_parser is not None:
+        global_wetness = compute_global_wetness(
+            aflce_parser,
+            block_parser,
+            num_stages,
+        )
+        if global_wetness:
+            unique_hydros.sort(key=_make_wetness_sort_key(global_wetness))
 
     num_apertures = len(unique_hydros)
     prob = 1.0 / num_apertures
@@ -227,6 +266,62 @@ def build_aperture_array(
     return ApertureResult(aperture_array, extra_scenarios)
 
 
+def _compute_wetness_over_stages(
+    aflce_parser: Any,
+    block_parser: Any,
+    valid_plp_stages: set,
+) -> Dict[int, float]:
+    """Inner reducer shared by :func:`compute_phase_wetness` and
+    :func:`compute_global_wetness`.
+
+    Iterates ``aflce_parser`` once, summing ``flow × duration`` for every
+    block whose 1-based PLP stage is in ``valid_plp_stages``.  Returns
+    ``hydro_1based → total_water``; hydrologies with no contribution are
+    omitted.
+    """
+    if aflce_parser is None or block_parser is None or not valid_plp_stages:
+        return {}
+
+    # Block-number -> duration for blocks falling inside the window.
+    block_dur: Dict[int, float] = {}
+    for blk in block_parser.items:
+        if int(blk["stage"]) in valid_plp_stages:
+            block_dur[int(blk["number"])] = float(blk["duration"])
+
+    if not block_dur:
+        return {}
+
+    wetness: Dict[int, float] = {}
+    for central in aflce_parser.items:
+        flow = central.get("flow")
+        block_nums = central.get("block")
+        if flow is None or block_nums is None or flow.size == 0:
+            continue
+
+        # Build a duration vector aligned with this central's block order.
+        # Blocks not in the window contribute 0 → row drops out of the
+        # sum.  One numpy multiply per central, no Python inner loop.
+        dur_vec = np.fromiter(
+            (block_dur.get(int(b), 0.0) for b in block_nums),
+            dtype=np.float64,
+            count=len(block_nums),
+        )
+        if not dur_vec.any():
+            continue
+
+        # NaN -> 0 so a single missing flow value doesn't poison the
+        # whole hydro's ranking (apertures would all sort to NaN-end
+        # otherwise).
+        flow_clean = np.nan_to_num(flow, nan=0.0)
+        contrib = (flow_clean * dur_vec[:, None]).sum(axis=0)  # (num_hydros,)
+        for h0, val in enumerate(contrib):
+            if val:
+                hydro_1based = h0 + 1
+                wetness[hydro_1based] = wetness.get(hydro_1based, 0.0) + float(val)
+
+    return wetness
+
+
 def compute_phase_wetness(
     aflce_parser: Any,
     block_parser: Any,
@@ -238,8 +333,8 @@ def compute_phase_wetness(
     For each hydrology h, returns the total water (flow × block-duration)
     summed across every central in ``aflce_parser`` and every block whose
     PLP stage falls within the phase window.  Used by
-    :func:`build_phase_apertures` to sort per-phase apertures from driest
-    to wettest, so the gtopt SDDP backward pass running with
+    :func:`build_phase_apertures` to sort per-phase apertures **wettest →
+    driest**, so the gtopt SDDP backward pass running with
     ``aperture_chunk_size > 1`` groups similar bounds into the same chunk
     and gets warm-start reuse on the shared LP clone.
 
@@ -278,45 +373,37 @@ def compute_phase_wetness(
         return {}
     # PLP stages are 1-based; phase first_stage is 0-based.
     valid_plp_stages = set(range(first_stage_0 + 1, last_plp_stage + 1))
+    return _compute_wetness_over_stages(
+        aflce_parser,
+        block_parser,
+        valid_plp_stages,
+    )
 
-    # Block-number -> duration for blocks falling inside the phase window.
-    phase_block_dur: Dict[int, float] = {}
-    for blk in block_parser.items:
-        if int(blk["stage"]) in valid_plp_stages:
-            phase_block_dur[int(blk["number"])] = float(blk["duration"])
 
-    if not phase_block_dur:
+def compute_global_wetness(
+    aflce_parser: Any,
+    block_parser: Any,
+    num_stages: int,
+) -> Dict[int, float]:
+    """Sum ``flow × duration`` over the entire planning horizon for every
+    hydrology.
+
+    Mirror of :func:`compute_phase_wetness` but with the window covering
+    every PLP stage ``1..num_stages``.  Used by :func:`build_aperture_array`
+    to sort the global aperture entries **wettest → driest**, so the C++
+    fallback path (when ``Phase.apertures`` is empty) iterates the
+    aperture set in the same direction as the per-phase lists.
+
+    Returns ``{}`` when either parser is ``None`` or ``num_stages <= 0``.
+    """
+    if num_stages <= 0:
         return {}
-
-    wetness: Dict[int, float] = {}
-    for central in aflce_parser.items:
-        flow = central.get("flow")
-        block_nums = central.get("block")
-        if flow is None or block_nums is None or flow.size == 0:
-            continue
-
-        # Build a duration vector aligned with this central's block order.
-        # Blocks not in the phase window contribute 0 → row drops out of
-        # the sum.  One numpy multiply per central, no Python inner loop.
-        dur_vec = np.fromiter(
-            (phase_block_dur.get(int(b), 0.0) for b in block_nums),
-            dtype=np.float64,
-            count=len(block_nums),
-        )
-        if not dur_vec.any():
-            continue
-
-        # NaN -> 0 so a single missing flow value doesn't poison the
-        # whole hydro's ranking (apertures would all sort to NaN-end
-        # otherwise).
-        flow_clean = np.nan_to_num(flow, nan=0.0)
-        contrib = (flow_clean * dur_vec[:, None]).sum(axis=0)  # (num_hydros,)
-        for h0, val in enumerate(contrib):
-            if val:
-                hydro_1based = h0 + 1
-                wetness[hydro_1based] = wetness.get(hydro_1based, 0.0) + float(val)
-
-    return wetness
+    valid_plp_stages = set(range(1, num_stages + 1))
+    return _compute_wetness_over_stages(
+        aflce_parser,
+        block_parser,
+        valid_plp_stages,
+    )
 
 
 def build_phase_apertures(
@@ -334,24 +421,24 @@ def build_phase_apertures(
     union of all aperture hydrology indices across the stages in each phase
     and maps them to the corresponding aperture UIDs from ``aperture_array``.
 
-    Per-phase aperture lists are sorted from driest to wettest (total
+    Per-phase aperture lists are sorted **wettest → driest** (total
     ``flow × duration`` over the phase's blocks) when ``aflce_parser`` and
-    ``block_parser`` are provided; ties break on aperture UID for
-    determinism.  This grouping pairs with the gtopt SDDP backward pass's
-    ``aperture_chunk_size`` option: a chunk of K adjacent (similar)
-    apertures shares one LP clone, and within the chunk each aperture's
-    LP solve warm-starts from the previous one's basis — bound-only
-    deltas keep the dual basis valid, so the second-and-later solves
-    typically converge in a fraction of the first.  When either parser
-    is ``None`` (thermal-only, or callers that don't pass them), the
-    sort falls back to ascending UID order.
+    ``block_parser`` are provided; ties break on aperture UID ascending
+    for determinism.  This pairs with ``SddpOptions.num_apertures`` at the
+    C++ side: ``num_apertures = N`` takes the first N entries per phase,
+    naturally selecting the wettest N.  When either parser is ``None``
+    (thermal-only, or callers that don't pass them), the sort falls back
+    to ascending UID order.
 
     The function modifies ``phase_array`` **in place**, adding an
-    ``"apertures"`` key to each phase dict.  If all phases share the same
-    aperture list (same set, same order, no duplicates) the per-phase
-    arrays are omitted to keep the JSON compact — the C++ solver then
-    iterates the global ``aperture_array`` (which is built in
-    ``unique_hydros`` first-appearance order, NOT wetness order).
+    ``"apertures"`` key to each phase dict.  Compaction: the per-phase
+    array is omitted when every phase's ordered list equals its
+    **projection onto the global** ``aperture_array`` **order** AND
+    contains no duplicates — in that case the C++ fallback path (empty
+    ``Phase.apertures`` → iterate ``aperture_array``) produces identical
+    behaviour, so the explicit list is redundant.  Otherwise the
+    per-phase ``apertures`` field is emitted on every phase to preserve
+    the wetness-ranked order.
 
     Parameters
     ----------
@@ -412,11 +499,12 @@ def build_phase_apertures(
     # (PLP stages are 1-based; phase["first_stage"] is 0-based).
     #
     # Sort each phase's aperture list by per-phase wetness (total flow ×
-    # duration) ascending.  Aperture UID == 1-based hydro index by PLP
-    # convention (see build_aperture_array), so the wetness lookup keys
-    # by uid directly.  Ties (and the no-wetness-data fallback) break on
-    # uid for determinism.  ``sorted`` is stable, so duplicate UIDs land
-    # adjacent — matching the gtopt chunk-local UID memo's expectation.
+    # duration) **descending** — wettest first → driest last.  Aperture
+    # UID == 1-based hydro index by PLP convention (see
+    # build_aperture_array), so the wetness lookup keys by uid directly.
+    # Ties (and the no-wetness-data fallback) break on uid ascending for
+    # determinism.  ``sorted`` is stable, so duplicate UIDs land adjacent —
+    # matching the gtopt chunk-local UID memo's expectation.
     phase_sets: List[List[int]] = []
     for phase in phase_array:
         first_stage_0 = phase["first_stage"]
@@ -440,18 +528,27 @@ def build_phase_apertures(
         )
         phase_sets.append(ap_uids)
 
-    # Write apertures when phases differ OR any phase contains duplicates.
-    # Duplicates carry semantic weight: the C++ solver scales the aperture
-    # probability by the repetition count, so they must be preserved.
-    # Compare ordered lists (not sets) so a wetness-driven re-ordering
-    # between phases triggers per-phase emission even when the underlying
-    # set matches — otherwise the JSON-compaction path would drop the
-    # ordering and the C++ side would fall back to global UID order from
-    # ``aperture_array``, losing the warm-start grouping.
-    all_same = all(s == phase_sets[0] for s in phase_sets[1:])
-    has_duplicates = any(len(s) != len(set(s)) for s in phase_sets)
+    # Omit per-phase apertures only when the C++ fallback (empty
+    # Phase.apertures → iterate aperture_array in order) would produce
+    # identical behaviour.  That requires:
+    #   1. No duplicates in any phase (fallback can't replicate repetition).
+    #   2. Each phase's ordered list equals its projection onto the
+    #      global aperture_array order — i.e. dropping the per-phase
+    #      lookup wouldn't reorder its apertures.
+    # Otherwise emit Phase.apertures on every phase so the wetness-ranked
+    # order survives JSON serialisation.
+    global_order = [a["uid"] for a in aperture_array]
 
-    if not all_same or has_duplicates:
+    def _projected(uids: List[int]) -> List[int]:
+        s = set(uids)
+        return [u for u in global_order if u in s]
+
+    has_duplicates = any(len(s) != len(set(s)) for s in phase_sets)
+    all_match_global = (not has_duplicates) and all(
+        s == _projected(s) for s in phase_sets
+    )
+
+    if not all_match_global:
         for phase, ap_set in zip(phase_array, phase_sets):
             phase["apertures"] = ap_set
 

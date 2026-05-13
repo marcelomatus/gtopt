@@ -68,6 +68,16 @@ struct CascadeLevelMethod
   OptInt min_iterations {};
   /// Aperture UIDs for this level (nullopt = inherit, empty = Benders).
   std::optional<Array<Uid>> apertures {};
+  /// First-N selector for this level (nullopt = inherit).
+  /// See `SddpOptions::num_apertures` for full semantics — paired with
+  /// the wettest-first sort applied to `Phase::apertures` by `plp2gtopt`,
+  /// `num_apertures = N` picks the N wettest per phase at this level.
+  OptInt num_apertures {};
+  /// Aperture selection rule for this level (nullopt = inherit).
+  /// One of `"head"` (default), `"stride"` / `"interleave"` / `"spread"`,
+  /// or `"tail"` / `"last"`.  See `SddpOptions::aperture_selection_mode`
+  /// for full semantics.
+  OptName aperture_selection_mode {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};
 
@@ -76,6 +86,8 @@ struct CascadeLevelMethod
     merge_opt(max_iterations, opts.max_iterations);
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(apertures, opts.apertures);
+    merge_opt(num_apertures, opts.num_apertures);
+    merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
     merge_opt(convergence_tol, opts.convergence_tol);
   }
 };

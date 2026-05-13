@@ -91,6 +91,7 @@ TEST_CASE("CascadeLevelMethod - Default construction")
   CHECK_FALSE(m.max_iterations.has_value());
   CHECK_FALSE(m.min_iterations.has_value());
   CHECK_FALSE(m.apertures.has_value());
+  CHECK_FALSE(m.num_apertures.has_value());
   CHECK_FALSE(m.convergence_tol.has_value());
 }
 
@@ -162,6 +163,74 @@ TEST_CASE("CascadeLevelMethod - Merge apertures replaces when set")
   REQUIRE(base.apertures.has_value());
   REQUIRE(base.apertures->size() == 2);
   CHECK((*base.apertures)[0] == 10);
+}
+
+TEST_CASE("CascadeLevelMethod - Merge num_apertures overlay wins")
+{
+  CascadeLevelMethod base {
+      .num_apertures = 4,
+  };
+  const CascadeLevelMethod overlay {
+      .num_apertures = 8,
+  };
+  base.merge(overlay);
+  REQUIRE(base.num_apertures.has_value());
+  CHECK(*base.num_apertures == 8);
+}
+
+TEST_CASE(
+    "CascadeLevelMethod - Merge keeps base num_apertures when overlay unset")
+{
+  CascadeLevelMethod base {
+      .num_apertures = 4,
+  };
+  const CascadeLevelMethod overlay {
+      .max_iterations = 50,  // overlay has no num_apertures
+  };
+  base.merge(overlay);
+  REQUIRE(base.num_apertures.has_value());
+  CHECK(*base.num_apertures == 4);
+}
+
+TEST_CASE("CascadeLevelMethod - Merge num_apertures populates from unset")
+{
+  CascadeLevelMethod base {};  // no num_apertures
+  const CascadeLevelMethod overlay {
+      .num_apertures = 8,
+  };
+  base.merge(overlay);
+  REQUIRE(base.num_apertures.has_value());
+  CHECK(*base.num_apertures == 8);
+}
+
+TEST_CASE("CascadeLevelMethod - num_apertures JSON round-trip")
+{
+  // num_apertures present
+  {
+    const CascadeLevelMethod m {
+        .num_apertures = 4,
+    };
+    const auto json = daw::json::to_json(m);
+    const auto parsed = daw::json::from_json<CascadeLevelMethod>(json);
+    REQUIRE(parsed.num_apertures.has_value());
+    CHECK(*parsed.num_apertures == 4);
+  }
+  // num_apertures absent from JSON (legacy / L2 case)
+  {
+    constexpr std::string_view js = R"({"max_iterations":10})";
+    const auto parsed = daw::json::from_json<CascadeLevelMethod>(js);
+    CHECK_FALSE(parsed.num_apertures.has_value());
+  }
+  // num_apertures = 0 (pure Benders for the level)
+  {
+    const CascadeLevelMethod m {
+        .num_apertures = 0,
+    };
+    const auto json = daw::json::to_json(m);
+    const auto parsed = daw::json::from_json<CascadeLevelMethod>(json);
+    REQUIRE(parsed.num_apertures.has_value());
+    CHECK(*parsed.num_apertures == 0);
+  }
 }
 
 // ── CascadeLevel ────────────────────────────────────────────────────────────

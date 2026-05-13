@@ -47,18 +47,23 @@ struct json_data_contract<CascadeTransition>
 template<>
 struct json_data_contract<CascadeLevelMethod>
 {
-  using type = json_member_list<json_number_null<"max_iterations", OptInt>,
-                                json_number_null<"min_iterations", OptInt>,
-                                json_array_null<"apertures",
-                                                std::optional<Array<Uid>>,
-                                                json_number_no_name<Uid>>,
-                                json_number_null<"convergence_tol", OptReal>>;
+  using type =
+      json_member_list<json_number_null<"max_iterations", OptInt>,
+                       json_number_null<"min_iterations", OptInt>,
+                       json_array_null<"apertures",
+                                       std::optional<Array<Uid>>,
+                                       json_number_no_name<Uid>>,
+                       json_number_null<"num_apertures", OptInt>,
+                       json_string_null<"aperture_selection_mode", OptName>,
+                       json_number_null<"convergence_tol", OptReal>>;
 
   constexpr static auto to_json_data(CascadeLevelMethod const& opt)
   {
     return std::forward_as_tuple(opt.max_iterations,
                                  opt.min_iterations,
                                  opt.apertures,
+                                 opt.num_apertures,
+                                 opt.aperture_selection_mode,
                                  opt.convergence_tol);
   }
 };
