@@ -26,7 +26,6 @@
 #   readability-function-cognitive-complexity – subjective; not enforced
 #   readability-redundant-member-init – project uses explicit {} init for clarity
 #   bugprone-easily-swappable-parameters – too noisy in LP/math API functions
-#   bugprone-derived-method-shadowing-base-method – false positives in templates
 #   bugprone-lambda-function-name – __func__ in lambdas; harmless pattern
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access – []  preferred
 #                                  over .at() in hot LP-assembly paths
@@ -36,7 +35,6 @@
 #     unix.Stream}
 #   clang-diagnostic-{c2y-extensions,          – compiler-version noise; not actionable
 #     constexpr-local-var-non-literal-type,
-#     deprecated-declarations,
 #     template-param-default-arg-redefinition}
 #   llvm-prefer-static-over-anonymous-namespace – misc-use-anonymous-namespace
 #                                  (enabled) takes the opposite, preferred stance
@@ -72,7 +70,6 @@
 Checks: "*,\
   -altera-*,\
   -boost-use-ranges,\
-  -bugprone-derived-method-shadowing-base-method,\
   -bugprone-easily-swappable-parameters,\
   -bugprone-empty-catch,\
   -bugprone-lambda-function-name,\
@@ -82,7 +79,6 @@ Checks: "*,\
   -clang-analyzer-unix.Stream,\
   -clang-diagnostic-c2y-extensions,\
   -clang-diagnostic-constexpr-local-var-non-literal-type,\
-  -clang-diagnostic-deprecated-declarations,\
   -clang-diagnostic-template-param-default-arg-redefinition,\
   -concurrency-mt-unsafe,\
   -cppcoreguidelines-avoid-magic-numbers,\
