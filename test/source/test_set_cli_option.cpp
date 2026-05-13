@@ -22,6 +22,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -741,6 +743,132 @@ TEST_CASE("--set demand_fail_cost override in full solve")
   });
   REQUIRE(result.has_value());
   CHECK(result.value_or(-1) == 0);
+}
+
+// ── Probe: --set on cascade_options.level_array.N actually lands ──────
+//
+// Regression guards for the juan/gtopt_iplp_plain --set override path:
+// before this test the CLI logged "applied" but the in-memory Planning
+// still carried the JSON's level-0 max_iterations.  Three properties
+// must hold after `apply_set_options` returns:
+//   1. The level_array still has the **same number of elements** as the
+//      base JSON (the array merge must NOT replace 3 base levels with
+//      a 1-element overlay).
+//   2. The targeted index's targeted field carries the **override value**.
+//   3. Untouched sibling fields on the same level keep their base values,
+//      and untouched sibling levels keep their base sddp_options.
+
+TEST_CASE(
+    "--set cascade_options.level_array.0.sddp_options.max_iterations "
+    "lands on level 0 without nuking siblings")
+{
+  Planning planning = daw::json::from_json<Planning>(
+      std::string_view {cascade_test_json}, StrictParsePolicy);
+  REQUIRE(planning.options.cascade_options.level_array.size() == 3);
+
+  REQUIRE(apply_set_options(
+      planning,
+      {"cascade_options.level_array.0.sddp_options.max_iterations=99"}));
+
+  // (1) size preserved
+  CHECK(planning.options.cascade_options.level_array.size() == 3);
+
+  // (2) target landed at index 0
+  REQUIRE(
+      planning.options.cascade_options.level_array[0].sddp_options.has_value());
+  CHECK(planning.options.cascade_options.level_array[0]
+            .sddp_options->max_iterations.value_or(-1)
+        == 99);
+
+  // (2b) target's identity-bearing fields (name / model_options) survive
+  CHECK(planning.options.cascade_options.level_array[0].name.value_or("?")
+        == "uninodal");
+  REQUIRE(planning.options.cascade_options.level_array[0]
+              .model_options.has_value());
+  CHECK(planning.options.cascade_options.level_array[0]
+            .model_options->use_single_bus.value_or(false)
+        == true);
+
+  // (3) untouched siblings keep their base values
+  REQUIRE(
+      planning.options.cascade_options.level_array[1].sddp_options.has_value());
+  CHECK(planning.options.cascade_options.level_array[1]
+            .sddp_options->max_iterations.value_or(-1)
+        == 1);
+  CHECK(planning.options.cascade_options.level_array[1].name.value_or("?")
+        == "transport");
+  REQUIRE(
+      planning.options.cascade_options.level_array[2].sddp_options.has_value());
+  CHECK(planning.options.cascade_options.level_array[2]
+            .sddp_options->max_iterations.value_or(-1)
+        == 1);
+  CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
+        == "full_network");
+}
+
+TEST_CASE("--set cascade_options.level_array.N for middle/last index lands")
+{
+  Planning planning = daw::json::from_json<Planning>(
+      std::string_view {cascade_test_json}, StrictParsePolicy);
+  REQUIRE(planning.options.cascade_options.level_array.size() == 3);
+
+  REQUIRE(apply_set_options(
+      planning,
+      {"cascade_options.level_array.2.sddp_options.max_iterations=55"}));
+
+  CHECK(planning.options.cascade_options.level_array.size() == 3);
+  REQUIRE(
+      planning.options.cascade_options.level_array[2].sddp_options.has_value());
+  CHECK(planning.options.cascade_options.level_array[2]
+            .sddp_options->max_iterations.value_or(-1)
+        == 55);
+  CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
+        == "full_network");
+  // Siblings untouched.
+  CHECK(planning.options.cascade_options.level_array[0]
+            .sddp_options->max_iterations.value_or(-1)
+        == 1);
+  CHECK(planning.options.cascade_options.level_array[1]
+            .sddp_options->max_iterations.value_or(-1)
+        == 1);
+}
+
+TEST_CASE(
+    "--set cascade_options.level_array.0/1/2 applied in sequence "
+    "all stick")
+{
+  // Three sequential overrides — each must land on its own level
+  // without clobbering the others.  This is the exact pattern juan
+  // uses: --set ...level_array.0... --set ...level_array.1... --set
+  // ...level_array.2...
+  Planning planning = daw::json::from_json<Planning>(
+      std::string_view {cascade_test_json}, StrictParsePolicy);
+
+  REQUIRE(apply_set_options(
+      planning,
+      {
+          "cascade_options.level_array.0.sddp_options.max_iterations=3",
+          "cascade_options.level_array.1.sddp_options.max_iterations=4",
+          "cascade_options.level_array.2.sddp_options.max_iterations=5",
+      }));
+
+  CHECK(planning.options.cascade_options.level_array.size() == 3);
+  CHECK(planning.options.cascade_options.level_array[0]
+            .sddp_options->max_iterations.value_or(-1)
+        == 3);
+  CHECK(planning.options.cascade_options.level_array[1]
+            .sddp_options->max_iterations.value_or(-1)
+        == 4);
+  CHECK(planning.options.cascade_options.level_array[2]
+            .sddp_options->max_iterations.value_or(-1)
+        == 5);
+  // Identity fields survive all three merges.
+  CHECK(planning.options.cascade_options.level_array[0].name.value_or("?")
+        == "uninodal");
+  CHECK(planning.options.cascade_options.level_array[1].name.value_or("?")
+        == "transport");
+  CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
+        == "full_network");
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

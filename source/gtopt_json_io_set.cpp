@@ -317,8 +317,25 @@ bool apply_set_options(Planning& planning,
     const auto json_val = to_json_value(value);
     auto json = build_set_option_json(key, json_val);
 
+    // Pad the overlay's cascade level_array to match the base size before
+    // merging.  `build_set_option_json` only constructs (N+1) elements when
+    // targeting `cascade_options.level_array.N...` — so when N+1 < base
+    // size, `CascadeOptions::merge` would otherwise fall into its
+    // "size-mismatch → wholesale replace" branch and silently drop every
+    // base level past N.  Padding the overlay with empty CascadeLevel
+    // placeholders forces element-wise merge across the full base array.
+    const auto pad_level_array_overlay = [&](Planning& overlay)
+    {
+      auto& ov_levels = overlay.options.cascade_options.level_array;
+      const auto& base_levels = planning.options.cascade_options.level_array;
+      if (!ov_levels.empty() && ov_levels.size() < base_levels.size()) {
+        ov_levels.resize(base_levels.size());
+      }
+    };
+
     try {
       auto overlay = daw::json::from_json<Planning>(json, StrictParsePolicy);
+      pad_level_array_overlay(overlay);
       planning.merge(std::move(overlay));
       spdlog::info("--set {}={} applied", key, value);
     } catch (const daw::json::json_exception& ex) {
@@ -329,6 +346,7 @@ bool apply_set_options(Planning& planning,
         try {
           auto overlay =
               daw::json::from_json<Planning>(str_json, StrictParsePolicy);
+          pad_level_array_overlay(overlay);
           planning.merge(std::move(overlay));
           spdlog::info("--set {}={} applied (as string)", key, value);
           continue;
