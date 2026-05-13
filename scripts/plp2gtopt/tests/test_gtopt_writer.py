@@ -181,7 +181,15 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["name"] == "full_network"
 
     def test_process_options_cascade_iteration_split(self):
-        """cascade uses full max_iterations for level 0; 1/4 for levels 1 and 2."""
+        """Level 0 gets 1.5x PDMaxIte, levels 1 and 2 each get 1/4.
+
+        Level 0 (uninodal) is the cascade's primary value-function
+        builder — it starts from the alpha-bootstrap floor with no
+        inherited cuts, so it needs more SDDP iterations than PLP's
+        monolithic-tuned ``PDMaxIte`` would suggest.  Empirically a
+        1.5x multiplier gives the level enough headroom to converge
+        on juan-scale fixtures before transport/full-network refine.
+        """
         writer = GTOptWriter(MagicMock())
         writer.process_options(
             {
@@ -191,7 +199,7 @@ class TestGTOptWriterProcessMethods:
             }
         )
         levels = writer.planning["options"]["cascade_options"]["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 100
+        assert levels[0]["sddp_options"]["max_iterations"] == 150  # 1.5 x 100
         assert levels[1]["sddp_options"]["max_iterations"] == 25
         assert levels[2]["sddp_options"]["max_iterations"] == 25
 
@@ -199,7 +207,7 @@ class TestGTOptWriterProcessMethods:
         """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
 
         Regression: previously the cascade-global budget equalled total_iter,
-        so level 0 (which gets full max_iterations) alone exhausted it and
+        so level 0 (which gets the largest budget) alone exhausted it and
         levels 1-2 never ran.  The global budget must be >= the sum of
         per-level budgets for all levels to execute.
         """
@@ -215,14 +223,16 @@ class TestGTOptWriterProcessMethods:
         levels = cascade["level_array"]
         per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
         assert cascade["sddp_options"]["max_iterations"] == per_level_sum
-        assert cascade["sddp_options"]["max_iterations"] == 150  # 100 + 25 + 25
+        # 150 (= 1.5 x 100) + 25 + 25
+        assert cascade["sddp_options"]["max_iterations"] == 200
 
     def test_process_options_cascade_small_budget_still_runs_all_levels(self):
-        """With max_iterations=5 (small), cascade global budget must be 5+1+1=7.
+        """With max_iterations=5 the cascade still allots ≥1 iter per level.
 
         Regression: previously with PDMaxIte=5 from plpmat.dat, level 0
         consumed all 5 iters and levels 1-2 never ran.  The cascade global
-        budget must now leave room for all three levels.
+        budget must now leave room for all three levels.  Under the 1.5x
+        level-0 multiplier, ``ceil(5 * 1.5) = 8``.
         """
         writer = GTOptWriter(MagicMock())
         writer.process_options(
@@ -234,10 +244,10 @@ class TestGTOptWriterProcessMethods:
         )
         cascade = writer.planning["options"]["cascade_options"]
         levels = cascade["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 5
+        assert levels[0]["sddp_options"]["max_iterations"] == 8  # ceil(5 * 1.5)
         assert levels[1]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
         assert levels[2]["sddp_options"]["max_iterations"] == 1
-        assert cascade["sddp_options"]["max_iterations"] == 7  # 5 + 1 + 1
+        assert cascade["sddp_options"]["max_iterations"] == 10  # 8 + 1 + 1
 
     def test_process_options_cascade_no_cascade_for_sddp(self):
         """cascade_options is NOT emitted for plain sddp."""

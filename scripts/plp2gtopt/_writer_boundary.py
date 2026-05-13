@@ -86,22 +86,38 @@ class BoundaryMixin:
 
         # NVarPhi divisor for the cut RHS and gradients.
         #
-        # We use `len(scenario_array)` (= the gtopt scenes that ACTUALLY
-        # get a cut loaded into them under `boundary_cuts_mode=separated`
-        # — the default).  Cuts with `scene_uid > N` in the file are
-        # silently dropped by gtopt's loader because their UID has no
-        # matching gtopt scene.  So loading N cuts AND dividing by N
-        # are consistent — each scene's α-floor lands in the right
-        # magnitude (`Σ_s α_s = rhs` instead of `N × rhs`).
+        # PLP applies its α-column with objective coefficient
+        # `1/NVarPhi`, where `NVarPhi` is the **original PLP hydrology
+        # count** (28 on juan/iplp).  gtopt's α-column instead uses
+        # coefficient 1.0 and aggregates per-scene contributions via
+        # `prob_s × α_s`.  For the gtopt expected α to match PLP, the
+        # cut gradients/RHS must be pre-divided by NVarPhi, so that:
         #
-        # When `boundary_cuts_mode=combined` is added later, the divisor
-        # should switch to `max(ISimul)` from the cut file (PLP's
-        # original NVarPhi) because then ALL cuts are loaded into every
-        # scene.  For now we stick with the separated-mode N.
+        #     Σ_s prob_s × α_s        = (1/N) × N × (rhs/NVarPhi)
+        #                             = rhs/NVarPhi                 ✓
+        #
+        # Up to 2026-05-13 this code divided by `len(scenario_array)`
+        # (= the gtopt-side scene count, often a wet-subset of size 16)
+        # which under-divided whenever the user filtered hydrologies
+        # via `--hydrologies` — observed on juan/iplp_plain as a
+        # +75 % LB overshoot vs UB (LB ≈ 4.6 G vs UB ≈ 2.9 G).
+        #
+        # `max(scene)` over the parsed cuts recovers PLP's NVarPhi
+        # exactly (ISimul is 1-based and dense up to NVarPhi).  Pair
+        # with `boundary_cuts_mode = combined` so gtopt's loader feeds
+        # every cut into every scene (PLP behaviour), which is the
+        # other half of the math being correct.
         scenario_array: list = (
             self.planning.get("simulation", {}).get("scenario_array") or []
         )
-        num_scenarios: int = len(scenario_array)
+        # NVarPhi = max ISimul across the PLP cuts.  Fallback to the
+        # gtopt scene count if the cut list is empty / scene field is
+        # missing — preserves the pre-fix behaviour on degenerate input
+        # without crashing.
+        plp_nvarphi = 0
+        if planos.cuts:
+            plp_nvarphi = max(int(cut.get("scene", 0) or 0) for cut in planos.cuts)
+        num_scenarios: int = plp_nvarphi if plp_nvarphi > 0 else len(scenario_array)
         self._warn_if_unequal_probabilities(scenario_array)
 
         # ── Boundary cuts (last stage) ─────────────────────────────────────
@@ -133,8 +149,17 @@ class BoundaryMixin:
                     Path(input_dir_val) / "boundary_cuts.csv"
                 )
 
-        # Wire mode and max-iterations options through to the JSON
+        # Wire mode and max-iterations options through to the JSON.
+        # Default to `combined` so gtopt's loader feeds every cut into
+        # every scene (mirrors PLP, where the master LP sees the full
+        # `1..NVarPhi` cut family).  The cut RHS / gradients were
+        # already pre-divided by NVarPhi above, so combined mode plus
+        # `prob_s × α_s` aggregation reproduces PLP's per-scenario α
+        # exactly.  Explicit user setting via `--boundary-cuts-mode`
+        # still wins.
         bc_mode = options.get("boundary_cuts_mode")
+        if bc_mode is None and planos.cuts:
+            bc_mode = "combined"
         if bc_mode is not None:
             sddp_opts["boundary_cuts_mode"] = bc_mode
 

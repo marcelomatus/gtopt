@@ -422,12 +422,19 @@ class GTOptWriter(
         """Build a 3-level default cascade configuration.
 
         Iteration budget split:
-          - Level 0 (uninodal):  full max_iterations — single-bus relaxation
-            runs against the PLP-provided iteration budget unmodified
-          - Level 1 (transport): 1/4 of max_iterations — lines enabled, no
-            losses, no kirchhoff (pure transport model)
-          - Level 2 (full):      1/4 of max_iterations — full network with the
-            user's original model_options
+          - Level 0 (uninodal):  **1.5 × max_iterations** — single-bus
+            relaxation gets the largest budget because it builds the
+            initial value-function envelope from the alpha-bootstrap
+            floor.  PLP's ``PDMaxIte`` was tuned for a monolithic-style
+            run; in the cascade, level 0 has to absorb the full
+            convergence load before the transport / full-network
+            refinements take over, so we widen the budget by 50 %.
+          - Level 1 (transport): 1/4 of max_iterations — lines enabled,
+            no losses, no kirchhoff (pure transport model); inherits
+            level 0's optimality cuts.
+          - Level 2 (full):      1/4 of max_iterations — full network
+            with the user's original model_options; inherits level 1's
+            optimality cuts.
 
         Aperture budget split (via ``SddpOptions.num_apertures``):
           - Level 0: ``num_apertures = 4`` — take the 4 wettest per phase
@@ -447,7 +454,13 @@ class GTOptWriter(
         total_iter = sddp_opts.get("max_iterations", 100)
         convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
-        l0_iter = max(total_iter, 1)
+        # Level 0 absorbs 1.5× the PLP-provided budget (PDMaxIte) — it
+        # needs more iters than the original PLP monolithic run because
+        # it has to build the cascade's initial value-function envelope
+        # before levels 1–2 can refine.  Round-up ceiling so the
+        # multiplier never reduces the budget on small PDMaxIte values
+        # (e.g. PDMaxIte=2 → 3 iters, not 2).
+        l0_iter = max((total_iter * 3 + 1) // 2, 1)
         l1_iter = max(total_iter // 4, 1)
         l2_iter = max(total_iter // 4, 1)
 
