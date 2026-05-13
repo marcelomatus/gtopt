@@ -44,7 +44,6 @@ std::mutex g_probe_mutex;
 
 [[nodiscard]] bool flag_enabled() noexcept
 {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — env vars are read-only at runtime
   const auto* v = std::getenv("GTOPT_DEBUG_INFEASIBLE_PROBE");
   if (v == nullptr) {
     return false;
@@ -55,7 +54,6 @@ std::mutex g_probe_mutex;
 
 [[nodiscard]] int max_probes() noexcept
 {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — env vars are read-only at runtime
   const auto* v = std::getenv("GTOPT_DEBUG_INFEASIBLE_MAX");
   if (v == nullptr) {
     return 20;
@@ -67,14 +65,12 @@ std::mutex g_probe_mutex;
 
 [[nodiscard]] std::string dump_dir()
 {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — env vars are read-only at runtime
   const auto* v = std::getenv("GTOPT_DEBUG_INFEASIBLE_DIR");
   return (v != nullptr && *v != '\0') ? std::string {v} : std::string {"/tmp"};
 }
 
 [[nodiscard]] std::string cplex_bin()
 {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — env vars are read-only at runtime
   const auto* v = std::getenv("CPLEX_BIN");
   return (v != nullptr && *v != '\0') ? std::string {v} : std::string {"cplex"};
 }
@@ -86,7 +82,7 @@ std::mutex g_probe_mutex;
   std::string out;
   // popen is intentional: the whole point of the probe is to verify
   // gtopt's verdict against a fresh out-of-process CPLEX solve.
-  // NOLINTNEXTLINE(cert-env33-c,concurrency-mt-unsafe,bugprone-command-processor)
+  // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
   FILE* pipe = ::popen(cmd.c_str(), "r");
   if (pipe == nullptr) {
     return out;

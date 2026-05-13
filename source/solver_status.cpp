@@ -46,12 +46,10 @@ namespace
 {
   // ``std::getenv`` is the only portable way to read process env;
   // safe here because the env is never mutated after main() runs.
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char* xdg = std::getenv("XDG_CACHE_HOME");
   std::filesystem::path base;
   if (xdg != nullptr && *xdg != '\0') {
     base = xdg;
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
   } else if (const char* home = std::getenv("HOME"); home != nullptr) {
     base = std::filesystem::path {home} / ".cache";
   } else {
@@ -100,7 +98,7 @@ void register_run_once(const std::string& filepath)
                            std::error_code ec;
                            std::filesystem::remove(entry_to_remove, ec);
                          }));
-                   } catch (...) {  // NOLINT(bugprone-empty-catch)
+                   } catch (...) {
                      // Registry is monitoring-only; never propagate.
                    }
                  });

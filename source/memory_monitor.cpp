@@ -42,10 +42,8 @@ double parse_proc_kb_line(std::string_view line) noexcept
   }
 
   uint64_t val = 0;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto [ptr, ec] =
       std::from_chars(data.data(), data.data() + data.size(), val);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   if (ec != std::errc {}) {
     return 0.0;
   }
@@ -73,10 +71,8 @@ double parse_proc_count_line(std::string_view line) noexcept
     return 0.0;
   }
   uint64_t val = 0;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto [ptr, ec] =
       std::from_chars(data.data(), data.data() + data.size(), val);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   if (ec != std::errc {}) {
     return 0.0;
   }

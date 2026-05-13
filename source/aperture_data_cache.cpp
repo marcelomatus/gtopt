@@ -46,7 +46,7 @@ namespace
       }
       f.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Best-effort diagnostic — never let a failed read break the load.
   }
   return 0;

@@ -96,7 +96,6 @@ void LinearInterface::cache_and_release()
   m_cache_.set_is_optimal(/*v=*/true);
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::ensure_backend()
 {
   if (!m_backend_released_) {
@@ -149,7 +148,7 @@ void LinearInterface::release_backend() noexcept
         m_replay_.active_cuts_size(),
         m_replay_.pending_coeffs_size(),
         m_replay_.pending_rhs_size());
-  } catch (...) {  // NOLINT(bugprone-empty-catch) — noexcept logging path
+  } catch (...) {  // noexcept logging path
   }
 
   // Cache post-solve scalars for transparent read access.  Full
@@ -228,10 +227,10 @@ void LinearInterface::release_backend() noexcept
     // the caller is already defensive against.
     try {
       compress_labels_meta_if_needed();
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
       // Best-effort — proceed with release.
     }
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Best-effort: proceed with release even if caching fails. The
     // function is noexcept, so swallowing exceptions here is intentional —
     // a failure to cache the solution must not break shutdown ordering.
@@ -355,7 +354,7 @@ void LinearInterface::populate_solution_cache_post_solve() noexcept
     m_backend_->fill_col_lower(m_cache_.col_low_buffer(ncols));
     m_backend_->fill_col_upper(m_cache_.col_upp_buffer(ncols));
     m_cache_.set_is_optimal(/*v=*/true);
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Best-effort: any backend exception leaves the cache in
     // whatever (possibly empty) state it was in.  Caller's
     // `is_optimal()` check will then route through the cached flag
@@ -443,7 +442,6 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
   m_backend_released_ = true;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::reconstruct_backend()
 {
   if (!m_backend_released_ || !m_snapshot_holder_.has_data()) {
@@ -486,13 +484,11 @@ void LinearInterface::reconstruct_backend()
   m_phase_ = LiPhase::Reconstructed;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::apply_post_load_replay()
 {
   apply_post_load_replay(m_replay_);
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
 {
   // Pre-condition: caller has already run `load_flat` and cleared
@@ -613,7 +609,6 @@ void LinearInterface::record_dynamic_col(SparseCol col)
   m_replay_.record_dynamic_col_if_tracked(std::move(col), m_low_memory_mode_);
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
 {
   if (idx < 0) {
@@ -639,7 +634,6 @@ const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
   return nullptr;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 const SparseRowLabel* LinearInterface::row_label_at(RowIndex idx) const noexcept
 {
   if (idx < 0) {
@@ -699,7 +693,6 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
 // teaching `add_rows` to dispatch through compose_physical (same gate
 // as `add_row`) and adding the new `add_rows_raw` companion for the
 // genuinely LP-raw bulk-insert callers.
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::replay_active_cuts()
 {
   if (m_replay_.active_cuts().empty()) {
@@ -1285,7 +1278,6 @@ ColIndex LinearInterface::add_free_col(const std::string& name)
   return add_col(name, -m_backend_->infinity(), m_backend_->infinity());
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
 {
   ensure_backend();
@@ -1404,7 +1396,6 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   }
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col(const SparseCol& col)
 {
   const auto col_idx = emit_col_to_backend(col);
@@ -1459,7 +1450,6 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   return col_idx;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_col_raw(const SparseCol& col)
 {
   // Raw path: `m_col_scales_` stays frozen so it can be shared via
@@ -1658,7 +1648,6 @@ std::vector<RowIndex> LinearInterface::add_rows_disposable(
   return indices;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
                                                bool apply_col_scale)
 {
@@ -1730,7 +1719,6 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
   return first_col_index;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
 {
   // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
@@ -1748,7 +1736,6 @@ ColIndex LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
   return first_col;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 ColIndex LinearInterface::add_cols(std::span<const SparseCol> cols)
 {
   // Physical bulk path — mirrors `add_col(SparseCol)`'s shape:
@@ -1874,7 +1861,6 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   }
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 {
   ensure_backend();
@@ -2099,7 +2085,6 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   return row_idx;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
                                               const double eps)
 {
@@ -2134,7 +2119,6 @@ RowIndex LinearInterface::emit_row_to_backend(const SparseRow& row,
   return add_row(name, columns.size(), columns, elements, row.lowb, row.uppb);
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
 {
   // Internal raw-insertion path — called by the public `add_row` after
@@ -2152,7 +2136,6 @@ RowIndex LinearInterface::add_row_raw(const SparseRow& row, const double eps)
   return row_idx;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_rows(const std::span<const SparseRow> rows,
                                const double eps)
 {
@@ -2273,7 +2256,6 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   add_rows_raw(composed, eps);
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
                                    const double eps)
 {
@@ -2796,7 +2778,7 @@ void LinearInterface::set_col(const ColIndex index, const double physical_value)
 // otherwise yield a huge-but-finite value that no longer rounds to the
 // solver's infinity threshold, producing an incorrect tight bound.
 
-void LinearInterface::set_col_bounds_raw(  // NOLINT(misc-no-recursion)
+void LinearInterface::set_col_bounds_raw(
     const std::span<const ColIndex> indices,
     const std::span<const char> lu,
     const std::span<const double> values)
@@ -2858,13 +2840,11 @@ void LinearInterface::set_col_bounds_raw(  // NOLINT(misc-no-recursion)
       const auto cu = static_cast<std::size_t>(c);
       switch (which) {
         case 'L': {
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
           const double upper_now = col_upp_live[cu];
           m_replay_.set_pending_col_lower(c, normalised, upper_now);
           break;
         }
         case 'U': {
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
           const double lower_now = col_low_live[cu];
           m_replay_.set_pending_col_upper(c, lower_now, normalised);
           break;

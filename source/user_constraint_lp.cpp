@@ -318,7 +318,6 @@ void reject_nested_wrappers(const LowerCtx& ctx,
 // Recursive row-builder.  Handles element / sum / param terms directly
 // and lowers `abs`, `min`/`max`, `if` wrappers into auxiliary columns
 // and helper rows on the fly.
-// NOLINTNEXTLINE(misc-no-recursion)
 BuildResult build_row_from_terms(LowerCtx& ctx,
                                  const std::vector<ConstraintTerm>& terms,
                                  double outer_coef,

@@ -394,7 +394,7 @@ public:
     // exception rather than terminating the program during teardown.
     try {
       shutdown();
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
       // best-effort cleanup; deliberately swallowed
     }
   }
@@ -450,7 +450,7 @@ public:
                 lock.unlock();
                 try {
                   log_periodic_stats();
-                } catch (...) {  // NOLINT(bugprone-empty-catch)
+                } catch (...) {
                   // log_periodic_stats already swallows internally; this
                   // is belt-and-suspenders so the stats thread never
                   // dies on a transient logging failure.

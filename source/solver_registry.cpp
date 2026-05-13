@@ -78,8 +78,7 @@ SolverRegistry& SolverRegistry::instance()
 void SolverRegistry::discover_default_paths()
 {
   // 1. $GTOPT_PLUGIN_DIR environment variable
-  if (const auto* env =
-          std::getenv("GTOPT_PLUGIN_DIR");  // NOLINT(concurrency-mt-unsafe)
+  if (const auto* env = std::getenv("GTOPT_PLUGIN_DIR");
       env != nullptr && *env != '\0')
   {
     discover_plugins(env);
@@ -145,8 +144,7 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // dlopen with RTLD_LOCAL so symbols don't leak between plugins
   auto* handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
-    const auto* err = ::dlerror();  // NOLINT(concurrency-mt-unsafe) - called
-                                    // single-threaded at init
+    const auto* err = ::dlerror();
     const auto msg = std::format("Failed to load plugin {}: {}",
                                  path.string(),
                                  (err != nullptr) ? err : "unknown");
@@ -218,9 +216,7 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
 
   // Collect solver names
   std::vector<std::string> solver_names;
-  for (const auto* names = names_fn(); *names != nullptr;
-       ++names)  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  {
+  for (const auto* names = names_fn(); *names != nullptr; ++names) {
     solver_names.emplace_back(*names);
   }
 
@@ -305,17 +301,16 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // from the parent via fork) does not fire inside the child — without
     // this, an uncaught exception → abort → doctest's SIGABRT handler
     // → spurious crash output that confuses doctest's test-rerun loop.
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
     ::signal(SIGABRT, SIG_DFL);
     ::signal(SIGSEGV, SIG_DFL);
     ::signal(SIGFPE, SIG_DFL);
-    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
+    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
 
     try {
-      // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
       auto* backend = plugin.create_fn(solver_name.c_str());
       if (backend == nullptr) {
-        ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+        ::_exit(1);
       }
       // Step 1: exercise basic vtable accessors.
       const auto bname = backend->solver_name();
@@ -347,12 +342,12 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
                             rowub.data());
       backend->initial_solve();
       if (!backend->is_proven_optimal()) {
-        ::_exit(2);  // NOLINT(concurrency-mt-unsafe)
+        ::_exit(2);
       }
       delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
-      ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
+      ::_exit(0);
     } catch (...) {
-      ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+      ::_exit(1);
     }
   }
 
@@ -360,19 +355,16 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
   int status = 0;
   ::waitpid(pid, &status, 0);
 
-  // NOLINTNEXTLINE(hicpp-signed-bitwise) - POSIX macros use bitwise ops
+  //  - POSIX macros use bitwise ops
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
     return true;
   }
 
   // Build a diagnostic message.
   std::string detail;
-  // NOLINTNEXTLINE(hicpp-signed-bitwise)
   if (WIFSIGNALED(status)) {
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     detail = std::format("signal {}", WTERMSIG(status));
   } else {
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     detail = std::format("exit code {}", WEXITSTATUS(status));
   }
   const auto msg = std::format(
@@ -584,9 +576,7 @@ std::string_view SolverRegistry::default_solver()
   const std::scoped_lock lock(m_mutex_);
 
   // GTOPT_SOLVER env var overrides the default priority.
-  if (const auto* env =
-          std::getenv("GTOPT_SOLVER"))  // NOLINT(concurrency-mt-unsafe)
-  {
+  if (const auto* env = std::getenv("GTOPT_SOLVER")) {
     if (ensure_solver_loaded(env)) {
       return env;
     }

@@ -492,7 +492,7 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
     const auto sz =
         vec.size() * sizeof(typename std::decay_t<decltype(vec)>::value_type);
     std::memcpy(dst, vec.data(), sz);
-    dst += sz;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    dst += sz;
   };
 
   append(flp.matbeg);
@@ -577,7 +577,7 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
   {
     const auto sz = vec.size() * sizeof(T);
     std::memcpy(vec.data(), src, sz);
-    src += sz;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    src += sz;
   };
 
   restore(flp.matbeg);
@@ -768,7 +768,7 @@ void log_compression_stats() noexcept
           decomp_s,
           decomp_mbs);
     }
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // noexcept contract — best effort, swallow formatting / logger errors.
   }
 }

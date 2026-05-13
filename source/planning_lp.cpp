@@ -1359,7 +1359,6 @@ void PlanningLP::set_output_delegate(
 // is not expressible in the type system.  Suppress at the function
 // level since the warning is attached to the whole function, not the
 // specific call.
-// NOLINTNEXTLINE(misc-no-recursion)
 void PlanningLP::write_out()
 {
   // Cascade hand-off: when a non-level-0 cascade pass transferred

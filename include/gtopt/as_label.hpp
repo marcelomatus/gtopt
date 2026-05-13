@@ -162,8 +162,7 @@ template<integral_convertible T>
   std::array<char, int_buf_size> buf {};
   const auto ival = static_cast<std::int64_t>(value);
   auto* const begin = buf.data();
-  auto* const end = begin
-      + buf.size();  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  auto* const end = begin + buf.size();
   const auto [ptr, ec] = std::to_chars(begin, end, ival);
   return {begin, ptr};
 }
@@ -186,7 +185,8 @@ struct IntCacheData
   std::array<std::uint8_t, int_cache_size> lengths {};
 };
 
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,misc-const-correctness)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,
+// misc-const-correctness)
 consteval IntCacheData build_int_cache() noexcept
 {
   IntCacheData data {};
@@ -225,7 +225,8 @@ consteval IntCacheData build_int_cache() noexcept
   }
   return data;
 }
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,misc-const-correctness)
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,
+// misc-const-correctness)
 
 inline constexpr IntCacheData int_cache = build_int_cache();
 
@@ -238,10 +239,10 @@ inline constexpr IntCacheData int_cache = build_int_cache();
     return std::nullopt;
   }
   auto idx = static_cast<std::size_t>(n);
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-constant-array-index)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
   return std::string_view(int_cache.buf.data() + int_cache.offsets[idx],
                           int_cache.lengths[idx]);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-constant-array-index)
+  // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 }
 
 /// String holder that avoids heap allocation for integral and string_view
@@ -268,14 +269,16 @@ class string_holder
 
 public:
   // For string-like types — zero allocation
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
   template<string_like T>
     requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
   constexpr explicit string_holder(T&& value) noexcept
       : ext_(std::string_view(std::forward<T>(value)))
   {
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
 
   // For const string refs — zero allocation, just view
   constexpr explicit string_holder(const std::string& s) noexcept
@@ -314,7 +317,6 @@ public:
     }
     tag_ = Tag::buf;
     auto* const begin = int_buf_.data();
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     auto* const end = begin + int_buf_.size();
     const auto [ptr, ec] = std::to_chars(begin, end, ival);
     int_len_ = static_cast<std::uint8_t>(ptr - begin);
@@ -330,16 +332,13 @@ public:
     // Shortest round-trip for a double needs at most 24 chars
     // (-1.7976931348623157e+308), plus 2 for potential ".0" suffix.
     std::array<char, 26> buf {};
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
     const std::string_view sv(buf.data(), ptr);
     // Ensure a decimal point so the value reads as floating-point.
     // If to_chars produced no '.' and no 'e'/'E', append ".0".
     if (!sv.contains('.') && !sv.contains('e')) {
-      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       *ptr++ = '.';
       *ptr++ = '0';
-      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     }
     owned_.assign(buf.data(), ptr);
   }
@@ -448,42 +447,39 @@ public:
 
     [[nodiscard]] constexpr char operator[](difference_type n) const noexcept
     {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       return detail::to_lower_char(ptr_[n]);
     }
 
     constexpr iterator& operator++() noexcept
     {
-      ++ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      ++ptr_;
       return *this;
     }
     constexpr iterator operator++(int) noexcept
     {
       auto t = *this;
-      ++ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      ++ptr_;
       return t;
     }
     constexpr iterator& operator--() noexcept
     {
-      --ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      --ptr_;
       return *this;
     }
     constexpr iterator operator--(int) noexcept
     {
       auto t = *this;
-      --ptr_;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+      --ptr_;
       return t;
     }
 
     constexpr iterator& operator+=(difference_type n) noexcept
     {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       ptr_ += n;
       return *this;
     }
     constexpr iterator& operator-=(difference_type n) noexcept
     {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       ptr_ -= n;
       return *this;
     }
@@ -509,7 +505,6 @@ public:
     [[nodiscard]] friend constexpr difference_type operator-(
         const iterator& a, const iterator& b) noexcept
     {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       return a.ptr_ - b.ptr_;
     }
 
@@ -539,7 +534,6 @@ public:
   }
   [[nodiscard]] constexpr iterator end() const noexcept
   {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     return iterator(sv_.data() + sv_.size());
   }
 
@@ -979,9 +973,11 @@ template<detail::string_like T>
   requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
 [[nodiscard]] constexpr LowercaseView lowercase(T&& sv) noexcept
 {
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
   return LowercaseView(std::string_view(std::forward<T>(sv)));
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
 }
 
 /**
@@ -1039,9 +1035,11 @@ template<detail::string_like T>
   requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
 [[nodiscard]] constexpr SnakeCaseView snake_case(T&& sv) noexcept
 {
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
   return SnakeCaseView(std::string_view(std::forward<T>(sv)));
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  // hicpp-no-array-decay)
 }
 
 }  // namespace gtopt

@@ -133,7 +133,7 @@ template<typename T>
       return std::nullopt;
     }
     return v;
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     return std::nullopt;
   }
 }
@@ -693,7 +693,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // if the user already configured a richer pass list).
   std::optional<std::string> dump_dir = opts.lp_dump_backward;
   if (!dump_dir) {
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
     if (const auto* env = std::getenv("GTOPT_DUMP_BACKWARD_LP");
         env != nullptr && *env != '\0')
     {
@@ -1055,7 +1054,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stoi(kv->second);
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
     return std::nullopt;
@@ -1067,7 +1066,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stod(kv->second);
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
     return std::nullopt;
@@ -1133,7 +1132,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   if (const auto raw = get_str("algorithm")) {
     try {
       opts.algorithm = parse_lp_algorithm(*raw);
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
     }
   }
   opts.threads = get_int("threads");
@@ -1163,7 +1162,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         try {
           return std::stoi(kv->second);
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        } catch (...) {
         }
       }
       return std::nullopt;
@@ -1173,7 +1172,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         try {
           return std::stod(kv->second);
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        } catch (...) {
         }
       }
       return std::nullopt;
@@ -1196,7 +1195,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto raw = sv_str("algorithm")) {
       try {
         sopts.algorithm = parse_lp_algorithm(*raw);
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
     if (const auto v = sv_int("threads")) {

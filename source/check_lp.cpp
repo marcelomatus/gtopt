@@ -43,7 +43,6 @@ namespace
  */
 [[nodiscard]] std::string find_on_path(std::string_view name)
 {
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — getenv is safe at startup
   const char* path_env = std::getenv("PATH");
   if (path_env == nullptr) {
     return {};
@@ -241,14 +240,14 @@ struct SpawnResult
         ::posix_spawn_file_actions_addclose(&fa.value, pipefd[1]));
 
     pid_t pid = 0;
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) — environ read is safe at startup
     const int spawn_rc = ::posix_spawn(
         &pid,
         exec_bin.c_str(),
         &fa.value,
         nullptr,
         argv_ptrs.data(),
-        environ);  // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        environ);
 
     // Parent must close its write-end copy before the read loop so that
     // EOF is delivered when the child exits.
@@ -281,14 +280,14 @@ struct SpawnResult
   } else {
     // ── Inherit mode: child writes directly to the parent's stdio ──────
     pid_t pid = 0;
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) — environ read is safe at startup
     const int spawn_rc = ::posix_spawn(
         &pid,
         exec_bin.c_str(),
         nullptr,  // no file-action redirects; inherit parent stdio
         nullptr,
         argv_ptrs.data(),
-        environ);  // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        environ);
 
     if (spawn_rc != 0) {
       SPDLOG_DEBUG("spawn_tool: posix_spawn failed (rc={})", spawn_rc);

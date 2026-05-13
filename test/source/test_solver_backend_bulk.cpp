@@ -27,7 +27,8 @@
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace  // NOLINT(cert-dcl59-cpp, fuchsia-header-anon-namespaces,
+           // google-build-namespaces, misc-anonymous-namespace-in-header)
 {
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -122,10 +123,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(b_upp != nullptr);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     CHECK(a_low[i] == doctest::Approx(b_low[i]));
     CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 }
 
@@ -166,18 +165,14 @@ TEST_CASE(  // NOLINT
   REQUIRE(b_upp != nullptr);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     CHECK(a_low[i] == doctest::Approx(b_low[i]));
     CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
   // Sanity: col 0 ends up at [3, 3], col 1 at [7, 7].
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   CHECK(b_low[0] == doctest::Approx(3.0));
   CHECK(b_upp[0] == doctest::Approx(3.0));
   CHECK(b_low[1] == doctest::Approx(7.0));
   CHECK(b_upp[1] == doctest::Approx(7.0));
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 TEST_CASE(  // NOLINT

@@ -738,7 +738,6 @@ std::vector<ConstraintTerm> divide_terms(std::vector<ConstraintTerm> lhs,
 
 }  // namespace
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_add_expr()
 {
   auto terms = parse_mul_expr();
@@ -760,7 +759,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_add_expr()
   return terms;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_mul_expr()
 {
   auto terms = parse_unary();
@@ -786,7 +784,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_mul_expr()
   return terms;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_unary()
 {
   if (m_current_.type == TokenType::PLUS) {
@@ -802,7 +799,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_unary()
   return parse_primary();
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
 {
   // Parenthesized subexpression
@@ -1108,10 +1104,8 @@ SumPredicate ConstraintParser::Parser::parse_one_predicate()
   // Value: number or string literal
   if (m_current_.type == TokenType::NUMBER) {
     double val = 0.0;
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto& s = m_current_.value;
     const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (ec != std::errc {}) {
       error_at_current(std::format("invalid numeric value '{}'", s),
                        "expected a decimal number on the RHS of the predicate");
@@ -1138,7 +1132,6 @@ SumPredicate ConstraintParser::Parser::parse_one_predicate()
 
 // ── F5: abs(linear_expr) ───────────────────────────────────────────────────
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_abs_expr()
 {
   // Current token is 'abs'
@@ -1180,7 +1173,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_abs_expr()
 
 // ── Phase 1e: state(element_ref) ───────────────────────────────────────────
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_state_expr()
 {
   // Current token is `state`
@@ -1217,7 +1209,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_state_expr()
 
 // ── F7: min/max(arg1, arg2, ...) ───────────────────────────────────────────
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_minmax_expr(
     MinMaxKind kind)
 {
@@ -1283,7 +1274,6 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_minmax_expr(
 
 // ── F8: if <cond> then (<expr>) [ else (<expr>) ] ──────────────────────────
 
-// NOLINTNEXTLINE(misc-no-recursion)
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_if_expr()
 {
   // Current token is 'if'
@@ -1343,9 +1333,7 @@ std::vector<IfCondAtom> ConstraintParser::Parser::parse_if_cond()
 uid_t ConstraintParser::Parser::parse_if_cond_integer(const std::string& s)
 {
   uid_t val = 0;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), val);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   if (ec != std::errc {}) {
     error_at_current(
         std::format("invalid integer literal '{}' in if-condition", s),

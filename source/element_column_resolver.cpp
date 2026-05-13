@@ -59,11 +59,9 @@ namespace
   if (element_id.starts_with("uid:")) {
     const std::string_view digits = std::string_view {element_id}.substr(4);
     Uid val {};
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto [ptr, ec] =
         std::from_chars(digits.data(), digits.data() + digits.size(), val);
     const bool ok = ec == std::errc {} && ptr == digits.data() + digits.size();
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (ok) {
       return val;
     }
@@ -77,12 +75,10 @@ namespace
           element_id, [](unsigned char c) { return std::isdigit(c) != 0; }))
   {
     Uid val {};
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const auto [ptr, ec] = std::from_chars(
         element_id.data(), element_id.data() + element_id.size(), val);
     const bool ok =
         ec == std::errc {} && ptr == element_id.data() + element_id.size();
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (ok) {
       return val;
     }

@@ -258,7 +258,6 @@ auto extract_iteration_from_name(std::string_view name) -> IterationIndex
   const auto token = name.substr(pos, end - pos);
   int result = 0;
   const auto* const first = token.data();
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto* const last = first + token.size();
   auto [ptr, ec] = std::from_chars(first, last, result);
   return IterationIndex {(ec == std::errc {}) ? result : 0};

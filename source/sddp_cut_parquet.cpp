@@ -703,7 +703,6 @@ struct CellCuts
             const auto var = key_view.substr(c1 + 1, c2 - c1 - 1);
             const auto uid_str = key_view.substr(c2 + 1);
             int uid_val = 0;
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
             const auto* const end_ptr = uid_str.data() + uid_str.size();
             const auto [ptr, ec] = std::from_chars(
                 // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)

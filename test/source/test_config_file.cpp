@@ -146,7 +146,6 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   }
 
   // Point GTOPT_CONFIG to our test file
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   setenv("GTOPT_CONFIG", tmp.c_str(), 1);
 
   const auto opts = load_gtopt_config();
@@ -170,7 +169,6 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   REQUIRE(opts.lp_debug.has_value());
   CHECK(*opts.lp_debug == false);
 
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   unsetenv("GTOPT_CONFIG");
   std::filesystem::remove(tmp);
 }

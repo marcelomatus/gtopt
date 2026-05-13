@@ -149,7 +149,6 @@ public:
                                    const double* values)
   {
     for (int i = 0; i < num; ++i) {
-      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       switch (lu[i]) {
         case 'L':
           set_col_lower(indices[i], values[i]);
@@ -164,7 +163,6 @@ public:
         default:
           break;
       }
-      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     }
   }
 
@@ -180,7 +178,6 @@ public:
   virtual void set_obj_coeffs(const double* values, int num_cols)
   {
     for (int i = 0; i < num_cols; ++i) {
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       set_obj_coeff(i, values[i]);
     }
   }
@@ -229,7 +226,6 @@ public:
                                    const double* up)
   {
     for (int i = 0; i < num; ++i) {
-      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       switch (lu[i]) {
         case 'L':
           set_row_lower(indices[i], lo[i]);
@@ -243,7 +239,6 @@ public:
         default:
           break;
       }
-      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     }
   }
 

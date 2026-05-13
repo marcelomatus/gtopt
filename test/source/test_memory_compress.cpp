@@ -17,7 +17,6 @@
 #include <gtopt/memory_compress.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(hicpp-signed-bitwise)
 
 namespace  // NOLINT
 {
@@ -286,5 +285,3 @@ TEST_CASE(  // NOLINT
   reset_compression_stats();
   CHECK(get_compression_stats().empty());
 }
-
-// NOLINTEND(hicpp-signed-bitwise)

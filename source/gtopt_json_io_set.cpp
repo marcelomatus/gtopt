@@ -93,9 +93,7 @@ namespace
 [[nodiscard]] std::size_t parse_array_index(std::string_view s) noexcept
 {
   std::size_t idx = 0;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   std::from_chars(s.data(), s.data() + s.size(), idx);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   return idx;
 }
 
@@ -334,7 +332,7 @@ bool apply_set_options(Planning& planning,
           planning.merge(std::move(overlay));
           spdlog::info("--set {}={} applied (as string)", key, value);
           continue;
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        } catch (...) {
         }
       }
       spdlog::error("--set {}={}: unknown option or invalid value", key, value);

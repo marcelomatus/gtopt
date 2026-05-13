@@ -153,7 +153,6 @@ private:
     int value = -1;
     // std::from_chars requires raw begin/end pointers; the "end" pointer is
     // one-past-the-last element and is only compared, never dereferenced.
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     std::from_chars(sv.data(), sv.data() + sv.size(), value);
     return value;
   }

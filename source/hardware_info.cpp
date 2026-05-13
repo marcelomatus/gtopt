@@ -82,7 +82,6 @@ std::atomic<double> g_quota_pct {0.0};
         int val = -1;
         // `std::from_chars` requires raw pointer bounds; pointer
         // arithmetic is inherent to its contract.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
         std::from_chars(buf.data(), buf.data() + buf.size(), val);
         return val;
       };
