@@ -59,6 +59,10 @@
 
 #include <spdlog/spdlog.h>
 
+// NOLINTBEGIN(readability-trailing-comma, performance-unnecessary-value-param,
+// performance-unnecessary-copy-initialization, misc-const-correctness,
+// modernize-use-designated-initializers)
+
 namespace gtopt
 {
 using namespace gtopt::detail;
@@ -886,3 +890,7 @@ struct CellCuts
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(readability-trailing-comma, performance-unnecessary-value-param,
+// performance-unnecessary-copy-initialization, misc-const-correctness,
+// modernize-use-designated-initializers)

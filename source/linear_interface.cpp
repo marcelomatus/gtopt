@@ -28,6 +28,10 @@
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
+// NOLINTBEGIN(readability-trailing-comma, bugprone-narrowing-conversions,
+// cppcoreguidelines-narrowing-conversions,
+// modernize-use-integer-sign-comparison)
+
 namespace gtopt
 {
 
@@ -3292,3 +3296,7 @@ void LinearInterface::set_row_dual(const std::span<const double> dual)
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(readability-trailing-comma, bugprone-narrowing-conversions,
+// cppcoreguidelines-narrowing-conversions,
+// modernize-use-integer-sign-comparison)

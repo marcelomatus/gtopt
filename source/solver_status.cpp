@@ -26,6 +26,10 @@
 #include <gtopt/utils.hpp>
 #include <unistd.h>
 
+// NOLINTBEGIN(concurrency-mt-unsafe,
+// cppcoreguidelines-pro-bounds-pointer-arithmetic, cert-err33-c,
+// google-runtime-int)
+
 namespace gtopt
 {
 
@@ -280,3 +284,7 @@ void write_solver_status(const std::string& filepath,
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(concurrency-mt-unsafe,
+// cppcoreguidelines-pro-bounds-pointer-arithmetic, cert-err33-c,
+// google-runtime-int)

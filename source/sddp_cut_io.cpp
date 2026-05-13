@@ -38,6 +38,8 @@
 
 #include <spdlog/spdlog.h>
 
+// NOLINTBEGIN(readability-use-anyofallof)
+
 namespace gtopt
 {
 
@@ -265,3 +267,5 @@ auto extract_iteration_from_name(std::string_view name) -> IterationIndex
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(readability-use-anyofallof)

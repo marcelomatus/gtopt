@@ -36,6 +36,8 @@
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
+// NOLINTBEGIN(modernize-use-designated-initializers, modernize-loop-convert)
+
 namespace gtopt
 {
 
@@ -658,3 +660,5 @@ auto solve_apertures_for_phase(
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(modernize-use-designated-initializers, modernize-loop-convert)

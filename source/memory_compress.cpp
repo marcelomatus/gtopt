@@ -33,6 +33,11 @@
 #  include <snappy.h>
 #endif
 
+// NOLINTBEGIN(readability-trailing-comma,
+// cppcoreguidelines-pro-bounds-constant-array-index,
+// cppcoreguidelines-missing-std-forward, bugprone-exception-escape,
+// hicpp-use-auto, modernize-use-auto)
+
 namespace gtopt
 {
 
@@ -768,3 +773,8 @@ void log_compression_stats() noexcept
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(readability-trailing-comma,
+// cppcoreguidelines-pro-bounds-constant-array-index,
+// cppcoreguidelines-missing-std-forward, bugprone-exception-escape,
+// hicpp-use-auto, modernize-use-auto)

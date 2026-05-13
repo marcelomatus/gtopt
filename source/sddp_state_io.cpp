@@ -38,6 +38,8 @@
 
 #include <spdlog/spdlog.h>
 
+// NOLINTBEGIN(performance-unnecessary-copy-initialization)
+
 namespace gtopt
 {
 
@@ -230,3 +232,5 @@ auto save_state_csv(PlanningLP& planning_lp, const std::string& filepath)
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(performance-unnecessary-copy-initialization)
