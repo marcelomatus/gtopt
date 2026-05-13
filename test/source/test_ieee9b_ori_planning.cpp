@@ -84,6 +84,7 @@ static constexpr std::string_view ieee9b_ori_json = R"({
 TEST_CASE("IEEE 9-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(google-global-names-in-headers)
   auto planning = parse_planning_json(ieee9b_ori_json);
 
   CHECK(planning.system.name == "ieee_9b_ori");
@@ -229,84 +230,9 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
   std::filesystem::remove_all(out_dir);
 }
 
-// ─── Multi-bus rebuild regression guard (2026-05-11) ────────────────────────
-//
-// `LowMemoryMode::rebuild` re-uses the existing `BusLP` instance across
-// re-flattens — the gate in `system_lp.cpp:rebuild_in_place` skips
-// `create_collections` once disposable collections are built.  Before the
-// 2026-05-11 fix, `BusLP::theta_cols` (mutable lazy cache populated by
-// `kirchhoff::add_line_kvl_rows` → `theta_cols_at`) retained `ColIndex`
-// values from the previous flatten's `LinearProblem`, and the second
-// `rebuild_in_place` for the same cell silently dropped every bus_theta
-// column on the new LP.  Kirchhoff KVL rows then referenced whatever
-// variable happened to land at the stale indices in the new LP, and the
-// flat LP became structurally infeasible (juan/IPLP multi-bus rebuild:
-// "all scenes infeasible at iter 1 forward p1").
-//
-// Fix: `BusLP::add_to_lp` erases `theta_cols[(scen, stg)]` so the next
-// `theta_cols_at` cache-miss fires `lazy_add_theta` against the new LP.
-//
-// This test forces multiple `rebuild_in_place` cycles by toggling
-// `release_backend()` / `ensure_backend()` on the IEEE 9-bus cell and
-// asserts every reload reproduces the same LP shape AND objective.  Pre-fix
-// this test would either solve to a different (infeasible-relaxation)
-// objective on the third reload, or — if the LP happens to still be
-// feasible — return a wrong dispatch because the Kirchhoff rows point
-// at the wrong cols.
-TEST_CASE(
-    "IEEE 9-bus rebuild — multi-bus theta_cols cache invariant across "
-    "release/ensure_backend cycles")
-{
-  Planning base;
-  base.merge(parse_planning_json(ieee9b_ori_json));
-  // SystemLP only honours sddp_options.low_memory_mode under the SDDP
-  // / cascade method (see `planning_lp.cpp::create_systems`).  Force
-  // method to SDDP so the rebuild path is actually exercised.
-  base.options.method = MethodType::sddp;
-  base.options.sddp_options = SddpOptions {
-      .low_memory_mode = LowMemoryMode::rebuild,
-  };
+// The dedicated `LowMemoryMode::rebuild` multi-cycle regression test was
+// removed alongside the rebuild mode itself (2026-05-13).  The
+// surviving release/reconstruct path is exercised by the compress-mode
+// tests in test_linear_interface_lowmem.cpp.
 
-  PlanningLP planning_lp(std::move(base));
-
-  auto&& systems = planning_lp.systems();
-  REQUIRE(!systems.empty());
-  REQUIRE(!systems.front().empty());
-  auto& sys = systems.front().front();
-  auto& li = sys.linear_interface();
-
-  // First access: ctor's rebuild + tighten cleared disposables, so the
-  // first ensure_backend re-creates collections and adds bus_theta cols.
-  sys.ensure_lp_built();
-  const auto baseline_cols = li.get_numcols();
-  const auto baseline_rows = li.get_numrows();
-  REQUIRE(baseline_cols > 0);
-  REQUIRE(baseline_rows > 0);
-
-  // First solve also reports the expected objective (the IEEE 9b base
-  // case: 250·20 + 10·35 + 55·30 = 7000, scaled by 1000 → 7.0).
-  REQUIRE(li.resolve({}).has_value());
-  REQUIRE(li.is_optimal());
-  const auto baseline_obj = li.get_obj_value_raw();
-  CHECK(baseline_obj == doctest::Approx(7.0).epsilon(1e-4));
-
-  // Now exercise the bug: multiple release_backend/ensure_backend cycles
-  // on the SAME cell.  Pre-fix, BusLP::theta_cols still held stale
-  // ColIndex entries from cycle 1, so cycle 2's flatten skipped
-  // lazy_add_theta entirely — get_numcols would drop by ~9 (one
-  // bus_theta col per bus on this fixture: 9 buses × 1 block = 9 cols)
-  // and the Kirchhoff rows would reference unrelated vars.
-  for (int cycle = 0; cycle < 3; ++cycle) {
-    CAPTURE(cycle);
-    li.release_backend();
-    sys.ensure_lp_built();
-
-    CHECK(li.get_numcols() == baseline_cols);
-    CHECK(li.get_numrows() == baseline_rows);
-
-    REQUIRE(li.resolve({}).has_value());
-    REQUIRE(li.is_optimal());
-    CHECK(li.get_obj_value_raw()
-          == doctest::Approx(baseline_obj).epsilon(1e-4));
-  }
-}
+// NOLINTEND(google-global-names-in-headers)

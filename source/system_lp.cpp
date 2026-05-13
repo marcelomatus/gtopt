@@ -378,12 +378,11 @@ void add_emission_cap(const auto& collections,
 }
 
 /// Build the LinearProblem from collections + flatten it, returning the
-/// flat LP, fingerprint, and the LabelMaker used.  Used by both the
-/// eager `create_linear_interface` path (one-shot build at construction)
-/// and the `LowMemoryMode::rebuild` in-place rebuild path (one flatten
-/// per solve task, no persistent flat data).  @p solver_infinity is
-/// queried from the owning `LinearInterface` (via `infinity()`) before
-/// the call so that DblMax bounds are normalised to the correct value.
+/// flat LP, fingerprint, and the LabelMaker used.  Used by the eager
+/// `create_linear_interface` path (one-shot build at construction).
+/// @p solver_infinity is queried from the owning `LinearInterface`
+/// (via `infinity()`) before the call so that DblMax bounds are
+/// normalised to the correct value.
 ///
 /// @p reserve_cols / @p reserve_rows override the shape heuristic when
 /// non-zero.  SystemLP caches the actual (ncols, nrows) from the first
@@ -851,119 +850,6 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   m_fingerprint_was_set_ = true;
 }
 
-void SystemLP::rebuild_in_place()
-{
-  // Regenerate the flat LP from the live collections and install it on
-  // the existing LinearInterface via install_flat_as_rebuild().  No
-  // object replacement: `m_linear_interface_` stays put while its
-  // backend is repopulated.  Safe to invoke from inside a
-  // LinearInterface method (e.g. add_col → ensure_backend) because no
-  // storage is freed or moved.
-  //
-  // Lazy-initialise the LP-element collections on first call.  Under
-  // rebuild mode the SystemLP ctor skips `create_collections`; the
-  // upfront "Building LP" phase only constructs SystemLP shells.
-  // Collections are built in-place on first rebuild and kept alive
-  // for subsequent rebuilds (amortised across SDDP iterations).
-  // Two-flag gate: also recreate collections when only the
-  // disposable types were dropped (e.g. by
-  // `tighten_scene_phase_links` -> `clear_disposable_collections()`
-  // at the end of construction).  Under `LowMemoryMode::rebuild`
-  // every `rebuild_in_place` call MUST re-flatten from a fully-
-  // populated `m_collections_` because there is no snapshot to
-  // fall back to; if `m_disposable_collections_built_` is false
-  // the flatten produces an empty LP (`count_all_elements ==
-  // 0`) and downstream readers (e.g. `collect_state_variable_links`,
-  // `set_col_low_raw`) crash with stale ColIndex out-of-range.
-  // Mirrors the gate in `rebuild_collections_if_needed`.
-  if (!m_collections_built_ || !m_disposable_collections_built_) {
-    create_collections(m_system_context_, system(), m_collections_);
-    m_collections_built_ = true;
-    m_disposable_collections_built_ = true;
-    m_system_context_.rebind_system(*this);
-  }
-
-  auto flat_opts = m_flat_opts_;
-  if (flat_opts.scale_objective == 1.0) {
-    flat_opts.scale_objective = system_context().options().scale_objective();
-  }
-  // Under rebuild mode the LP is re-flattened on every released
-  // access.  The fingerprint is structurally deterministic, so
-  // recompute it only on the first build and silence it thereafter —
-  // avoids repeated hashing of an unchanged model on every iteration.
-  if (m_fingerprint_was_set_) {
-    flat_opts.compute_fingerprint = false;
-  }
-
-  // Flip the rebuild-pass flag so the registry entry points on
-  // SystemContext (add_state_variable, add_ampl_variable,
-  // defer_state_link, register_ampl_element_metadata) short-circuit —
-  // but ONLY from the SECOND flatten onward.  Under
-  // LowMemoryMode::rebuild the SystemLP ctor never runs an eager
-  // `create_lp`, so the very first call to `rebuild_in_place()` IS
-  // the initial pass that must populate the registry; gating it with
-  // `rebuild_pass=true` here would silently drop every
-  // `add_state_variable` / `defer_state_link` call and produce SDDP
-  // cuts with no state-variable coefficients (→ convergence to the
-  // wrong optimum — observed on sddp_hydro_3phase: 309 600 vs the
-  // correct 323 100 on off/compress).  Col/row indices are
-  // deterministic across rebuilds so re-running the registrations on
-  // subsequent flattens would be wasted work (and for
-  // defer_state_link would silently duplicate cross-phase links).
-  //
-  // `m_fingerprint_was_set_` is the signal "initial flatten has
-  // already run" — it is flipped to true a few lines below when the
-  // first `rebuild_in_place` finishes.
-  struct RebuildPassGuard
-  {
-    SystemContext& ctx;
-    const bool active;
-    RebuildPassGuard(const RebuildPassGuard&) = delete;
-    RebuildPassGuard& operator=(const RebuildPassGuard&) = delete;
-    RebuildPassGuard(RebuildPassGuard&&) = delete;
-    RebuildPassGuard& operator=(RebuildPassGuard&&) = delete;
-    RebuildPassGuard(SystemContext& c, bool activate)
-        : ctx(c)
-        , active(activate)
-    {
-      if (active) {
-        ctx.set_rebuild_pass(/*v=*/true);
-      }
-    }
-    ~RebuildPassGuard()
-    {
-      if (active) {
-        ctx.set_rebuild_pass(/*v=*/false);
-      }
-    }
-  } const guard {system_context(), m_fingerprint_was_set_};
-
-  auto [flat_lp, fingerprint, label_maker] =
-      flatten_from_collections(collections(),
-                               system_context(),
-                               phase(),
-                               scene(),
-                               flat_opts,
-                               m_linear_interface_.infinity(),
-                               m_last_flat_ncols_,
-                               m_last_flat_nrows_);
-
-  // Cache the exact sizes so the next rebuild reserves precisely and
-  // avoids vector-growth reallocations during add_to_lp.
-  m_last_flat_ncols_ = static_cast<size_t>(flat_lp.ncols);
-  m_last_flat_nrows_ = static_cast<size_t>(flat_lp.nrows);
-
-  if (!m_fingerprint_was_set_) {
-    m_fingerprint_ = std::move(fingerprint);
-    m_fingerprint_was_set_ = true;
-    m_linear_interface_.set_label_maker(label_maker);
-  }
-
-  m_linear_interface_.install_flat_as_rebuild(flat_lp);
-  // flat_lp dies at scope exit — rebuild mode retains no persistent
-  // flat data.  The guard flips rebuild_pass back to false on exit.
-}
-
 void SystemLP::clear_disposable_collections()
 {
   // No-op under `LowMemoryMode::off` — collections must stay live so
@@ -1045,12 +931,12 @@ void SystemLP::rebuild_collections_if_needed()
   // them would waste allocations.
   flat_opts.compute_fingerprint = false;
 
-  // Mirror `rebuild_in_place`'s guard: silence SystemContext
-  // registrations (state variables, AMPL variable registry, deferred
-  // cross-phase links) on this pass.  They were populated during the
-  // original flatten and every col/row index is deterministic, so
-  // re-running them would be wasted work (and for `defer_state_link`
-  // would silently duplicate cross-phase links).
+  // Silence SystemContext registrations (state variables, AMPL
+  // variable registry, deferred cross-phase links) on this pass.
+  // They were populated during the original flatten and every col/row
+  // index is deterministic, so re-running them would be wasted work
+  // (and for `defer_state_link` would silently duplicate cross-phase
+  // links).
   struct RebuildPassGuard
   {
     SystemContext& ctx;
@@ -1097,15 +983,6 @@ void SystemLP::ensure_lp_built()
   m_linear_interface_.ensure_backend();
 }
 
-void SystemLP::install_rebuild_callback()
-{
-  if (m_flat_opts_.low_memory_mode != LowMemoryMode::rebuild) {
-    m_linear_interface_.set_rebuild_owner(nullptr);
-    return;
-  }
-  m_linear_interface_.set_rebuild_owner(this);
-}
-
 SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
                    PhaseLP phase,
@@ -1140,64 +1017,30 @@ SystemLP::SystemLP(const System& system,
     }
   }
 
-  // Rebuild mode defers the entire LP assembly — including
-  // `create_collections` — until the first access to the backend.
-  // `m_collections_` stays default-constructed (empty) here; the
-  // rebuild callback populates it on first use and keeps it alive
-  // across subsequent rebuilds of the same cell.  Upfront memory for
-  // rebuild mode drops to just the SystemLP shell + SystemContext
-  // with empty collection pointers.
-  //
-  // Non-rebuild modes: populate collections eagerly.  m_collections_
-  // must be assigned in-place so each sub-collection is visible to
+  // Populate collections eagerly.  m_collections_ must be assigned
+  // in-place so each sub-collection is visible to
   // `InputContext::element_index` as soon as it is built, allowing
   // later collections (e.g. ReserveProvisionLP) to look up earlier
   // ones (e.g. GeneratorLP) without accessing uninitialized memory.
-  if (m_flat_opts_.low_memory_mode == LowMemoryMode::rebuild) {
-    m_linear_interface_.set_low_memory(LowMemoryMode::rebuild,
-                                       select_codec(m_flat_opts_.memory_codec));
-    // Install the rebuild callback before flipping the released flag so
-    // that no transient state exists where `ensure_backend` would fire
-    // without a callback.
-    install_rebuild_callback();
-    m_linear_interface_.mark_released();
-
-    // Eagerly run the first flatten now so the SimulationLP
-    // state-variable registry is populated before downstream code
-    // reads it (e.g. `SDDPMethod::auto_scale_alpha` iterates
-    // `sim.state_variables(...)` BEFORE calling `ensure_lp_built`).
-    // The first call sets `rebuild_pass=false` so every
-    // `add_state_variable` / `defer_state_link` fires (deterministic
-    // col indices are captured); subsequent `rebuild_in_place` calls
-    // set `rebuild_pass=true` as before and skip re-registration.
-    // After the flatten we release the backend to restore rebuild
-    // mode's memory-light baseline — `release_backend()` under non-
-    // off drops the solver backend + the XLP collections, while the
-    // state-variable registry and `m_fingerprint_was_set_` persist
-    // on this SystemLP.
-    rebuild_in_place();
-    release_backend();
-  } else {
-    create_collections(m_system_context_, system, m_collections_);
-    m_collections_built_ = true;
-    m_disposable_collections_built_ = true;
-    create_lp(m_flat_opts_);
-    if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
-      // Per-element drop: keep HasUpdateLP collections alive (their
-      // per-(scen, stg) state — `m_bound_states_`, `m_states_`,
-      // `m_coeff_indices_` — must persist across SDDP iterations);
-      // free the 22 disposable element types whose only role was
-      // to be visited during `add_to_lp` / `flatten`.  This replaces
-      // the previous full `m_collections_ = collections_t{}` drop
-      // that forced every cell to pay a full-rebuild cost on its
-      // first `update_lp` call.
-      //
-      // `update_lp` no longer triggers `rebuild_collections_if_needed`
-      // because its iteration only touches HasUpdateLP types, which
-      // are alive.  `write_out` triggers the full rebuild via the
-      // two-flag gate when it needs the disposable types.
-      clear_disposable_collections();
-    }
+  create_collections(m_system_context_, system, m_collections_);
+  m_collections_built_ = true;
+  m_disposable_collections_built_ = true;
+  create_lp(m_flat_opts_);
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::compress) {
+    // Per-element drop: keep HasUpdateLP collections alive (their
+    // per-(scen, stg) state — `m_bound_states_`, `m_states_`,
+    // `m_coeff_indices_` — must persist across SDDP iterations);
+    // free the 22 disposable element types whose only role was
+    // to be visited during `add_to_lp` / `flatten`.  This replaces
+    // the previous full `m_collections_ = collections_t{}` drop
+    // that forced every cell to pay a full-rebuild cost on its
+    // first `update_lp` call.
+    //
+    // `update_lp` no longer triggers `rebuild_collections_if_needed`
+    // because its iteration only touches HasUpdateLP types, which
+    // are alive.  `write_out` triggers the full rebuild via the
+    // two-flag gate when it needs the disposable types.
+    clear_disposable_collections();
   }
 }
 
@@ -1224,10 +1067,6 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
   // pointers into the moved-from m_collections_ tuple.  Re-point both
   // to *this.
   m_system_context_.rebind_system(*this);
-  // The rebuild callback captures `this` by value; after a move the
-  // previously captured pointer refers to the moved-from SystemLP.
-  // Reinstall so it captures the new (post-move) `this`.
-  install_rebuild_callback();
 }
 
 SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
@@ -1264,8 +1103,6 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_pending_state_links_ = std::move(other.m_pending_state_links_);
   m_prev_phase_sys_ = other.m_prev_phase_sys_;
   m_system_context_.rebind_system(*this);
-  // Reinstall rebuild callback so it captures the post-move `this`.
-  install_rebuild_callback();
   return *this;
 }
 
@@ -1300,15 +1137,14 @@ void SystemLP::write_out()
   }
 
   // Collections may have been dropped under LowMemoryMode::compress
-  // (end of ctor / release_backend) or LowMemoryMode::rebuild
-  // (release_backend).  Under compress the XLP per-element state
-  // (generation_cols, capacity_rows, …) is populated by `add_to_lp`
-  // during flatten and cannot be regenerated by a plain
-  // `create_collections` — `rebuild_collections_if_needed()` runs a
-  // throw-away flatten for those side effects.  Called from here
-  // (not from `ensure_lp_built`) so the expensive flatten only runs
-  // at output time, not on every forward/backward phase solve.
-  // Under off / rebuild, a plain `create_collections` is sufficient.
+  // (end of ctor / release_backend).  Under compress the XLP
+  // per-element state (generation_cols, capacity_rows, …) is
+  // populated by `add_to_lp` during flatten and cannot be regenerated
+  // by a plain `create_collections` — `rebuild_collections_if_needed()`
+  // runs a throw-away flatten for those side effects.  Called from
+  // here (not from `ensure_lp_built`) so the expensive flatten only
+  // runs at output time, not on every forward/backward phase solve.
+  // Under off, a plain `create_collections` is sufficient.
   // Per-stage timers for `--trace-log`.  Uses the RUNTIME
   // `spdlog::trace(...)` call (not the compile-level macro) because
   // the CMake PCH pre-includes `<spdlog/spdlog.h>` with
@@ -1395,10 +1231,7 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 
 int SystemLP::update_lp()
 {
-  // Under `LowMemoryMode::rebuild` the backend may be released at entry
-  // (the SDDP loop calls update_lp after ensure_lp_built, but the
-  // backward pass + some test paths reach here via a fresh released
-  // cell).  Trigger the rebuild transparently before querying
+  // Trigger an `ensure_backend()` before querying
   // `supports_set_coeff`, which dereferences `m_backend_` directly.
   m_linear_interface_.ensure_backend();
   if (!linear_interface().supports_set_coeff()) {
@@ -1412,10 +1245,6 @@ int SystemLP::update_lp()
   // Iterating empty disposable Collection<X>'s is a fast no-op.
   // Triggering a full rebuild here would re-create those disposable
   // types on every iter for nothing.
-  //
-  // Under `LowMemoryMode::rebuild` the rebuild path runs through
-  // `ensure_backend()` above which calls `rebuild_in_place()` →
-  // `create_collections` if needed.
 
   int total = 0;
 

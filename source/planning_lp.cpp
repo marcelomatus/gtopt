@@ -930,15 +930,6 @@ auto PlanningLP::create_systems(System& system,
                 codec_name(effective_codec));
   }
 
-  if (resolved_opts.low_memory_mode == LowMemoryMode::rebuild) {
-    SPDLOG_INFO(
-        "  low_memory=rebuild: skipping per-cell flatten + load_flat. "
-        "build-mode={} controls only collection / AMPL-registry "
-        "construction; the LP itself is re-flattened lazily inside "
-        "every solve / aperture-clone task.",
-        enum_name(build_mode));
-  }
-
   const auto build_start = std::chrono::steady_clock::now();
 
   // Parallelism instrumentation: track peak concurrent cell-builders,

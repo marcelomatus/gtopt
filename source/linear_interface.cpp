@@ -25,7 +25,6 @@
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/solver_registry.hpp>
-#include <gtopt/system_lp.hpp>  // complete type for m_rebuild_owner_->rebuild_in_place()
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
@@ -68,12 +67,6 @@ LinearInterface::LinearInterface(std::string_view solver_name,
 
 // ── Backend lifecycle ──
 
-// NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::invoke_rebuild_owner()
-{
-  m_rebuild_owner_->rebuild_in_place();
-}
-
 void LinearInterface::cache_and_release()
 {
   // Misnomer retained for back-compat: after the primal/dual cache
@@ -109,57 +102,7 @@ void LinearInterface::ensure_backend()
   if (!m_backend_released_) {
     return;
   }
-  // Rebuild mode: the owning SystemLP regenerates the flat LP from
-  // source collections, loads it onto this interface, and replays
-  // persistent state (dynamic cols + active cuts).  Mirrors compress
-  // mode's transparent reconstruct, but sources the flat LP from the
-  // element collections rather than a snapshot.
-  if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
-    // Re-entrant call (we're already inside `invoke_rebuild_owner()`):
-    // returning is safe because the outer call will finish the
-    // rebuild before its caller deref's the backend.
-    if (m_rebuilding_) {
-      return;
-    }
-    // No owner installed — this is a configuration error in rebuild
-    // mode.  Historically the function silently returned here for
-    // bare `LinearInterface` instances used in unit tests, but the
-    // caller then deref'd a null `m_backend_` (assertion compiled
-    // out in Release → SIGSEGV).  Convert to a loud, recoverable
-    // exception so a misconfigured ``low_memory_mode=rebuild`` run
-    // exits cleanly with an actionable error instead of crashing.
-    if (m_rebuild_owner_ == nullptr) {
-      throw std::runtime_error(std::format(
-          "LinearInterface::ensure_backend: backend is released and "
-          "no rebuild owner is installed (low_memory_mode=rebuild). "
-          "This indicates the LinearInterface was used after "
-          "release_backend() without `set_rebuild_owner(...)`.  "
-          "Either install a SystemLP owner before release, switch "
-          "low_memory_mode to off/compress, or rebuild the backend "
-          "manually via `reconstruct_backend(...)`."));
-    }
-    m_rebuilding_ = true;
-    try {
-      invoke_rebuild_owner();  // flatten → load_flat → apply_post_load_replay
-    } catch (...) {
-      m_rebuilding_ = false;
-      throw;
-    }
-    m_rebuilding_ = false;
-    // Post-condition: a successful rebuild must leave m_backend_ live.
-    // If invoke_rebuild_owner returned without populating it, that's
-    // a contract violation in the owner — turn it into a loud
-    // exception rather than an opaque downstream segfault.
-    if (m_backend_ == nullptr || m_backend_released_) {
-      throw std::runtime_error(
-          "LinearInterface::ensure_backend: rebuild owner returned "
-          "without restoring the backend (m_backend_ is null or still "
-          "marked released).  This is a contract violation in the "
-          "owner's invoke_rebuild_owner implementation.");
-    }
-    return;
-  }
-  // Snapshot/compress: reconstruct from the saved flat LP snapshot.
+  // Compress: reconstruct from the saved flat LP snapshot.
   // No warm-start: the barrier method is the default solver algorithm
   // and gains nothing from a starting solution.  The cached col_sol /
   // row_dual remain the source of truth for any pre-solve reader (see
@@ -271,24 +214,22 @@ void LinearInterface::release_backend() noexcept
     }
     // Snapshot/compress: first call compresses the flat LP (one-time,
     // creates a persistent buffer); subsequent calls free the decompressed
-    // vectors.  Rebuild mode keeps no snapshot — nothing to compress.
-    if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
-      if (!m_snapshot_holder_.is_compressed()) {
-        enable_compression();
-      } else {
-        clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
-      }
-      // Also compress the label-metadata vectors.  `noexcept` contract
-      // on `release_backend` means we swallow any compression error
-      // here; next `generate_labels_from_maps` would fall back to
-      // whatever is still live (nothing, by design) — acceptable
-      // worst-case is `write_lp` throwing on missing metadata, which
-      // the caller is already defensive against.
-      try {
-        compress_labels_meta_if_needed();
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
-        // Best-effort — proceed with release.
-      }
+    // vectors.
+    if (!m_snapshot_holder_.is_compressed()) {
+      enable_compression();
+    } else {
+      clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
+    }
+    // Also compress the label-metadata vectors.  `noexcept` contract
+    // on `release_backend` means we swallow any compression error
+    // here; next `generate_labels_from_maps` would fall back to
+    // whatever is still live (nothing, by design) — acceptable
+    // worst-case is `write_lp` throwing on missing metadata, which
+    // the caller is already defensive against.
+    try {
+      compress_labels_meta_if_needed();
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // Best-effort — proceed with release.
     }
   } catch (...) {  // NOLINT(bugprone-empty-catch)
     // Best-effort: proceed with release even if caching fails. The
@@ -460,13 +401,10 @@ void LinearInterface::freeze_for_cuts(LowMemoryMode mode,
             "structural-build commit");
 
   set_low_memory(mode, codec);
-  // Skip the snapshot for modes that never use it: `off` (no
-  // reconstruct path) and `rebuild` (uses the rebuild callback,
-  // not the snapshot — see `reconstruct_backend` line ~315 which
-  // explicitly asserts `m_low_memory_mode_ != rebuild`).  Other
-  // modes (`compress`, `snapshot`) genuinely depend on the
-  // snapshot to rehydrate the backend.
-  if (mode != LowMemoryMode::off && mode != LowMemoryMode::rebuild) {
+  // Skip the snapshot only for `off` (no reconstruct path).  `compress`
+  // (and the legacy `snapshot` alias) genuinely depend on the snapshot
+  // to rehydrate the backend.
+  if (mode != LowMemoryMode::off) {
     save_snapshot(std::move(flat_lp));
   }
   save_base_numrows();
@@ -508,11 +446,6 @@ void LinearInterface::defer_initial_load(FlatLinearProblem flat_lp)
 // NOLINTNEXTLINE(misc-no-recursion)
 void LinearInterface::reconstruct_backend()
 {
-  // Rebuild mode never installs a snapshot, so reconstructing from one
-  // would be a logic error.  Catch it loudly in debug builds; in
-  // release the !has_data() guard below still short-circuits cleanly.
-  assert(m_low_memory_mode_ != LowMemoryMode::rebuild
-         && "rebuild mode uses the rebuild callback, not reconstruct_backend");
   if (!m_backend_released_ || !m_snapshot_holder_.has_data()) {
     return;
   }
@@ -551,22 +484,6 @@ void LinearInterface::reconstruct_backend()
     clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
   }
   m_phase_ = LiPhase::Reconstructed;
-}
-
-// NOLINTNEXTLINE(misc-no-recursion)
-void LinearInterface::install_flat_as_rebuild(const FlatLinearProblem& flat_lp)
-{
-  // Clear the released flag BEFORE load_flat so the replay's add_col /
-  // add_rows calls bypass the rebuild re-entry in ensure_backend().  The
-  // rebuilding guard in ensure_backend also short-circuits, but clearing
-  // the flag lets this method work outside the rebuild callback too
-  // (e.g. future explicit callers).
-  m_backend_released_ = false;
-  // Same gating as `reconstruct_backend` — backend reloaded but
-  // not solved.  Pre-solve readers prefer the cache.
-  m_cache_.mark_solution_fresh(/*v=*/false);
-  load_flat(flat_lp);
-  apply_post_load_replay();
 }
 
 // NOLINTNEXTLINE(misc-no-recursion)
@@ -1534,8 +1451,7 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   // Throwaway clones (SDDP aperture chunk LP) skip recording — their
   // replay buffer is never re-applied to any backend.
   if (!m_replay_.replaying() && !m_is_throwaway_clone_
-      && (m_snapshot_holder_.has_data()
-          || m_low_memory_mode_ == LowMemoryMode::rebuild))
+      && m_snapshot_holder_.has_data())
   {
     m_replay_.dynamic_cols_mut().push_back(col);
   }

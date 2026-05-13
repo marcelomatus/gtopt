@@ -2063,45 +2063,7 @@ TEST_CASE(  // NOLINT
   CHECK(results->back().upper_bound > 0.0);
 }
 
-TEST_CASE(  // NOLINT
-    "SDDPMethod — rebuild mode: initialize_solver does not segfault")
-{
-  // Regression for a crash where initialize_solver() invoked
-  // add_col(alpha) and get_col_{low,upp}_raw() on released backends
-  // under LowMemoryMode::rebuild.  The SystemLP constructor defers
-  // load_flat in rebuild mode, so every per-cell backend is null until
-  // ensure_lp_built() runs.  The earlier ordering called
-  // initialize_alpha_variables + collect_state_variable_links BEFORE
-  // ensure_lp_built, dereferencing the null backend.
-  //
-  // Fix: rebuild callback + ensure_backend make the setup steps
-  // mode-agnostic; cut loaders call record_cut_row alongside add_row so
-  // persistent state (m_dynamic_cols_, m_active_cuts_, m_base_numrows_)
-  // is populated live without any retrofit pass.
-  auto planning = make_3phase_hydro_planning();
-  // Configure PlanningLP to construct SystemLPs in rebuild mode (skips
-  // the eager load_flat; this is what sets up the null-backend state
-  // that the bug required).
-  planning.options.sddp_options = SddpOptions {
-      .low_memory_mode = LowMemoryMode::rebuild,
-  };
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 2;
-  sddp_opts.convergence_tol = 1.0;  // loose: we only care about init+solve
-  sddp_opts.low_memory_mode = LowMemoryMode::rebuild;
-  sddp_opts.enable_api = false;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());  // pre-fix: segfault during initialize_solver
-  CHECK_FALSE(results->empty());
-  CHECK(results->back().upper_bound > 0.0);
-  CHECK(results->back().lower_bound > 0.0);
-}
-
-// ─── LowMemoryMode parity: off vs compress (lz4, uncompressed) vs rebuild ────
+// ─── LowMemoryMode parity: off vs compress (lz4, zstd, uncompressed) ────────
 
 TEST_CASE(  // NOLINT
     "SDDPMethod — low_memory parity across all modes")
@@ -2166,13 +2128,6 @@ TEST_CASE(  // NOLINT
   {
     const auto [ub, lb] =
         run_with_mode(LowMemoryMode::compress, CompressionCodec::uncompressed);
-    CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
-    CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
-  }
-
-  SUBCASE("rebuild")
-  {
-    const auto [ub, lb] = run_with_mode(LowMemoryMode::rebuild);
     CHECK(ub == doctest::Approx(off_ub).epsilon(kParityTol));
     CHECK(lb == doctest::Approx(off_lb).epsilon(kParityTol));
   }
@@ -3717,13 +3672,12 @@ TEST_CASE(  // NOLINT
     LowMemoryMode mode;
     const char* label;
   };
-  // Cover the resolved-default (`compress`) plus the eager (`off`) and
-  // re-flatten (`rebuild`) extremes.  All three must give the same
-  // physical answer; only the steady-state memory profile differs.
-  const std::array<ModeProbe, 3> probes = {{
+  // Cover the resolved-default (`compress`) plus the eager (`off`)
+  // extreme.  Both must give the same physical answer; only the
+  // steady-state memory profile differs.
+  const std::array<ModeProbe, 2> probes = {{
       {.mode = LowMemoryMode::off, .label = "off"},
       {.mode = LowMemoryMode::compress, .label = "compress (resolved default)"},
-      {.mode = LowMemoryMode::rebuild, .label = "rebuild"},
   }};
 
   // First mode acts as the reference; subsequent modes are compared
@@ -3881,14 +3835,6 @@ TEST_CASE(  // NOLINT
                       const LMCfg& cfg) -> CaseResult
   {
     auto planning = make_backtracking_recovery_two_reservoir_planning();
-    // For rebuild mode the SystemLP construction path must also defer
-    // load_flat (otherwise the per-cell rebuild callback is never set
-    // up).  See `SDDPMethod — rebuild mode: initialize_solver does not
-    // segfault` for the construction-time contract.
-    if (cfg.mode == LowMemoryMode::rebuild) {
-      planning.options.sddp_options =
-          SddpOptions {.low_memory_mode = LowMemoryMode::rebuild};
-    }
     for (auto& r : planning.system.reservoir_array) {
       r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
@@ -3958,7 +3904,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(off_hard.ub > 0.0);
   REQUIRE(off_dual_max > 0.0);
 
-  const std::array<LMCfg, 4> cfgs = {{
+  const std::array<LMCfg, 3> cfgs = {{
       {.mode = LowMemoryMode::compress,
        .codec = CompressionCodec::lz4,
        .label = "compress + lz4"},
@@ -3968,18 +3914,14 @@ TEST_CASE(  // NOLINT
       {.mode = LowMemoryMode::compress,
        .codec = CompressionCodec::uncompressed,
        .label = "compress + uncompressed"},
-      {.mode = LowMemoryMode::rebuild,
-       .codec = std::nullopt,
-       .label = "rebuild"},
   }};
 
   // Tolerance for cross-mode physical invariants.  The `compress` codecs
   // serialise the live LP byte-for-byte and reproduce off mode within
-  // numerical noise; `rebuild` re-flattens from JSON and replays cuts —
-  // exactly the same physical solution but a slightly different basis
-  // path.  1e-3 (relative) is loose enough for the rebuild path while
-  // still catching real divergence (e.g., dropped cuts or missing
-  // state-var links would shift dual_max by O(10) on this fixture).
+  // numerical noise.  1e-3 (relative) is loose enough to absorb basis-
+  // path jitter while still catching real divergence (e.g., dropped
+  // cuts or missing state-var links would shift dual_max by O(10) on
+  // this fixture).
   constexpr double kParityRel = 1e-3;
   constexpr double kAboveRel = 0.01;  // matches the L2975 above-vs-hard tol
 
@@ -5994,6 +5936,13 @@ TEST_CASE(  // NOLINT
     "DIAG: dual±1 + backward_resolve_target=true — LP dump + cut trace")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(abseil-string-find-str-contains, bugprone-argument-comment,
+  // bugprone-optional-value-conversion, bugprone-reserved-identifier,
+  // bugprone-unchecked-optional-access, cert-dcl37-c, cert-dcl51-cpp,
+  // cppcoreguidelines-pro-bounds-constant-array-index,
+  // cppcoreguidelines-pro-type-member-init, hicpp-member-init,
+  // misc-const-correctness, modernize-use-designated-initializers,
+  // readability-container-contains, readability-trailing-comma)
 
   const auto log_dir =
       std::filesystem::temp_directory_path() / "gtopt_dual1_bwd_resolve_diag";
@@ -6076,3 +6025,11 @@ TEST_CASE(  // NOLINT
   // If this CHECK fires we confirm a missing dump site.
   CHECK(backward_lp_count > 0);
 }
+
+// NOLINTEND(abseil-string-find-str-contains, bugprone-argument-comment,
+// bugprone-optional-value-conversion, bugprone-reserved-identifier,
+// bugprone-unchecked-optional-access, cert-dcl37-c, cert-dcl51-cpp,
+// cppcoreguidelines-pro-bounds-constant-array-index,
+// cppcoreguidelines-pro-type-member-init, hicpp-member-init,
+// misc-const-correctness, modernize-use-designated-initializers,
+// readability-container-contains, readability-trailing-comma)

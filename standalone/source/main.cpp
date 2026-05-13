@@ -64,10 +64,6 @@ int main(int argc, char** argv)
   keeps a compressed flat-LP snapshot for fast reconstruct):
     gtopt case.json --memory-saving compress
 
-  Same with the in-place rebuild mode (lowest steady-state RAM,
-  re-flattens from collections on every solve):
-    gtopt case.json --memory-saving rebuild
-
   Single-bus (copper-plate) mode — ignores all line limits:
     gtopt case.json --set model_options.use_single_bus=true
 

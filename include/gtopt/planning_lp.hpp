@@ -286,11 +286,9 @@ public:
   /**
    * @brief Eagerly build every (scene, phase) LP matrix in parallel.
    *
-   * Under `LowMemoryMode::rebuild` this triggers the rebuild callback
-   * for each cell (collections + flatten + load_flat) in parallel via
-   * the solver work pool.  Under `compress` it reconstructs each cell
-   * from its snapshot.  Under `off` it is a no-op (every backend is
-   * already live from construction).
+   * Under `LowMemoryMode::compress` this reconstructs each cell from
+   * its snapshot.  Under `off` it is a no-op (every backend is already
+   * live from construction).
    *
    * Intended use: the `--lp-only` CLI path validates that the whole
    * planning horizon can be built, and optionally dumps every cell via

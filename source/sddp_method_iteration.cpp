@@ -426,10 +426,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     auto& tgt_li = tgt_sys.linear_interface();
 
     // Re-apply volume-dependent LP coefficient updates after the
-    // reconstruct.  Under `LowMemoryMode::compress` /
-    // `LowMemoryMode::rebuild`, `ensure_lp_built()` reloads the
-    // construction-time structural matval from the snapshot and the
-    // forward pass's `update_lp_for_phase` mutations (turbine
+    // reconstruct.  Under `LowMemoryMode::compress`,
+    // `ensure_lp_built()` reloads the construction-time structural
+    // matval from the snapshot and the forward pass's
+    // `update_lp_for_phase` mutations (turbine
     // production factor, seepage, discharge limit, …) are NOT in the
     // snapshot — they live only on the volatile backend that was
     // dropped at the previous `release_backend()`.  Without this call

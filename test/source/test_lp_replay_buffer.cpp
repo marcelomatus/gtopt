@@ -22,6 +22,7 @@
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(google-global-names-in-headers)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -78,9 +79,11 @@ TEST_CASE("LpReplayBuffer R2 — records under every mode (post-fix)")  // NOLIN
   buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
   CHECK(buf.active_cuts_size() == 2);
 
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::rebuild);
+  // The mode parameter no longer gates recording; pass `off` to
+  // confirm the record fires regardless of the value supplied.
+  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::off);
   CHECK(buf.dynamic_cols_size() == 3);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::rebuild);
+  buf.record_cut_row_if_tracked(row, LowMemoryMode::off);
   CHECK(buf.active_cuts_size() == 3);
 }
 
@@ -255,3 +258,5 @@ TEST_CASE("LpReplayBuffer reserve_active_cuts is a no-op size-wise")
 }
 
 }  // namespace
+
+// NOLINTEND(google-global-names-in-headers)

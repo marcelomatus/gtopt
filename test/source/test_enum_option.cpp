@@ -526,8 +526,10 @@ TEST_CASE("LowMemoryMode alias 'snapshot' still parses to compress")  // NOLINT
   CHECK(require_enum<LowMemoryMode>("low-memory", "off") == LowMemoryMode::off);
   CHECK(require_enum<LowMemoryMode>("low-memory", "compress")
         == LowMemoryMode::compress);
+  // The legacy `rebuild` value was removed 2026-05-13; the name is
+  // retained as a back-compat alias that resolves to `compress`.
   CHECK(require_enum<LowMemoryMode>("low-memory", "rebuild")
-        == LowMemoryMode::rebuild);
+        == LowMemoryMode::compress);
 }
 
 TEST_CASE("require_enum<LowMemoryMode> error message hides alias 'snapshot'")
@@ -576,6 +578,7 @@ TEST_CASE("require_enum<CompressionCodec> error message hides alias 'none'")
 // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(readability-static-accessed-through-instance)
 
   // "none" is an alias for "uncompressed" — still parses.
   CHECK(require_enum<CompressionCodec>("output-compression", "none")
@@ -593,3 +596,5 @@ TEST_CASE("require_enum<CompressionCodec> error message hides alias 'none'")
     CHECK(msg.find(" none)") == std::string::npos);
   }
 }
+
+// NOLINTEND(readability-static-accessed-through-instance)

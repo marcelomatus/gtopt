@@ -42,6 +42,8 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/strong_index_vector.hpp>
+// NOLINTBEGIN(hicpp-move-const-arg, modernize-return-braced-init-list,
+// performance-move-const-arg, readability-trailing-comma)
 
 namespace gtopt
 {
@@ -752,7 +754,6 @@ public:
   void record_cut_deletion(std::span<const int> deleted_indices);
 
   /// True when a `FlatLinearProblem` snapshot is currently held.
-  /// Always false in `LowMemoryMode::rebuild` after release_backend.
   [[nodiscard]] bool has_snapshot_data() const noexcept
   {
     return m_snapshot_holder_.has_data();
@@ -774,8 +775,7 @@ public:
   }
 
   /// Move out the recorded dynamic columns (alpha) so the caller can
-  /// preserve them across a destructive rebuild.  Used by
-  /// `SystemLP::ensure_lp_built()` under `LowMemoryMode::rebuild`.
+  /// preserve them across a destructive rebuild.
   [[nodiscard]] std::vector<SparseCol> take_dynamic_cols() noexcept
   {
     return m_replay_.take_dynamic_cols();
@@ -811,44 +811,18 @@ public:
   }
 
   /// Mark this interface as "no LP loaded": flips `m_backend_released_` to
-  /// true and, for non-rebuild modes, drops the default-constructed
-  /// backend handle.  Intended for `LowMemoryMode::rebuild`, where
-  /// `SystemLP`'s constructor wants to install the low-memory configuration
-  /// without paying for an initial `load_flat()` — the next backend access
-  /// (via `ensure_backend()`) will invoke the rebuild callback to assemble
-  /// the flat LP lazily.  In rebuild mode the default backend handle is
-  /// retained so that `infinity()` stays queryable for the LinearProblem
-  /// builder used inside the rebuild callback.  Unlike `release_backend()`,
-  /// this skips solution caching and snapshot compression: there is nothing
-  /// meaningful to cache yet.
+  /// true and drops the default-constructed backend handle.  Unlike
+  /// `release_backend()`, this skips solution caching and snapshot
+  /// compression: there is nothing meaningful to cache yet.
   void mark_released() noexcept
   {
-    if (m_low_memory_mode_ != LowMemoryMode::rebuild) {
-      m_backend_.reset();
-    }
+    m_backend_.reset();
     m_backend_released_ = true;
   }
 
-  /// Install the owning SystemLP as the rebuild-source for
-  /// `LowMemoryMode::rebuild`.  When the backend is released, the next
-  /// `ensure_backend()` call invokes `SystemLP::rebuild_in_place()` on
-  /// this pointer.  Must be re-set after every SystemLP move so it
-  /// tracks the new object's address.
-  ///
-  /// Pass `nullptr` to clear — typical under other low_memory modes.
-  void set_rebuild_owner(SystemLP* owner) noexcept { m_rebuild_owner_ = owner; }
-
-  /// True iff a rebuild owner has been installed.  Used by SystemLP to
-  /// decide whether an accidental pre-owner access would be a logic bug.
-  [[nodiscard]] bool has_rebuild_callback() const noexcept
-  {
-    return m_rebuild_owner_ != nullptr;
-  }
-
   /// Replay the persistent SDDP state (dynamic cols + active cuts +
-  /// warm-start) onto the live backend after a fresh `load_flat()`.  Used
-  /// by both the compress/snapshot reconstruction path and the rebuild
-  /// callback, which share the same post-load protocol: structural rows
+  /// warm-start) onto the live backend after a fresh `load_flat()`.
+  /// Used by the compress/snapshot reconstruction path: structural rows
   /// are in the backend, and the caller-tracked state must be replayed on
   /// top so subsequent add_col/add_row calls append cleanly.
   ///
@@ -864,19 +838,9 @@ public:
   /// add_cols/add_rows skip auto-recording.
   void apply_post_load_replay(const LpReplayBuffer& source);
 
-  /// Finalize a rebuild in place: clear the released flag, run
-  /// `load_flat(flat_lp)` on the existing backend, and replay persistent
-  /// state (dynamic cols + base_numrows + active cuts).  Used exclusively
-  /// by the `LowMemoryMode::rebuild` callback — mirrors
-  /// `reconstruct_backend` but takes a caller-provided flat LP instead of
-  /// sourcing one from `m_snapshot_`.
-  void install_flat_as_rebuild(const FlatLinearProblem& flat_lp);
-
   /// Ensure the backend is live.  For `LowMemoryMode::off` this is a
-  /// no-op (backend is always live).  For `snapshot` / `compress` it
-  /// reconstructs from the saved snapshot.  For `rebuild` it invokes
-  /// the installed rebuild callback (which flattens the LP from source
-  /// collections and installs it via `install_flat_as_rebuild`).
+  /// no-op (backend is always live).  For `compress` (and the legacy
+  /// `snapshot` alias) it reconstructs from the saved snapshot.
   ///
   /// Any mutation method (add_col, add_row, set_*, solve) calls this
   /// internally, so most callers don't need to invoke it directly.
@@ -1207,19 +1171,13 @@ public:
    * for pruning.  Must be called once after the structural LP is built,
    * before any Benders cuts are added.
    *
-   * Under `LowMemoryMode::rebuild`, transparently triggers the rebuild
-   * callback when the backend is still released so callers never read a
-   * stale cached row count from an un-built cell.  `snapshot`/`compress`
-   * modes pre-seed `m_cached_numrows_` via `defer_initial_load`, so
-   * `get_numrows()` returns the correct value without a reconstruct —
-   * preserving the invariant that save_base_numrows does not flip the
-   * released flag for those modes.
+   * `compress` (and the legacy `snapshot` alias) pre-seed
+   * `m_cached_numrows_` via `defer_initial_load`, so `get_numrows()`
+   * returns the correct value without a reconstruct — preserving the
+   * invariant that `save_base_numrows` does not flip the released flag.
    */
   void save_base_numrows()
   {
-    if (m_low_memory_mode_ == LowMemoryMode::rebuild) {
-      ensure_backend();
-    }
     m_base_numrows_ = get_numrows();
     m_base_numrows_set_ = true;
     // Legacy callers reach the cut-build phase boundary here too.
@@ -2776,6 +2734,7 @@ private:
 
   struct FILEcloser
   {
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory,cert-err33-c)
     void operator()(FILE* f) const noexcept { std::fclose(f); }
   };
   using log_file_ptr_t = std::unique_ptr<FILE, FILEcloser>;
@@ -2783,10 +2742,6 @@ private:
 
   /// Cache post-solve state and auto-release backend if low_memory is on.
   void cache_and_release();
-
-  /// Call `m_rebuild_owner_->rebuild_in_place()`.  Defined in
-  /// linear_interface.cpp where `SystemLP` is a complete type.
-  void invoke_rebuild_owner();
 
   // ── Low-memory state ──────────────────────────────────────────────────
 
@@ -2805,8 +2760,7 @@ private:
   /// Snapshot + codec holder (Phase 2b of the LinearInterface split —
   /// see ``include/gtopt/lp_snapshot_holder.hpp``).  Owns the flat LP
   /// snapshot used by the `compress`/`snapshot` reconstruct path and
-  /// the compression codec.  Always empty under `rebuild` (the flat
-  /// LP is regenerated from collections instead).
+  /// the compression codec.
   LpSnapshotHolder m_snapshot_holder_ {};
 
   /// Invalidate the cached optimality flag and drop the cached
@@ -2996,20 +2950,6 @@ private:
   /// assertion would fire on legitimate paths.
   LiPhase m_phase_ {LiPhase::Building};
 
-  /// Re-entry guard for rebuild.  `ensure_backend()` sets this true
-  /// before calling `m_rebuild_owner_->rebuild_in_place()`, which
-  /// internally calls `load_flat` / `add_col` / `add_rows` that recurse
-  /// through `ensure_backend`.  With the guard set those recursive calls
-  /// early-return, avoiding an infinite loop.
-  bool m_rebuilding_ {false};
-
-  /// Back-pointer to the owning `SystemLP` under `LowMemoryMode::rebuild`.
-  /// When non-null, `ensure_backend()` calls
-  /// `m_rebuild_owner_->rebuild_in_place()` instead of the snapshot
-  /// reconstruct path.  Set by `SystemLP::install_rebuild_callback` and
-  /// re-set after every SystemLP move.  Never owns the pointee.
-  SystemLP* m_rebuild_owner_ {};
-
   // ── Post-solve cache (valid when backend is released) ──────────────────
   //
   // Phase 1 of the LinearInterface split (B2 in
@@ -3082,3 +3022,6 @@ private:
 };
 
 }  // namespace gtopt
+
+// NOLINTEND(hicpp-move-const-arg, modernize-return-braced-init-list,
+// performance-move-const-arg, readability-trailing-comma)

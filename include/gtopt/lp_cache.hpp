@@ -37,8 +37,7 @@
  *              the optimality flag to true.
  *   * **C5.**  `mark_solution_fresh(true)` fires inside `timed_solve`
  *              before the optimality check; `mark_solution_fresh(false)`
- *              fires on every `reconstruct_backend()` and
- *              `install_flat_as_rebuild()`.
+ *              fires on every `reconstruct_backend()`.
  *   * **C6.**  `size_bytes()` reports the total bytes held by the
  *              three vectors.
  *   * **C7.**  `col_sol_buffer(n)` / `col_cost_buffer(n)` /
@@ -154,8 +153,8 @@ public:
 
   /// **C5** — track whether the live backend's `col_solution()` /
   /// `is_proven_optimal()` reflect a fresh solve.  Cleared on
-  /// `reconstruct_backend()` / `install_flat_as_rebuild()`; set on
-  /// successful `resolve()` / `initial_solve()`.
+  /// `reconstruct_backend()`; set on successful `resolve()` /
+  /// `initial_solve()`.
   constexpr void mark_solution_fresh(bool v) noexcept
   {
     m_backend_solution_fresh_ = v;

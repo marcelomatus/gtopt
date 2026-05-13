@@ -135,24 +135,6 @@ TEST_CASE(  // NOLINT
     // tight.
     CHECK(last.lower_bound > last.upper_bound * 0.85);
   }
-
-  SUBCASE("rebuild mode converges — same replay path as compress")
-  {
-    // rebuild and compress share apply_post_load_replay; both were broken
-    // by the old m_snapshot_.has_data() gate.
-    const auto last = run_3phase(LowMemoryMode::rebuild);
-    INFO("rebuild: UB=",
-         last.upper_bound,
-         " LB=",
-         last.lower_bound,
-         " gap=",
-         last.gap,
-         " converged=",
-         last.converged);
-    CHECK(last.converged);
-    CHECK(last.gap >= -1.0e-6);
-    CHECK(last.lower_bound > last.upper_bound * 0.85);
-  }
 }
 
 // ─── Parity test: compress objective ≈ off objective ──────────────────────
@@ -161,7 +143,7 @@ TEST_CASE(  // NOLINT
 // A large divergence would indicate the cut replay produces a different
 // (inflated or deflated) value function.
 TEST_CASE(  // NOLINT
-    "SDDPMethod — compress/rebuild bounds match off-mode bounds at convergence")
+    "SDDPMethod — compress bounds match off-mode bounds at convergence")
 {
   constexpr double kParityEps = 1.0e-3;  // 0.1% relative tolerance
 
@@ -177,17 +159,6 @@ TEST_CASE(  // NOLINT
     CHECK(cmp_last.upper_bound
           == doctest::Approx(off_last.upper_bound).epsilon(kParityEps));
     CHECK(cmp_last.lower_bound
-          == doctest::Approx(off_last.lower_bound).epsilon(kParityEps));
-  }
-
-  SUBCASE("rebuild UB/LB parity with off")
-  {
-    const auto rbl_last = run_3phase(LowMemoryMode::rebuild);
-    INFO("off UB=", off_last.upper_bound, " LB=", off_last.lower_bound);
-    INFO("rebuild UB=", rbl_last.upper_bound, " LB=", rbl_last.lower_bound);
-    CHECK(rbl_last.upper_bound
-          == doctest::Approx(off_last.upper_bound).epsilon(kParityEps));
-    CHECK(rbl_last.lower_bound
           == doctest::Approx(off_last.lower_bound).epsilon(kParityEps));
   }
 }

@@ -261,10 +261,11 @@ public:
                                                 std::move(context));
 
     if (!inserted) {
-      // Idempotent re-registration is allowed: LowMemoryMode::rebuild
-      // re-runs create_lp() for the same (scene, phase), which replays
-      // every add_state_variable call.  Same col index = benign rebuild;
-      // different col = a real bug we still want to catch.
+      // Idempotent re-registration is allowed: throw-away flatten passes
+      // (e.g. `rebuild_collections_if_needed` under compress mode)
+      // replay every add_state_variable call.  Same col index = benign
+      // re-registration; different col = a real bug we still want to
+      // catch.
       if (it->second.col() != col) {
         const auto msg =
             std::format("duplicated variable {}:{} in simulation map",

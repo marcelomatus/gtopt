@@ -308,31 +308,35 @@ inline constexpr auto state_variable_lookup_mode_entries =
  *               accumulated cuts.  Reconstructed on demand.  Set
  *               `memory_codec = uncompressed` to retain the flat LP raw
  *               (previously the dedicated `snapshot` mode).
- * - `rebuild`:  Re-flatten the LP from element collections on every solve.
- *               No FlatLinearProblem snapshot is held; only the small
- *               persistent SDDP state (dynamic α columns and accumulated
- *               Benders cuts) survives across solves.  Lowest steady-state
- *               memory; highest CPU cost.  Skips the initial up-front
- *               build loop entirely — each (scene, phase) LP is built
- *               lazily inside the same task that solves or clones it.
+ *
+ * The previous `rebuild` mode (re-flatten from collections on every solve,
+ * no snapshot) was removed 2026-05-13: it delivered no measurable benefit
+ * over `compress` on production workloads, while doubling the surface area
+ * of LP-lifecycle bugs we had to keep alive.
  */
 enum class LowMemoryMode : uint8_t
 {
   off = 0,  ///< Disabled — keep solver backend loaded (default)
   compress = 2,  ///< Release solver, keep (optionally compressed) flat LP
-  rebuild = 3,  ///< Re-flatten LP from collections on every solve, no snapshot
 };
 
 inline constexpr auto low_memory_mode_entries =
     std::to_array<EnumEntry<LowMemoryMode>>({
         {.name = "off", .value = LowMemoryMode::off},
         {.name = "compress", .value = LowMemoryMode::compress},
-        {.name = "rebuild", .value = LowMemoryMode::rebuild},
         // Back-compat alias: "snapshot" parses to `compress`.  Callers
         // that want the old snapshot semantics (uncompressed flat LP)
         // set `memory_codec = uncompressed` explicitly.
         {
             .name = "snapshot",
+            .value = LowMemoryMode::compress,
+            .is_alias = true,
+        },
+        // Back-compat alias: "rebuild" was removed 2026-05-13; route to
+        // `compress` so existing configs / CLI invocations don't error.
+        // Drop this entry after one release cycle.
+        {
+            .name = "rebuild",
             .value = LowMemoryMode::compress,
             .is_alias = true,
         },

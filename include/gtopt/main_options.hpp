@@ -32,6 +32,7 @@
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 #include <spdlog/spdlog.h>
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace gtopt
 {
@@ -277,9 +278,10 @@ template<typename T>
        "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
        "compress (release solver, keep compressed flat LP — best "
        "balance, also the resolved default for SDDP/cascade and the "
-       "implicit value when the flag is given without an argument), "
-       "rebuild (re-build base LP every solve — lowest RAM, highest "
-       "CPU).  Overridden by direct JSON settings for either option.")  //
+       "implicit value when the flag is given without an argument).  "
+       "The legacy `rebuild` value is accepted as a back-compat alias "
+       "for `compress`.  Overridden by direct JSON settings for either "
+       "option.")  //
       // Deprecated alias for `--memory-saving` — hidden from help.
       ("low-memory",
        po::value<std::string>().implicit_value("compress"),
@@ -691,8 +693,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // if the user already configured a richer pass list).
   std::optional<std::string> dump_dir = opts.lp_dump_backward;
   if (!dump_dir) {
-    if (const auto* env = std::getenv(
-            "GTOPT_DUMP_BACKWARD_LP");  // NOLINT(concurrency-mt-unsafe)
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    if (const auto* env = std::getenv("GTOPT_DUMP_BACKWARD_LP");
         env != nullptr && *env != '\0')
     {
       dump_dir = std::string(env);
@@ -1290,3 +1292,5 @@ inline void merge_config_defaults(MainOptions& opts,
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(misc-const-correctness)

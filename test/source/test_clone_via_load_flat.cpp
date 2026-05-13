@@ -850,13 +850,10 @@ ModeFixture make_sddp_like_source(LowMemoryMode mode)
 
   out.src.set_low_memory(mode, CompressionCodec::lz4);
   out.src.load_flat(flat);
-  // off + compress save the snapshot; rebuild has no snapshot but
-  // installs a rebuild owner via SystemLP in production — for this
-  // unit test we just save a snapshot under all modes for
-  // consistency, then check the API behaviour.
-  if (mode != LowMemoryMode::rebuild) {
-    out.src.save_snapshot(std::move(flat));
-  }
+  // Both supported modes (off + compress) save a snapshot.  We do it
+  // unconditionally so the fixture exercises every API entry point
+  // regardless of mode.
+  out.src.save_snapshot(std::move(flat));
   out.src.save_base_numrows();
   out.cols_after_freeze = static_cast<size_t>(out.src.get_numcols());
   out.rows_after_freeze = static_cast<size_t>(out.src.get_numrows());
@@ -900,9 +897,7 @@ TEST_CASE(  // NOLINT
   // matches the source's live backend state in every mode — that's
   // the contract callers (elastic, aperture, ad-hoc) rely on.
 
-  for (const auto mode :
-       {LowMemoryMode::off, LowMemoryMode::compress, LowMemoryMode::rebuild})
-  {
+  for (const auto mode : {LowMemoryMode::off, LowMemoryMode::compress}) {
     CAPTURE(static_cast<int>(mode));
     auto fix = make_sddp_like_source(mode);
     auto& src = fix.src;
@@ -1025,12 +1020,11 @@ TEST_CASE(  // NOLINT
   // native clone (`clone(shallow)` → CPXcloneprob) must produce
   // structurally identical LPs that solve to the same obj.
   //
-  // Pre-2026-05-11 this held under compress and rebuild (where
-  // `m_replay_` was populated) but FAILED under off — see the
-  // regression-guard test above.
+  // Pre-2026-05-11 this held under compress (where `m_replay_` was
+  // populated) but FAILED under off — see the regression-guard test
+  // above.
 
-  const std::array modes = {
-      LowMemoryMode::off, LowMemoryMode::compress, LowMemoryMode::rebuild};
+  const std::array modes = {LowMemoryMode::off, LowMemoryMode::compress};
 
   for (const auto mode : modes) {
     CAPTURE(static_cast<int>(mode));
@@ -1043,13 +1037,8 @@ TEST_CASE(  // NOLINT
     CHECK(native.get_numcols() == src.get_numcols());
     CHECK(native.get_numrows() == src.get_numrows());
 
-    // Manual route is only viable when has_snapshot_data() is true.
-    // Under rebuild the snapshot is intentionally absent — the
-    // rebuild callback owns the reload — so manual clone throws.
-    // Skip the comparison there and only assert native works.
-    if (!src.has_snapshot_data()) {
-      continue;
-    }
+    // Manual route requires a populated snapshot.
+    REQUIRE(src.has_snapshot_data());
     auto manual = src.clone_from_flat(LinearInterface::CloneKind::shallow,
                                       /*with_replay=*/true);
     CHECK(manual.get_numcols() == native.get_numcols());
@@ -1063,25 +1052,6 @@ TEST_CASE(  // NOLINT
     CHECK(native.get_obj_value()
           == doctest::Approx(manual.get_obj_value()).epsilon(1e-9));
   }
-}
-
-TEST_CASE(  // NOLINT
-    "clone_from_flat — throws under rebuild mode (no snapshot)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // Rebuild mode never installs a snapshot — clone_from_flat must
-  // reject the call rather than silently producing a degenerate
-  // clone.
-
-  auto fix = make_sddp_like_source(LowMemoryMode::rebuild);
-  auto& src = fix.src;
-  REQUIRE(src.low_memory_mode() == LowMemoryMode::rebuild);
-  REQUIRE_FALSE(src.has_snapshot_data());
-
-  CHECK_THROWS_AS(
-      std::ignore = src.clone_from_flat(LinearInterface::CloneKind::shallow,
-                                        /*with_replay=*/true),
-      std::runtime_error);
 }
 
 // ─── 11. Critical SDDP paths exercised by the elastic filter ────────
@@ -1260,6 +1230,7 @@ TEST_CASE(  // NOLINT
     "Borrow-from-source replay leaves source's replay buffer untouched")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, readability-trailing-comma)
 
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
@@ -1289,3 +1260,5 @@ TEST_CASE(  // NOLINT
   CHECK(src.replay_buf().dynamic_rows_size() == rows_before);
   CHECK(src.replay_buf().pending_col_bounds_size() == pending_before);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, readability-trailing-comma)

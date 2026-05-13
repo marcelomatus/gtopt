@@ -2966,34 +2966,6 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LinearInterface::freeze_for_cuts with LowMemoryMode::rebuild — no "
-    "snapshot")
-{
-  // Edge case: rebuild mode uses a per-cell callback to re-flatten
-  // from element collections, NOT the snapshot path.  In fact
-  // `reconstruct_backend` explicitly asserts
-  // `m_low_memory_mode_ != rebuild` (linear_interface.cpp:315),
-  // so a snapshot stored under rebuild would be dead weight.
-  // `freeze_for_cuts(rebuild, ...)` skips `save_snapshot` for this
-  // reason — pin the contract.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto [li, flat, x1, x2] = make_simple_li_lp();
-  // Bare LinearInterface in this test — no rebuild callback owner
-  // is installed, but freeze_for_cuts still completes (set_low_memory,
-  // skip snapshot, save_base_numrows) without touching the
-  // reconstruct path.
-
-  li.freeze_for_cuts(LowMemoryMode::rebuild, FlatLinearProblem {flat});
-
-  CHECK(li.phase() == LinearInterface::LiPhase::Frozen);
-  CHECK(li.low_memory_mode() == LowMemoryMode::rebuild);
-  // Snapshot deliberately NOT saved under rebuild.
-  CHECK_FALSE(li.has_snapshot_data());
-  CHECK(li.base_numrows() > 0);
-}
-
-TEST_CASE(  // NOLINT
     "LinearInterface — multi-cycle release/reconstruct preserves cut metadata")
 {
   // Stress test: a cell that goes through MANY release/reconstruct
@@ -3722,40 +3694,10 @@ TEST_CASE(  // NOLINT
 // Hardening: silent NULL-deref → loud exception
 // ---------------------------------------------------------------------------
 //
-// Pre-2026-05-03 a misconfigured ``low_memory_mode=rebuild`` LinearInterface
-// could segfault inside the solver plugin when:
-//   (a) ``ensure_backend()`` silently early-returned because no rebuild
-//       owner was installed, leaving ``m_backend_`` null, or
-//   (b) a stale ``ColIndex`` captured before a rebuild referenced a
-//       column that the rebuilt LP no longer had.
-// Both paths now throw ``std::runtime_error`` / ``std::out_of_range``
-// with actionable messages.  These tests pin the hardened contract.
-
-TEST_CASE(  // NOLINT
-    "LinearInterface — ensure_backend throws when rebuild owner is missing")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  LinearInterface li;
-  // Add a column so the LP is non-trivial.
-  std::ignore = li.add_col(SparseCol {
-      .uppb = 10.0,
-      .cost = 1.0,
-  });
-
-  // Configure rebuild mode but leave the rebuild owner unset.  This is
-  // the historical "bare LinearInterface used as if it had an owner"
-  // misconfiguration — the silent early-return that allowed it to
-  // proceed produced a null-deref segfault on the next backend access.
-  li.set_low_memory(LowMemoryMode::rebuild, CompressionCodec::lz4);
-  li.mark_released();
-
-  // Any call that triggers ensure_backend() must now throw, with a
-  // message that names the misconfiguration.
-  CHECK_THROWS_WITH_AS(li.set_col_low_raw(ColIndex {0}, 0.0),
-                       doctest::Contains("rebuild owner"),
-                       std::runtime_error);
-}
+// Pre-2026-05-03 a misconfigured low-memory LinearInterface could segfault
+// inside the solver plugin when a stale ``ColIndex`` captured before a
+// reconstruct referenced a column that the rebuilt LP no longer had.
+// That path now throws ``std::out_of_range`` with an actionable message.
 
 TEST_CASE(  // NOLINT
     "LinearInterface — set_col_low_raw throws on out-of-range ColIndex")
@@ -3789,6 +3731,8 @@ TEST_CASE(  // NOLINT
     "LinearInterface — set_col_upp_raw throws on out-of-range ColIndex")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness, readability-qualified-auto,
+  // readability-trailing-comma)
 
   LinearInterface li;
   const auto x0 = li.add_col(SparseCol {
@@ -4532,3 +4476,6 @@ TEST_CASE(  // NOLINT
   CHECK(live_view.size() == static_cast<size_t>(li.get_numcols()));
   CHECK(li.cached_col_sol_size() == 0);  // still empty after read
 }
+
+// NOLINTEND(misc-const-correctness, readability-qualified-auto,
+// readability-trailing-comma)

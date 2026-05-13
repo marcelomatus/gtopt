@@ -33,6 +33,7 @@
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness, modernize-use-designated-initializers)
 
 namespace
 {
@@ -178,12 +179,6 @@ TEST_CASE("clone matrix: low-memory modes × clone routes × kinds")
   //     `set_low_memory(off)` deliberately wipes m_snapshot_
   //     (linear_interface.cpp:249-251) — the combination is by design
   //     incoherent.  Verified separately below as an error case.
-  //   * {rebuild, *}: `LowMemoryMode::rebuild` requires a SystemLP-owned
-  //     rebuild callback to function — unit-test context (no callback)
-  //     short-circuits `release_backend` to a no-op (linear_interface.cpp:
-  //     117-122), so the clone behaviour collapses to the `off`-mode path.
-  //     Production rebuild semantics are covered by the SDDP integration
-  //     tests end-to-end.
   //
   // For each cell:
   //   1. dimensions match the source,
@@ -341,3 +336,5 @@ TEST_CASE("compress mode: clone_from_flat survives source's release_backend")
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
 }
+
+// NOLINTEND(misc-const-correctness, modernize-use-designated-initializers)

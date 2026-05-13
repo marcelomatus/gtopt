@@ -298,11 +298,13 @@ public:
         ->element(id);
   }
 
-  /// Rebuild-pass flag.  Set to `true` by `SystemLP::rebuild_in_place`
-  /// while the LP is being re-flattened from collections under
-  /// `LowMemoryMode::rebuild`.  Gated registry side-effects
+  /// Rebuild-pass flag.  Set to `true` by
+  /// `SystemLP::rebuild_collections_if_needed` while a throw-away
+  /// flatten regenerates the per-element XLP state (under
+  /// `LowMemoryMode::compress`, after `release_backend()` dropped the
+  /// disposable element wrappers).  Gated registry side-effects
   /// (`add_state_variable`, `add_ampl_variable`, `defer_state_link`,
-  /// `register_ampl_element_metadata`) become no-ops when this flag is
+  /// `register_ampl_element_metadata`) become no-ops when the flag is
   /// set — the initial pass already populated the registries with
   /// matching col indices, and re-registering on every rebuild would
   /// burn CPU for zero gain while risking false-positive mismatches in

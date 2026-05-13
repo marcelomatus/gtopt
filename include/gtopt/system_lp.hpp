@@ -336,7 +336,7 @@ public:
   template<typename Element, typename Self>
   [[nodiscard]] constexpr auto&& elements(this Self&& self)
   {
-    if (!std::forward<Self>(self).m_collections_built_) {
+    if (!self.m_collections_built_) {
       throw std::runtime_error(
           "SystemLP::elements<X>() read with empty collections — call "
           "rebuild_collections_if_needed() after release_backend() under "
@@ -361,7 +361,7 @@ public:
   [[nodiscard]] constexpr auto&& element(this Self&& self,
                                          const Id<Element>& id)
   {
-    if (!std::forward<Self>(self).m_collections_built_) {
+    if (!self.m_collections_built_) {
       throw std::runtime_error(
           "SystemLP::element<X>() read with empty collections — call "
           "rebuild_collections_if_needed() after release_backend() under "
@@ -507,23 +507,18 @@ private:
   LpFingerprint m_fingerprint_;
   std::optional<ObjectSingleId<BusLP>> m_single_bus_id_ {};
 
-  /// Flat-assembly options captured at construction.  Kept alive so that
-  /// `LowMemoryMode::rebuild` can re-invoke `create_lp(m_flat_opts_)`
-  /// inside every `ensure_lp_built()` call.
+  /// Flat-assembly options captured at construction.  Retained for
+  /// the lifetime of the SystemLP so write-out / accessor paths can
+  /// resolve scale_objective and the active memory mode at any time.
   LpMatrixOptions m_flat_opts_ {};
 
-  /// True once the LP fingerprint has been computed.  In rebuild mode
-  /// subsequent rebuilds skip recomputation (the model is deterministic
-  /// and re-hashing would be wasted work).
+  /// True once the LP fingerprint has been computed.
   bool m_fingerprint_was_set_ {false};
 
-  /// True once `create_collections` has been called.  Non-rebuild modes
-  /// set this in the ctor (eager build).  Rebuild mode flips it on the
-  /// first `rebuild_in_place` call, amortising the ~0.4s per-cell
-  /// collection construction cost across the SDDP iterations that
-  /// actually touch the cell.  Before the flag is set, `m_collections_`
-  /// is default-constructed (empty) and no LP element wrapper has been
-  /// allocated for this cell.
+  /// True once `create_collections` has been called.  Set eagerly in
+  /// the ctor for both `off` and `compress` modes.  Before the flag
+  /// is set, `m_collections_` is default-constructed (empty) and no
+  /// LP element wrapper has been allocated for this cell.
   bool m_collections_built_ {false};
 
   /// True once the *full* collection set (HasUpdateLP + disposable
@@ -560,11 +555,10 @@ private:
   /// output.
   bool m_output_skipped_ {false};
 
-  /// Exact (ncols, nrows) from the first successful flatten.  Used as
-  /// the reserve hint on subsequent `LowMemoryMode::rebuild` flatten
-  /// passes — matches the actual sizes and avoids the vector-growth
-  /// reallocations that the shape heuristic tends to trigger.  Zero
-  /// until the first flatten completes.
+  /// Exact (ncols, nrows) from the successful flatten.  Recorded so
+  /// downstream code (and any future re-flatten path) can read the
+  /// realised sizes without re-running the heuristic.  Zero until the
+  /// flatten completes.
   size_t m_last_flat_ncols_ {0};
   size_t m_last_flat_nrows_ {0};
 
@@ -635,19 +629,15 @@ public:
                       CompressionCodec codec = CompressionCodec::lz4)
   {
     m_linear_interface_.set_low_memory(mode, codec);
-    // Keep m_flat_opts_ in sync so rebuild_in_place() re-flattens with the
-    // correct mode + codec.  Also install the rebuild callback: callers
-    // may flip from `off` → `rebuild` mid-run (SDDPMethod::initialize_solver
-    // does exactly that on already-constructed SystemLPs), and
-    // ensure_backend needs the callback for the lazy rebuild to fire.
+    // Keep m_flat_opts_ in sync so write-out / accessor paths see the
+    // active mode + codec.
     m_flat_opts_.low_memory_mode = mode;
     m_flat_opts_.memory_codec = codec;
-    install_rebuild_callback();
   }
 
   /// Release the solver backend and (under any non-`off` low-memory
   /// mode) drop the per-cell collection wrappers.  The memory ceiling
-  /// under compress/rebuild becomes `active_workers × per-cell` instead
+  /// under compress becomes `active_workers × per-cell` instead
   /// of `num_cells × per-cell` resident forever.
   ///
   /// Post-release rehydration paths:
@@ -707,23 +697,11 @@ public:
   ///  - `snapshot` / `compress`: reconstruct backend from snapshot if
   ///    released.
   ///  - `rebuild`: invoke the SystemLP-owned rebuild callback (which
-  ///    re-flattens; this path DOES refresh collections as a side
-  ///    effect because rebuild_in_place re-runs ``create_collections``).
   ///
   /// Callers that subsequently mutate the LP (add_col, add_row, set_*)
   /// can skip the explicit call — those mutations invoke ensure_backend
   /// themselves.
   void ensure_lp_built();
-
-  /// Regenerate the flat LP from the live element collections and load
-  /// it into the existing `m_linear_interface_` in place.  Public only
-  /// so that `LinearInterface::ensure_backend()` can reach it via its
-  /// `m_rebuild_owner_` back-pointer; the intended caller is always
-  /// that one path.  Does NOT replace `m_linear_interface_` — it
-  /// mutates its backend via `install_flat_as_rebuild`, which is safe
-  /// even when invoked from inside a LinearInterface method
-  /// (e.g. `add_col` → `ensure_backend`).
-  void rebuild_in_place();
 
   /// Under `LowMemoryMode::compress`, rebuild the per-element XLP
   /// state (generation_cols, capacity_rows, …) if it was dropped by a
@@ -731,9 +709,8 @@ public:
   /// by a throw-away flatten whose sole purpose is the `add_to_lp()`
   /// side effects on the XLP wrappers — the produced
   /// `FlatLinearProblem` is discarded, the solver backend is
-  /// untouched.  No-op under `off` / `rebuild` (the former never
-  /// drops, the latter refreshes via `rebuild_in_place`).  Invoked
-  /// from `ensure_lp_built()` so any caller that does
+  /// untouched.  No-op under `off` (collections never drop).
+  /// Invoked from `ensure_lp_built()` so any caller that does
   /// `ensure_lp_built → read collections` works transparently.
   void rebuild_collections_if_needed();
 
@@ -745,9 +722,9 @@ public:
   /// rehydrate via `rebuild_collections_if_needed()`, and `update_lp` does
   /// not touch them.
   ///
-  /// No-op outside `LowMemoryMode::compress` / `rebuild` — under `off`
-  /// the collections must stay live for `release_backend` to be a no-op
-  /// on the existing live LP.
+  /// No-op outside `LowMemoryMode::compress` — under `off` the collections
+  /// must stay live for `release_backend` to be a no-op on the existing
+  /// live LP.
   ///
   /// Collection objects' addresses inside `m_collections_` stay valid
   /// (the tuple slot doesn't move); only their internal element vectors
@@ -758,16 +735,6 @@ public:
   /// after the drop must first call `rebuild_collections_if_needed()`.
   void clear_disposable_collections();
 
-private:
-  /// Install the rebuild callback on `m_linear_interface_` so that any
-  /// access to a released backend lazily regenerates the LP from
-  /// collections.  Called from the constructor (when the LP is first
-  /// configured) and from every move ctor / move assignment, since the
-  /// captured `this` pointer is invalidated by a move.  No-op outside
-  /// `LowMemoryMode::rebuild`.
-  void install_rebuild_callback();
-
-public:
   /// Forward accessor to the LP's cumulative solver counters.
   [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept
   {
