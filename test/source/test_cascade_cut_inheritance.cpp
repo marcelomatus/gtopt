@@ -1070,4 +1070,407 @@ TEST_CASE(  // NOLINT
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Layer 7 — Cascade × low_memory_mode and num_apertures integration
+// ───────────────────────────────────────────────────────────────────────────
+//
+// These tests close two specific coverage gaps left by Layers 4-6 + the
+// `select_apertures` unit tests + the `CascadeLevelMethod::num_apertures`
+// JSON tests:
+//
+//   * Gap 1: cut inheritance under `low_memory_mode = compress`.  The
+//     per-cell release / reconstruct cycle in compress mode is the
+//     riskiest path for the cascade transfer (cuts must survive the
+//     release of the previous level's LP/solver, and the freshly
+//     reconstructed L1 LP must load them via the cut file).
+//
+//   * Gap 2: cascade level `num_apertures` actually limits the SDDP
+//     backward pass.  `select_apertures` is unit-tested in isolation and
+//     `CascadeLevelMethod::num_apertures` is JSON-tested, but the full
+//     chain (cascade level → level SDDPOptions → aperture pass) has no
+//     integration coverage.
+//
+//   * Gap 3: when L0 cuts (built with N apertures) are inherited into L1
+//     (built with M apertures, M != N), the cut-load path must remain
+//     clean — no warnings, no errors, transfer count > 0, L1 converges.
+
+TEST_CASE(  // NOLINT
+    "Cascade transfer survives low_memory_mode={off, compress}")
+{
+  // Gap 1: rerun the Layer-4 cut-transfer flow under both low_memory
+  // settings.  The compress path releases each per-(scene, phase)
+  // solver between operations and reconstructs from a compressed flat
+  // LP — without correct lifecycle handling the cut transfer could
+  // silently lose cuts or trip the load path on an unbuilt backend.
+  //
+  // We assert in both modes that:
+  //   (a) the orchestrator emits `Cascade [...]: transferred N cuts`
+  //       with N > 0
+  //   (b) level 1's final LB is finite and bounded by UB (sanity)
+  //   (c) level 1's bound is non-trivial — meaningfully above the
+  //       alpha-bootstrap floor (which would manifest as LB ≈ 0 for
+  //       this fixture if cuts were missing).
+  using gtopt::test::LogCapture;
+
+  auto run_under_mode = [](LowMemoryMode mode)
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions base;
+    base.max_iterations = 20;
+    base.min_iterations = 1;
+    base.convergence_tol = 1e-4;
+    base.apertures = std::vector<Uid> {};
+    base.low_memory_mode = mode;
+
+    CascadeOptions cascade;
+    cascade.level_array = {
+        CascadeLevel {
+            .name = OptName {"level0"},
+            .model_options =
+                ModelOptions {
+                    .use_single_bus = OptBool {true},
+                },
+            .sddp_options =
+                CascadeLevelMethod {
+                    .max_iterations = OptInt {10},
+                    .apertures = Array<Uid> {},
+                },
+        },
+        CascadeLevel {
+            .name = OptName {"level1_cuts"},
+            .model_options =
+                ModelOptions {
+                    .use_single_bus = OptBool {true},
+                },
+            .sddp_options =
+                CascadeLevelMethod {
+                    .max_iterations = OptInt {10},
+                    .apertures = Array<Uid> {},
+                },
+            .transition =
+                CascadeTransition {
+                    .inherit_optimality_cuts = OptInt {-1},
+                },
+        },
+    };
+
+    LogCapture logs(1024);
+    CascadePlanningMethod solver(std::move(base), std::move(cascade));
+    const SolverOptions lp_opts;
+    auto result = solver.solve(planning_lp, lp_opts);
+    REQUIRE(result.has_value());
+    REQUIRE(solver.level_stats().size() == 2);
+
+    // (a) Transfer log fired with a positive count.
+    int transferred_count = 0;
+    for (const auto& m : logs.messages()) {
+      if (m.contains("transferred") && m.contains("cuts from")) {
+        // Parse the integer after "transferred ".
+        const auto needle = std::string {"transferred "};
+        const auto pos = m.find(needle);
+        if (pos == std::string::npos) {
+          continue;
+        }
+        const auto after = pos + needle.size();
+        const auto space = m.find(' ', after);
+        if (space == std::string::npos) {
+          continue;
+        }
+        try {
+          transferred_count = std::stoi(m.substr(after, space - after));
+        } catch (...) {
+          // Leave at 0 — the assertion below will catch it.
+        }
+      }
+    }
+    CHECK(transferred_count > 0);
+
+    const auto& s0 = solver.level_stats()[0];
+    const auto& s1 = solver.level_stats()[1];
+    REQUIRE(s0.cuts_added > 0);
+
+    // (b) sanity: finite, LB <= UB.
+    CHECK(std::isfinite(s1.lower_bound));
+    CHECK(std::isfinite(s1.upper_bound));
+    CHECK(s1.lower_bound <= s1.upper_bound + 1e-6);
+
+    // (c) Level 1 LB should match level 0's LB (same problem, inherited
+    // cuts → identical value function).  In particular, far above the
+    // alpha-bootstrap floor of 0 (or 1e-9) — for this fixture the
+    // converged LB is several hundred at minimum.
+    CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+  };
+
+  SUBCASE("low_memory_mode = off")
+  {
+    run_under_mode(LowMemoryMode::off);
+  }
+  SUBCASE("low_memory_mode = compress")
+  {
+    run_under_mode(LowMemoryMode::compress);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "CascadeLevelMethod::num_apertures honored by backward pass")
+{
+  // Gap 2: verify the full chain
+  //   CascadeLevel.sddp_options.num_apertures = K
+  //     → cascade builds per-level SDDPOptions with num_apertures = K
+  //     → backward pass selects K of the N phase apertures via
+  //       `select_apertures(plp.apertures(), K, mode)`
+  //     → aperture-pass log emits "K/K feasible" (denominator is the
+  //       size of the SELECTED set, NOT the planning-level pool).
+  //
+  // Build a planning with 4 phase apertures, then run a 1-level cascade
+  // with num_apertures=2 and check the log denominator.
+  using gtopt::test::LogCapture;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+
+  // Attach 4 apertures + phase mapping.  The base fixture has 2
+  // scenarios — re-use both for apertures 1/2, and add scenarios 3/4
+  // pointing at the existing inflow Flow (no extra inflow data needed,
+  // build_effective_apertures only requires the source_scenario UID to
+  // resolve, value comes from the per-aperture flow it ends up using).
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {3},
+      .probability_factor = 0.25,
+  });
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {4},
+      .probability_factor = 0.25,
+  });
+  planning.simulation.scenario_array[0].probability_factor = OptReal {0.25};
+  planning.simulation.scenario_array[1].probability_factor = OptReal {0.25};
+
+  planning.simulation.aperture_array = Array<Aperture> {
+      Aperture {
+          .uid = Uid {1},
+          .source_scenario = Uid {1},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {2},
+          .source_scenario = Uid {2},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {3},
+          .source_scenario = Uid {3},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {4},
+          .source_scenario = Uid {4},
+          .probability_factor = 0.25,
+      },
+  };
+  for (auto& phase : planning.simulation.phase_array) {
+    phase.apertures = {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+  }
+
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 3;
+  base.min_iterations = 1;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::nullopt;  // use per-phase apertures
+  base.enable_api = false;
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"level0_subset"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {3},
+                  // num_apertures = 2 must shrink the per-phase aperture
+                  // set from 4 to 2 in the backward pass.
+                  .num_apertures = OptInt {2},
+              },
+      },
+  };
+
+  LogCapture logs(4096);
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 1);
+
+  // Look for at least one "X/2 feasible" aperture batch line.  The
+  // format is:
+  //     "SDDP Aperture [iN sM pK]: <X>/<Y> feasible, ..."
+  // Y must be 2 because `select_apertures(_, 2, head)` reduces the
+  // per-phase aperture vector to its first 2 entries before
+  // `build_effective_apertures` materialises the effective list.
+  int aperture_lines_with_denom_2 = 0;
+  int aperture_lines_with_denom_4 = 0;
+  for (const auto& m : logs.messages()) {
+    if (!m.contains("SDDP Aperture") || !m.contains("feasible")) {
+      continue;
+    }
+    if (m.contains("/2 feasible")) {
+      ++aperture_lines_with_denom_2;
+    }
+    if (m.contains("/4 feasible")) {
+      ++aperture_lines_with_denom_4;
+    }
+  }
+  CHECK(aperture_lines_with_denom_2 >= 1);
+  // The full pool of 4 must NEVER appear — that would mean num_apertures
+  // was ignored / silently dropped through the cascade pipeline.
+  CHECK(aperture_lines_with_denom_4 == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "Cuts inherited from L0 (num_apertures=2) load cleanly into L1 "
+    "(num_apertures=4)")
+{
+  // Gap 3: heterogeneous aperture counts across levels.  When L0 trains
+  // its cuts with a subset of apertures (N=2) and L1 inherits them and
+  // continues training with the full set (N=4), the cut-load path must
+  // remain clean — cuts encode (scene, phase, alpha-coefficient,
+  // state-variable-coefficients, rhs) and do NOT depend on the aperture
+  // count at training time, so the load must succeed without warnings.
+  using gtopt::test::LogCapture;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {3},
+      .probability_factor = 0.25,
+  });
+  planning.simulation.scenario_array.push_back(Scenario {
+      .uid = Uid {4},
+      .probability_factor = 0.25,
+  });
+  planning.simulation.scenario_array[0].probability_factor = OptReal {0.25};
+  planning.simulation.scenario_array[1].probability_factor = OptReal {0.25};
+
+  planning.simulation.aperture_array = Array<Aperture> {
+      Aperture {
+          .uid = Uid {1},
+          .source_scenario = Uid {1},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {2},
+          .source_scenario = Uid {2},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {3},
+          .source_scenario = Uid {3},
+          .probability_factor = 0.25,
+      },
+      Aperture {
+          .uid = Uid {4},
+          .source_scenario = Uid {4},
+          .probability_factor = 0.25,
+      },
+  };
+  for (auto& phase : planning.simulation.phase_array) {
+    phase.apertures = {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
+  }
+
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 30;
+  base.min_iterations = 1;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::nullopt;
+  base.enable_api = false;
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"l0_n2"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .num_apertures = OptInt {2},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"l1_n4"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .num_apertures = OptInt {4},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  LogCapture logs(4096);
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 2);
+
+  // (a) Transfer fired with a positive count.
+  int transferred_count = 0;
+  bool saw_load_warn_or_err = false;
+  for (const auto& m : logs.messages()) {
+    if (m.contains("transferred") && m.contains("cuts from")) {
+      const auto needle = std::string {"transferred "};
+      const auto pos = m.find(needle);
+      if (pos != std::string::npos) {
+        const auto after = pos + needle.size();
+        const auto space = m.find(' ', after);
+        if (space != std::string::npos) {
+          try {
+            transferred_count = std::stoi(m.substr(after, space - after));
+          } catch (...) {
+            // ignore — assertion below covers it
+          }
+        }
+      }
+    }
+    // Sentinel: any cascade-level warning/error during the cut-load
+    // step would indicate a heterogeneity bug.
+    if (m.contains("cut load failed")
+        || (m.contains("[warning]") && m.contains("Cascade")))
+    {
+      saw_load_warn_or_err = true;
+    }
+  }
+  CHECK(transferred_count > 0);
+  CHECK_FALSE(saw_load_warn_or_err);
+
+  // (b) Sanity: both levels finished with valid bounds.
+  const auto& s0 = solver.level_stats()[0];
+  const auto& s1 = solver.level_stats()[1];
+  REQUIRE(s0.cuts_added > 0);
+  CHECK(std::isfinite(s1.gap));
+  CHECK(s1.lower_bound <= s1.upper_bound + 1e-6);
+
+  // (c) With inherited cuts L1 cannot have a WORSE LB than L0 by more
+  // than solver tolerance — the inherited cuts are valid lower bounds
+  // on the value function, and L1 only adds more cuts on top.
+  CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
