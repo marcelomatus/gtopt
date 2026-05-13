@@ -45,10 +45,18 @@ class HydroMixin:
         planos = self.parser.parsed_data.get("planos_parser")
         if planos is None:
             return {}
-        scenario_array = self.planning.get("simulation", {}).get("scenario_array") or []
-        num_scenarios = len(scenario_array) or None
+        # `efin_cost` cap = average of |GradX_i| across all cuts, in
+        # raw `$/hm³` (after FEscala scaling — that conversion happens
+        # inside `average_abs_gradient_by_reservoir` when
+        # `apply_fescala=True`).  We DO NOT divide by N here because
+        # `efin_cost` is the per-hm³ marginal cost added to the LP
+        # objective for the END-of-horizon volume — it represents the
+        # *aggregate* marginal water value, not the per-scene share.
+        # The /N scaling is only meaningful when comparing the cut RHS
+        # to a per-scene LP α floor; the `efin_cost` cap stands on its
+        # own.
         try:
-            return planos.average_abs_gradient_by_reservoir(num_scenarios=num_scenarios)
+            return planos.average_abs_gradient_by_reservoir(num_scenarios=None)
         except (AttributeError, TypeError):
             # Defensive — older parser fixtures may not implement the
             # helper.  Treat as "no cap available" instead of crashing

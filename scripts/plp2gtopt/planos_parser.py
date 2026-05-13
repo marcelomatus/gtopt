@@ -306,6 +306,7 @@ class PlanosParser(BaseParser):
         self,
         *,
         num_scenarios: Optional[int] = None,
+        apply_fescala: bool = True,
     ) -> Dict[str, float]:
         """Per-reservoir average ``|GradX_i|`` across all parsed cuts.
 
@@ -351,6 +352,20 @@ class PlanosParser(BaseParser):
         else:
             scale = 1.0
 
+        # Per-reservoir FEscala scaling — matches `planos_writer._vol_scale`.
+        # PLP stores GradX in `$/(raw_volume_unit)` where the unit is
+        # `hm³ / 10^(FEscala - 6)`; multiply by `10^(FEscala - 6)` to land
+        # in `$/hm³` (gtopt's volume basis).  Off by default for
+        # back-compat; the boundary-cut writer enables it via the
+        # `apply_fescala=True` keyword.
+        def _vscale(rname: str) -> float:
+            if not apply_fescala:
+                return 1.0
+            f = self.reservoir_fescala.get(rname)
+            if f is None:
+                return 1.0
+            return 10.0 ** (f - 6)
+
         sums: Dict[str, float] = {}
         counts: Dict[str, int] = {}
         for cut in self.all_cuts:
@@ -362,7 +377,7 @@ class PlanosParser(BaseParser):
                     continue
                 if val == 0.0:
                     continue
-                sums[rname] = sums.get(rname, 0.0) + abs(val) * scale
+                sums[rname] = sums.get(rname, 0.0) + abs(val) * scale * _vscale(rname)
                 counts[rname] = counts.get(rname, 0) + 1
         return {
             rname: total / counts[rname]

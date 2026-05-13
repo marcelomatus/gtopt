@@ -89,6 +89,7 @@ def write_boundary_cuts_csv(
     output_path: Path | str,
     name_alias: Optional[Dict[str, str]] = None,
     num_scenarios: Optional[int] = None,
+    fescala_map: Optional[Dict[str, int]] = None,
 ) -> Path:
     """Write boundary cuts to a CSV file in gtopt format.
 
@@ -129,6 +130,23 @@ def write_boundary_cuts_csv(
 
     scale = _scale_factor(num_scenarios)
 
+    # Per-reservoir FEscala scaling.  PLP's plpplem2.dat stores gradients in
+    # `$/(raw volume unit)`, where the unit depends on the reservoir's
+    # `FEscala` column from plpplem1.dat — `raw_unit = hm³ / 10^(FEscala-6)`.
+    # gtopt's reservoir volumes are in physical hm³, so to convert the cut
+    # gradient to `$/hm³` we multiply by `10^(FEscala-6)` per reservoir.
+    # Without this, LMAULE (FEscala=9) cuts are 1000× too weak; CIPRESES
+    # (FEscala=8) is 100× too weak; ELTORO (FEscala=10) is 10000× too weak.
+    # The RHS (LDPhiPrv) is in raw `$` (no per-reservoir scale), so it
+    # gets only the `1/N` divisor.  Default `None` is a no-op (back-compat).
+    def _vol_scale(rname: str) -> float:
+        if fescala_map is None:
+            return 1.0
+        f = fescala_map.get(rname)
+        if f is None:
+            return 1.0
+        return 10.0 ** (f - 6)
+
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)
@@ -142,7 +160,7 @@ def write_boundary_cuts_csv(
             ]
             coeffs = cut.get("coefficients", {})
             for rname in reservoir_names:
-                row.append(f"{coeffs.get(rname, 0.0) * scale:.10g}")
+                row.append(f"{coeffs.get(rname, 0.0) * scale * _vol_scale(rname):.10g}")
             writer.writerow(row)
 
     logger.debug(

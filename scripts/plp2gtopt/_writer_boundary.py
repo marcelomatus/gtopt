@@ -84,10 +84,20 @@ class BoundaryMixin:
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
         name_alias = self._load_alias_file(options.get("alias_file"))
 
-        # NVarPhi = number of PLP scenarios used to build the cuts.  This is
-        # the same as the gtopt scenario count by construction (PLP writes one
-        # gradient row per hydrology/aperture pair, and `process_scenarios`
-        # mirrors PLP's scenario count 1:1).
+        # NVarPhi divisor for the cut RHS and gradients.
+        #
+        # We use `len(scenario_array)` (= the gtopt scenes that ACTUALLY
+        # get a cut loaded into them under `boundary_cuts_mode=separated`
+        # — the default).  Cuts with `scene_uid > N` in the file are
+        # silently dropped by gtopt's loader because their UID has no
+        # matching gtopt scene.  So loading N cuts AND dividing by N
+        # are consistent — each scene's α-floor lands in the right
+        # magnitude (`Σ_s α_s = rhs` instead of `N × rhs`).
+        #
+        # When `boundary_cuts_mode=combined` is added later, the divisor
+        # should switch to `max(ISimul)` from the cut file (PLP's
+        # original NVarPhi) because then ALL cuts are loaded into every
+        # scene.  For now we stick with the separated-mode N.
         scenario_array: list = (
             self.planning.get("simulation", {}).get("scenario_array") or []
         )
@@ -97,12 +107,16 @@ class BoundaryMixin:
         # ── Boundary cuts (last stage) ─────────────────────────────────────
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
+            # Per-reservoir FEscala for gradient-coefficient rescaling
+            # (PLP stores GradX in `$/raw_volume_unit`; gtopt expects
+            # `$/hm³`).  See planos_writer's _vol_scale block.
             write_boundary_cuts_csv(
                 planos.cuts,
                 planos.reservoir_names,
                 csv_path,
                 name_alias=name_alias,
                 num_scenarios=num_scenarios,
+                fescala_map=planos.reservoir_fescala,
             )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
