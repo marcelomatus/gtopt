@@ -17,7 +17,6 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/lp_replay_buffer.hpp>
-#include <gtopt/sddp_enums.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -63,27 +62,27 @@ TEST_CASE("LpReplayBuffer R2 — records under every mode (post-fix)")  // NOLIN
   row.uppb = 1.0;
 
   // Under `off`: now records (regression guard for 2026-05-11 fix).
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::off);
+  buf.record_dynamic_col_if_tracked(col);
   CHECK(buf.dynamic_cols_size() == 1);
-  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::off);
+  buf.record_dynamic_row_if_tracked(row);
   CHECK(buf.dynamic_rows_size() == 1);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::off);
+  buf.record_cut_row_if_tracked(row);
   CHECK(buf.active_cuts_size() == 1);
 
   // Compress and rebuild also record (was the only working path before
   // the fix; still works after the fix).
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::compress);
+  buf.record_dynamic_col_if_tracked(col);
   CHECK(buf.dynamic_cols_size() == 2);
-  buf.record_dynamic_row_if_tracked(row, LowMemoryMode::compress);
+  buf.record_dynamic_row_if_tracked(row);
   CHECK(buf.dynamic_rows_size() == 2);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
+  buf.record_cut_row_if_tracked(row);
   CHECK(buf.active_cuts_size() == 2);
 
   // The mode parameter no longer gates recording; pass `off` to
   // confirm the record fires regardless of the value supplied.
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::off);
+  buf.record_dynamic_col_if_tracked(col);
   CHECK(buf.dynamic_cols_size() == 3);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::off);
+  buf.record_cut_row_if_tracked(row);
   CHECK(buf.active_cuts_size() == 3);
 }
 
@@ -94,8 +93,8 @@ TEST_CASE("LpReplayBuffer R3 — take_* moves out + clears")  // NOLINT
   LpReplayBuffer buf {};
   SparseCol col {};
   col.cost = 5.0;
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::compress);
-  buf.record_dynamic_col_if_tracked(col, LowMemoryMode::compress);
+  buf.record_dynamic_col_if_tracked(col);
+  buf.record_dynamic_col_if_tracked(col);
   REQUIRE(buf.dynamic_cols_size() == 2);
 
   auto taken = buf.take_dynamic_cols();
@@ -106,9 +105,9 @@ TEST_CASE("LpReplayBuffer R3 — take_* moves out + clears")  // NOLINT
   // active_cuts symmetry
   SparseRow row {};
   row.uppb = 1.0;
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
-  buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
+  buf.record_cut_row_if_tracked(row);
+  buf.record_cut_row_if_tracked(row);
+  buf.record_cut_row_if_tracked(row);
   REQUIRE(buf.active_cuts_size() == 3);
   auto taken_cuts = buf.take_active_cuts();
   CHECK(taken_cuts.size() == 3);
@@ -131,14 +130,14 @@ TEST_CASE("LpReplayBuffer R4 — update_dynamic_col_lowb / _bounds")  // NOLINT
   c1.variable_name = "alpha_s1_p2";
   c1.lowb = 0.0;
   c1.uppb = 1e30;
-  buf.record_dynamic_col_if_tracked(c1, LowMemoryMode::compress);
+  buf.record_dynamic_col_if_tracked(c1);
 
   SparseCol c2 {};
   c2.class_name = "beta";
   c2.variable_name = "other";
   c2.lowb = -10.0;
   c2.uppb = 10.0;
-  buf.record_dynamic_col_if_tracked(c2, LowMemoryMode::compress);
+  buf.record_dynamic_col_if_tracked(c2);
 
   // First match — lowb only.
   CHECK(buf.update_dynamic_col_lowb("alpha", "alpha_s1_p2", -1e30));
@@ -163,7 +162,7 @@ TEST_CASE("LpReplayBuffer R5 — record_cut_deletion")  // NOLINT
   SparseRow row {};
   row.uppb = 1.0;
   for (int i = 0; i < 5; ++i) {
-    buf.record_cut_row_if_tracked(row, LowMemoryMode::compress);
+    buf.record_cut_row_if_tracked(row);
   }
   REQUIRE(buf.active_cuts_size() == 5);
 
@@ -171,29 +170,27 @@ TEST_CASE("LpReplayBuffer R5 — record_cut_deletion")  // NOLINT
   // (offsets 2 and 4 in the active_cuts vector — both in range,
   // size=5 before this call).
   const std::array<int, 2> deleted = {12, 14};
-  buf.record_cut_deletion(
-      deleted, /*base_numrows=*/10, LowMemoryMode::compress);
+  buf.record_cut_deletion(deleted, /*base_numrows=*/10);
   CHECK(buf.active_cuts_size() == 3);
 
-  // 2026-05-11 fix: under `off`, `record_cut_deletion` is no longer
-  // gated — it must fire because cuts are now recorded under off too.
-  // Verify by deleting offset 0 (global index 10) under off mode.
-  const std::array<int, 1> off_in_range = {10};
-  buf.record_cut_deletion(
-      off_in_range, /*base_numrows=*/10, LowMemoryMode::off);
+  // Delete offset 0 (global index 10) — must fire regardless of any
+  // mode-style gating (the `LowMemoryMode mode` parameter was dropped
+  // 2026-05-13; recording was already mode-agnostic after the
+  // 2026-05-11 aperture-clone regression fix).
+  const std::array<int, 1> one_in_range = {10};
+  buf.record_cut_deletion(one_in_range, /*base_numrows=*/10);
   CHECK(buf.active_cuts_size() == 2);
 
   // Out-of-range global index — silently skipped by the bounds guard,
   // size stays at 2.
   const std::array<int, 1> oob = {999};
-  buf.record_cut_deletion(oob, /*base_numrows=*/10, LowMemoryMode::compress);
+  buf.record_cut_deletion(oob, /*base_numrows=*/10);
   CHECK(buf.active_cuts_size() == 2);
 
   // Empty active_cuts: also no-op (early-return).
   (void)buf.take_active_cuts();
   CHECK(buf.active_cuts_size() == 0);
-  buf.record_cut_deletion(
-      deleted, /*base_numrows=*/10, LowMemoryMode::compress);
+  buf.record_cut_deletion(deleted, /*base_numrows=*/10);
   CHECK(buf.active_cuts_size() == 0);
 }
 

@@ -42,11 +42,12 @@
  *   * **R1.**  Default-constructed `LpReplayBuffer{}` reports all
  *              vectors empty, `replaying() == false`, and zero
  *              pending col bounds.
- *   * **R2.**  `record_*_if_tracked(..., mode)` always records.
- *              The `mode` parameter is retained for API stability
- *              but no longer gates the record (was: no-op under
- *              `off` — fixed 2026-05-11 after the aperture-clone
- *              regression).
+ *   * **R2.**  `record_*_if_tracked(...)` always records.  The
+ *              `_if_tracked` suffix is retained for grep-friendliness
+ *              with older code; the `LowMemoryMode mode` parameter
+ *              was dropped 2026-05-13 (every caller passes the same
+ *              effective value, and the rebuild mode that motivated
+ *              mode-gating is gone).
  *   * **R3.**  `take_dynamic_cols()` / `take_active_cuts()` move-out
  *              the internal vector and leave the buffer in the
  *              default-constructed state for that field.
@@ -54,11 +55,11 @@
  * `update_dynamic_col_bounds(...)` return `true` iff a matching `(class_name,
  *              variable_name)` entry was found and updated.  Linear
  *              search — replay buffers stay tiny (≤ a few alpha cols).
- *   * **R5.**  `record_cut_deletion(deleted, base_numrows, mode)` is a
- *              no-op when `mode == off` or `active_cuts` is empty.
- *              Otherwise it removes the cuts at the supplied global
- *              row indices (offset by `base_numrows` to get the
- *              `m_active_cuts_` index).
+ *   * **R5.**  `record_cut_deletion(deleted, base_numrows)` is a
+ *              no-op when `active_cuts` is empty.  Otherwise it
+ *              removes the cuts at the supplied global row indices
+ *              (offset by `base_numrows` to get the `m_active_cuts_`
+ *              index).
  *   * **R6.**  `set_replaying(true)` / `set_replaying(false)` flip the
  *              flag idempotently.  An RAII helper
  *              `ReplayGuard` is provided for scope-bound use inside
@@ -77,7 +78,6 @@
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
-#include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -179,22 +179,22 @@ public:
   // the SOLE source of cuts and dynamic columns.  Under `off`,
   // `system_lp.cpp:560` still saves a snapshot, so the buffer
   // must mirror every dynamic addition to keep aperture clones
-  // consistent with the live backend.  The `mode` parameter is
-  // retained for API stability but no longer gates the record.
-  void record_dynamic_col_if_tracked(SparseCol col,
-                                     [[maybe_unused]] LowMemoryMode mode)
+  // consistent with the live backend.  The `_if_tracked` suffix is
+  // retained on the method names for grep-friendliness with older
+  // code; the `LowMemoryMode mode` parameter was dropped 2026-05-13
+  // because every caller now passes the same effective value (and
+  // the rebuild mode that motivated mode-gating is gone).
+  void record_dynamic_col_if_tracked(SparseCol col)
   {
     m_dynamic_cols_.push_back(std::move(col));
   }
 
-  void record_dynamic_row_if_tracked(SparseRow row,
-                                     [[maybe_unused]] LowMemoryMode mode)
+  void record_dynamic_row_if_tracked(SparseRow row)
   {
     m_dynamic_rows_.push_back(std::move(row));
   }
 
-  void record_cut_row_if_tracked(SparseRow row,
-                                 [[maybe_unused]] LowMemoryMode mode)
+  void record_cut_row_if_tracked(SparseRow row)
   {
     m_active_cuts_.push_back(std::move(row));
   }
@@ -205,8 +205,7 @@ public:
   /// silently skipped (defence against caller bugs).  No-op when
   /// `active_cuts` is empty.
   void record_cut_deletion(std::span<const int> deleted_indices,
-                           int base_numrows,
-                           [[maybe_unused]] LowMemoryMode mode)
+                           int base_numrows)
   {
     if (m_active_cuts_.empty()) {
       return;

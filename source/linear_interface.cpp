@@ -601,7 +601,7 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
 
 void LinearInterface::record_dynamic_col(SparseCol col)
 {
-  m_replay_.record_dynamic_col_if_tracked(std::move(col), m_low_memory_mode_);
+  m_replay_.record_dynamic_col_if_tracked(std::move(col));
 }
 
 const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
@@ -698,18 +698,18 @@ void LinearInterface::replay_active_cuts()
 
 void LinearInterface::record_dynamic_row(SparseRow row)
 {
-  m_replay_.record_dynamic_row_if_tracked(std::move(row), m_low_memory_mode_);
+  m_replay_.record_dynamic_row_if_tracked(std::move(row));
 }
 
 void LinearInterface::record_cut_row(SparseRow row)
 {
-  m_replay_.record_cut_row_if_tracked(std::move(row), m_low_memory_mode_);
+  m_replay_.record_cut_row_if_tracked(std::move(row));
 }
 
 void LinearInterface::record_cut_deletion(std::span<const int> deleted_indices)
 {
-  m_replay_.record_cut_deletion(
-      deleted_indices, static_cast<int>(m_base_numrows_), m_low_memory_mode_);
+  m_replay_.record_cut_deletion(deleted_indices,
+                                static_cast<int>(m_base_numrows_));
 }
 
 // ── Compression control ──
