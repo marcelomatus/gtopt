@@ -554,6 +554,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// ensuring hot-start reproducibility.
   bool save_simulation_cuts {false};
 
+  /// Skip the post-training **simulation pass** entirely (default:
+  /// false → sim pass runs).  When `true`, `solve()` returns immediately
+  /// after the last training iteration: no final forward pass with
+  /// `crossover=true`, no per-cell `SystemLP::write_out()`, no sim-pass
+  /// feasibility-cut bookkeeping.
+  ///
+  /// Set to `true` for **non-final** cascade levels — their sim-pass
+  /// output would be overwritten by the next level's sim pass anyway,
+  /// and their crossover-quality duals are not consumed by anything
+  /// (state-variable targets are read from the last training forward
+  /// pass via `svar.col_sol_physical()`, and stored optimality cuts
+  /// come from the training backward passes).  See
+  /// `CascadePlanningMethod::solve` for the orchestration.  On
+  /// juan-scale this saves the ~9 s/cell × 816 cells / 16-way
+  /// parallel ≈ 7 min per intermediate level.
+  bool skip_simulation_pass {false};
+
   /// Global solve timeout in seconds (0 = no timeout).
   /// When non-zero, each forward-pass LP solve is given this time limit;
   /// if exceeded, the LP is saved to a debug file, a CRITICAL message is

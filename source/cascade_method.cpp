@@ -396,6 +396,21 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
               m_cascade_opts_.level_array.size(),
               remaining_budget);
 
+  // Locate the LAST ACTIVE level — its SDDP sim pass keeps writing
+  // per-cell outputs; every earlier active level skips its sim-pass
+  // write_out (the cells would be overwritten anyway).  Returns
+  // `size()` when every level is inactive (loop body below never
+  // executes, so the value is irrelevant).
+  const std::size_t last_active_level_idx = [&]
+  {
+    for (std::size_t i = m_cascade_opts_.level_array.size(); i-- > 0;) {
+      if (m_cascade_opts_.level_array[i].active.value_or(true)) {
+        return i;
+      }
+    }
+    return m_cascade_opts_.level_array.size();
+  }();
+
   for (std::size_t level_idx = 0;
        level_idx < m_cascade_opts_.level_array.size();
        ++level_idx)
@@ -482,6 +497,24 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     level_opts.save_per_iteration =
         is_last_level ? m_base_opts_.save_per_iteration : true;
 
+    // Skip the post-training simulation pass at every non-final-active
+    // level: the sim pass at an intermediate level produces NOTHING
+    // the cascade subsequently consumes — state-variable targets are
+    // read from the last training forward pass, optimality cuts come
+    // from the training backward passes, and the per-cell write_out
+    // output (the sim pass's only persistent side-effect) would be
+    // overwritten by the next level's sim pass anyway (per-element
+    // output paths are shared across levels).  The last active level
+    // keeps `skip_simulation_pass = false` so its simulation runs end-
+    // to-end and its outputs land on disk under the configured
+    // `output_directory`.  Filed as
+    // https://github.com/marcelomatus/gtopt/issues/479 for the
+    // accompanying feature flag that routes per-level output to
+    // separate subdirectories — opting back in to the previous
+    // behaviour will then require a config flip rather than a code
+    // change here.
+    level_opts.skip_simulation_pass = (level_idx != last_active_level_idx);
+
     // Seed the level's iteration counter past all iterations that prior
     // levels consumed.  Hot-start cuts loaded below (via load_cuts) may
     // raise this further through std::max in initialize_solver.
@@ -490,14 +523,24 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // Always create a fresh solver for each level, ensuring clean state.
     current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
 
+    // Aperture count to display:
+    //   * explicit aperture list set     → its size
+    //   * `num_apertures = N` set        → N (the per-phase cap)
+    //   * neither set                    → -1 (use full per-phase list)
+    // Previously this only inspected `apertures.size()` and reported -1
+    // for the entire new `num_apertures` mode emitted by plp2gtopt for
+    // cascade levels — making the log misleading on juan/iplp_plain
+    // where every level has a meaningful per-phase aperture budget.
+    const int aperture_log_count = level_opts.apertures.has_value()
+        ? static_cast<int>(level_opts.apertures->size())
+        : level_opts.num_apertures.value_or(-1);
+
     SPDLOG_INFO(
         "Cascade [{}]: new solver (max_iters={}, "
         "apertures={}, tol={})",
         level_name,
         level_opts.max_iterations,
-        level_opts.apertures.has_value()
-            ? static_cast<int>(level_opts.apertures->size())
-            : -1,
+        aperture_log_count,
         level_opts.convergence_tol);
 
     // ── 4. Load inherited cuts (after solver init, so alpha cols exist) ──
@@ -623,10 +666,16 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
     m_all_results_.insert(m_all_results_.end(), result->begin(), result->end());
 
-    // The SDDP solver returns N training iterations + 1 simulation pass.
-    // Only the N iterations count towards the global budget.
-    const auto level_iterations =
-        static_cast<int>(result->size()) - 1;  // exclude final fwd
+    // The SDDP solver returns N training iterations + (optionally) 1
+    // simulation pass.  Intermediate cascade levels skip the sim pass
+    // (level_opts.skip_simulation_pass=true), so `result->size()`
+    // equals exactly N there; only the final-active level still emits
+    // the extra sim-pass entry that needs subtracting.  Either way,
+    // `level_iterations` counts only the training iters that consume
+    // the global iteration budget.
+    const auto level_iterations = level_opts.skip_simulation_pass
+        ? static_cast<int>(result->size())
+        : static_cast<int>(result->size()) - 1;  // exclude final fwd
 
     // ── Collect per-level stats ──
     const auto& last = result->back();
@@ -720,12 +769,33 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // halving peak memory on the level boundary.
       m_prev_cuts_file_.clear();
       const auto& next_level = m_cascade_opts_.level_array[level_idx + 1];
+      // [DIAG cut-transfer] Surface every decision point on the
+      // intermediate→next cut serialization path.  Added 2026-05-13
+      // after juan/iplp_plain showed `new_cuts=4000` at level 0 but
+      // ZERO `serialized N cuts` log lines AND α=0 throughout level 1
+      // (forward primal-only objective) — i.e. cuts were stored and
+      // counted but never made it into the parquet handed to
+      // transport.  Remove (or fold to TRACE) after the root cause
+      // is fixed.
+      SPDLOG_INFO(
+          "[DIAG] Cascade [{}]: transition decision: "
+          "next_level.transition.has_value={}",
+          level_name,
+          next_level.transition.has_value());
       if (next_level.transition) {
         current_solver->update_stored_cut_duals();
         auto stored_cuts = current_solver->stored_cuts();
         const auto& trans = *next_level.transition;
         const int opt_cut_mode = trans.inherit_optimality_cuts.value_or(0);
         const bool want_opt_cuts = opt_cut_mode != 0;
+        SPDLOG_INFO(
+            "[DIAG] Cascade [{}]: opt_cut_mode={} want_opt_cuts={} "
+            "stored_cuts.size()={} num_stored_cuts(direct)={}",
+            level_name,
+            opt_cut_mode,
+            want_opt_cuts,
+            stored_cuts.size(),
+            current_solver->num_stored_cuts());
 
         // Only optimality cuts are inheritable across levels.  Feasibility
         // cuts are regenerated by the forward pass as needed.
@@ -735,8 +805,13 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           std::vector<StoredCut> filtered;
           filtered.reserve(stored_cuts.size());
           int skipped_by_dual = 0;
+          // [DIAG] count cuts by type so we can see whether the filter is
+          // dropping every cut (e.g. all stored cuts are Feasibility) or
+          // dropping them by dual threshold.
+          int n_opt = 0, n_feas = 0, n_other = 0;
           for (const auto& cut : stored_cuts) {
             if (cut.type == CutType::Optimality) {
+              ++n_opt;
               if (dual_threshold > 0.0 && cut.dual.has_value()
                   && std::abs(*cut.dual) < dual_threshold)
               {
@@ -744,8 +819,23 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                 continue;
               }
               filtered.push_back(cut);
+            } else if (cut.type == CutType::Feasibility) {
+              ++n_feas;
+            } else {
+              ++n_other;
             }
           }
+          SPDLOG_INFO(
+              "[DIAG] Cascade [{}]: stored cuts breakdown: "
+              "n_opt={} n_feas={} n_other={} -> filtered={}, "
+              "skipped_by_dual={} (threshold={})",
+              level_name,
+              n_opt,
+              n_feas,
+              n_other,
+              filtered.size(),
+              skipped_by_dual,
+              dual_threshold);
           if (skipped_by_dual > 0) {
             SPDLOG_INFO(
                 "Cascade [{}]: skipped {} inactive cuts "

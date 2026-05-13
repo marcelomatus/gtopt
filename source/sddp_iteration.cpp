@@ -814,245 +814,261 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   }
 
   // ── Simulation pass ──
-  // Always run a simulation (forward-only) pass after training iterations
-  // complete (or when max_iterations == 0).  This evaluates the policy
-  // with all accumulated cuts, producing the definitive output.
-  // No backward pass is run, so no new optimality cuts are generated.
-  // Feasibility cuts (from the elastic filter) may still be produced.
-  // By default (save_simulation_cuts=false) they are discarded to ensure
-  // hot-start reproducibility.
-  // Snapshot per-scene cut counts so sim-pass-added feasibility cuts
-  // can be discarded below (unless `save_simulation_cuts` is set).
-  std::vector<std::size_t> sim_before_scene_sizes;
-  {
-    const auto& sc = m_cut_store_.scene_cuts();
-    sim_before_scene_sizes.reserve(sc.size());
-    for (const auto& scene_vec : sc) {
-      sim_before_scene_sizes.push_back(scene_vec.size());
+  // Normally run a simulation (forward-only) pass after training
+  // iterations complete (or when max_iterations == 0).  This evaluates
+  // the policy with all accumulated cuts, producing the definitive
+  // output.  No backward pass is run, so no new optimality cuts are
+  // generated.  Feasibility cuts (from the elastic filter) may still
+  // be produced.  By default (save_simulation_cuts=false) they are
+  // discarded to ensure hot-start reproducibility.
+  //
+  // Cascade intermediate levels set `skip_simulation_pass = true` —
+  // their state-variable targets are read from the last training
+  // forward pass and their per-cell outputs would be overwritten by
+  // the next level's sim pass anyway, so the simulation here is pure
+  // overhead.  When skipped, control falls through to the tail
+  // (cuts persistence, monitor.stop, m_iteration_offset_ advance);
+  // skipping any of those would leak state into the next cascade
+  // level's solver instance.
+  if (m_options_.skip_simulation_pass) {
+    SPDLOG_INFO("SDDP: simulation pass skipped (skip_simulation_pass=true)");
+  } else {
+    // Snapshot per-scene cut counts so sim-pass-added feasibility cuts
+    // can be discarded below (unless `save_simulation_cuts` is set).
+    std::vector<std::size_t> sim_before_scene_sizes;
+    {
+      const auto& sc = m_cut_store_.scene_cuts();
+      sim_before_scene_sizes.reserve(sc.size());
+      for (const auto& scene_vec : sc) {
+        sim_before_scene_sizes.push_back(scene_vec.size());
+      }
     }
-  }
-  {
-    const auto final_iteration_index = results.empty()
-        ? m_iteration_offset_
-        : next(results.back().iteration_index);
-    const auto final_start = std::chrono::steady_clock::now();
+    {
+      const auto final_iteration_index = results.empty()
+          ? m_iteration_offset_
+          : next(results.back().iteration_index);
+      const auto final_start = std::chrono::steady_clock::now();
 
-    SPDLOG_INFO("{}: === simulation pass ===",
-                sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
+      SPDLOG_INFO("{}: === simulation pass ===",
+                  sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
 
-    // Suppress stop checks so the simulation pass always completes.
-    // The stop was already honoured by exiting the iteration loop.
-    m_in_simulation_ = true;
+      // Suppress stop checks so the simulation pass always completes.
+      // The stop was already honoured by exiting the iteration loop.
+      m_in_simulation_ = true;
 
-    SDDPIterationResult ir {
-        .iteration_index = final_iteration_index,
-    };
-    m_benders_cut_.reset_infeasible_cut_count();
+      SDDPIterationResult ir {
+          .iteration_index = final_iteration_index,
+      };
+      m_benders_cut_.reset_infeasible_cut_count();
 
-    // ── Simulation stage: cache-backed single-pass ────────────────────
-    //
-    // Pass 1 (solve + populate cache):
-    //   - crossover=true so `release_backend()` caches clean vertex
-    //     duals, reduced costs, and primal values via the Phase 2a
-    //     getter cache on `LinearInterface`.
-    //   - Under low_memory != off, each cell releases aggressively
-    //     after solve; collections + backend dropped; snapshot kept
-    //     through retry loop and dropped via `drop_sim_snapshots()`
-    //     once Pass 1 converges.  Per-cell RAM footprint collapses
-    //     to ~400 KB of cache.
-    //   - On infeasibility the existing elastic branch installs an
-    //     fcut on the previous phase; the retry loop re-runs Pass 1
-    //     until no further fcuts are needed or `kMaxSimP1Retries` is
-    //     hit.
-    //
-    // Pass 2 = `PlanningLP::write_out()`: the caller already invokes it
-    // right after `SDDPMethod::solve()` returns, and its cell-parallel
-    // pool dispatches one write task per (scene, phase).  Under
-    // compress the fast-path reads straight from the cache populated
-    // in Pass 1 — no re-solve, no backend reconstruct, no snapshot.
-    // Under off the cells' live backends supply the values.  Either
-    // way the write is clean and happens exactly once per cell.
-    //
-    // This supersedes the earlier two-pass design where Pass 2 ran a
-    // full forward traverse with `run_forward_pass_all_scenes`
-    // (needlessly re-solving 619/816 cells on juan/iplp just to refresh
-    // their duals).
-    auto sim_opts = fwd_opts;
-    sim_opts.crossover = true;
+      // ── Simulation stage: cache-backed single-pass ────────────────────
+      //
+      // Pass 1 (solve + populate cache):
+      //   - crossover=true so `release_backend()` caches clean vertex
+      //     duals, reduced costs, and primal values via the Phase 2a
+      //     getter cache on `LinearInterface`.
+      //   - Under low_memory != off, each cell releases aggressively
+      //     after solve; collections + backend dropped; snapshot kept
+      //     through retry loop and dropped via `drop_sim_snapshots()`
+      //     once Pass 1 converges.  Per-cell RAM footprint collapses
+      //     to ~400 KB of cache.
+      //   - On infeasibility the existing elastic branch installs an
+      //     fcut on the previous phase; the retry loop re-runs Pass 1
+      //     until no further fcuts are needed or `kMaxSimP1Retries` is
+      //     hit.
+      //
+      // Pass 2 = `PlanningLP::write_out()`: the caller already invokes it
+      // right after `SDDPMethod::solve()` returns, and its cell-parallel
+      // pool dispatches one write task per (scene, phase).  Under
+      // compress the fast-path reads straight from the cache populated
+      // in Pass 1 — no re-solve, no backend reconstruct, no snapshot.
+      // Under off the cells' live backends supply the values.  Either
+      // way the write is clean and happens exactly once per cell.
+      //
+      // This supersedes the earlier two-pass design where Pass 2 ran a
+      // full forward traverse with `run_forward_pass_all_scenes`
+      // (needlessly re-solving 619/816 cells on juan/iplp just to refresh
+      // their duals).
+      auto sim_opts = fwd_opts;
+      sim_opts.crossover = true;
 
-    // Bounded retry loop around Pass 1 so deeper infeasibility chains
-    // don't loop forever; anything still infeasible after the last
-    // attempt shows as status=-1 in solution.csv with no parquet shard.
-    constexpr int kMaxSimP1Retries = 3;
-    double p1_total_elapsed = 0.0;
-    std::expected<ForwardPassOutcome, Error> fwd;
-    int p1_attempts = 0;
-    for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
-      SPDLOG_INFO("{}: Pass 1 attempt {}/{} — solve + populate cache",
+      // Bounded retry loop around Pass 1 so deeper infeasibility chains
+      // don't loop forever; anything still infeasible after the last
+      // attempt shows as status=-1 in solution.csv with no parquet shard.
+      constexpr int kMaxSimP1Retries = 3;
+      double p1_total_elapsed = 0.0;
+      std::expected<ForwardPassOutcome, Error> fwd;
+      int p1_attempts = 0;
+      for (; p1_attempts <= kMaxSimP1Retries; ++p1_attempts) {
+        SPDLOG_INFO("{}: Pass 1 attempt {}/{} — solve + populate cache",
+                    sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
+                    p1_attempts + 1,
+                    kMaxSimP1Retries + 1);
+        fwd = run_forward_pass_all_scenes(
+            *sddp_pool, sim_opts, final_iteration_index);
+        if (!fwd.has_value()) {
+          monitor.stop();
+          return std::unexpected(std::move(fwd.error()));
+        }
+        p1_total_elapsed += fwd->elapsed_s;
+        if (!fwd->has_feasibility_issue) {
+          break;
+        }
+        // If no feasibility cuts were installed this attempt, the LP
+        // state is unchanged — retrying will produce the same result.
+        // The remaining infeasible cells are terminally infeasible;
+        // leave them to be reported as status=-1 in the parquet output.
+        if (fwd->n_fcuts_installed == 0) {
+          // No new fcuts means the LP state is unchanged across attempts;
+          // retrying would just reproduce the same infeasibilities.  The
+          // remaining infeasible cells are *terminal* — they will surface
+          // as status=-1 rows in the parquet output.  Wording avoids the
+          // misleading "attempt N/M … stopping retry loop" pairing of the
+          // earlier message.
+          const auto n_infeas =
+              std::ranges::count(fwd->scene_feasible, uint8_t {0});
+          SPDLOG_INFO(
+              "{}: no new fcuts after attempt {} — "
+              "{} infeasible scene(s) are terminal (status=-1 in output)",
+              sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
+              p1_attempts + 1,
+              n_infeas);
+          break;
+        }
+      }
+
+      SPDLOG_INFO("{}: Pass 1 done after {} attempt(s)",
                   sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
-                  p1_attempts + 1,
-                  kMaxSimP1Retries + 1);
-      fwd = run_forward_pass_all_scenes(
-          *sddp_pool, sim_opts, final_iteration_index);
-      if (!fwd.has_value()) {
-        monitor.stop();
-        return std::unexpected(std::move(fwd.error()));
+                  p1_attempts + 1);
+
+      // Aggressive post-Pass-1 memory release under low_memory: the
+      // Phase-2a cache on each LinearInterface holds everything
+      // `PlanningLP::write_out` needs (col_sol / col_cost / row_dual),
+      // and `rebuild_collections_if_needed` re-flattens from the live
+      // `System` element arrays — so the compressed flat-LP snapshot
+      // can be dropped per cell here.  Frees a meaningful chunk of RAM
+      // before the parallel write pass starts.
+      if (m_options_.low_memory_mode != LowMemoryMode::off) {
+        planning_lp().drop_sim_snapshots();
       }
-      p1_total_elapsed += fwd->elapsed_s;
-      if (!fwd->has_feasibility_issue) {
-        break;
-      }
-      // If no feasibility cuts were installed this attempt, the LP
-      // state is unchanged — retrying will produce the same result.
-      // The remaining infeasible cells are terminally infeasible;
-      // leave them to be reported as status=-1 in the parquet output.
-      if (fwd->n_fcuts_installed == 0) {
-        // No new fcuts means the LP state is unchanged across attempts;
-        // retrying would just reproduce the same infeasibilities.  The
-        // remaining infeasible cells are *terminal* — they will surface
-        // as status=-1 rows in the parquet output.  Wording avoids the
-        // misleading "attempt N/M … stopping retry loop" pairing of the
-        // earlier message.
-        const auto n_infeas =
-            std::ranges::count(fwd->scene_feasible, uint8_t {0});
-        SPDLOG_INFO(
-            "{}: no new fcuts after attempt {} — "
-            "{} infeasible scene(s) are terminal (status=-1 in output)",
-            sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
-            p1_attempts + 1,
-            n_infeas);
-        break;
-      }
-    }
 
-    SPDLOG_INFO("{}: Pass 1 done after {} attempt(s)",
-                sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
-                p1_attempts + 1);
+      ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
+      // Copy — same reason as the training-pass move above; downstream
+      // sim-pass code (output_skipped marking, save_cuts) reads
+      // ``fwd->scene_feasible`` after this point.
+      ir.scene_feasible = fwd->scene_feasible;
+      ir.forward_pass_s = p1_total_elapsed;
+      if (fwd->has_feasibility_issue) {
+        ir.feasibility_issue = true;
+        SPDLOG_WARN(
+            "{}: residual feasibility issue — affected cells "
+            "left unsolved in output",
+            sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
 
-    // Aggressive post-Pass-1 memory release under low_memory: the
-    // Phase-2a cache on each LinearInterface holds everything
-    // `PlanningLP::write_out` needs (col_sol / col_cost / row_dual),
-    // and `rebuild_collections_if_needed` re-flattens from the live
-    // `System` element arrays — so the compressed flat-LP snapshot
-    // can be dropped per cell here.  Frees a meaningful chunk of RAM
-    // before the parallel write pass starts.
-    if (m_options_.low_memory_mode != LowMemoryMode::off) {
-      planning_lp().drop_sim_snapshots();
-    }
-
-    ir.scene_upper_bounds = std::move(fwd->scene_upper_bounds);
-    // Copy — same reason as the training-pass move above; downstream
-    // sim-pass code (output_skipped marking, save_cuts) reads
-    // ``fwd->scene_feasible`` after this point.
-    ir.scene_feasible = fwd->scene_feasible;
-    ir.forward_pass_s = p1_total_elapsed;
-    if (fwd->has_feasibility_issue) {
-      ir.feasibility_issue = true;
-      SPDLOG_WARN(
-          "{}: residual feasibility issue — affected cells "
-          "left unsolved in output",
-          sddp_log("Sim", gtopt::uid_of(final_iteration_index)));
-
-      // Mark every (scene, phase) cell of an infeasible scene as
-      // output_skipped so PlanningLP::write_out bypasses the
-      // rehydrate + re-solve round-trip (which would just hit the
-      // same infeasibility and produce meaningless output).  This
-      // also covers the max_iterations=0 path: no training runs, the
-      // sim pass alone drives which scenes are bad, and write_out
-      // respects that single verdict.
-      const auto num_scenes_sim = planning_lp().simulation().scene_count();
-      const auto num_phases_sim = planning_lp().simulation().phase_count();
-      std::size_t n_cells_skipped = 0;
-      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_sim)) {
-        if (scene_index >= std::ssize(fwd->scene_feasible)
-            || fwd->scene_feasible[scene_index] != 0U)
+        // Mark every (scene, phase) cell of an infeasible scene as
+        // output_skipped so PlanningLP::write_out bypasses the
+        // rehydrate + re-solve round-trip (which would just hit the
+        // same infeasibility and produce meaningless output).  This
+        // also covers the max_iterations=0 path: no training runs, the
+        // sim pass alone drives which scenes are bad, and write_out
+        // respects that single verdict.
+        const auto num_scenes_sim = planning_lp().simulation().scene_count();
+        const auto num_phases_sim = planning_lp().simulation().phase_count();
+        std::size_t n_cells_skipped = 0;
+        for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes_sim))
         {
-          continue;  // scene stayed feasible — leave its cells alone
+          if (scene_index >= std::ssize(fwd->scene_feasible)
+              || fwd->scene_feasible[scene_index] != 0U)
+          {
+            continue;  // scene stayed feasible — leave its cells alone
+          }
+          for (const auto phase_index :
+               iota_range<PhaseIndex>(0, num_phases_sim))
+          {
+            planning_lp()
+                .system(scene_index, phase_index)
+                .set_output_skipped(/*v=*/true);
+            ++n_cells_skipped;
+          }
         }
-        for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases_sim))
-        {
-          planning_lp()
-              .system(scene_index, phase_index)
-              .set_output_skipped(/*v=*/true);
-          ++n_cells_skipped;
+        if (n_cells_skipped > 0) {
+          SPDLOG_INFO(
+              "{}: {} cell(s) marked output_skipped "
+              "(infeasible scenes will not be written out)",
+              sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
+              n_cells_skipped);
         }
       }
-      if (n_cells_skipped > 0) {
+
+      const auto& scenes = planning_lp().simulation().scenes();
+      const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
+      compute_iteration_bounds(ir, fwd->scene_feasible, weights);
+
+      ir.iteration_s = std::chrono::duration<double>(
+                           std::chrono::steady_clock::now() - final_start)
+                           .count();
+
+      finalize_iteration_result(ir, final_iteration_index, results);
+
+      // The simulation pass does not determine convergence on its own.
+      // It inherits the convergence status from the last training iteration.
+      // With max_iterations=0, no training ran, so converged stays false.
+      ir.converged = !results.empty() && results.back().converged;
+
+      results.push_back(ir);
+
+      {
+        // Same ``feasible=K/N`` clause as the per-iteration headline
+        // above — only emitted when the sim pass had infeasible scenes,
+        // so all-feasible runs stay terse.
+        const auto sim_total = ir.scene_feasible.size();
+        const auto sim_feasible = static_cast<std::size_t>(
+            std::ranges::count(ir.scene_feasible, uint8_t {1}));
+        const auto sim_clause = (sim_total > 0 && sim_feasible < sim_total)
+            ? std::format(" feasible={}/{}", sim_feasible, sim_total)
+            : std::string {};
         SPDLOG_INFO(
-            "{}: {} cell(s) marked output_skipped "
-            "(infeasible scenes will not be written out)",
+            "{}: done in {:.3f}s — "
+            "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
             sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
-            n_cells_skipped);
+            ir.iteration_s,
+            format_si(ir.upper_bound),
+            format_si(ir.lower_bound),
+            100.0 * ir.gap,
+            100.0 * ir.gap_change,
+            sim_clause,
+            ir.converged ? " [CONVERGED]" : "");
+      }
+
+      m_sim_write_enabled_ = false;
+      m_in_simulation_ = false;
+    }
+
+    // Discard feasibility cuts produced during simulation unless
+    // explicitly requested.  Per-scene resize: sim-pass fcuts land in
+    // each scene's own vector (no scuts generated — sim pass has no
+    // backward), so we can rewind each scene's vector to its pre-sim
+    // size and log how many entries were dropped.
+    if (!m_options_.save_simulation_cuts) {
+      std::size_t dropped = 0;
+      auto& scene_cuts = m_cut_store_.scene_cuts();
+      for (std::size_t si_sz = 0;
+           si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
+           ++si_sz)
+      {
+        const auto si = SceneIndex {static_cast<Index>(si_sz)};
+        const auto pre = sim_before_scene_sizes[si_sz];
+        if (scene_cuts[si].size() > pre) {
+          dropped += scene_cuts[si].size() - pre;
+          scene_cuts[si].resize(pre);
+        }
+      }
+      if (dropped > 0) {
+        SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)",
+                    dropped);
       }
     }
-
-    const auto& scenes = planning_lp().simulation().scenes();
-    const auto weights = compute_scene_weights(scenes, fwd->scene_feasible);
-    compute_iteration_bounds(ir, fwd->scene_feasible, weights);
-
-    ir.iteration_s = std::chrono::duration<double>(
-                         std::chrono::steady_clock::now() - final_start)
-                         .count();
-
-    finalize_iteration_result(ir, final_iteration_index, results);
-
-    // The simulation pass does not determine convergence on its own.
-    // It inherits the convergence status from the last training iteration.
-    // With max_iterations=0, no training ran, so converged stays false.
-    ir.converged = !results.empty() && results.back().converged;
-
-    results.push_back(ir);
-
-    {
-      // Same ``feasible=K/N`` clause as the per-iteration headline
-      // above — only emitted when the sim pass had infeasible scenes,
-      // so all-feasible runs stay terse.
-      const auto sim_total = ir.scene_feasible.size();
-      const auto sim_feasible = static_cast<std::size_t>(
-          std::ranges::count(ir.scene_feasible, uint8_t {1}));
-      const auto sim_clause = (sim_total > 0 && sim_feasible < sim_total)
-          ? std::format(" feasible={}/{}", sim_feasible, sim_total)
-          : std::string {};
-      SPDLOG_INFO(
-          "{}: done in {:.3f}s — "
-          "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
-          sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
-          ir.iteration_s,
-          format_si(ir.upper_bound),
-          format_si(ir.lower_bound),
-          100.0 * ir.gap,
-          100.0 * ir.gap_change,
-          sim_clause,
-          ir.converged ? " [CONVERGED]" : "");
-    }
-
-    m_sim_write_enabled_ = false;
-    m_in_simulation_ = false;
-  }
-
-  // Discard feasibility cuts produced during simulation unless
-  // explicitly requested.  Per-scene resize: sim-pass fcuts land in
-  // each scene's own vector (no scuts generated — sim pass has no
-  // backward), so we can rewind each scene's vector to its pre-sim
-  // size and log how many entries were dropped.
-  if (!m_options_.save_simulation_cuts) {
-    std::size_t dropped = 0;
-    auto& scene_cuts = m_cut_store_.scene_cuts();
-    for (std::size_t si_sz = 0;
-         si_sz < scene_cuts.size() && si_sz < sim_before_scene_sizes.size();
-         ++si_sz)
-    {
-      const auto si = SceneIndex {static_cast<Index>(si_sz)};
-      const auto pre = sim_before_scene_sizes[si_sz];
-      if (scene_cuts[si].size() > pre) {
-        dropped += scene_cuts[si].size() - pre;
-        scene_cuts[si].resize(pre);
-      }
-    }
-    if (dropped > 0) {
-      SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)", dropped);
-    }
-  }
+  }  // end if (!skip_simulation_pass)
 
   // Per-step timing trace for the solve() tail.  Profile on
   // `cases/sddp_hydro_3phase` showed a ~298 ms gap between the last
@@ -1209,6 +1225,18 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   std::vector<SDDPIterationResult> results;
   results.reserve(static_cast<std::size_t>(m_options_.max_iterations) + 1);
 
+  // Per-iter accumulator for Benders cuts added across all scenes.  The
+  // synchronous `iterate()` path sets `ir.cuts_added = bwd.total_cuts`
+  // from `run_backward_pass_all_scenes`, but in the async path the
+  // backward pass is dispatched per-scene as a future and the per-scene
+  // counts (the `int` carried by `bwd_future`) had nowhere to land —
+  // every iteration result reported `cuts_added = 0` and downstream
+  // consumers (cascade `new_cuts=...` log, level_stats, regression
+  // tests) silently lost the count.  Indexed by `iteration_relative()`
+  // to stay aligned with the async tracker's per-iter sparse fills.
+  std::vector<int> async_cuts_per_iter(
+      static_cast<std::size_t>(m_options_.max_iterations) + 1, 0);
+
   auto next_converge_iteration_index = m_iteration_offset_;
   const bool use_apertures =
       !m_options_.apertures || !m_options_.apertures->empty();
@@ -1219,7 +1247,8 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           ProbabilityRescaleMode::runtime);
 
   // ── Per-scene convergence helper ──
-  // A scene is individually converged when its own gap < tol for enough iters.
+  // A scene is individually converged when its own gap < tol for enough
+  // iters.
   const auto check_scene_convergence = [&](SceneIndex scene_index,
                                            IterationIndex iteration_index,
                                            double ub,
@@ -1330,15 +1359,24 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   bool all_done = false;
   // Per-scene cut-count snapshot so sim-pass-added feasibility cuts can
-  // be rewound below without affecting training cuts.
-  std::vector<std::size_t> sim_before_scene_sizes;
-  {
-    const auto& sc = m_cut_store_.scene_cuts();
-    sim_before_scene_sizes.reserve(sc.size());
-    for (const auto& scene_vec : sc) {
-      sim_before_scene_sizes.push_back(scene_vec.size());
-    }
-  }
+  // be rewound below without affecting training cuts.  Sized lazily —
+  // each scene captures its OWN snapshot when it transitions from
+  // training (`backward_running` / `idle`) into the simulation pass
+  // (`simulation_running`), so the snapshot reflects the
+  // post-training cut count for that scene specifically.  The
+  // previous implementation captured at function start (= 0 cuts for
+  // every scene) and the tail discard then resized every scene back
+  // to 0, silently wiping every Optimality cut produced during
+  // training — observed on juan/iplp_plain as
+  // `Cascade [...]: new_cuts=1600` followed by
+  // `stored_cuts.size()=0 num_stored_cuts(direct)=0` at the cascade
+  // transition.  Default `std::numeric_limits<std::size_t>::max()`
+  // sentinel marks "scene never reached sim pass" — the tail discard
+  // treats those as no-op (no shrink) so non-finishing scenes keep
+  // every backward cut.
+  std::vector<std::size_t> sim_before_scene_sizes(
+      static_cast<std::size_t>(num_scenes),
+      std::numeric_limits<std::size_t>::max());
 
   while (!all_done) {
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
@@ -1351,6 +1389,25 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               sp.current_iteration_index > last_iteration_index
               || sp.scene_converged;
           if (scene_finished) {
+            // Cascade intermediate levels skip the sim pass entirely:
+            // jump straight to `done` so the orchestration loop reports
+            // the scene as complete without dispatching a final forward
+            // solve, write_out, or per-cell parquet emission.  See the
+            // sync path's `skip_simulation_pass` guard around the
+            // analogous block for the matching architectural argument.
+            if (m_options_.skip_simulation_pass) {
+              sp.state = SceneState::done;
+              break;
+            }
+            // Capture this scene's post-training cut count NOW (before
+            // the sim pass starts adding any feasibility cuts) so the
+            // tail discard at the end of solve_async knows where to
+            // truncate.  See the `sim_before_scene_sizes` comment above
+            // for the rationale — capturing at function start (the
+            // pre-fix behaviour) gave every scene a snapshot of 0 and
+            // the discard then wiped every backward Optimality cut.
+            sim_before_scene_sizes[static_cast<std::size_t>(scene)] =
+                m_cut_store_.at(scene).size();
             // Submit simulation forward pass for this scene
             m_in_simulation_ = true;
             const auto sim_iteration_index = sp.current_iteration_index;
@@ -1495,6 +1552,18 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                         sp.current_iteration_index,
                         uid_of(scene),
                         bwd.error().message);
+          } else {
+            // Accumulate this scene's per-iter Benders cut count into
+            // the iter slot.  When the aggregate iteration result is
+            // finalized below (around the `tracker.all_complete(...)`
+            // gate), the slot is read into `ir.cuts_added` and reset.
+            const auto rel = iteration_relative(sp.current_iteration_index,
+                                                m_iteration_offset_);
+            if (rel >= 0
+                && rel < static_cast<Index>(async_cuts_per_iter.size()))
+            {
+              async_cuts_per_iter[static_cast<std::size_t>(rel)] += *bwd;
+            }
           }
 
           // Get lower bound from phase-0 objective in PHYSICAL ($)
@@ -1637,6 +1706,24 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       SDDPIterationResult ir {
           .iteration_index = next_converge_iteration_index,
       };
+
+      // Drain the per-iter cut accumulator into the iter result.  The
+      // sync path sets this from `run_backward_pass_all_scenes`; the
+      // async path summed per-scene `bwd_future.get()` returns into
+      // `async_cuts_per_iter` as scenes completed.  Without this assign
+      // every async iteration silently reported `cuts_added=0`, which
+      // (a) made cascade `new_cuts=...` log meaningless on async-eligible
+      // runs and (b) caused `CascadeLevelStats::cuts_added` to be 0
+      // even when hundreds of optimality cuts had been installed in
+      // the LP — confirmed by trace logs (`active_cuts ≥ 1`,
+      // `save_cuts_for_iteration` running each iter) on juan-scale.
+      {
+        const auto rel = iteration_relative(next_converge_iteration_index,
+                                            m_iteration_offset_);
+        if (rel >= 0 && rel < static_cast<Index>(async_cuts_per_iter.size())) {
+          ir.cuts_added = async_cuts_per_iter[static_cast<std::size_t>(rel)];
+        }
+      }
 
       // Fill per-scene bounds.  Aggregate UB / LB by plain SUM —
       // each ``b.upper_bound`` already has its scenario probability
@@ -1894,7 +1981,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       tracker.min_completed_iteration(),
       tracker.max_completed_iteration());
 
-  // Discard simulation feasibility cuts (same as synchronous path)
+  // Discard simulation feasibility cuts (same as synchronous path).
+  // `sim_before_scene_sizes[si]` carries the post-training cut count
+  // captured when that scene transitioned into the sim pass; the
+  // sentinel `size_t::max()` marks "this scene never reached the sim
+  // pass" (e.g. `skip_simulation_pass=true`, or the run was cancelled
+  // mid-orchestration), and we leave its cut store alone.
   if (!m_options_.save_simulation_cuts) {
     std::size_t dropped = 0;
     auto& scene_cuts = m_cut_store_.scene_cuts();
@@ -1904,6 +1996,9 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     {
       const auto si = SceneIndex {static_cast<Index>(si_sz)};
       const auto pre = sim_before_scene_sizes[si_sz];
+      if (pre == std::numeric_limits<std::size_t>::max()) {
+        continue;  // scene never reached the sim pass
+      }
       if (scene_cuts[si].size() > pre) {
         dropped += scene_cuts[si].size() - pre;
         scene_cuts[si].resize(pre);
