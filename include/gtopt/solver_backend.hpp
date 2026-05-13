@@ -270,8 +270,8 @@ public:
   // ---- solution access (span-out: write into caller-owned buffer) ----
   //
   // Span-out variants used by `LinearInterface::populate_solution_cache_`
-  // `post_solve` in compress / rebuild mode so the LI's `m_cached_*`
-  // is the sole destination — no plugin scratch buffer is touched.
+  // `post_solve` in compress mode so the LI's `m_cached_*` is the
+  // sole destination — no plugin scratch buffer is touched.
   // The off-mode read path keeps using the pointer-getters above.
   //
   // Naming mirrors the LI side:
@@ -315,7 +315,7 @@ public:
   // fill_col_cost / fill_row_dual but for the construction-time bounds
   // that `LinearInterface::populate_solution_cache_post_solve` snapshots
   // into `m_cache_.col_low()` / `m_cache_.col_upp()` post-solve under
-  // compress / rebuild modes.  Without these, the LI's
+  // compress mode.  Without these, the LI's
   // `get_col_low_raw` / `get_col_upp_raw` always called
   // `backend().col_lower() / col_upper()` directly — forcing every
   // CPLEX/MindOpt/Gurobi backend to allocate a `numcols`-sized

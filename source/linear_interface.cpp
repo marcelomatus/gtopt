@@ -1029,6 +1029,15 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // `set_col_low/upp_raw`, `add_col`, etc.
   cloned.m_is_throwaway_clone_ = true;
 
+  // Stats are post-construction counters — bounds/coefficients written
+  // by `load_flat` and `apply_post_load_replay` are reconstruction
+  // events, not new observations; the source already counted them.
+  // Reset so the clone tracks only writes that land on it post-clone.
+  // Mirrors the plugin route (`clone()`), where `backend().clone()`
+  // bypasses `note_*` entirely and the freshly-constructed clone's
+  // counters start at zero by definition.
+  cloned.m_validation_stats_ = {};
+
   return cloned;
 }
 
@@ -1098,10 +1107,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // vectors.  Post-`load_flat`, every `add_col` / `add_row` writes into
   // `m_post_flatten_*_labels_meta_` instead, leaving the frozen vectors
   // structurally invariant for the lifetime of the LinearInterface (or
-  // until the next `load_flat` for a new structural build, e.g. on
-  // rebuild-mode reflatten).  Clear the post-flatten vectors here so a
-  // reload (compress reconstruct, rebuild reflatten) starts from a
-  // clean slate; `apply_post_load_replay` re-populates them from
+  // until the next `load_flat` for a new structural build).  Clear
+  // the post-flatten vectors here so a reload (compress reconstruct)
+  // starts from a clean slate; `apply_post_load_replay` re-populates
+  // them from
   // `m_dynamic_cols_` / `m_active_cuts_` immediately after load_flat
   // returns.
   detach_for_write(m_col_labels_meta_) = flat_lp.col_labels_meta;
@@ -1193,10 +1202,10 @@ ColIndex LinearInterface::add_col(const std::string& name,
                                   double colub)
 {
   // Ensure the backend is live before we touch it.  Under
-  // `LowMemoryMode::compress` / `rebuild`, `m_backend_` may have been
-  // released; `ensure_backend()` lazily reconstructs it.  The assert
-  // doubles as a hint to clang-static-analyzer, which otherwise can't
-  // see through the rebuild callback and flags every subsequent
+  // `LowMemoryMode::compress`, `m_backend_` may have been released;
+  // `ensure_backend()` lazily reconstructs it from the snapshot.  The
+  // assert doubles as a hint to clang-static-analyzer, which otherwise
+  // can't see through the reconstruct path and flags every subsequent
   // `m_backend_->…` as a potential null dereference.
   ensure_backend();
   assert(m_backend_ != nullptr);
@@ -1378,34 +1387,24 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
   track_col_label_meta(col_idx, col);
 
   // Auto-record post-init mutations so they are replayed on the next
-  // `release_backend` → `reconstruct_backend` (compress) or
-  // `release_backend` → rebuild-callback (rebuild) cycle.  Skips when
-  // `m_replaying_` is set (apply_post_load_replay's bulk re-entry —
-  // the bulk path bypasses this single-arg variant anyway, but the
-  // flag is a defence-in-depth guard).  Skips when
-  // `m_low_memory_mode_ == off` (no replay needed).
+  // `release_backend` → `reconstruct_backend` cycle under compress.
+  // Skips when `m_replaying_` is set (apply_post_load_replay's bulk
+  // re-entry — the bulk path bypasses this single-arg variant anyway,
+  // but the flag is a defence-in-depth guard).
   //
-  // The "post-init" gate differs by mode:
-  //   * compress / snapshot: `m_snapshot_holder_.has_data()` flips true once
-  //     `defer_initial_load` (or `freeze_for_cuts`) installs the flat
-  //     LP, which is precisely the structural-build → cut-build
-  //     boundary.  Pre-snapshot structural builds still go straight
-  //     to the backend without growing `m_dynamic_cols_`.
-  //   * rebuild: there is no snapshot, but the structural rebuild
-  //     itself uses bulk `add_cols` (which never auto-records), and
-  //     the only single-arg `add_col` callers (e.g. SDDP α) run AFTER
-  //     `rebuild_in_place` completes — so unconditional auto-record
-  //     in rebuild mode is safe and is the only way to make
-  //     `m_dynamic_cols_` survive the next release/rebuild cycle.
+  // Post-init gate: `m_snapshot_holder_.has_data()` flips true once
+  // `defer_initial_load` (or `freeze_for_cuts`) installs the flat
+  // LP, which is precisely the structural-build → cut-build
+  // boundary.  Pre-snapshot structural builds still go straight
+  // to the backend without growing `m_dynamic_cols_`.
   //
   // Caller doesn't need to remember a follow-up `record_dynamic_col`
   // — historically that was a hidden requirement that silently
   // dropped post-init cols on the first reconstruct (juan/cascade
-  // SIGSEGV) or on the first rebuild (juan/SDDP iter50_rebuild
-  // CPLEX SEGV in `set_col_lower` after α was lost).
-  // 2026-05-11 fix — drop the `mode != off` gate.  Under `off`,
-  // `system_lp.cpp:560` still saves a snapshot, so the aperture-path
-  // `clone_from_flat(with_replay=true)` consumes this buffer.  Without
+  // SIGSEGV).
+  // 2026-05-11 fix — record unconditionally (no mode gate).  Under
+  // `off`, `system_lp.cpp:560` still saves a snapshot, so the
+  // aperture-path `clone_from_flat` consumes this buffer.  Without
   // recording α cols here, `apply_post_load_replay` re-installs cuts
   // that reference an α column index past the snapshot's numcols —
   // silently corrupt at best, segfault at worst (juan/IPLP 2026-05-11).
@@ -2351,8 +2350,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   {
     const auto frozen_count = flatten_row_count();
     const auto first_post_offset =
-        std::cmp_greater_equal(static_cast<Index>(first_row_index),
-                               frozen_count)
+        std::cmp_greater_equal(first_row_index, frozen_count)
         ? static_cast<size_t>(first_row_index) - frozen_count
         : 0U;
     const auto needed_size = first_post_offset + static_cast<size_t>(nrows);
@@ -2802,7 +2800,7 @@ void LinearInterface::set_col_bounds_raw(
       m_validation_stats_.note_bound(raw, c, m_validation_options_);
     }
 
-    bk_idx.push_back(static_cast<int>(c));
+    bk_idx.push_back(c);
     bk_lu.push_back(which);
     bk_vals.push_back(normalised);
 

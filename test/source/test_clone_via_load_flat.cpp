@@ -521,6 +521,41 @@ TEST_CASE(  // NOLINT
   CHECK_NOTHROW(std::ignore = src.clone_from_flat());
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface::clone_from_flat — single-arg (kind) signature pin")
+{
+  // Compile-time + runtime pin for the post-cleanup single-arg form.
+  // The dropped second parameter (legacy ``with_replay``) used to gate
+  // whether ``clone_from_flat`` replayed post-snapshot mutations; replay
+  // is now unconditional, so any re-introduction of a second parameter
+  // must be a deliberate design decision — not a silent regression.
+  //
+  // The assignment below would fail to compile if the signature ever
+  // grew a second required parameter or changed its return type.
+  using CloneFromFlatFn =
+      LinearInterface (LinearInterface::*)(LinearInterface::CloneKind) const;
+  constexpr CloneFromFlatFn fn = &LinearInterface::clone_from_flat;
+  (void)fn;
+
+  auto problem = build_feature_problem();
+  auto flat = problem.flatten({});
+
+  LinearInterface src;
+  src.set_low_memory(LowMemoryMode::compress);
+  src.load_flat(flat);
+  src.save_snapshot(std::move(flat));
+  REQUIRE(src.has_snapshot_data());
+
+  // Both kinds callable with exactly one argument — no default-arg
+  // dependency, no with_replay flag.
+  const auto shallow = src.clone_from_flat(LinearInterface::CloneKind::shallow);
+  const auto deep = src.clone_from_flat(LinearInterface::CloneKind::deep);
+  CHECK(shallow.get_numcols() == src.get_numcols());
+  CHECK(deep.get_numcols() == src.get_numcols());
+  CHECK(shallow.get_numrows() == src.get_numrows());
+  CHECK(deep.get_numrows() == src.get_numrows());
+}
+
 // ─── 7. Timing comparison (informational) ───────────────────────────
 
 TEST_CASE(  // NOLINT

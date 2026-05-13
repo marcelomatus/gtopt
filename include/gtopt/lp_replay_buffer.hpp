@@ -340,7 +340,7 @@ public:
     m_pending_rhs_[row] = value;
   }
 
-  // ── Take + restore (rebuild path) (R3) ──────────────────────────────────
+  // ── Take + restore (replay path) (R3) ──────────────────────────────────
 
   /// Move out the dynamic columns and leave the internal vector empty.
   [[nodiscard]] auto take_dynamic_cols() noexcept -> std::vector<SparseCol>

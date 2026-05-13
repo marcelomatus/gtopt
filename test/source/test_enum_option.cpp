@@ -532,7 +532,9 @@ TEST_CASE("LowMemoryMode alias 'snapshot' still parses to compress")  // NOLINT
         == LowMemoryMode::compress);
 }
 
-TEST_CASE("require_enum<LowMemoryMode> error message hides alias 'snapshot'")
+TEST_CASE(
+    "require_enum<LowMemoryMode> error message hides aliases 'snapshot' "
+    "and 'rebuild'")
 // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
@@ -542,8 +544,9 @@ TEST_CASE("require_enum<LowMemoryMode> error message hides alias 'snapshot'")
     FAIL("require_enum should have thrown");
   } catch (const std::invalid_argument& e) {
     const std::string msg {e.what()};
-    CHECK(msg.find("off, compress, rebuild") != std::string::npos);
+    CHECK(msg.find("off, compress") != std::string::npos);
     CHECK(msg.find("snapshot") == std::string::npos);
+    CHECK(msg.find("rebuild") == std::string::npos);
     CHECK(msg.find("low-memory") != std::string::npos);
     CHECK(msg.find("xx") != std::string::npos);
   }

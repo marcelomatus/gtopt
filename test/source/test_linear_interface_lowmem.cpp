@@ -1148,22 +1148,20 @@ TEST_CASE(
 // readers consume the cached vectors via the `m_backend_released_` gate
 // in `get_col_sol_raw` instead.
 
-// ── Plan §6 Test 1 — snapshot is frozen at construction time ──────────
+// ── Plan §6 Test 1 — post-snapshot set_coeff is replayed ──────────────
 //
-// Pins the invariant: under `LowMemoryMode::compress`, the
-// `m_snapshot_.flat_lp` reflects matval at the moment of `save_snapshot`,
-// NOT post-solve `set_coeff` mutations.  Every `reconstruct_backend`
-// reloads the *original* coefficients, which is why the SDDP forward
-// pass must call `update_lp_for_phase` after every `ensure_lp_built()`
-// (and the backward pass must do the same — see commit 3e73f68c).
-//
-// If a future refactor (P4 in docs/sddp_compress_refactor_plan.md) bakes
-// `set_coeff` mutations into the snapshot, this test's assertion flips
-// and the SDDP fix's backward `update_lp_for_phase` call becomes
-// unnecessary — the test then becomes the explicit boundary marker
-// between the two policies.
+// Pins the invariant: under `LowMemoryMode::compress`, post-snapshot
+// `set_coeff` mutations are recorded in the LpReplayBuffer's
+// pending_coeffs map and re-applied by `apply_post_load_replay` after
+// every `reconstruct_backend`.  The snapshot's flat_lp still carries
+// the construction-time matval (it is the structural baseline), but
+// the visible coefficient seen by the reconstructed backend reflects
+// the latest mutation — closing the juan/p51 aperture-infeasibility
+// bug where seepage-row coefficients drifted between live backend and
+// snapshot (commit e49c001a).
 TEST_CASE(
-    "LinearInterface — snapshot frozen at construction (compress)")  // NOLINT
+    "LinearInterface — set_coeff mutation is replayed on reconstruct "
+    "(compress)")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_li_lp();
   const RowIndex r0 {0};
@@ -1178,24 +1176,21 @@ TEST_CASE(
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  // Mutate the live backend's coefficient.  Under off this would
-  // persist; under compress the mutation lives only on the volatile
-  // backend that is about to be released.
+  // Mutate the live backend's coefficient.  set_coeff routes through
+  // set_coeff_raw which records into the replay buffer's pending_coeffs.
   REQUIRE(li.supports_set_coeff());
   li.set_coeff(r0, x1, 99.0);
   CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
 
-  // Release + reconstruct: the snapshot pre-dates the set_coeff above.
+  // Release + reconstruct: load_flat restores the snapshot's
+  // construction-time matval, then apply_post_load_replay re-applies
+  // the pending_coeffs map.
   li.release_backend();
   li.reconstruct_backend();
   REQUIRE_FALSE(li.is_backend_released());
 
-  // The reconstructed backend reflects the snapshot's frozen matval —
-  // the 99.0 mutation is lost.  This is the documented behaviour and
-  // the reason `update_lp_for_phase` must run after every reload under
-  // non-`off` modes (see `sddp_method_iteration.cpp::backward_pass_`
-  // `single_phase` post-fix).
-  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+  // The reconstructed backend reflects the post-snapshot mutation.
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
 }
 
 // ── Col-bound replay regression — the SDDP propagate_trial_values fix ──
@@ -3869,16 +3864,16 @@ TEST_CASE(  // NOLINT
 // mutations into the snapshot), these tests will fail and force an explicit
 // update — preventing silent semantic drift.
 
-// ── Task 2a: set_coeff_raw policy — mutation is NOT replayed ────────────────
+// ── Task 2a: set_coeff_raw policy — mutation IS replayed ──────────────────
 //
-// Distinct from the existing "snapshot frozen at construction (compress)"
-// test (which uses the physical `set_coeff` wrapper): this test calls
-// `set_coeff_raw` directly and verifies the same non-replay contract at
-// the raw-setter level.  The two are independent because a future refactor
-// could add raw-level tracking while leaving physical-level alone, or
-// vice versa.
+// Distinct from the existing "set_coeff replayed" test (which uses the
+// physical `set_coeff` wrapper): this test calls `set_coeff_raw` directly
+// and verifies the same replay contract at the raw-setter level.
+// post-fix invariant (commit e49c001a): both physical and raw setters
+// push into `m_pending_coeffs_` so `apply_post_load_replay` re-applies
+// them after `load_flat`.
 TEST_CASE(  // NOLINT
-    "LinearInterface — set_coeff_raw mutation NOT replayed on reconstruct")
+    "LinearInterface — set_coeff_raw mutation IS replayed on reconstruct")
 {
   // min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  0 <= x1,x2 <= 10
   // Construction-time coefficient at (r0, x1) is 1.0.
@@ -3896,32 +3891,32 @@ TEST_CASE(  // NOLINT
   li.set_coeff_raw(r0, x1, 99.0);
   CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
 
-  // Release + reconstruct: `load_flat` reloads the frozen snapshot.
-  // The 99.0 raw mutation lives only on the volatile backend — it is
-  // lost because `m_pending_col_bounds_`-style replay does not exist
-  // for matrix coefficients (re-application is the caller's job via
-  // `update_lp_for_phase`).
+  // Release + reconstruct: `load_flat` reloads the snapshot's
+  // construction-time matval, then `apply_post_load_replay` re-applies
+  // the pending_coeffs entry for (r0, x1).
   li.release_backend();
   li.reconstruct_backend();
   REQUIRE_FALSE(li.is_backend_released());
 
-  // Must revert to construction-time value, NOT 99.0.
-  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(1.0));
+  // Reflects the replayed mutation, NOT the snapshot's 1.0.
+  CHECK(li.get_coeff_raw(r0, x1) == doctest::Approx(99.0));
 
   // Verify x2 coefficient untouched by the mutation above.
   CHECK(li.get_coeff_raw(r0, x2) == doctest::Approx(1.0));
 }
 
-// ── Task 2b: set_rhs_raw policy — mutation is NOT replayed ──────────────────
+// ── Task 2b: set_rhs_raw IS replayed; set_row_low/upp_raw is NOT ──────────
 //
-// Pins the same non-replay contract for row-bound mutations.  The SDDP
-// element `update_lp` calls (`set_rhs`, `set_row_low`, `set_row_upp`) are
-// re-executed at every `update_lp_for_phase` call site, so direct replay
-// is intentionally absent for row bounds.  If a future change adds a
-// `m_pending_row_bounds_` map, this test will flip and signal the policy
-// change — preventing silent semantics drift.
+// Asymmetric policy (commit e49c001a): equality-style `set_rhs_raw`
+// pushes into `m_pending_rhs_` so it survives release/reconstruct.
+// Individual `set_row_low_raw` / `set_row_upp_raw` mutations are NOT
+// recorded — the SDDP element `update_lp` calls
+// (`set_row_low`, `set_row_upp`) are re-executed at every
+// `update_lp_for_phase` call site, so direct replay is not needed for
+// them.  If a future change adds an `m_pending_row_bounds_` map, the
+// second subcase will flip and signal the policy change.
 TEST_CASE(  // NOLINT
-    "LinearInterface — set_rhs_raw mutation NOT replayed on reconstruct")
+    "LinearInterface — set_rhs_raw IS replayed; set_row_low/upp_raw is not")
 {
   // Construction-time row bounds: lowb = 5.0, uppb = DblMax (from fixture).
   auto [li, flat, x1, x2] = make_simple_li_lp();
@@ -3936,7 +3931,7 @@ TEST_CASE(  // NOLINT
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
 
-  SUBCASE("set_rhs_raw reverts after reconstruct")
+  SUBCASE("set_rhs_raw survives reconstruct")
   {
     // Pin the row to an equality constraint (rhs = 8.0).
     li.set_rhs_raw(r0, 8.0);
@@ -3945,16 +3940,18 @@ TEST_CASE(  // NOLINT
     CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)]
           == doctest::Approx(8.0));
 
-    // Release + reconstruct: snapshot restores construction-time bounds.
+    // Release + reconstruct: load_flat restores the snapshot's
+    // construction-time bounds, then apply_post_load_replay re-applies
+    // the pending_rhs entry for r0.
     li.release_backend();
     li.reconstruct_backend();
     REQUIRE_FALSE(li.is_backend_released());
 
-    // Both bounds must revert to construction-time values (5.0 / +inf).
-    const double inf_val = li.infinity();
+    // Both bounds reflect the replayed equality (8.0 / 8.0).
     CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
-          == doctest::Approx(5.0));
-    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)] >= inf_val * 0.9);
+          == doctest::Approx(8.0));
+    CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)]
+          == doctest::Approx(8.0));
   }
 
   SUBCASE("set_row_low_raw / set_row_upp_raw revert after reconstruct")

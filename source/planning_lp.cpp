@@ -813,7 +813,7 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
     links.shrink_to_fit();
   }
 
-  // Drop write-out-only collections under compress / rebuild modes.
+  // Drop write-out-only collections under compress mode.
   // `physical_eini_from_cache` reads `li.get_col_sol()[eini_col]`
   // directly from the current sys — no element lookup, no
   // cross-phase traversal, no StateVariable lookup.  All 22

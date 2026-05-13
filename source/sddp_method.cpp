@@ -455,14 +455,14 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   // The setup steps below (add_col for alpha, get_col bounds for
   // state links, save_base_numrows, cut loading) trigger the
-  // rebuild-callback or reconstruct-from-snapshot transparently
-  // per-cell when the backend is released — so no eager build pass
-  // is needed here regardless of low_memory mode.
+  // reconstruct-from-snapshot transparently per-cell when the backend
+  // is released — so no eager build pass is needed here regardless of
+  // low_memory mode.
 
   SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
   // Per-scene setup is independent across scenes: each writes to its
-  // own slot of m_scene_phase_states_.  Under rebuild mode every
-  // add_col(alpha) / bound-read triggers a full flatten+load_flat per
+  // own slot of m_scene_phase_states_.  Under compress mode every
+  // add_col(alpha) / bound-read triggers a snapshot reconstruct per
   // cell via ensure_backend, so a serial loop over 16 scenes × 51
   // phases = ~100s wall on large problems.  Dispatch per-scene to the
   // solver work pool for ~16× speedup on that critical path.
@@ -661,7 +661,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // runs unconditionally.  Cut loaders already populated `m_active_cuts_`
   // via `record_cut_row`, so the persistent state needed to reconstruct
   // each cell is intact.  Eager release here keeps the memory profile
-  // uniform across compress/rebuild: the forward pass's per-phase
+  // uniform under compress: the forward pass's per-phase
   // `ensure_lp_built` will reload each cell on first touch.
   //
   // Under `compress` each release does real work (zstd/lz4 compression

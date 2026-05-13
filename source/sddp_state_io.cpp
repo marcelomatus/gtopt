@@ -83,12 +83,12 @@ auto save_state_csv(PlanningLP& planning_lp, const std::string& filepath)
         // was released with Phase-2a cached col_sol / col_cost via
         // `LinearInterface::release_backend()`, and the getters route
         // to those cached vectors when `m_backend_released_ == true`.
-        // Forcing a reload would fire `rebuild_in_place()` under
-        // rebuild mode, which flattens fresh — leaving the backend
-        // LIVE but UNSOLVED, clobbering `is_optimal()` for the
-        // subsequent `PlanningLP::write_out` pass.  Under `off` the
-        // backend stays alive throughout and is already readable;
-        // this call is a no-op there too.
+        // Forcing a reload would reconstruct the backend from the
+        // snapshot under compress mode — leaving the backend LIVE
+        // but UNSOLVED, clobbering `is_optimal()` for the subsequent
+        // `PlanningLP::write_out` pass.  Under `off` the backend
+        // stays alive throughout and is already readable; this call
+        // is a no-op there too.
 
         if (!li.is_optimal()) {
           continue;

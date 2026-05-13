@@ -555,13 +555,6 @@ private:
   /// output.
   bool m_output_skipped_ {false};
 
-  /// Exact (ncols, nrows) from the successful flatten.  Recorded so
-  /// downstream code (and any future re-flatten path) can read the
-  /// realised sizes without re-running the heuristic.  Zero until the
-  /// flatten completes.
-  size_t m_last_flat_ncols_ {0};
-  size_t m_last_flat_nrows_ {0};
-
   /// Deferred dependent-variable links recorded during this phase's
   /// `add_to_lp` pass.  Under parallel phase construction within a
   /// scene, phase N+1 cannot safely call `add_dependent_variable` on

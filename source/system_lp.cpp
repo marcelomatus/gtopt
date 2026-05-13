@@ -888,8 +888,8 @@ void SystemLP::clear_disposable_collections()
 void SystemLP::rebuild_collections_if_needed()
 {
   // Skips for `off`: collections are never dropped under off mode.
-  // Fires for both `compress` AND `rebuild`: both drop collections at
-  // `release_backend()` and both need the XLP per-element col indices
+  // Fires under compress mode: `release_backend()` dropped the
+  // disposable XLP types and we need their per-element col indices
   // repopulated before `visit_elements(collections())` can emit
   // meaningful output.  The flatten here is throw-away — it leaves
   // the solver backend untouched so the Phase-2a cached primal/dual
@@ -897,13 +897,12 @@ void SystemLP::rebuild_collections_if_needed()
   // `is_optimal()` to a freshly-loaded-but-unsolved backend.
   //
   // Two-flag gate: triggers if either the full collection set is
-  // unbuilt (cold start under rebuild mode) OR the disposable types
-  // are dropped (compress mode after `clear_disposable_collections`).
-  // In the latter case the flatten replays add_to_lp on the freshly-
-  // recreated disposable elements; the HasUpdateLP types' state is
-  // overwritten too but they receive identical content from the same
-  // System data, so `update_lp`'s post-rebuild iteration sees the
-  // same indices.
+  // unbuilt OR the disposable types are dropped (compress mode after
+  // `clear_disposable_collections`).  The flatten replays add_to_lp
+  // on the freshly-recreated disposable elements; the HasUpdateLP
+  // types' state is overwritten too but they receive identical
+  // content from the same System data, so `update_lp`'s post-flatten
+  // iteration sees the same indices.
   if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
     return;
   }
@@ -955,9 +954,7 @@ void SystemLP::rebuild_collections_if_needed()
                                  phase(),
                                  scene(),
                                  flat_opts,
-                                 m_linear_interface_.infinity(),
-                                 m_last_flat_ncols_,
-                                 m_last_flat_nrows_);
+                                 m_linear_interface_.infinity());
 }
 
 void SystemLP::ensure_lp_built()
@@ -1052,8 +1049,6 @@ SystemLP::SystemLP(SystemLP&& other) noexcept
     , m_fingerprint_was_set_(other.m_fingerprint_was_set_)
     , m_collections_built_(other.m_collections_built_)
     , m_disposable_collections_built_(other.m_disposable_collections_built_)
-    , m_last_flat_ncols_(other.m_last_flat_ncols_)
-    , m_last_flat_nrows_(other.m_last_flat_nrows_)
     , m_pending_state_links_(std::move(other.m_pending_state_links_))
     , m_prev_phase_sys_(other.m_prev_phase_sys_)
 {
@@ -1093,8 +1088,6 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   m_fingerprint_was_set_ = other.m_fingerprint_was_set_;
   m_collections_built_ = other.m_collections_built_;
   m_disposable_collections_built_ = other.m_disposable_collections_built_;
-  m_last_flat_ncols_ = other.m_last_flat_ncols_;
-  m_last_flat_nrows_ = other.m_last_flat_nrows_;
   m_pending_state_links_ = std::move(other.m_pending_state_links_);
   m_prev_phase_sys_ = other.m_prev_phase_sys_;
   m_system_context_.rebind_system(*this);
@@ -1108,7 +1101,7 @@ void SystemLP::write_out()
   // the true solved values).  `PlanningLP::write_out` later iterates
   // all cells too — without this guard the later pass would overwrite
   // the sim-pass output with values read from a freshly rehydrated
-  // (and possibly un-solved) backend under compress/rebuild, breaking
+  // (and possibly un-solved) backend under compress, breaking
   // solution invariance across low_memory modes.
   if (m_output_written_) {
     return;
@@ -1150,10 +1143,10 @@ void SystemLP::write_out()
   const auto t_start = clock::now();
 
   if (m_flat_opts_.low_memory_mode != LowMemoryMode::off) {
-    // Both compress and rebuild drop collections at release_backend()
-    // time, so on the write pass we need to re-populate the XLP
-    // per-element col/row indices via a throw-away flatten.  Under
-    // `off`, collections were never dropped and this is a no-op.
+    // Compress drops collections at release_backend() time, so on the
+    // write pass we need to re-populate the XLP per-element col/row
+    // indices via a throw-away flatten.  Under `off`, collections
+    // were never dropped and this is a no-op.
     rebuild_collections_if_needed();
   } else if (!m_collections_built_) {
     create_collections(m_system_context_, system(), m_collections_);
