@@ -644,6 +644,12 @@ class HydroMixin:
         )
         writer.process(self.planning["system"])
 
+        # Create spillway at each soft FlowRight junction lacking an outlet
+        from gtopt_expand.pmin_flowright_expand import (  # noqa: PLC0415
+            ensure_drain_for_flowrights,
+        )
+        ensure_drain_for_flowrights(self.planning["system"])
+
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.
 

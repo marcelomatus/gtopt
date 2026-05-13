@@ -88,6 +88,7 @@ _NEG_INF_JSON_SENTINEL = "-Infinity"
 _INF_OMIT_KEYS = frozenset(
     {
         "fmax",  # Waterway.fmax / FlowRight.fmax / VolumeRight.fmax
+        "fmin",  # Waterway.fmin / FlowRight.fmin / VolumeRight.fmin
     }
 )
 
@@ -123,7 +124,8 @@ def _sanitize_inf(obj: Any) -> Any:
             if (
                 k in _INF_OMIT_KEYS
                 and isinstance(v, float)
-                and (v == math.inf or v == -math.inf)
+                and (v == math.inf or v == -math.inf
+                     or abs(v) >= 1e20)  # PLP sentinel (1e30)
             ):
                 drops.append(k)
         for k in drops:
@@ -750,6 +752,12 @@ class GTOptWriter(
         # cut_coeff_eps: drop coefficients with |value| < eps (default 1e-8).
         sddp_opts["cut_coeff_eps"] = options.get("cut_coeff_eps", 1e-8)
 
+        # Drop feasibility cuts from aperture clone replay so they don't
+        # conflict with perturbed trial states.  Default true (matches C++).
+        sddp_opts["aperture_drop_fcuts"] = options.get(
+            "aperture_drop_fcuts", True
+        )
+
         # Backward-solver threads: defer to the C++ default (2).  The
         # historical override pinning to 1 was based on per-cell solve
         # being parallel-simplex-overhead-bound, but the post-2026-05
@@ -837,6 +845,7 @@ class GTOptWriter(
             "demand_fail_cost": effective_demand_fail,
             "state_fail_cost": src_model.get("state_fail_cost", 1000),
             "strict_storage_emin": src_model.get("strict_storage_emin", False),
+            "auto_scale": src_model.get("auto_scale", True),
         }
         # Only emit scale_objective if explicitly set (C++ default is 1000).
         if "scale_objective" in src_model:
@@ -861,6 +870,9 @@ class GTOptWriter(
             "output_compression": compression,
             "model_options": model_opts,
             "sddp_options": sddp_opts,
+            "lp_matrix_options": {
+                "equilibration_method": "ruiz",
+            },
         }
 
         if method == "cascade":

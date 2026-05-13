@@ -312,6 +312,24 @@ add_custom_target(scripts-coverage
 enable_testing()
 include(TestParallelism)
 
+# Python pytest tests are registered as CTest entries only when this option is
+# ON.  Default OFF: a plain ``ctest -j20`` in the all/ super-project build runs
+# only the fast C++ unit tests; the Python suite still has its own dedicated
+# CI workflow (.github/workflows/scripts.yml) and the custom build targets
+# (``scripts-test``, ``scripts-test-integration``, …) remain available.
+#
+# To opt in for local runs:
+#   cmake -S all -B build -DGTOPT_REGISTER_PYTHON_TESTS=ON
+#   ctest -L script               # run only the Python tests
+#   ctest -LE script              # run only the C++ tests
+option(
+  GTOPT_REGISTER_PYTHON_TESTS
+  "Register pytest unit + integration cases as CTest entries"
+  OFF
+)
+
+if(GTOPT_REGISTER_PYTHON_TESTS)
+
 # ---- Helper: add_pytest_integration_test ----
 # Registers a pytest integration-test group as an individual CTest entry.
 # Analogous to add_e2e_case() in integration_test/cmake/add_e2e_case.cmake.
@@ -579,6 +597,8 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
       LABELS "script"
   )
 endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
+
+endif() # GTOPT_REGISTER_PYTHON_TESTS
 
 # ---- Install ----
 

@@ -96,10 +96,24 @@ cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_
 cmake --build build -j$(nproc) && cd build && ctest --output-on-failure
 ```
 
-> **C++ only**: pytest entries carry the `script` label, so
-> `ctest -LE script -j20` skips them entirely (~45 s on the full
-> superbuild vs ~150 s with Python tests included).  Use `ctest -L script`
-> to run only the Python side.
+> **C++ only by default**: the Python pytest suite is registered as CTest
+> entries only when `-DGTOPT_REGISTER_PYTHON_TESTS=ON` is passed at
+> configure time (default OFF in the `all/` super-project).  A plain
+> `ctest -j20` therefore runs only the fast C++ unit tests (~45 s vs
+> ~150 s with Python included).
+>
+> Opt in for local runs with:
+>
+> ```bash
+> cmake -S all -B build -DGTOPT_REGISTER_PYTHON_TESTS=ON ...
+> ctest -L script -j20    # only Python tests
+> ctest -LE script -j20   # only C++ tests
+> ```
+>
+> CI (`.github/workflows/ubuntu.yml`) sets the flag explicitly so the
+> Python side keeps catching C++ regressions that change JSON output.
+> The standalone `scripts.yml` workflow runs the Python suite directly
+> via pytest regardless of the CMake option.
 
 ## Obtaining the gtopt Binary
 

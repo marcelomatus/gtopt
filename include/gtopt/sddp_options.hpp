@@ -210,6 +210,12 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool aperture_use_manual_clone {};
 
+  /** @brief Drop feasibility cuts from aperture clone replay.
+   *  When true, feasibility cut rows (fcut) are filtered out during
+   *  clone-from-flat replay so they don't conflict with perturbed
+   *  trial states.  Default: true. */
+  OptBool aperture_drop_fcuts {true};
+
   /** @brief Number of apertures solved serially per backward-pass task.
    *
    * Controls the chunked aperture pass.  Each chunk is submitted as
@@ -618,6 +624,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
+    merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
