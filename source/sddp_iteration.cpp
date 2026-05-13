@@ -1671,8 +1671,20 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       const bool past_min_iterations =
           (next_converge_iteration_index >= m_iteration_offset_
                + IterationIndex {m_options_.min_iterations - 1});
-      ir.converged =
-          (ir.gap < m_options_.convergence_tol) && past_min_iterations;
+      // Negative-gap guard (mirrors the synchronous path at
+      // sddp_method_iteration.cpp:1699 and `finalize_iteration_result`):
+      // a small POSITIVE gap below tolerance is the textbook converged
+      // condition; a small NEGATIVE gap (≈ -1e-15 from FP noise when
+      // UB ≈ LB) is harmless and accepted via `kSddpGapFpEpsilon`; but
+      // a LARGE negative gap (LB > UB by orders of magnitude — cuts
+      // overshoot the optimum, SDDP-theory violation) must NOT be
+      // declared converged.  Pre-fix, juan/cascade-uninodal silently
+      // reported [CONVERGED] with gap=-1100% (LB=35G vs UB=2.9G);
+      // post-fix, ir.converged stays false and the run continues to
+      // max_iterations so the LB overshoot is visible, not hidden.
+      const bool gap_in_range = (ir.gap < m_options_.convergence_tol)
+          && (ir.gap > -kSddpGapFpEpsilon);
+      ir.converged = gap_in_range && past_min_iterations;
 
       // Stationary gap check (same logic as synchronous path)
       if (m_options_.stationary_tol > 0.0 && m_options_.stationary_window > 0
