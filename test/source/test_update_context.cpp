@@ -32,6 +32,8 @@
  * future divergence is caught at unit-test time.
  */
 
+#include <array>
+
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -41,9 +43,15 @@
 #include "fixture_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
-using gtopt::test_fixtures::make_single_stage_phases;
-using gtopt::test_fixtures::make_uniform_blocks;
-using gtopt::test_fixtures::make_uniform_stages;
+// NOLINTBEGIN(bugprone-argument-comment)
+
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
+using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
+    make_single_stage_phases;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
+    make_uniform_blocks;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
+    make_uniform_stages;  // NOLINT(google-global-names-in-headers)
 
 namespace
 {
@@ -453,6 +461,133 @@ TEST_CASE(  // NOLINT
   sys1.set_prev_phase_sys(nullptr);
 }
 
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: pinned eini-col bound wins over "
+    "default_volume when StateVariable lookup misses (aperture path)")
+{
+  // Reproduces the juan/gtopt_iplp p51 production bug
+  // (2026-05-12 INFEAS-PROBE confirmed via IIS):
+  //
+  //   * Forward pass drains a reservoir (ELTORO/COLBUN/CIPRESES) to 0.
+  //   * ``propagate_trial_values`` pins the next phase's ``eini`` col
+  //     to that value (lb == ub == 0 via the 'B' setter).
+  //   * Backward / aperture clone calls ``update_lp_for_phase`` BEFORE
+  //     the clone is solved — so ``li.is_optimal()`` is false.
+  //   * The current scenario is the aperture's scenario, NOT the
+  //     scene's central scenario the source StateVariable was
+  //     registered under → step 1 lookup misses.
+  //   * Pre-fix: helper falls through to ``rc.default_volume`` (the
+  //     ANNUAL ``eini`` from the JSON, e.g. 1731 Hm³ for ELTORO) →
+  //     ReservoirSeepageLP::update_lp selects the wrong piecewise
+  //     segment (mid-volume slope/constant) → seepage row forces ~75
+  //     m³/s of outflow over 5 blocks → aperture LP genuinely
+  //     infeasible.
+  //
+  // The pinned bound is the single source of truth for "what state
+  // was propagated into this phase".  This test fails on pre-fix
+  // (returns default_volume) and passes on post-fix (returns the
+  // pinned bound).
+  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  REQUIRE(sys0.linear_interface().resolve().has_value());
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  // Deliberately do NOT wire prev_phase_sys, AND do NOT populate the
+  // predecessor's efin StateVariable's col_sol — both step-1 paths
+  // are dead.  This matches the aperture-path failure mode where the
+  // scenario key doesn't match the registered StateVariable.
+
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  // Pin the eini column to a known value different from default_volume.
+  // This is exactly what propagate_trial_values does after the forward
+  // pass solves the predecessor — set both bounds ('B') to the
+  // physical trial value via the bulk physical setter.
+  constexpr double pinned_phys = 7.5;  // ≠ default_volume (= eini = 100)
+  REQUIRE(pinned_phys != doctest::Approx(cache.default_volume));
+  {
+    auto& li = sys1.linear_interface();
+    const std::array<ColIndex, 1> idx {cache.eini_col};
+    const std::array<char, 1> lu {'B'};
+    const std::array<double, 1> phys {pinned_phys};
+    li.set_col_bounds(idx, lu, phys);
+    // sys1 was never solved → is_optimal must be false so we exercise
+    // the bound-pin short-circuit specifically (not the col_sol step).
+    REQUIRE_FALSE(li.is_optimal());
+  }
+
+  const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
+
+  // The killer assertion: the helper must read the pinned bound (the
+  // forward-pass state propagated by ``propagate_trial_values``) and
+  // NOT fall through to ``default_volume`` (which would re-select the
+  // wrong piecewise seepage segment).
+  CHECK(vini == doctest::Approx(pinned_phys));
+  CHECK(vini != doctest::Approx(cache.default_volume));
+}
+
+TEST_CASE(  // NOLINT
+    "physical_eini_from_cache: pinned bound takes precedence over "
+    "stale StateVariable col_sol")
+{
+  // When both the pinned bound AND the predecessor's StateVariable
+  // disagree (e.g. the cached SV is stale after a release/reconstruct
+  // cycle), the pinned bound on the current LP is authoritative —
+  // it reflects the most recent propagate_trial_values call.  Pins
+  // the precedence order (step 0 before step 1) so a future refactor
+  // that swaps them is caught at unit-test time.
+  auto planning = make_two_phase_reservoir_planning(/*eini=*/100.0);
+  PlanningLP planning_lp(std::move(planning));
+
+  auto& sys0 = planning_lp.system(first_scene_index(), first_phase_index());
+  REQUIRE(sys0.linear_interface().resolve().has_value());
+
+  auto& sys1 = planning_lp.system(first_scene_index(), PhaseIndex {1});
+  sys1.set_prev_phase_sys(&sys0);
+
+  const auto& rsv0 = sys0.elements<ReservoirLP>().front();
+  const auto& rsv1 = sys1.elements<ReservoirLP>().front();
+  const auto& scenario1 = sys1.scene().scenarios().front();
+  const auto& stage1 = sys1.phase().stages().front();
+  const auto& stage0_last = sys0.phase().stages().back();
+  const auto cache = make_reservoir_ref_cache(rsv1, scenario1, stage1);
+
+  // Populate the predecessor's StateVariable with a *stale* value
+  // that is neither default_volume nor the pinned bound — so we can
+  // tell which path the helper took.
+  constexpr double stale_sv_phys = 42.0;
+  static constexpr auto reservoir_class_name = ReservoirLP::Element::class_name;
+  auto svar_opt = planning_lp.simulation().state_variable(StateVariable::key(
+      scenario1, stage0_last, reservoir_class_name, rsv0.uid(), "efin"));
+  REQUIRE(svar_opt.has_value());
+  svar_opt->get().set_col_sol(stale_sv_phys / svar_opt->get().var_scale());
+
+  // Pin the eini column to a DIFFERENT value (the "live" trial value).
+  constexpr double pinned_phys = 7.5;
+  REQUIRE(pinned_phys != doctest::Approx(stale_sv_phys));
+  REQUIRE(pinned_phys != doctest::Approx(cache.default_volume));
+  {
+    auto& li = sys1.linear_interface();
+    const std::array<ColIndex, 1> idx {cache.eini_col};
+    const std::array<char, 1> lu {'B'};
+    const std::array<double, 1> phys {pinned_phys};
+    li.set_col_bounds(idx, lu, phys);
+  }
+
+  const auto vini = physical_eini_from_cache(sys1, scenario1, stage1, cache);
+
+  // Helper must prefer the pinned bound over the stale SV.
+  CHECK(vini == doctest::Approx(pinned_phys));
+  CHECK(vini != doctest::Approx(stale_sv_phys));
+
+  sys1.set_prev_phase_sys(nullptr);
+}
+
 // ─── 7. Daily-cycle reservoir uses the SAME code path ──────────────────────
 
 namespace
@@ -829,3 +964,7 @@ TEST_CASE(  // NOLINT
   CHECK(physical_eini_from_cache(sys, scenario, stage, cache_b)
         == doctest::Approx(222.0));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)
+
+// NOLINTEND(bugprone-argument-comment)

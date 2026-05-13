@@ -112,6 +112,16 @@ public:
   {
     return m_pending_col_bounds_;
   }
+  [[nodiscard]] auto pending_coeffs() const noexcept
+      -> const std::map<std::pair<RowIndex, ColIndex>, double>&
+  {
+    return m_pending_coeffs_;
+  }
+  [[nodiscard]] auto pending_rhs() const noexcept
+      -> const std::map<RowIndex, double>&
+  {
+    return m_pending_rhs_;
+  }
   [[nodiscard]] constexpr auto replaying() const noexcept -> bool
   {
     return m_replaying_;
@@ -131,6 +141,14 @@ public:
   [[nodiscard]] auto pending_col_bounds_size() const noexcept -> std::size_t
   {
     return m_pending_col_bounds_.size();
+  }
+  [[nodiscard]] auto pending_coeffs_size() const noexcept -> std::size_t
+  {
+    return m_pending_coeffs_.size();
+  }
+  [[nodiscard]] auto pending_rhs_size() const noexcept -> std::size_t
+  {
+    return m_pending_rhs_.size();
   }
 
   // ── Mutable spans (used by replay loop in apply_post_load_replay) ───────
@@ -286,6 +304,42 @@ public:
     }
   }
 
+  // ── Pending coefficient / RHS mutations ─────────────────────────────────
+  //
+  // Mirrors the pending-col-bounds channel for raw LP matrix coefficient
+  // and row-RHS overrides applied via ``set_coeff_raw`` / ``set_rhs_raw``
+  // AFTER the snapshot was taken (forward-pass / aperture-pass
+  // ``update_lp_for_phase`` mutations: piecewise seepage segment
+  // selection, turbine production factor, discharge limit).  Without
+  // these the snapshot-based clones via
+  // ``clone_from_flat(with_replay=true)`` see only construction-time
+  // matval / RHS, even though the live backend carries the latest
+  // segment / factor selection.  Observed regression on
+  // juan/gtopt_iplp p51: seepage row inherited segment 1 (constant
+  // 15.088 m³/s) on aperture clones even after ``update_lp_for_phase``
+  // had selected segment 0 (constant 0) on the live backend → forced
+  // outflow vs pinned-zero state → genuinely infeasible apertures.
+  //
+  // Both maps are intentionally raw-LP units — same as the underlying
+  // backend setters — to keep the replay path scale-agnostic.  The
+  // physical-units setters (``set_coeff`` / ``set_rhs``) compose
+  // scaling before hitting the raw layer, so what lands here is what
+  // gets re-issued on replay.
+
+  /// Insert or update the raw LP coefficient at ``(row, col)``.  Last
+  /// write wins — repeated updates on the same cell overwrite without
+  /// growing the map.
+  void set_pending_coeff(RowIndex row, ColIndex col, double value) noexcept
+  {
+    m_pending_coeffs_[std::pair {row, col}] = value;
+  }
+
+  /// Insert or update the raw LP RHS at ``row``.  Last write wins.
+  void set_pending_rhs(RowIndex row, double value) noexcept
+  {
+    m_pending_rhs_[row] = value;
+  }
+
   // ── Take + restore (rebuild path) (R3) ──────────────────────────────────
 
   /// Move out the dynamic columns and leave the internal vector empty.
@@ -343,7 +397,7 @@ public:
   {
     return m_dynamic_cols_.empty() && m_dynamic_rows_.empty()
         && m_active_cuts_.empty() && m_pending_col_bounds_.empty()
-        && !m_replaying_;
+        && m_pending_coeffs_.empty() && m_pending_rhs_.empty() && !m_replaying_;
   }
 
 private:
@@ -351,6 +405,10 @@ private:
   std::vector<SparseRow> m_dynamic_rows_ {};
   std::vector<SparseRow> m_active_cuts_ {};
   std::map<ColIndex, std::pair<double, double>> m_pending_col_bounds_ {};
+  // Raw LP coefficient / RHS overrides; replayed in
+  // `apply_post_load_replay` after the snapshot's matval is in place.
+  std::map<std::pair<RowIndex, ColIndex>, double> m_pending_coeffs_ {};
+  std::map<RowIndex, double> m_pending_rhs_ {};
   bool m_replaying_ {false};
 };
 

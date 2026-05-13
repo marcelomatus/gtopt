@@ -197,12 +197,15 @@ void LinearInterface::release_backend() noexcept
   try {
     spdlog::trace(
         "LI release [mode={}]: backend numrows={} numcols={} optimal={} "
-        "active_cuts={} pending_coeff_updates_post_revert=0",
+        "active_cuts={} pending_coeffs={} pending_rhs={} "
+        "pending_coeff_updates_post_revert=0",
         static_cast<int>(m_low_memory_mode_),
         m_backend_ ? get_numrows() : 0,
         m_backend_ ? get_numcols() : 0,
         m_backend_ && is_optimal() ? 1 : 0,
-        m_replay_.active_cuts_size());
+        m_replay_.active_cuts_size(),
+        m_replay_.pending_coeffs_size(),
+        m_replay_.pending_rhs_size());
   } catch (...) {  // NOLINT(bugprone-empty-catch) — noexcept logging path
   }
 
@@ -656,6 +659,30 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
       values.push_back(bounds.second);
     }
     set_col_bounds_raw(idx, lu, values);
+  }
+
+  // 6. Replay raw LP matrix-coefficient overrides issued via
+  //    `set_coeff_raw` after the snapshot was taken (HasUpdateLP
+  //    elements: ReservoirSeepageLP segment selection,
+  //    TurbineProductionFactor, ReservoirDischargeLimit).  Without
+  //    this, the aperture path's `clone_from_flat(with_replay=true)`
+  //    re-built the LP from the snapshot's construction-time matval
+  //    while the source's `update_lp` mutations stayed only on the
+  //    pre-release backend → apertures saw construction-time
+  //    seepage segment, producing structurally infeasible LPs
+  //    against the propagated forward state (juan/gtopt_iplp p51).
+  //    Per-(row, col) raw writes — same cost as the original
+  //    `set_coeff_raw` mutations they mirror, just re-issued.
+  for (const auto& [rc, v] : source.pending_coeffs()) {
+    m_backend_->set_coeff(rc.first, rc.second, v);
+  }
+
+  // 7. Replay raw LP RHS overrides issued via `set_rhs_raw` after the
+  //    snapshot was taken — companion to step 6 for the row-RHS side
+  //    of piecewise constraints (seepage `flow = const + slope·v`,
+  //    discharge limit, …).
+  for (const auto& [r, v] : source.pending_rhs()) {
+    m_backend_->set_row_bounds(r, v, v);
   }
 
   // No warm-start step: the barrier method (default solver algorithm)
@@ -2620,6 +2647,18 @@ void LinearInterface::set_coeff_raw(const RowIndex row,
   }
   m_backend_->set_coeff(row, column, value);
   invalidate_cached_optimal_on_mutation();
+  // Record post-snapshot coefficient overrides so
+  // `clone_from_flat(with_replay=true)` and `apply_post_load_replay`
+  // re-apply them on top of the snapshot's construction-time matval.
+  // Without this, SDDP aperture clones inherited construction-time
+  // piecewise seepage / production-factor coefficients while the live
+  // backend carried the segment-corrected values — producing apertures
+  // that were structurally infeasible against the propagated forward
+  // state (juan/gtopt_iplp p51 INFEAS-PROBE 2026-05-12).  Mirrors the
+  // `set_col_bounds_raw` replay-record path.
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
+    m_replay_.set_pending_coeff(row, column, value);
+  }
 }
 
 double LinearInterface::get_coeff_raw(const RowIndex row,
@@ -3059,6 +3098,10 @@ void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
   }
   m_backend_->set_row_bounds(row, rhs, rhs);
   invalidate_cached_optimal_on_mutation();
+  // Companion replay record — see `set_coeff_raw` above for rationale.
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
+    m_replay_.set_pending_rhs(row, rhs);
+  }
 }
 
 // ── Physical row bound setters (physical × row_scale → LP) ──

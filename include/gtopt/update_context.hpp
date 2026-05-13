@@ -165,6 +165,37 @@ template<typename SystemLPT>
     return rc.default_volume;
   }
 
+  const auto& li = sys.linear_interface();
+
+  // 0. (2026-05-12) Pinned-bound short-circuit.  When
+  //    `propagate_trial_values` has fixed the eini column to the
+  //    forward-pass trial value (lb == ub via the 'B' setter), that
+  //    bound IS the authoritative state for the current phase — and
+  //    much more reliable than the downstream `state_variable` lookup
+  //    or `is_optimal()` check, both of which miss in the SDDP
+  //    backward / aperture path that this helper feeds:
+  //     * aperture clones whose own ScenarioLP differs from the
+  //       scene's central scenario the source SV was registered under
+  //       → step 1 lookup misses → falls through to `default_volume`
+  //       (the static annual eini, e.g. 1731 Hm³ for ELTORO).
+  //     * freshly built / reconstructed LPs (compress mode after
+  //       `release_backend()`) where `is_optimal()` is false even
+  //       though the pinned bound carries the correct state →
+  //       step 2 in-phase fallback misses → same wrong fallback.
+  //    The end-state observed on juan/gtopt_iplp p51 INFEAS-PROBE
+  //    2026-05-12: ELTORO drained to 0 in the forward pass, but
+  //    `physical_eini_from_cache` returned 1731 Hm³ (annual eini) →
+  //    seepage segment 1 selected (`constant = 15.088 m³/s`) → forced
+  //    outflow ≈ 75 m³/s over 5 blocks → aperture LP structurally
+  //    infeasible.  Reading the pinned bound directly bypasses both
+  //    failure modes and uses the LP itself as the single source of
+  //    truth for "what state was propagated into this phase".
+  const auto col_low = li.get_col_low()[rc.eini_col];
+  const auto col_upp = li.get_col_upp()[rc.eini_col];
+  if (col_low == col_upp) {
+    return col_low;
+  }
+
   // 1. Cross-phase via the StateVariable channel.
   if (const auto* prev_sys = sys.prev_phase_sys()) {
     const auto& prev_phase = prev_sys->phase();
@@ -188,7 +219,6 @@ template<typename SystemLPT>
 
   // 2. In-phase fallback (daily-cycle reservoirs, test paths without
   //    `prev_phase_sys`).
-  const auto& li = sys.linear_interface();
   if (li.is_optimal()) {
     return li.get_col_sol()[rc.eini_col];
   }
