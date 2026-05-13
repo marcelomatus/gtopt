@@ -45,6 +45,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 
+#include "log_capture.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -677,6 +678,396 @@ TEST_CASE("Cascade pre-save filter: threshold=0 keeps every Optimality cut")
     }
   }
   CHECK(filtered.size() == raw.size());
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Layer 6 — Forget-after-N, multi-level, selective and threshold modes
+// ───────────────────────────────────────────────────────────────────────────
+//
+// These cases extend Layer 4 to cover the *full* tri-state semantics of
+// `CascadeTransition.inherit_optimality_cuts` (see cascade_method.cpp
+// lines 539-618):
+//
+//   0 or absent : do not inherit
+//   -1          : inherit and keep forever
+//   N > 0       : inherit and FORGET after N training iterations, then
+//                 re-solve with only self-generated cuts.
+//
+// CascadePlanningMethod does not expose the inner SDDPMethod, so we
+// observe the inheritance lifecycle through three external channels:
+//   (a) spdlog messages emitted by the cascade orchestrator
+//       ("transferred N cuts from", "forgetting N inherited cuts",
+//        "re-solving without inherited cuts", "serialized N cuts").
+//   (b) `solver.level_stats()` per-level convergence + counts.
+//   (c) `solver.all_results()` total size — when a forget cycle fires,
+//       phase-1 results are appended in addition to phase-2.
+
+TEST_CASE(  // NOLINT
+    "Cascade inherit_optimality_cuts forget after N iters (N > 0)")
+{
+  // N>0 mode: level 1 should LOAD level 0's cuts, run *at most* N
+  // iterations with them, then FORGET them and re-solve.  The forget
+  // path is gated by `inherited_cut_count > 0 && forget_threshold > 0`
+  // (cascade_method.cpp line 578).  We pin every observable side
+  // effect via the log capture + level_stats accessors.
+  using gtopt::test::LogCapture;
+
+  constexpr int forget_n = 2;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 30;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"level0_seed"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {6},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"level1_forget_2"},
+          // Same model_options as level 0 ⇒ apples-to-apples comparison
+          // (the inherited cuts are valid in level 1's value-function
+          // domain).
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {15},
+                  .apertures = Array<Uid> {},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {forget_n},
+              },
+      },
+  };
+
+  LogCapture logs(1024);
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+
+  REQUIRE(solver.level_stats().size() == 2);
+  const auto& s0 = solver.level_stats()[0];
+
+  // (a) Level 0 actually produced optimality cuts — otherwise nothing
+  // to inherit and the forget machinery is a no-op.
+  REQUIRE(s0.cuts_added > 0);
+
+  // (b) The cascade orchestrator's inheritance log fires.  These
+  // strings live at cascade_method.cpp:525, :581, and :609 — pinning
+  // them guards against a silent rename or downgrade to DEBUG-only.
+  CHECK(logs.contains("transferred"));
+  CHECK(logs.contains("forgetting"));
+  CHECK(logs.contains("re-solving without inherited cuts"));
+
+  // (c) Phase-1 must be capped at `forget_n` iters: the log emits the
+  // observed phase-1 iter count in the same line, which must be
+  // <= forget_n.  This is the strongest external signal that the
+  // `max_iterations = std::min(level_max, forget_threshold)` cap at
+  // cascade_method.cpp:563 was honoured.
+  bool phase1_capped = false;
+  for (const auto& m : logs.messages()) {
+    // Look for "forgetting <C> inherited cuts after <K> iters" and
+    // assert K <= forget_n.
+    const auto pos = m.find("forgetting ");
+    if (pos == std::string::npos) {
+      continue;
+    }
+    const auto after = m.find(" after ", pos);
+    const auto iters_str = m.find(" iters", after);
+    if (after == std::string::npos || iters_str == std::string::npos) {
+      continue;
+    }
+    const auto k_str = m.substr(after + 7, iters_str - (after + 7));
+    try {
+      const int k = std::stoi(k_str);
+      CHECK(k >= 1);
+      CHECK(k <= forget_n);
+      phase1_capped = true;
+    } catch (...) {
+      // Ignore malformed — the CHECK below catches the absence.
+    }
+  }
+  CHECK(phase1_capped);
+
+  // (d) Level 1 completed (phase-2 ran).  Phase-2's training iters are
+  // what `level_stats[1].iterations` reflects (the phase-1 result
+  // vector is appended to `all_results()` separately, see
+  // cascade_method.cpp:595 vs :624 — phase-2 supersedes `result` for
+  // the stats block).
+  const auto& s1 = solver.level_stats()[1];
+  CHECK(s1.iterations >= 1);
+  CHECK(std::isfinite(s1.gap));
+  CHECK(s1.lower_bound <= s1.upper_bound + 1e-6);
+
+  // (e) Because BOTH phase-1 and phase-2 results are inserted into
+  // `all_results()`, the total record count must exceed the naive
+  // (s0 + s1) headcount: level 0 = s0.iterations + 1 fwd, phase 1
+  // contributed at least 1 result, level 1 stats = s1.iterations + 1
+  // fwd.  Expect strictly MORE than (s0.iterations + 1 + s1.iterations
+  // + 1).
+  const auto baseline =
+      static_cast<size_t>(s0.iterations + 1 + s1.iterations + 1);
+  CHECK(solver.all_results().size() > baseline);
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade inherit_optimality_cuts across THREE levels (cumulative)")
+{
+  // Pin "inheritance is transitive across consecutive levels": with
+  // inherit_optimality_cuts=-1 on BOTH level 1 and level 2 transitions,
+  // the orchestrator must emit the serialize/transfer log pair at
+  // *every* level boundary (0→1 and 1→2).
+  //
+  // Level 2 ends up with cuts from {level 0, level 1} loaded
+  // cumulatively (level 1 keeps the inherited cuts in its store, so
+  // its end-of-level serialization at cascade_method.cpp:725 picks up
+  // both).
+  using gtopt::test::LogCapture;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 30;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+
+  const CascadeTransition keep_forever {
+      .inherit_optimality_cuts = OptInt {-1},
+  };
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"uninodal"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"transport"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+          .transition = keep_forever,
+      },
+      CascadeLevel {
+          .name = OptName {"full_network"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+          .transition = keep_forever,
+      },
+  };
+
+  LogCapture logs(2048);
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 3);
+
+  // Count log occurrences for each side of the transfer.
+  int serialize_n = 0;
+  int transfer_n = 0;
+  int forget_n_msgs = 0;
+  for (const auto& m : logs.messages()) {
+    if (m.contains("serialized") && m.contains("cuts for next level")) {
+      ++serialize_n;
+    }
+    if (m.contains("transferred") && m.contains("cuts from")) {
+      ++transfer_n;
+    }
+    if (m.contains("forgetting") && m.contains("inherited cuts")) {
+      ++forget_n_msgs;
+    }
+  }
+
+  // Two level boundaries (0→1 and 1→2) with N=-1 must each fire the
+  // serialize + transfer pair.  No forget messages because N<0.
+  CHECK(serialize_n >= 2);
+  CHECK(transfer_n >= 2);
+  CHECK(forget_n_msgs == 0);
+
+  // All three levels succeeded with valid bounds.
+  for (const auto& ls : solver.level_stats()) {
+    CHECK(std::isfinite(ls.gap));
+    CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
+    CHECK(ls.iterations >= 1);
+  }
+
+  // Cumulative inheritance: level 2's transferred count includes BOTH
+  // level 0's cuts (kept by level 1 across its run) AND level 1's own
+  // new cuts.  Therefore the second "transferred N cuts from" event
+  // must report a count ≥ the first event's count.
+  std::vector<int> transferred_counts;
+  for (const auto& m : logs.messages()) {
+    const auto needle = std::string {"transferred "};
+    const auto pos = m.find(needle);
+    if (pos == std::string::npos) {
+      continue;
+    }
+    const auto after = m.find(" cuts from", pos);
+    if (after == std::string::npos) {
+      continue;
+    }
+    const auto n_str =
+        m.substr(pos + needle.size(), after - (pos + needle.size()));
+    try {
+      transferred_counts.push_back(std::stoi(n_str));
+    } catch (...) {
+      // Ignore malformed numbers.
+    }
+  }
+  REQUIRE(transferred_counts.size() >= 2);
+  CHECK(transferred_counts[1] >= transferred_counts[0]);
+}
+
+TEST_CASE(  // NOLINT
+    "Cascade selective inheritance — level 1 skips, level 2 inherits "
+    "(per-level granularity)")
+{
+  // Per-level granularity: setting `inherit_optimality_cuts = 0` on a
+  // single boundary must SUPPRESS the serialize step at that boundary
+  // *only*, while a later boundary with -1 still fires normally.
+  //
+  // Cascade pre-save filter gate (cascade_method.cpp:728):
+  //   const bool want_opt_cuts = opt_cut_mode != 0;
+  // → with mode=0 the `save_cuts_parquet` call at line 762 is skipped,
+  // so the file does not exist when level 1 starts and
+  // `inherited_cut_count` stays at 0 ⇒ no "transferred ..." log at
+  // level 1.  Level 2 still serializes level 1's own cuts.
+  using gtopt::test::LogCapture;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 30;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"l0_seed"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"l1_no_inherit"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+          .transition =
+              CascadeTransition {
+                  // Level 1 does NOT inherit cuts from level 0
+                  .inherit_optimality_cuts = OptInt {0},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"l2_inherits_from_l1"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {5},
+                  .apertures = Array<Uid> {},
+              },
+          .transition =
+              CascadeTransition {
+                  // Level 2 inherits cuts (picks up level 1's own)
+                  .inherit_optimality_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  LogCapture logs(2048);
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+  REQUIRE(solver.level_stats().size() == 3);
+
+  // Count serialize + transfer events.  We want EXACTLY ONE of each
+  // (the 1→2 boundary), and ZERO at the 0→1 boundary.
+  int serialize_n = 0;
+  int transfer_n = 0;
+  for (const auto& m : logs.messages()) {
+    if (m.contains("serialized") && m.contains("cuts for next level")) {
+      ++serialize_n;
+    }
+    if (m.contains("transferred") && m.contains("cuts from")) {
+      ++transfer_n;
+    }
+  }
+  // Level 0 → level 1 transition has inherit_optimality_cuts = 0, so
+  // it must NOT serialize.  Level 1 → level 2 transition has -1, so
+  // it must serialize exactly once.  Transfer log fires once at level
+  // 2.
+  CHECK(serialize_n == 1);
+  CHECK(transfer_n == 1);
+
+  // Level 1 must have produced its own cuts (the inputs to level 2's
+  // inheritance), which becomes the SOURCE of level 2's transfer.
+  CHECK(solver.level_stats()[1].cuts_added > 0);
+
+  // The whole cascade still completes with valid bounds.
+  for (const auto& ls : solver.level_stats()) {
+    CHECK(std::isfinite(ls.gap));
+    CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
+  }
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
