@@ -1392,6 +1392,255 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
   }
 }
 
+TEST_CASE(  // NOLINT
+    "ReservoirSeepageLP - update_lp re-selects segment from pinned eini bound "
+    "across compress release/reconstruct")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // End-to-end regression guard for the juan/gtopt_iplp p51 root-cause
+  // fix (commit e49c001a, 2026-05-12).
+  //
+  // Setup: 2-stage system with a piecewise-segment seepage element.
+  //   Annual eini = 1000 -> segment 1 (constant = 8.0).
+  //   Pinned eini at stage 2 = 100 -> segment 0 (constant = 2.0).
+  //
+  // Under `LowMemoryMode::compress`:
+  //   1. SystemLP ctor builds the seepage row with the annual eini
+  //      segment (RHS = 8.0).
+  //   2. We pin stage 2's eini_col to 100 (mimicking what
+  //      `propagate_trial_values` does after a forward-pass solve).
+  //   3. `update_lp` calls `ReservoirSeepageLP::update_lp` ->
+  //      `physical_eini_from_cache` returns the pinned 100 (step 0
+  //      short-circuit) -> `select_seepage_coeffs` returns segment 0
+  //      -> `set_coeff_raw` / `set_rhs_raw` rewrite the row.
+  //   4. The rewrites are captured in the replay buffer's
+  //      `pending_coeffs` / `pending_rhs` maps (LP-side replay
+  //      channels added in e49c001a).
+  //   5. release_backend + reconstruct_backend reload the snapshot's
+  //      construction-time coefficients (RHS = 8.0) -- then replay
+  //      the pending maps on top, restoring RHS = 2.0.
+  //
+  // Pre-fix the RHS would revert to 8.0 after the round-trip, because
+  // the snapshot reload silently dropped the update_lp mutations.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 1000.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+  const Array<ReservoirSeepage> reservoir_seepage_array = {
+      {
+          .uid = Uid {1},
+          .name = "filt1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {
+                      .volume = 0.0,
+                      .slope = 0.1,
+                      .constant = 2.0,
+                  },
+                  {
+                      .volume = 500.0,
+                      .slope = 0.01,
+                      .constant = 8.0,
+                  },
+              },
+      },
+  };
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+              {
+                  .uid = Uid {2},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+              {
+                  .uid = Uid {2},
+                  .first_block = 1,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+  const System system = {
+      .name = "SeepagePinnedEiniSegmentTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_seepage_array = reservoir_seepage_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  // Compress mode from construction so the snapshot is populated and
+  // the replay-buffer path is exercised end-to-end.
+  const LpMatrixOptions flat_opts {
+      .low_memory_mode = LowMemoryMode::compress,
+  };
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  auto&& li = system_lp.linear_interface();
+  REQUIRE(li.has_snapshot_data());
+
+  // Compress mode dropped the disposable element collections at the
+  // end of the SystemLP ctor (`clear_disposable_collections`).  Bring
+  // them back via the explicit rehydrate path before reading
+  // ReservoirLP / ReservoirSeepageLP entries.
+  system_lp.rebuild_collections_if_needed();
+
+  auto&& filts = system_lp.elements<ReservoirSeepageLP>();
+  REQUIRE(filts.size() == 1);
+  auto& filt = filts.front();
+  const auto& scenarios = simulation_lp.scenarios();
+  const auto& stages = simulation_lp.stages();
+  REQUIRE(scenarios.size() == 1);
+  REQUIRE(stages.size() == 2);
+
+  const auto& scen = scenarios.front();
+  const auto& stage2 = stages[1];
+  const auto& blocks = stage2.blocks();
+  REQUIRE(blocks.size() == 1);
+
+  // seepage_rows_at returns the per-block row indices for the given
+  // (scenario, stage); one block on stage 2 -> one row.
+  const auto& rows_stage2 = filt.seepage_rows_at(scen, stage2);
+  const auto row_idx_stage2 = rows_stage2.at(blocks.front().uid());
+
+  // Construction-time RHS reflects the annual eini's segment.
+  // eini=1000 -> segment 1 -> constant=8.0.
+  const auto rhs_before = li.get_row_low_raw()[row_idx_stage2];
+  CHECK(rhs_before == doctest::Approx(8.0));
+
+  // Pin stage 2's eini_col to 100 -- selects segment 0 (range [0, 500)).
+  auto& rsv = system_lp.elements<ReservoirLP>().front();
+  const auto eini_col_stage2 = rsv.eini_col_at(scen, stage2);
+  {
+    const std::array<ColIndex, 1> idx {eini_col_stage2};
+    const std::array<char, 1> lu {'B'};
+    const std::array<double, 1> vals {100.0};
+    li.set_col_bounds_raw(idx, lu, vals);
+  }
+
+  // Trigger seepage's update_lp.  `physical_eini_from_cache` returns
+  // 100 (pinned bound, step 0) -> `select_seepage_coeffs(segments, 100)`
+  // -> segment 0 -> `set_rhs_raw(row, 2.0)`.  The new RHS lands on
+  // the live backend AND in the replay buffer.
+  const auto updated = system_lp.update_lp();
+  REQUIRE(updated >= 1);
+
+  const auto rhs_after_update = li.get_row_low_raw()[row_idx_stage2];
+  CHECK(rhs_after_update == doctest::Approx(2.0));
+  CHECK_FALSE(rhs_after_update == doctest::Approx(8.0));
+
+  CHECK(li.pending_rhs_size() >= 1);
+  CHECK(li.pending_coeffs_size() >= 1);
+
+  // The killer step: release_backend reloads the snapshot
+  // (construction-time RHS=8.0) -> reconstruct_backend -> replay
+  // applies pending_rhs -> RHS back to 2.0.  Pre-fix the RHS would
+  // stay at 8.0 here.
+  li.release_backend();
+  li.reconstruct_backend();
+
+  const auto rhs_after_reconstruct = li.get_row_low_raw()[row_idx_stage2];
+  CHECK(rhs_after_reconstruct == doctest::Approx(2.0));
+  CHECK_FALSE(rhs_after_reconstruct == doctest::Approx(8.0));
+}
+
 TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

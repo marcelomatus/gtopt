@@ -92,6 +92,16 @@ public:
     return seepage_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Public accessor for the per-block row indices.  Mirrors
+  /// `seepage_cols_at`; surfaced for diagnostic / unit-test access to
+  /// the seepage constraint's row bounds (e.g. to confirm
+  /// segment-driven RHS updates landed via `update_lp`).
+  [[nodiscard]] const auto& seepage_rows_at(const ScenarioLP& scenario,
+                                            const StageLP& stage) const
+  {
+    return seepage_rows.at({scenario.uid(), stage.uid()});
+  }
+
   /**
    * @brief Update reservoir-dependent LP coefficients for this seepage.
    *

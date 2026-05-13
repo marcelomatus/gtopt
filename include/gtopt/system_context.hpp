@@ -309,12 +309,15 @@ public:
   /// matching col indices, and re-registering on every rebuild would
   /// burn CPU for zero gain while risking false-positive mismatches in
   /// the idempotency guards.
-  [[nodiscard]] constexpr bool rebuild_pass() const noexcept
+  [[nodiscard]] constexpr bool silent_flatten_pass() const noexcept
   {
-    return m_rebuild_pass_;
+    return m_silent_flatten_pass_;
   }
 
-  constexpr void set_rebuild_pass(bool v) noexcept { m_rebuild_pass_ = v; }
+  constexpr void set_silent_flatten_pass(bool v) noexcept
+  {
+    m_silent_flatten_pass_ = v;
+  }
 
   // Methods to handle the state_variables
   //
@@ -330,7 +333,7 @@ public:
                                     double var_scale,
                                     LpContext context)
   {
-    if (m_rebuild_pass_) {
+    if (m_silent_flatten_pass_) {
       // Rebuild pass: registry already holds an entry with the same col
       // (fresh flatten is deterministic).  Skip the SimulationLP call
       // entirely — no lock, no map lookup, no idempotency branch.
@@ -523,8 +526,8 @@ private:
   /// (state-variable registration, AMPL registration, cross-phase link
   /// deferral, metadata registration).  Set by
   /// `SystemLP::rebuild_in_place()` during the rebuild pass only.  See
-  /// `set_rebuild_pass`.
-  bool m_rebuild_pass_ {false};
+  /// `set_silent_flatten_pass`.
+  bool m_silent_flatten_pass_ {false};
 };
 
 }  // namespace gtopt

@@ -92,7 +92,7 @@ void SystemContext::add_ampl_variable(
     const StageLP& stage,
     const BIndexHolder<ColIndex>& block_cols) const
 {
-  if (m_rebuild_pass_) {
+  if (m_silent_flatten_pass_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -112,7 +112,7 @@ void SystemContext::add_ampl_variable(std::string_view class_name,
                                       const StageLP& stage,
                                       ColIndex stage_col) const
 {
-  if (m_rebuild_pass_) {
+  if (m_silent_flatten_pass_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -148,7 +148,7 @@ void SystemContext::register_ampl_element_metadata(
     Uid element_uid,
     AmplElementMetadata metadata) const
 {
-  if (m_rebuild_pass_) {
+  if (m_silent_flatten_pass_) {
     return;  // metadata unchanged across rebuilds
   }
   m_simulation_.get().register_ampl_element_metadata(system().scene().index(),
@@ -170,7 +170,7 @@ const AmplElementMetadata* SystemContext::find_ampl_element_metadata(
 void SystemContext::defer_state_link(StateVariable::Key prev_key,
                                      ColIndex here_col) const
 {
-  if (m_rebuild_pass_) {
+  if (m_silent_flatten_pass_) {
     // Cross-phase links were queued + resolved in the initial pass;
     // StateVariable::add_dependent_variable already holds the (phase
     // N+1) dependent col for every StateVariable produced in phase N.

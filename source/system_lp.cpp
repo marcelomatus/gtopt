@@ -932,19 +932,19 @@ void SystemLP::rebuild_collections_if_needed()
   // index is deterministic, so re-running them would be wasted work
   // (and for `defer_state_link` would silently duplicate cross-phase
   // links).
-  struct RebuildPassGuard
+  struct SilentFlattenPassGuard
   {
     SystemContext& ctx;
-    RebuildPassGuard(const RebuildPassGuard&) = delete;
-    RebuildPassGuard& operator=(const RebuildPassGuard&) = delete;
-    RebuildPassGuard(RebuildPassGuard&&) = delete;
-    RebuildPassGuard& operator=(RebuildPassGuard&&) = delete;
-    explicit RebuildPassGuard(SystemContext& c)
+    SilentFlattenPassGuard(const SilentFlattenPassGuard&) = delete;
+    SilentFlattenPassGuard& operator=(const SilentFlattenPassGuard&) = delete;
+    SilentFlattenPassGuard(SilentFlattenPassGuard&&) = delete;
+    SilentFlattenPassGuard& operator=(SilentFlattenPassGuard&&) = delete;
+    explicit SilentFlattenPassGuard(SystemContext& c)
         : ctx(c)
     {
-      ctx.set_rebuild_pass(/*v=*/true);
+      ctx.set_silent_flatten_pass(/*v=*/true);
     }
-    ~RebuildPassGuard() { ctx.set_rebuild_pass(/*v=*/false); }
+    ~SilentFlattenPassGuard() { ctx.set_silent_flatten_pass(/*v=*/false); }
   } const guard {system_context()};
 
   // Discard the produced FlatLinearProblem; we only care about the
