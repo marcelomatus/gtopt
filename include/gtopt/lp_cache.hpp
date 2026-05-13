@@ -70,8 +70,8 @@ namespace gtopt
  * counts, optimality flag, primal/dual vectors).  Used by
  * downstream readers — `OutputContext`, Benders cut assembly, SDDP
  * state propagation — to access the solution after the solver
- * backend has been released under `LowMemoryMode::compress` /
- * `rebuild`, without paying for a re-solve.
+ * backend has been released under `LowMemoryMode::compress`,
+ * without paying for a re-solve.
  *
  * Empty when the backend was never released, never solved to
  * optimum, or `LowMemoryMode::off` (in which case the live

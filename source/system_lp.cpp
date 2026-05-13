@@ -523,11 +523,6 @@ constexpr auto create_linear_interface(auto& collections,
   //    through `ensure_backend()` → `reconstruct_backend()` → a single
   //    `load_flat()`.  Saves one full backend population per
   //    (scene, phase) under SDDP / cascade.
-  //
-  //  * `rebuild`: intentionally NOT handled here — SystemLP's ctor owns
-  //    the rebuild-mode path: it configures low_memory+callback, calls
-  //    `mark_released()`, and skips flatten entirely until the first
-  //    backend access triggers the rebuild callback via `ensure_backend`.
   if (flat_opts.low_memory_mode != LowMemoryMode::off) {
     li.set_low_memory(flat_opts.low_memory_mode,
                       select_codec(flat_opts.memory_codec));

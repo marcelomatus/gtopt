@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file      test_low_memory_compress_cut_replay.cpp
- * @brief     Regression guard for the compress/rebuild α-column cut-replay bug.
+ * @brief     Regression guard for the compress α-column cut-replay bug.
  * @date      2026-05-03
  *
- * ## The bug (fixed in this commit)
+ * ## The bug (fixed in 2026-05-03)
  *
  * SDDP's α column is added post-structurally via
- * `LinearInterface::add_col(SparseCol)`. Under `low_memory_mode = compress` (or
- * `rebuild`), every release+reconstruct cycle must replay α back onto the fresh
+ * `LinearInterface::add_col(SparseCol)`. Under `low_memory_mode = compress`,
+ * every release+reconstruct cycle must replay α back onto the fresh
  * backend via `apply_post_load_replay`, which iterates over `m_dynamic_cols_`.
  *
  * The buggy gate:
@@ -24,7 +24,7 @@
  * release/reconstruct, α is absent from the LP → cuts reference stale column
  * indices → the objective never tightens → gap plateaus at ~54% indefinitely.
  *
- * The fix (linear_interface.cpp:1346):
+ * The fix (linear_interface.cpp: see record_dynamic_col gate):
  * ```cpp
  * // NEW (correct):
  * const bool record_for_replay = m_low_memory_mode_ != LowMemoryMode::off;
@@ -39,13 +39,16 @@
  * 1. `compress` mode converges to the same gap as `off` mode within the same
  *    iteration budget.  Before the fix, compress would plateau at a large gap
  *    (observed: 54.13% on juan/iplp) that off-mode never exhibited.
- * 2. `rebuild` mode shows the same parity.
- * 3. The `m_dynamic_cols_` population invariant holds after the first
+ * 2. The `m_dynamic_cols_` population invariant holds after the first
  *    `release_backend` + `ensure_backend` round-trip when α has been added
  *    (low-level SystemLP test, no full SDDP solve needed).
  *
  * The 3-phase hydro fixture is the smallest fixture that exercises both
  * the α-replay path AND produces meaningful SDDP convergence.
+ *
+ * The original test also covered `LowMemoryMode::rebuild`; that mode was
+ * removed 2026-05-13 (see `LowMemoryMode` enum), and its parity subcase
+ * was dropped from this file at the same time.
  */
 
 #include <doctest/doctest.h>

@@ -473,7 +473,7 @@ void LinearInterface::reconstruct_backend()
   load_flat(m_snapshot_holder_.snapshot().flat_lp);
 
   // 2. Replay persistent SDDP state onto the live backend.
-  apply_post_load_replay();
+  apply_post_load_replay(m_replay_);
 
   // 3. Free decompressed flat LP vectors — the data is now in the backend.
   //    The compressed buffer stays valid as persistent cache for next
@@ -482,11 +482,6 @@ void LinearInterface::reconstruct_backend()
     clear_flat_lp_vectors(m_snapshot_holder_.snapshot_mut().flat_lp);
   }
   m_phase_ = LiPhase::Reconstructed;
-}
-
-void LinearInterface::apply_post_load_replay()
-{
-  apply_post_load_replay(m_replay_);
 }
 
 void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)

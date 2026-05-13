@@ -810,16 +810,6 @@ public:
     m_base_numrows_set_ = true;
   }
 
-  /// Mark this interface as "no LP loaded": flips `m_backend_released_` to
-  /// true and drops the default-constructed backend handle.  Unlike
-  /// `release_backend()`, this skips solution caching and snapshot
-  /// compression: there is nothing meaningful to cache yet.
-  void mark_released() noexcept
-  {
-    m_backend_.reset();
-    m_backend_released_ = true;
-  }
-
   /// Replay the persistent SDDP state (dynamic cols + active cuts +
   /// warm-start) onto the live backend after a fresh `load_flat()`.
   /// Used by the compress/snapshot reconstruction path: structural rows
@@ -828,14 +818,14 @@ public:
   ///
   /// Pre-condition: the backend is live (post `load_flat`) and
   /// `m_backend_released_` has been cleared.
-  void apply_post_load_replay();
-
-  /// Borrow-from-source overload: replay onto the OWN backend using
-  /// `source` as the data source, NOT `m_replay_`.  Used by
-  /// `clone_from_flat(with_replay=true)` to avoid value-copying the
-  /// source's entire replay buffer onto the throwaway clone.
-  /// The ReplayGuard still flips the OWN buffer's flag so nested
-  /// add_cols/add_rows skip auto-recording.
+  ///
+  /// The @p source replay buffer is the data source — callers pass
+  /// either their own ``m_replay_`` (the
+  /// ``reconstruct_backend()`` path) or the SOURCE LP's
+  /// ``m_replay_`` (the ``clone_from_flat(with_replay=true)`` path,
+  /// which avoids value-copying the source's entire replay buffer
+  /// onto a throwaway clone).  The ReplayGuard inside flips the OWN
+  /// buffer's flag so nested add_cols/add_rows skip auto-recording.
   void apply_post_load_replay(const LpReplayBuffer& source);
 
   /// Ensure the backend is live.  For `LowMemoryMode::off` this is a

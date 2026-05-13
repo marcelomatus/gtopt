@@ -33,9 +33,10 @@
  *     clones.  That path needs the buffer as the SOLE source of
  *     post-snapshot cuts and dynamic cols (without it, aperture
  *     clones drop every Benders cut — juan/IPLP regression
- *     2026-05-11).  Under `compress`/`snapshot`/`rebuild` the buffer
- *     additionally feeds `LinearInterface::apply_post_load_replay()`
- *     when the backend is reloaded.
+ *     2026-05-11).  Under `compress` (and the legacy `snapshot`
+ *     alias) the buffer additionally feeds
+ *     `LinearInterface::apply_post_load_replay()` when the backend
+ *     is reloaded.
  *
  * Invariants (asserted in debug, see `validate_consistency()`):
  *   * **R1.**  Default-constructed `LpReplayBuffer{}` reports all
