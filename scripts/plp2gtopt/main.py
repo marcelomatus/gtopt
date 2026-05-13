@@ -187,8 +187,12 @@ def make_parser() -> argparse.ArgumentParser:
 # gcost in plpcnfce.dat.  Writing ``demand_fail_cost = 0.0`` to the conf
 # disables that auto-detection silently — see _parsers.py:add_model_arguments.
 _SECTION_DEFAULTS: dict[str, str] = {
-    "compression": "zstd",
-    "compression_level": "1",
+    "compression": "snappy",
+    # Snappy doesn't accept a compression level (Arrow raises "Codec
+    # 'snappy' doesn't support setting a compression level").  We
+    # therefore do NOT set a default compression_level here — callers
+    # who want zstd archival must pass `--compression-level 1..22`
+    # explicitly along with `--compression zstd`.
     "output_format": "parquet",
     "input_format": "parquet",
     "method": "sddp",

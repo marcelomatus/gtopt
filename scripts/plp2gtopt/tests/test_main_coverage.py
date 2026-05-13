@@ -158,7 +158,7 @@ class TestBuildOptions:
             "name": None,
             "last_stage": -1,
             "last_time": -1,
-            "compression": "zstd",
+            "compression": "snappy",
             "compression_level": 1,
             "output_format": "parquet",
             "input_format": None,

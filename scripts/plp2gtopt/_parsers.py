@@ -147,7 +147,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         "--compression",
         dest="compression",
         metavar="ALG",
-        default=conf.get("compression", "zstd"),
+        default=conf.get("compression", "snappy"),
         help="compression codec for output files (default: %(default)s)",
     )
     parser.add_argument(
@@ -155,7 +155,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         dest="compression_level",
         type=int,
         metavar="N",
-        default=int(conf.get("compression_level", "1")) or None,
+        default=int(conf.get("compression_level", "0")) or None,
         help=(
             "compression level for the codec, e.g. 1-22 for zstd "
             "(default: %(default)s; 0 or omitted = codec default)"

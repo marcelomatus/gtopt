@@ -53,7 +53,7 @@ def _make_opts_2y(tmp_path: Path, case_name: str = "gtopt_case_2y") -> dict:
         "num_apertures": "all",
         "last_stage": -1,
         "last_time": -1,
-        "compression": "zstd",
+        "compression": "snappy",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,

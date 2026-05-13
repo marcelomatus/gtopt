@@ -25,7 +25,7 @@ def _make_opts(tmp_path: Path, case_name: str = "test") -> dict:
         "hydrologies": "1",
         "discount_rate": 0.0,
         "last_stage": -1,
-        "compression": "zstd",
+        "compression": "snappy",
     }
 
 
@@ -971,7 +971,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -997,7 +997,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -1020,7 +1020,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -1046,7 +1046,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -1065,7 +1065,7 @@ class TestWriteFcostParquet:
         ]
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, None, None, None)
@@ -1086,7 +1086,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)

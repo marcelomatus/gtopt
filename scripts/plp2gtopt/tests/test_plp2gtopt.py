@@ -51,7 +51,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
         "hydrologies": "1",
         "last_stage": -1,
         "last_time": -1,
-        "compression": "zstd",
+        "compression": "snappy",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,
@@ -439,7 +439,7 @@ def test_build_options_defaults():
     assert opts["output_file"] == Path("output/output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
-    assert opts["compression"] == "zstd"
+    assert opts["compression"] == "snappy"
     assert opts["hydrologies"] == "all"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)

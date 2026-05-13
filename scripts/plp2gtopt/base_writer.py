@@ -59,9 +59,11 @@ def _probe_parquet_codec(requested: str) -> str:
 
 
 # Best available Parquet codec — probed once at module import time.
-# "zstd" is preferred (matches the C++ default); falls back to "gzip"
-# when the linked Arrow library was built without zstd support.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
+# "snappy" is preferred: fast encode/decode for the per-(scene, phase)
+# parquet files we emit, and it matches the C++ cut-writer default
+# (`sddp_cut_parquet.cpp` hardcodes SNAPPY).  Falls back to "gzip" when
+# the linked Arrow library was built without snappy support.
+_DEFAULT_COMPRESSION: str = _probe_parquet_codec("snappy")
 
 
 class BaseWriter(ABC):
