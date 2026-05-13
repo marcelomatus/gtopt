@@ -920,6 +920,115 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
   CHECK(li.get_obj_value_raw() == doctest::Approx(obj_with_cut));
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface — set_coeff_raw / set_rhs_raw survive release/reconstruct "
+    "under compress")
+{
+  // Regression guard for the juan/gtopt_iplp p51 INFEAS-PROBE fix
+  // (commit e49c001a, 2026-05-12).  Under `LowMemoryMode::compress`
+  // every release+reconstruct cycle reloads the snapshot's
+  // construction-time matval / RHS.  Post-snapshot mutations issued
+  // via `set_coeff_raw` / `set_rhs_raw` (used by HasUpdateLP elements
+  // like ReservoirSeepageLP segment selection) must be replayed on
+  // top of the reload, otherwise apertures inherit construction-time
+  // coefficients and may be structurally infeasible against the
+  // propagated forward state.
+  //
+  // The fix:
+  //   * LpReplayBuffer gained `pending_coeffs` and `pending_rhs` maps.
+  //   * `set_coeff_raw` / `set_rhs_raw` push to those maps when not
+  //     replaying / not a throwaway clone.
+  //   * `apply_post_load_replay` re-issues both maps after the
+  //     snapshot reload.
+  //
+  // Pre-fix, the reconstructed backend would carry the snapshot's
+  // original `coeff(r, x1) == 1.0` and `rhs(r) == 5.0`; post-fix, the
+  // mutated `coeff = 7.0` and `rhs = 11.0` survive the round-trip.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  // Mutate a structural coefficient + RHS (the row's only constraint).
+  const auto base_row = RowIndex {0};
+  li.set_coeff_raw(base_row, x1, 7.0);
+  li.set_rhs_raw(base_row, 11.0);
+
+  // Pre-release verification — the live backend now carries the new
+  // values.
+  CHECK(li.get_coeff_raw(base_row, x1) == doctest::Approx(7.0));
+
+  // Replay buffer must have recorded both mutations.
+  CHECK(li.pending_coeffs_size() == 1);
+  CHECK(li.pending_rhs_size() == 1);
+
+  // Round-trip: release + reconstruct.  Without the replay-buffer
+  // extension the reconstructed backend would silently revert to the
+  // snapshot's (coeff=1, rhs=5) — and a subsequent SDDP cut built
+  // against the live state would be inconsistent with the LP that
+  // gets solved.
+  li.release_backend();
+  li.reconstruct_backend();
+
+  CHECK(li.get_coeff_raw(base_row, x1) == doctest::Approx(7.0));
+  CHECK(li.get_coeff_raw(base_row, x2) == doctest::Approx(1.0));  // unchanged
+
+  // Solve and confirm the post-reconstruct LP reflects the mutated
+  // coefficients.  `set_rhs_raw` writes both lb AND ub (equality), so
+  // the row is `7·x1 + 1·x2 == 11` (was `x1 + x2 >= 5`).  Eliminating
+  // x2 = 11 − 7·x1 into the objective 2·x1 + 3·x2 = 33 − 19·x1, the
+  // minimum sits at the largest feasible x1 inside x2 ∈ [0, 10]
+  // ⇒ x1 = 11/7, x2 = 0, obj = 22/7 ≈ 3.143.  Crucially, this is NOT
+  // the snapshot's original optimum (= 10, from `min 2x1+3x2 s.t.
+  // x1+x2 ≥ 5`) — so a regression that silently reverted the
+  // mutations would resolve to 10 and this assertion would catch it.
+  auto r2 = li.resolve();
+  REQUIRE(r2.has_value());
+  CHECK(li.get_obj_value_raw() == doctest::Approx(22.0 / 7.0));
+  CHECK_FALSE(li.get_obj_value_raw() == doctest::Approx(10.0));
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface — pending coefficient last-write-wins across release "
+    "cycles")
+{
+  // Companion to the previous test: multiple mutations to the same
+  // (row, col) cell collapse to the last value (last-write-wins) in
+  // the replay buffer.  Without this property a cell mutated N times
+  // before release would replay N writes — same final state on a
+  // single backend, but expensive and surprising.
+  auto [li, flat, x1, x2] = make_simple_li_lp();
+
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  li.save_base_numrows();
+
+  const auto base_row = RowIndex {0};
+  // Three writes to the same cell — only the last must survive.
+  li.set_coeff_raw(base_row, x1, 2.0);
+  li.set_coeff_raw(base_row, x1, 4.0);
+  li.set_coeff_raw(base_row, x1, 9.0);
+
+  // RHS: two writes.
+  li.set_rhs_raw(base_row, 7.0);
+  li.set_rhs_raw(base_row, 12.0);
+
+  CHECK(li.pending_coeffs_size() == 1);
+  CHECK(li.pending_rhs_size() == 1);
+
+  li.release_backend();
+  li.reconstruct_backend();
+
+  CHECK(li.get_coeff_raw(base_row, x1) == doctest::Approx(9.0));
+}
+
 TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
 {
   auto [li, flat, x1, x2] = make_simple_li_lp();
@@ -3731,8 +3840,9 @@ TEST_CASE(  // NOLINT
     "LinearInterface — set_col_upp_raw throws on out-of-range ColIndex")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness, readability-qualified-auto,
-  // readability-trailing-comma)
+  // NOLINTBEGIN(misc-const-correctness)
+  // NOLINTBEGIN(readability-qualified-auto)
+  // NOLINTBEGIN(readability-trailing-comma)
 
   LinearInterface li;
   const auto x0 = li.add_col(SparseCol {
@@ -4477,5 +4587,6 @@ TEST_CASE(  // NOLINT
   CHECK(li.cached_col_sol_size() == 0);  // still empty after read
 }
 
-// NOLINTEND(misc-const-correctness, readability-qualified-auto,
-// readability-trailing-comma)
+// NOLINTEND(misc-const-correctness)
+// NOLINTEND(readability-qualified-auto)
+// NOLINTEND(readability-trailing-comma)

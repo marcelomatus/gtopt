@@ -42,8 +42,10 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/strong_index_vector.hpp>
-// NOLINTBEGIN(hicpp-move-const-arg, modernize-return-braced-init-list,
-// performance-move-const-arg, readability-trailing-comma)
+// NOLINTBEGIN(hicpp-move-const-arg)
+// NOLINTBEGIN(modernize-return-braced-init-list)
+// NOLINTBEGIN(performance-move-const-arg)
+// NOLINTBEGIN(readability-trailing-comma)
 
 namespace gtopt
 {
@@ -736,6 +738,23 @@ public:
   [[nodiscard]] std::size_t active_cuts_size() const noexcept
   {
     return m_replay_.active_cuts_size();
+  }
+
+  /// Companion to ``active_cuts_size`` — count of post-snapshot raw
+  /// LP coefficient overrides recorded via ``set_coeff_raw``.
+  /// Surfaced for the ``LI release`` diagnostic trace and unit tests
+  /// that assert the replay channel is wired (juan/gtopt_iplp p51
+  /// regression guard).
+  [[nodiscard]] std::size_t pending_coeffs_size() const noexcept
+  {
+    return m_replay_.pending_coeffs_size();
+  }
+
+  /// Companion to ``pending_coeffs_size`` for row-RHS overrides
+  /// recorded via ``set_rhs_raw``.
+  [[nodiscard]] std::size_t pending_rhs_size() const noexcept
+  {
+    return m_replay_.pending_rhs_size();
   }
 
   /// Const view of the live active-cut rows tracked by the replay
@@ -3013,5 +3032,7 @@ private:
 
 }  // namespace gtopt
 
-// NOLINTEND(hicpp-move-const-arg, modernize-return-braced-init-list,
-// performance-move-const-arg, readability-trailing-comma)
+// NOLINTEND(hicpp-move-const-arg)
+// NOLINTEND(modernize-return-braced-init-list)
+// NOLINTEND(performance-move-const-arg)
+// NOLINTEND(readability-trailing-comma)

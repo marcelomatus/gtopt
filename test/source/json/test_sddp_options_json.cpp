@@ -5,7 +5,10 @@
  * @copyright BSD-3-Clause
  */
 
+#include <array>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_sddp_options.hpp>
@@ -277,6 +280,46 @@ TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
     const auto rt = daw::json::from_json<SddpOptions>(json);
     REQUIRE(rt.cut_coeff_eps.has_value());
     CHECK(rt.cut_coeff_eps.value_or(0.0) == doctest::Approx(1e-8));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SddpOptions JSON - low_memory_mode='rebuild' resolves to compress")
+{
+  // The `rebuild` low-memory mode was removed 2026-05-13.  The string
+  // is retained as a back-compat alias in `low_memory_mode_entries`
+  // (see `include/gtopt/sddp_enums.hpp`) so existing planning JSON
+  // configs continue to parse — but the resolved enum value is now
+  // `compress`, not a dedicated rebuild mode that no longer exists.
+  // Pin the alias contract end-to-end through daw::json so a future
+  // refactor that drops the entry can't silently fail-open.
+  const std::string_view json_data = R"({"low_memory_mode": "rebuild"})";
+  const auto opts = daw::json::from_json<SddpOptions>(json_data);
+
+  REQUIRE(opts.low_memory_mode.has_value());
+  CHECK(*opts.low_memory_mode == LowMemoryMode::compress);
+}
+
+TEST_CASE(  // NOLINT
+    "SddpOptions JSON - canonical low_memory_mode strings round-trip")
+{
+  // Companion to the alias test above — make sure the two canonical
+  // names still parse correctly and aren't accidentally collapsed
+  // into a single value.
+  for (const auto& [name, expected] :
+       std::array {
+           std::pair {"off", LowMemoryMode::off},
+           std::pair {"compress", LowMemoryMode::compress},
+           // `snapshot` is the legacy alias for compress.
+           std::pair {"snapshot", LowMemoryMode::compress},
+       })
+  {
+    CAPTURE(name);
+    const std::string json_data =
+        std::string {R"({"low_memory_mode": ")"} + name + R"("})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    REQUIRE(opts.low_memory_mode.has_value());
+    CHECK(*opts.low_memory_mode == expected);
   }
 }
 
