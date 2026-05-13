@@ -45,14 +45,27 @@ The resulting ``varphi`` (φ) variable satisfies the PLP-canonical cut::
     φ ≥ +LDPhiPrv + Σ_i GradX_i · Vol_i
 
 where ``LDPhiPrv = E[Z(v_trial)]`` is the **positive** expected future
-operating cost from the next stage onwards (verified against real PLP
-``plpplem2.dat`` output: every row has ``LDPhiPrv > 0``), and
+operating cost from the next stage onwards.  Per PLP source
+``plp-espercnd.f:43-54``, ``LDPhiPrv = PromedioZ / NApert`` — averaged
+over **apertures** (intra-stage uncertainty branching), NOT over
+scenarios.  So it is the per-scenario expectation given apertures,
+which maps to gtopt's per-SCENE expected α-cost.
 ``GradX_i = ∂E[Z]/∂v_i`` is the **negative** marginal water value (more
-water → less future cost).  The CSV ``rhs`` column carries
+water → less future cost).  The parsed CSV ``rhs`` column carries
 ``+LDPhiPrv`` directly, with no sign flip — matching PLP's
 ``plp-agrespd.f::AgrResPDi`` which builds the LP row as
 ``rowlb = +LDPhiPrv/ScalePhi`` for the constraint
 ``α + Σ(-GradX/ScalePhi)·v ≥ +LDPhiPrv/ScalePhi``.
+
+**Bridge to gtopt** (handled at WRITE time by ``planos_writer``):
+PLP's LP folds the probability factor into the α-col objective
+coefficient as ``1/NVarPhi``; gtopt's per-scene LP uses an α-col
+coefficient of ``1.0`` (see ``sddp_method_alpha.cpp:110``).  When 16
+per-scene LP objectives are summed for the aggregate LB, each scene
+contributes its full α floor → over-counts by N_scenarios.  The
+writer therefore divides ``rhs`` and every gradient coefficient by
+``N`` at export, so the verbatim "PLP-canonical cut" above is
+rescaled into "gtopt-canonical α-space" exactly once.
 """
 
 import logging

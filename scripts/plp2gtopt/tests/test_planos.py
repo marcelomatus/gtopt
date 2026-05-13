@@ -394,6 +394,140 @@ class TestHotStartCutsWriter:
         assert row["phase"] == "7"  # identity: stage 7 → phase 7
 
 
+class TestProbabilityScaling:
+    """Tests for the ``num_scenarios`` (NVarPhi) scaling at write time.
+
+    PLP and gtopt put the scenario probability in different places: PLP's
+    α-column carries ``1/NVarPhi`` as its LP objective coefficient, while
+    gtopt's per-scene α-column carries ``1.0``.  The writer must therefore
+    divide both ``rhs`` and every gradient coefficient by ``NVarPhi`` so
+    each per-scene gtopt LP loads only its own share of the expected
+    future cost.  See ``planos_writer`` module docstring.
+    """
+
+    def test_default_unscaled(self, tmp_path):
+        """Without ``num_scenarios`` the writer is a verbatim pass-through."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 1.0,
+                "coefficients": {"R1": 0.5, "R2": 0.25},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(cuts, ["R1", "R2"], tmp_path / "x.csv")
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(1.0)
+        assert float(row["R1"]) == pytest.approx(0.5)
+        assert float(row["R2"]) == pytest.approx(0.25)
+
+    def test_num_scenarios_four_divides_rhs_and_grads(self, tmp_path):
+        """``num_scenarios=4`` divides ``rhs`` and every gradient by 4."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 1.0,
+                "coefficients": {"R1": 0.5, "R2": 0.25},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1", "R2"], tmp_path / "scaled.csv", num_scenarios=4
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        # Round-trip: rhs = 1.0 / 4 = 0.25
+        assert float(row["rhs"]) == pytest.approx(0.25)
+        # Gradients are scaled by the same factor.
+        assert float(row["R1"]) == pytest.approx(0.125)
+        assert float(row["R2"]) == pytest.approx(0.0625)
+
+    def test_num_scenarios_one_no_op(self, tmp_path):
+        """``num_scenarios=1`` is a no-op (single-scene case)."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 100.0,
+                "coefficients": {"R1": 2.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "n1.csv", num_scenarios=1
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(100.0)
+        assert float(row["R1"]) == pytest.approx(2.0)
+
+    def test_num_scenarios_zero_no_op(self, tmp_path):
+        """``num_scenarios=0`` is a no-op (degenerate guard)."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 7.0,
+                "coefficients": {"R1": 3.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "n0.csv", num_scenarios=0
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(7.0)
+        assert float(row["R1"]) == pytest.approx(3.0)
+
+    def test_hot_start_num_scenarios_scaling(self, tmp_path):
+        """Hot-start writer applies the same ``1/N`` scaling."""
+        cuts = [
+            {
+                "name": "hs_1",
+                "iteration": 1,
+                "stage": 3,
+                "scene": 1,
+                "rhs": 8.0,
+                "coefficients": {"R1": 0.4, "R2": 0.8},
+            }
+        ]
+        csv_path = write_hot_start_cuts_csv(
+            cuts, ["R1", "R2"], tmp_path / "hs_scaled.csv", num_scenarios=4
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(2.0)
+        assert float(row["R1"]) == pytest.approx(0.1)
+        assert float(row["R2"]) == pytest.approx(0.2)
+
+    def test_num_scenarios_preserves_other_columns(self, tmp_path):
+        """Scaling does not affect ``name``, ``iteration``, ``scene``."""
+        cuts = [
+            {
+                "name": "bc_2_3",
+                "iteration": 2,
+                "scene": 3,
+                "rhs": 16.0,
+                "coefficients": {"R1": 4.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "id.csv", num_scenarios=4
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert row["name"] == "bc_2_3"
+        assert row["iteration"] == "2"
+        assert row["scene"] == "3"
+        # Scaled column
+        assert float(row["rhs"]) == pytest.approx(4.0)
+        assert float(row["R1"]) == pytest.approx(1.0)
+
+
 class TestNameAlias:
     """Tests for the ``name_alias`` header-rename option."""
 

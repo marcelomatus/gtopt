@@ -59,6 +59,18 @@ class BoundaryMixin:
         ``sddp_boundary_cuts_file`` option is set so that the SDDP solver
         loads them.  CLI options control mode, iteration filtering, and
         whether to export hot-start cuts for intermediate stages.
+
+        Probability-factor scaling (``NVarPhi``): PLP cut values are divided
+        by the scenario count so that each per-scene LP in gtopt loads its
+        OWN share of the expected future cost (PLP's α-column carries
+        ``1/NVarPhi`` internally; gtopt's per-scene α-column carries ``1.0``,
+        so the scaling must happen at export).  See the docstring of
+        :mod:`plp2gtopt.planos_writer` for the full derivation.  This
+        function assumes equal scenario probabilities (the default
+        ``probability_factor = 1/NVarPhi`` that
+        :meth:`process_scenarios` sets); if the caller overrides
+        ``--probability-factors`` with unequal values a warning is logged
+        and the export is approximate.
         """
         planos = self.parser.parsed_data.get("planos_parser")
         if planos is None:
@@ -72,6 +84,16 @@ class BoundaryMixin:
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
         name_alias = self._load_alias_file(options.get("alias_file"))
 
+        # NVarPhi = number of PLP scenarios used to build the cuts.  This is
+        # the same as the gtopt scenario count by construction (PLP writes one
+        # gradient row per hydrology/aperture pair, and `process_scenarios`
+        # mirrors PLP's scenario count 1:1).
+        scenario_array: list = (
+            self.planning.get("simulation", {}).get("scenario_array") or []
+        )
+        num_scenarios: int = len(scenario_array)
+        self._warn_if_unequal_probabilities(scenario_array)
+
         # ── Boundary cuts (last stage) ─────────────────────────────────────
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
@@ -80,6 +102,7 @@ class BoundaryMixin:
                 planos.reservoir_names,
                 csv_path,
                 name_alias=name_alias,
+                num_scenarios=num_scenarios,
             )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
@@ -122,6 +145,7 @@ class BoundaryMixin:
                 hs_path,
                 stage_to_phase=stage_to_phase,
                 name_alias=name_alias,
+                num_scenarios=num_scenarios,
             )
             # Only wire the file into the JSON options if explicitly requested
             if options.get("hot_start_cuts", False):
@@ -131,6 +155,32 @@ class BoundaryMixin:
                     sddp_opts["named_cuts_file"] = str(
                         Path(input_dir_val) / "hot_start_cuts.csv"
                     )
+
+    @staticmethod
+    def _warn_if_unequal_probabilities(scenario_array: list) -> None:
+        """Log a warning when scenario probabilities are not equal.
+
+        The 1/NVarPhi probability factor applied in :mod:`planos_writer`
+        assumes uniform scenario probabilities (PLP's convention).  If the
+        caller overrode ``--probability-factors`` with unequal values, the
+        cut export is approximate — the warning flags this as a follow-up.
+        """
+        if not scenario_array:
+            return
+        probs = [s.get("probability_factor", 1.0) for s in scenario_array]
+        if not probs:
+            return
+        ref = probs[0]
+        # Allow a tiny relative tolerance for rounding noise in the JSON.
+        tol = 1e-9
+        if any(abs(p - ref) > tol * max(1.0, abs(ref)) for p in probs):
+            _logger.warning(
+                "Boundary-cut export: scenarios have non-uniform "
+                "probability_factor (%s); the 1/NVarPhi cut scaling assumes "
+                "equal probabilities and is approximate in this case.",
+                ", ".join(f"{p:g}" for p in probs[:8])
+                + ("..." if len(probs) > 8 else ""),
+            )
 
     def _build_stage_to_phase_map(self) -> dict[int, int] | None:
         """Build a mapping from PLP stage (1-based) to gtopt phase UID.
