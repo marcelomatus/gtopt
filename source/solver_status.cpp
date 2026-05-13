@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -25,10 +26,6 @@
 #include <gtopt/solver_status.hpp>
 #include <gtopt/utils.hpp>
 #include <unistd.h>
-
-// NOLINTBEGIN(concurrency-mt-unsafe,
-// cppcoreguidelines-pro-bounds-pointer-arithmetic, cert-err33-c,
-// google-runtime-int)
 
 namespace gtopt
 {
@@ -47,10 +44,14 @@ namespace
 /// must never affect solve correctness.
 [[nodiscard]] std::filesystem::path runs_registry_dir()
 {
+  // ``std::getenv`` is the only portable way to read process env;
+  // safe here because the env is never mutated after main() runs.
+  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   const char* xdg = std::getenv("XDG_CACHE_HOME");
   std::filesystem::path base;
-  if (xdg != nullptr && xdg[0] != '\0') {
+  if (xdg != nullptr && *xdg != '\0') {
     base = xdg;
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
   } else if (const char* home = std::getenv("HOME"); home != nullptr) {
     base = std::filesystem::path {home} / ".cache";
   } else {
@@ -91,12 +92,14 @@ void register_run_once(const std::string& filepath)
                      // Best-effort cleanup on normal exit.
                      static std::filesystem::path entry_to_remove;
                      entry_to_remove = entry;
-                     std::atexit(
+                     // atexit returning non-zero just means "could not
+                     // register" — registry cleanup is best-effort.
+                     static_cast<void>(std::atexit(
                          []() noexcept
                          {
                            std::error_code ec;
                            std::filesystem::remove(entry_to_remove, ec);
-                         });
+                         }));
                    } catch (...) {  // NOLINT(bugprone-empty-catch)
                      // Registry is monitoring-only; never propagate.
                    }
@@ -143,7 +146,8 @@ void write_solver_status(const std::string& filepath,
   // PID lets external tools (run_gtopt --attach, --list) verify the
   // owning process is still alive via `kill(pid, 0)` before trusting
   // any of the bounds / iteration counters below.  Cheap; no I/O.
-  json += std::format("  \"pid\": {},\n", static_cast<long>(::getpid()));
+  json +=
+      std::format("  \"pid\": {},\n", static_cast<std::int64_t>(::getpid()));
   json += std::format("  \"status\": \"{}\",\n", status_str);
   json += std::format("  \"iteration\": {},\n", snapshot.iteration_index);
   json += std::format("  \"lower_bound\": {:.6f},\n", snapshot.lower_bound);
@@ -284,7 +288,3 @@ void write_solver_status(const std::string& filepath,
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(concurrency-mt-unsafe,
-// cppcoreguidelines-pro-bounds-pointer-arithmetic, cert-err33-c,
-// google-runtime-int)

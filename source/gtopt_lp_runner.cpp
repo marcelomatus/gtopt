@@ -671,8 +671,7 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
 
     spdlog::info("=== Building LP model ===");
     const spdlog::stopwatch build_sw;
-    PlanningLP planning_lp {std::move(planning),  // NOLINT
-                            flat_opts};
+    PlanningLP planning_lp {std::move(planning), flat_opts};
 
     // Log the active solver backend (with version) once.  The
     // "Building LP done in ..." line from planning_lp already covers

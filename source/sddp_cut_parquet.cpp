@@ -59,10 +59,6 @@
 
 #include <spdlog/spdlog.h>
 
-// NOLINTBEGIN(readability-trailing-comma, performance-unnecessary-value-param,
-// performance-unnecessary-copy-initialization, misc-const-correctness,
-// modernize-use-designated-initializers)
-
 namespace gtopt
 {
 using namespace gtopt::detail;
@@ -137,11 +133,14 @@ auto build_cuts_table(
   auto coeff_struct_b = std::make_shared<arrow::StructBuilder>(
       coeff_struct_type,
       pool,
-      std::vector<std::shared_ptr<arrow::ArrayBuilder>> {coeff_key_b,
-                                                         coeff_val_b});
+      std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
+          coeff_key_b,
+          coeff_val_b,
+      });
   arrow::ListBuilder coeff_list_b {pool, coeff_struct_b};
 
-  const auto reserve_status = [&](arrow::Status s) -> std::expected<void, Error>
+  const auto reserve_status =
+      [&](const arrow::Status& s) -> std::expected<void, Error>
   {
     if (!s.ok()) {
       return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
@@ -354,7 +353,7 @@ auto resolve_save_path(const std::string& filepath, bool append_mode)
       return std::unexpected(
           make_io_error(out_path, open_result.status().ToString()));
     }
-    auto out = *open_result;
+    const auto& out = *open_result;
 
     parquet::WriterProperties::Builder props_builder;
     props_builder.compression(parquet::Compression::SNAPPY);
@@ -432,7 +431,7 @@ auto resolve_save_path(const std::string& filepath, bool append_mode)
       return std::unexpected(
           make_io_error(filepath, open_result.status().ToString()));
     }
-    auto out = *open_result;
+    const auto& out = *open_result;
 
     parquet::WriterProperties::Builder props_builder;
     props_builder.compression(parquet::Compression::SNAPPY);
@@ -480,7 +479,7 @@ auto read_parquet_table(const std::string& filepath)
     return std::unexpected(
         make_io_error(filepath, open_result.status().ToString()));
   }
-  std::shared_ptr<arrow::io::RandomAccessFile> input = *open_result;
+  const std::shared_ptr<arrow::io::RandomAccessFile> input = *open_result;
 
   std::unique_ptr<parquet::arrow::FileReader> reader;
 #if ARROW_VERSION_MAJOR >= 19
@@ -704,10 +703,13 @@ struct CellCuts
             const auto var = key_view.substr(c1 + 1, c2 - c1 - 1);
             const auto uid_str = key_view.substr(c2 + 1);
             int uid_val = 0;
-            const auto [ptr, ec] =
-                std::from_chars(uid_str.data(),
-                                uid_str.data() + uid_str.size(),  // NOLINT
-                                uid_val);
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            const auto* const end_ptr = uid_str.data() + uid_str.size();
+            const auto [ptr, ec] = std::from_chars(
+                // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
+                uid_str.data(),
+                end_ptr,
+                uid_val);
             if (ec != std::errc {}) {
               SPDLOG_WARN(
                   "SDDP load_cuts_parquet: invalid uid '{}' in key '{}' "
@@ -774,7 +776,8 @@ struct CellCuts
             for (const auto& [col, coeff] : resolved_coeffs) {
               scene_row[col] = coeff;
             }
-            auto& cell = accum[CellKey {scene_index, phase_index}];
+            auto& cell =
+                accum[CellKey {.scene = scene_index, .phase = phase_index}];
             if (cut_type == CutType::Optimality) {
               cell.opt.push_back(std::move(scene_row));
             } else {
@@ -890,7 +893,3 @@ struct CellCuts
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(readability-trailing-comma, performance-unnecessary-value-param,
-// performance-unnecessary-copy-initialization, misc-const-correctness,
-// modernize-use-designated-initializers)

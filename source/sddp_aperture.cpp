@@ -36,8 +36,6 @@
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
-// NOLINTBEGIN(modernize-use-designated-initializers, modernize-loop-convert)
-
 namespace gtopt
 {
 
@@ -277,7 +275,8 @@ auto solve_apertures_for_phase(
     const auto idx = (scen_it == all_scenarios.end())
         ? std::ptrdiff_t {-1}
         : std::distance(all_scenarios.begin(), scen_it);
-    prepared.push_back({ap_ref, ap_count, idx});
+    prepared.push_back(
+        {.aperture = ap_ref, .count = ap_count, .scenario_idx = idx});
   }
 
   // ── Wrap prepared entries as ApertureEntry spans for partitioning ──
@@ -359,14 +358,14 @@ auto solve_apertures_for_phase(
           std::vector<MemoEntry> seen;
           seen.reserve(chunk.size());
 
-          for (std::size_t ci = 0; ci < chunk.size(); ++ci) {
+          for (const auto& entry : chunk) {
             // Each chunk_view entry indexes into `prepared` at the
             // same offset of its own contiguous range.  Because
             // `partition_apertures` returns contiguous subspans of
             // `prepared_view`, address-distance gives us the original
             // index into `prepared`.
             const auto prep_idx =
-                static_cast<std::size_t>(&chunk[ci] - prepared_view.data());
+                static_cast<std::size_t>(&entry - prepared_view.data());
             const auto& prep = prepared[prep_idx];
             const auto& aperture = prep.aperture.get();
             const ApertureUid ap_uid = make_uid<Scenario>(aperture.uid);
@@ -660,5 +659,3 @@ auto solve_apertures_for_phase(
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(modernize-use-designated-initializers, modernize-loop-convert)

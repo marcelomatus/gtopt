@@ -33,11 +33,6 @@
 #  include <snappy.h>
 #endif
 
-// NOLINTBEGIN(readability-trailing-comma,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// cppcoreguidelines-missing-std-forward, bugprone-exception-escape,
-// hicpp-use-auto, modernize-use-auto)
-
 namespace gtopt
 {
 
@@ -287,12 +282,12 @@ CodecAccum& accum_for(CompressionCodec c) noexcept
 {
   static std::array<CodecAccum, kCodecSlots> slots;
   const auto idx = std::min(static_cast<std::size_t>(c), kCodecSlots - 1);
-  return slots[idx];
+  return slots.at(idx);
 }
 
 // Iterate every codec slot.  Used by get/log/reset.
 template<typename F>
-void for_each_codec(F&& f) noexcept
+void for_each_codec(F f) noexcept
 {
   // Codec values are sparse-ish — iterate the named values explicitly.
   static constexpr std::array all_codecs {
@@ -698,11 +693,17 @@ void reset_compression_stats() noexcept
 namespace
 {
 // Pretty-print a byte count: "1.23 GB", "421 MB", "5 KB", "789 B".
-std::string human_bytes(std::uint64_t bytes) noexcept
+// Not noexcept: std::format may throw on allocation failure.
+std::string human_bytes(std::uint64_t bytes)
 {
   static constexpr std::array<std::string_view, 5> units {
-      "B", "KB", "MB", "GB", "TB"};
-  double v = static_cast<double>(bytes);
+      "B",
+      "KB",
+      "MB",
+      "GB",
+      "TB",
+  };
+  auto v = static_cast<double>(bytes);
   std::size_t u = 0;
   while (v >= 1024.0 && u + 1 < units.size()) {
     v /= 1024.0;
@@ -710,9 +711,9 @@ std::string human_bytes(std::uint64_t bytes) noexcept
   }
   // Fewer decimals at the higher end for readability.
   if (u == 0) {
-    return std::format("{} {}", bytes, units[0]);
+    return std::format("{} {}", bytes, units.front());
   }
-  return std::format("{:.1f} {}", v, units[u]);
+  return std::format("{:.1f} {}", v, units.at(u));
 }
 
 // Throughput in MB/s for a (bytes, microseconds) pair.  Returns 0 when
@@ -773,8 +774,3 @@ void log_compression_stats() noexcept
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(readability-trailing-comma,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// cppcoreguidelines-missing-std-forward, bugprone-exception-escape,
-// hicpp-use-auto, modernize-use-auto)

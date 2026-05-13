@@ -497,7 +497,6 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
         continue;
       }
 
-      // NOLINTNEXTLINE(fuchsia-default-arguments-calls)
       const auto t_idx = add_aux_col(ctx, row, "abs_aux", AuxSign::NonNegative);
 
       // Row 1: inner_vars − t ≤ −inner_shift

@@ -244,7 +244,10 @@ void System::expand_reservoir_constraints()
   }
 }
 
-void System::merge(System&& sys)  // NOLINT
+// `sys` is consumed member-by-member via std::move on each field — the
+// check only sees ``std::move(sys.foo)``, not ``std::move(sys)``.
+// NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
+void System::merge(System&& sys)
 {
   if (!sys.name.empty()) {
     name = std::move(sys.name);

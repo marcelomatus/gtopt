@@ -38,8 +38,6 @@
 
 #include <spdlog/spdlog.h>
 
-// NOLINTBEGIN(performance-unnecessary-copy-initialization)
-
 namespace gtopt
 {
 
@@ -207,7 +205,7 @@ auto save_state_csv(PlanningLP& planning_lp, const std::string& filepath)
       return std::unexpected(
           make_io_error(filepath, open_result.status().ToString()));
     }
-    auto out = *open_result;
+    const auto& out = *open_result;
 
     const auto write_options = arrow::csv::WriteOptions::Defaults();
     if (auto s = arrow::csv::WriteCSV(*table, write_options, out.get());
@@ -232,5 +230,3 @@ auto save_state_csv(PlanningLP& planning_lp, const std::string& filepath)
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(performance-unnecessary-copy-initialization)

@@ -259,10 +259,13 @@ using namespace gtopt::detail;
           const auto var = key.substr(c1 + 1, c2 - c1 - 1);
           const auto uid_str = key.substr(c2 + 1);
           int uid_val = 0;
-          auto [ptr, ec] =
-              std::from_chars(uid_str.data(),
-                              uid_str.data() + uid_str.size(),  // NOLINT
-                              uid_val);
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+          const auto* const end_ptr = uid_str.data() + uid_str.size();
+          auto [ptr, ec] = std::from_chars(
+              // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
+              uid_str.data(),
+              end_ptr,
+              uid_val);
           if (ec != std::errc {}) {
             SPDLOG_WARN(
                 "SDDP load_cuts_json: invalid uid '{}' in key for "

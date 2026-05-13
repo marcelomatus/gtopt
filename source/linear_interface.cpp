@@ -28,10 +28,6 @@
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
-// NOLINTBEGIN(readability-trailing-comma, bugprone-narrowing-conversions,
-// cppcoreguidelines-narrowing-conversions,
-// modernize-use-integer-sign-comparison)
-
 namespace gtopt
 {
 
@@ -1684,7 +1680,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
     return first_col_index;
   }
 
-  const int ncols = std::ssize(cols);
+  const auto ncols = static_cast<int>(std::ssize(cols));
   std::vector<int> colbeg(ncols + 1, 0);
   std::vector<int> colind;
   std::vector<double> colval;
@@ -1704,7 +1700,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
     colub[c] = uppb;
     colobj[c] =
         apply_col_scale ? col.cost * col.scale * inv_so : col.cost * inv_so;
-    colbeg[c + 1] = std::ssize(colind);
+    colbeg[c + 1] = static_cast<int>(std::ssize(colind));
 
     // Validation hooks (Phase 2): note bounds + obj per column in
     // the bulk path so bulk callers see the same warnings as
@@ -2292,7 +2288,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
     return;
   }
 
-  const int nrows = std::ssize(rows);
+  const auto nrows = static_cast<int>(std::ssize(rows));
   const auto first_row_index = RowIndex {m_backend_->get_num_rows()};
 
   // Sum cmap sizes for the CSR reserve hint.  When `eps > 0` this
@@ -2403,7 +2399,8 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   {
     const auto frozen_count = flatten_row_count();
     const auto first_post_offset =
-        static_cast<size_t>(first_row_index) >= frozen_count
+        std::cmp_greater_equal(static_cast<Index>(first_row_index),
+                               frozen_count)
         ? static_cast<size_t>(first_row_index) - frozen_count
         : 0U;
     const auto needed_size = first_post_offset + static_cast<size_t>(nrows);
@@ -2723,43 +2720,25 @@ void check_col_index(const char* fn, ColIndex index, std::int64_t ncols)
 
 void LinearInterface::set_col_low_raw(const ColIndex index, const double value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'L',
-  };
-  const std::array<double, 1> vals {
-      value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'L'};
+  const std::array<double, 1> vals {value};
   set_col_bounds_raw(idx, lu, vals);
 }
 
 void LinearInterface::set_col_upp_raw(const ColIndex index, const double value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'U',
-  };
-  const std::array<double, 1> vals {
-      value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'U'};
+  const std::array<double, 1> vals {value};
   set_col_bounds_raw(idx, lu, vals);
 }
 
 void LinearInterface::set_col_raw(const ColIndex index, const double value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'B',
-  };
-  const std::array<double, 1> vals {
-      value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'B'};
+  const std::array<double, 1> vals {value};
   set_col_bounds_raw(idx, lu, vals);
 }
 
@@ -2783,44 +2762,26 @@ void LinearInterface::set_col_raw(const ColIndex index, const double value)
 void LinearInterface::set_col_low(const ColIndex index,
                                   const double physical_value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'L',
-  };
-  const std::array<double, 1> vals {
-      physical_value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'L'};
+  const std::array<double, 1> vals {physical_value};
   set_col_bounds(idx, lu, vals);
 }
 
 void LinearInterface::set_col_upp(const ColIndex index,
                                   const double physical_value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'U',
-  };
-  const std::array<double, 1> vals {
-      physical_value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'U'};
+  const std::array<double, 1> vals {physical_value};
   set_col_bounds(idx, lu, vals);
 }
 
 void LinearInterface::set_col(const ColIndex index, const double physical_value)
 {
-  const std::array<ColIndex, 1> idx {
-      index,
-  };
-  const std::array<char, 1> lu {
-      'B',
-  };
-  const std::array<double, 1> vals {
-      physical_value,
-  };
+  const std::array<ColIndex, 1> idx {index};
+  const std::array<char, 1> lu {'B'};
+  const std::array<double, 1> vals {physical_value};
   set_col_bounds(idx, lu, vals);
 }
 
@@ -3296,7 +3257,3 @@ void LinearInterface::set_row_dual(const std::span<const double> dual)
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(readability-trailing-comma, bugprone-narrowing-conversions,
-// cppcoreguidelines-narrowing-conversions,
-// modernize-use-integer-sign-comparison)

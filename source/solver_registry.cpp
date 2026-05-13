@@ -155,13 +155,17 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     return false;
   }
 
-  // Resolve required symbols
-  auto* name_fn = reinterpret_cast<solver_plugin_name_fn>(  // NOLINT
+  // Resolve required symbols.  reinterpret_cast is unavoidable here:
+  // POSIX dlsym returns void* and the C++ standard provides no other
+  // way to convert that to a function pointer.
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* name_fn = reinterpret_cast<solver_plugin_name_fn>(
       ::dlsym(handle, "gtopt_plugin_name"));
-  auto* names_fn = reinterpret_cast<solver_plugin_names_fn>(  // NOLINT
+  auto* names_fn = reinterpret_cast<solver_plugin_names_fn>(
       ::dlsym(handle, "gtopt_solver_names"));
-  auto* factory_fn = reinterpret_cast<solver_backend_factory_fn>(  // NOLINT
+  auto* factory_fn = reinterpret_cast<solver_backend_factory_fn>(
       ::dlsym(handle, "gtopt_create_backend"));
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
   if (name_fn == nullptr || names_fn == nullptr || factory_fn == nullptr) {
     const auto msg =
@@ -176,13 +180,15 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // the solver's +infinity value without instantiating a backend.
   // Plugins built before this entry existed report nullptr; callers
   // fall back to instance-level query.
-  auto* infinity_fn = reinterpret_cast<solver_plugin_infinity_fn>(  // NOLINT
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* infinity_fn = reinterpret_cast<solver_plugin_infinity_fn>(
       ::dlsym(handle, "gtopt_solver_infinity"));
 
   // Check ABI version compatibility.  Plugins built against a different
   // SolverBackend vtable layout would crash at runtime; reject them
   // early with a clear diagnostic instead.
-  auto* abi_fn = reinterpret_cast<solver_plugin_abi_version_fn>(  // NOLINT
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* abi_fn = reinterpret_cast<solver_plugin_abi_version_fn>(
       ::dlsym(handle, "gtopt_plugin_abi_version"));
   const int plugin_abi = (abi_fn != nullptr) ? abi_fn() : 0;
   if (plugin_abi != k_solver_abi_version) {

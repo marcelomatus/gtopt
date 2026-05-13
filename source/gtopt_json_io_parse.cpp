@@ -61,8 +61,6 @@ std::expected<Planning, std::string> parse_planning_files(
             std::format("Input file '{}' does not exist", fpath.string()));
       }
 
-      // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak false
-      // positive in daw::read_file
       const auto json_result = daw::read_file(fpath.string());
 
       if (!json_result) {

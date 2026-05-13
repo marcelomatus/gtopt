@@ -38,8 +38,6 @@
 
 #include <spdlog/spdlog.h>
 
-// NOLINTBEGIN(readability-use-anyofallof)
-
 namespace gtopt
 {
 
@@ -155,13 +153,13 @@ namespace gtopt
       return false;
     }
     const auto prefix = stem + ".append-";
-    for (const auto& entry : std::filesystem::directory_iterator(parent)) {
-      const auto name = entry.path().filename().string();
-      if (name.starts_with(prefix) && name.ends_with(".parquet")) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(
+        std::filesystem::directory_iterator(parent),
+        [&](const auto& entry)
+        {
+          const auto name = entry.path().filename().string();
+          return name.starts_with(prefix) && name.ends_with(".parquet");
+        });
   };
 
   if (format == CutIOFormat::json) {
@@ -267,5 +265,3 @@ auto extract_iteration_from_name(std::string_view name) -> IterationIndex
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(readability-use-anyofallof)

@@ -204,7 +204,7 @@ void setup_trace_log(const MainOptions& opts)
     const auto vresult = validate_planning(planning);
     if (!vresult.ok()) {
       return std::unexpected(
-          std::format("Planning validation failed with {} error(s)",  // NOLINT
+          std::format("Planning validation failed with {} error(s)",
                       vresult.errors.size()));
     }
   }
