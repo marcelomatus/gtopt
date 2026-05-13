@@ -23,6 +23,7 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unused-return-value)
 
 namespace
 {
@@ -777,3 +778,5 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// NOLINTEND(bugprone-unused-return-value)

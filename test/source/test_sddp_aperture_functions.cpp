@@ -921,6 +921,8 @@ TEST_CASE(
     "partition_apertures — N=4, K=2 yields two chunks of size 2")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access,
+  // misc-const-correctness)
   ApertureBag bag {4};
   const auto chunks = partition_apertures(bag.entries, 2);
   REQUIRE(chunks.size() == 2);
@@ -930,3 +932,6 @@ TEST_CASE(
   CHECK(&chunks[0].front() == &bag.entries.front());
   CHECK(&chunks[1].front() == &bag.entries[2]);
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
+// misc-const-correctness)

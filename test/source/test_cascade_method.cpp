@@ -779,6 +779,8 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
+  // modernize-use-designated-initializers)
 
   // Empty cascade options should behave as a single level with
   // the base SDDP solver and default model options.
@@ -812,3 +814,6 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 }
 
 }  // anonymous namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access,
+// modernize-use-designated-initializers)

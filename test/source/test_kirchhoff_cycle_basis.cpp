@@ -18,6 +18,7 @@
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 
 using namespace gtopt::kirchhoff::
+    // NOLINTBEGIN(google-global-names-in-headers, misc-const-correctness)
     cycle_basis;  // NOLINT(google-global-names-in-headers)
 
 namespace
@@ -290,3 +291,5 @@ TEST_CASE("build_fundamental_cycles - sign convention matches bus_a→bus_b")
     CHECK((ce.sign == +1 || ce.sign == -1));
   }
 }
+
+// NOLINTEND(google-global-names-in-headers, misc-const-correctness)

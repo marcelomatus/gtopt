@@ -252,6 +252,7 @@ TEST_CASE("StateVariable with BlockContext")
 TEST_CASE("StateVariable default context is monostate")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(misc-const-correctness)
 
   const StateVariable var {
       {.scene_index = first_scene_index(), .phase_index = first_phase_index()},
@@ -263,3 +264,5 @@ TEST_CASE("StateVariable default context is monostate")
 
   CHECK(std::holds_alternative<std::monostate>(var.context()));
 }
+
+// NOLINTEND(misc-const-correctness)

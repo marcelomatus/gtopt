@@ -48,6 +48,7 @@
 #include <gtopt/volume_right_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
 namespace
 {
@@ -648,3 +649,5 @@ TEST_CASE(  // NOLINT
 
   CHECK_THROWS_AS(construct(), std::runtime_error);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

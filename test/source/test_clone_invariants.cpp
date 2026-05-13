@@ -43,6 +43,7 @@
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness, modernize-use-designated-initializers)
 
 namespace
 {
@@ -574,3 +575,5 @@ TEST_CASE("clone propagates LpValidationOptions and resets stats — both routes
     }
   }
 }
+
+// NOLINTEND(misc-const-correctness, modernize-use-designated-initializers)

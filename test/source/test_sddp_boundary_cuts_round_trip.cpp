@@ -41,6 +41,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -209,3 +210,5 @@ TEST_CASE(  // NOLINT
     run_boundary_cut_round_trip(/*scale_obj=*/1000.0, /*col_scale=*/5.0);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

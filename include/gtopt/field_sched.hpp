@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
+// NOLINTBEGIN(bugprone-branch-clone)
 
 namespace gtopt
 {
@@ -126,3 +127,5 @@ template<typename T, typename Vector>
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(bugprone-branch-clone)

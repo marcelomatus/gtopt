@@ -35,6 +35,7 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -510,3 +511,5 @@ TEST_CASE(  // NOLINT
     CHECK(sol[*m_vr] == doctest::Approx(sol[*l_vr]).epsilon(1e-6));
   }
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)

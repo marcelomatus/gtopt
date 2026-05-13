@@ -1380,6 +1380,7 @@ TEST_CASE(
     "dual is non-zero")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(readability-container-data-pointer)
 
   // Derivation (single block, duration = 1 h, stage duration = 1 h):
   //   qeh = (dur_b / dur_stage) × flow_b = flow_b
@@ -1578,3 +1579,5 @@ TEST_CASE(
   const auto dvol_dual = row_duals[dvol_row];
   CHECK(std::abs(dvol_dual) > 1e-6);
 }
+
+// NOLINTEND(readability-container-data-pointer)

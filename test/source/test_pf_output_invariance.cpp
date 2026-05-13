@@ -214,6 +214,10 @@ TEST_CASE(  // NOLINT
     "PF output — bus LMP equals binding generator gcost in all configs")
 {
   using namespace std::string_view_literals;
+  // NOLINTBEGIN(bugprone-suspicious-stringview-data-usage,
+  // cppcoreguidelines-pro-bounds-constant-array-index,
+  // google-global-names-in-headers, modernize-use-designated-initializers,
+  // readability-trailing-comma)
 
   const auto root = std::filesystem::temp_directory_path() / "gtopt_pf_inv_T3";
 
@@ -255,3 +259,8 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(root);
 }
+
+// NOLINTEND(bugprone-suspicious-stringview-data-usage,
+// cppcoreguidelines-pro-bounds-constant-array-index,
+// google-global-names-in-headers, modernize-use-designated-initializers,
+// readability-trailing-comma)

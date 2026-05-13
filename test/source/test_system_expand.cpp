@@ -35,6 +35,7 @@
 #include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── expand_reservoir_constraints tests ──────────────────────────────────────
 
@@ -564,3 +565,5 @@ TEST_CASE("System::merge — user parameters and constraints are merged")
   CHECK(sys_a.user_constraint_file.has_value());
   CHECK(sys_a.user_constraint_file.value() == "extra.json");
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

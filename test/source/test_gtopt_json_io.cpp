@@ -27,6 +27,7 @@
 #include <gtopt/planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness, readability-trailing-comma)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -473,3 +474,5 @@ TEST_CASE("load_user_constraints: PAMPL file missing returns error")  // NOLINT
   REQUIRE_FALSE(result.has_value());
   CHECK(result.error().contains("user_constraint_file"));
 }
+
+// NOLINTEND(misc-const-correctness, readability-trailing-comma)

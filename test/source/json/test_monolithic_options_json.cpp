@@ -11,6 +11,7 @@
 #include <gtopt/json/json_monolithic_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("MonolithicOptions JSON - Full deserialization")
 {
@@ -93,3 +94,5 @@ TEST_CASE("MonolithicOptions JSON - Empty object")
   CHECK_FALSE(opts.solve_mode.has_value());
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

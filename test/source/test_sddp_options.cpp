@@ -9,6 +9,7 @@
 #include <gtopt/sddp_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SddpOptions - Default construction")
 {
@@ -384,3 +385,5 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
     CHECK_FALSE(base.backward_solver_options.has_value());
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

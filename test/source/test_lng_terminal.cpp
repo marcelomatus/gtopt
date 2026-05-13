@@ -15,6 +15,7 @@
 #include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 TEST_CASE("LngTerminal default construction")  // NOLINT
 {
@@ -428,3 +429,5 @@ TEST_CASE("LngTerminalLP - add_to_output via write_out")  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// NOLINTEND(misc-const-correctness)

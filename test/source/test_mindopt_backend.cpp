@@ -51,6 +51,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 {
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(misc-const-correctness)
 
 /// Return a fresh MindOpt backend, or nullptr if the plugin is
 /// unavailable.  Also returns nullptr if MDOstartenv throws (typically
@@ -527,3 +528,5 @@ TEST_CASE("MindOpt backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
 }
+
+// NOLINTEND(misc-const-correctness)

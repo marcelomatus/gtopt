@@ -25,6 +25,7 @@
 #include <gtopt/planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -741,3 +742,5 @@ TEST_CASE("--set demand_fail_cost override in full solve")
   REQUIRE(result.has_value());
   CHECK(result.value_or(-1) == 0);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

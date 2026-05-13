@@ -27,6 +27,8 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-throwing-static-initialization,
+// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -410,3 +412,6 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// NOLINTEND(bugprone-throwing-static-initialization,
+// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)

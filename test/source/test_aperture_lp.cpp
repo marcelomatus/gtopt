@@ -1655,6 +1655,8 @@ TEST_CASE(
 TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-use-after-move, google-global-names-in-headers,
+  // hicpp-invalid-access-moved)
 
   // Verify that aperture-updated clones are feasible by construction.
   // The LP is built with columns for ALL scenarios (each scenario has its own
@@ -1937,3 +1939,6 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
     }
   }
 }
+
+// NOLINTEND(bugprone-use-after-move, google-global-names-in-headers,
+// hicpp-invalid-access-moved)

@@ -36,6 +36,7 @@
 #include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(google-global-names-in-headers)
 
 namespace line_ampl_test
 {
@@ -679,3 +680,5 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   CHECK(count_cols_containing(sys_lp.linear_interface(), "bus_theta_") == 0);
 }
+
+// NOLINTEND(google-global-names-in-headers)

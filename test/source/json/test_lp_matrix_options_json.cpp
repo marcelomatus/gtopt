@@ -11,6 +11,7 @@
 #include <gtopt/json/json_lp_matrix_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("LpMatrixOptions JSON - Full deserialization")
 {
@@ -50,3 +51,5 @@ TEST_CASE("LpMatrixOptions JSON - Round-trip serialization")
   REQUIRE(rt.lp_coeff_ratio_threshold.has_value());
   CHECK(*rt.lp_coeff_ratio_threshold == doctest::Approx(5e6));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

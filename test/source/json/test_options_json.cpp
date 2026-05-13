@@ -225,6 +225,7 @@ TEST_CASE(
     "string")  // NOLINT
 {
   using namespace gtopt;
+  // NOLINTBEGIN(readability-trailing-comma)
   const std::string json_string = R"({
     "solver_options": {
       "algorithm": "primal",
@@ -245,3 +246,5 @@ TEST_CASE(
   CHECK_FALSE(options.use_single_bus.has_value());
   CHECK_FALSE(options.demand_fail_cost.has_value());
 }
+
+// NOLINTEND(readability-trailing-comma)

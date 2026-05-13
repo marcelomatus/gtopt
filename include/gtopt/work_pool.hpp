@@ -50,6 +50,8 @@
 #include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <spdlog/spdlog.h>
+// NOLINTBEGIN(modernize-use-integer-sign-comparison,
+// performance-unnecessary-value-param)
 
 #ifdef __linux__
 #  include <pthread.h>
@@ -1294,3 +1296,6 @@ public:
 };
 
 }  // namespace gtopt
+
+// NOLINTEND(modernize-use-integer-sign-comparison,
+// performance-unnecessary-value-param)

@@ -5,6 +5,7 @@
 #include <gtopt/json/json_reservoir.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 TEST_CASE("Reservoir with embedded seepage JSON")
 {
@@ -249,3 +250,5 @@ TEST_CASE("Reservoir embedded constraints roundtrip")
   CHECK(roundtrip.production_factor[0].mean_production_factor
         == doctest::Approx(1.5));
 }
+
+// NOLINTEND(misc-const-correctness)

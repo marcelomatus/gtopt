@@ -24,6 +24,7 @@
 #include <gtopt/solver_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, readability-trailing-comma)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -549,3 +550,5 @@ TEST_CASE("--set demand_fail_cost wiring via set_options")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value_or(-1) == 0);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, readability-trailing-comma)

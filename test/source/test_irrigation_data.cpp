@@ -513,6 +513,7 @@ TEST_CASE("FlowRight bound_rule field")
 TEST_CASE("VolumeRight bound_rule field")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness, readability-math-missing-parentheses)
 
   VolumeRight vr;
   vr.uid = 210;
@@ -544,3 +545,5 @@ TEST_CASE("VolumeRight bound_rule field")
   CHECK(std::holds_alternative<Uid>(vr.bound_rule->reservoir));
   CHECK(std::get<Uid>(vr.bound_rule->reservoir) == 1);
 }
+
+// NOLINTEND(misc-const-correctness, readability-math-missing-parentheses)

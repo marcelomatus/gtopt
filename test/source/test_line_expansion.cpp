@@ -787,6 +787,7 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
 TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // 2-bus system: a cheap generator at bus1 and an expensive generator at
   // bus2 serve a demand at bus2 across a line with limited tmax_ab.  The
@@ -929,3 +930,5 @@ TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
   // agnostic to the sign convention.
   CHECK(std::abs(rent) == doctest::Approx(90.0).epsilon(1e-5));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

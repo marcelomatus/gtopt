@@ -2880,6 +2880,9 @@ TEST_CASE(  // NOLINT
     "false-trigger saturation drop")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, hicpp-move-const-arg,
+  // misc-const-correctness, performance-move-const-arg,
+  // readability-trailing-comma)
 
   // Regression for the ±DblMax sentinel handling on `source_upp` /
   // `source_low`.  Naïve relative tolerance `1e-9 * (source_upp -
@@ -2953,3 +2956,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(cuts.size() == 1);
   CHECK(cuts[0].cmap.contains(link.source_col));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, hicpp-move-const-arg,
+// misc-const-correctness, performance-move-const-arg,
+// readability-trailing-comma)

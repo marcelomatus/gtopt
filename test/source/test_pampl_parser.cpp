@@ -310,9 +310,12 @@ constraint gen_cap:
   TEST_CASE("Negative param values")
   {
     using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
     const auto result = PamplParser::parse("param offset = -42.5;");
     REQUIRE(result.params.size() == 1);
     CHECK(result.params[0].value.value_or(0) == doctest::Approx(-42.5));
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

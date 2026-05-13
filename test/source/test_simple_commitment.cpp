@@ -360,6 +360,8 @@ TEST_CASE(  // NOLINT
     "SimpleCommitmentLP — MIP status u binary when pmin exceeds demand")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-throwing-static-initialization,
+  // bugprone-unchecked-optional-access, cert-err58-cpp)
 
   auto& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -457,3 +459,6 @@ TEST_CASE(  // NOLINT
   // so the MIP optimum is u=0 (unit OFF, pay demand_fail_cost).
   CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(0.0).epsilon(0.001));
 }
+
+// NOLINTEND(bugprone-throwing-static-initialization,
+// bugprone-unchecked-optional-access, cert-err58-cpp)

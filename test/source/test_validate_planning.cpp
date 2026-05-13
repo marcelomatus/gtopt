@@ -1007,6 +1007,7 @@ TEST_CASE(  // NOLINT
     "validate_planning - phase aperture UID references aperture_array")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   auto p = make_minimal_planning();
 
@@ -1174,3 +1175,5 @@ TEST_CASE(  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access)

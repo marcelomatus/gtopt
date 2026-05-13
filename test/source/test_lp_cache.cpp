@@ -20,6 +20,7 @@
 #include <gtopt/lp_cache.hpp>
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(google-global-names-in-headers)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -352,3 +353,5 @@ TEST_CASE("LpCache clear_all_solution_vectors")  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(google-global-names-in-headers)

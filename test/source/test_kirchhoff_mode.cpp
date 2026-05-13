@@ -15,6 +15,7 @@
 #include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
 // ── Enum string round-trip ────────────────────────────────────────
 
@@ -82,3 +83,5 @@ TEST_CASE("PlanningOptionsLP::kirchhoff_mode default + override")
     CHECK(options.kirchhoff_mode() == KirchhoffMode::node_angle);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

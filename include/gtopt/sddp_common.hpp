@@ -25,6 +25,7 @@
 #include <gtopt/iteration.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace gtopt
 {
@@ -367,3 +368,5 @@ struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
     return std::format_to(out, "{}{:.4f}", sign, a);
   }
 };
+
+// NOLINTEND(bugprone-unchecked-optional-access)

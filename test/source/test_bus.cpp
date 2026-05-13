@@ -144,6 +144,7 @@ TEST_CASE("Bus serialization")
 TEST_CASE("BusLP construction and basic properties")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   SUBCASE("Default construction")
   {
     const Bus bus;
@@ -470,3 +471,5 @@ TEST_CASE("BusLP - DC OPF solve, theta col_sol")
   const auto load_theta_val = lp.get_col_sol()[*load_theta_col];
   CHECK(load_theta_val == doctest::Approx(-1.0).epsilon(1e-4));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

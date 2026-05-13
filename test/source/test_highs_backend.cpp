@@ -55,6 +55,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 {
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(misc-const-correctness)
 
 /// Return a fresh HiGHS backend, or nullptr if the plugin is unavailable.
 [[nodiscard]] std::unique_ptr<SolverBackend> make_highs_or_skip()
@@ -534,3 +535,5 @@ TEST_CASE("HiGHS backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
 }
+
+// NOLINTEND(misc-const-correctness)

@@ -39,6 +39,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -474,3 +475,5 @@ TEST_CASE("SDDPMethod::solve can be re-entered on the same instance")
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access)

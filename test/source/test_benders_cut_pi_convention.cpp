@@ -695,6 +695,7 @@ TEST_CASE(
     "prediction on 2-scene 10-phase 2-reservoir fixture")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // Build a fresh Planning with the desired scaling/equilibration, then run
   // SDDP to convergence.  Returns just the iteration trace + the FIRST
@@ -881,3 +882,5 @@ TEST_CASE(
     }
   }
 }
+
+// NOLINTEND(misc-const-correctness)

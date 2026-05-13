@@ -519,6 +519,7 @@ void write_bare_uid_parquet(const std::filesystem::path& input_dir,
 TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // Create a temporary directory for the test
   const auto tmp_root =
@@ -612,3 +613,5 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
 
   std::filesystem::remove_all(tmp_root);
 }
+
+// NOLINTEND(misc-const-correctness)

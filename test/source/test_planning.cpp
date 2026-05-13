@@ -1060,6 +1060,7 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
 TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(google-global-names-in-headers, misc-const-correctness)
 
   // Const planning → auto_scale_theta is skipped, uses default
   const Simulation simulation = {
@@ -1979,3 +1980,5 @@ TEST_CASE("PlanningLP - BuildMode::full_parallel submits one task per cell")
   CHECK(done_it->contains("mode=full-parallel"));
   CHECK(done_it->contains("cells=6"));
 }
+
+// NOLINTEND(google-global-names-in-headers, misc-const-correctness)

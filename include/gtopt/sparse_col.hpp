@@ -145,7 +145,7 @@ struct SparseColLabel
   LpContext context {};
 
   friend constexpr bool operator==(const SparseColLabel&,
-                                   const SparseColLabel&) noexcept = default;
+                                   const SparseColLabel&) = default;
 };
 
 /// Hash functor for `SparseColLabel`, used by the eager duplicate-detection
@@ -153,7 +153,7 @@ struct SparseColLabel
 /// and dispatches on the `LpContext` variant through `std::visit`.
 struct SparseColLabelHash
 {
-  [[nodiscard]] size_t operator()(const SparseColLabel& l) const noexcept
+  [[nodiscard]] size_t operator()(const SparseColLabel& l) const
   {
     size_t h = std::hash<std::string_view> {}(l.class_name);
     h = detail::hash_combine(h,

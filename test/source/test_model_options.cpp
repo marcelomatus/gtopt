@@ -9,6 +9,7 @@
 #include <gtopt/model_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("ModelOptions - Default construction")
 {
@@ -194,3 +195,5 @@ TEST_CASE("ModelOptions - Merge filled into empty copies all")
   CHECK(*empty.loss_segments == 3);
   CHECK(empty.has_any());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

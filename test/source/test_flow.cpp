@@ -140,6 +140,7 @@ TEST_CASE("Flow with file schedule")
 TEST_CASE("Flow without junction (flow-turbine mode)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   const Flow flow {
       .uid = Uid {5},
@@ -153,3 +154,5 @@ TEST_CASE("Flow without junction (flow-turbine mode)")
   CHECK_FALSE(flow.junction.has_value());
   CHECK(flow.uid == Uid {5});
 }
+
+// NOLINTEND(misc-const-correctness)

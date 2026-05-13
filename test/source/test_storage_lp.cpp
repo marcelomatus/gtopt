@@ -941,6 +941,7 @@ TEST_CASE(  // NOLINT
     "StorageLP combined efin_cost + soft_emin (plp_legacy emission)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // 2-stage battery with eini=10:
   //   - Stage 1: soft_emin=15 + soft_emin_cost=5  (forces slack since
@@ -994,3 +995,5 @@ TEST_CASE(  // NOLINT
   // when efin_cost > 0.  Verify the LP solved cleanly with both
   // slack mechanisms instantiated — the obj > 0 above covers that.
 }
+
+// NOLINTEND(misc-const-correctness)

@@ -1427,6 +1427,8 @@ TEST_CASE(  // NOLINT
   // pin.  This pins the gate so a future regression that flips the
   // policy ("always free on share") would surface here.
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, hicpp-use-auto,
+  // modernize-use-auto)
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -1463,3 +1465,6 @@ TEST_CASE(  // NOLINT
     CHECK(bounds->second == doctest::Approx(0.0));
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, hicpp-use-auto,
+// modernize-use-auto)

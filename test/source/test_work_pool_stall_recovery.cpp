@@ -22,12 +22,16 @@
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 namespace
-// NOLINTBEGIN(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+// NOLINTBEGIN(bugprone-argument-comment, cert-dcl59-cpp,
+// fuchsia-header-anon-namespaces, google-build-namespaces,
+// misc-anonymous-namespace-in-header)
 {
 using TestPool = BasicWorkPool<>;
 
 }  // namespace
-// NOLINTEND(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+// NOLINTEND(bugprone-argument-comment, cert-dcl59-cpp,
+// fuchsia-header-anon-namespaces, google-build-namespaces,
+// misc-anonymous-namespace-in-header)
 
 TEST_CASE(
     "WorkPool: top-level worker_loop catch survives exception "

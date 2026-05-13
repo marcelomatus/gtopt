@@ -96,6 +96,7 @@ TEST_CASE("scale_alpha - merge overwrites existing scale_alpha")
 TEST_CASE("scale_alpha - merge does not overwrite when overlay is nullopt")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   SddpOptions base {
       .scale_alpha = 1000.0,
@@ -109,3 +110,5 @@ TEST_CASE("scale_alpha - merge does not overwrite when overlay is nullopt")
 }
 
 }  // namespace
+
+// NOLINTEND(misc-const-correctness)

@@ -53,6 +53,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 {
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(misc-const-correctness)
 
 /// Return a fresh OSI/CLP backend, or nullptr if the plugin is unavailable.
 [[nodiscard]] std::unique_ptr<SolverBackend> make_osi_clp_or_skip()
@@ -641,3 +642,5 @@ TEST_CASE(  // NOLINT
   backend->disengage_robust_solve();
   CHECK(true);
 }
+
+// NOLINTEND(misc-const-correctness)

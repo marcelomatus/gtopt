@@ -10,6 +10,7 @@
 
 #include <gtopt/model_options.hpp>
 #include <gtopt/sddp_options.hpp>
+// NOLINTBEGIN(hicpp-move-const-arg, performance-move-const-arg)
 
 namespace gtopt
 {
@@ -112,7 +113,7 @@ struct CascadeLevel
   /// unset optionals in @p opts leave the existing values intact.  Nested
   /// optional structs (`model_options`, `sddp_options`, `transition`) are
   /// themselves recursively merged when both sides have a value.
-  void merge(CascadeLevel&& opts)
+  void merge(CascadeLevel opts)
   {
     merge_opt(uid, opts.uid);
     merge_opt(name, std::move(opts.name));
@@ -202,3 +203,5 @@ struct CascadeOptions
 };
 
 }  // namespace gtopt
+
+// NOLINTEND(hicpp-move-const-arg, performance-move-const-arg)

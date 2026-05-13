@@ -21,6 +21,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment)
 
 // ─── SceneIterationTracker unit tests ──────────────────────────────────────
 
@@ -486,3 +487,5 @@ TEST_CASE("SDDPMethod async - single scene falls back to sync")  // NOLINT
   // Single scene → sync path → scene_iterations not populated
   CHECK(results->back().scene_iterations.empty());
 }
+
+// NOLINTEND(bugprone-argument-comment)

@@ -1527,6 +1527,7 @@ static constexpr std::string_view uc_coefficients_json = R"json({
 TEST_CASE("User constraint - non-unit coefficients and subtraction")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   auto planning = parse_planning_json(uc_coefficients_json);
   PlanningLP planning_lp(std::move(planning));
@@ -1534,3 +1535,5 @@ TEST_CASE("User constraint - non-unit coefficients and subtraction")
 
   REQUIRE(result.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

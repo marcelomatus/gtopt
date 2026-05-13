@@ -33,6 +33,7 @@
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
 namespace
 {
@@ -143,3 +144,5 @@ TEST_CASE(
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

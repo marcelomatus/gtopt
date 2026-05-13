@@ -353,6 +353,9 @@ TEST_CASE(  // NOLINT
     "FlowRight.fail_cost slack threshold (auto-water-fail-cost magnitude)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
+  // cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
+  // modernize-avoid-c-arrays, modernize-use-designated-initializers)
 
   constexpr double kDemandFailCost = 568.0;  // max(falla.gcost) in this test
   constexpr double kProdFactor = 10.0;  // MW per m³/s
@@ -539,3 +542,7 @@ TEST_CASE(  // NOLINT
     }
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access,
+// cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
+// modernize-avoid-c-arrays, modernize-use-designated-initializers)

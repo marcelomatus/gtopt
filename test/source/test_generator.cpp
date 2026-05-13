@@ -537,6 +537,7 @@ TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
 TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Gate: this test requires a MIP-capable backend. When no MIP solver is
   // available (e.g., CLP-only sandbox), skip silently with a message.
@@ -666,3 +667,5 @@ TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
   REQUIRE(cap_col.has_value());
   CHECK(col_sol[*cap_col] == doctest::Approx(90.0).epsilon(1e-6));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

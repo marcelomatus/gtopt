@@ -17,6 +17,7 @@
 #include "log_capture.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace
 {
@@ -419,3 +420,5 @@ TEST_CASE(
 
   CHECK(logs.contains("LP_VALIDATION"));
 }
+
+// NOLINTEND(misc-const-correctness)

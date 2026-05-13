@@ -766,6 +766,7 @@ TEST_CASE(
     "PlanningOptionsLP - Solver options accessors with set values")  // NOLINT
 {
   using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
   const PlanningOptions options {
       .solver_options =
@@ -781,3 +782,5 @@ TEST_CASE(
   CHECK(options_lp.solver_options().threads == 4);
   CHECK(options_lp.solver_options().presolve == false);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

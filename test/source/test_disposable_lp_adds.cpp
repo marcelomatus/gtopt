@@ -31,6 +31,7 @@
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace
 {
@@ -272,3 +273,5 @@ TEST_CASE("write_lp on disposable cols emits gtopt-formatted labels")
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
 }
+
+// NOLINTEND(misc-const-correctness)

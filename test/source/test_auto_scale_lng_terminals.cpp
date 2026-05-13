@@ -25,6 +25,7 @@
 #include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(readability-redundant-casting)
 
 namespace
 {
@@ -333,3 +334,5 @@ TEST_CASE("auto_scale_lng_terminals — emax exactly at threshold boundary")
   REQUIRE(count_scales(planning.options, LngTerminal::class_name) == 1);
   CHECK(planning.options.variable_scales.back().scale == doctest::Approx(10.0));
 }
+
+// NOLINTEND(readability-redundant-casting)

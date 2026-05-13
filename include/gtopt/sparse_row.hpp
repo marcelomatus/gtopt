@@ -231,14 +231,14 @@ struct SparseRowLabel
   LpContext context {};
 
   friend constexpr bool operator==(const SparseRowLabel&,
-                                   const SparseRowLabel&) noexcept = default;
+                                   const SparseRowLabel&) = default;
 };
 
 /// Hash functor for `SparseRowLabel`.  Mirrors `SparseColLabelHash` — see
 /// that struct for rationale.
 struct SparseRowLabelHash
 {
-  [[nodiscard]] size_t operator()(const SparseRowLabel& l) const noexcept
+  [[nodiscard]] size_t operator()(const SparseRowLabel& l) const
   {
     size_t h = std::hash<std::string_view> {}(l.class_name);
     h = detail::hash_combine(h,

@@ -835,6 +835,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod terminal-skip: scene un-terminals when global cut count grows")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
   // Companion to the previous test: when fresh cuts arrive globally
   // (the snapshot stored at terminal-declaration is now stale), the
@@ -866,3 +867,5 @@ TEST_CASE(  // NOLINT
   // Restart hook cleared the terminal flag before dispatch.
   CHECK_FALSE(rs0.terminal);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

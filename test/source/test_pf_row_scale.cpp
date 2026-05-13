@@ -267,6 +267,9 @@ TEST_CASE(  // NOLINT
     "CostHelper — T-context cost convention is prob-free")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-argument-comment,
+  // cppcoreguidelines-pro-bounds-constant-array-index,
+  // readability-trailing-comma)
 
   // The scalar overload of cost_factor with default `duration = 1.0`
   // returns probability × discount × 1.0.  For prob=1.0 (the
@@ -317,3 +320,7 @@ TEST_CASE(  // NOLINT
   const double mismatched_output = t_path * scenario_stage_inverse;
   CHECK(mismatched_output == doctest::Approx(kCost / kProb));  // off by 1/prob
 }
+
+// NOLINTEND(bugprone-argument-comment,
+// cppcoreguidelines-pro-bounds-constant-array-index,
+// readability-trailing-comma)

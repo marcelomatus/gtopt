@@ -1637,6 +1637,8 @@ TEST_CASE(  // NOLINT
     "LinearInterface::get_col_sol respects clamp only at optimal")
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,
+  // misc-const-correctness)
 
   // Minimize -x s.t. 0 <= x <= 10.  Optimal at x = 10 (upper bound).
   LinearInterface interface;
@@ -2067,3 +2069,6 @@ TEST_CASE("LinearInterface - set_obj_coeffs_raw bulk overwrite")  // NOLINT
     }
   }
 }
+
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,
+// misc-const-correctness)

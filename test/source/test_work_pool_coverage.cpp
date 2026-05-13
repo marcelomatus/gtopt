@@ -466,6 +466,7 @@ TEST_CASE("WorkPool void tasks complete successfully")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   using namespace std::chrono_literals;
+  // NOLINTBEGIN(misc-const-correctness)
 
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
@@ -492,3 +493,5 @@ TEST_CASE("WorkPool void tasks complete successfully")  // NOLINT
 
   pool.shutdown();
 }
+
+// NOLINTEND(misc-const-correctness)

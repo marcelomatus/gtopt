@@ -38,6 +38,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace
 {
@@ -493,3 +494,5 @@ TEST_CASE("SDDP cut_sharing WARN — silent for single-scene runs")
   // Single scene: no broadcast is possible, so no WARN.
   CHECK_FALSE(logs.contains("cross-scene broadcasting"));
 }
+
+// NOLINTEND(misc-const-correctness)

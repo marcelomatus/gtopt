@@ -11,6 +11,7 @@
 #include <gtopt/json/json_model_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("ModelOptions JSON - Full deserialization")
 {
@@ -105,3 +106,5 @@ TEST_CASE("ModelOptions JSON - Empty object")
   CHECK_FALSE(opts.demand_fail_cost.has_value());
   CHECK_FALSE(opts.has_any());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

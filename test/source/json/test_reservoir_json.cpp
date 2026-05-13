@@ -5,6 +5,7 @@
 #include <gtopt/json/json_reservoir.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
 TEST_CASE("Reservoir basic fields deserialization")
 {
@@ -289,3 +290,5 @@ TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
     CHECK_FALSE(res.daily_cycle.has_value());
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

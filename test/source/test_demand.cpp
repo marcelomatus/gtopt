@@ -1268,6 +1268,7 @@ TEST_CASE("DemandProfileLP - load bound by profile times capacity")
 TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP verifying that DemandLP (via CapacityObjectBase) exposes
   // a `capainst` column through `capacity_col_at(stage)` and that the primal
@@ -1371,3 +1372,5 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   const auto& sol = lp.get_col_sol();
   CHECK(sol[*cap_col] == doctest::Approx(40.0).epsilon(1e-6));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

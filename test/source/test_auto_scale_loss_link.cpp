@@ -12,6 +12,7 @@
 #include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, readability-trailing-comma)
 
 namespace
 {
@@ -461,3 +462,5 @@ TEST_CASE(
 
   CHECK_FALSE(planning.options.model_options.scale_loss_link.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, readability-trailing-comma)

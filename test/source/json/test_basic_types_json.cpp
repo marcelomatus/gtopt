@@ -8,6 +8,7 @@
 #include <gtopt/json/json_field_sched.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-use-internal-linkage)
 
 namespace test_basic_types_json
 {
@@ -157,3 +158,5 @@ TEST_CASE("daw json gtopt basic types - Foo roundtrip")
 
   REQUIRE(roundtrip.f1 == doctest::Approx(foo.f1));
 }
+
+// NOLINTEND(misc-use-internal-linkage)

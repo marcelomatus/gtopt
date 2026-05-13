@@ -29,6 +29,7 @@
 #include <gtopt/lp_replay_buffer.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(readability-trailing-comma)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -686,3 +687,5 @@ TEST_CASE(  // NOLINT
   CHECK(hi_clone[fixture.c2] >= clone_inf * 0.999);
   CHECK(lo_clone[fixture.c3] <= -clone_inf * 0.999);
 }
+
+// NOLINTEND(readability-trailing-comma)

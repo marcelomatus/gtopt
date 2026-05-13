@@ -11,6 +11,7 @@
 #include <gtopt/json/json_solver_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SolverOptions JSON basic parsing")
 {
@@ -230,3 +231,5 @@ TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
     CHECK(roundtrip.max_fallbacks == 1);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

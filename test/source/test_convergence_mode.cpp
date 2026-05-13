@@ -172,6 +172,7 @@ TEST_CASE(  // NOLINT
     "SddpOptions construction with all convergence fields")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const SddpOptions opts {
       .convergence_tol = 1e-4,
@@ -190,3 +191,5 @@ TEST_CASE(  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access)

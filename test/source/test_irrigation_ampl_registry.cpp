@@ -24,6 +24,7 @@
 #include <gtopt/volume_right_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -384,3 +385,5 @@ TEST_CASE(  // NOLINT
   // Distinct stages must own distinct extraction columns.
   CHECK(*col_s1 != *col_s2);
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)

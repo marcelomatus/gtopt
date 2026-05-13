@@ -11,6 +11,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("Converter construction and default values")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   const Converter converter;
 
   CHECK(converter.uid == Uid {unknown_uid});
@@ -316,3 +317,5 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
   const auto cap_val = lp.get_col_sol()[*cap_col];
   CHECK(cap_val == doctest::Approx(40.0).epsilon(1e-6));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

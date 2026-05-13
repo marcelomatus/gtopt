@@ -208,6 +208,7 @@ TEST_CASE("merge_config_defaults - CLI overrides config")
 TEST_CASE("merge_config_defaults - Empty config changes nothing")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   MainOptions cli_opts;
   cli_opts.solver = "clp";
@@ -218,3 +219,5 @@ TEST_CASE("merge_config_defaults - Empty config changes nothing")
   CHECK(*cli_opts.solver == "clp");
   CHECK_FALSE(cli_opts.threads.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

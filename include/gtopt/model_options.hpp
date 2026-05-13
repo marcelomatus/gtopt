@@ -187,7 +187,7 @@ struct ModelOptions
   /// True iff every field set in `other` has an equal value in `*this`.
   /// Fields that `other` leaves unset are ignored.  Semantically: "applying
   /// `other` as an override on top of `*this` would not change anything".
-  [[nodiscard]] bool covers(const ModelOptions& other) const noexcept
+  [[nodiscard]] bool covers(const ModelOptions& other) const
   {
     const auto covers_opt = [](const auto& self, const auto& override_val)
     { return !override_val.has_value() || self == override_val; };

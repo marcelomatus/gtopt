@@ -753,6 +753,7 @@ TEST_CASE(
     "Runtime island fix - multi-stage with island at one stage")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // 4 buses: b1-l1-b2-l2-b3-l3-b4
   // l2 inactive at stage 2 only, splitting into {b1,b2} and {b3,b4}
@@ -905,3 +906,5 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
+
+// NOLINTEND(misc-const-correctness)

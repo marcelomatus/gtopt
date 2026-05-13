@@ -405,6 +405,7 @@ TEST_CASE("SolveMode enum_entries - all entries present")  // NOLINT
 TEST_CASE("SolveMode enum_from_name round-trip")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-optional-value-conversion)
 
   const auto mono = enum_from_name<SolveMode>("monolithic");
   CHECK(mono == SolveMode::monolithic);
@@ -412,3 +413,5 @@ TEST_CASE("SolveMode enum_from_name round-trip")  // NOLINT
   const auto seq = enum_from_name<SolveMode>("sequential");
   CHECK(seq == SolveMode::sequential);
 }
+
+// NOLINTEND(bugprone-optional-value-conversion)

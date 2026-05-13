@@ -2750,6 +2750,8 @@ TEST_CASE(  // NOLINT
     "CommitmentLP — MIP u/v/w binary values for startup profile")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access,
+  // misc-const-correctness)
 
   SolverRegistry& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -2926,3 +2928,6 @@ TEST_CASE(  // NOLINT
   CHECK(sol[*v2] == doctest::Approx(0.0).epsilon(1e-4));
   CHECK(sol[*w2] == doctest::Approx(0.0).epsilon(1e-4));
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
+// misc-const-correctness)

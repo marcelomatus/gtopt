@@ -20,6 +20,7 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
 
 namespace
 {
@@ -354,3 +355,5 @@ TEST_CASE("cycle_basis - radial network (no cycles) still solves")
   const auto obj_cb = solve("cycle_basis");
   CHECK(obj_cb == doctest::Approx(obj_na).epsilon(1e-6));
 }
+
+// NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)

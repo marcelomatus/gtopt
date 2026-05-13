@@ -108,6 +108,7 @@ TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
 TEST_CASE("MonolithicOptions - Merge nested solver_options")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   SUBCASE("both set: inner merge")
   {
@@ -156,3 +157,5 @@ TEST_CASE("MonolithicOptions - Merge nested solver_options")
     CHECK(base.solver_options->algorithm == LPAlgo::dual);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

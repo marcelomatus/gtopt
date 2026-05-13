@@ -25,6 +25,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── Free-function unit tests ───────────────────────────────────────────────
 
@@ -1172,3 +1173,5 @@ TEST_CASE("BendersCut - set_pool updates pool reference")  // NOLINT
   bc.set_pool(nullptr);
   CHECK(bc.pool() == nullptr);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

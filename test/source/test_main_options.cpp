@@ -19,6 +19,7 @@
 #include <gtopt/solver_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access)
 
 // ---- Helper to parse command-line args into a variables_map ----
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -932,3 +933,5 @@ TEST_CASE("parse_memory_size - unknown suffix throws cli::parse_error")
   CHECK_THROWS_AS([[maybe_unused]] auto v = parse_memory_size("100kb"),
                   cli::parse_error);
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)

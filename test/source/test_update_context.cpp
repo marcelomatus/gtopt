@@ -43,7 +43,7 @@
 #include "fixture_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(bugprone-argument-comment)
+// NOLINTBEGIN(bugprone-argument-comment, google-global-names-in-headers)
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
@@ -965,6 +965,6 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(222.0));
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment, google-global-names-in-headers)
 
 // NOLINTEND(bugprone-argument-comment)

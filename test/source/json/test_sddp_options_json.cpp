@@ -11,6 +11,7 @@
 #include <gtopt/json/json_sddp_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SddpOptions JSON - Full deserialization")
 {
@@ -278,3 +279,5 @@ TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
     CHECK(rt.cut_coeff_eps.value_or(0.0) == doctest::Approx(1e-8));
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

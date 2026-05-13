@@ -353,6 +353,7 @@ TEST_CASE(
     "converged")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_converged.json")
@@ -383,3 +384,5 @@ TEST_CASE(
 
   std::filesystem::remove(tmp_file);
 }
+
+// NOLINTEND(misc-const-correctness)

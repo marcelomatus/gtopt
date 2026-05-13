@@ -190,6 +190,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
 TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(google-global-names-in-headers)
 
   const TmpDir tmp("test_aperture_cache_multi_elem");
 
@@ -280,3 +281,5 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(google-global-names-in-headers)

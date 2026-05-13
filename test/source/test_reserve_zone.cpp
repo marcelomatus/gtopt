@@ -13,6 +13,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("ReserveZone construction and default values")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
   const ReserveZone reserve_zone;
 
   // Check default values
@@ -1614,3 +1615,5 @@ TEST_CASE(
   // Clean up
   std::filesystem::remove_all(tmpdir);
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -12,6 +12,7 @@
 #include <gtopt/json/json_cascade_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── CascadeTransition JSON ──────────────────────────────────────────────────
 
@@ -255,3 +256,5 @@ TEST_CASE("CascadeOptions JSON - Round-trip serialization")
   REQUIRE(rt.level_array.size() == 1);
   CHECK(*rt.level_array[0].name == "level1");
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

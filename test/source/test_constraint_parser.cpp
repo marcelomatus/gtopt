@@ -2338,9 +2338,12 @@ TEST_SUITE("ConstraintParser")
   TEST_CASE("Phase 1e: state without parens is rejected")
   {
     using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
     CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
                         R"(state reservoir("R1").efin <= 0)")),
                     std::invalid_argument);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

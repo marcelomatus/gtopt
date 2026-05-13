@@ -909,6 +909,7 @@ TEST_CASE("LineLP - loss allocation modes affect LMPs but all solve")  // NOLINT
   // This test verifies all three solve successfully and produce
   // physically reasonable objectives (within a tight range).
   using namespace gtopt;
+  // NOLINTBEGIN(misc-const-correctness)
 
   auto make_planning = [](const char* mode_str) -> Planning
   {
@@ -1029,3 +1030,5 @@ TEST_CASE("LineLP - loss allocation modes affect LMPs but all solve")  // NOLINT
   CHECK(obj_send == doctest::Approx(mid).epsilon(0.02));
   CHECK(obj_split == doctest::Approx(mid).epsilon(0.02));
 }
+
+// NOLINTEND(misc-const-correctness)

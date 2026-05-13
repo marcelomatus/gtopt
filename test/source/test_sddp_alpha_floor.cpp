@@ -46,6 +46,8 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access,
+// readability-make-member-function-const)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -437,3 +439,6 @@ TEST_CASE("bound_alpha at last phase routes through apply_terminal_alpha_floor")
   auto& li = fix.plp->system(fix.scene, fix.last_phase).linear_interface();
   CHECK(li.get_col_upp_raw()[fix.alpha_col] > kFloorTestEffectivelyPlusInf);
 }
+
+// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
+// readability-make-member-function-const)

@@ -18,6 +18,7 @@
 #include <gtopt/linear_problem.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-misplaced-widening-cast)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -500,3 +501,5 @@ TEST_CASE("flatten col_scales vector matches SparseCol.scale")  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-misplaced-widening-cast)

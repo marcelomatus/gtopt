@@ -19,6 +19,8 @@
 #include "fixture_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access,
+// google-global-names-in-headers)
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -2717,3 +2719,5 @@ inline auto make_2scene_backtracking_recovery_two_reservoir_planning(
 
   return planning;
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, google-global-names-in-headers)

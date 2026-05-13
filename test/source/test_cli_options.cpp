@@ -19,6 +19,7 @@
 #include <gtopt/cli_options.hpp>
 
 using namespace gtopt::cli;  // NOLINT(google-build-using-namespace)
+// NOLINTBEGIN(google-global-names-in-headers)
 
 // ---- variables_map tests ----
 
@@ -533,3 +534,5 @@ TEST_CASE("cli typed_value - implicit_value sets flag and value")
   CHECK(tv.has_implicit);
   CHECK(tv.implicit_val == 42);
 }
+
+// NOLINTEND(google-global-names-in-headers)

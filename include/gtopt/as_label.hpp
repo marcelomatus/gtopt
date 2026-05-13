@@ -56,6 +56,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+// NOLINTBEGIN(readability-trailing-comma)
 
 namespace gtopt
 {
@@ -329,6 +330,7 @@ public:
     // Shortest round-trip for a double needs at most 24 chars
     // (-1.7976931348623157e+308), plus 2 for potential ".0" suffix.
     std::array<char, 26> buf {};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
     const std::string_view sv(buf.data(), ptr);
     // Ensure a decimal point so the value reads as floating-point.
@@ -1043,3 +1045,5 @@ template<detail::string_like T>
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(readability-trailing-comma)

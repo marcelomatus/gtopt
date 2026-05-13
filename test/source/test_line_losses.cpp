@@ -14,6 +14,8 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness,
+// readability-trailing-comma)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -1789,3 +1791,6 @@ TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness,
+// readability-trailing-comma)

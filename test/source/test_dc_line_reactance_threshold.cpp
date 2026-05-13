@@ -28,6 +28,7 @@
 #include <gtopt/planning_options_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -257,3 +258,5 @@ TEST_CASE("validate_line_reactance leaves zero or unset reactance alone")
   CHECK(reactance_scalar(planning.system.line_array[0]) == 0.0);
   CHECK_FALSE(planning.system.line_array[1].reactance.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

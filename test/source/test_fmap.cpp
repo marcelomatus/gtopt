@@ -415,6 +415,7 @@ TEST_CASE(  // NOLINT
     "flat_map - map_insert_sorted_unique large sorted range is searchable")
 {
   using namespace gtopt;
+  // NOLINTBEGIN(readability-math-missing-parentheses)
   flat_map<int, int> map;
 
   constexpr int kN = 1000;
@@ -471,3 +472,5 @@ TEST_CASE("map_reserve — std::map is a no-op")  // NOLINT
   CHECK(m.at(1) == 10);
   CHECK(m.at(2) == 20);
 }
+
+// NOLINTEND(readability-math-missing-parentheses)

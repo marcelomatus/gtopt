@@ -597,6 +597,7 @@ TEST_CASE("zstd_lp_file_inline compresses and removes source")  // NOLINT
 TEST_CASE("lp_debug_passes_includes — pass-list selector")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   SUBCASE("empty string → legacy default forward+aperture, NOT backward")
   {
@@ -647,3 +648,5 @@ TEST_CASE("lp_debug_passes_includes — pass-list selector")  // NOLINT
     CHECK(lp_debug_passes_includes("APERTURE", LpDebugPass::aperture));
   }
 }
+
+// NOLINTEND(misc-const-correctness)

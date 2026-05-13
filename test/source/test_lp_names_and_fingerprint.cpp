@@ -299,6 +299,8 @@ TEST_CASE("WorkPool statistics include memory fields")  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   using namespace std::chrono_literals;
+  // NOLINTBEGIN(bugprone-argument-comment,
+  // cppcoreguidelines-pro-bounds-constant-array-index, misc-const-correctness)
 
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
@@ -911,3 +913,6 @@ TEST_CASE("LpNamesLevel ordering")  // NOLINT
 }
 
 }  // namespace
+
+// NOLINTEND(bugprone-argument-comment,
+// cppcoreguidelines-pro-bounds-constant-array-index, misc-const-correctness)

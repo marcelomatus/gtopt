@@ -510,6 +510,7 @@ TEST_CASE(
     "BatteryLP — capainst primal col_sol binds at capmin lower bound")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP where the battery's own installed-capacity column
   // (`capainst`, owned by BatteryLP via CapacityObjectBase through
@@ -650,3 +651,5 @@ TEST_CASE(
   const auto cap_val = lp.get_col_sol()[*cap_col];
   CHECK(cap_val == doctest::Approx(20.0).epsilon(1e-6));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

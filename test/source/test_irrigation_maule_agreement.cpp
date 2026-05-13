@@ -34,6 +34,7 @@
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment, readability-math-missing-parentheses)
 
 namespace
 {
@@ -582,3 +583,5 @@ TEST_CASE(  // NOLINT
     CHECK(0.7 * a_cap - 0.3 * b_cap <= 1e-6);
   }
 }
+
+// NOLINTEND(bugprone-argument-comment, readability-math-missing-parentheses)

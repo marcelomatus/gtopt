@@ -1836,6 +1836,7 @@ TEST_CASE(
     "cols (regression test for emit_cols_to_backend bulk path)")
 {
   using namespace gtopt;  // NOLINT
+  // NOLINTBEGIN(misc-const-correctness, readability-trailing-comma)
 
   // Build a base LP with one structural column (x0, scale=1) and
   // one binding row.  Then add a dynamic column (α, scale=10) with
@@ -1897,3 +1898,5 @@ TEST_CASE(
   const double cost_after = li.get_obj_coeff()[alpha_col];
   CHECK(cost_after == doctest::Approx(cost_before));
 }
+
+// NOLINTEND(misc-const-correctness, readability-trailing-comma)
