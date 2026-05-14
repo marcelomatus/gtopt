@@ -57,10 +57,12 @@ If a future caller overrides ``--probability-factors`` to unequal values,
 this fix becomes approximate — flagged as a follow-up.
 """
 
-import csv
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+import pyarrow as pa
+import pyarrow.csv as pacsv
 
 logger = logging.getLogger(__name__)
 
@@ -128,9 +130,10 @@ def write_boundary_cuts_csv(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    header = ["iteration", "scene", "rhs"] + [
-        _apply_alias(r, name_alias) for r in reservoir_names
-    ]
+    # Aliased reservoir header names — also the keys we'll use to build
+    # the Arrow columns below.  Coefficient lookup still uses the
+    # original PLP names (per the ``name_alias`` docstring contract).
+    aliased_names = [_apply_alias(r, name_alias) for r in reservoir_names]
 
     scale = _scale_factor(num_scenarios)
 
@@ -151,20 +154,43 @@ def write_boundary_cuts_csv(
             return 1.0
         return 10.0 ** (f - 6)
 
-    with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(header)
+    # Build column-major Python lists once, then hand them to PyArrow.
+    # This mirrors the typed Arrow schema the gtopt-side loader expects
+    # (``arrow::csv::TableReader`` with explicit int32 / float64 column
+    # types), so the round-trip stays bit-exact through float64 storage
+    # without the ``f"{:.10g}"`` text-formatting dance.
+    iterations: List[int] = []
+    scenes: List[int] = []
+    rhs_values: List[float] = []
+    state_columns: Dict[str, List[float]] = {a: [] for a in aliased_names}
 
-        for cut in cuts:
-            row = [
-                cut.get("iteration", 0),
-                cut["scene"],
-                f"{cut['rhs'] * scale:.10g}",
-            ]
-            coeffs = cut.get("coefficients", {})
-            for rname in reservoir_names:
-                row.append(f"{coeffs.get(rname, 0.0) * scale * _vol_scale(rname):.10g}")
-            writer.writerow(row)
+    for cut in cuts:
+        iterations.append(int(cut.get("iteration", 0)))
+        scenes.append(int(cut["scene"]))
+        rhs_values.append(float(cut["rhs"]) * scale)
+        coeffs = cut.get("coefficients", {})
+        for rname, aliased in zip(reservoir_names, aliased_names):
+            state_columns[aliased].append(
+                float(coeffs.get(rname, 0.0)) * scale * _vol_scale(rname)
+            )
+
+    fields = [
+        pa.field("iteration", pa.int32()),
+        pa.field("scene", pa.int32()),
+        pa.field("rhs", pa.float64()),
+    ] + [pa.field(name, pa.float64()) for name in aliased_names]
+    columns: List[pa.Array] = [
+        pa.array(iterations, type=pa.int32()),
+        pa.array(scenes, type=pa.int32()),
+        pa.array(rhs_values, type=pa.float64()),
+    ] + [pa.array(state_columns[name], type=pa.float64()) for name in aliased_names]
+    table = pa.Table.from_arrays(columns, schema=pa.schema(fields))
+
+    # ``include_header=True`` (the default) writes a header row keyed by
+    # the Arrow schema's field names — matches what the gtopt-side
+    # reader expects to detect ``has_iteration_col`` and to resolve
+    # state-variable column names.
+    pacsv.write_csv(table, str(output_path))
 
     logger.debug(
         "Wrote %d boundary cuts to %s (%d state variables, scale=1/%s)",

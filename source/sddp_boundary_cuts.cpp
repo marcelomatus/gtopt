@@ -10,10 +10,12 @@
 
 #include <algorithm>
 #include <format>
-#include <fstream>
 #include <set>
-#include <sstream>
 
+#include <arrow/api.h>
+#include <arrow/compute/api.h>
+#include <arrow/csv/api.h>
+#include <arrow/io/api.h>
 #include <gtopt/as_label.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/lp_context.hpp>
@@ -54,35 +56,77 @@ using namespace gtopt::detail;
   const bool separated = (mode == BoundaryCutsMode::separated);
 
   try {
-    std::ifstream ifs(filepath);
-    if (!ifs.is_open()) {
+    // ── Read the CSV with the Arrow CSV reader ───────────────────
+    // Arrow's CSV reader handles CRLF / whitespace / quoting / type
+    // coercion uniformly and gives us a typed in-memory Table that
+    // downstream code can iterate column-major.  We pin explicit
+    // types for the structured columns (iteration / scene as int32;
+    // rhs and every state-variable column as float64) so a malformed
+    // row surfaces as an Arrow conversion error here instead of
+    // silently feeding ``std::stoi`` / ``std::stod`` a bad token
+    // further down the pipeline.
+    //
+    // The state-variable columns are unknown at read-configure time
+    // (they vary per case); we leave their types unset in
+    // ``column_types`` and rely on Arrow's automatic int/float
+    // inference plus a single explicit cast to float64 below.
+    auto maybe_infile = arrow::io::ReadableFile::Open(filepath);
+    if (!maybe_infile.ok()) {
       return std::unexpected(Error {
           .code = ErrorCode::FileIOError,
-          .message = std::format(
-              "Cannot open boundary cuts file for reading: {}", filepath),
+          .message = std::format("Cannot open boundary cuts file for "
+                                 "reading: {} ({})",
+                                 filepath,
+                                 maybe_infile.status().ToString()),
       });
     }
 
-    // ── Parse header ────────────────────────────────────────────
-    // Expected: iteration,scene,rhs,StateVar1,StateVar2,...
-    // (Legacy format without iteration column is auto-detected.)
-    // The legacy leading ``name`` column was retired in 2026-05;
-    // PLP never produced it, so plp2gtopt no longer emits it and the
-    // loader no longer reads it.  Cut identity is the structured
-    // :class:`CutKey` 5-tuple — for log messages we format from the
-    // ``CutKey`` fields directly via spdlog instead of carrying a
-    // pre-baked name string.
-    std::string header_line;
-    std::getline(ifs, header_line);
-    strip_cr(header_line);
+    auto read_options = arrow::csv::ReadOptions::Defaults();
+    auto parse_options = arrow::csv::ParseOptions::Defaults();
+    auto convert_options = arrow::csv::ConvertOptions::Defaults();
+    convert_options.column_types["iteration"] = arrow::int32();
+    convert_options.column_types["scene"] = arrow::int32();
+    convert_options.column_types["rhs"] = arrow::float64();
+    // Permit a missing ``iteration`` column (legacy file without
+    // iteration tracking — see ``has_iteration_col`` below).  Arrow
+    // would otherwise raise on the unconsumed entry in column_types.
+    convert_options.include_missing_columns = false;
 
+    auto maybe_reader =
+        arrow::csv::TableReader::Make(arrow::io::default_io_context(),
+                                      *maybe_infile,
+                                      read_options,
+                                      parse_options,
+                                      convert_options);
+    if (!maybe_reader.ok()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format("Cannot create CSV reader for boundary cuts "
+                                 "{}: {}",
+                                 filepath,
+                                 maybe_reader.status().ToString()),
+      });
+    }
+    auto maybe_table = (*maybe_reader)->Read();
+    if (!maybe_table.ok()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::FileIOError,
+          .message = std::format("Error parsing boundary cuts CSV {}: {}",
+                                 filepath,
+                                 maybe_table.status().ToString()),
+      });
+    }
+    const auto table = *maybe_table;
+    const auto schema = table->schema();
+
+    // Extract header names from the Arrow schema, preserving file
+    // order.  These drive both the layout-detection branch
+    // (``has_iteration_col``) and the per-column state-variable
+    // lookup below.
     std::vector<std::string> headers;
-    {
-      std::istringstream hss(header_line);
-      std::string token;
-      while (std::getline(hss, token, ',')) {
-        headers.push_back(token);
-      }
+    headers.reserve(static_cast<std::size_t>(schema->num_fields()));
+    for (int i = 0; i < schema->num_fields(); ++i) {
+      headers.push_back(schema->field(i)->name());
     }
 
     // Detect whether the CSV has the `iteration` column.
@@ -213,56 +257,152 @@ using namespace gtopt::detail;
     // Track which missing state variables have already been warned about.
     std::set<std::size_t> warned_missing_cols;
 
-    // ── Pre-scan: collect all rows for max_iterations filtering ──
-    // No ``name`` field on RawBoundaryCut — cut identity is the
-    // structured ``(iteration_index, scene_uid, phase)`` tuple, and
-    // diagnostic log messages format from those fields directly via
-    // spdlog instead of carrying a pre-baked string.
+    // ── Pre-scan: pull typed columns from the Arrow Table ────────
+    // ``RawBoundaryCut`` no longer carries a ``name`` field (the CSV
+    // leading-name column was retired in 2026-05).  Coefficients live
+    // in ``coeffs`` indexed by (cut, state_col) — chunked-array
+    // friendly so an Arrow Table with multiple record batches still
+    // works without forcing a single big copy.
     struct RawBoundaryCut
     {
       IterationIndex iteration_index {};
       SceneUid scene_uid {};
-      double rhs;
-      std::string coeff_line;
+      double rhs {};
+      // Coefficients in the same order as ``header_col_map`` /
+      // ``header_names`` (i.e. file order of the trailing state-var
+      // columns).  Missing / null cells appear as NaN to mark
+      // "absent" for the downstream missing-cut-var handling.
+      std::vector<double> coeffs;
     };
 
-    std::vector<RawBoundaryCut> raw_cuts;
-    std::string line;
-    while (std::getline(ifs, line)) {
-      strip_cr(line);
-      if (line.empty()) {
-        continue;
-      }
-
-      std::istringstream iss(line);
-      std::string token;
-
-      IterationIndex iteration_index {};
-      if (has_iteration_col) {
-        // Column 0: iteration
-        std::getline(iss, token, ',');
-        iteration_index = IterationIndex {std::stoi(token)};
-      }
-
-      // Next column: scene UID
-      std::getline(iss, token, ',');
-      const SceneUid scene_uid = make_uid<Scene>(std::stoi(token));
-
-      // Next column: rhs
-      std::getline(iss, token, ',');
-      const auto rhs = std::stod(token);
-
-      // The rest contains the coefficient values
-      std::string remainder;
-      std::getline(iss, remainder);
-
-      raw_cuts.push_back(RawBoundaryCut {
-          .iteration_index = iteration_index,
-          .scene_uid = scene_uid,
-          .rhs = rhs,
-          .coeff_line = std::move(remainder),
+    auto iteration_col =
+        has_iteration_col ? table->GetColumnByName("iteration") : nullptr;
+    auto scene_col = table->GetColumnByName("scene");
+    auto rhs_col = table->GetColumnByName("rhs");
+    if (!scene_col || !rhs_col || (has_iteration_col && !iteration_col)) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message =
+              std::format("Boundary cuts CSV {}: missing required column "
+                          "(iteration/scene/rhs)",
+                          filepath),
       });
     }
+
+    // Resolve the per-state-variable ChunkedArray pointers once; they
+    // mirror ``header_col_map`` 1-to-1 (one entry per trailing state
+    // header), including ``nullptr`` for headers Arrow somehow failed
+    // to surface (defensive — should not happen with valid CSV).
+    std::vector<std::shared_ptr<arrow::ChunkedArray>> state_cols;
+    state_cols.reserve(static_cast<std::size_t>(num_state_cols));
+    for (std::size_t hi = static_cast<std::size_t>(state_var_start);
+         hi < headers.size();
+         ++hi)
+    {
+      auto col = table->GetColumnByName(headers[hi]);
+      if (!col) {
+        return std::unexpected(Error {
+            .code = ErrorCode::InvalidInput,
+            .message = std::format("Boundary cuts CSV {}: missing column "
+                                   "'{}' on the Arrow Table",
+                                   filepath,
+                                   headers[hi]),
+        });
+      }
+      state_cols.push_back(std::move(col));
+    }
+
+    // State-variable columns may be int32 or float64 depending on
+    // input data; cast each to float64 with the Compute kernel so the
+    // downstream extraction is uniform.
+    auto cast_to_f64 = [](std::shared_ptr<arrow::ChunkedArray> col)
+        -> arrow::Result<std::shared_ptr<arrow::ChunkedArray>>
+    {
+      if (col->type()->id() == arrow::Type::DOUBLE) {
+        return col;
+      }
+      arrow::compute::CastOptions opts;
+      opts.to_type = arrow::float64();
+      ARROW_ASSIGN_OR_RAISE(auto result, arrow::compute::Cast(col, opts));
+      return result.chunked_array();
+    };
+    for (auto& col : state_cols) {
+      auto cast_result = cast_to_f64(col);
+      if (!cast_result.ok()) {
+        return std::unexpected(Error {
+            .code = ErrorCode::InvalidInput,
+            .message = std::format("Boundary cuts CSV {}: cannot cast a state "
+                                   "column to float64: {}",
+                                   filepath,
+                                   cast_result.status().ToString()),
+        });
+      }
+      col = std::move(*cast_result);
+    }
+
+    const auto nrows = table->num_rows();
+    std::vector<RawBoundaryCut> raw_cuts;
+    raw_cuts.reserve(static_cast<std::size_t>(nrows));
+
+    // Arrow ChunkedArrays may be split into multiple chunks (for
+    // large files); chunk-walk every column in lockstep to recover
+    // the per-row tuple without forcing a Table → contiguous copy.
+    int64_t row_global = 0;
+    const int n_chunks = scene_col->num_chunks();
+    for (int chunk_i = 0; chunk_i < n_chunks; ++chunk_i) {
+      const auto scene_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+          scene_col->chunk(chunk_i));
+      const auto rhs_arr = std::dynamic_pointer_cast<arrow::DoubleArray>(
+          rhs_col->chunk(chunk_i));
+      std::shared_ptr<arrow::Int32Array> iter_arr;
+      if (iteration_col) {
+        iter_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+            iteration_col->chunk(chunk_i));
+      }
+      if (!scene_arr || !rhs_arr || (iteration_col && !iter_arr)) {
+        return std::unexpected(Error {
+            .code = ErrorCode::InvalidInput,
+            .message = std::format("Boundary cuts CSV {}: unexpected "
+                                   "column types — schema mismatch",
+                                   filepath),
+        });
+      }
+
+      const auto chunk_rows = scene_arr->length();
+      for (int64_t i = 0; i < chunk_rows; ++i) {
+        IterationIndex iteration_index {};
+        if (iter_arr && iter_arr->IsValid(i)) {
+          iteration_index = IterationIndex {iter_arr->Value(i)};
+        }
+        const SceneUid scene_uid = make_uid<Scene>(scene_arr->Value(i));
+        const double rhs = rhs_arr->Value(i);
+
+        // Pull per-state-column value; null becomes NaN so the
+        // downstream "non-zero coefficient on missing column" check
+        // treats it as zero (no warning, no skip) which mirrors the
+        // legacy "empty token" behaviour.
+        std::vector<double> coeffs;
+        coeffs.reserve(state_cols.size());
+        for (const auto& col : state_cols) {
+          const auto chunk_arr = std::dynamic_pointer_cast<arrow::DoubleArray>(
+              col->chunk(chunk_i));
+          if (chunk_arr && chunk_arr->IsValid(i)) {
+            coeffs.push_back(chunk_arr->Value(i));
+          } else {
+            coeffs.push_back(0.0);
+          }
+        }
+
+        raw_cuts.push_back(RawBoundaryCut {
+            .iteration_index = iteration_index,
+            .scene_uid = scene_uid,
+            .rhs = rhs,
+            .coeffs = std::move(coeffs),
+        });
+        ++row_global;
+      }
+    }
+    (void)row_global;
 
     // ── Filter by max_iterations ────────────────────────────────
     const auto max_iters = options.boundary_max_iterations;
@@ -337,18 +477,14 @@ using namespace gtopt::detail;
         static_cast<size_t>(num_scenes));
     for (const auto& rc : raw_cuts) {
       // Pre-scan: check for missing state variables with non-zero
-      // coefficients.
+      // coefficients.  Reads from the pre-decoded ``rc.coeffs`` vector
+      // built from the Arrow Table — no more on-the-fly tokenisation.
       bool has_missing = false;
       {
-        std::istringstream scan_ss(rc.coeff_line);
-        std::string tok;
-        for (std::size_t ci = 0; ci < header_col_map.size(); ++ci) {
-          if (!std::getline(scan_ss, tok, ',')) {
-            break;
-          }
-          if (!header_col_map[ci].has_value() && !tok.empty()
-              && std::stod(tok) != 0.0)
-          {
+        const auto ncoeffs = std::min(header_col_map.size(), rc.coeffs.size());
+        for (std::size_t ci = 0; ci < ncoeffs; ++ci) {
+          const double v = rc.coeffs[ci];
+          if (!header_col_map[ci].has_value() && v != 0.0) {
             has_missing = true;
             if (!warned_missing_cols.contains(ci)) {
               warned_missing_cols.insert(ci);
@@ -357,7 +493,7 @@ using namespace gtopt::detail;
                   "found in the current model; non-zero "
                   "coefficient {} (mode={})",
                   header_names[ci],
-                  tok,
+                  v,
                   enum_name(missing_mode));
             }
           }
@@ -447,16 +583,13 @@ using namespace gtopt::detail;
         // exactly once.  See P0-1 fix in commit eb7bc1f0.)
         row[alpha_svar->col()] = 1.0;
 
-        std::istringstream coeff_ss(rc.coeff_line);
-        std::string token;
-        for (const auto& col_opt : header_col_map) {
-          if (!std::getline(coeff_ss, token, ',')) {
-            break;
-          }
+        const auto ncoeffs = std::min(header_col_map.size(), rc.coeffs.size());
+        for (std::size_t ci = 0; ci < ncoeffs; ++ci) {
+          const auto& col_opt = header_col_map[ci];
           if (!col_opt.has_value()) {
             continue;  // skip_coeff: drop missing coefficient
           }
-          const auto coeff = std::stod(token);
+          const auto coeff = rc.coeffs[ci];
           if (coeff != 0.0) {
             // State-variable physical coefficient in $/(physical-unit).
             // `compose_physical` applies the column scale itself.
