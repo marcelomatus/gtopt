@@ -235,8 +235,11 @@ template<typename T>
        "print LP coefficient statistics and system stats before/after solving")
       //
       ("trace-log,T",
-       po::value<std::string>(),
-       "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
+       po::value<std::string>().implicit_value(""),
+       "write SPDLOG_TRACE messages to this file (enables trace-level "
+       "logging).  Pass `-T PATH` for an explicit path, or just `-T` to "
+       "auto-name `<log_dir>/trace_<N>.log` matching the gtopt_<N>.log "
+       "from the same run.  Without `-T` no trace file is written.")
       //
       ("lp-dump-backward",
        po::value<std::string>(),

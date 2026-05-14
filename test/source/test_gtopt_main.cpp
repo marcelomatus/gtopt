@@ -1071,35 +1071,66 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "gtopt_main - auto trace log without explicit trace_log path")
+    "gtopt_main - trace log gated on --trace-log opt-in")
 {
-  // When trace_log is NOT set, gtopt_main auto-creates a numbered
-  // trace_N.log in the log directory (lines 365-390).
-  const auto stem = write_tmp_json("gtopt_main_auto_trace", minimal_json);
-  const auto log_dir =
-      std::filesystem::temp_directory_path() / "gtopt_main_auto_trace_logs";
-  std::filesystem::remove_all(log_dir);
+  // Pin the post-2026-05-14 contract: with no `trace_log` set, gtopt_main
+  // does NOT auto-create a `trace_N.log`.  The user must opt in via
+  // `-T` / `--trace-log` (an empty string triggers the auto-numbered
+  // `<log_dir>/trace_<N>.log` path; a non-empty string is taken
+  // verbatim).  Default behavior keeps the global spdlog level at INFO,
+  // avoiding the previous always-on trace overhead on every run.
+  const auto stem = write_tmp_json("gtopt_main_trace_gating", minimal_json);
 
-  auto result = gtopt_main(MainOptions {
-      .planning_files = {stem.string()},
-      .lp_only = true,
-      .log_directory = log_dir.string(),
-  });
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
-
-  // Should have created trace_1.log in the log directory
-  bool found_trace = false;
-  if (std::filesystem::exists(log_dir)) {
-    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
-      if (entry.path().filename().string().starts_with("trace_")) {
-        found_trace = true;
-        break;
+  // ── Subcase 1: no trace_log → no trace file ──────────────────────
+  {
+    const auto log_dir =
+        std::filesystem::temp_directory_path() / "gtopt_main_trace_gated_off";
+    std::filesystem::remove_all(log_dir);
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_only = true,
+        .log_directory = log_dir.string(),
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    bool found_trace = false;
+    if (std::filesystem::exists(log_dir)) {
+      for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+        if (entry.path().filename().string().starts_with("trace_")) {
+          found_trace = true;
+          break;
+        }
       }
     }
+    CHECK_FALSE(found_trace);
+    std::filesystem::remove_all(log_dir);
   }
-  CHECK(found_trace);
-  std::filesystem::remove_all(log_dir);
+
+  // ── Subcase 2: trace_log = "" → auto-numbered trace_<N>.log ──────
+  {
+    const auto log_dir =
+        std::filesystem::temp_directory_path() / "gtopt_main_trace_gated_auto";
+    std::filesystem::remove_all(log_dir);
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_only = true,
+        .trace_log = std::string {""},  // ← empty = auto-name
+        .log_directory = log_dir.string(),
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    bool found_trace = false;
+    if (std::filesystem::exists(log_dir)) {
+      for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+        if (entry.path().filename().string().starts_with("trace_")) {
+          found_trace = true;
+          break;
+        }
+      }
+    }
+    CHECK(found_trace);
+    std::filesystem::remove_all(log_dir);
+  }
 }
 
 TEST_CASE(  // NOLINT
