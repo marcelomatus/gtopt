@@ -513,30 +513,9 @@ class GTOptWriter(
         }
 
         # ── Per-level SDDP options (see docstring §§2, 3) ──────────────
-        # ``stationary_gap_ceiling`` mirrors ``stationary_tol`` per
-        # level (8 % / 6 % / 4 % / 2 %).  Combined with the C++ OR
-        # semantics on the stationary-convergence check, EITHER
-        # ``Δgap < tol`` OR ``|gap| < tol`` is enough to declare
-        # convergence — so a level can early-exit on whichever signal
-        # lands first.  Examples:
-        #   * warmup with 1 aperture: |gap| is structurally pinned at
-        #     ~37 %, but Δgap plateaus near 0 → exits on Δgap.
-        #   * uninodal iter where the gap collapses from +22 % to
-        #     +0.5 % in one step (still moving fast, Δgap huge) →
-        #     exits on |gap| < 6 % even though Δgap signal failed.
-        # ``min_iterations`` per level: gtopt's default is 1 (just
-        # enough to let the convergence check fire on a qualifying
-        # first iter).  Only L0 ``warmup`` overrides this with 3,
-        # because its single-aperture face-value bound is structurally
-        # noisy and the bootstrap iter can fluke its way into the
-        # ceiling on a single sample.  L1+ inherit a converged
-        # envelope and may legitimately exit on their first qualifying
-        # iter — leaving the default at 3 used to force uninodal to
-        # grind two redundant iters past the first time |gap| dropped
-        # inside the ceiling (observed on juan/IPLP, 2026-05-14).
-        # Convergence settings per level — after the 2026-05 stationary-
-        # check rewrite, the two knobs measure different things and the
-        # stop condition is AND, not OR:
+        # Convergence settings per level — after the 2026-05 rewrite
+        # the two knobs measure different things and the stop
+        # condition is AND, not OR:
         #
         #   * ``stationary_tol``         = ΔUB / UB threshold (policy
         #                                  stability — the realised cost
@@ -545,20 +524,29 @@ class GTOptWriter(
         #                                  iter; ``UB`` is the unbiased
         #                                  Monte-Carlo estimate of the
         #                                  policy cost).
-        #   * ``stationary_gap_ceiling`` = signed (UB-LB)/|UB| threshold
-        #                                  (bound quality — we accept
-        #                                  convergence when the gap is
-        #                                  below this, including any
-        #                                  *negative* gap from multi-cut
-        #                                  overshoot, which is bounded
-        #                                  for free by ``ir.gap <
-        #                                  ceiling``).
+        #   * ``stationary_gap_ceiling`` = symmetric ``|gap|`` threshold
+        #                                  on the signed
+        #                                  ``(UB-LB)/|UB|`` gap (bound
+        #                                  quality — accepts mild
+        #                                  multi-cut / aperture
+        #                                  overshoot, rejects wild
+        #                                  overshoot beyond the ceiling
+        #                                  as a pathology signal).
         #
         # Tightening ``stationary_tol`` deeper into the cascade (5 → 2
         # %) increases policy-stability demand as fidelity rises;
         # leaving ``stationary_gap_ceiling = 0.5`` flat accepts up to
-        # 50 % multi-cut overshoot at every level, so the limit on
-        # convergence comes from policy stability, not bound width.
+        # ±50 % overshoot at every level, so the limit on convergence
+        # comes from policy stability, not bound width.
+        #
+        # ``min_iterations`` per level: gtopt's default is 1 (just
+        # enough to let the convergence check fire on a qualifying
+        # first iter).  Only L0 ``warmup`` overrides this with 3,
+        # because its single-aperture face-value bound is structurally
+        # noisy and the bootstrap iter can fluke its way into the
+        # ceiling on a single sample.  L1+ inherit a converged
+        # envelope and may legitimately exit on their first qualifying
+        # iter.
         l0_sddp_options: dict[str, Any] = {
             "max_iterations": l0_iter,
             "min_iterations": 3,

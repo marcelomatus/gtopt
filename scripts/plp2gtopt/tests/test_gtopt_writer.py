@@ -169,24 +169,31 @@ class TestGTOptWriterProcessMethods:
         assert "level_array" in cascade
         levels = cascade["level_array"]
         assert len(levels) == 4
-        # Stationary-gap ceiling == stationary_tol per level (combined
-        # with the C++ OR semantics: either Δgap or |gap| below the
-        # per-level target triggers convergence).
-        for lvl in levels:
+        # Post-2026-05: ``stationary_tol`` (ΔUB stationarity) and
+        # ``stationary_gap_ceiling`` (symmetric |gap| magnitude) are
+        # AND'd by the C++ stationary check and measure different
+        # things, so they NO LONGER mirror each other.  Pin the new
+        # invariant: ceiling is flat 50 % across every level (gap
+        # quality is bounded; the binding signal is policy
+        # stationarity), and ``stationary_tol`` tightens 5 / 4 / 3 /
+        # 2 % as fidelity rises.
+        expected_stationary_tol = [0.05, 0.04, 0.03, 0.02]
+        for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
-            assert so["stationary_gap_ceiling"] == so["stationary_tol"]
+            assert so["stationary_gap_ceiling"] == 0.5
+            assert so["stationary_tol"] == expected_tol
         # Level 0: warmup (single-bus, 1 head aperture → THE wettest hydrology).
         assert levels[0]["name"] == "warmup"
         assert levels[0]["model_options"]["use_single_bus"] is True
         assert levels[0]["sddp_options"]["num_apertures"] == 1
         assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
-        assert levels[0]["sddp_options"]["stationary_tol"] == 0.08  # 8 %
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.05  # 5 %
         # Level 1: uninodal (single-bus, 4 stride apertures).
         assert levels[1]["name"] == "uninodal"
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.06  # 6 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.04  # 4 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -194,7 +201,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.04  # 4 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.03  # 3 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
