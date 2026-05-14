@@ -1683,33 +1683,30 @@ void SDDPMethod::finalize_iteration_result(
         std::abs(ir.upper_bound - old_ub) / std::max(1e-10, std::abs(old_ub));
   }
 
-  // Primary convergence: the absolute gap (|UB-LB|/max(1,|UB|)) must
-  // drop below convergence_tol.  Earlier we also accepted gap_change
-  // (LB-drift stationary) as a secondary signal, but that masks
-  // pathological cases where the LB stays frozen (e.g. Juan/gtopt_iplp
-  // where α-bootstrap + loaded boundary cuts pin LB≈0 while UB floats
-  // freely) by declaring "[CONVERGED]" at 99%+ absolute gap.  The
-  // extended stationary-window / statistical convergence modes below
-  // still consult gap_change, but only after min_iterations.
+  // Convergence semantics (after 2026-05-14 rewrite):
   //
-  // Convergence requires `|gap| < tol`.  A small POSITIVE gap below
-  // tolerance is the textbook convergence condition.  A small
-  // NEGATIVE gap (e.g. `-1e-15`) when UB = LB exactly is harmless
-  // floating-point precision — accept it.  Only a NEGATIVE gap whose
-  // magnitude EXCEEDS the tolerance is an SDDP-theory violation (LB
-  // > UB, cuts overshooting the optimum) — those are rejected and
-  // logged as a warning.  Observed on juan/gtopt_iplp pre-fix: iter
-  // 1 produced gap=-6.59 with LB ≈ 1.16B vs UB ≈ 153M; iter 2 sim
-  // pass produced gap=-73.68 with LB ≈ 11.4B.  The run wrote
-  // `[CONVERGED]` but the LB was wildly off.  Post-fix: those large
-  // negative gaps log a warning and `ir.converged` stays false.
-  // FP-noise band sourced from a single named constant in
-  // <gtopt/sddp_types.hpp>.  Distinct from `convergence_tol`
-  // (the user-facing knob, may be a negative sentinel like
-  // `-1.0` to disable the primary gap test in favour of the
-  // stationary criterion — see `test_sddp_method.cpp:1357`).
+  //   The signed-gap (|UB-LB|/max(1,|UB|)) is **not** a convergence
+  //   trigger.  Under the multi-cut + aperture regime the LB
+  //   routinely overshoots the optimum and the signed gap zero-
+  //   crosses well before the policy has stabilised — declaring
+  //   converged at gap < 1 % then would either fire prematurely on
+  //   the descent or be unreachable once gap goes negative.
+  //
+  //   UB is the unbiased Monte-Carlo estimate of the realised policy
+  //   cost — the quantity we are optimising — so the convergence
+  //   signal is ΔUB stationarity: the relative change of UB over the
+  //   stationary look-back window drops below ``stationary_tol``.
+  //   That decision is taken downstream in ``evaluate_stationary_check``
+  //   /``StationaryCheck`` (sddp_iteration.cpp).
+  //
+  //   The negative-gap WARN below still fires on pathological |gap|
+  //   so post-mortem readers see the LB-overshoot in the trace, and
+  //   the ``|gap| < stationary_gap_ceiling`` (default 0.5) safety net
+  //   in ``evaluate_stationary_check`` refuses to declare converged
+  //   on a wild bound asymmetry.  Pre-2026-05-14 this site also set
+  //   ``ir.converged = (ir.gap < convergence_tol && past_min_iter)``;
+  //   that exit has been removed.
   const auto tol = m_options_.convergence_tol;
-  const bool gap_in_range = ir.gap < tol && ir.gap > -kSddpGapFpEpsilon;
 
   // WARN threshold is more lenient than the convergence-decision
   // threshold.  A negative gap of order 1e-3 to 1e-2 is typical
@@ -1745,10 +1742,11 @@ void SDDPMethod::finalize_iteration_result(
         ir.gap,
         neg_gap_warn_threshold);
   }
-  const bool past_min_iter =
-      (iteration_index
-       >= m_iteration_offset_ + IterationIndex {m_options_.min_iterations - 1});
-  ir.converged = gap_in_range && past_min_iter;
+  // ``ir.converged`` is intentionally left at its default ``false``
+  // here.  The sole convergence path is the stationary check applied
+  // downstream by the caller (``SDDPMethod::iterate()`` and
+  // ``solve_async()``) via ``evaluate_stationary_check`` —
+  // ``past_min_iter`` is recomputed inside that helper.
 
   publish_live_metrics_(LiveMetrics {
       .iteration = iteration_index,

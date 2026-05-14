@@ -144,22 +144,27 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
 /// stay in lockstep — the prior pair of inline checks was easy to
 /// drift apart when one site was tweaked but not the other.
 ///
-/// Semantics (all AND'd, after 2026-05 rewrite):
+/// Semantics (all AND'd, after 2026-05-14 rewrite — ΔUB-only):
 ///
 ///   1. ``past_min_iterations`` — caller's iter index has cleared the
 ///      ``SDDPOptions::min_iterations`` bootstrap floor.
-///   2. ``stationary_ok`` — relative ΔUB over the last
-///      ``stationary_window`` iters is below ``stationary_tol``
-///      (carried in ``SDDPIterationResult::gap_change`` — see field
-///      comment).  Also guarded against the ``1.0`` default sentinel
-///      so an uninitialised iter cannot trigger.  Always ``false``
-///      when ``convergence_mode == gap_only`` (the stationary path
-///      is intentionally inert there).
+///   2. ``stationary_ok`` — relative ΔUB lookback is below
+///      ``stationary_tol`` (carried in
+///      ``SDDPIterationResult::gap_change`` — see field comment).
+///      Guarded only against the ``1.0`` default sentinel so an
+///      uninitialised iter cannot trigger.  **No window-fill guard**:
+///      under the multi-cut overshoot regime UB stabilises long
+///      before LB does, and waiting for a full window just wastes
+///      wall time at expensive levels (juan/full_network ≈ 13 min
+///      per iter).  Always ``false`` when ``convergence_mode ==
+///      gap_only`` (the stationary path is intentionally inert there).
 ///   3. ``gap_ok`` — symmetric magnitude check
-///      ``|ir.gap| < stationary_gap_ceiling``.  Accepts mild
-///      multi-cut / aperture overshoot (gap < 0 with small
-///      magnitude); rejects large negative overshoot as a
-///      pathology signal.
+///      ``|ir.gap| < stationary_gap_ceiling``.  **Pure pathology
+///      safety net** (default ceiling 0.5 = 50 %): accepts arbitrary
+///      multi-cut overshoot and the natural zero-crossing of the
+///      signed gap; rejects only wild |gap| > 50 % that would
+///      indicate broken cuts or LB pinned to bootstrap.  Not a
+///      convergence criterion — ``stationary_ok`` is the signal.
 struct StationaryCheck
 {
   bool past_min_iterations {false};
@@ -177,7 +182,7 @@ struct StationaryCheck
     const SDDPIterationResult& ir,
     IterationIndex iteration_index,
     IterationIndex iteration_offset,
-    std::size_t results_count,
+    std::size_t /*results_count*/,
     const SDDPOptions& opts) noexcept -> StationaryCheck
 {
   StationaryCheck c;
@@ -188,10 +193,12 @@ struct StationaryCheck
   if (opts.convergence_mode != ConvergenceMode::gap_only
       && opts.stationary_tol > 0.0 && opts.stationary_window > 0)
   {
-    const auto window = static_cast<std::size_t>(opts.stationary_window);
+    // ΔUB stationarity fires as soon as the lookback Δ drops below
+    // tol.  The ``< 1.0`` sentinel guard still blocks the very first
+    // iter (when ``ir.gap_change`` keeps its default).  No
+    // ``results_count >= window`` guard — see StationaryCheck docs.
     c.stationary_ok =
-        (results_count >= window && ir.gap_change < opts.stationary_tol
-         && ir.gap_change < 1.0);  // 1.0 = default sentinel ("no lookback")
+        (ir.gap_change < opts.stationary_tol && ir.gap_change < 1.0);
   }
 
   c.gap_ok = std::abs(ir.gap) < opts.stationary_gap_ceiling;
@@ -447,25 +454,33 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // the final "Iter [iN]: done ..." log carries downstream.
       finalize_iteration_result(ir, iteration_index, results);
 
-      // ── Extended convergence criteria (governed by convergence_mode) ──
+      // ── Convergence (single decision site) ──
       //
-      // The primary gap test (gap < convergence_tol) is always active and
-      // has already been evaluated by finalize_iteration_result().
+      // After the 2026-05-14 rewrite the convergence decision lives in
+      // exactly one place: ``StationaryCheck::converged()`` returned by
+      // ``evaluate_stationary_check`` (anonymous namespace, top of this
+      // TU).  ``finalize_iteration_result`` no longer sets
+      // ``ir.converged`` — it only computes ``ir.gap`` and
+      // ``ir.gap_change`` and emits the negative-gap WARN.
       //
-      // The additional criteria below are gated by convergence_mode:
-      //   gap_only       → nothing extra
-      //   gap_stationary → + stationary gap detection
-      //   statistical    → + stationary + CI test + CI+stationary fallback
+      // The convergence signal is **ΔUB stationarity**; the
+      // ``|gap| < stationary_gap_ceiling`` clause is a pathology
+      // safety net, not a trigger.  See the StationaryCheck docs for
+      // the rationale (multi-cut overshoot makes the signed gap
+      // non-monotone; UB is the policy-cost MC estimate we are
+      // optimising).
+      //
+      // ``convergence_mode`` gating:
+      //   gap_only       → stationary path inert (stationary_ok=false);
+      //                    only the pathology safety net is active.
+      //                    With the primary gap-vs-tol exit removed
+      //                    this mode is effectively "never converge",
+      //                    kept only for legacy / regression tests.
+      //   gap_stationary → ΔUB stationarity drives convergence (default).
+      //   statistical    → adds the CI test block below.
 
       const auto mode = m_options_.convergence_mode;
 
-      // ── Stationary convergence ──
-      // Active for gap_stationary and statistical modes.  See the
-      // ``StationaryCheck`` / ``evaluate_stationary_check`` block in
-      // the anonymous namespace at the top of this TU for the AND'd
-      // contract (policy-stable + symmetric-gap-magnitude) and why
-      // both signals must agree.  Refactoring this into a helper
-      // keeps the sync and async paths from drifting apart.
       const auto stationary = evaluate_stationary_check(
           ir, iteration_index, m_iteration_offset_, results.size(), m_options_);
       const bool past_min_iterations = stationary.past_min_iterations;
@@ -476,9 +491,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         ir.stationary_converged = true;
         update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         SPDLOG_INFO(
-            "SDDP Iter [i{}]: stationary convergence "
-            "(ΔUB={:.6f} < tol={:.6f} AND |gap|={:.4f} < ceiling={:.2f}) "
-            "[CONVERGED]",
+            "SDDP Iter [i{}]: ΔUB stationary convergence "
+            "(ΔUB={:.6f} < tol={:.6f}; |gap|={:.4f} within safety net "
+            "ceiling={:.2f}) [CONVERGED]",
             gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol,
@@ -1778,23 +1793,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
       // Convergence gap
       ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-      const bool past_min_iterations =
-          (next_converge_iteration_index >= m_iteration_offset_
-               + IterationIndex {m_options_.min_iterations - 1});
-      // Negative-gap guard (mirrors the synchronous path at
-      // sddp_method_iteration.cpp:1699 and `finalize_iteration_result`):
-      // a small POSITIVE gap below tolerance is the textbook converged
-      // condition; a small NEGATIVE gap (≈ -1e-15 from FP noise when
-      // UB ≈ LB) is harmless and accepted via `kSddpGapFpEpsilon`; but
-      // a LARGE negative gap (LB > UB by orders of magnitude — cuts
-      // overshoot the optimum, SDDP-theory violation) must NOT be
-      // declared converged.  Pre-fix, juan/cascade-uninodal silently
-      // reported [CONVERGED] with gap=-1100% (LB=35G vs UB=2.9G);
-      // post-fix, ir.converged stays false and the run continues to
-      // max_iterations so the LB overshoot is visible, not hidden.
-      const bool gap_in_range = (ir.gap < m_options_.convergence_tol)
-          && (ir.gap > -kSddpGapFpEpsilon);
-      ir.converged = gap_in_range && past_min_iterations;
+      // Mirror of the synchronous ``finalize_iteration_result`` rewrite
+      // (sddp_method_iteration.cpp, 2026-05-14): the primary
+      // gap-vs-tol exit is gone.  ΔUB stationarity is the sole
+      // convergence trigger, evaluated below via
+      // ``evaluate_stationary_check``; ``|gap| < stationary_gap_ceiling``
+      // remains as the pathology safety net inside that helper.
 
       // Stationary gap check — uses the same ``evaluate_stationary_check``
       // helper as the synchronous ``iterate()`` path so the AND'd
