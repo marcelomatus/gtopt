@@ -186,11 +186,21 @@ def write_boundary_cuts_csv(
     ] + [pa.array(state_columns[name], type=pa.float64()) for name in aliased_names]
     table = pa.Table.from_arrays(columns, schema=pa.schema(fields))
 
-    # ``include_header=True`` (the default) writes a header row keyed by
-    # the Arrow schema's field names — matches what the gtopt-side
+    # ``include_header=True`` (the default) writes a header row keyed
+    # by the Arrow schema's field names — matches what the gtopt-side
     # reader expects to detect ``has_iteration_col`` and to resolve
-    # state-variable column names.
-    pacsv.write_csv(table, str(output_path))
+    # state-variable column names.  ``quoting_style="needed"`` keeps
+    # data cells unquoted unless they contain ``,`` / ``"`` / newline.
+    # ``quoting_header="none"`` does the same for the header row;
+    # PyArrow's default treats ``"needed"`` AND ``"all_valid"`` as
+    # "quote every header" for the header row (per ``WriteOptions``
+    # docs), so we force ``"none"`` to keep the field names readable
+    # for downstream tools that grep / sed the header.
+    write_options = pacsv.WriteOptions(
+        quoting_style="needed",
+        quoting_header="none",
+    )
+    pacsv.write_csv(table, str(output_path), write_options=write_options)
 
     logger.debug(
         "Wrote %d boundary cuts to %s (%d state variables, scale=1/%s)",

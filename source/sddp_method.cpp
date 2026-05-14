@@ -244,11 +244,14 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
-  // Clamp ``min_iterations`` to ``max_iterations`` so the new default
-  // ``min_iterations = 3`` cannot stretch a deliberately tiny run
+  // Clamp ``min_iterations`` to ``max_iterations`` so any user-set
+  // ``min_iterations`` cannot stretch a deliberately tiny run
   // (e.g. ``max_iterations = 0`` for simulation-only mode, or
-  // ``max_iterations = 1`` for fast integration tests).  Silent in
-  // INFO; promoted to DEBUG so the `--trace` log records the clamp.
+  // ``max_iterations = 1`` for fast integration tests).  The current
+  // default (``min_iterations = 1``) only matters for users who
+  // explicitly bump it (cascade L0 sets ``min_iterations = 3``).
+  // Silent in INFO; promoted to DEBUG so the `--trace` log records
+  // the clamp.
   if (m_options_.min_iterations > m_options_.max_iterations) {
     SPDLOG_DEBUG("SDDP: clamping min_iterations {} → {} (max_iterations cap)",
                  m_options_.min_iterations,

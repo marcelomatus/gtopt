@@ -446,19 +446,27 @@ class GTOptWriter(
             :func:`aperture_writer.build_phase_apertures`).  Robust to
             per-case variations in aperture count.
 
-        Stationary-convergence settings per level (``stationary_tol``
-        is the Δgap plateau threshold; ``stationary_gap_ceiling`` is
-        the ``|gap|`` ceiling — **either** triggers convergence with
-        the C++ OR semantics in ``sddp_iteration.cpp``).  Both
-        targets are equal at every level:
-          - L0:  ``Δgap < 8 %`` OR ``|gap| < 8 %``
-          - L1:  ``Δgap < 6 %`` OR ``|gap| < 6 %``
-          - L2:  ``Δgap < 4 %`` OR ``|gap| < 4 %``
-          - L3:  ``Δgap < 2 %`` OR ``|gap| < 2 %``
-        Whichever signal lands first ends the level.  Low-aperture
-        levels (warmup, uninodal) typically exit on the Δgap
-        plateau, while iters with a fast-collapsing gap exit on the
-        magnitude target directly.
+        Stationary-convergence settings per level (post-2026-05
+        rewrite — see ``sddp_iteration.cpp``).  ``stationary_tol``
+        is now the **ΔUB** stationarity threshold (relative iter-over-
+        iter change in the realised policy cost UB);
+        ``stationary_gap_ceiling`` is the signed (UB-LB)/|UB| ceiling.
+        Both AND'd: a level converges only when the policy has stopped
+        moving (ΔUB < tol) AND the bound width is acceptable (gap <
+        ceiling).  Negative gaps (multi-cut overshoot) automatically
+        satisfy the ceiling without penalty.
+          - L0 ``warmup``:       ``ΔUB < 5 %`` AND ``gap < 50 %``
+          - L1 ``uninodal``:     ``ΔUB < 4 %`` AND ``gap < 50 %``
+          - L2 ``transport``:    ``ΔUB < 3 %`` AND ``gap < 50 %``
+          - L3 ``full_network``: ``ΔUB < 2 %`` AND ``gap < 50 %``
+        ``stationary_gap_ceiling`` is intentionally flat at 50 %
+        across all levels — the multi-cut + aperture-mode overshoot
+        on production cases (juan/IPLP at full_network) routinely
+        produces transient |gap| around 3-5 % that the AND-mode check
+        previously kept rejecting.  With the ceiling loosened to 50 %,
+        the policy-stability signal (ΔUB) is the binding constraint
+        and the levels exit cleanly once the realised cost stops
+        moving.
 
         Each level inherits state-variable targets and **all**
         optimality cuts from previous levels via elastic constraints
@@ -516,27 +524,63 @@ class GTOptWriter(
         #   * uninodal iter where the gap collapses from +22 % to
         #     +0.5 % in one step (still moving fast, Δgap huge) →
         #     exits on |gap| < 6 % even though Δgap signal failed.
+        # ``min_iterations`` per level: gtopt's default is 1 (just
+        # enough to let the convergence check fire on a qualifying
+        # first iter).  Only L0 ``warmup`` overrides this with 3,
+        # because its single-aperture face-value bound is structurally
+        # noisy and the bootstrap iter can fluke its way into the
+        # ceiling on a single sample.  L1+ inherit a converged
+        # envelope and may legitimately exit on their first qualifying
+        # iter — leaving the default at 3 used to force uninodal to
+        # grind two redundant iters past the first time |gap| dropped
+        # inside the ceiling (observed on juan/IPLP, 2026-05-14).
+        # Convergence settings per level — after the 2026-05 stationary-
+        # check rewrite, the two knobs measure different things and the
+        # stop condition is AND, not OR:
+        #
+        #   * ``stationary_tol``         = ΔUB / UB threshold (policy
+        #                                  stability — the realised cost
+        #                                  has stopped moving by more
+        #                                  than this fraction iter-over-
+        #                                  iter; ``UB`` is the unbiased
+        #                                  Monte-Carlo estimate of the
+        #                                  policy cost).
+        #   * ``stationary_gap_ceiling`` = signed (UB-LB)/|UB| threshold
+        #                                  (bound quality — we accept
+        #                                  convergence when the gap is
+        #                                  below this, including any
+        #                                  *negative* gap from multi-cut
+        #                                  overshoot, which is bounded
+        #                                  for free by ``ir.gap <
+        #                                  ceiling``).
+        #
+        # Tightening ``stationary_tol`` deeper into the cascade (5 → 2
+        # %) increases policy-stability demand as fidelity rises;
+        # leaving ``stationary_gap_ceiling = 0.5`` flat accepts up to
+        # 50 % multi-cut overshoot at every level, so the limit on
+        # convergence comes from policy stability, not bound width.
         l0_sddp_options: dict[str, Any] = {
             "max_iterations": l0_iter,
+            "min_iterations": 3,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.08,
-            "stationary_gap_ceiling": 0.08,
+            "stationary_tol": 0.05,
+            "stationary_gap_ceiling": 0.5,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
         }
         l1_sddp_options: dict[str, Any] = {
             "max_iterations": l1_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.06,
-            "stationary_gap_ceiling": 0.06,
+            "stationary_tol": 0.04,
+            "stationary_gap_ceiling": 0.5,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
         }
         l2_sddp_options: dict[str, Any] = {
             "max_iterations": l2_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.04,
-            "stationary_gap_ceiling": 0.04,
+            "stationary_tol": 0.03,
+            "stationary_gap_ceiling": 0.5,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
         }
@@ -546,7 +590,7 @@ class GTOptWriter(
             "max_iterations": l3_iter,
             "convergence_tol": convergence_tol,
             "stationary_tol": 0.02,
-            "stationary_gap_ceiling": 0.02,
+            "stationary_gap_ceiling": 0.5,
         }
 
         # ── Level array ────────────────────────────────────────────────

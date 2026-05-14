@@ -729,6 +729,14 @@ TEST_CASE(
     SDDPOptions opts;
     opts.max_iterations = max_iters;
     opts.convergence_tol = 1e-6;
+    // Strict gap-only convergence + bootstrap floor — post-2026-05
+    // gap_stationary mode (UB-stationarity + gap-magnitude AND'd)
+    // would exit on policy-stability before this fixture's tight
+    // 1e-6 gap target is reached; min_iterations default fell from
+    // 3 to 1 so we also pin it here to give the cuts enough passes
+    // to actually approach the converged value.
+    opts.min_iterations = 3;
+    opts.convergence_mode = ConvergenceMode::gap_only;
     opts.cut_sharing = CutSharingMode::none;
     opts.scale_alpha = 2.0;
     opts.enable_api = false;

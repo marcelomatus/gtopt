@@ -326,6 +326,17 @@ TEST_CASE("SDDPMethod API - programmatic stop")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 100;
   sddp_opts.convergence_tol = 1e-12;  // very tight → won't converge in 2 iters
+  // Disable the stationary path so the test's strict-gap target alone
+  // governs convergence — the post-2026-05 gap_stationary mode would
+  // otherwise exit on UB-stationarity or magnitude-ceiling before the
+  // callback's iter-2 stop fires.
+  sddp_opts.convergence_mode = ConvergenceMode::gap_only;
+  // Pin min_iterations=3 — the default was lowered from 3 to 1 in
+  // 2026-05.  On this tiny 3-phase fixture the master can hit
+  // gap=0 at iter 0 (one cut tight against the analytic optimum);
+  // without a bootstrap floor the primary gap check would converge
+  // at iter 0 and the callback's iter-2 stop would never fire.
+  sddp_opts.min_iterations = 3;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
 

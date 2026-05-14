@@ -195,7 +195,11 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // gap; if gap stops moving (<0.5 %) AND already <5 %, accept it;
     // otherwise iterate to 100.  Statistical CI test is opt-in.
     CHECK(so.max_iterations == 100);
-    CHECK(so.min_iterations == 3);
+    // ``min_iterations`` default lowered from 3 to 1 in 2026-05 so
+    // cascade L1+ levels can converge on their first qualifying iter
+    // (they inherit L0's envelope; the bootstrap guard belongs only
+    // on L0, which plp2gtopt sets explicitly).
+    CHECK(so.min_iterations == 1);
     CHECK(so.convergence_tol == doctest::Approx(0.01));
     CHECK(so.convergence_mode == ConvergenceMode::gap_stationary);
     CHECK(so.stationary_tol == doctest::Approx(0.005));

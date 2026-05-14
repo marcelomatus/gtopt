@@ -794,11 +794,18 @@ public:
   static constexpr Int default_sddp_max_iterations = 100;
   /** @brief Default minimum iterations before declaring convergence.
    *
-   * 3 iterations protect the bootstrap phase: at iter 0 the LB is
-   * usually a placeholder (single cut), at iter 1 the LB has just
-   * started moving — declaring convergence before iter 2 is almost
-   * always premature. */
-  static constexpr Int default_sddp_min_iterations = 3;
+   * 1 iteration is the minimum that still lets the convergence check
+   * fire on the first solved iter.  Pure SDDP runs that want the
+   * 3-iter bootstrap guard (against declaring convergence on iter 0's
+   * placeholder LB or iter 1's barely-moved LB) can set
+   * ``min_iterations`` higher explicitly; cascade level 0 still does
+   * so via ``plp2gtopt`` since the 1-aperture face-value bound there
+   * is genuinely noisy.  L1+ inherit a converged envelope and may
+   * legitimately exit on their first qualifying iter — leaving the
+   * default at 3 forced uninodal to grind two redundant iters past
+   * the first time |gap| dropped inside the ceiling (observed on
+   * juan/IPLP, 2026-05-14). */
+  static constexpr Int default_sddp_min_iterations = 1;
   /** @brief Default relative convergence tolerance.
    *
    * 1 % is the industry-standard SDDP/Benders gap target.  Tighter

@@ -416,57 +416,49 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
              && ir.gap_change < 1.0);  // 1.0 = sentinel / first iteration
       }
 
-      // ── Stationary gap convergence ──
+      // ── Stationary convergence ──
       // Active for gap_stationary and statistical modes.
-      // Declare convergence when the gap stops improving.  Guarded by
-      // a SYMMETRIC magnitude ceiling
-      // (``|gap| < stationary_gap_ceiling``, default 0.05) so a
-      // pathological case where LB is frozen at ``gap = +1`` cannot
-      // masquerade as "converged" just because gap_change = 0, AND a
-      // sustained LB > UB overshoot at, say, ``gap = -0.5`` is
-      // similarly rejected.  Earlier code applied the negative end of
-      // the ceiling via the hard-coded ``-kSddpGapFpEpsilon`` (1e-9)
-      // which was too strict for cascade-warmup levels that
-      // legitimately produce small negative gaps from
-      // single-sample-aperture cut variance — those levels couldn't
-      // stop and went on to poison every downstream level's cut
-      // family.  Routing the negative end through the user-configurable
-      // ``stationary_gap_ceiling`` puts both sides of the symmetric
-      // window under one knob; set the option higher (e.g. 0.5) to
-      // accept overshoot up to ±50 %, set it to ``kSddpGapFpEpsilon``
-      // to recover the pre-fix strict behaviour.
+      //
+      // Two AND'd conditions must hold:
+      //
+      //   1. Policy stable:   ΔUB_relative < stationary_tol
+      //      (the realised policy cost has stopped moving — the cuts
+      //      have stopped adding useful information).  Carried on
+      //      ``ir.gap_change`` for historical reasons; see field
+      //      comment.
+      //
+      //   2. Bound acceptable: gap < stationary_gap_ceiling
+      //      (signed gap; ``UB - LB`` relative).  A *positive* gap
+      //      larger than the ceiling means UB and LB still disagree
+      //      meaningfully — keep iterating.  A *negative* gap
+      //      (LB > UB, the multi-cut / aperture overshoot regime)
+      //      automatically satisfies the threshold because UB is the
+      //      unbiased policy-cost estimate and we don't penalise the
+      //      master for over-conservatively bounding the optimum.
+      //
+      // Both signals must agree because either alone is fooled by a
+      // common pathology: stationarity-only fires on a frozen-LB
+      // sample (UB stable but the master is still under-bounding the
+      // true optimum), and magnitude-only fires on the first iter
+      // that crosses the ceiling regardless of whether the cuts have
+      // stopped contributing.
       const double stationary_gap_ceiling = m_options_.stationary_gap_ceiling;
-      // Stationary convergence: declare converged when EITHER the gap
-      // has plateaued (``gap_change < stationary_tol``) OR the gap
-      // magnitude itself is already inside the ceiling
-      // (``|gap| < stationary_gap_ceiling``).  OR semantics let a
-      // fast-collapsing gap exit on the iter it lands below the
-      // magnitude target without waiting for a stationary plateau
-      // (e.g. uninodal iter where gap drops from +22 % to +0.5 % in
-      // one step would otherwise have to wait for Δgap to flatten).
-      // Trade-off: a true frozen-LB pathology (gap_change=0 with
-      // |gap| huge) would now declare convergence via the stationary
-      // arm alone — accepting this risk because ``max_iterations``
-      // already bounds the worst-case wall.
-      const bool magnitude_ok = std::abs(ir.gap) < stationary_gap_ceiling;
+      const bool gap_ok = ir.gap < stationary_gap_ceiling;
       if (!ir.converged && past_min_iterations
-          && mode != ConvergenceMode::gap_only
-          && (gap_is_stationary || magnitude_ok))
+          && mode != ConvergenceMode::gap_only && (gap_is_stationary && gap_ok))
       {
         ir.converged = true;
         ir.stationary_converged = true;
         update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         SPDLOG_INFO(
             "SDDP Iter [i{}]: stationary convergence "
-            "(gap_change={:.6f} < tol={:.6f} ? {} | |gap|={:.4f} < "
-            "ceiling={:.2f} ? {}) [CONVERGED]",
+            "(ΔUB={:.6f} < tol={:.6f} AND gap={:+.4f} < ceiling={:.2f}) "
+            "[CONVERGED]",
             gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol,
-            gap_is_stationary ? "yes" : "no",
-            std::abs(ir.gap),
-            stationary_gap_ceiling,
-            magnitude_ok ? "yes" : "no");
+            ir.gap,
+            stationary_gap_ceiling);
       }
 
       // ── Statistical CI convergence ──
@@ -629,9 +621,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               n_feasible);
         }
         // (b) Gap exceeds CI but is no longer improving.
-        // OR semantics: stationary plateau OR |gap| inside ceiling —
-        // matches the pure-stationary block at line ~440.
-        else if (gap_is_stationary || std::abs(ir.gap) < stationary_gap_ceiling)
+        // AND semantics: UB-stationary AND gap-magnitude — matches
+        // the pure-stationary block above.
+        else if (gap_is_stationary && ir.gap < stationary_gap_ceiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;
@@ -1782,9 +1774,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         const auto window =
             static_cast<std::size_t>(m_options_.stationary_window);
         const auto lookback = std::min(window, results.size());
-        const double old_gap = results[results.size() - lookback].gap;
-        ir.gap_change =
-            std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
+        // Stationarity tracked on UB — see the matching sync iterate()
+        // site in sddp_method_iteration.cpp and the field comment on
+        // ``SDDPIterationResult::gap_change``.
+        const double old_ub = results[results.size() - lookback].upper_bound;
+        ir.gap_change = std::abs(ir.upper_bound - old_ub)
+            / std::max(1e-10, std::abs(old_ub));
 
         // Symmetric ``|gap| < stationary_gap_ceiling`` test (mirrors
         // the sync `iterate()` path above and the late-loop block at
@@ -1795,23 +1790,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         // behaviour by setting ``stationary_gap_ceiling=1e-9`` (which
         // collapses the symmetric window back to FP noise on both
         // sides).
-        // OR semantics: stationary plateau OR |gap| inside ceiling
-        // (mirrors the sync iterate() path at line ~440).  The window
-        // requirement is folded INTO stationary_ok only — magnitude_ok
-        // is a snapshot of the current iter and has no lookback
-        // dependency, so it must fire independent of window count.
-        // Otherwise the magnitude path would be gated by
-        // ``results.size() >= window`` and a fast-collapsing gap
-        // (e.g. uninodal iter 10 with |gap|=5.75% < 6 %) would be
-        // ignored simply because window=4 lookback isn't yet
-        // available.
+        // AND semantics on UB-stationarity AND gap-magnitude
+        // (mirrors the sync iterate() path).  See the explanation
+        // block at the matching sync site.
         const bool stationary_ok = results.size() >= window
             && ir.gap_change < m_options_.stationary_tol && ir.gap_change < 1.0;
-        const bool magnitude_ok =
-            std::abs(ir.gap) < m_options_.stationary_gap_ceiling;
+        const bool gap_ok = ir.gap < m_options_.stationary_gap_ceiling;
         if (!ir.converged && past_min_iterations
             && m_options_.convergence_mode != ConvergenceMode::gap_only
-            && (stationary_ok || magnitude_ok))
+            && (stationary_ok && gap_ok))
         {
           ir.converged = true;
           ir.stationary_converged = true;

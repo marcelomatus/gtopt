@@ -384,13 +384,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   // converged.  Otherwise keep iterating up to ``max_iterations``.
   // The statistical CI test (``convergence_confidence``) is opt-in
   // (default 0) because it is too easily fooled by σ scatter when scene
-  // UBs are heterogeneous (e.g. Maule/juan).  ``min_iterations`` = 3
-  // protects the bootstrap iter from declaring premature convergence.
+  // UBs are heterogeneous (e.g. Maule/juan).  ``min_iterations`` = 1
+  // is the minimum that still lets the convergence check fire — set
+  // higher (e.g. 3) only at noisy bootstrap levels (cascade L0) where
+  // the very-first iter's gap is structurally meaningless; cascade L1+
+  // inherit a converged envelope and may legitimately exit on their
+  // first qualifying iter.
   //
   // Override individually only when you know what you're doing — the
   // defaults are deliberately consistent so most users never set them.
   int max_iterations {100};  ///< Maximum forward/backward iterations
-  int min_iterations {3};  ///< Minimum iterations before convergence
+  int min_iterations {1};  ///< Minimum iterations before convergence
   double convergence_tol {0.01};  ///< Relative gap tolerance for convergence
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
   /// Scale for α (0 = auto: max state var_scale).  α itself is a free
@@ -954,9 +958,23 @@ struct SDDPIterationResult
   double lower_bound {};  ///< Lower bound (phase 0 obj including a)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB - LB) / max(1, |UB|)
-  /// Relative change in gap vs. `stationary_window` iterations ago.
-  /// Populated only when `stationary_tol > 0` and enough iterations have
-  /// elapsed; 1.0 otherwise (meaning "not yet checked / not applicable").
+  /// Relative change in **UB** vs. ``stationary_window`` iterations ago:
+  ///
+  ///     gap_change = |UB[i] - UB[i - window]| / max(eps, |UB[i - window]|)
+  ///
+  /// Under multi-cut / aperture-mode SDDP the cuts can over-tighten the
+  /// master LB above the true optimum, producing a negative ``gap``
+  /// (LB > UB) that oscillates while the cut family is still being
+  /// refined.  The relative-Δgap stationarity test that previously
+  /// drove this field was confounded by the LB drift (Δgap_relative
+  /// explodes near gap = 0 because of the small denominator).  UB is
+  /// the unbiased Monte-Carlo estimate of the realised policy cost —
+  /// it is what we are optimising — so stationarity of **UB** is the
+  /// signal that actually says "the policy has stopped moving".
+  /// Populated only when ``stationary_tol > 0`` and enough iterations
+  /// have elapsed; 1.0 otherwise (meaning "not yet checked / not
+  /// applicable"), so the convergence test naturally skips early
+  /// iters that do not yet have a usable look-back window.
   double gap_change {1.0};
   bool converged {};  ///< True if gap < convergence tolerance
   /// True when convergence was declared by the stationary-gap criterion

@@ -3330,10 +3330,13 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
-    // Strict gap-only convergence — the post-2026-05 OR semantics of
-    // gap_stationary mode (``|gap| < stationary_gap_ceiling`` alone
-    // suffices) would otherwise exit at gap≈4-5% before the SDDP
-    // policy fully stabilises, leaving efin row duals stuck at 0.
+    // Strict gap-only convergence + min_iterations=3 bootstrap so the
+    // SDDP policy gets several full forward/backward passes before
+    // the efin row duals are read.  Without min_iterations=3 the
+    // gap_only mode can declare convergence on iter 2 when the master
+    // sees gap=0% but the policy itself hasn't yet exercised the
+    // efin constraint enough to install a meaningful binding cut.
+    sddp_opts.min_iterations = 3;
     sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
@@ -3626,9 +3629,12 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
-    // Strict gap-only convergence — see comment in efin_cost test
-    // above; gap_stationary's magnitude path would short-circuit
-    // convergence at ~5% gap before duals develop.
+    // Strict gap-only convergence + min_iterations=3 bootstrap;
+    // see the matching comment block in the efin_cost test above.
+    // gap_stationary's magnitude path or the new min_iterations=1
+    // default would otherwise short-circuit convergence before
+    // the efin row duals develop.
+    sddp_opts.min_iterations = 3;
     sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
@@ -3853,9 +3859,9 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
-    // Strict gap-only convergence — see comment in efin_cost test
-    // earlier; gap_stationary's magnitude path would short-circuit
-    // convergence at ~5% gap before duals develop.
+    // Strict gap-only convergence + min_iterations=3 bootstrap;
+    // see the matching comment block in the efin_cost test above.
+    sddp_opts.min_iterations = 3;
     sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
@@ -4062,9 +4068,9 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
-    // Strict gap-only convergence — see comment in efin_cost test
-    // earlier; gap_stationary's magnitude path would short-circuit
-    // convergence at ~5% gap before duals develop.
+    // Strict gap-only convergence + min_iterations=3 bootstrap;
+    // see the matching comment block in the efin_cost test above.
+    sddp_opts.min_iterations = 3;
     sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
@@ -4751,16 +4757,18 @@ TEST_CASE(  // NOLINT
     CHECK(ir.gap_change == doctest::Approx(1.0));
   }
 
-  SUBCASE("history present → gap_change = |gap - old| / max(1e-10, |old|)")
+  SUBCASE("history present → gap_change = |UB - old_UB| / max(1e-10, |old_UB|)")
   {
-    // Seed two prior iterations with gap = 0.2 then 0.15.  Lookback
-    // window = 2 → consults results[size - 2].gap = 0.2.  Current ir
-    // has gap = 0.1, so |0.1 - 0.2| / 0.2 = 0.5.
+    // Post-2026-05 semantics: ``gap_change`` is the relative change
+    // in **UB** across the lookback window — not in the (UB-LB) gap.
+    // Seed two prior iterations with UB = 200 then 150.  Lookback
+    // window = 2 → consults results[size - 2].upper_bound = 200.
+    // Current ir has UB = 100, so |100 - 200| / 200 = 0.5.
     std::vector<SDDPIterationResult> history;
     history.emplace_back();
-    history.back().gap = 0.2;
+    history.back().upper_bound = 200.0;
     history.emplace_back();
-    history.back().gap = 0.15;
+    history.back().upper_bound = 150.0;
 
     SDDPIterationResult ir;
     ir.upper_bound = 100.0;

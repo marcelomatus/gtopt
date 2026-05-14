@@ -1671,9 +1671,16 @@ void SDDPMethod::finalize_iteration_result(
   {
     const auto window = static_cast<std::size_t>(m_options_.stationary_window);
     const auto lookback = std::min(window, results.size());
-    const double old_gap = results[results.size() - lookback].gap;
+    // Stationarity tracked on UB, not on the (UB-LB) gap — UB is the
+    // unbiased Monte-Carlo estimate of the realised policy cost and
+    // is the quantity we are optimising.  Δgap_relative computed on a
+    // signed gap was confounded by zero-crossings (the denominator
+    // shrinks to 0 right when the cuts overshoot, blowing the
+    // relative metric up to thousands of percent).  See
+    // :member:`SDDPIterationResult::gap_change`.
+    const double old_ub = results[results.size() - lookback].upper_bound;
     ir.gap_change =
-        std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
+        std::abs(ir.upper_bound - old_ub) / std::max(1e-10, std::abs(old_ub));
   }
 
   // Primary convergence: the absolute gap (|UB-LB|/max(1,|UB|)) must

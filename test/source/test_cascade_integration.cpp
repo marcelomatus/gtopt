@@ -315,6 +315,11 @@ TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 0.01;
+  // Pin min_iterations=3 explicitly: this test asserts the solver
+  // runs at least 3 training iters (iteration_index >= 2 below).  The
+  // gtopt-wide default was lowered from 3 to 1 in 2026-05 so we set
+  // it back here to preserve the test intent.
+  sddp_opts.min_iterations = 3;
   sddp_opts.apertures = std::vector<Uid> {};
 
   SDDPMethod solver(planning_lp, std::move(sddp_opts));
@@ -361,6 +366,9 @@ TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 0.01;
+  // Pin min_iterations=3 explicitly — see comment in the SDDP
+  // baseline test above (gtopt-wide default lowered 3→1 in 2026-05).
+  sddp_opts.min_iterations = 3;
   sddp_opts.apertures = std::vector<Uid> {};
 
   // Level 0: Benders training on full network.
@@ -468,6 +476,9 @@ TEST_CASE("Cascade 2-level with target inheritance only (6-phase)")
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 0.01;
+  // Pin min_iterations=3 explicitly — see comment in the SDDP
+  // baseline test above (gtopt-wide default lowered 3→1 in 2026-05).
+  sddp_opts.min_iterations = 3;
   sddp_opts.apertures = std::vector<Uid> {};
 
   // Level 0: Benders training on full network.
@@ -582,6 +593,9 @@ TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 0.01;
+  // Pin min_iterations=3 explicitly — see comment in the SDDP
+  // baseline test above (gtopt-wide default lowered 3→1 in 2026-05).
+  sddp_opts.min_iterations = 3;
   sddp_opts.apertures = std::vector<Uid> {};
 
   CascadeOptions cascade_opts;
@@ -703,6 +717,9 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 0.01;
+  // Pin min_iterations=3 explicitly — see comment in the SDDP
+  // baseline test above (gtopt-wide default lowered 3→1 in 2026-05).
+  sddp_opts.min_iterations = 3;
   sddp_opts.apertures = std::vector<Uid> {};
 
   CascadeOptions cascade_opts;
