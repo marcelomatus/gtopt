@@ -455,10 +455,10 @@ class GTOptWriter(
         moving (ΔUB < tol) AND the bound width is acceptable (gap <
         ceiling).  Negative gaps (multi-cut overshoot) automatically
         satisfy the ceiling without penalty.
-          - L0 ``warmup``:       ``ΔUB < 0.5 %`` AND ``|gap| < 50 %``
-          - L1 ``uninodal``:     ``ΔUB < 1 %``   AND ``|gap| < 50 %``
-          - L2 ``transport``:    ``ΔUB < 1.5 %`` AND ``|gap| < 50 %``
-          - L3 ``full_network``: ``ΔUB < 2 %``   AND ``|gap| < 50 %``
+          - L0 ``warmup``:       ``ΔUB < 0.25 %`` AND ``|gap| < 50 %``
+          - L1 ``uninodal``:     ``ΔUB < 0.5 %``  AND ``|gap| < 50 %``
+          - L2 ``transport``:    ``ΔUB < 0.75 %`` AND ``|gap| < 50 %``
+          - L3 ``full_network``: ``ΔUB < 1 %``    AND ``|gap| < 50 %``
         ``stationary_tol`` is LOOSENED deeper into the cascade because
         each level's iter is more expensive (L0 ~12 s/iter on
         juan/IPLP, L3 ~9 min/iter) — we demand the strictest policy
@@ -556,7 +556,7 @@ class GTOptWriter(
             "max_iterations": l0_iter,
             "min_iterations": 3,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.005,
+            "stationary_tol": 0.0025,
             "stationary_gap_ceiling": 0.5,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
@@ -564,7 +564,7 @@ class GTOptWriter(
         l1_sddp_options: dict[str, Any] = {
             "max_iterations": l1_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.01,
+            "stationary_tol": 0.005,
             "stationary_gap_ceiling": 0.5,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
@@ -572,7 +572,7 @@ class GTOptWriter(
         l2_sddp_options: dict[str, Any] = {
             "max_iterations": l2_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.015,
+            "stationary_tol": 0.0075,
             "stationary_gap_ceiling": 0.5,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
@@ -582,7 +582,7 @@ class GTOptWriter(
         l3_sddp_options: dict[str, Any] = {
             "max_iterations": l3_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.02,
+            "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.5,
         }
 
