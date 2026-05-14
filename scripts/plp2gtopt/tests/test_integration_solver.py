@@ -815,33 +815,44 @@ def test_hydro_4b_cascade_conversion(tmp_path):
     # Method must be cascade
     assert options["method"] == "cascade"
 
-    # cascade_options must be present with 3 levels
+    # cascade_options must be present with 4 levels
+    # (the 4-level ladder warmup/uninodal/transport/full_network
+    # replaced the original 3-level layout in 2026-05).
     cascade = options["cascade_options"]
     assert "level_array" in cascade
     levels = cascade["level_array"]
-    assert len(levels) == 3
+    assert len(levels) == 4
 
-    # Level 0: uninodal
-    assert levels[0]["name"] == "uninodal"
+    # Level 0: warmup (single-bus, 1 head aperture)
+    assert levels[0]["name"] == "warmup"
     assert levels[0]["model_options"]["use_single_bus"] is True
 
-    # Level 1: transport (no kirchhoff, no losses)
-    assert levels[1]["name"] == "transport"
-    assert levels[1]["model_options"]["use_single_bus"] is False
-    assert levels[1]["model_options"]["use_kirchhoff"] is False
-    assert levels[1]["model_options"]["use_line_losses"] is False
+    # Level 1: uninodal (single-bus, 4 stride apertures)
+    assert levels[1]["name"] == "uninodal"
+    assert levels[1]["model_options"]["use_single_bus"] is True
 
-    # Level 2: full network
-    assert levels[2]["name"] == "full_network"
+    # Level 2: transport (no kirchhoff, no losses)
+    assert levels[2]["name"] == "transport"
+    assert levels[2]["model_options"]["use_single_bus"] is False
+    assert levels[2]["model_options"]["use_kirchhoff"] is False
+    assert levels[2]["model_options"]["use_line_losses"] is False
 
-    # Iteration budget: level 0 gets full PLP budget (60); 1/4 for levels 1 & 2.
+    # Level 3: full network
+    assert levels[3]["name"] == "full_network"
+
+    # Iteration budgets: L0=PDMaxIte, L1=PDMaxIte/2, L2=PDMaxIte/3, L3=PDMaxIte/4
+    # (decreasing schedule per the docstring on
+    # ``GTOptWriter._build_default_cascade_options``).  PLP fixture
+    # uses PDMaxIte = 60 → 60 / 30 / 20 / 15.
     assert levels[0]["sddp_options"]["max_iterations"] == 60
-    assert levels[1]["sddp_options"]["max_iterations"] == 15
-    assert levels[2]["sddp_options"]["max_iterations"] == 15
+    assert levels[1]["sddp_options"]["max_iterations"] == 30
+    assert levels[2]["sddp_options"]["max_iterations"] == 20
+    assert levels[3]["sddp_options"]["max_iterations"] == 15
 
-    # Transitions on levels 1 and 2 inherit targets
+    # Transitions on levels 1, 2, 3 inherit targets + optimality cuts
     assert levels[1]["transition"]["inherit_targets"] == -1
     assert levels[2]["transition"]["inherit_targets"] == -1
+    assert levels[3]["transition"]["inherit_targets"] == -1
 
     # SDDP structure: 3 scenarios → 3 scenes, 3 stages → 3 phases
     sim = data["simulation"]

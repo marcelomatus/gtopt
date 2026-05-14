@@ -461,6 +461,14 @@ class TestCascadeOptionKeys:
             "num_apertures",
             "aperture_selection_mode",
             "convergence_tol",
+            # Stationary-convergence knobs (added at the C++ JSON
+            # binding pre-2026-05; this test was just stale).
+            "stationary_tol",
+            "stationary_gap_ceiling",
+            "stationary_window",
+            # Elastic-filter knobs (also long-standing).
+            "elastic_penalty",
+            "elastic_mode",
         }
         assert expected == cpp_fields, (
             f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"
