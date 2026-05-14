@@ -360,13 +360,24 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         default=conf.get("method", "sddp"),
         # `mono` is kept as a deprecated alias for `monolithic` —
         # simulation_writer.py:58 normalises it back to `monolithic`.
-        choices=["sddp", "monolithic", "mono", "cascade"],
+        choices=[
+            "sddp",
+            "monolithic",
+            "mono",
+            "cascade",
+            "cascade-reduced",
+            "cascade_reduced",
+        ],
         help=(
             "planning method controlling the simulation structure: "
             "'sddp' (default) produces one scene per scenario and one phase "
             "per stage (for Stochastic Dual Dynamic Programming); "
-            "'cascade' uses a 3-level cascade: L0 uninodal, L1 transport "
-            "(lines without losses/kirchhoff), L2 full network; "
+            "'cascade' uses a 4-level cascade with the full topology at "
+            "every level (warmup, uninodal, transport, full_network); "
+            "'cascade-reduced' uses a 4-level multi-fidelity cascade where "
+            "L1 and L2 are reduced grids produced by the gtopt_reduce_network "
+            "package (L1: ONB/6 buses, transport-only; L2: ONB/3 buses, "
+            "Kirchhoff on, demand uplifted via per-demand lossfactor); "
             "'monolithic' produces a single scene with all scenarios and a "
             "single phase with all stages (for the monolithic solver; "
             "'mono' is kept as a deprecated alias for 'monolithic'). "
@@ -531,6 +542,157 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "CI test because σ=77 M dominated the 38 M absolute gap).  "
             "Use 1.0 to disable the ceiling.  "
             "(default: emit 0.05 when not set; gtopt's own default is 0.5)"
+        ),
+    )
+
+    # ── cascade-reduced knobs ────────────────────────────────────────────
+    # All optional; only consumed when --method=cascade-reduced.  Defaults
+    # reproduce the design in docs/network_reduction_proposal.md.
+    parser.add_argument(
+        "--cascade-l1-reduce-ratio",
+        dest="cascade_l1_reduce_ratio",
+        type=int,
+        default=6,
+        metavar="R",
+        help=(
+            "cascade-reduced L1 reduction ratio: K1 = max(ONB // R, "
+            "--cascade-l1-min-buses).  Only consumed when "
+            "--method=cascade-reduced.  (default: 6)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l2-reduce-ratio",
+        dest="cascade_l2_reduce_ratio",
+        type=int,
+        default=3,
+        metavar="R",
+        help=(
+            "cascade-reduced L2 reduction ratio: K2 = max(ONB // R, "
+            "--cascade-l2-min-buses).  (default: 3)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l1-min-buses",
+        dest="cascade_l1_min_buses",
+        type=int,
+        default=4,
+        metavar="N",
+        help="cascade-reduced L1 floor on K1.  (default: 4)",
+    )
+    parser.add_argument(
+        "--cascade-l2-min-buses",
+        dest="cascade_l2_min_buses",
+        type=int,
+        default=8,
+        metavar="N",
+        help="cascade-reduced L2 floor on K2.  (default: 8)",
+    )
+    parser.add_argument(
+        "--cascade-l1-uplift-pct",
+        dest="cascade_l1_uplift_pct",
+        type=float,
+        default=3.0,
+        metavar="PCT",
+        help=(
+            "cascade-reduced L1 per-demand lossfactor value (= PCT / 100).  "
+            "Same semantics as --cascade-l2-uplift-pct but applied to the "
+            "L1 (transport-only) reduced grid.  (default: 3.0)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l2-uplift-pct",
+        dest="cascade_l2_uplift_pct",
+        type=float,
+        default=3.0,
+        metavar="PCT",
+        help=(
+            "cascade-reduced L2 per-demand lossfactor value (= PCT / 100).  "
+            "Models transport losses as a lumped demand uplift instead of "
+            "explicit line losses.  (default: 3.0)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l1-uplift-collision",
+        dest="cascade_l1_uplift_collision",
+        choices=["replace", "add", "compound"],
+        default="replace",
+        help=(
+            "cascade-reduced L1 collision rule when a demand already has a "
+            "scalar lossfactor.  (default: replace)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l2-uplift-collision",
+        dest="cascade_l2_uplift_collision",
+        choices=["replace", "add", "compound"],
+        default="replace",
+        help=(
+            "cascade-reduced L2 collision rule when a demand already has a "
+            "scalar lossfactor: 'replace' overwrites; 'add' sums; "
+            "'compound' applies (1+old)(1+new)-1.  (default: replace)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l1-aperture-ratio",
+        dest="cascade_l1_aperture_ratio",
+        type=int,
+        default=4,
+        metavar="R",
+        help=(
+            "cascade-reduced L1 num_apertures = max(ONA // R, 1) where ONA "
+            "is the max apertures referenced by any phase.  L1 is coarser "
+            "than L2 so the default ratio is larger.  (default: 4)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l2-aperture-ratio",
+        dest="cascade_l2_aperture_ratio",
+        type=int,
+        default=2,
+        metavar="R",
+        help=(
+            "cascade-reduced L2 num_apertures = max(ONA // R, 1).  L2 is "
+            "finer than L1 so the default ratio is smaller (more apertures).  "
+            "(default: 2)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l1-distance",
+        dest="cascade_l1_distance",
+        choices=["reactance-shortest-path", "zbus", "ptdf"],
+        default="reactance-shortest-path",
+        help=(
+            "cascade-reduced L1 clustering metric.  (default: reactance-shortest-path)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-l2-distance",
+        dest="cascade_l2_distance",
+        choices=["reactance-shortest-path", "zbus", "ptdf"],
+        default="ptdf",
+        help=(
+            "cascade-reduced L2 clustering metric.  PTDF is preferred when "
+            "Kirchhoff is on.  (default: ptdf)"
+        ),
+    )
+    parser.add_argument(
+        "--cascade-disable-l1",
+        dest="cascade_disable_l1",
+        action="store_true",
+        default=False,
+        help=(
+            "skip L1 (reduced_transport) in the cascade-reduced mode; "
+            "useful when corridor structure isn't expected to help."
+        ),
+    )
+    parser.add_argument(
+        "--cascade-disable-l2",
+        dest="cascade_disable_l2",
+        action="store_true",
+        default=False,
+        help=(
+            "skip L2 (reduced_dcopf) in the cascade-reduced mode; "
+            "useful for early screening with only L0+L1+L3."
         ),
     )
 

@@ -57,9 +57,19 @@ public:
   static constexpr Int default_loss_segments = 1;
   /** @brief Default setting for Kirchhoff constraints */
   static constexpr Bool default_use_kirchhoff = true;
-  /** @brief Default Kirchhoff Voltage Law formulation */
+  /** @brief Default Kirchhoff Voltage Law formulation.
+   *
+   *  ``cycle_basis`` (loop-flow form, PyPSA-style) is the default
+   *  because for meshed grids it produces a strictly smaller LP than
+   *  ``node_angle`` (no per-bus theta column, fewer KVL rows: one per
+   *  fundamental cycle instead of one per line — typically
+   *  ``|L| − |B| + #islands`` rows vs ``|L|``).  On juan-scale cases
+   *  this is ~40 % smaller per block.  Switch to ``node_angle``
+   *  explicitly when the case needs per-stage topology changes or
+   *  phase-shift transformers (which require the bus-angle form).
+   */
   static constexpr KirchhoffMode default_kirchhoff_mode =
-      KirchhoffMode::node_angle;
+      KirchhoffMode::cycle_basis;
   /** @brief Default setting for single-bus modeling */
   static constexpr Bool default_use_single_bus = false;
   /** @brief Default setting for strict per-stage volume floor (`emin`)

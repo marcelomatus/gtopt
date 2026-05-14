@@ -15,7 +15,11 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-/// Helper: build a PlanningOptionsLP with Kirchhoff enabled
+/// Helper: build a PlanningOptionsLP with Kirchhoff enabled.
+///
+/// Pins `kirchhoff_mode = node_angle` because island detection only runs
+/// under the B–θ formulation — `cycle_basis` (the post-2026-05-14 default)
+/// has no θ vars and short-circuits `detect_islands_and_fix_references`.
 auto make_kirchhoff_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
@@ -23,6 +27,7 @@ auto make_kirchhoff_options() -> PlanningOptionsLP
       .use_single_bus = false,
       .kirchhoff_threshold = 0.0,
   };
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
   return PlanningOptionsLP {std::move(opts)};
 }
 

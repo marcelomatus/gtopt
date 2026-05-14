@@ -29,6 +29,8 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <format>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -38,12 +40,14 @@
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/cascade_options.hpp>
 #include <gtopt/json/json_cascade_options.hpp>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
+#include <unistd.h>  // ::getpid()
 
 #include "log_capture.hpp"
 #include "sddp_helpers.hpp"
@@ -438,6 +442,93 @@ TEST_CASE(
   // iterations than level 0 did to reach the same bound.  This is the
   // canonical "cuts inherited" signal — same in test_cascade_integration.
   CHECK(s1.iterations <= s0.iterations);
+}
+
+TEST_CASE("Cuts survive system_file swap across cascade levels")
+{
+  // Mirror of the inherit=-1 test above but with a system_file swap at
+  // level 1.  Cuts are state-variable-indexed (by class+col+uid), NOT
+  // by bus uid, so a system swap must NOT lose them.  Concretely:
+  //
+  //   level 0  — single-bus, builds cuts
+  //   level 1  — same single-bus shape (loaded from temp JSON), should
+  //              inherit cuts and converge in ≤ level 0's iters
+  //
+  // This is the canonical "cuts survived the LP rebuild" smoke test.
+  // It uses the SAME planning at both levels (the swap is a semantic
+  // no-op on the system) — what we're proving is that the LP rebuild
+  // doesn't drop state-var references stored in cuts.
+  auto planning_for_disk = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  const auto tmp_path = std::filesystem::temp_directory_path()
+      / std::format("gtopt_cascade_cut_swap_{}.json", ::getpid());
+  {
+    std::ofstream ofs(tmp_path);
+    REQUIRE(ofs.is_open());
+    ofs << daw::json::to_json(planning_for_disk);
+  }
+  REQUIRE(std::filesystem::exists(tmp_path));
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions base;
+  base.max_iterations = 20;
+  base.convergence_tol = 1e-4;
+  base.apertures = std::vector<Uid> {};
+
+  CascadeOptions cascade;
+  cascade.level_array = {
+      CascadeLevel {
+          .name = OptName {"level0"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .apertures = Array<Uid> {},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"level1_with_system_swap"},
+          .model_options =
+              ModelOptions {
+                  .use_single_bus = OptBool {true},
+              },
+          .system_file = OptName {tmp_path.string()},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {10},
+                  .apertures = Array<Uid> {},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_optimality_cuts = OptInt {-1},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(base), std::move(cascade));
+  const SolverOptions lp_opts;
+  auto result = solver.solve(planning_lp, lp_opts);
+  REQUIRE(result.has_value());
+
+  REQUIRE(solver.level_stats().size() == 2);
+  const auto& s0 = solver.level_stats()[0];
+  const auto& s1 = solver.level_stats()[1];
+
+  // Level 0 must have produced cuts — otherwise nothing to transfer.
+  REQUIRE(s0.cuts_added > 0);
+  // Cuts survived the system_file swap → level 1's final LB matches
+  // level 0's (same problem, same cuts → same fixed point).
+  CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
+  // And level 1 converges in ≤ level 0's iters — the cuts gave it a
+  // head start.
+  CHECK(s1.iterations <= s0.iterations);
+
+  std::error_code ec;
+  std::filesystem::remove(tmp_path, ec);
 }
 
 TEST_CASE(

@@ -140,6 +140,11 @@ TEST_CASE(  // NOLINT
 
   PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
+  // Pin node_angle: this test asserts `line_lp.has_theta_rows(...)`,
+  // which is only true under the B-θ formulation; the post-2026-05-14
+  // default `cycle_basis` enforces KVL via per-cycle flow sums and
+  // creates no theta rows.
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   System system = {
       .name = "ElementAccessorTest",
