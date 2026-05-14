@@ -116,8 +116,8 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
     // Reservoir:1:efin specifically.  Junction:1 has no efin state
     // var, so a `j_up` header would correctly resolve to nothing
     // under the post-R4 class-aware match.
-    ofs << "name,iteration,scene,rhs,rsv1\n";
-    ofs << "rt_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
+    ofs << "iteration,scene,rhs,rsv1\n";
+    ofs << "1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 
   SDDPOptions opts;

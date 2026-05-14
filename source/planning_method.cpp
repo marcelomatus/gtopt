@@ -114,11 +114,9 @@ namespace
   sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
   sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
-  if (const auto named_cuts = options.sddp_named_cuts_file();
-      !named_cuts.empty())
-  {
-    sddp_opts.named_cuts_file = std::string(named_cuts);
-  }
+  // ``named_cuts_file`` retired 2026-05 — internal hot-start cuts
+  // come from ``cuts_input_file`` (Parquet) above.
+
   if (const auto sentinel = options.sddp_sentinel_file(); !sentinel.empty()) {
     sddp_opts.sentinel_file = sentinel;
   }

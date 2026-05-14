@@ -472,20 +472,12 @@ public:
   [[nodiscard]] auto load_boundary_cuts(const std::string& filepath)
       -> std::expected<CutLoadResult, Error>;
 
-  /// Load named-variable cuts from a CSV file with a `phase` column.
-  ///
-  /// Unlike `load_boundary_cuts()` (which loads into the last phase only),
-  /// this method resolves named state-variable headers in each specified
-  /// phase and adds the cuts to the corresponding phase LP.  The CSV
-  /// format is:
-  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
-  ///
-  /// This is used for hot-start from PLP planos data where cuts span
-  /// multiple stages (mapped to gtopt phases).
-  ///
-  /// @return CutLoadResult with count and max iteration, or an error.
-  [[nodiscard]] auto load_named_cuts(const std::string& filepath)
-      -> std::expected<CutLoadResult, Error>;
+  // ``load_named_cuts`` was retired in 2026-05.  The "named hot-start
+  // cuts" CSV format was an internal-gtopt format; internal cuts now
+  // travel exclusively via the typed Parquet writer / loader
+  // (``save_cuts_parquet`` / ``load_cuts_parquet``).  Boundary cuts
+  // (PLP-imported "planos de embalse") remain CSV-compatible via
+  // ``load_boundary_cuts`` above — the only CSV cut path left.
 
   /// Save state variable column solutions and reduced costs to a CSV file.
   /// Writes one row per column with its name, phase, scene, value, and

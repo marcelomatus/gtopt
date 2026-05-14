@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from plp2gtopt.planos_parser import PlanosParser, find_planos_files
-from plp2gtopt.planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
+from plp2gtopt.planos_writer import write_boundary_cuts_csv
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +289,9 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
+        # No leading ``name`` column — retired in 2026-05 (PLP never
+        # emitted one).
         assert header == [
-            "name",
             "iteration",
             "scene",
             "rhs",
@@ -312,7 +313,8 @@ class TestPlanosWriter:
             reader = csv.DictReader(f)
             row = next(reader)
 
-        assert row["name"] == "bc_1_1"
+        # No ``name`` column — retired in 2026-05.
+        assert "name" not in row
         assert row["iteration"] == "1"
         assert row["scene"] == "1"  # PLP ISimul=1 → scene UID=1
         assert float(row["rhs"]) == pytest.approx(1000.5)
@@ -329,69 +331,13 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
-        assert header == ["name", "iteration", "scene", "rhs", "R1", "R2"]
+        assert header == ["iteration", "scene", "rhs", "R1", "R2"]
         assert not rows
 
 
-class TestHotStartCutsWriter:
-    """Tests for write_hot_start_cuts_csv."""
-
-    def test_write_hot_start_csv(self, planos_files, tmp_path):
-        """Hot-start CSV should have a phase column."""
-        plaem1, plaem2 = planos_files
-        parser = PlanosParser(plaem1, plaem2)
-        parser.parse()
-
-        # Filter non-boundary cuts
-        non_boundary = [
-            c for c in parser.all_cuts if c["stage"] != parser.boundary_stage
-        ]
-
-        csv_path = write_hot_start_cuts_csv(
-            non_boundary,
-            parser.reservoir_names,
-            tmp_path / "hot_start.csv",
-            stage_to_phase={3: 2, 5: 4},
-        )
-        assert csv_path.exists()
-
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            rows = list(reader)
-
-        assert header == [
-            "name",
-            "iteration",
-            "scene",
-            "phase",
-            "rhs",
-            "Rapel",
-            "Colbun",
-        ]
-        assert len(rows) == 1
-        # Stage 3 maps to phase 2
-        assert rows[0][3] == "2"
-
-    def test_hot_start_default_stage_to_phase(self, tmp_path):
-        """Without stage_to_phase, phase = stage (identity)."""
-        cuts = [
-            {
-                "name": "hs_1",
-                "iteration": 1,
-                "stage": 7,
-                "scene": 1,
-                "rhs": -100.0,
-                "coefficients": {"R1": 0.5},
-            }
-        ]
-        csv_path = write_hot_start_cuts_csv(cuts, ["R1"], tmp_path / "hs.csv")
-
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            row = next(reader)
-
-        assert row["phase"] == "7"  # identity: stage 7 → phase 7
+# ``TestHotStartCutsWriter`` was retired in 2026-05 along with
+# ``write_hot_start_cuts_csv`` (hot-start cuts now travel via the
+# typed Parquet path on the gtopt side).
 
 
 class TestProbabilityScaling:
@@ -483,32 +429,17 @@ class TestProbabilityScaling:
         assert float(row["rhs"]) == pytest.approx(7.0)
         assert float(row["R1"]) == pytest.approx(3.0)
 
-    def test_hot_start_num_scenarios_scaling(self, tmp_path):
-        """Hot-start writer applies the same ``1/N`` scaling."""
-        cuts = [
-            {
-                "name": "hs_1",
-                "iteration": 1,
-                "stage": 3,
-                "scene": 1,
-                "rhs": 8.0,
-                "coefficients": {"R1": 0.4, "R2": 0.8},
-            }
-        ]
-        csv_path = write_hot_start_cuts_csv(
-            cuts, ["R1", "R2"], tmp_path / "hs_scaled.csv", num_scenarios=4
-        )
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            row = next(csv.DictReader(f))
-        assert float(row["rhs"]) == pytest.approx(2.0)
-        assert float(row["R1"]) == pytest.approx(0.1)
-        assert float(row["R2"]) == pytest.approx(0.2)
-
     def test_num_scenarios_preserves_other_columns(self, tmp_path):
-        """Scaling does not affect ``name``, ``iteration``, ``scene``."""
+        """Scaling does not affect ``iteration`` / ``scene``.
+
+        The legacy leading ``name`` column was retired in 2026-05; the
+        writer silently ignores any ``name`` key present on the input
+        cut dicts (we leave it on the fixture below to also pin the
+        backward-compatibility behaviour).
+        """
         cuts = [
             {
-                "name": "bc_2_3",
+                "name": "bc_2_3",  # ignored on output (no name column)
                 "iteration": 2,
                 "scene": 3,
                 "rhs": 16.0,
@@ -520,7 +451,8 @@ class TestProbabilityScaling:
         )
         with open(csv_path, newline="", encoding="utf-8") as f:
             row = next(csv.DictReader(f))
-        assert row["name"] == "bc_2_3"
+        # No ``name`` field in the CSV row (column was dropped).
+        assert "name" not in row
         assert row["iteration"] == "2"
         assert row["scene"] == "3"
         # Scaled column
@@ -550,7 +482,6 @@ class TestNameAlias:
             first = next(reader)
 
         assert header == [
-            "name",
             "iteration",
             "scene",
             "rhs",
@@ -558,8 +489,10 @@ class TestNameAlias:
             "Colbun",
         ]
         # Renamed column still carries the original Rapel coefficient.
-        assert float(first[4]) == pytest.approx(0.25)
-        assert float(first[5]) == pytest.approx(0.75)
+        # Indices shifted by 1 after the legacy ``name`` column was
+        # dropped in 2026-05.
+        assert float(first[3]) == pytest.approx(0.25)
+        assert float(first[4]) == pytest.approx(0.75)
 
     def test_boundary_cuts_alias_none_is_identity(self, tmp_path):
         """Passing ``name_alias=None`` leaves headers unchanged."""
@@ -569,46 +502,6 @@ class TestNameAlias:
         with open(csv_path, newline="", encoding="utf-8") as f:
             header = next(csv.reader(f))
         assert header[-2:] == ["R1", "R2"]
-
-    def test_hot_start_alias_renames_header(self, tmp_path):
-        """Alias applies to hot-start-cut headers too."""
-        cuts = [
-            {
-                "name": "hs_1",
-                "iteration": 1,
-                "stage": 2,
-                "scene": 1,
-                "rhs": -10.0,
-                "coefficients": {"CANUTILLAR": 0.5, "R2": 0.25},
-            }
-        ]
-        csv_path = write_hot_start_cuts_csv(
-            cuts,
-            ["CANUTILLAR", "R2"],
-            tmp_path / "hs_alias.csv",
-            name_alias={"CANUTILLAR": "CHAPO"},
-        )
-        with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            first = next(reader)
-
-        assert header == [
-            "name",
-            "iteration",
-            "scene",
-            "phase",
-            "rhs",
-            "CHAPO",
-            "R2",
-        ]
-        assert float(first[5]) == pytest.approx(0.5)
-        assert float(first[6]) == pytest.approx(0.25)
-
-
-# ---------------------------------------------------------------------------
-# average_abs_gradient_by_reservoir — boundary-cut-derived efin_cost cap
-# ---------------------------------------------------------------------------
 
 
 class TestAverageAbsGradientByReservoir:

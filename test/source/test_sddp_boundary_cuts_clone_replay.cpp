@@ -226,8 +226,8 @@ inline void check_row_coeffs_equal(const LinearInterface& a,
                          / "gtopt_test_bdr_clone_replay.csv")
                             .string();
   std::ofstream ofs(tmp_file);
-  ofs << "name,iteration,scene,rhs,rsv1\n";
-  ofs << "rt_cut,1,0," << rhs << "," << state_coeff << "\n";
+  ofs << "iteration,scene,rhs,rsv1\n";
+  ofs << "1,0," << rhs << "," << state_coeff << "\n";
   return tmp_file;
 }
 

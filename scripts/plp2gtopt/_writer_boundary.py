@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
-from .planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
+from .planos_writer import write_boundary_cuts_csv
 
 _logger = logging.getLogger(__name__)
 
@@ -168,42 +168,12 @@ class BoundaryMixin:
         if bc_max_iter is not None:
             sddp_opts["boundary_max_iterations"] = bc_max_iter
 
-        # ── Hot-start cuts (intermediate stages) ───────────────────────────
-        # When PLP emitted cuts for non-boundary stages, export them to
-        # `hot_start_cuts.csv` AND wire them into the gtopt JSON via
-        # `named_cuts_file` so every phase's master starts with PLP's full
-        # cutting-plane family loaded — not just the boundary phase's.
-        # Earlier behaviour gated the wiring behind an explicit
-        # `--hot-start-cuts` flag; that left juan-class cases loading only
-        # ~1007 boundary cuts (a single phase) while ignoring the
-        # intermediate-phase cuts that PLP's master had relied on.
-        # Setting `hot_start_cuts: false` in the writer options still
-        # disables the wiring (the file is written either way for
-        # introspection).
-        non_boundary = [
-            c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
-        ]
-        if non_boundary:
-            hs_path = output_dir / "hot_start_cuts.csv"
-            # Build stage→phase mapping from the planning structure
-            stage_to_phase = self._build_stage_to_phase_map()
-            write_hot_start_cuts_csv(
-                non_boundary,
-                planos.reservoir_names,
-                hs_path,
-                stage_to_phase=stage_to_phase,
-                name_alias=name_alias,
-                num_scenarios=num_scenarios,
-            )
-            # Wire the file into JSON by default — opt out via
-            # `--no-hot-start-cuts` / `hot_start_cuts: false`.
-            if options.get("hot_start_cuts", True):
-                if input_dir_val == ".":
-                    sddp_opts["named_cuts_file"] = "hot_start_cuts.csv"
-                else:
-                    sddp_opts["named_cuts_file"] = str(
-                        Path(input_dir_val) / "hot_start_cuts.csv"
-                    )
+        # ── Hot-start cuts retired (2026-05) ───────────────────────────────
+        # The "hot-start planos" CSV writer was removed; those cuts are
+        # gtopt's own internal cut format and travel via the typed
+        # Parquet path (driven by the gtopt-side ``cuts_input_file`` /
+        # ``cuts_output_file`` options).  Only the PLP-compatible
+        # boundary cuts (last-phase α floor) are still exported above.
 
     @staticmethod
     def _warn_if_unequal_probabilities(scenario_array: list) -> None:
@@ -231,27 +201,9 @@ class BoundaryMixin:
                 + ("..." if len(probs) > 8 else ""),
             )
 
-    def _build_stage_to_phase_map(self) -> dict[int, int] | None:
-        """Build a mapping from PLP stage (1-based) to gtopt phase UID.
-
-        Uses the stage_array already set in the planning JSON.
-        Returns ``None`` if no mapping can be built (which makes
-        ``write_hot_start_cuts_csv`` use identity mapping).
-        """
-        raw_stages: Any = self.planning.get("stage_array", [])
-        stage_array: list[dict[str, Any]] = (
-            raw_stages if isinstance(raw_stages, list) else []
-        )
-        if not stage_array:
-            return None
-
-        stage_to_phase: dict[int, int] = {}
-        for stage in stage_array:
-            stage_uid: int = stage.get("uid", 0)
-            phase_uid: int = stage.get("phase_uid", 0)
-            stage_to_phase[stage_uid] = phase_uid
-
-        return stage_to_phase or None
+    # ``_build_stage_to_phase_map`` was the sole helper for
+    # ``write_hot_start_cuts_csv`` (retired 2026-05).  Removed alongside
+    # the hot-start CSV writer.
 
     @staticmethod
     def _load_variable_scales_file(file_path: Path) -> list[dict]:

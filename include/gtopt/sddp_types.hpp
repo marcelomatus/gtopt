@@ -181,18 +181,18 @@ constexpr std::string_view sddp_bcut_constraint_name = "bcut";
 constexpr std::string_view sddp_fcut_constraint_name = "fcut";
 constexpr std::string_view sddp_mcut_constraint_name = "mcut";
 
-/// Class tags for cuts brought in by the CSV / JSON loaders.  Each
-/// loader path sets a distinct class_name so mixing loader sources
-/// never produces identical metadata:
-///   * `sddp_loaded_cut_class_name`  – generic `load_cuts` (CSV/JSON)
+/// Class tags for cuts brought in by the loaders.  Each loader path
+/// sets a distinct class_name so mixing loader sources never produces
+/// identical metadata:
+///   * `sddp_loaded_cut_class_name`   – generic `load_cuts_parquet`
 ///   * `sddp_boundary_cut_class_name` – `load_boundary_cuts_csv`
-///   * `sddp_named_cut_class_name`    – `load_named_cuts_csv`
-/// All three share a single constraint-name constant
+/// Both share a single constraint-name constant
 /// (`sddp_loaded_cut_constraint_name`) since they describe the
-/// same kind of Benders optimality row.
+/// same kind of Benders optimality row.  The legacy
+/// ``sddp_named_cut_class_name`` ("NamedHs") was retired in 2026-05
+/// alongside ``load_named_cuts_csv``.
 constexpr std::string_view sddp_loaded_cut_class_name = "Loaded";
 constexpr std::string_view sddp_boundary_cut_class_name = "Boundary";
-constexpr std::string_view sddp_named_cut_class_name = "NamedHs";
 constexpr std::string_view sddp_loaded_cut_constraint_name = "cut";
 
 /// A `(class_name, constraint_name)` pair that identifies the kind
@@ -250,21 +250,17 @@ inline constexpr CutTag sddp_share_cut_tag {
     .constraint_name = sddp_share_cut_constraint_name,
 };
 
-/// Loader-class cut tags: cuts loaded from CSV / JSON files use a
-/// distinct class_name per source so a hot-start that mixes loaders
-/// produces unique row-metadata keys for the duplicate detector,
-/// while sharing the single `sddp_loaded_cut_constraint_name`
-/// constraint name (they describe the same kind of optimality row).
+/// Loader-class cut tags: cuts loaded from disk use a distinct
+/// class_name per source so a hot-start that mixes loaders produces
+/// unique row-metadata keys for the duplicate detector, while sharing
+/// the single `sddp_loaded_cut_constraint_name` constraint name (they
+/// describe the same kind of optimality row).
 inline constexpr CutTag sddp_loaded_cut_tag {
     .class_name = sddp_loaded_cut_class_name,
     .constraint_name = sddp_loaded_cut_constraint_name,
 };
 inline constexpr CutTag sddp_boundary_cut_tag {
     .class_name = sddp_boundary_cut_class_name,
-    .constraint_name = sddp_loaded_cut_constraint_name,
-};
-inline constexpr CutTag sddp_named_cut_tag {
-    .class_name = sddp_named_cut_class_name,
     .constraint_name = sddp_loaded_cut_constraint_name,
 };
 
@@ -833,21 +829,10 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// How to handle cut rows referencing state variables not in the model.
   MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
 
-  /// CSV file with named-variable hot-start cuts for all phases.
-  ///
-  /// Unlike boundary cuts (which apply only to the last phase), these
-  /// cuts include a `phase` column indicating which phase they belong to.
-  /// The solver resolves named state-variable headers (reservoir /
-  /// battery / junction) to LP column indices in the specified phase,
-  /// then adds each cut as a lower-bound constraint on the corresponding
-  /// a variable:
-  ///   a_phase >= rhs + S_i coeff_i . state_var_i[phase]
-  ///
-  /// Format:
-  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
-  ///
-  /// Empty = no named hot-start cuts.
-  std::string named_cuts_file {};
+  // ``named_cuts_file`` was retired in 2026-05.  Internal hot-start
+  // cuts now use the typed Parquet path (``cuts_input_file``); the
+  // legacy CSV-with-column-per-state-variable format is no longer
+  // supported.
 
   // ── Secondary (stationary gap) convergence ────────────────────────────
 

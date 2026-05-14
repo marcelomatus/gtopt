@@ -874,28 +874,9 @@ class TestKirchhoffMode:
             )
 
 
-class TestBuildStageToPhaseMap:
-    """Tests for GTOptWriter._build_stage_to_phase_map."""
-
-    def test_returns_none_when_empty(self, tmp_path):
-        parser = PLPParser({"input_dir": _PLPMin1Bus})
-        parser.parse_all()
-        writer = GTOptWriter(parser)
-        writer.planning["stage_array"] = []
-        result = writer._build_stage_to_phase_map()
-        assert result is None
-
-    def test_returns_mapping(self, tmp_path):
-        parser = PLPParser({"input_dir": _PLPMin1Bus})
-        parser.parse_all()
-        writer = GTOptWriter(parser)
-        writer.planning["stage_array"] = [
-            {"uid": 1, "phase_uid": 1},
-            {"uid": 2, "phase_uid": 1},
-            {"uid": 3, "phase_uid": 2},
-        ]
-        result = writer._build_stage_to_phase_map()
-        assert result == {1: 1, 2: 1, 3: 2}
+# ``TestBuildStageToPhaseMap`` retired in 2026-05 along with
+# ``GTOptWriter._build_stage_to_phase_map`` (was only used to wire
+# hot-start cuts into CSV, a path now retired in favour of Parquet).
 
 
 class TestProcessVariableScales:

@@ -88,8 +88,8 @@ TEST_CASE(  // NOLINT
     // ("Reservoir", 1) post-P2-2; class-aware inner match resolves
     // to Reservoir:1:efin.  Coefficient is zero so the cut is purely
     // α >= phys_rhs at the horizon, independent of state.
-    ofs << "name,iteration,scene,rhs,rsv1\n";
-    ofs << "force_alpha,1,1," << phys_rhs << ",0.0\n";
+    ofs << "iteration,scene,rhs,rsv1\n";
+    ofs << "1,1," << phys_rhs << ",0.0\n";
   }
 
   double cut_ub = 0.0;

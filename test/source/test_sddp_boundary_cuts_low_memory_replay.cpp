@@ -86,8 +86,8 @@ TEST_CASE(  // NOLINT
     std::ofstream ofs(tmp_file);
     // "rsv1" maps to ("Reservoir", 1) post-P2-2; class-aware inner
     // match resolves to Reservoir:1:efin under R4.
-    ofs << "name,iteration,scene,rhs,rsv1\n";
-    ofs << "rt_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
+    ofs << "iteration,scene,rhs,rsv1\n";
+    ofs << "1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 
   SDDPOptions opts;

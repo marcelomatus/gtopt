@@ -64,8 +64,14 @@ using namespace gtopt::detail;
     }
 
     // ── Parse header ────────────────────────────────────────────
-    // Expected: name,iteration,scene,rhs,StateVar1,StateVar2,...
+    // Expected: iteration,scene,rhs,StateVar1,StateVar2,...
     // (Legacy format without iteration column is auto-detected.)
+    // The legacy leading ``name`` column was retired in 2026-05;
+    // PLP never produced it, so plp2gtopt no longer emits it and the
+    // loader no longer reads it.  Cut identity is the structured
+    // :class:`CutKey` 5-tuple — for log messages we format from the
+    // ``CutKey`` fields directly via spdlog instead of carrying a
+    // pre-baked name string.
     std::string header_line;
     std::getline(ifs, header_line);
     strip_cr(header_line);
@@ -81,15 +87,15 @@ using namespace gtopt::detail;
 
     // Detect whether the CSV has the `iteration` column.
     const bool has_iteration_col =
-        (headers.size() >= 2 && headers[1] == "iteration");
-    const int state_var_start = has_iteration_col ? 4 : 3;
+        !headers.empty() && headers[0] == "iteration";
+    const int state_var_start = has_iteration_col ? 3 : 2;
 
     if (std::cmp_less(headers.size(), state_var_start + 1)) {
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message =
               std::format("Boundary cuts CSV must have at least {} columns "
-                          "(name,[iteration,]scene,rhs,<state_vars>); got {}",
+                          "([iteration,]scene,rhs,<state_vars>); got {}",
                           state_var_start + 1,
                           headers.size()),
       });
@@ -208,9 +214,12 @@ using namespace gtopt::detail;
     std::set<std::size_t> warned_missing_cols;
 
     // ── Pre-scan: collect all rows for max_iterations filtering ──
+    // No ``name`` field on RawBoundaryCut — cut identity is the
+    // structured ``(iteration_index, scene_uid, phase)`` tuple, and
+    // diagnostic log messages format from those fields directly via
+    // spdlog instead of carrying a pre-baked string.
     struct RawBoundaryCut
     {
-      std::string name;
       IterationIndex iteration_index {};
       SceneUid scene_uid {};
       double rhs;
@@ -228,13 +237,9 @@ using namespace gtopt::detail;
       std::istringstream iss(line);
       std::string token;
 
-      // Column 0: name
-      std::getline(iss, token, ',');
-      auto cut_name = token;
-
       IterationIndex iteration_index {};
       if (has_iteration_col) {
-        // Column 1: iteration
+        // Column 0: iteration
         std::getline(iss, token, ',');
         iteration_index = IterationIndex {std::stoi(token)};
       }
@@ -252,7 +257,6 @@ using namespace gtopt::detail;
       std::getline(iss, remainder);
 
       raw_cuts.push_back(RawBoundaryCut {
-          .name = std::move(cut_name),
           .iteration_index = iteration_index,
           .scene_uid = scene_uid,
           .rhs = rhs,
@@ -370,10 +374,12 @@ using namespace gtopt::detail;
       if (separated) {
         auto it = scene_uid_to_index.find(rc.scene_uid);
         if (it == scene_uid_to_index.end()) {
+          // Spdlog formats the structured cut-identity tuple
+          // directly — no pre-baked name string.
           SPDLOG_TRACE(
-              "Boundary cut '{}' scene UID {} not found in "
+              "Boundary cut (iter={}, scene_uid={}) not found in "
               "scene_array -- skipping",
-              rc.name,
+              uid_of(rc.iteration_index),
               rc.scene_uid);
           continue;
         }
@@ -391,9 +397,10 @@ using namespace gtopt::detail;
         // IterationContext carries a per-cut (iter, offset) pair
         // so multiple boundary cuts for the same (scene, phase)
         // don't collide on the metadata-based duplicate detector
-        // in `LinearInterface::add_row`.  The iteration is pulled
-        // from the cut name; `cuts_loaded` breaks ties when the
-        // same iteration emits multiple cuts.
+        // in `LinearInterface::add_row`.  The iteration is read
+        // from the optional ``iteration`` CSV column (``rc.iteration_index``);
+        // ``cuts_loaded`` breaks ties when the same iteration emits
+        // multiple cuts.
         // Build the row in PURE PHYSICAL units.  `add_cut_row`
         // forwards through `LinearInterface::compose_physical`
         // (`linear_interface.cpp:1118-1200`) which applies the
@@ -418,9 +425,8 @@ using namespace gtopt::detail;
             .lowb = rc.rhs * bc_discount,
             .uppb = LinearProblem::DblMax,
             .variable_uid = sim.uid_of(last_phase),
-            // ``rc.iteration_index`` is already populated by the CSV
-            // parser above — use it directly instead of re-parsing the
-            // cut name via the removed ``extract_iteration_from_name``.
+            // ``rc.iteration_index`` is populated by the CSV parser
+            // above directly from the ``iteration`` column.
             .context = make_iteration_context(sim.uid_of(scene_index),
                                               sim.uid_of(last_phase),
                                               uid_of(rc.iteration_index),

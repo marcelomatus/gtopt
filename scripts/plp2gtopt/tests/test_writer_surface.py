@@ -33,7 +33,6 @@ EXPECTED_METHODS: tuple[str, ...] = (
     "_reservoir_names",
     "_falla_by_bus",
     "_load_alias_file",
-    "_build_stage_to_phase_map",
     "_load_variable_scales_file",
     "_dump_ror_promoted",
     "_dump_water_rights_fragment",

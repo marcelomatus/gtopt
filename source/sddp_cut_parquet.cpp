@@ -12,17 +12,26 @@
  * float64 storage in Parquet.  The legacy CSV and JSON cut writers
  * were retired in 2026-05.
  *
- * On-disk schema:
- *     type:      utf8        ("o" or "f")
+ * On-disk schema (v3, 2026-05):
+ *     type:      int8        (CutType enum's underlying uint8_t)
  *     phase:     int32
  *     scene:     int32
- *     name:      utf8
- *     iteration: int32       (extracted from cut name; explicit for fast scan)
+ *     iteration: int32       (direct, no longer extracted from a name field)
+ *     extra:     int32       (4th element of IterationContext — multi-cut
+ *                             sibling discriminator, sentinel -1 = unset)
  *     rhs:       float64
  *     dual:      float64?    (nullable)
  *     coeffs:    list<struct<key: utf8, val: float64>>
  *
- * File metadata: KeyValueMetadata{version = "2", scale_objective = "<.17g>"}.
+ * The legacy schema-v2 ``name: utf8`` column was dropped in 2026-05; cut
+ * identity now lives in the structured ``CutKey {type, scene_uid,
+ * phase_uid, iteration_index, extra}`` 5-tuple.  LP row labels are
+ * still generated at install time by ``LabelMaker::make_row_label``
+ * from the SparseRow metadata (class_name / constraint_name / uid /
+ * context), but those are an LP-display concern and never serialised
+ * back to the cut file.
+ *
+ * File metadata: KeyValueMetadata{version = "3", scale_objective = "<.17g>"}.
  *
  * Append mode: Parquet has no row-level append, so `save_cuts_parquet(...,
  * append_mode=true)` writes a sibling file `<stem>.append-<stamp>.parquet`
@@ -605,20 +614,15 @@ struct CellCuts
     map_reserve(accum,
                 static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
 
-    // De-dup across {scene_uid, phase_uid, name} — the same cut may
-    // appear in multiple files (combined + append-deltas).  Now that
-    // each per-scene cut is stored as its own row (no broadcast), the
-    // dedupe key must include scene_uid; otherwise two distinct cuts
-    // generated at the same (phase, iter) on different scenes would
-    // collide and one would be silently dropped.  When the file lacks
-    // a ``scene`` column the SceneUid sentinel ``0`` collapses every
-    // entry to the legacy "phase + name" dedupe — back-compat.
-    // Use :class:`CutKey` (the full 5-tuple including ``extra``) so
-    // multi-cut feasibility siblings and cross-scene shared copies
-    // are distinguished correctly.  Without ``extra`` in the key,
-    // forward-pass ``multi_cut`` mode collapses multiple per-slack
-    // fcuts at the same ``(scene, phase, iter, type=Feasibility)``
-    // into one on load — wrong.
+    // De-dup across the full :class:`CutKey` 5-tuple — the same cut
+    // may appear in multiple files (combined + append-deltas).  All
+    // five components matter for uniqueness: ``scene_uid`` (so two
+    // distinct cuts at the same (phase, iter) on different scenes
+    // are kept separate), ``phase_uid``, ``iteration_index``,
+    // ``type``, and ``extra`` (so multi-cut feasibility siblings
+    // emitted by forward-pass ``multi_cut`` mode at the same
+    // ``(scene, phase, iter, type=Feasibility)`` are not collapsed
+    // into one on load).
     std::set<CutKey> loaded_keys;
 
     for (const auto& fname : files) {

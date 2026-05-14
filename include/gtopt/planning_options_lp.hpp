@@ -1247,11 +1247,9 @@ public:
         MissingCutVarMode::skip_coeff);
   }
 
-  /// CSV file with named-variable cuts for hot-start across all phases.
-  [[nodiscard]] auto sddp_named_cuts_file() const -> Name
-  {
-    return m_options_.sddp_options.named_cuts_file.value_or(Name {});
-  }
+  // ``sddp_named_cuts_file`` accessor retired 2026-05 along with the
+  // CSV named-cut path; hot-start cuts come from ``cuts_input_file``
+  // (Parquet) only.
 
   /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
   [[nodiscard]] constexpr auto sddp_max_cuts_per_phase() const

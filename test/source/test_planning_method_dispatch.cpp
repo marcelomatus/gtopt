@@ -124,10 +124,8 @@ auto build_expected_sddp_opts(const PlanningOptionsLP& options) -> SDDPOptions
   sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
   sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
 
-  const auto named_cuts = options.sddp_named_cuts_file();
-  if (!named_cuts.empty()) {
-    sddp_opts.named_cuts_file = std::string(named_cuts);
-  }
+  // ``named_cuts_file`` retired 2026-05 — hot-start cuts come from
+  // ``cuts_input_file`` (Parquet) above.
 
   const auto sentinel = options.sddp_sentinel_file();
   const auto output_dir = options.output_directory();
@@ -244,7 +242,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.boundary_cuts_mode == BoundaryCutsMode::separated);
     CHECK(so.boundary_max_iterations == 0);
     CHECK(so.missing_cut_var_mode == MissingCutVarMode::skip_coeff);
-    CHECK(so.named_cuts_file.empty());
     CHECK(so.sentinel_file.empty());
 
     // ── Logging / API ──
@@ -339,7 +336,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
     popts.sddp_options.boundary_max_iterations = 37;
     popts.sddp_options.missing_cut_var_mode = MissingCutVarMode::skip_cut;
-    popts.sddp_options.named_cuts_file = std::string("snap_named.csv");
     popts.sddp_options.sentinel_file = std::string("snap_sentinel");
 
     // API / pool / async
@@ -407,7 +403,6 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.boundary_cuts_mode == BoundaryCutsMode::combined);
     CHECK(so.boundary_max_iterations == 37);
     CHECK(so.missing_cut_var_mode == MissingCutVarMode::skip_cut);
-    CHECK(so.named_cuts_file == "snap_named.csv");
     CHECK(so.sentinel_file == "snap_sentinel");
 
     // ── Logging / API ──

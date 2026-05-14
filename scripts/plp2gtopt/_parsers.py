@@ -436,22 +436,10 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "but tells gtopt to ignore it on load."
         ),
     )
-    parser.add_argument(
-        "--hot-start-cuts",
-        dest="hot_start_cuts",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help=(
-            "Wire intermediate-stage cuts from plpplaem/plpplem into the "
-            "gtopt JSON via `named_cuts_file` so EVERY phase's master "
-            "starts with PLP's full cutting-plane family (not just the "
-            "boundary phase).  When the case has no non-boundary cuts "
-            "(juan/iplp-style), this is a no-op.  Pair with "
-            "`--boundary-cuts-mode combined` for the matching boundary "
-            "story.  Use `--no-hot-start-cuts` to opt out (CSV is still "
-            "written for introspection)."
-        ),
-    )
+    # ``--hot-start-cuts`` / ``--no-hot-start-cuts`` retired 2026-05
+    # alongside ``write_hot_start_cuts_csv``.  Hot-start cuts are an
+    # internal gtopt format and now use the typed Parquet path
+    # (``--cuts-input-file`` on the gtopt side).
     parser.add_argument(
         "--alias-file",
         dest="alias_file",
@@ -460,8 +448,8 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         default=None,
         help=(
             "Path to a JSON file containing a flat {old_name: new_name} map "
-            "of state-variable renames applied when writing boundary_cuts.csv "
-            "and hot_start_cuts.csv headers.  Use this to reconcile PLP "
+            "of state-variable renames applied when writing the "
+            "boundary_cuts.csv header.  Use this to reconcile PLP "
             "reservoir/junction names with gtopt names without editing data "
             "files.  Unknown keys are ignored; missing keys pass through "
             'unchanged.  Example: {"CANUTILLAR": "CHAPO"}.'

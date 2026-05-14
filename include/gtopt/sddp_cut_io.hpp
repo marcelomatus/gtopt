@@ -127,34 +127,28 @@ inline constexpr std::string_view EfinColName {"efin"};
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
-/// Load named-variable cuts from a CSV file with a `phase` column.
-///
-/// Unlike boundary cuts (which load into the last phase only), these
-/// cuts include a `phase` column indicating which phase they belong to.
-/// The solver resolves named state-variable headers in each specified
-/// phase and adds the cuts to the corresponding phase LP.
-///
-/// @param planning_lp         The PlanningLP to add cuts to
-/// @param filepath            Input CSV file path
-/// @param options             SDDP options (for alpha bounds)
-/// @param label_maker         Label maker for LP row names
-/// @param scene_phase_states  Per-scene phase state (for alpha columns)
-/// @return CutLoadResult with count and max iteration, or an error
-[[nodiscard]] auto load_named_cuts_csv(
-    PlanningLP& planning_lp,
-    const std::string& filepath,
-    const SDDPOptions& options,
-    const LabelMaker& label_maker,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
-        scene_phase_states) -> std::expected<CutLoadResult, Error>;
+// ``load_named_cuts_csv`` was retired in 2026-05.  "Named hot-start
+// cuts" are gtopt's own internal format and now travel via the
+// Parquet writer / loader (``save_cuts_parquet`` /
+// ``load_cuts_parquet``) only — the same path every other internal
+// SDDP cut uses.  Boundary cuts (PLP-imported "planos de embalse")
+// remain CSV-compatible via ``load_boundary_cuts_csv`` above; that
+// is the only CSV cut path left.
 
 // ─── Parquet save/load functions ────────────────────────────────────────────
 //
-// Parquet schema:
-//   {type:utf8, phase:int32, scene:int32, name:utf8, iteration:int32,
+// Parquet schema v3 (2026-05):
+//   {type:int8, phase:int32, scene:int32, iteration:int32, extra:int32,
 //    rhs:float64, dual:float64?, coeffs:list<struct<key:utf8, val:float64>>}
-// File-level KeyValueMetadata: {version: "2", scale_objective: "<.17g>"}
+// File-level KeyValueMetadata: {version: "3", scale_objective: "<.17g>"}
+//
+// Cut identity is the structured :class:`CutKey` 5-tuple
+// {type, scene_uid, phase_uid, iteration_index, extra}; the legacy
+// ``name: utf8`` column was dropped in 2026-05 along with the JSON
+// writer and ``extract_iteration_from_name`` parser.  LP row labels
+// (``LabelMaker::make_row_label``) are still emitted for
+// CoinLpIO / debug-dump consumers but live only on the live LP, never
+// in the on-disk cut file.
 //
 // `append_mode = true` writes a sibling file with a unique suffix
 // (`<stem>.append-<stamp>.parquet`) in the same directory.  The loader

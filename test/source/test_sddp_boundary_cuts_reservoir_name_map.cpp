@@ -59,8 +59,8 @@ TEST_CASE(  // NOLINT
   constexpr double phys_coeff = 5.0;
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,Reservoir:rsv1\n";
-    ofs << "rsv_cut,1,0," << phys_rhs << "," << phys_coeff << "\n";
+    ofs << "iteration,scene,rhs,Reservoir:rsv1\n";
+    ofs << "1,0," << phys_rhs << "," << phys_coeff << "\n";
   }
 
   // α has to be pre-registered (load_boundary_cuts_csv won't add α
@@ -191,8 +191,8 @@ TEST_CASE(  // NOLINT
     std::ofstream ofs(tmp_file);
     // Junction:j_up — Junction class doesn't register efin state
     // variables in the 3-phase fixture (only Reservoir does).
-    ofs << "name,iteration,scene,rhs,Junction:j_up\n";
-    ofs << "junc_cut,1,0,42.0,5.0\n";
+    ofs << "iteration,scene,rhs,Junction:j_up\n";
+    ofs << "1,0,42.0,5.0\n";
   }
 
   SDDPOptions opts;

@@ -521,7 +521,6 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   std::size_t cuts_count = 0;
   std::string cuts_source;  // "" → cold; otherwise file or dir path
   std::size_t boundary_count = 0;
-  std::size_t named_count = 0;
 
   // Resolve relative SDDP file paths against `input_directory` (mirrors the
   // aperture-directory resolution at sddp_method.cpp:179-186).  Without
@@ -621,39 +620,18 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // ── Load named cuts (all phases, named state variables) ────────────────
-  // Named cuts are also part of the problem specification — always load,
-  // but do NOT affect the iteration offset.
-  if (!m_options_.named_cuts_file.empty()) {
-    const auto nc_path = resolve_input(m_options_.named_cuts_file);
-    if (std::filesystem::exists(nc_path)) {
-      auto result = load_named_cuts(nc_path);
-      if (result.has_value()) {
-        named_count = result->count;
-        SPDLOG_DEBUG(
-            "SDDP: loaded {} named cuts from {}", result->count, nc_path);
-      } else {
-        SPDLOG_WARN("SDDP: could not load named cuts: {}",
-                    result.error().message);
-      }
-    } else {
-      SPDLOG_WARN(
-          "SDDP: named_cuts_file '{}' not found (resolved to '{}') — "
-          "no named hot-start cuts will be installed",
-          m_options_.named_cuts_file,
-          nc_path);
-    }
-  }
-
   // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
+  // The "named" hot-start path was retired in 2026-05; internal cuts
+  // travel via the Parquet ``cuts_input_file`` route only.  Boundary
+  // cuts (CSV) are still loaded above when ``boundary_cuts_file`` is
+  // set.
   {
     const auto fmt_count = [](std::size_t n) -> std::string
     { return n == 0 ? std::string {"none"} : std::to_string(n); };
     SPDLOG_INFO(
-        "SDDP HotStart: cuts={} boundary={} named={} iter_offset={}",
+        "SDDP HotStart: cuts={} boundary={} iter_offset={}",
         cuts_source.empty() ? std::string {"cold"} : fmt_count(cuts_count),
         fmt_count(boundary_count),
-        fmt_count(named_count),
         m_iteration_offset_);
   }
 

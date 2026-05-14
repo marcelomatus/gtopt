@@ -41,7 +41,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "boundary_cuts_file": "boundary.csv",
     "boundary_cuts_mode": "combined",
     "boundary_max_iterations": 50,
-    "named_cuts_file": "named.csv",
     "max_cuts_per_phase": 100,
     "cut_prune_interval": 5,
     "prune_dual_threshold": 1e-6,
@@ -113,8 +112,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 50);
-  REQUIRE(opts.named_cuts_file.has_value());
-  CHECK(*opts.named_cuts_file == "named.csv");
   REQUIRE(opts.max_cuts_per_phase.has_value());
   CHECK(*opts.max_cuts_per_phase == 100);
   REQUIRE(opts.cut_prune_interval.has_value());

@@ -349,26 +349,11 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<MissingCutVarMode> missing_cut_var_mode {};
 
-  /** @brief CSV file with named-variable cuts for hot-start across all phases.
-   *
-   * Unlike boundary cuts (which apply only to the last phase), these cuts
-   * include a `phase` column indicating which phase they belong to.  The
-   * solver resolves named state-variable headers (reservoir / battery /
-   * junction) to LP column indices in the specified phase, then adds each cut
-   * as:
-   *
-   *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
-   *
-   * Format:
-   *
-   * ```text
-   * name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
-   * hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...
-   * ```
-   *
-   * If empty, no named hot-start cuts are loaded.
-   */
-  OptName named_cuts_file {};
+  // ``named_cuts_file`` (the CSV-based "named hot-start cuts" option)
+  // was retired in 2026-05.  Internal hot-start cuts now travel via
+  // ``cuts_input_file`` (Parquet) only — the typed schema is faster
+  // to parse, lossless on float coefficients, and carries scene /
+  // phase / iteration / extra directly without a name column.
 
   /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
   OptInt max_cuts_per_phase {};
@@ -677,7 +662,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
-    merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);
     merge_opt(prune_dual_threshold, opts.prune_dual_threshold);

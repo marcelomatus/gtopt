@@ -186,7 +186,11 @@ def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
     max_scene = 1
     with open(csv_path, encoding="utf-8") as f:
         reader = _csv.DictReader(f)
-        # Reservoir columns are everything after the fixed 4 header fields.
+        # Reservoir columns are everything after the fixed 3 header
+        # fields (``iteration``, ``scene``, ``rhs``).  The legacy
+        # leading ``name`` column was retired in 2026-05; the filter
+        # still names it defensively in case an older boundary_cuts.csv
+        # is read from disk.
         cols = [
             c
             for c in reader.fieldnames or []

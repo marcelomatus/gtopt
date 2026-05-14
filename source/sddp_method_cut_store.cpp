@@ -222,16 +222,6 @@ auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
                                 m_scene_phase_states_);
 }
 
-auto SDDPMethod::load_named_cuts(const std::string& filepath)
-    -> std::expected<CutLoadResult, Error>
-{
-  return load_named_cuts_csv(planning_lp(),
-                             filepath,
-                             m_options_,
-                             m_label_maker_,
-                             m_scene_phase_states_);
-}
-
 auto SDDPMethod::save_state(const std::string& filepath)
     -> std::expected<void, Error>
 {

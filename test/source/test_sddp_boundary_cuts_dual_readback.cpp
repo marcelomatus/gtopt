@@ -64,8 +64,8 @@ TEST_CASE(  // NOLINT
     // post-R4 class-aware inner match lands on Reservoir:1:efin.
     // Coefficient is 0.0 so the cut is purely α >= phys_rhs at the
     // optimum — keeps the dual analysis clean.
-    ofs << "name,iteration,scene,rhs,rsv1\n";
-    ofs << "dual_cut,1,0," << phys_rhs << ",0.0\n";
+    ofs << "iteration,scene,rhs,rsv1\n";
+    ofs << "1,0," << phys_rhs << ",0.0\n";
   }
 
   SDDPOptions opts;

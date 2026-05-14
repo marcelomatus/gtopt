@@ -100,14 +100,13 @@ TEST_CASE("sddp_*_tag constants carry the expected constraint names")
   CHECK(sddp_share_cut_tag.constraint_name == sddp_share_cut_constraint_name);
 
   // Loader tags share the single `sddp_loaded_cut_constraint_name`
-  // but distinct class names.
+  // but distinct class names.  ``sddp_named_cut_tag`` was retired in
+  // 2026-05 alongside the named-cut CSV path.
   CHECK(sddp_loaded_cut_tag.class_name == sddp_loaded_cut_class_name);
   CHECK(sddp_boundary_cut_tag.class_name == sddp_boundary_cut_class_name);
-  CHECK(sddp_named_cut_tag.class_name == sddp_named_cut_class_name);
   CHECK(sddp_loaded_cut_tag.constraint_name == sddp_loaded_cut_constraint_name);
   CHECK(sddp_boundary_cut_tag.constraint_name
         == sddp_loaded_cut_constraint_name);
-  CHECK(sddp_named_cut_tag.constraint_name == sddp_loaded_cut_constraint_name);
 }
 
 TEST_CASE("sddp_<x>_constraint_name constants are pairwise distinct")

@@ -63,7 +63,6 @@ struct SddpOptionsConstructor
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
       OptName missing_cut_var_mode_str,
-      OptName named_cuts_file,
       OptInt max_cuts_per_phase,
       OptInt cut_prune_interval,
       OptReal prune_dual_threshold,
@@ -138,7 +137,6 @@ struct SddpOptionsConstructor
       opts.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
           "missing_cut_var_mode", *missing_cut_var_mode_str);
     }
-    opts.named_cuts_file = std::move(named_cuts_file);
     opts.max_cuts_per_phase = max_cuts_per_phase;
     opts.cut_prune_interval = cut_prune_interval;
     opts.prune_dual_threshold = prune_dual_threshold;
@@ -218,7 +216,6 @@ struct json_data_contract<SddpOptions>
       json_string_null<"boundary_cuts_mode", OptName>,
       json_number_null<"boundary_max_iterations", OptInt>,
       json_string_null<"missing_cut_var_mode", OptName>,
-      json_string_null<"named_cuts_file", OptName>,
       json_number_null<"max_cuts_per_phase", OptInt>,
       json_number_null<"cut_prune_interval", OptInt>,
       json_number_null<"prune_dual_threshold", OptReal>,
@@ -277,7 +274,6 @@ struct json_data_contract<SddpOptions>
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_max_iterations,
         detail::enum_to_opt_name(opt.missing_cut_var_mode),
-        opt.named_cuts_file,
         opt.max_cuts_per_phase,
         opt.cut_prune_interval,
         opt.prune_dual_threshold,

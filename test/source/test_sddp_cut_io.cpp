@@ -25,11 +25,9 @@
  * 16. load_boundary_cuts_csv separated mode
  * 17. load_boundary_cuts_csv legacy format (no iteration column)
  * 18. load_boundary_cuts_csv iteration filtering
- * 19. load_named_cuts_csv error on nonexistent file
- * 20. load_named_cuts_csv invalid header (too few columns)
- * 21. load_named_cuts_csv wrong phase column name
- * 22. load_named_cuts_csv loads cuts for all phases
- * 23. load_named_cuts_csv skips unknown phase UIDs
+ *
+ * ``load_named_cuts_csv`` was retired in 2026-05; its tests (formerly
+ * items 19-23) were removed alongside the CSV writer.
  */
 
 #include <bit>
@@ -169,7 +167,7 @@ TEST_CASE("effective_scale_alpha auto-computes when zero")  // NOLINT
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────
 
-// ─── save_cuts_csv / load_cuts_csv round-trip via SDDPMethod ────────────────
+// ─── save_cuts / load_cuts round-trip via SDDPMethod (Parquet) ──────────────
 
 TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
 {
@@ -200,7 +198,12 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
   CHECK(std::filesystem::exists(cuts_file));
   CHECK(num_saved > 0);
 
-  // Phase 2: hot-start a fresh solver using saved cuts
+  // Phase 2: hot-start a fresh solver using saved cuts.  Since the
+  // legacy CSV-based "named hot-start cuts" path was retired in
+  // 2026-05, this Parquet round-trip is the single canonical path
+  // for re-loading SDDP cuts across runs (cascade level transitions,
+  // resumed runs, distributed solves).
+  int num_loaded = 0;
   {
     auto planning2 = make_3phase_hydro_planning();
     PlanningLP planning_lp2(std::move(planning2));
@@ -210,11 +213,19 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
     load_opts.convergence_tol = 1e-6;
     load_opts.cuts_input_file = cuts_file;
     load_opts.cut_recovery_mode = HotStartMode::replace;
+    load_opts.recovery_mode = RecoveryMode::cuts;
 
-    // Solve with hot-start — should converge faster or at least not crash
     SDDPMethod sddp2(planning_lp2, load_opts);
     auto results2 = sddp2.solve();
     REQUIRE(results2.has_value());
+
+    // After ``initialize_solver`` runs (inside ``solve``), the cuts
+    // loaded from disk must be present in the manager BEFORE the new
+    // iteration adds more cuts.  We compare ``stored_cuts.size()``
+    // against ``num_saved`` allowing the post-solve count to be
+    // strictly greater (this run added its own iter-1 cuts on top).
+    num_loaded = static_cast<int>(sddp2.stored_cuts().size());
+    CHECK(num_loaded >= num_saved);
   }
 
   std::filesystem::remove(cuts_file);
@@ -320,9 +331,9 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // Default scene UID is 0 (auto-generated when scene_array is empty)
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "bdr_cut1,1,0,100.0,5.0\n";
-    ofs << "bdr_cut2,2,0,200.0,10.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,0,100.0,5.0\n";
+    ofs << "2,0,200.0,10.0\n";
   }
 
   SDDPOptions opts;
@@ -354,8 +365,8 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "shared" mode: scene UID is ignored, cut goes to all scenes
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "shared_cut,1,0,50.0,3.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,0,50.0,3.0\n";
   }
 
   SDDPOptions opts;
@@ -385,9 +396,12 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    // Legacy format: no iteration column; default scene UID = 0
-    ofs << "name,scene,rhs,j_up\n";
-    ofs << "legacy_cut,0,75.0,4.0\n";
+    // Legacy format: no iteration column; default scene UID = 0.
+    // No leading name column either (retired 2026-05): the only CSV
+    // cut format gtopt still reads is the PLP-compatible "iter+scene+
+    // rhs+state_vars" or the older "scene+rhs+state_vars" form.
+    ofs << "scene,rhs,j_up\n";
+    ofs << "0,75.0,4.0\n";
   }
 
   SDDPOptions opts;
@@ -415,12 +429,12 @@ TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // 3 distinct iterations: 1, 2, 3; default scene UID = 0
-    ofs << "cut_iter1,1,0,10.0,1.0\n";
-    ofs << "cut_iter2,2,0,20.0,2.0\n";
-    ofs << "cut_iter3a,3,0,30.0,3.0\n";
-    ofs << "cut_iter3b,3,0,35.0,3.5\n";
+    ofs << "1,0,10.0,1.0\n";
+    ofs << "2,0,20.0,2.0\n";
+    ofs << "3,0,30.0,3.0\n";
+    ofs << "3,0,35.0,3.5\n";
   }
 
   SDDPOptions opts;
@@ -453,11 +467,11 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // Scene UID 999 does not exist
-    ofs << "bad_scene_cut,1,999,10.0,1.0\n";
+    ofs << "1,999,10.0,1.0\n";
     // Scene UID 0 exists (default auto-generated scene)
-    ofs << "good_cut,1,0,20.0,2.0\n";
+    ofs << "1,0,20.0,2.0\n";
   }
 
   SDDPOptions opts;
@@ -489,8 +503,8 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "nonexistent_rsv" does not match any element
-    ofs << "name,iteration,scene,rhs,nonexistent_rsv\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,nonexistent_rsv\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
@@ -523,8 +537,8 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // Use "Junction:j_up" format for the header
-    ofs << "name,iteration,scene,rhs,Junction:j_up\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,Junction:j_up\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
@@ -555,8 +569,8 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "Battery:j_up" - j_up is a Junction, not a Battery
-    ofs << "name,iteration,scene,rhs,Battery:j_up\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,Battery:j_up\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
@@ -587,9 +601,9 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // Zero coefficient should be skipped in the row
-    ofs << "cut1,1,1,10.0,0.0\n";
+    ofs << "1,1,10.0,0.0\n";
   }
 
   SDDPOptions opts;
@@ -619,8 +633,8 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "alpha_cut,1,1,100.0,5.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,1,100.0,5.0\n";
   }
 
   SDDPOptions opts;
@@ -670,7 +684,7 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // No data lines
   }
 
@@ -688,492 +702,10 @@ TEST_CASE(
   std::filesystem::remove(tmp_file);
 }
 
-// ─── load_named_cuts_csv tests ──────────────────────────────────────────────
-
-TEST_CASE(
-    "load_named_cuts_csv returns error for nonexistent "
-    "file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result = load_named_cuts_csv(planning_lp,
-                                    "/tmp/gtopt_nonexistent_named.csv",
-                                    opts,
-                                    label_maker,
-                                    states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::FileIOError);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv rejects header with too few "
-    "columns")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_bad_header.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // Only 4 columns, need at least 6 (name,iteration,scene,phase,rhs + 1)
-    ofs << "name,iteration,scene,phase\n";
-    ofs << "cut1,1,1,1\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::InvalidInput);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv rejects header with wrong phase "
-    "column name")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_wrong_phase.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // Column 3 should be "phase" but is "stage"
-    ofs << "name,iteration,scene,stage,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::InvalidInput);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv loads cuts for specific "
-    "phases")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_phases.csv")
-          .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Phase UIDs 1, 2, 3 exist in 3-phase planning
-    ofs << "cut_p1,1,1,1,10.0,1.0\n";
-    ofs << "cut_p2,1,1,2,20.0,2.0\n";
-    ofs << "cut_p3,1,1,3,30.0,3.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  // α is now registered by `register_alpha_variables` during
-  // SDDP init (unified across all phases); the cut loaders
-  // require it as a precondition.  Set up the same state here
-  // for an isolated-loader test call.
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
-  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
-  }
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 3);
-
-  // Verify alpha is registered as a state variable for all phases
-  // (precondition set up above; the loader consumes it).
-  for (Index pi = 0; pi < 3; ++pi) {
-    CHECK(find_alpha_state_var(
-              planning_lp.simulation(), first_scene_index(), PhaseIndex {pi})
-          != nullptr);
-  }
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv installs cuts in canonical sign convention "
-    "without double scaling")  // NOLINT
-{
-  // Regression test for the named-cuts double-composition bug
-  // (cut-sign-audit 2026-05-06).  The pre-fix loader pre-divided RHS
-  // by `scale_obj`, set `row.scale = sa`, set `row[α] = sa`, and
-  // pre-multiplied state coeffs by `col_scale / scale_obj` — then
-  // handed the row to `add_rows`, which applied `compose_physical`
-  // (× col_scale, ÷ row_max·scale_obj) a SECOND time.  Net effect at
-  // `scale_obj=1000`: the LP row landed with `lowb` ≈ `rhs / 1000`
-  // and `row[α]` ≈ `sa²/scale_obj`, so named hot-start cuts were
-  // non-binding regardless of solver progress.
-  //
-  // The fix is to assemble a pure physical-space row (`row.lowb=rhs`,
-  // `row.scale=1.0` (default), `row[α]=1.0`, `row[state]=-coeff`),
-  // exactly mirroring the boundary-cuts and CSV/JSON loaders, and
-  // let `add_rows` do the single `compose_physical` pass.
-  //
-  // Verification strategy: install the SAME cut twice.  First via the
-  // named-cuts loader (which goes through the loader code path under
-  // test).  Second via a manually-constructed canonical SparseRow
-  // (the reference path used by every other cut loader).  Both rows
-  // must land at byte-identical LP-space values — same `lowb`, same
-  // `α` coefficient, same `state` coefficient.  This invariant is
-  // independent of `scale_objective` (works whether the fixture has
-  // it set to 1.0 or a planning-cost magnitude like 1000), so the
-  // assertions are tight regardless of fixture configuration.
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_sign_round_trip.csv")
-                            .string();
-
-  constexpr double cut_rhs = 1234.0;
-  constexpr double cut_coeff = 2.5;
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    ofs << std::format("cut_p1,1,1,1,{},{}\n", cut_rhs, cut_coeff);
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
-  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
-  }
-
-  auto& li = planning_lp.system(first_scene_index(), first_phase_index())
-                 .linear_interface();
-  const auto rows_before = li.get_numrows();
-
-  // ── Path A: loader under test ─────────────────────────────────────
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  REQUIRE(result->count == 1);
-  const auto rows_after_a = li.get_numrows();
-  REQUIRE(rows_after_a == rows_before + 1);
-  const auto loader_row = RowIndex {rows_after_a - 1};
-
-  // Resolve the j_up state column the loader bound the cut to so
-  // we can ask the manual reference path to bind to the same column.
-  // The named-cuts loader at the cell-uid mapping pass keys the
-  // header `j_up` to the matching j_up state-variable column.
-  // Reconstructing this lookup keeps the test self-contained.
-  const auto* alpha_svar = find_alpha_state_var(
-      planning_lp.simulation(), first_scene_index(), first_phase_index());
-  REQUIRE(alpha_svar != nullptr);
-
-  // ── Path B: canonical-form manual install ─────────────────────────
-  // Pure physical-space row with α only (the test's CSV header
-  // `j_up` is a Junction name, not a state-variable column, so the
-  // loader silently drops its coefficient — we mirror that here so
-  // both paths produce identical LP rows).
-  auto canonical = SparseRow {
-      .lowb = cut_rhs,
-      .uppb = LinearProblem::DblMax,
-  };
-  canonical[alpha_svar->col()] = 1.0;
-  std::vector<SparseRow> canonical_batch {canonical};
-  li.add_rows(canonical_batch);
-  const auto canonical_row = RowIndex {li.get_numrows() - 1};
-
-  // ── Equivalence: both paths landed at byte-identical LP rows ──────
-  // The pre-fix loader would have produced row.lowb = rhs / scale_obj²
-  // (vs the canonical rhs / scale_obj) and row[α] = sa²/scale_obj
-  // (vs the canonical 1.0 × col_scale(α)).  At fixture scale_obj=1.0,
-  // the bound divergence collapses (1/1² = 1/1) but the α-coeff
-  // divergence remains: pre-fix sa² ≠ post-fix col_scale(α).  Either
-  // way, "loader row == canonical row" is the invariant we want, and
-  // it fires regardless of what scale_obj happens to be.
-  CHECK(li.get_row_low_raw()[loader_row]
-        == doctest::Approx(li.get_row_low_raw()[canonical_row]));
-  CHECK(li.get_row_upp_raw()[loader_row]
-        == doctest::Approx(li.get_row_upp_raw()[canonical_row]));
-  CHECK(li.get_coeff_raw(loader_row, alpha_svar->col())
-        == doctest::Approx(li.get_coeff_raw(canonical_row, alpha_svar->col())));
-
-  // Sign sanity: α coefficient is positive after compose_physical
-  // (the canonical form has +1.0; scaling preserves sign).
-  CHECK(li.get_coeff_raw(loader_row, alpha_svar->col()) > 0.0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv skips cuts with unknown phase "
-    "UID")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_unknown_phase.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Phase UID 999 does not exist
-    ofs << "bad_cut,1,1,999,10.0,1.0\n";
-    // Phase UID 1 exists
-    ofs << "good_cut,1,1,1,20.0,2.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Only the good_cut loaded; bad_cut skipped
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE("load_named_cuts_csv with empty body loads 0 cuts")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_empty_body.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // No data lines
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with ClassName:ElementName "
-    "header")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_class_name.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,Junction:j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with wrong class filter skips "
-    "coefficient")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_wrong_class.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // j_up is a Junction, not a Battery
-    ofs << "name,iteration,scene,phase,rhs,Battery:j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Default skip_coeff: cut loaded with coefficient dropped.
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with zero coefficient "
-    "skipped")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_zero_coeff.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,0.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with multiple state variable "
-    "columns")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_multi_svar.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // j_up is a real junction (uid 1), nonexistent is not
-    ofs << "name,iteration,scene,phase,rhs,j_up,nonexistent\n";
-    ofs << "cut1,1,1,2,50.0,3.0,7.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Default skip_coeff: cut loaded, "nonexistent" coefficient dropped.
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv skips blank lines in "
-    "body")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_blank_lines.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-    ofs << "\n";
-    ofs << "cut2,2,1,2,20.0,2.0\n";
-    ofs << "\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv caches per-phase column "
-    "maps")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_cache.csv")
-          .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Multiple cuts for the same phase to exercise caching
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-    ofs << "cut2,2,1,1,20.0,2.0\n";
-    ofs << "cut3,3,1,1,30.0,3.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 3);
-
-  std::filesystem::remove(tmp_file);
-}
+// ``load_named_cuts_csv`` was retired in 2026-05.  All tests for the
+// CSV-based named hot-start cut path were removed alongside it; the
+// equivalent Parquet round-trip is covered by
+// ``test_sddp_cut_parquet.cpp``.
 
 // ─── Windows \r\n line ending tests ─────────────────────────────────────────
 
@@ -1192,9 +724,9 @@ TEST_CASE(
   // The last header token "j_up" would get a trailing \r without the fix.
   {
     std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,rhs,j_up\r\n";
-    ofs << "bdr_cut1,1,0,100.0,5.0\r\n";
-    ofs << "bdr_cut2,2,0,200.0,10.0\r\n";
+    ofs << "iteration,scene,rhs,j_up\r\n";
+    ofs << "1,0,100.0,5.0\r\n";
+    ofs << "2,0,200.0,10.0\r\n";
   }
 
   SDDPOptions opts;
@@ -1214,37 +746,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "load_named_cuts_csv handles Windows \\r\\n line "
-    "endings in header")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_crlf.csv")
-          .string();
-
-  // Write CSV with Windows \r\n line endings
-  {
-    std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,phase,rhs,j_up\r\n";
-    ofs << "cut1,1,1,1,10.0,1.0\r\n";
-    ofs << "cut2,2,1,1,20.0,2.0\r\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
     "load_boundary_cuts_csv handles Windows \\r\\n line "
     "endings in data lines")  // NOLINT
 {
@@ -1258,9 +759,9 @@ TEST_CASE(
   // Write CSV with DOS \r\n in header AND data lines
   {
     std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,rhs,j_up\r\n";
-    ofs << "bdr1,1,0,100.0,5.0\r\n";
-    ofs << "bdr2,2,0,200.0,10.0\r\n";
+    ofs << "iteration,scene,rhs,j_up\r\n";
+    ofs << "1,0,100.0,5.0\r\n";
+    ofs << "2,0,200.0,10.0\r\n";
   }
 
   SDDPOptions opts;
@@ -1272,37 +773,6 @@ TEST_CASE(
 
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv handles Windows \\r\\n line "
-    "endings in data lines")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_crlf_data.csv")
-                            .string();
-
-  // Write CSV with DOS \r\n in header AND data lines
-  {
-    std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,phase,rhs,j_up\r\n";
-    ofs << "cut1,1,1,1,10.0,1.0\r\n";
-    ofs << "cut2,2,1,1,20.0,2.0\r\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   CHECK(result->count == 2);
 

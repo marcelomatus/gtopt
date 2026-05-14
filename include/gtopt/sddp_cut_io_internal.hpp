@@ -10,9 +10,9 @@
  * pipeline:
  *   * source/sddp_cut_io.cpp        — UID maps, helpers
  *   * source/sddp_cut_parquet.cpp   — Parquet save / load (single canonical
- * format)
- *   * source/sddp_boundary_cuts.cpp — boundary (future-cost) cuts
- *   * source/sddp_named_cuts.cpp    — named hot-start cuts
+ *                                     format for internal SDDP cuts)
+ *   * source/sddp_boundary_cuts.cpp — boundary (future-cost) cuts loaded
+ *                                     from PLP-compatible CSV
  *
  * `is_final_state_col` and `extract_iteration_from_name` live in the
  * public header `<gtopt/sddp_cut_io.hpp>` (they have unit tests).

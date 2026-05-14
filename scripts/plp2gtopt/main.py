@@ -414,8 +414,9 @@ def build_options(args: argparse.Namespace) -> dict:
         # `noload` so the solver doesn't try to load a file we never
         # wrote.
         opts.setdefault("boundary_cuts_mode", "noload")
-    if args.hot_start_cuts:
-        opts["hot_start_cuts"] = True
+    # ``--hot-start-cuts`` was retired in 2026-05 alongside
+    # ``write_hot_start_cuts_csv``; internal hot-start cuts now travel
+    # via the typed Parquet path (``cuts_input_file``).
     if args.alias_file is not None:
         opts["alias_file"] = args.alias_file
     if args.stationary_tol is not None:

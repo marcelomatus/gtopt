@@ -38,7 +38,6 @@ TEST_CASE("SddpOptions - Default construction")
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
   CHECK_FALSE(opts.boundary_cuts_mode.has_value());
   CHECK_FALSE(opts.boundary_max_iterations.has_value());
-  CHECK_FALSE(opts.named_cuts_file.has_value());
   CHECK_FALSE(opts.max_cuts_per_phase.has_value());
   CHECK_FALSE(opts.cut_prune_interval.has_value());
   CHECK_FALSE(opts.prune_dual_threshold.has_value());
@@ -154,7 +153,6 @@ TEST_CASE("SddpOptions - Construction with boundary cut fields")
       .boundary_cuts_file = "boundary.csv",
       .boundary_cuts_mode = BoundaryCutsMode::combined,
       .boundary_max_iterations = 50,
-      .named_cuts_file = "named.csv",
   };
 
   REQUIRE(opts.boundary_cuts_file.has_value());
@@ -163,8 +161,9 @@ TEST_CASE("SddpOptions - Construction with boundary cut fields")
   CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 50);
-  REQUIRE(opts.named_cuts_file.has_value());
-  CHECK(*opts.named_cuts_file == "named.csv");
+
+  // ``named_cuts_file`` was retired in 2026-05; internal hot-start
+  // cuts now travel via ``cuts_input_file`` (Parquet) only.
 }
 
 TEST_CASE("SddpOptions - Construction with advanced tuning fields")

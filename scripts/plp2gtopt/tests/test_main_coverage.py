@@ -182,6 +182,7 @@ class TestBuildOptions:
             "scale_theta": None,
             "use_single_bus": False,
             "use_kirchhoff": True,
+            "kirchhoff_mode": "cycle_basis",
             "reserve_fail_cost": None,
             "use_line_losses": None,
             "line_losses_mode": None,
@@ -190,7 +191,6 @@ class TestBuildOptions:
             "boundary_cuts_mode": None,
             "boundary_max_iterations": None,
             "no_boundary_cuts": False,
-            "hot_start_cuts": False,
             "alias_file": None,
             "stationary_tol": None,
             "stationary_window": None,
@@ -242,12 +242,13 @@ class TestBuildOptions:
         assert opts["output_dir"] == Path("gtopt_case_2y")
 
     def test_optional_solver_options(self):
+        # ``hot_start_cuts`` retired in 2026-05 — internal hot-start
+        # cuts now travel via the typed Parquet path on the gtopt side.
         args = self._make_args(
             cut_sharing_mode="shared",
             boundary_cuts_mode="forward",
             boundary_max_iterations=100,
             no_boundary_cuts=True,
-            hot_start_cuts=True,
             stationary_tol=0.01,
             stationary_window=5,
             reserve_fail_cost=500.0,
@@ -258,7 +259,6 @@ class TestBuildOptions:
         assert opts["boundary_cuts_mode"] == "forward"
         assert opts["boundary_max_iterations"] == 100
         assert opts["no_boundary_cuts"] is True
-        assert opts["hot_start_cuts"] is True
         assert opts["stationary_tol"] == 0.01
         assert opts["stationary_window"] == 5
         assert opts["model_options"]["reserve_fail_cost"] == 500.0

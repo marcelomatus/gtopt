@@ -366,43 +366,8 @@ class TestProcessVariableScales:
         assert "variable_scales" not in writer.planning["options"]
 
 
-# ---------------------------------------------------------------------------
-# _build_stage_to_phase_map (lines 1096-1116)
-# ---------------------------------------------------------------------------
-
-
-class TestBuildStageToPhaseMap:
-    """Tests for _build_stage_to_phase_map."""
-
-    def test_empty_stage_array(self):
-        """Returns None when stage_array is empty."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {"stage_array": []}
-        result = writer._build_stage_to_phase_map()
-        assert result is None
-
-    def test_missing_stage_array(self):
-        """Returns None when stage_array is absent."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {}
-        result = writer._build_stage_to_phase_map()
-        assert result is None
-
-    def test_valid_stage_array(self):
-        """Returns correct mapping from stage UID to phase UID."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {
-            "stage_array": [
-                {"uid": 1, "phase_uid": 1},
-                {"uid": 2, "phase_uid": 1},
-                {"uid": 3, "phase_uid": 2},
-            ],
-        }
-        result = writer._build_stage_to_phase_map()
-        assert result == {1: 1, 2: 1, 3: 2}
+# ``_build_stage_to_phase_map`` was retired in 2026-05 alongside the
+# hot-start CSV writer; the coverage tests it backed are dropped here.
 
 
 # ---------------------------------------------------------------------------
