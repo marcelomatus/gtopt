@@ -180,7 +180,7 @@ class TestGTOptWriterProcessMethods:
         # ``stationary_tol`` loosens deeper into the cascade because
         # each level's iter is progressively more expensive; the
         # tightest policy-stability demand sits on cheap L0 iters.
-        expected_stationary_tol = [0.0025, 0.005, 0.0075, 0.01]
+        expected_stationary_tol = [0.0001, 0.001, 0.005, 0.01]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.5
@@ -190,13 +190,13 @@ class TestGTOptWriterProcessMethods:
         assert levels[0]["model_options"]["use_single_bus"] is True
         assert levels[0]["sddp_options"]["num_apertures"] == 1
         assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
-        assert levels[0]["sddp_options"]["stationary_tol"] == 0.0025  # 0.25 %
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.0001  # 0.01 %
         # Level 1: uninodal (single-bus, 4 stride apertures).
         assert levels[1]["name"] == "uninodal"
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -204,7 +204,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.0075  # 0.75 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
