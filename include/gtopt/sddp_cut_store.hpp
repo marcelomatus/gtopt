@@ -50,19 +50,77 @@ struct CutLoadResult
   IterationIndex max_iteration {};  ///< Highest iteration index found
 };
 
+/// Unique identifier of a Benders cut across save / load / dedup
+/// paths.  The 5-tuple ``(scene, phase, iter, extra, type)`` is what
+/// distinguishes any two cuts:
+///
+///   * ``scene_uid``:       the scene the cut was generated on (cut
+///                          sharing preserves this UID on copies).
+///   * ``phase_uid``:       the phase the cut was added to.
+///   * ``iteration_index``: the SDDP iter at which it was generated.
+///   * ``extra``:           the 4th element of :type:`IterationContext`
+///                          — a free ``int`` discriminator that
+///                          disambiguates multi-cut siblings (forward
+///                          pass under ``multi_cut`` mode adds N
+///                          feasibility cuts per ``(scene, phase)``
+///                          cell per iter; they share everything
+///                          except this offset).
+///   * ``type``:            optimality vs feasibility.
+///
+/// Used by ``load_cuts_*`` to dedup combined + append-delta files and
+/// by ``forget_first_cuts`` for cross-scene cleanup.  Spaceship
+/// operator gives ordered + equality comparisons for free.
+struct CutKey
+{
+  CutType type {CutType::Optimality};
+  SceneUid scene_uid {};
+  PhaseUid phase_uid {};
+  IterationIndex iteration_index {};
+  /// Sentinel ``-1`` = "no source context was attached at store
+  /// time" (e.g. cuts constructed outside the SDDP backward path).
+  /// Round-trips through save/load unchanged so dedup keys stay
+  /// stable when an unset extra is the actual value rather than
+  /// uninitialised memory.
+  int extra {-1};
+
+  [[nodiscard]] auto operator<=>(const CutKey&) const = default;
+};
+
 /// A serialisable representation of a Benders cut
 struct StoredCut
 {
   CutType type {CutType::Optimality};
   PhaseUid phase_uid {};  ///< Phase UID this cut was added to
   SceneUid scene_uid {};  ///< Scene UID that generated this cut (-1 = shared)
-  std::string name {};  ///< Cut name
+  /// SDDP iteration index at which this cut was generated.  Populated
+  /// from the source ``SparseRow``'s :type:`IterationContext` at store
+  /// time.  Authoritative for all consumers that previously parsed
+  /// the cut name (which has been removed).
+  IterationIndex iteration_index {};
+  /// 4th element of :type:`IterationContext` — a free ``int``
+  /// discriminator that disambiguates multi-cut siblings (forward
+  /// pass under ``multi_cut`` mode emits N feasibility cuts per
+  /// ``(scene, phase)`` cell per iter; they share everything except
+  /// this offset).  Sentinel ``-1`` = "no source context was
+  /// attached at store time"; matches :member:`CutKey::extra`
+  /// default and round-trips unchanged.
+  int extra {-1};
   double rhs {};  ///< Right-hand side (lower bound)
   double scale {1.0};  ///< Row scale (physical → LP), mirrors SparseRow::scale
   std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
   RowIndex row {};  ///< LP row index where this cut was added
   /// Coefficient pairs: (column_index, coefficient)
   std::vector<std::pair<ColIndex, double>> coefficients {};
+
+  /// Build a :type:`CutKey` from this cut's identifying fields.
+  [[nodiscard]] auto key() const noexcept -> CutKey
+  {
+    return CutKey {.type = type,
+                   .scene_uid = scene_uid,
+                   .phase_uid = phase_uid,
+                   .iteration_index = iteration_index,
+                   .extra = extra};
+  }
 };
 
 /// Per-scene container for SDDP Benders cuts (step 1 of the

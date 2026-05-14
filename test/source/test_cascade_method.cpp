@@ -813,6 +813,129 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
   CHECK(direct_result->size() == cascade_solver.all_results().size());
 }
 
+// ─── build_level_sddp_opts priority chain: stationary_window, elastic_mode,
+//     elastic_penalty ────────────────────────────────────────────────────────
+//
+// ``build_level_sddp_opts`` is private on ``CascadePlanningMethod``.  We
+// expose it through a thin testable subclass declared in this anonymous
+// namespace so we can pin the 3-layer priority chain:
+//   base SDDPOptions → cascade-global CascadeLevelMethod defaults →
+//   per-level CascadeLevelMethod overrides.
+
+class TestableCascade : public CascadePlanningMethod
+{
+public:
+  using CascadePlanningMethod::CascadePlanningMethod;
+
+  /// Expose the private helper for white-box unit testing.
+  [[nodiscard]] auto test_build_level_sddp_opts(
+      const std::optional<CascadeLevelMethod>& level_solver,
+      int remaining_budget = -1) const -> SDDPOptions
+  {
+    return build_level_sddp_opts(level_solver, remaining_budget);
+  }
+};
+
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod build_level_sddp_opts new fields")
+{
+  SUBCASE("per-level overrides all 5 new fields")
+  {
+    // Base: all defaults (stationary_tol=0.005, stationary_window=4,
+    // elastic_filter_mode=single_cut, elastic_penalty=1000).
+    SDDPOptions base;
+    CascadeOptions cascade;
+
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.stationary_tol = OptReal {0.08};
+    level.stationary_gap_ceiling = OptReal {0.50};
+    level.stationary_window = OptInt {2};
+    level.elastic_mode = OptName {"multi_cut"};
+    level.elastic_penalty = OptReal {750.0};
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.08));
+    CHECK(opts.stationary_gap_ceiling == doctest::Approx(0.50));
+    CHECK(opts.stationary_window == 2);
+    // ``opts`` is the internal solver ``SDDPOptions`` (sddp_types.hpp),
+    // where the field is ``elastic_filter_mode`` (non-optional enum),
+    // NOT the JSON-binding ``elastic_mode`` (OptName) used at the
+    // ``CascadeLevelMethod`` overlay surface.  ``build_level_sddp_opts``
+    // is the boundary that parses the string into the enum.
+    CHECK(opts.elastic_filter_mode == ElasticFilterMode::multi_cut);
+    CHECK(opts.elastic_penalty == doctest::Approx(750.0));
+  }
+
+  SUBCASE("cascade-global wins when per-level stationary_tol is absent")
+  {
+    SDDPOptions base;
+    base.stationary_tol = 0.005;  // base default
+
+    CascadeOptions cascade;
+    cascade.sddp_options.stationary_tol = OptReal {0.04};  // cascade global
+
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    // Per-level leaves stationary_tol unset → cascade global should win.
+    CascadeLevelMethod level;
+    level.convergence_tol = OptReal {0.01};  // set something else
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.04));
+  }
+
+  SUBCASE("base wins when per-level and cascade-global stationary_tol absent")
+  {
+    SDDPOptions base;
+    base.stationary_tol = 0.005;  // base is the only source
+
+    CascadeOptions cascade;
+    // cascade.sddp_options.stationary_tol is absent
+
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    // Per-level also absent → base should be preserved.
+    const auto opts = solver.test_build_level_sddp_opts(std::nullopt);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.005));
+  }
+
+  SUBCASE("remaining_budget caps max_iterations")
+  {
+    SDDPOptions base;
+    base.max_iterations = 100;
+
+    CascadeOptions cascade;
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.max_iterations = OptInt {50};
+
+    // remaining_budget = 10 must clamp the 50 per-level value.
+    const auto opts = solver.test_build_level_sddp_opts(level, 10);
+    CHECK(opts.max_iterations == 10);
+  }
+
+  SUBCASE("remaining_budget = -1 does not clamp")
+  {
+    SDDPOptions base;
+    base.max_iterations = 100;
+
+    CascadeOptions cascade;
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.max_iterations = OptInt {30};
+
+    const auto opts = solver.test_build_level_sddp_opts(level, -1);
+    CHECK(opts.max_iterations == 30);
+  }
+}
+
 }  // anonymous namespace
 
 // NOLINTEND(bugprone-unchecked-optional-access,

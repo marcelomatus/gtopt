@@ -315,12 +315,13 @@ using namespace gtopt::detail;
             .lowb = rhs,
             .uppb = LinearProblem::DblMax,
             .variable_uid = sim.uid_of(phase_index),
-            .context = make_iteration_context(
-                sim.uid_of(scene_index),
-                sim.uid_of(phase_index),
-                uid_of(
-                    extract_iteration_from_name(std::string_view {cut_name})),
-                result.count),
+            // ``iteration_index`` is parsed from the CSV row at line
+            // ~217 — use it directly instead of re-parsing the cut
+            // name via the removed ``extract_iteration_from_name``.
+            .context = make_iteration_context(sim.uid_of(scene_index),
+                                              sim.uid_of(phase_index),
+                                              uid_of(iteration_index),
+                                              result.count),
         };
         sddp_named_cut_tag.apply_to(row);
         row[alpha_svar->col()] = 1.0;

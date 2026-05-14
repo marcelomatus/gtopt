@@ -78,7 +78,8 @@ using namespace gtopt::detail;
           .type = (cut.type == CutType::Feasibility) ? "f" : "o",
           .phase_uid = static_cast<int>(cut.phase_uid),
           .scene_uid = static_cast<int>(cut.scene_uid),
-          .name = cut.name,
+          .iteration = static_cast<int>(uid_of(cut.iteration_index)),
+          .extra = cut.extra,
           .rhs = cut.rhs,
           .dual = cut.dual,
       };
@@ -91,9 +92,11 @@ using namespace gtopt::detail;
           const auto it = col_keys.find(col);
           if (it == col_keys.end()) {
             throw std::runtime_error(std::format(
-                "SDDP save_cuts_json: cut '{}' references col {} that "
-                "is not a registered state variable",
-                cut.name,
+                "SDDP save_cuts_json: cut at (scene={}, phase={}, iter={}) "
+                "references col {} that is not a registered state variable",
+                cut.scene_uid,
+                cut.phase_uid,
+                uid_of(cut.iteration_index),
                 col));
           }
           const auto& [cls, var, uid] = it->second;
@@ -187,8 +190,12 @@ using namespace gtopt::detail;
 
     const auto phase_uid_to_index = build_phase_uid_map(planning_lp);
 
-    // Track loaded (phase_uid, name) pairs to skip duplicates
-    std::set<std::pair<int, std::string>> loaded_keys;
+    // Use :class:`CutKey` (the full 5-tuple including ``extra``) to
+    // skip duplicates.  Including ``extra`` keeps multi-cut
+    // feasibility siblings distinguishable (forward pass ``multi_cut``
+    // mode emits multiple per-slack cuts per ``(scene, phase, iter)``
+    // cell, all with ``type=Feasibility``).
+    std::set<CutKey> loaded_keys;
 
     // Per-cell accumulator: collect every (scene, phase, cut_type) install
     // in pass 1, then dispatch one bulk `add_rows` per (scene, phase, type)
@@ -209,20 +216,29 @@ using namespace gtopt::detail;
     CutLoadResult result {};
 
     for (const auto& entry : file_data.cuts) {
-      if (!loaded_keys.emplace(entry.phase_uid, entry.name).second) {
+      const auto entry_type =
+          (entry.type == "f") ? CutType::Feasibility : CutType::Optimality;
+      const auto entry_key = CutKey {
+          .type = entry_type,
+          .scene_uid = make_uid<Scene>(entry.scene_uid),
+          .phase_uid = make_uid<Phase>(entry.phase_uid),
+          .iteration_index = IterationIndex {entry.iteration},
+          .extra = entry.extra,
+      };
+      if (!loaded_keys.insert(entry_key).second) {
         continue;
       }
 
-      result.max_iteration = std::max(result.max_iteration,
-                                      extract_iteration_from_name(entry.name));
+      result.max_iteration =
+          std::max(result.max_iteration, IterationIndex {entry.iteration});
 
       auto pit = phase_uid_to_index.find(make_uid<Phase>(entry.phase_uid));
       if (pit == phase_uid_to_index.end()) {
         SPDLOG_WARN(
-            "SDDP load_cuts_json: unknown phase UID {} for cut '{}'; "
-            "skipping",
+            "SDDP load_cuts_json: unknown phase UID {} for cut at iter "
+            "{}; skipping",
             entry.phase_uid,
-            entry.name);
+            entry.iteration);
         continue;
       }
       const auto phase_index = pit->second;
@@ -267,10 +283,10 @@ using namespace gtopt::detail;
               uid_val);
           if (ec != std::errc {}) {
             SPDLOG_WARN(
-                "SDDP load_cuts_json: invalid uid '{}' in key for "
-                "cut '{}'; skipping coeff",
+                "SDDP load_cuts_json: invalid uid '{}' in key at iter "
+                "{}; skipping coeff",
                 uid_str,
-                entry.name);
+                entry.iteration);
             continue;
           }
           bool found = false;
@@ -289,16 +305,16 @@ using namespace gtopt::detail;
           if (!found) {
             SPDLOG_WARN(
                 "SDDP load_cuts_json: key '{}' not found in state "
-                "variables for cut '{}'; ignoring coefficient",
+                "variables at iter {}; ignoring coefficient",
                 key,
-                entry.name);
+                entry.iteration);
           }
         } else {
           SPDLOG_WARN(
-              "SDDP load_cuts_json: unrecognized key '{}' in cut "
-              "'{}'; ignoring",
+              "SDDP load_cuts_json: unrecognized key '{}' at iter {}; "
+              "ignoring",
               key,
-              entry.name);
+              entry.iteration);
         }
       }
 
@@ -306,18 +322,37 @@ using namespace gtopt::detail;
         continue;
       }
 
-      // Add resolved cut (physical) to all scenes — add_row handles
-      // col_scales + row-max.  Use IterationContext so each loaded
-      // cut has a unique metadata signature (see CSV loader for
-      // rationale).
-      const auto cut_iter = extract_iteration_from_name(entry.name);
-      const auto cut_offset = result.count;
+      // Route to the specific scene matching ``entry.scene_uid``
+      // (same per-scene routing as ``load_cuts_parquet``).  Preserves
+      // ``entry.extra`` as the IterationContext discriminator so
+      // multi-cut feasibility siblings stay distinguishable.
+      const auto cut_iter = IterationIndex {entry.iteration};
+      // Sentinel ``-1`` (= "no source context attached") → fall back
+      // to a per-load serial counter.  Real ``extra`` values
+      // (including 0) round-trip unchanged.
+      const auto cut_offset =
+          (entry.extra >= 0) ? entry.extra : static_cast<int>(result.count);
       const auto phase_uid_ctx = sim.uid_of(phase_index);
-      const auto cut_type =
-          (entry.type == "f") ? CutType::Feasibility : CutType::Optimality;
+      SceneIndex target_scene {};
+      bool scene_found = false;
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        if (sim.uid_of(scene_index) == make_uid<Scene>(entry.scene_uid)) {
+          target_scene = scene_index;
+          scene_found = true;
+          break;
+        }
+      }
+      if (!scene_found) {
+        SPDLOG_WARN(
+            "SDDP load_cuts_json: unknown scene UID {} for cut at iter "
+            "{}; skipping",
+            entry.scene_uid,
+            entry.iteration);
+        continue;
+      }
+      {
         auto scene_row = row;
-        scene_row.context = make_iteration_context(sim.uid_of(scene_index),
+        scene_row.context = make_iteration_context(sim.uid_of(target_scene),
                                                    phase_uid_ctx,
                                                    uid_of(cut_iter),
                                                    cut_offset);
@@ -328,8 +363,8 @@ using namespace gtopt::detail;
         // in one bulk pass after the file is fully streamed (below).
         // Coefficients stay in physical space — `add_rows` applies
         // col_scales + per-row row-max identically to the per-cut path.
-        auto& cell = accum[std::make_pair(scene_index, phase_index)];
-        if (cut_type == CutType::Optimality) {
+        auto& cell = accum[std::make_pair(target_scene, phase_index)];
+        if (entry_type == CutType::Optimality) {
           cell.opt.push_back(std::move(scene_row));
         } else {
           cell.feas.push_back(std::move(scene_row));

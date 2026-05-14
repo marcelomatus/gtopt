@@ -295,6 +295,21 @@ TEST_CASE("save_cuts_parquet -> load_cuts round-trip preserves cut count")
     auto load_result = sddp2.load_cuts(cuts_file);
     REQUIRE(load_result.has_value());
     CHECK(load_result->count == saved_count);
+
+    // Stronger assertion: the cut store (``m_cut_store_``) must hold
+    // exactly the same number of cuts as were saved — NOT
+    // ``saved_count × num_scenes``.
+    //
+    // The original ``load_result.count`` check only verified the
+    // file-row count (incremented once per parquet row).  It did NOT
+    // catch the broadcast bug where each loaded cut was replicated
+    // across all N_scenes and pushed into every scene's cut store —
+    // the symptom that produced 6 400 → 104 800 → 1 679 560 cuts at
+    // each juan/IPLP cascade transition.  This stronger check
+    // enforces the per-scene routing contract: 1 file row → 1 store
+    // entry.
+    const auto stored_after_load = sddp2.num_stored_cuts();
+    CHECK(stored_after_load == saved_count);
   }
 
   std::filesystem::remove(cuts_file);
@@ -560,7 +575,7 @@ TEST_CASE(
       .type = CutType::Optimality,
       .phase_uid = make_uid<Phase>(1),
       .scene_uid = make_uid<Scene>(1),
-      .name = "opt_a",
+      .iteration_index = IterationIndex {0},
       .rhs = 10.0,
       .dual = 100.0,
   });
@@ -568,7 +583,7 @@ TEST_CASE(
       .type = CutType::Feasibility,
       .phase_uid = make_uid<Phase>(1),
       .scene_uid = make_uid<Scene>(1),
-      .name = "feas_a",
+      .iteration_index = IterationIndex {0},
       .rhs = 5.0,
       .dual = 200.0,
   });
@@ -576,7 +591,7 @@ TEST_CASE(
       .type = CutType::Optimality,
       .phase_uid = make_uid<Phase>(2),
       .scene_uid = make_uid<Scene>(2),
-      .name = "opt_b",
+      .iteration_index = IterationIndex {1},
       .rhs = 20.0,
       .dual = 50.0,
   });
@@ -593,7 +608,10 @@ TEST_CASE(
   CHECK(filtered.size() == 2);
   for (const auto& c : filtered) {
     CHECK(c.type == CutType::Optimality);
-    CHECK(c.name.find("feas") == std::string::npos);
+    // (Previously also asserted ``c.name.find("feas") == npos`` — the
+    // ``name`` field was removed; ``c.type`` is now the authoritative
+    // distinction between optimality and feasibility cuts, so the
+    // single check above subsumes the redundant name-based one.)
   }
 }
 
@@ -817,15 +835,29 @@ TEST_CASE(  // NOLINT
   CHECK(std::isfinite(s1.gap));
   CHECK(s1.lower_bound <= s1.upper_bound + 1e-6);
 
-  // (e) Because BOTH phase-1 and phase-2 results are inserted into
-  // `all_results()`, the total record count must exceed the naive
-  // (s0 + s1) headcount: level 0 = s0.iterations + 1 fwd, phase 1
-  // contributed at least 1 result, level 1 stats = s1.iterations + 1
-  // fwd.  Expect strictly MORE than (s0.iterations + 1 + s1.iterations
-  // + 1).
+  // (e) Both phase-1 and phase-2 results are inserted into
+  // `all_results()`.  Under the post-2026-05 cascade accounting,
+  // ``s1.iterations`` is the "full level" stat
+  // (``phase1_iter_count_for_stats + level_iterations`` — see
+  // cascade_method.cpp:761-765), so the total record count equals
+  //
+  //   level0_size           (= s0.iterations, intermediate-level no-sim)
+  //   + phase1_size         (= phase1_iters + 1 sim entry)
+  //   + phase2_size         (= level_iterations + 1 sim entry)
+  //   = s0.iterations + (phase1_iters + 1) + (level_iterations + 1)
+  //   = s0.iterations + s1.iterations + 2
+  //
+  // which is exactly the "naive" ``s0.iterations + 1 + s1.iterations
+  // + 1`` headcount.  The CHECK below pins the equality so a future
+  // regression that DROPS phase-1 results entirely (size shrinks by
+  // ``phase1_size``) or appends them twice (size grows) trips the
+  // test.  The earlier strict-greater form silently passed when no
+  // phase-1 was actually appended (size collapsed to baseline-2)
+  // because the regression set ``forget_threshold=0`` and the test
+  // saw "exactly baseline" as success.
   const auto baseline =
       static_cast<size_t>(s0.iterations + 1 + s1.iterations + 1);
-  CHECK(solver.all_results().size() > baseline);
+  CHECK(solver.all_results().size() == baseline);
 }
 
 TEST_CASE(  // NOLINT

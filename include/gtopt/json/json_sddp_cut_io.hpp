@@ -40,7 +40,17 @@ struct CutEntry
   std::string type {};  ///< "o" (optimality) or "f" (feasibility)
   int phase_uid {};  ///< Phase UID this cut belongs to
   int scene_uid {};  ///< Scene UID that generated this cut
-  std::string name {};  ///< Cut name (for iteration tracking)
+  /// SDDP iteration index at which this cut was generated.  Replaces
+  /// the legacy ``name`` field — every consumer that previously parsed
+  /// iter from the name now reads this integer directly.
+  int iteration {};
+  /// 4th element of :type:`IterationContext` — the free ``int``
+  /// discriminator that distinguishes multi-cut feasibility siblings
+  /// (forward pass under ``multi_cut`` mode emits N cuts per
+  /// ``(scene, phase, iter)`` cell; they share everything except this
+  /// offset).  Mirrors :member:`StoredCut::extra`; sentinel ``-1`` =
+  /// "no source context attached at store time".
+  int extra {-1};
   double rhs {};  ///< Right-hand side in physical objective units
   std::optional<double> dual {};  ///< Row dual (nullopt = unknown)
   std::vector<CutCoeffEntry> coefficients {};  ///< Variable coefficients
@@ -102,7 +112,8 @@ struct json_data_contract<gtopt::CutEntry>
       json_member_list<json_string<"type", std::string>,
                        json_number<"phase", int>,
                        json_number<"scene", int>,
-                       json_string<"name", std::string>,
+                       json_number<"iteration", int>,
+                       json_number<"extra", int>,
                        json_number<"rhs", double>,
                        json_number_null<"dual", std::optional<double>>,
                        json_array<"coefficients", gtopt::CutCoeffEntry>>;
@@ -112,7 +123,8 @@ struct json_data_contract<gtopt::CutEntry>
     return std::forward_as_tuple(v.type,
                                  v.phase_uid,
                                  v.scene_uid,
-                                 v.name,
+                                 v.iteration,
+                                 v.extra,
                                  v.rhs,
                                  v.dual,
                                  v.coefficients);

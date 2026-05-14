@@ -786,6 +786,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
       state.forward_objective = obj_physical - alpha_val;
 
+      // Convergence indicators: read the (sparse) slack column values
+      // straight out of the just-solved LP and accumulate them into
+      // `linear_interface().solver_stats()`.  Single-writer on this
+      // task's thread — same regime as `update_max_kappa` two lines
+      // above — so no synchronisation is required.  Must run before
+      // `release_backend()` below because the accumulator reads
+      // `li.get_col_sol()` for ~O(reservoirs + flow-rights + demands)
+      // sparse lookups and the live backend serves them cheapest.
+      system.accumulate_convergence_indicators(scene_index, phase_index);
+
       // Release solver backend — no-op when low_memory is off.
       //
       // The flat-LP snapshot IS retained here even during simulation

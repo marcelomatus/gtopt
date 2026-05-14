@@ -93,6 +93,62 @@ TEST_CASE("CascadeLevelMethod - Default construction")
   CHECK_FALSE(m.apertures.has_value());
   CHECK_FALSE(m.num_apertures.has_value());
   CHECK_FALSE(m.convergence_tol.has_value());
+  CHECK_FALSE(m.stationary_tol.has_value());
+  CHECK_FALSE(m.stationary_gap_ceiling.has_value());
+  CHECK_FALSE(m.stationary_window.has_value());
+  CHECK_FALSE(m.elastic_mode.has_value());
+  CHECK_FALSE(m.elastic_penalty.has_value());
+}
+
+TEST_CASE("CascadeLevelMethod - Merge stationary_window/elastic overlay wins")
+{
+  CascadeLevelMethod base {
+      .stationary_window = 4,
+      .elastic_mode = "single_cut",
+      .elastic_penalty = 1000.0,
+  };
+  const CascadeLevelMethod overlay {
+      .stationary_window = 8,
+      .elastic_mode = "multi_cut",
+      .elastic_penalty = 500.0,
+  };
+  base.merge(overlay);
+  REQUIRE(base.stationary_window.has_value());
+  CHECK(*base.stationary_window == 8);
+  REQUIRE(base.elastic_mode.has_value());
+  CHECK(*base.elastic_mode == "multi_cut");
+  REQUIRE(base.elastic_penalty.has_value());
+  CHECK(*base.elastic_penalty == doctest::Approx(500.0));
+}
+
+TEST_CASE("CascadeLevelMethod - Merge stationary_tol overlay wins")
+{
+  CascadeLevelMethod base {
+      .stationary_tol = 0.04,
+  };
+  const CascadeLevelMethod overlay {
+      .stationary_tol = 0.01,
+  };
+
+  base.merge(overlay);
+
+  REQUIRE(base.stationary_tol.has_value());
+  CHECK(*base.stationary_tol == doctest::Approx(0.01));
+}
+
+TEST_CASE("CascadeLevelMethod - Merge stationary_gap_ceiling overlay wins")
+{
+  CascadeLevelMethod base {
+      .stationary_gap_ceiling = 0.50,
+  };
+  const CascadeLevelMethod overlay {
+      .stationary_gap_ceiling = 0.05,
+  };
+
+  base.merge(overlay);
+
+  REQUIRE(base.stationary_gap_ceiling.has_value());
+  CHECK(*base.stationary_gap_ceiling == doctest::Approx(0.05));
 }
 
 TEST_CASE("CascadeLevelMethod - Construction with all fields")

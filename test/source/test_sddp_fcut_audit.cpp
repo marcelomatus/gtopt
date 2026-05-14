@@ -227,11 +227,11 @@ TEST_CASE(  // NOLINT
   CAPTURE(static_cast<int>(cuts_after));
   CHECK(n_feas >= 1);
 
-  // Every cut in the store has populated metadata — name, rhs,
-  // coefficients — matching what the label maker and store_cut
-  // constructed at install time.
+  // Every cut in the store has populated metadata — rhs,
+  // coefficients — matching what store_cut constructed at install
+  // time.  ``name`` was removed in 2026-05 (LP row labels are
+  // generated independently inside ``LinearInterface::add_rows``).
   for (const auto& c : combined) {
-    CHECK_FALSE(c.name.empty());
     CHECK_FALSE(c.coefficients.empty());
     CHECK(c.row != RowIndex {unknown_index});
   }
@@ -673,18 +673,20 @@ TEST_CASE(  // NOLINT
   // synthesized label.
   [[maybe_unused]] auto results = sddp.solve();
 
-  // Both mcut row-naming prefixes should appear in the stored cuts'
-  // metadata — `mcut_lb` bounds and/or `mcut_ub` bounds are emitted
-  // whenever at least one slack is active in the elastic clone.
+  // Count feasibility (mcut) cuts and verify each one is unique by
+  // ``(phase, iter, type, extra)`` — a duplicate would mean the same
+  // (scene, phase) cell got the same iter's mcut twice with the same
+  // multi-cut discriminator, which shouldn't happen.  Replaces the
+  // legacy name-based dedup; the ``name`` field on ``StoredCut`` was
+  // removed in 2026-05.  The ``extra`` field disambiguates multi-cut
+  // feasibility siblings emitted at the same (scene, phase, iter).
   int n_mcut = 0;
-  std::unordered_set<std::string> seen_names;
+  std::set<std::tuple<PhaseUid, IterationIndex, CutType, int>> seen_keys;
   for (const auto& c : sddp.stored_cuts()) {
-    if (c.name.contains("mcut")) {
+    if (c.type == CutType::Feasibility) {
       ++n_mcut;
-      // Every stored name must be unique — a duplicate would confirm
-      // the regression is back.
-      CAPTURE(c.name);
-      const auto [it, inserted] = seen_names.insert(c.name);
+      const auto [it, inserted] =
+          seen_keys.insert({c.phase_uid, c.iteration_index, c.type, c.extra});
       CHECK(inserted);
     }
   }
@@ -695,8 +697,8 @@ TEST_CASE(  // NOLINT
   // so every cut would collapse to `source ≥ emax` and is dropped by
   // the box-edge guard.  That is the CORRECT post-fix behaviour: those
   // pinning cuts were the bug.  The test still verifies (a) solve()
-  // doesn't throw under LpNamesLevel::all and (b) any mcut labels that
-  // ARE emitted are unique.  `n_mcut >= 0` is trivially true but keeps
-  // the CAPTURE visible in failures.
+  // doesn't throw under LpNamesLevel::all and (b) any mcut entries
+  // that ARE emitted are unique.  `n_mcut >= 0` is trivially true
+  // but keeps the CAPTURE visible in failures.
   CHECK(n_mcut >= 0);
 }

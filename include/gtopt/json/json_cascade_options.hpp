@@ -55,7 +55,12 @@ struct json_data_contract<CascadeLevelMethod>
                                        json_number_no_name<Uid>>,
                        json_number_null<"num_apertures", OptInt>,
                        json_string_null<"aperture_selection_mode", OptName>,
-                       json_number_null<"convergence_tol", OptReal>>;
+                       json_number_null<"convergence_tol", OptReal>,
+                       json_number_null<"stationary_tol", OptReal>,
+                       json_number_null<"stationary_gap_ceiling", OptReal>,
+                       json_number_null<"stationary_window", OptInt>,
+                       json_string_null<"elastic_mode", OptName>,
+                       json_number_null<"elastic_penalty", OptReal>>;
 
   constexpr static auto to_json_data(CascadeLevelMethod const& opt)
   {
@@ -64,7 +69,12 @@ struct json_data_contract<CascadeLevelMethod>
                                  opt.apertures,
                                  opt.num_apertures,
                                  opt.aperture_selection_mode,
-                                 opt.convergence_tol);
+                                 opt.convergence_tol,
+                                 opt.stationary_tol,
+                                 opt.stationary_gap_ceiling,
+                                 opt.stationary_window,
+                                 opt.elastic_mode,
+                                 opt.elastic_penalty);
   }
 };
 

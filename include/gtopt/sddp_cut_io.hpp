@@ -47,30 +47,12 @@ class PlanningLP;
 [[nodiscard]] auto build_phase_uid_map(const PlanningLP& planning_lp)
     -> flat_map<PhaseUid, PhaseIndex>;
 
-/// Extract the iteration field from an SDDP cut row name.
-///
-/// Format (the type-tag determines whether the iteration field is
-/// present; tag literals come from `sddp_<x>_row_prefix` in
-/// `<gtopt/sddp_types.hpp>`, which are pinned to
-/// `(sddp_alpha_lp_class, sddp_<x>_constraint_name)` at compile time):
-///   sddp_scut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_fcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_bcut_{uid}_{scene}_{phase}_{iteration}_{offset}  → field [5]
-///   sddp_ecut_{scene}_{phase}_{total_cuts}                → no iter
-///
-/// The on-disk ``{iteration}`` field is a 0-based ``IterationIndex``
-/// (matching the runtime loop counter) — NOT the 1-based
-/// ``IterationUid`` that LP-label contexts carry.  Callers feeding
-/// this back into ``make_iteration_context`` must convert via
-/// ``uid_of(extract_iteration_from_name(...))``.  Keeping the disk
-/// format 0-based preserves backward compat with existing golden
-/// files; switching the format to UID-based is a separate invasive
-/// change that must update all serialised cut files.
-///
-/// Returns ``IterationIndex {0}`` if the iteration cannot be
-/// determined (unknown row-name shape, missing field, parse error).
-[[nodiscard]] auto extract_iteration_from_name(std::string_view name)
-    -> IterationIndex;
+// ``extract_iteration_from_name`` was removed in 2026-05.  Every
+// consumer now reads the iteration index directly from the matching
+// struct field (``StoredCut::iteration_index``,
+// ``CutEntry::iteration``, ``RawBoundaryCut::iteration_index``).  See
+// the documentation block in ``source/sddp_cut_io.cpp`` for the
+// migration notes.
 
 /// Canonical state-variable column name that may appear as a cut
 /// coefficient column in boundary / hot-start cut CSV headers.
@@ -243,7 +225,16 @@ inline constexpr std::string_view EfinColName {"efin"};
     const LabelMaker& label_maker,
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
+        scene_phase_states = nullptr,
+    /// When non-null, every loaded cut is also pushed into this
+    /// :class:`SDDPCutManager` via ``store_cut`` so the manager's
+    /// per-scene vectors stay authoritative for inherited + generated
+    /// cuts.  Without this, ``SDDPCutManager::forget_first_cuts(N)``
+    /// would walk a store that doesn't know about the loaded cuts and
+    /// would delete the wrong rows from the LP — root cause of the
+    /// cascade ``forget_first_cuts`` + ``low_memory=compress`` crash
+    /// observed on juan/IPLP when ``inherit_optimality_cuts > 0``.
+    SDDPCutManager* cut_store = nullptr) -> std::expected<CutLoadResult, Error>;
 
 /// Load all per-scene Parquet cut files from a directory.
 ///

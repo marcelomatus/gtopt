@@ -151,12 +151,13 @@ class BoundaryMixin:
 
         # Wire mode and max-iterations options through to the JSON.
         # Default to `combined` so gtopt's loader feeds every cut into
-        # every scene (mirrors PLP, where the master LP sees the full
-        # `1..NVarPhi` cut family).  The cut RHS / gradients were
-        # already pre-divided by NVarPhi above, so combined mode plus
-        # `prob_s × α_s` aggregation reproduces PLP's per-scenario α
-        # exactly.  Explicit user setting via `--boundary-cuts-mode`
-        # still wins.
+        # every scene (mirrors PLP's single-master semantics — see
+        # `plp_storage/CEN65/src/leeplaem.f::LeePlaEmb`, every cut at
+        # the boundary stage installed into one master with `1/NSimul`
+        # per-α weighting).  The cut RHS / gradients are pre-divided by
+        # NVarPhi in the CSV, so combined + `prob_s × α_s` aggregation
+        # reproduces PLP's expected α exactly.  Explicit user setting
+        # via `--boundary-cuts-mode` still wins.
         bc_mode = options.get("boundary_cuts_mode")
         if bc_mode is None and planos.cuts:
             bc_mode = "combined"
@@ -168,9 +169,17 @@ class BoundaryMixin:
             sddp_opts["boundary_max_iterations"] = bc_max_iter
 
         # ── Hot-start cuts (intermediate stages) ───────────────────────────
-        # Always export hot-start cuts when non-boundary cuts exist, so they
-        # are available in the gtopt input directory.  Loading is disabled by
-        # default; pass --hot-start-cuts to enable named_cuts_file.
+        # When PLP emitted cuts for non-boundary stages, export them to
+        # `hot_start_cuts.csv` AND wire them into the gtopt JSON via
+        # `named_cuts_file` so every phase's master starts with PLP's full
+        # cutting-plane family loaded — not just the boundary phase's.
+        # Earlier behaviour gated the wiring behind an explicit
+        # `--hot-start-cuts` flag; that left juan-class cases loading only
+        # ~1007 boundary cuts (a single phase) while ignoring the
+        # intermediate-phase cuts that PLP's master had relied on.
+        # Setting `hot_start_cuts: false` in the writer options still
+        # disables the wiring (the file is written either way for
+        # introspection).
         non_boundary = [
             c for c in planos.all_cuts if c["stage"] != planos.boundary_stage
         ]
@@ -186,8 +195,9 @@ class BoundaryMixin:
                 name_alias=name_alias,
                 num_scenarios=num_scenarios,
             )
-            # Only wire the file into the JSON options if explicitly requested
-            if options.get("hot_start_cuts", False):
+            # Wire the file into JSON by default — opt out via
+            # `--no-hot-start-cuts` / `hot_start_cuts: false`.
+            if options.get("hot_start_cuts", True):
                 if input_dir_val == ".":
                     sddp_opts["named_cuts_file"] = "hot_start_cuts.csv"
                 else:

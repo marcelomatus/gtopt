@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/block_lp.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/object_lp.hpp>
@@ -76,6 +77,29 @@ public:
                                     const StageLP& stage) const
   {
     return fail_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Return the flow-right failure slack column for
+  /// (scenario, stage, block), if it exists.  The slack is only created
+  /// when the flow-right has a non-zero `fail_cost`; returns
+  /// `std::nullopt` otherwise.  Used by
+  /// SystemLP::accumulate_convergence_indicators().
+  [[nodiscard]]
+  constexpr std::optional<ColIndex> fail_col_at(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BlockLP& block) const noexcept
+  {
+    const auto st_it = fail_cols.find({scenario.uid(), stage.uid()});
+    if (st_it == fail_cols.end()) {
+      return std::nullopt;
+    }
+    const auto& by_block = st_it->second;
+    const auto b_it = by_block.find(block.uid());
+    if (b_it == by_block.end()) {
+      return std::nullopt;
+    }
+    return b_it->second;
   }
 
   /// Return the stage-average hourly flow column for (scenario, stage).

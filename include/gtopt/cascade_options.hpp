@@ -80,6 +80,39 @@ struct CascadeLevelMethod
   OptName aperture_selection_mode {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};
+  /// Stationary-gap tolerance for this level (nullopt = inherit base).
+  /// Per-level override of ``SDDPOptions::stationary_tol``: plp2gtopt
+  /// emits looser values for early cascade levels (e.g. 4 % at warmup,
+  /// 2 % at uninodal) so they can early-exit on a wide stationary
+  /// plateau without waiting for the strict ``1 %`` tail levels need.
+  OptReal stationary_tol {};
+  /// Maximum ``|gap|`` for stationary convergence at this level
+  /// (nullopt = inherit base ``SDDPOptions::stationary_gap_ceiling``).
+  /// Early cascade levels with reduced apertures have a structural UB
+  /// underestimate and the gap can sit at +40% on warmup / +25% on
+  /// uninodal even when Δgap has plateaued; without raising the ceiling
+  /// here the ``stationary_tol`` threshold alone cannot trip
+  /// convergence.  plp2gtopt emits a uniform 50% across all levels.
+  OptReal stationary_gap_ceiling {};
+  /// Number of consecutive iterations Δgap must stay below
+  /// ``stationary_tol`` before stationary convergence trips (nullopt =
+  /// inherit base ``SDDPOptions::stationary_window``).  Looser early
+  /// levels can use a shorter window (e.g. 2) to short-circuit on a
+  /// shallow plateau; the tail level may want a stricter window (e.g.
+  /// 8) to filter sampling noise.
+  OptInt stationary_window {};
+  /// Elastic-cut mode override for this level (nullopt = inherit base
+  /// ``SDDPOptions::elastic_mode``).  Warmup is typically fine with
+  /// ``single_cut`` while ``full_network`` benefits from ``multi_cut``
+  /// once aperture coverage is broad enough to justify the extra cut
+  /// rows.  String matches the JSON enum spelling.
+  OptName elastic_mode {};
+  /// Elastic-cut penalty override for this level in $/MWh of
+  /// elastic-state violation (nullopt = inherit base
+  /// ``SDDPOptions::elastic_penalty``).  Lower at warmup (looser
+  /// feasibility) and tighter at full_network (penalty must be
+  /// commensurate with the physical-cost scale).
+  OptReal elastic_penalty {};
 
   void merge(const CascadeLevelMethod& opts)
   {
@@ -89,6 +122,11 @@ struct CascadeLevelMethod
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
     merge_opt(convergence_tol, opts.convergence_tol);
+    merge_opt(stationary_tol, opts.stationary_tol);
+    merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
+    merge_opt(stationary_window, opts.stationary_window);
+    merge_opt(elastic_mode, opts.elastic_mode);
+    merge_opt(elastic_penalty, opts.elastic_penalty);
   }
 };
 

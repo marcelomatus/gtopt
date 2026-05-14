@@ -27,6 +27,9 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/linear_problem.hpp>
+#include <gtopt/low_memory_snapshot.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
@@ -272,6 +275,155 @@ TEST_CASE("write_lp on disposable cols emits gtopt-formatted labels")
 
   std::error_code ec;
   std::filesystem::remove(stem + ".lp", ec);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Regression: low_memory=compress + record_cut_deletion across release /
+// reconstruct cycle.  Mirrors the cascade `forget_first_cuts` lifecycle:
+//
+//   1. Build flat structural LP, install snapshot.
+//   2. Add a "cascade elastic" dynamic row (record_dynamic_row).
+//   3. Add multiple Benders-style cuts (record_cut_row).
+//   4. Delete one of the cut rows from the LP (delete_rows +
+//      record_cut_deletion).
+//   5. release_backend → reconstruct_backend should re-hydrate the snapshot
+//      and replay only the cuts that survived the deletion.
+//
+// Crash trigger reported on juan/IPLP cascade run (2026-05-13):
+//   "LinearInterface::ensure_backend: snapshot reconstruct returned without
+//    restoring the backend (m_backend_ is null or still marked released)."
+//
+// The assertion below catches that exact failure mode: after a successful
+// reconstruct the backend must be alive AND the row count must match
+// structural + dynamic + surviving cuts.
+TEST_CASE(
+    "LinearInterface — compress + record_cut_deletion + dynamic_row "
+    "reconstruct round-trip")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Build a structural LP: min 2x1 + 3x2 s.t. x1 + x2 >= 5, 0 <= xi <= 10.
+  LinearProblem lp;
+  const auto c1 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  const auto c2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 3.0,
+  });
+  const auto base_row = lp.add_row({
+      .lowb = 5.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(base_row, c1, 1.0);
+  lp.set_coeff(base_row, c2, 1.0);
+
+  LpMatrixOptions opts;
+  opts.col_with_names = true;
+  opts.row_with_names = true;
+  auto flat = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat);
+
+  // Install snapshot BEFORE any dynamic mutations (mirrors freeze_for_cuts
+  // → save_snapshot order used by SystemLP under low_memory=compress).
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // 1. A "cascade elastic" structural dynamic row (recorded so that on
+  //    reconstruct it is replayed BEFORE save_base_numrows).
+  SparseRow elastic;
+  elastic[c1] = 1.0;
+  elastic.lowb = -SparseRow::DblMax;
+  elastic.uppb = 100.0;
+  elastic.class_name = "cascade";
+  elastic.constraint_name = "elastic_target";
+  li.add_row(elastic);
+  li.record_dynamic_row(elastic);
+
+  li.save_base_numrows();
+  const auto base = static_cast<int>(li.base_numrows());
+
+  // 2. Three cut rows (inherited-cut analogue + phase-1 analogue).
+  SparseRow cut0;
+  cut0[c2] = 1.0;
+  cut0.lowb = 1.0;
+  cut0.uppb = SparseRow::DblMax;
+  li.add_row(cut0);
+  li.record_cut_row(cut0);
+
+  SparseRow cut1;
+  cut1[c2] = 1.0;
+  cut1.lowb = 2.0;
+  cut1.uppb = SparseRow::DblMax;
+  li.add_row(cut1);
+  li.record_cut_row(cut1);
+
+  SparseRow cut2;
+  cut2[c2] = 1.0;
+  cut2.lowb = 3.0;
+  cut2.uppb = SparseRow::DblMax;
+  li.add_row(cut2);
+  li.record_cut_row(cut2);
+
+  REQUIRE(li.active_cuts_size() == 3);
+  REQUIRE(li.get_numrows() == static_cast<size_t>(base) + 3U);
+
+  SUBCASE("delete first cut (inherited-cut analogue) and reconstruct")
+  {
+    std::array<int, 1> deleted = {base};
+    li.delete_rows(deleted);
+    li.record_cut_deletion(deleted);
+
+    CHECK(li.active_cuts_size() == 2);
+    CHECK(li.get_numrows() == static_cast<size_t>(base) + 2U);
+
+    // Release + reconstruct: this is the path that crashed in production.
+    li.release_backend();
+    REQUIRE(li.is_backend_released());
+    REQUIRE(li.has_snapshot_data());
+
+    // Must NOT throw "snapshot reconstruct returned without restoring
+    // the backend".  Trigger reconstruct via any public read; resolve()
+    // exercises ensure_backend internally.
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.has_backend());
+    CHECK(li.get_numrows() == static_cast<size_t>(base) + 2U);
+  }
+
+  SUBCASE("delete middle cut and reconstruct")
+  {
+    std::array<int, 1> deleted = {base + 1};
+    li.delete_rows(deleted);
+    li.record_cut_deletion(deleted);
+
+    li.release_backend();
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.get_numrows() == static_cast<size_t>(base) + 2U);
+  }
+
+  SUBCASE("delete all cuts (forget_first_cuts analogue) and reconstruct")
+  {
+    std::array<int, 3> deleted = {base, base + 1, base + 2};
+    li.delete_rows(deleted);
+    li.record_cut_deletion(deleted);
+
+    CHECK(li.active_cuts_size() == 0);
+
+    li.release_backend();
+    auto r = li.resolve();
+    REQUIRE(r.has_value());
+    CHECK_FALSE(li.is_backend_released());
+    CHECK(li.get_numrows() == static_cast<size_t>(base));
+  }
 }
 
 // NOLINTEND(misc-const-correctness)

@@ -10,15 +10,18 @@ formula derived from the case's own demand-failure prices.
 
 The construction:
 
-``ANCHOR = (max_unit_gcost + min_falla_gcost) / 2``
+``ANCHOR = 0.75·avg_thermal_gcost + 0.25·min_falla_gcost``
 
-is the **midpoint** between the most expensive supply unit's marginal
-cost (``max(non-falla.gcost)``) and the cheapest curtailment rung
-(``min(falla.gcost)``).  Economically: water shortage is priced
-between "the priciest dispatchable thermal" and "the easiest
-electric demand to curtail", so the LP neither over-fills reservoirs
-to displace cheap dispatch nor leaves water rights unserved when
-electric curtailment is much cheaper.
+is a weighted blend between the **average thermal generator marginal
+cost** (``avg(termica.gcost)``) and the **cheapest curtailment rung**
+(``min(falla.gcost)``).  Economically: water shortage is priced as
+a 75 %/25 % mix of "typical thermal replacement cost" and "the
+easiest electric demand to curtail", so the LP neither over-fills
+reservoirs to displace cheap dispatch nor leaves water rights
+unserved when electric curtailment is much cheaper.  The 75/25
+weighting reflects the empirical observation that the LP operates
+near typical thermal dispatch far more often than at the
+curtailment frontier.
 
 Replaces the earlier ``max(falla.gcost) × (1 + losses) + 1`` form
 which clipped the anchor to the *most expensive* curtailment rung
@@ -169,10 +172,10 @@ class WaterValueResolver:
     # ------------------------------------------------------------------
     @cached_property
     def anchor(self) -> float:
-        """``ANCHOR = (avg_thermal_gcost + min_falla_gcost) / 2`` ($/MWh).
+        """``ANCHOR = 0.75·avg_thermal_gcost + 0.25·min_falla_gcost`` ($/MWh).
 
-        Economic interpretation: water shortage is priced midway
-        between
+        Economic interpretation: water shortage is priced as a
+        weighted blend between
 
           * the **average thermal generator marginal cost** — a
             representative "base power price" that reflects the
@@ -184,6 +187,15 @@ class WaterValueResolver:
             DIAG test ladder in test_sddp_method.cpp), and
           * the **cheapest curtailment rung** — the lowest-tier
             ``falla`` price (PLP's per-bus tiered unserved-energy cost).
+
+        The 75/25 split (vs. the previous 50/50) shifts the anchor
+        toward typical thermal dispatch cost: empirically the LP
+        rarely operates near the curtailment rung on juan-class
+        cases, so weighting the thermal side more heavily gives a
+        water value that better reflects the day-to-day replacement
+        cost the LP actually sees.  The curtailment tail still
+        contributes 25 % so the anchor doesn't collapse to pure
+        thermal in cases where the falla rung is unusually high.
 
         Switching the upper end from `max(non-falla.gcost)` to
         `avg(termica.gcost)` is a deliberate reduction in the auto
@@ -206,7 +218,8 @@ class WaterValueResolver:
         1. Explicit ``--water-fail-cost`` override (option key
            ``water_fail_cost``) — when set, used directly as the anchor
            in ``$/MWh`` and the auto formula is bypassed.
-        2. Auto-derive from ``(avg_thermal_gcost + min_falla_gcost) / 2``.
+        2. Auto-derive from
+           ``0.75·avg_thermal_gcost + 0.25·min_falla_gcost``.
         """
         explicit = self.options.get("water_fail_cost")
         if explicit is not None:
@@ -237,7 +250,7 @@ class WaterValueResolver:
         if not thermal_gcosts or min_falla_gcost == float("inf"):
             return 0.0
         avg_thermal_gcost = sum(thermal_gcosts) / len(thermal_gcosts)
-        return (avg_thermal_gcost + min_falla_gcost) / 2.0
+        return 0.75 * avg_thermal_gcost + 0.25 * min_falla_gcost
 
     @property
     def water_fail_cost(self) -> float:

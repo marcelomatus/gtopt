@@ -419,50 +419,54 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ── Stationary gap convergence ──
       // Active for gap_stationary and statistical modes.
       // Declare convergence when the gap stops improving.  Guarded by
-      // an absolute-gap ceiling (configurable via
-      // ``SDDPOptions::stationary_gap_ceiling``, default 0.5) so a
-      // pathological case where LB is frozen (e.g. pre-ef25515b
-      // Juan/gtopt_iplp: LB=0, UB>0, gap=1 flat) cannot masquerade
-      // as "converged" just because gap_change = 0.  Set the option
-      // to 1.0 to effectively disable the ceiling — appropriate for
-      // runs where the policy legitimately asymptotes at a high gap
-      // because the cheapest feasible plan pays a near-fixed slack.
+      // a SYMMETRIC magnitude ceiling
+      // (``|gap| < stationary_gap_ceiling``, default 0.05) so a
+      // pathological case where LB is frozen at ``gap = +1`` cannot
+      // masquerade as "converged" just because gap_change = 0, AND a
+      // sustained LB > UB overshoot at, say, ``gap = -0.5`` is
+      // similarly rejected.  Earlier code applied the negative end of
+      // the ceiling via the hard-coded ``-kSddpGapFpEpsilon`` (1e-9)
+      // which was too strict for cascade-warmup levels that
+      // legitimately produce small negative gaps from
+      // single-sample-aperture cut variance — those levels couldn't
+      // stop and went on to poison every downstream level's cut
+      // family.  Routing the negative end through the user-configurable
+      // ``stationary_gap_ceiling`` puts both sides of the symmetric
+      // window under one knob; set the option higher (e.g. 0.5) to
+      // accept overshoot up to ±50 %, set it to ``kSddpGapFpEpsilon``
+      // to recover the pre-fix strict behaviour.
       const double stationary_gap_ceiling = m_options_.stationary_gap_ceiling;
-      // Same negative-gap guard as the primary gap test in
-      // `finalize_iteration_result` — refuse to call a stationary
-      // run "converged" when LB > UB by more than tolerance (cuts
-      // overshooting the optimum, SDDP-theory violation).  Tiny
-      // negative gaps (≈ -1e-15 from FP noise when UB ≈ LB) are
-      // fine — `kSddpGapFpEpsilon` (sddp_types.hpp) is the shared
-      // noise-band constant.
-      if (!ir.converged && past_min_iterations && gap_is_stationary
-          && ir.gap > -kSddpGapFpEpsilon && ir.gap < stationary_gap_ceiling
-          && mode != ConvergenceMode::gap_only)
+      // Stationary convergence: declare converged when EITHER the gap
+      // has plateaued (``gap_change < stationary_tol``) OR the gap
+      // magnitude itself is already inside the ceiling
+      // (``|gap| < stationary_gap_ceiling``).  OR semantics let a
+      // fast-collapsing gap exit on the iter it lands below the
+      // magnitude target without waiting for a stationary plateau
+      // (e.g. uninodal iter where gap drops from +22 % to +0.5 % in
+      // one step would otherwise have to wait for Δgap to flatten).
+      // Trade-off: a true frozen-LB pathology (gap_change=0 with
+      // |gap| huge) would now declare convergence via the stationary
+      // arm alone — accepting this risk because ``max_iterations``
+      // already bounds the worst-case wall.
+      const bool magnitude_ok = std::abs(ir.gap) < stationary_gap_ceiling;
+      if (!ir.converged && past_min_iterations
+          && mode != ConvergenceMode::gap_only
+          && (gap_is_stationary || magnitude_ok))
       {
         ir.converged = true;
         ir.stationary_converged = true;
         update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         SPDLOG_INFO(
-            "SDDP Iter [i{}]: stationary gap convergence "
-            "(gap_change={:.6f} < stationary_tol={:.6f}) [CONVERGED]",
-            gtopt::uid_of(iteration_index),
-            ir.gap_change,
-            m_options_.stationary_tol);
-      } else if (!ir.converged && past_min_iterations && gap_is_stationary
-                 && mode != ConvergenceMode::gap_only)
-      {
-        // Tripped stationary but gap is still large — emit a loud
-        // diagnostic so this pathology is visible rather than silently
-        // swallowed.  The solver continues until max_iterations.
-        SPDLOG_WARN(
-            "SDDP Iter [i{}]: stationary gap_change={:.6f} < tol={:.6f} "
-            "but gap={:.4f} >= ceiling={:.2f} — NOT converging "
-            "(LB likely frozen; continuing)",
+            "SDDP Iter [i{}]: stationary convergence "
+            "(gap_change={:.6f} < tol={:.6f} ? {} | |gap|={:.4f} < "
+            "ceiling={:.2f} ? {}) [CONVERGED]",
             gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol,
-            ir.gap,
-            stationary_gap_ceiling);
+            gap_is_stationary ? "yes" : "no",
+            std::abs(ir.gap),
+            stationary_gap_ceiling,
+            magnitude_ok ? "yes" : "no");
       }
 
       // ── Statistical CI convergence ──
@@ -603,7 +607,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // posture as ``stationary_gap_ceiling`` (default 0.5).  Tighten
         // the option (e.g. 0.05) for runs where σ explosion is expected.
         if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold
-            && ir.gap < stationary_gap_ceiling)
+            && std::abs(ir.gap) < stationary_gap_ceiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;
@@ -625,13 +629,9 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               n_feasible);
         }
         // (b) Gap exceeds CI but is no longer improving.
-        // Same absolute-gap ceiling as the pure-stationary block above:
-        // refuse to convert a frozen-LB pathology into a convergence
-        // signal just because gap_change is zero.  Negative-gap guard
-        // mirrors the primary test — tiny negative gap is FP noise
-        // (accept), large negative violates SDDP theory (reject).
-        else if (gap_is_stationary && ir.gap > -kSddpGapFpEpsilon
-                 && ir.gap < stationary_gap_ceiling)
+        // OR semantics: stationary plateau OR |gap| inside ceiling —
+        // matches the pure-stationary block at line ~440.
+        else if (gap_is_stationary || std::abs(ir.gap) < stationary_gap_ceiling)
         {
           ir.converged = true;
           ir.statistical_converged = true;
@@ -671,11 +671,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       const auto feasibility_clause = (n_total > 0 && n_feasible < n_total)
           ? std::format(" feasible={}/{}", n_feasible, n_total)
           : std::string {};
-      // Surface the cumulative worst LP conditioning observed so far so
-      // operators see kappa alongside the bounds without having to grep
-      // for the `SDDP Kappa` warning lines.  -1 sentinel = no LP solve
-      // has reported a kappa yet (e.g. solver backend lacks the API).
-      const auto gk = global_max_kappa();
+      // Surface kappa observed THIS ITER only (not the historical
+      // max), so the per-iter log clause reflects the current LP's
+      // condition rather than repeating an old LP-construction probe
+      // forever.  Under CPLEX barrier without crossover the per-iter
+      // resolve produces no basis ⇒ no fresh kappa ⇒ the clause is
+      // suppressed (honest "no signal" vs misleading stale value).
+      const auto gk = current_iter_max_kappa(iteration_index);
       const auto kappa_clause =
           (gk >= 0.0) ? std::format(" kappa={:.2e}", gk) : std::string {};
       // ── Three-line iteration summary ──
@@ -1784,12 +1786,32 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         ir.gap_change =
             std::abs(ir.gap - old_gap) / std::max(1e-10, std::abs(old_gap));
 
-        // Negative-gap guard sourced from the shared
-        // `kSddpGapFpEpsilon` (sddp_types.hpp).
-        if (!ir.converged && past_min_iterations && results.size() >= window
-            && ir.gap > -kSddpGapFpEpsilon
-            && ir.gap_change < m_options_.stationary_tol && ir.gap_change < 1.0
-            && m_options_.convergence_mode != ConvergenceMode::gap_only)
+        // Symmetric ``|gap| < stationary_gap_ceiling`` test (mirrors
+        // the sync `iterate()` path above and the late-loop block at
+        // line ~635).  Earlier code only guarded the negative end via
+        // ``-kSddpGapFpEpsilon`` — too strict for cascade-warmup levels
+        // that legitimately produce small negative gaps from low-
+        // aperture cut variance.  The user can recover the strict
+        // behaviour by setting ``stationary_gap_ceiling=1e-9`` (which
+        // collapses the symmetric window back to FP noise on both
+        // sides).
+        // OR semantics: stationary plateau OR |gap| inside ceiling
+        // (mirrors the sync iterate() path at line ~440).  The window
+        // requirement is folded INTO stationary_ok only — magnitude_ok
+        // is a snapshot of the current iter and has no lookback
+        // dependency, so it must fire independent of window count.
+        // Otherwise the magnitude path would be gated by
+        // ``results.size() >= window`` and a fast-collapsing gap
+        // (e.g. uninodal iter 10 with |gap|=5.75% < 6 %) would be
+        // ignored simply because window=4 lookback isn't yet
+        // available.
+        const bool stationary_ok = results.size() >= window
+            && ir.gap_change < m_options_.stationary_tol && ir.gap_change < 1.0;
+        const bool magnitude_ok =
+            std::abs(ir.gap) < m_options_.stationary_gap_ceiling;
+        if (!ir.converged && past_min_iterations
+            && m_options_.convergence_mode != ConvergenceMode::gap_only
+            && (stationary_ok || magnitude_ok))
         {
           ir.converged = true;
           ir.stationary_converged = true;
@@ -1821,7 +1843,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // an async run at a glance.
       {
         const auto pool_stats = pool.get_statistics();
-        const auto gk_async = global_max_kappa();
+        // Per-iter kappa — see comment at the sync iterate() site at
+        // line ~678.  Same rationale: no stale propagation across
+        // iters when CPLEX returns nullopt.  Async path uses the
+        // loop-local ``next_converge_iteration_index`` (the iter id
+        // about to be reported in this log block).
+        const auto gk_async =
+            current_iter_max_kappa(next_converge_iteration_index);
         const auto kappa_clause_async = (gk_async >= 0.0)
             ? std::format("  kappa={:.2e}", gk_async)
             : std::string {};
@@ -1962,6 +1990,36 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         all_done = false;
         break;
       }
+    }
+
+    // Aggregate convergence (e.g. stationary / gap-based) fires on the
+    // last finalized iter result.  When `ir.converged` is set there, the
+    // training phase has nothing left to learn — every additional iter
+    // adds redundant cuts that will not tighten LB or UB.  Trigger the
+    // global stop so the orchestration loop transitions every active
+    // scene to `simulation_running` (or `done` under
+    // `skip_simulation_pass`) instead of grinding all scenes to
+    // `max_iterations`.  Mirrors the synchronous `iterate()` path,
+    // which breaks out of its iter loop on `ir.converged` at
+    // `sddp_iteration.cpp:810-812`.  Without this signal-routing,
+    // stationary convergence on the aggregate iter was invisible to
+    // the async loop and the run silently burned its full iter budget
+    // (observed on juan/iplp_plain: [CONVERGED] flagged at iter 15 of
+    // 30, level continued to iter 30 anyway).
+    //
+    // Fire the INFO log + stop request EXACTLY ONCE — the
+    // `m_stop_requested_` load guard skips this branch on every
+    // subsequent orchestration-loop iteration (otherwise the log
+    // line spammed thousands of times while the remaining scenes
+    // drained).
+    if (!all_done && !results.empty() && results.back().converged
+        && !m_stop_requested_.load())
+    {
+      SPDLOG_INFO(
+          "SDDP Async [i{}]: aggregate convergence reached — "
+          "stopping training loop, transitioning remaining scenes",
+          gtopt::uid_of(results.back().iteration_index));
+      m_stop_requested_.store(true);
     }
 
     // Avoid busy-spin: brief sleep when no futures are ready

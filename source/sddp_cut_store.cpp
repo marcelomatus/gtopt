@@ -53,13 +53,36 @@ void SceneCutStore::store(const SparseRow& cut,
                           SceneUid scene_uid_val,
                           PhaseUid phase_uid_val)
 {
-  auto cut_name = LabelMaker {LpNamesLevel::all}.make_row_label(cut);
+  // Extract iter_uid from the source row's context (IterationContext =
+  // tuple<SceneUid, PhaseUid, IterationUid, int>).  Cuts built outside
+  // the standard SDDP backward path may carry a different context type
+  // (or none); in that case iteration_index defaults to ``-1`` which
+  // downstream consumers treat as "unknown iteration" (no hot-start
+  // offset, no dedup contribution).
+  //
+  // No ``LabelMaker.make_row_label(cut)`` here — ``StoredCut.name``
+  // was removed (the LP row label is generated independently inside
+  // ``LinearInterface::add_rows`` from the ``SparseRow``'s own
+  // class/constraint/uid/context fields, so storing a duplicate
+  // name on the cut was redundant).
+  IterationIndex stored_iter {};
+  // Default ``extra = -1`` (sentinel = "no source context attached").
+  // Replaced when ``cut.context`` is an :type:`IterationContext` —
+  // matches :member:`StoredCut::extra` default so unset values
+  // round-trip cleanly through save/load.
+  int stored_extra = -1;
+  if (std::holds_alternative<IterationContext>(cut.context)) {
+    const auto& ctx = std::get<IterationContext>(cut.context);
+    stored_iter = index_of(std::get<2>(ctx));
+    stored_extra = std::get<3>(ctx);
+  }
 
   StoredCut stored {
       .type = type,
       .phase_uid = phase_uid_val,
       .scene_uid = scene_uid_val,
-      .name = std::move(cut_name),
+      .iteration_index = stored_iter,
+      .extra = stored_extra,
       .rhs = cut.lowb,
       .scale = cut.scale,
       .row = row,
@@ -135,7 +158,11 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
   };
 
   std::map<ScenePhaseKey, std::vector<int>> rows_to_delete;
-  std::set<std::string> names_to_forget;
+  // Forgotten cut identities for cross-scene cleanup.  Uses the full
+  // ``CutKey`` (5-tuple) so multi-cut feasibility siblings and
+  // cross-scene shared copies are distinguished correctly — see
+  // :class:`CutKey` for the uniqueness contract.
+  std::set<CutKey> cuts_to_forget;
 
   // `count` is a per-scene cap: forget the first `count` cuts of each
   // scene (covering inherited cuts transferred across cascade levels,
@@ -144,9 +171,7 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
   for (auto& sc : m_scene_cuts_) {
     const auto take = std::min(count, std::ssize(sc));
     for (const auto& cut : sc | std::views::take(take)) {
-      if (!cut.name.empty()) {
-        names_to_forget.insert(cut.name);
-      }
+      cuts_to_forget.insert(cut.key());
       if (auto key = resolve_key(cut)) {
         rows_to_delete[*key].push_back(static_cast<int>(cut.row));
       }
@@ -178,10 +203,9 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
   };
 
   for (auto&& [si, sc] : enumerate<SceneIndex>(m_scene_cuts_)) {
-    std::erase_if(
-        sc.cuts(),
-        [&](const StoredCut& c)
-        { return !c.name.empty() && names_to_forget.contains(c.name); });
+    std::erase_if(sc.cuts(),
+                  [&](const StoredCut& c)
+                  { return cuts_to_forget.contains(c.key()); });
     std::ranges::for_each(sc.cuts(), shift_row);
   }
 

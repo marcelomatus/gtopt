@@ -165,10 +165,16 @@ def _convert_juan(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -
 def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
     """Compute per-reservoir average ``|GradX|`` from boundary_cuts.csv.
 
-    Mirrors :meth:`PlanosParser.average_abs_gradient_by_reservoir` at
-    test time so the test does not depend on the parser's internal
-    cap dict — it inspects only the on-disk artifact gtopt actually
-    consumes.
+    Mirrors :meth:`PlanosParser.average_abs_gradient_by_reservoir`
+    (with ``num_scenarios=None``) at test time so the test does not
+    depend on the parser's internal cap dict.
+
+    The CSV gradients on disk are scaled by ``1/NVarPhi`` (see
+    :func:`planos_writer.write_boundary_cuts_csv`); the writer's
+    ``_build_efin_cost_cap`` consumes the **raw** (un-scaled)
+    average instead.  To recover that raw value we multiply the
+    CSV average by ``NVarPhi`` — inferred as ``max(scene)`` across
+    rows so the test stays self-contained.
     """
     import csv as _csv
 
@@ -177,6 +183,7 @@ def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
         return {}
     sums: dict[str, float] = {}
     counts: dict[str, int] = {}
+    max_scene = 1
     with open(csv_path, encoding="utf-8") as f:
         reader = _csv.DictReader(f)
         # Reservoir columns are everything after the fixed 4 header fields.
@@ -186,6 +193,10 @@ def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
             if c not in ("name", "iteration", "scene", "rhs")
         ]
         for row in reader:
+            try:
+                max_scene = max(max_scene, int(row.get("scene", 1)))
+            except (TypeError, ValueError):
+                pass
             for c in cols:
                 try:
                     v = float(row[c])
@@ -195,7 +206,12 @@ def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
                     continue
                 sums[c] = sums.get(c, 0.0) + abs(v)
                 counts[c] = counts.get(c, 0) + 1
-    return {c: total / counts[c] for c, total in sums.items() if counts.get(c, 0) > 0}
+    nvarphi = float(max_scene if max_scene > 0 else 1)
+    return {
+        c: (total / counts[c]) * nvarphi
+        for c, total in sums.items()
+        if counts.get(c, 0) > 0
+    }
 
 
 @pytest.mark.integration
@@ -307,10 +323,20 @@ class TestAutoWaterFailCostMagnitude:
         anchor = self._resolved_anchor(planning_auto)
         formula_efin = anchor * lost_pf * 1e6 / 3600.0
         # Read the boundary-cut CSV emitted by this same conversion
-        # and compute the per-reservoir cap (= average |GradX|).
+        # and compute the per-reservoir cap (= average |GradX|).  The
+        # writer additionally un-discounts each cap by the last
+        # stage's ``discount_factor`` (= 1/FactTasa from plpeta.dat)
+        # before comparing against the anchor-derived formula — we
+        # must mirror that here.
         out_dir = Path(planning_auto["_output_dir"])
         caps = _read_boundary_cap(out_dir)
+        stages = planning_auto.get("simulation", {}).get("stage_array", [])
+        last_df = 1.0
+        if stages:
+            last_df = float(stages[-1].get("discount_factor", 1.0)) or 1.0
         cap = caps.get(name)
+        if cap is not None and last_df > 0.0 and last_df != 1.0:
+            cap = cap / last_df
         expected_efin = min(formula_efin, cap) if cap is not None else formula_efin
 
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])

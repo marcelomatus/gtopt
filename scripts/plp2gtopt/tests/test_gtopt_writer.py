@@ -159,7 +159,7 @@ class TestGTOptWriterProcessMethods:
         assert writer.planning["options"]["method"] == "monolithic"
 
     def test_process_options_cascade_method(self):
-        """process_options emits cascade_options with 3-level default config."""
+        """process_options emits cascade_options with 4-level default config."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out", "method": "cascade"})
         opts = writer.planning["options"]
@@ -168,47 +168,72 @@ class TestGTOptWriterProcessMethods:
         cascade = opts["cascade_options"]
         assert "level_array" in cascade
         levels = cascade["level_array"]
-        assert len(levels) == 3
-        # Level 0: uninodal
-        assert levels[0]["name"] == "uninodal"
+        assert len(levels) == 4
+        # Stationary-gap ceiling == stationary_tol per level (combined
+        # with the C++ OR semantics: either Δgap or |gap| below the
+        # per-level target triggers convergence).
+        for lvl in levels:
+            so = lvl["sddp_options"]
+            assert so["stationary_gap_ceiling"] == so["stationary_tol"]
+        # Level 0: warmup (single-bus, 1 head aperture → THE wettest hydrology).
+        assert levels[0]["name"] == "warmup"
         assert levels[0]["model_options"]["use_single_bus"] is True
-        # Level 1: transport (no kirchhoff, no losses)
-        assert levels[1]["name"] == "transport"
-        assert levels[1]["model_options"]["use_single_bus"] is False
-        assert levels[1]["model_options"]["use_kirchhoff"] is False
-        assert levels[1]["model_options"]["use_line_losses"] is False
-        # Level 2: full network
-        assert levels[2]["name"] == "full_network"
+        assert levels[0]["sddp_options"]["num_apertures"] == 1
+        assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.08  # 8 %
+        # Level 1: uninodal (single-bus, 4 stride apertures).
+        assert levels[1]["name"] == "uninodal"
+        assert levels[1]["model_options"]["use_single_bus"] is True
+        assert levels[1]["sddp_options"]["num_apertures"] == 4
+        assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.06  # 6 %
+        # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
+        assert levels[2]["name"] == "transport"
+        assert levels[2]["model_options"]["use_single_bus"] is False
+        assert levels[2]["model_options"]["use_kirchhoff"] is False
+        assert levels[2]["model_options"]["use_line_losses"] is False
+        assert levels[2]["sddp_options"]["num_apertures"] == 8
+        assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.04  # 4 %
+        # Level 3: full network — full per-phase aperture list (every
+        # scenario).  ``num_apertures`` and ``aperture_selection_mode``
+        # must be ABSENT so the C++ side iterates the full
+        # ``Phase.apertures`` list (vs hardcoding a fixed count that
+        # only matches juan/IPLP).
+        assert levels[3]["name"] == "full_network"
+        assert "num_apertures" not in levels[3]["sddp_options"]
+        assert "aperture_selection_mode" not in levels[3]["sddp_options"]
+        assert levels[3]["sddp_options"]["stationary_tol"] == 0.02  # 2 %
 
     def test_process_options_cascade_iteration_split(self):
-        """Level 0 gets 1.5x PDMaxIte, levels 1 and 2 each get 1/4.
+        """Level budgets: L0=PDMaxIte, L1=PDMaxIte/2, L2=PDMaxIte/3, L3=PDMaxIte/4.
 
-        Level 0 (uninodal) is the cascade's primary value-function
-        builder — it starts from the alpha-bootstrap floor with no
-        inherited cuts, so it needs more SDDP iterations than PLP's
-        monolithic-tuned ``PDMaxIte`` would suggest.  Empirically a
-        1.5x multiplier gives the level enough headroom to converge
-        on juan-scale fixtures before transport/full-network refine.
+        Decreasing schedule: warmup gets the full PDMaxIte (starts from
+        the alpha-bootstrap floor with 1 aperture), uninodal half as
+        many (inherits cuts, broadens to 4 apertures), transport a
+        third (lines on, 8 apertures), full_network a quarter (full
+        physics, every aperture — most expensive per iter).
         """
         writer = GTOptWriter(MagicMock())
         writer.process_options(
             {
                 "output_dir": "out",
                 "method": "cascade",
-                "max_iterations": 100,
+                "max_iterations": 120,
             }
         )
         levels = writer.planning["options"]["cascade_options"]["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 150  # 1.5 x 100
-        assert levels[1]["sddp_options"]["max_iterations"] == 25
-        assert levels[2]["sddp_options"]["max_iterations"] == 25
+        assert levels[0]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+        assert levels[1]["sddp_options"]["max_iterations"] == 60  # /2
+        assert levels[2]["sddp_options"]["max_iterations"] == 40  # /3
+        assert levels[3]["sddp_options"]["max_iterations"] == 30  # /4
 
     def test_process_options_cascade_global_budget_is_sum_of_levels(self):
         """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
 
         Regression: previously the cascade-global budget equalled total_iter,
         so level 0 (which gets the largest budget) alone exhausted it and
-        levels 1-2 never ran.  The global budget must be >= the sum of
+        the rest never ran.  The global budget must be >= the sum of
         per-level budgets for all levels to execute.
         """
         writer = GTOptWriter(MagicMock())
@@ -216,23 +241,23 @@ class TestGTOptWriterProcessMethods:
             {
                 "output_dir": "out",
                 "method": "cascade",
-                "max_iterations": 100,
+                "max_iterations": 120,
             }
         )
         cascade = writer.planning["options"]["cascade_options"]
         levels = cascade["level_array"]
         per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
         assert cascade["sddp_options"]["max_iterations"] == per_level_sum
-        # 150 (= 1.5 x 100) + 25 + 25
-        assert cascade["sddp_options"]["max_iterations"] == 200
+        # 120 (warmup) + 60 (uninodal) + 40 (transport) + 30 (full_network).
+        assert cascade["sddp_options"]["max_iterations"] == 250
 
     def test_process_options_cascade_small_budget_still_runs_all_levels(self):
         """With max_iterations=5 the cascade still allots ≥1 iter per level.
 
         Regression: previously with PDMaxIte=5 from plpmat.dat, level 0
-        consumed all 5 iters and levels 1-2 never ran.  The cascade global
-        budget must now leave room for all three levels.  Under the 1.5x
-        level-0 multiplier, ``ceil(5 * 1.5) = 8``.
+        consumed all 5 iters and the rest never ran.  The cascade global
+        budget must now leave room for all four levels.  Each level's
+        per-level budget floors at 1.
         """
         writer = GTOptWriter(MagicMock())
         writer.process_options(
@@ -244,10 +269,44 @@ class TestGTOptWriterProcessMethods:
         )
         cascade = writer.planning["options"]["cascade_options"]
         levels = cascade["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 8  # ceil(5 * 1.5)
-        assert levels[1]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
-        assert levels[2]["sddp_options"]["max_iterations"] == 1
-        assert cascade["sddp_options"]["max_iterations"] == 10  # 8 + 1 + 1
+        assert levels[0]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        assert levels[1]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
+        assert levels[2]["sddp_options"]["max_iterations"] == 1  # max(5//3, 1)
+        assert levels[3]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
+        # 5 + 2 + 1 + 1.
+        assert cascade["sddp_options"]["max_iterations"] == 9
+
+    def test_process_options_cascade_inherits_all_cuts(self):
+        """Each cascade transition inherits ALL cuts from previous levels.
+
+        ``inherit_optimality_cuts = -1`` keeps the cut store forever
+        across the cascade: L1 sees L0's cuts, L2 sees L0+L1, L3 sees
+        L0+L1+L2.  Preserves the tightest available value-function
+        envelope at every level (at the cost of a larger master LP at
+        the tail).
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        # L0 (warmup) has no transition: it's the first level.
+        assert "transition" not in levels[0]
+        # L1/L2/L3 each have transition.inherit_optimality_cuts == -1.
+        for lvl in levels[1:]:
+            assert lvl["transition"]["inherit_optimality_cuts"] == -1
+
+    def test_process_options_cascade_stationary_tol_default(self):
+        """plp2gtopt defaults cascade.sddp_options.stationary_tol to 0.01.
+
+        The C++ default is 0.005 (0.5%) which is too tight relative to
+        the cuts' approximation floor on PLP-derived runs — the gap
+        plateau on juan-class cases sits well above 0.5 %, so the
+        level would never trip the stationary early-exit gate at the
+        default.  1 % is a more useful default for these cases.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        cascade = writer.planning["options"]["cascade_options"]
+        assert cascade["sddp_options"]["stationary_tol"] == 0.01
 
     def test_process_options_cascade_no_cascade_for_sddp(self):
         """cascade_options is NOT emitted for plain sddp."""
@@ -709,6 +768,110 @@ class TestLoadVariableScalesFile:
         f.write_text("{ not json")
         result = GTOptWriter._load_variable_scales_file(f)
         assert not result
+
+
+class TestKirchhoffMode:
+    """Tests for --kirchhoff-mode CLI default and L3 full_network propagation.
+
+    The ``--kirchhoff-mode`` flag was added to ``_parsers.py`` with a default
+    of ``"cycle_basis"`` and forwarded by ``main.py`` into
+    ``model_opts["kirchhoff_mode"]``, which is passed as
+    ``opts["model_options"]["kirchhoff_mode"]`` to ``process_options``.
+    Inside ``process_options``, the value is conditionally transferred to the
+    ``model_opts`` local dict and then to the L3 ``full_network`` level's
+    ``model_options`` block via the allow-list filter in
+    ``_build_default_cascade_options``.
+    """
+
+    def test_default_kirchhoff_mode_emitted_top_level(self):
+        """CLI default (cycle_basis) lands in top-level model_options."""
+        writer = GTOptWriter(MagicMock())
+        # Simulate what main.py does: always injects kirchhoff_mode from args.
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "sddp",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        model_opts = writer.planning["options"]["model_options"]
+        assert model_opts["kirchhoff_mode"] == "cycle_basis"
+
+    def test_override_kirchhoff_mode_emitted_top_level(self):
+        """Explicit node_angle override lands in top-level model_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "sddp",
+                "model_options": {"kirchhoff_mode": "node_angle"},
+            }
+        )
+        model_opts = writer.planning["options"]["model_options"]
+        assert model_opts["kirchhoff_mode"] == "node_angle"
+
+    def test_kirchhoff_mode_absent_when_not_passed(self):
+        """kirchhoff_mode is absent from model_options when not supplied.
+
+        The C++ gtopt runtime has its own default (cycle_basis); plp2gtopt
+        must NOT emit an implicit value so that a future C++ default change
+        propagates without re-running the converter.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "sddp"})
+        model_opts = writer.planning["options"]["model_options"]
+        assert "kirchhoff_mode" not in model_opts
+
+    def test_l3_full_network_propagates_cycle_basis(self):
+        """cascade L3 full_network model_options includes kirchhoff_mode=cycle_basis."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        l3 = levels[3]
+        assert l3["name"] == "full_network"
+        assert l3["model_options"]["kirchhoff_mode"] == "cycle_basis"
+
+    def test_l3_full_network_propagates_node_angle(self):
+        """cascade L3 full_network model_options includes kirchhoff_mode=node_angle."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "node_angle"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        l3 = levels[3]
+        assert l3["name"] == "full_network"
+        assert l3["model_options"]["kirchhoff_mode"] == "node_angle"
+
+    def test_l0_l1_l2_do_not_inherit_kirchhoff_mode(self):
+        """L0/L1/L2 model_options do NOT include kirchhoff_mode (single-bus levels).
+
+        L0 (warmup) and L1 (uninodal) force use_single_bus=True and do not
+        need kirchhoff_mode.  L2 (transport) explicitly sets use_kirchhoff=False
+        so kirchhoff_mode is irrelevant.  Only L3 (full_network) should carry it.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        for lvl in levels[:3]:  # L0, L1, L2
+            assert "kirchhoff_mode" not in lvl.get("model_options", {}), (
+                f"Level {lvl['name']} should not contain kirchhoff_mode"
+            )
 
 
 class TestBuildStageToPhaseMap:

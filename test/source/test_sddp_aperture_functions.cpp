@@ -913,7 +913,9 @@ TEST_CASE(
     "select_apertures — stride mode picks evenly spaced entries")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // 8 entries; pick 4 with stride → indices 0, 2, 4, 6.
+  // 8 entries with N=4 under endpoint-inclusive formula
+  // i*(total-1)/(n-1) = i*7/3:  i=0→0, i=1→2, i=2→4, i=3→7.
+  // Picks wettest (Uid{1}) and driest (Uid{8}) plus two interior.
   const std::vector<Uid> phase_aps {
       Uid {1},
       Uid {2},
@@ -928,13 +930,18 @@ TEST_CASE(
       phase_aps, std::optional<int> {4}, ApertureSelectionMode::stride);
   REQUIRE(out.size() == 4);
   CHECK(out[0] == Uid {1});  // index 0 (wettest)
-  CHECK(out[1] == Uid {3});  // index 2
-  CHECK(out[2] == Uid {5});  // index 4
-  CHECK(out[3] == Uid {7});  // index 6 (mid-driest)
+  CHECK(out[1] == Uid {3});  // index 7/3 = 2
+  CHECK(out[2] == Uid {5});  // index 14/3 = 4
+  CHECK(out[3] == Uid {8});  // index 21/3 = 7 (driest)
 }
 
-TEST_CASE("select_apertures — stride mode N=1 picks the wettest")  // NOLINT
+TEST_CASE(
+    "select_apertures — stride mode N=1 picks the MEDIAN entry")  // NOLINT
 {
+  // When n == 1, stride returns phase_apertures[total/2] (the median),
+  // NOT the wettest.  This is the canonical single-representative sample
+  // for stride semantics; use head/tail for the wettest/driest extremes.
+  // 4 entries: indices 0,1,2,3 → median = phase_apertures[4/2=2] = Uid{30}.
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   const std::vector<Uid> phase_aps {
       Uid {10},
@@ -945,7 +952,105 @@ TEST_CASE("select_apertures — stride mode N=1 picks the wettest")  // NOLINT
   const auto out = select_apertures(
       phase_aps, std::optional<int> {1}, ApertureSelectionMode::stride);
   REQUIRE(out.size() == 1);
-  CHECK(out[0] == Uid {10});
+  CHECK(out[0] == Uid {30});  // phase_aps[4/2] = phase_aps[2]
+}
+
+TEST_CASE(
+    "select_apertures — stride mode N=1 odd-length picks median")  // NOLINT
+{
+  // 5 entries: median = phase_apertures[5/2=2] = Uid{30}.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+      Uid {50},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {1}, ApertureSelectionMode::stride);
+  REQUIRE(out.size() == 1);
+  CHECK(out[0] == Uid {30});  // phase_aps[5/2] = phase_aps[2]
+}
+
+TEST_CASE(
+    "select_apertures — stride mode N=2 always includes first and last")  // NOLINT
+{
+  // stride N=2: must include wettest (index 0) AND driest (index total-1).
+  // Uses the formula i*(total-1)/(n-1): i=0 → 0, i=1 → total-1.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+      Uid {50},
+      Uid {60},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {2}, ApertureSelectionMode::stride);
+  REQUIRE(out.size() == 2);
+  CHECK(out[0] == Uid {10});  // wettest (index 0)
+  CHECK(out[1] == Uid {60});  // driest (index total-1 = 5)
+}
+
+TEST_CASE(
+    "select_apertures — stride mode N=3 includes first, mid, last")  // NOLINT
+{
+  // 6 entries with N=3: indices i*(6-1)/(3-1) = 0, 2, 5.
+  // → Uid{10}, Uid{30}, Uid{60} (first, middle-ish, last).
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  const std::vector<Uid> phase_aps {
+      Uid {10},
+      Uid {20},
+      Uid {30},
+      Uid {40},
+      Uid {50},
+      Uid {60},
+  };
+  const auto out = select_apertures(
+      phase_aps, std::optional<int> {3}, ApertureSelectionMode::stride);
+  REQUIRE(out.size() == 3);
+  CHECK(out[0] == Uid {10});  // index 0
+  CHECK(out[1] == Uid {30});  // index 0*(6-1)/(3-1)=0, 1*(5)/(2)=2
+  CHECK(out[2] == Uid {60});  // index (6-1)=5
+}
+
+TEST_CASE(
+    "select_apertures — ApertureSelectionMode enum round-trip parsing")  // NOLINT
+{
+  // Pin the enum name/from_name contract for all three modes and their
+  // canonical aliases.  This is the primary entry-point test for item 8.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  CHECK(enum_name(ApertureSelectionMode::head) == "head");
+  CHECK(enum_name(ApertureSelectionMode::stride) == "stride");
+  CHECK(enum_name(ApertureSelectionMode::tail) == "tail");
+
+  CHECK((enum_from_name<ApertureSelectionMode>("head")
+         && *enum_from_name<ApertureSelectionMode>("head")
+             == ApertureSelectionMode::head));
+  CHECK((enum_from_name<ApertureSelectionMode>("stride")
+         && *enum_from_name<ApertureSelectionMode>("stride")
+             == ApertureSelectionMode::stride));
+  CHECK((enum_from_name<ApertureSelectionMode>("tail")
+         && *enum_from_name<ApertureSelectionMode>("tail")
+             == ApertureSelectionMode::tail));
+
+  // Aliases
+  CHECK((enum_from_name<ApertureSelectionMode>("first")
+         && *enum_from_name<ApertureSelectionMode>("first")
+             == ApertureSelectionMode::head));
+  CHECK((enum_from_name<ApertureSelectionMode>("interleave")
+         && *enum_from_name<ApertureSelectionMode>("interleave")
+             == ApertureSelectionMode::stride));
+  CHECK((enum_from_name<ApertureSelectionMode>("spread")
+         && *enum_from_name<ApertureSelectionMode>("spread")
+             == ApertureSelectionMode::stride));
+  CHECK((enum_from_name<ApertureSelectionMode>("last")
+         && *enum_from_name<ApertureSelectionMode>("last")
+             == ApertureSelectionMode::tail));
+
+  CHECK_FALSE(enum_from_name<ApertureSelectionMode>("unknown").has_value());
 }
 
 TEST_CASE("select_apertures — tail mode picks last N entries")  // NOLINT

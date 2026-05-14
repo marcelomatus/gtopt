@@ -439,13 +439,17 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
     parser.add_argument(
         "--hot-start-cuts",
         dest="hot_start_cuts",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Export intermediate-stage cuts from plpplaem/plpplem files "
-            "as a hot-start-cuts CSV (with named state variables and phase "
-            "column).  The file is loaded by the SDDP solver via "
-            "named_cuts_file to warm-start all phases."
+            "Wire intermediate-stage cuts from plpplaem/plpplem into the "
+            "gtopt JSON via `named_cuts_file` so EVERY phase's master "
+            "starts with PLP's full cutting-plane family (not just the "
+            "boundary phase).  When the case has no non-boundary cuts "
+            "(juan/iplp-style), this is a no-op.  Pair with "
+            "`--boundary-cuts-mode combined` for the matching boundary "
+            "story.  Use `--no-hot-start-cuts` to opt out (CSV is still "
+            "written for introspection)."
         ),
     )
     parser.add_argument(
@@ -737,6 +741,20 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         action=argparse.BooleanOptionalAction,
         default=True,
         help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--kirchhoff-mode",
+        dest="kirchhoff_mode",
+        metavar="MODE",
+        default="cycle_basis",
+        choices=["node_angle", "cycle_basis"],
+        help=(
+            "Kirchhoff Voltage Law (KVL) formulation: "
+            "'node_angle' = classical B–θ form (one θ per bus + one KVL "
+            "per line, gauge-pinned reference bus per island); "
+            "'cycle_basis' = loop-flow form (one KVL per fundamental cycle, "
+            "no θ, no theta-scale tuning).  Default: %(default)s."
+        ),
     )
     parser.add_argument(
         "-L",

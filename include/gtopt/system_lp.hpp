@@ -299,6 +299,30 @@ public:
     return std::forward<Self>(self).m_linear_interface_;
   }
 
+  /// Walk the live (scenario, stage, block) cells of this (scene, phase)
+  /// LP and accumulate the four convergence-indicator sums into
+  /// `linear_interface().solver_stats()`.  Reads slack column values
+  /// directly from the just-solved backend; must be called *after*
+  /// `linear_interface().resolve()` returned successfully and *before*
+  /// `release_backend()`.
+  ///
+  /// Single-writer on the owning thread — the same regime as the
+  /// SDDP forward-pass solve itself, so no locking is required.
+  ///
+  /// @param scene_index Scene index this SystemLP belongs to.  Currently
+  ///        used only for trace tagging — the SystemLP already owns its
+  ///        `scene()` / `phase()` references.
+  /// @param phase_index Phase index this SystemLP belongs to (same).
+  ///
+  /// May throw `std::runtime_error` if `elements<X>()` is called before
+  /// `rebuild_collections_if_needed()` under `low_memory != off`.  The
+  /// SDDP forward-pass call site guarantees the collections are live
+  /// (we are inside a `li.resolve()` success path that just touched
+  /// them), so the throw is a contract violation rather than an
+  /// expected failure mode.
+  void accumulate_convergence_indicators(SceneIndex scene_index,
+                                         PhaseIndex phase_index);
+
   /**
    * @brief Get system options
    * @return Const reference to options

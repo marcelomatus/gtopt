@@ -86,13 +86,34 @@ auto make_cuts_schema(double scale_objective) -> std::shared_ptr<arrow::Schema>
   auto kv = arrow::KeyValueMetadata::Make(
       {"version", "scale_objective"},
       {"2", std::format("{:.17g}", scale_objective)});
+  // Schema v3 (post-2026-05):
+  //  * Drop the legacy ``name`` column — the 4-tuple
+  //    ``(scene, phase, iteration, type)`` uniquely identifies every
+  //    cut by construction (each SDDP iter's backward pass adds at
+  //    most one optimality + one feasibility cut per
+  //    ``(scene, phase)`` cell), so the human-readable name is
+  //    redundant metadata for parquet.  Legacy ``name`` column is
+  //    silently ignored on load.
+  //  * ``type`` is the ``CutType`` enum's underlying ``uint8_t`` value
+  //    (was previously a 1-char string "f"/"o"); see
+  //    :enum:`gtopt::CutType` in
+  //    ``include/gtopt/sddp_cut_store_enums.hpp``.  Legacy files
+  //    written with the string form are tolerated on load via a
+  //    runtime type check on the column.
   return arrow::schema(
       {
-          arrow::field("type", arrow::utf8(), /*nullable=*/false),
+          arrow::field("type", arrow::int8(), /*nullable=*/false),
           arrow::field("phase", arrow::int32(), /*nullable=*/false),
           arrow::field("scene", arrow::int32(), /*nullable=*/false),
-          arrow::field("name", arrow::utf8(), /*nullable=*/false),
           arrow::field("iteration", arrow::int32(), /*nullable=*/false),
+          // ``extra`` is :member:`StoredCut::extra` — the 4th element
+          // of the source ``IterationContext``.  Required to keep
+          // multi-cut feasibility siblings distinguishable on
+          // save/load: forward-pass ``multi_cut`` mode emits multiple
+          // fcuts per ``(scene, phase, iter)`` cell, all sharing
+          // ``type=Feasibility``; the ``extra`` discriminator is
+          // what makes the :class:`CutKey` 5-tuple unique.
+          arrow::field("extra", arrow::int32(), /*nullable=*/false),
           arrow::field("rhs", arrow::float64(), /*nullable=*/false),
           arrow::field("dual", arrow::float64(), /*nullable=*/true),
           arrow::field("coeffs",
@@ -115,11 +136,11 @@ auto build_cuts_table(
 {
   auto* pool = arrow::default_memory_pool();
 
-  arrow::StringBuilder type_b {pool};
+  arrow::Int8Builder type_b {pool};
   arrow::Int32Builder phase_b {pool};
   arrow::Int32Builder scene_b {pool};
-  arrow::StringBuilder name_b {pool};
   arrow::Int32Builder iter_b {pool};
+  arrow::Int32Builder extra_b {pool};
   arrow::DoubleBuilder rhs_b {pool};
   arrow::DoubleBuilder dual_b {pool};
 
@@ -156,10 +177,10 @@ auto build_cuts_table(
   if (auto e = reserve_status(scene_b.Reserve(std::ssize(cuts))); !e) {
     return std::unexpected(e.error());
   }
-  if (auto e = reserve_status(name_b.Reserve(std::ssize(cuts))); !e) {
+  if (auto e = reserve_status(iter_b.Reserve(std::ssize(cuts))); !e) {
     return std::unexpected(e.error());
   }
-  if (auto e = reserve_status(iter_b.Reserve(std::ssize(cuts))); !e) {
+  if (auto e = reserve_status(extra_b.Reserve(std::ssize(cuts))); !e) {
     return std::unexpected(e.error());
   }
   if (auto e = reserve_status(rhs_b.Reserve(std::ssize(cuts))); !e) {
@@ -170,9 +191,13 @@ auto build_cuts_table(
   }
 
   for (const auto& cut : cuts) {
-    const std::string_view type_str =
-        (cut.type == CutType::Feasibility) ? "f" : "o";
-    if (auto s = type_b.Append(type_str); !s.ok()) {
+    // Store the CutType enum directly as its underlying uint8_t
+    // (matches the ``int8`` schema field); see
+    // :enum:`gtopt::CutType`.
+    if (auto s = type_b.Append(
+            static_cast<int8_t>(static_cast<std::uint8_t>(cut.type)));
+        !s.ok())
+    {
       return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
     }
     if (auto s = phase_b.Append(static_cast<int32_t>(cut.phase_uid)); !s.ok()) {
@@ -181,13 +206,13 @@ auto build_cuts_table(
     if (auto s = scene_b.Append(static_cast<int32_t>(cut.scene_uid)); !s.ok()) {
       return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
     }
-    if (auto s = name_b.Append(cut.name); !s.ok()) {
-      return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
-    }
-    if (auto s = iter_b.Append(static_cast<int32_t>(
-            extract_iteration_from_name(std::string_view {cut.name})));
+    if (auto s =
+            iter_b.Append(static_cast<int32_t>(uid_of(cut.iteration_index)));
         !s.ok())
     {
+      return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
+    }
+    if (auto s = extra_b.Append(cut.extra); !s.ok()) {
       return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
     }
     if (auto s = rhs_b.Append(cut.rhs); !s.ok()) {
@@ -235,9 +260,10 @@ auto build_cuts_table(
       if (it == col_keys.end()) {
         return std::unexpected(make_io_error(
             filepath_for_error,
-            std::format("cut '{}' references col {} that is not a registered "
-                        "state variable",
-                        cut.name,
+            std::format("cut (phase={}, scene={}) references col {} that "
+                        "is not a registered state variable",
+                        cut.phase_uid,
+                        cut.scene_uid,
                         col)));
       }
       const auto& [cls, var, uid] = it->second;
@@ -258,8 +284,8 @@ auto build_cuts_table(
   std::shared_ptr<arrow::Array> type_a;
   std::shared_ptr<arrow::Array> phase_a;
   std::shared_ptr<arrow::Array> scene_a;
-  std::shared_ptr<arrow::Array> name_a;
   std::shared_ptr<arrow::Array> iter_a;
+  std::shared_ptr<arrow::Array> extra_a;
   std::shared_ptr<arrow::Array> rhs_a;
   std::shared_ptr<arrow::Array> dual_a;
   std::shared_ptr<arrow::Array> coeffs_a;
@@ -272,10 +298,10 @@ auto build_cuts_table(
   if (auto s = scene_b.Finish(&scene_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
   }
-  if (auto s = name_b.Finish(&name_a); !s.ok()) {
+  if (auto s = iter_b.Finish(&iter_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
   }
-  if (auto s = iter_b.Finish(&iter_a); !s.ok()) {
+  if (auto s = extra_b.Finish(&extra_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
   }
   if (auto s = rhs_b.Finish(&rhs_a); !s.ok()) {
@@ -291,7 +317,7 @@ auto build_cuts_table(
   auto schema = make_cuts_schema(scale_objective);
   return arrow::Table::Make(
       std::move(schema),
-      {type_a, phase_a, scene_a, name_a, iter_a, rhs_a, dual_a, coeffs_a});
+      {type_a, phase_a, scene_a, iter_a, extra_a, rhs_a, dual_a, coeffs_a});
 }
 
 /// Resolve the actual output path for a save call.  In append mode the
@@ -556,8 +582,8 @@ struct CellCuts
     [[maybe_unused]] const LabelMaker& label_maker,
     [[maybe_unused]] const StrongIndexVector<
         SceneIndex,
-        StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states)
-    -> std::expected<CutLoadResult, Error>
+        StrongIndexVector<PhaseIndex, PhaseStateInfo>>* scene_phase_states,
+    SDDPCutManager* cut_store) -> std::expected<CutLoadResult, Error>
 {
   try {
     const auto files = collect_parquet_files(filepath);
@@ -578,11 +604,21 @@ struct CellCuts
     map_reserve(accum,
                 static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
 
-    // De-dup across {phase_uid, name} — the same cut may appear in
-    // multiple files (e.g. combined + append-deltas) and in multiple
-    // scene rows of one file.  We install each cut once and broadcast
-    // it to every scene.
-    std::set<std::pair<PhaseUid, std::string>> loaded_keys;
+    // De-dup across {scene_uid, phase_uid, name} — the same cut may
+    // appear in multiple files (combined + append-deltas).  Now that
+    // each per-scene cut is stored as its own row (no broadcast), the
+    // dedupe key must include scene_uid; otherwise two distinct cuts
+    // generated at the same (phase, iter) on different scenes would
+    // collide and one would be silently dropped.  When the file lacks
+    // a ``scene`` column the SceneUid sentinel ``0`` collapses every
+    // entry to the legacy "phase + name" dedupe — back-compat.
+    // Use :class:`CutKey` (the full 5-tuple including ``extra``) so
+    // multi-cut feasibility siblings and cross-scene shared copies
+    // are distinguished correctly.  Without ``extra`` in the key,
+    // forward-pass ``multi_cut`` mode collapses multiple per-slack
+    // fcuts at the same ``(scene, phase, iter, type=Feasibility)``
+    // into one on load — wrong.
+    std::set<CutKey> loaded_keys;
 
     for (const auto& fname : files) {
       auto table_result = read_parquet_table(fname);
@@ -593,27 +629,58 @@ struct CellCuts
 
       auto type_col = table->GetColumnByName("type");
       auto phase_col = table->GetColumnByName("phase");
-      auto name_col = table->GetColumnByName("name");
+      auto scene_col = table->GetColumnByName("scene");
+      auto iter_col = table->GetColumnByName("iteration");
+      auto extra_col = table->GetColumnByName("extra");
       auto rhs_col = table->GetColumnByName("rhs");
       auto coeffs_col = table->GetColumnByName("coeffs");
-      if (!type_col || !phase_col || !name_col || !rhs_col || !coeffs_col) {
+      if (!type_col || !phase_col || !rhs_col || !coeffs_col) {
         return std::unexpected(make_io_error(
-            fname,
-            "missing one of required columns (type/phase/name/rhs/coeffs)"));
+            fname, "missing one of required columns (type/phase/rhs/coeffs)"));
       }
+      // ``scene`` and ``iteration`` are optional only for back-compat
+      // with legacy parquet files that pre-date the schema v3 update.
+      // For schema v3+ files (post-2026-05) both columns are present;
+      // ``scene`` is required for per-scene routing (otherwise we
+      // broadcast, multiplying cut counts by N_scenes per level) and
+      // ``iteration`` replaces the dropped ``name`` column.  Legacy
+      // ``name`` column (when present) is silently ignored.
 
       for (int chunk_i = 0; chunk_i < type_col->num_chunks(); ++chunk_i) {
-        auto type_arr = std::dynamic_pointer_cast<arrow::StringArray>(
+        // Schema v3 stores ``type`` as int8 (CutType enum's underlying
+        // uint8_t); legacy files used a 1-char utf8 string ("f"/"o").
+        // Detect both at runtime so old parquet files still load.
+        auto type_int_arr = std::dynamic_pointer_cast<arrow::Int8Array>(
             type_col->chunk(chunk_i));
+        std::shared_ptr<arrow::StringArray> type_str_arr;
+        if (!type_int_arr) {
+          type_str_arr = std::dynamic_pointer_cast<arrow::StringArray>(
+              type_col->chunk(chunk_i));
+        }
         auto phase_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
             phase_col->chunk(chunk_i));
-        auto name_arr = std::dynamic_pointer_cast<arrow::StringArray>(
-            name_col->chunk(chunk_i));
+        std::shared_ptr<arrow::Int32Array> scene_arr;
+        if (scene_col) {
+          scene_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+              scene_col->chunk(chunk_i));
+        }
+        std::shared_ptr<arrow::Int32Array> iter_arr;
+        if (iter_col) {
+          iter_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+              iter_col->chunk(chunk_i));
+        }
+        std::shared_ptr<arrow::Int32Array> extra_arr;
+        if (extra_col) {
+          extra_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+              extra_col->chunk(chunk_i));
+        }
         auto rhs_arr = std::dynamic_pointer_cast<arrow::DoubleArray>(
             rhs_col->chunk(chunk_i));
         auto coeffs_arr = std::dynamic_pointer_cast<arrow::ListArray>(
             coeffs_col->chunk(chunk_i));
-        if (!type_arr || !phase_arr || !name_arr || !rhs_arr || !coeffs_arr) {
+        if ((!type_int_arr && !type_str_arr) || !phase_arr || !rhs_arr
+            || !coeffs_arr)
+        {
           return std::unexpected(make_io_error(
               fname, "unexpected column types — schema mismatch"));
         }
@@ -632,34 +699,60 @@ struct CellCuts
               make_io_error(fname, "coeffs struct missing key/val fields"));
         }
 
-        const auto nrows = type_arr->length();
+        const auto nrows =
+            type_int_arr ? type_int_arr->length() : type_str_arr->length();
         for (int64_t i = 0; i < nrows; ++i) {
-          const CutType cut_type = (type_arr->GetView(i) == "f")
-              ? CutType::Feasibility
-              : CutType::Optimality;
+          // Schema v3 (int8): direct cast from CutType's underlying
+          // uint8_t.  Legacy schema (utf8): map "f" → Feasibility,
+          // anything else → Optimality.
+          const CutType cut_type = type_int_arr
+              ? static_cast<CutType>(
+                    static_cast<std::uint8_t>(type_int_arr->Value(i)))
+              : ((type_str_arr->GetView(i) == "f") ? CutType::Feasibility
+                                                   : CutType::Optimality);
           const auto phase_uid = make_uid<Phase>(phase_arr->Value(i));
-          const auto cut_name = std::string {name_arr->GetView(i)};
           const auto rhs = rhs_arr->Value(i);
 
           auto pit = phase_uid_to_index.find(phase_uid);
           if (pit == phase_uid_to_index.end()) {
             SPDLOG_WARN(
-                "SDDP load_cuts_parquet: unknown phase UID {} in {}, "
-                "skipping cut '{}'",
+                "SDDP load_cuts_parquet: unknown phase UID {} in {} at row "
+                "{}, skipping",
                 phase_uid,
                 fname,
-                cut_name);
+                i);
             continue;
           }
           const auto phase_index = pit->second;
 
-          if (!loaded_keys.emplace(phase_uid, cut_name).second) {
-            continue;  // already seen (combined + append, or per-scene rows)
+          // Read scene_uid (sentinel 0 if column absent → legacy file).
+          const auto row_scene_uid =
+              scene_arr ? make_uid<Scene>(scene_arr->Value(i)) : SceneUid {};
+          // Read iteration_index directly from the ``iteration`` column
+          // (schema v3+).  Legacy parquet files that pre-date the
+          // schema update don't have this column and report iter 0 —
+          // the caller's ``max_iteration`` tracker would then under-
+          // count for hot-start offset, but the routing + dedup still
+          // works correctly.
+          const auto cut_iter_idx = iter_arr
+              ? IterationIndex {iter_arr->Value(i)}
+              : IterationIndex {};
+          // ``extra`` defaults to 0 for legacy files (schema v3+
+          // emits this column; older files don't).  Zero is a safe
+          // default for single-cut paths; multi-cut feasibility cuts
+          // would have unique non-zero ``extra`` values when written
+          // by a current emitter.
+          const auto cut_extra = extra_arr ? extra_arr->Value(i) : 0;
+          const auto row_key = CutKey {.type = cut_type,
+                                       .scene_uid = row_scene_uid,
+                                       .phase_uid = phase_uid,
+                                       .iteration_index = cut_iter_idx,
+                                       .extra = cut_extra};
+          if (!loaded_keys.insert(row_key).second) {
+            continue;  // already seen (combined + append duplicate)
           }
 
-          result.max_iteration = std::max(
-              result.max_iteration,
-              extract_iteration_from_name(std::string_view {cut_name}));
+          result.max_iteration = std::max(result.max_iteration, cut_iter_idx);
 
           // Resolve coefficient list for this row.
           const auto list_start = coeffs_arr->value_offset(i);
@@ -684,19 +777,19 @@ struct CellCuts
             const auto c1 = key_view.find(':');
             if (c1 == std::string_view::npos) {
               SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: malformed coeff key '{}' in cut "
-                  "'{}'; skipping coefficient",
+                  "SDDP load_cuts_parquet: malformed coeff key '{}' at iter "
+                  "{}; skipping coefficient",
                   key_view,
-                  cut_name);
+                  cut_iter_idx);
               continue;
             }
             const auto c2 = key_view.find(':', c1 + 1);
             if (c2 == std::string_view::npos) {
               SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: malformed coeff key '{}' in cut "
-                  "'{}'; skipping coefficient",
+                  "SDDP load_cuts_parquet: malformed coeff key '{}' at iter "
+                  "{}; skipping coefficient",
                   key_view,
-                  cut_name);
+                  cut_iter_idx);
               continue;
             }
             const auto cls = key_view.substr(0, c1);
@@ -712,10 +805,10 @@ struct CellCuts
             if (ec != std::errc {}) {
               SPDLOG_WARN(
                   "SDDP load_cuts_parquet: invalid uid '{}' in key '{}' "
-                  "for cut '{}'; skipping coefficient",
+                  "at iter {}; skipping coefficient",
                   uid_str,
                   key_view,
-                  cut_name);
+                  cut_iter_idx);
               continue;
             }
 
@@ -732,9 +825,9 @@ struct CellCuts
             if (!found) {
               SPDLOG_WARN(
                   "SDDP load_cuts_parquet: structured key '{}' not found in "
-                  "state variables for cut '{}'; ignoring coefficient",
+                  "state variables at iter {}; ignoring coefficient",
                   key_view,
-                  cut_name);
+                  cut_iter_idx);
             }
           }
 
@@ -754,7 +847,7 @@ struct CellCuts
             }
           }
 
-          // Build the SparseRow template and broadcast to all scenes.
+          // Build the SparseRow template.
           auto row = SparseRow {
               .lowb = rhs,
               .uppb = LinearProblem::DblMax,
@@ -762,25 +855,77 @@ struct CellCuts
           };
           sddp_loaded_cut_tag.apply_to(row);
 
-          const auto cut_iter =
-              extract_iteration_from_name(std::string_view {cut_name});
-          const auto cut_offset = result.count;
+          // Preserve the original ``extra`` discriminator (from the
+          // parquet column).  Falls back to ``result.count`` for
+          // legacy files that lack the ``extra`` column — preserves
+          // per-load uniqueness even when on-disk metadata is
+          // incomplete.
+          const auto cut_offset = extra_arr ? cut_extra : result.count;
           const auto phase_uid_ctx = sim.uid_of(phase_index);
-          for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+
+          // Route the cut to the specific scene it was generated for
+          // (read from the ``scene`` column).  Falls back to
+          // broadcasting across all scenes when the column is absent
+          // (legacy parquet schema).  Without this routing each cut
+          // would be replicated to all 16 scenes, multiplying both
+          // the LP row count and the cut-store size by N_scenes at
+          // every level transition — observed as 6 400 → 104 800 →
+          // 1 679 560 cuts across juan/IPLP's 3 cascade transitions.
+          auto build_scene_row = [&](SceneIndex scene_idx)
+          {
             auto scene_row = row;
-            scene_row.context = make_iteration_context(sim.uid_of(scene_index),
+            scene_row.context = make_iteration_context(sim.uid_of(scene_idx),
                                                        phase_uid_ctx,
-                                                       uid_of(cut_iter),
+                                                       uid_of(cut_iter_idx),
                                                        cut_offset);
             for (const auto& [col, coeff] : resolved_coeffs) {
               scene_row[col] = coeff;
             }
+            return scene_row;
+          };
+
+          auto push_to_cell = [&](SceneIndex scene_idx, SparseRow&& scene_row)
+          {
             auto& cell =
-                accum[CellKey {.scene = scene_index, .phase = phase_index}];
+                accum[CellKey {.scene = scene_idx, .phase = phase_index}];
             if (cut_type == CutType::Optimality) {
               cell.opt.push_back(std::move(scene_row));
             } else {
               cell.feas.push_back(std::move(scene_row));
+            }
+          };
+
+          if (scene_arr) {
+            // Per-scene routing (the file has a ``scene`` column).
+            const auto scene_uid_val = make_uid<Scene>(scene_arr->Value(i));
+            // Resolve scene_uid → scene_index.  Skip the cut when the
+            // uid doesn't match any scene in the current simulation
+            // (e.g. saved from a run with a different scene_array).
+            SceneIndex target_scene {};
+            bool scene_found = false;
+            for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes))
+            {
+              if (sim.uid_of(scene_index) == scene_uid_val) {
+                target_scene = scene_index;
+                scene_found = true;
+                break;
+              }
+            }
+            if (!scene_found) {
+              SPDLOG_WARN(
+                  "SDDP load_cuts_parquet: unknown scene UID {} in {}, "
+                  "skipping cut at iter {}",
+                  scene_uid_val,
+                  fname,
+                  cut_iter_idx);
+              continue;
+            }
+            push_to_cell(target_scene, build_scene_row(target_scene));
+          } else {
+            // Legacy fallback: broadcast to every scene.
+            for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes))
+            {
+              push_to_cell(scene_index, build_scene_row(scene_index));
             }
           }
           ++result.count;
@@ -789,9 +934,18 @@ struct CellCuts
     }
 
     // Bulk install per cell (mirrors the CSV loader's pass 2).
+    //
+    // When ``cut_store`` is non-null we also push each loaded cut into
+    // the manager via ``store_cut`` so its per-scene vectors include
+    // these inherited cuts.  Without this, downstream operations like
+    // ``SDDPCutManager::forget_first_cuts(N)`` walk a store that
+    // doesn't know about the loaded rows and delete the wrong LP rows
+    // — root cause of the cascade ``forget`` + compress-mode crash.
     for (auto&& [cell_key, cell_cuts] : accum) {
       const auto [scene_index, phase_index] =
           std::pair {cell_key.scene, cell_key.phase};
+      const auto scene_uid_val = sim.uid_of(scene_index);
+      const auto phase_uid_val = sim.uid_of(phase_index);
 
       if (!cell_cuts.opt.empty()) {
         for (const auto& cut : cell_cuts.opt) {
@@ -799,18 +953,46 @@ struct CellCuts
         }
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
+        // Capture base row index BEFORE add_rows so each cut's
+        // assigned row index can be reconstructed as ``base + i``.
+        const auto base_row =
+            static_cast<std::size_t>(static_cast<int>(li.get_numrows()));
         li.add_rows(cell_cuts.opt);
         for (const auto& cut : cell_cuts.opt) {
           li.record_cut_row(cut);
+        }
+        if (cut_store != nullptr) {
+          for (std::size_t i = 0; i < cell_cuts.opt.size(); ++i) {
+            cut_store->store_cut(scene_index,
+                                 phase_index,
+                                 cell_cuts.opt[i],
+                                 CutType::Optimality,
+                                 RowIndex {static_cast<int>(base_row + i)},
+                                 scene_uid_val,
+                                 phase_uid_val);
+          }
         }
       }
 
       if (!cell_cuts.feas.empty()) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
+        const auto base_row =
+            static_cast<std::size_t>(static_cast<int>(li.get_numrows()));
         li.add_rows(cell_cuts.feas);
         for (const auto& cut : cell_cuts.feas) {
           li.record_cut_row(cut);
+        }
+        if (cut_store != nullptr) {
+          for (std::size_t i = 0; i < cell_cuts.feas.size(); ++i) {
+            cut_store->store_cut(scene_index,
+                                 phase_index,
+                                 cell_cuts.feas[i],
+                                 CutType::Feasibility,
+                                 RowIndex {static_cast<int>(base_row + i)},
+                                 scene_uid_val,
+                                 phase_uid_val);
+          }
         }
       }
     }

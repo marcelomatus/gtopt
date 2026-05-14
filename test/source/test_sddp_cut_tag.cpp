@@ -160,30 +160,13 @@ TEST_CASE("sddp_*_row_prefix matches the runtime LabelMaker output")
   CHECK(labelled(sddp_ecut_tag).starts_with(sddp_ecut_row_prefix));
 }
 
-TEST_CASE("extract_iteration_from_name accepts every pass-tagged row prefix")
-{
-  // The dispatcher in `sddp_cut_io.cpp::extract_iteration_from_name`
-  // explicitly recognises scut / fcut / bcut (ecut has no iteration
-  // field).  Confirm the row-prefix constants align.  The function
-  // returns a 0-based `IterationIndex`; we compare its raw integer
-  // value (not the 1-based UID `uid_of` would yield).
-  // Format: <prefix>{uid}_{scene}_{phase}_{iter}_{offset}
-  const auto suffix = std::string {"42_1_2_5_0"};
-
-  CHECK(static_cast<int>(extract_iteration_from_name(
-            std::string {sddp_scut_row_prefix} + suffix))
-        == 5);
-  CHECK(static_cast<int>(extract_iteration_from_name(
-            std::string {sddp_fcut_row_prefix} + suffix))
-        == 5);
-  CHECK(static_cast<int>(extract_iteration_from_name(
-            std::string {sddp_bcut_row_prefix} + suffix))
-        == 5);
-
-  // Unknown prefix: returns IterationIndex {0}.
-  CHECK(static_cast<int>(extract_iteration_from_name("wrong_prefix_42_1_2_5_0"))
-        == 0);
-}
+// ``extract_iteration_from_name`` was removed in 2026-05.  The prior
+// TEST_CASE verifying the dispatcher accepted every pass-tagged row
+// prefix is gone along with the function — every consumer now reads
+// the iteration index directly from
+// ``StoredCut::iteration_index`` / ``CutEntry::iteration`` /
+// ``RawBoundaryCut::iteration_index``.  See ``source/sddp_cut_io.cpp``
+// for the migration notes.
 
 TEST_CASE("CutTag is a structural-equality aggregate")
 {

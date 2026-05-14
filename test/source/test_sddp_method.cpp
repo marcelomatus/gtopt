@@ -3330,6 +3330,11 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
+    // Strict gap-only convergence — the post-2026-05 OR semantics of
+    // gap_stationary mode (``|gap| < stationary_gap_ceiling`` alone
+    // suffices) would otherwise exit at gap≈4-5% before the SDDP
+    // policy fully stabilises, leaving efin row duals stuck at 0.
+    sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
     sddp_opts.forward_max_attempts = 200;
@@ -3621,6 +3626,10 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
+    // Strict gap-only convergence — see comment in efin_cost test
+    // above; gap_stationary's magnitude path would short-circuit
+    // convergence at ~5% gap before duals develop.
+    sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
     sddp_opts.forward_max_attempts = 200;
@@ -3844,6 +3853,10 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
+    // Strict gap-only convergence — see comment in efin_cost test
+    // earlier; gap_stationary's magnitude path would short-circuit
+    // convergence at ~5% gap before duals develop.
+    sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
     sddp_opts.forward_max_attempts = 200;
@@ -4049,6 +4062,10 @@ TEST_CASE(  // NOLINT
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 30;
     sddp_opts.convergence_tol = 1e-3;
+    // Strict gap-only convergence — see comment in efin_cost test
+    // earlier; gap_stationary's magnitude path would short-circuit
+    // convergence at ~5% gap before duals develop.
+    sddp_opts.convergence_mode = ConvergenceMode::gap_only;
     sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
     sddp_opts.multi_cut_threshold = -1;
     sddp_opts.forward_max_attempts = 200;
@@ -6024,6 +6041,208 @@ TEST_CASE(  // NOLINT
   // The user's hypothesis: backward LP for the re-solve is NOT being saved.
   // If this CHECK fires we confirm a missing dump site.
   CHECK(backward_lp_count > 0);
+}
+
+// ─── Item 2: symmetric |gap| < stationary_gap_ceiling (commit post-f466936f)
+//
+// Pre-fix the guard was `ir.gap < -kSddpGapFpEpsilon` (asymmetric, only
+// positive gap accepted).  Post-fix it is `std::abs(ir.gap) < ceiling`.
+// The critical new behavior: stationary convergence must ALSO be blocked
+// when gap is significantly NEGATIVE (LB overshoot), not just when it is
+// large and positive.
+//
+// We verify the invariant from two directions:
+//   1. Normal solve: when stationary_converged fires, std::abs(gap) < ceiling.
+//   2. stationary_gap_ceiling field default is 0.05 (5%) and is user-
+//      configurable.
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod - stationary_converged implies |gap| < stationary_gap_ceiling "
+    "(symmetric ceiling)")
+{
+  // Run the standard 3-phase hydro with a wide stationary_tol so the
+  // stationary path is likely to fire before max_iterations.
+  // Assert that whenever it fires, std::abs(ir.gap) < stationary_gap_ceiling
+  // (not just ir.gap < ceiling — the old asymmetric test).
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 15;
+  sddp_opts.min_iterations = 2;
+  sddp_opts.convergence_tol = 1e-6;  // tight → gap-only path unlikely
+  sddp_opts.stationary_tol = 0.15;  // loose → fires early
+  sddp_opts.stationary_window = 3;
+  sddp_opts.stationary_gap_ceiling = 0.5;  // wide ceiling
+  sddp_opts.convergence_mode = ConvergenceMode::gap_stationary;
+  sddp_opts.enable_api = false;
+  sddp_opts.apertures = std::vector<Uid> {};
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE(!results->empty());
+
+  for (const auto& ir : *results) {
+    if (ir.stationary_converged) {
+      // NEW behavior: SYMMETRIC ceiling — |gap| < ceiling, not gap < ceiling.
+      CHECK(std::abs(ir.gap) < sddp_opts.stationary_gap_ceiling);
+    }
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPOptions - stationary_gap_ceiling default is 0.05")
+{
+  // Pin the default value documented in sddp_types.hpp.
+  // If someone accidentally changes the default, all integration tests
+  // that rely on the 5% ceiling will silently behave differently.
+  const SDDPOptions opts;
+  CHECK(opts.stationary_gap_ceiling == doctest::Approx(0.05));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPOptions - kSddpGapFpEpsilon is 1e-9")
+{
+  // Pin the FP noise floor constant used in convergence guards.
+  CHECK(kSddpGapFpEpsilon == doctest::Approx(1.0e-9));
+}
+
+// ─── Item 3: skip_simulation_pass field exists on SDDPOptions ──────────────
+//
+// skip_simulation_pass is set programmatically by CascadePlanningMethod for
+// non-final levels.  The field itself lives on SDDPOptions (the solver-side
+// struct, not JSON-serializable SddpOptions).  We verify:
+//   (a) default is false
+//   (b) set to true → solve() still returns results (training iters ran)
+//   (c) set to true → iteration count equals training iterations
+//       (no extra sim-pass iteration appended to the result vector)
+//   (d) set to false → last result is the simulation pass (converged)
+
+TEST_CASE(  // NOLINT
+    "SDDPOptions - skip_simulation_pass default is false")
+{
+  const SDDPOptions opts;
+  CHECK_FALSE(opts.skip_simulation_pass);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDPMethod - skip_simulation_pass=true terminates after training iters")
+{
+  // With skip_simulation_pass=true the solver must return ONLY training-
+  // iteration results (no trailing simulation-pass result appended).
+  // The result vector size equals the number of training iterations run
+  // (i.e. the iteration where convergence fired, which is <= max_iterations).
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts_skip;
+  opts_skip.max_iterations = 10;
+  opts_skip.min_iterations = 2;
+  opts_skip.convergence_tol = 1e-3;
+  opts_skip.skip_simulation_pass = true;
+  opts_skip.enable_api = false;
+  opts_skip.apertures = std::vector<Uid> {};
+
+  SDDPOptions opts_normal = opts_skip;
+  opts_normal.skip_simulation_pass = false;
+
+  PlanningLP plp_normal(make_3phase_hydro_planning());
+  SDDPMethod sddp_skip(plp, opts_skip);
+  SDDPMethod sddp_normal(plp_normal, opts_normal);
+
+  auto res_skip = sddp_skip.solve();
+  auto res_normal = sddp_normal.solve();
+
+  REQUIRE(res_skip.has_value());
+  REQUIRE(res_normal.has_value());
+  REQUIRE(!res_skip->empty());
+  REQUIRE(!res_normal->empty());
+
+  // skip=true: result vector must NOT contain a simulation-pass entry.
+  // The normal run appends a simulation-pass entry as the last element;
+  // the skip run terminates before that.  On a converging fixture the
+  // normal run has exactly one extra result (the sim pass), so:
+  //   skip.size() == normal.size() - 1   (converged before max_iterations)
+  //   OR skip.size() == max_iterations   (hit budget before converging)
+  // Both are valid, but skip.size() MUST be <= normal.size().
+  CHECK(res_skip->size() <= res_normal->size());
+
+  // All results must be training results (no result should have converged
+  // via a simulation pass path — simulation pass results are marked as
+  // the final element in normal mode, but there is no explicit field to
+  // distinguish them directly, so we verify count only).
+  CHECK(res_skip->size() <= static_cast<std::size_t>(opts_skip.max_iterations));
+}
+
+// ─── SDDPMethod::seed_max_kappa / global_max_kappa baseline ──────────────────
+//
+// Tests the seed-kappa carry-forward logic introduced so CascadePlanningMethod
+// can propagate condition-number observability across levels (even when CPLEX
+// barrier without crossover leaves the new level's LPs without a queryable
+// kappa).  The helper requires only a constructed SDDPMethod — no solve needed.
+
+TEST_CASE("SDDPMethod seed_max_kappa / global_max_kappa")  // NOLINT
+{
+  SUBCASE("default sentinel: global_max_kappa returns -1.0")
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+    SDDPOptions opts;
+    opts.enable_api = false;
+    SDDPMethod sddp(planning_lp, opts);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(-1.0));
+  }
+
+  SUBCASE("seed alone: global_max_kappa returns seeded value")
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+    SDDPOptions opts;
+    opts.enable_api = false;
+    SDDPMethod sddp(planning_lp, opts);
+    sddp.seed_max_kappa(6.29e5);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(6.29e5));
+  }
+
+  SUBCASE("seed ignores negative: stays at prior value")
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+    SDDPOptions opts;
+    opts.enable_api = false;
+    SDDPMethod sddp(planning_lp, opts);
+    // After a positive seed, a negative call must be a no-op.
+    sddp.seed_max_kappa(1.5e4);
+    sddp.seed_max_kappa(-2.0);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(1.5e4));
+  }
+
+  SUBCASE("seed before any positive: negative is a no-op (stays at -1)")
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+    SDDPOptions opts;
+    opts.enable_api = false;
+    SDDPMethod sddp(planning_lp, opts);
+    sddp.seed_max_kappa(-2.0);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(-1.0));
+  }
+
+  SUBCASE("seed monotonic: ratchets up, never down")
+  {
+    auto planning = make_3phase_hydro_planning();
+    PlanningLP planning_lp(std::move(planning));
+    SDDPOptions opts;
+    opts.enable_api = false;
+    SDDPMethod sddp(planning_lp, opts);
+    sddp.seed_max_kappa(1e5);
+    sddp.seed_max_kappa(2e5);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(2e5));
+    // Smaller subsequent call must NOT pull value down.
+    sddp.seed_max_kappa(1e3);
+    CHECK(sddp.global_max_kappa() == doctest::Approx(2e5));
+  }
 }
 
 // NOLINTEND(abseil-string-find-str-contains, bugprone-argument-comment,

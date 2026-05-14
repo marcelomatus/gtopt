@@ -41,6 +41,27 @@ class HydroMixin:
         time by :func:`planos_writer.write_boundary_cuts_csv`, so the
         cap is comparable to what gtopt actually loads from
         ``boundary_cuts.csv``.
+
+        Present-value adjustment
+        ------------------------
+        PLP's boundary cuts encode ``GradX_i = ∂E[Z*]/∂v_i`` where
+        ``E[Z*]`` is the **discounted** future cost (PLP's LP objective
+        applies the per-stage ``discount_factor = 1/FactTasa`` directly
+        to every coefficient before the dual is taken).  The
+        lost-production-factor surface
+        (``WaterValueResolver.efin_cost_for``) is in **un-discounted**
+        $/hm³ (its ``gcost`` inputs are stage-invariant marginal
+        $/MWh, with no boundary-stage discount baked in).  Without
+        normalising them to the same frame the ``min(auto, cap)``
+        comparison mixes two accounting periods.
+
+        Un-discount the cuts back to the auto's "boundary face-value"
+        frame by **dividing** every per-reservoir average by the last
+        stage's ``discount_factor``.  Since ``discount_factor < 1`` at
+        the boundary on multi-year horizons, this raises the cap —
+        which is the correct direction: the LP's stored cut
+        coefficients are smaller than their boundary face value
+        because PLP already multiplied them by the discount on disk.
         """
         planos = self.parser.parsed_data.get("planos_parser")
         if planos is None:
@@ -56,12 +77,30 @@ class HydroMixin:
         # to a per-scene LP α floor; the `efin_cost` cap stands on its
         # own.
         try:
-            return planos.average_abs_gradient_by_reservoir(num_scenarios=None)
+            raw = planos.average_abs_gradient_by_reservoir(num_scenarios=None)
         except (AttributeError, TypeError):
             # Defensive — older parser fixtures may not implement the
             # helper.  Treat as "no cap available" instead of crashing
             # mid-build.
             return {}
+        # Un-discount the cut-derived caps to the auto's face-value
+        # frame using the last simulation stage's `discount_factor`
+        # from plpeta.dat.  When no stage parser is available
+        # (degenerate fixtures) leave the caps in their raw on-disk
+        # (already-discounted) frame.
+        stage_parser = self.parser.parsed_data.get("stage_parser")
+        if stage_parser is None:
+            return raw
+        stages = getattr(stage_parser, "stages", None) or []
+        if not stages:
+            return raw
+        try:
+            last_df = float(stages[-1].get("discount_factor", 1.0))
+        except (TypeError, ValueError):
+            return raw
+        if last_df <= 0.0 or last_df == 1.0:
+            return raw
+        return {name: value / last_df for name, value in raw.items()}
 
     def process_ror_spec(self, options):
         """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.

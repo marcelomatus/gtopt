@@ -198,7 +198,7 @@ TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
       .type = CutType::Optimality,
       .phase_uid = make_uid<Phase>(42),
       .scene_uid = make_uid<Scene>(7),
-      .name = "test_cut",
+      .iteration_index = IterationIndex {3},
       .rhs = -1.5,
       .coefficients =
           {

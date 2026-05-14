@@ -104,6 +104,36 @@ struct SolverStats
   /// HiGHS basis-condition query).
   double bwd_kappa_s {0.0};
 
+  // ── Convergence indicators ───────────────────────────────────────────
+  //
+  // Sums of LP slack-variable values, accumulated across every top-level
+  // `resolve()` on this LP whose caller invokes
+  // `SystemLP::accumulate_convergence_indicators(scene, phase)`
+  // (currently the SDDP forward pass).  Diff two snapshots via
+  // `operator-=` to obtain the values produced by the most recent
+  // iteration — that delta is the actual convergence signal and should
+  // drop toward zero as the SDDP cuts mature.  All four are scenario-
+  // probability-weighted and (for the time-extensive demand/flow
+  // families) block-duration-weighted, so values from different scenes,
+  // phases or LPs combine via plain `+=`.
+
+  /// Σ over (scenario, stage, block) of
+  /// `prob × duration × Demand.fail`, units MWh.  Reflects load shed
+  /// volume the LP could not avoid this iteration.
+  double unserved_demand {0.0};
+  /// Σ over (scenario, stage, block, right) of
+  /// `prob × duration × FlowRight.fail × 3600/1e6`, units hm³.  Reflects
+  /// irrigation/agreement flow that the LP could not deliver.
+  double unserved_flow {0.0};
+  /// Σ over (scenario, stage, reservoir) of
+  /// `prob × Storage.soft_emin`, units hm³.  Reflects volume below the
+  /// per-stage soft minimum (`soft_emin` configured on Reservoir/Battery).
+  double soft_emin_deficit {0.0};
+  /// Σ over (scenario, last-stage-of-last-phase, reservoir) of
+  /// `prob × Storage.efin_slack`, units hm³.  Reflects the terminal-
+  /// volume shortfall below `efin` when `efin_cost` is configured.
+  double efin_deficit {0.0};
+
   [[nodiscard]] constexpr std::size_t total_solve_calls() const noexcept
   {
     return initial_solve_calls + resolve_calls;
@@ -135,6 +165,10 @@ struct SolverStats
     bwd_store_cut_s += rhs.bwd_store_cut_s;
     bwd_resolve_s += rhs.bwd_resolve_s;
     bwd_kappa_s += rhs.bwd_kappa_s;
+    unserved_demand += rhs.unserved_demand;
+    unserved_flow += rhs.unserved_flow;
+    soft_emin_deficit += rhs.soft_emin_deficit;
+    efin_deficit += rhs.efin_deficit;
     return *this;
   }
 
@@ -164,6 +198,10 @@ struct SolverStats
     bwd_store_cut_s -= rhs.bwd_store_cut_s;
     bwd_resolve_s -= rhs.bwd_resolve_s;
     bwd_kappa_s -= rhs.bwd_kappa_s;
+    unserved_demand -= rhs.unserved_demand;
+    unserved_flow -= rhs.unserved_flow;
+    soft_emin_deficit -= rhs.soft_emin_deficit;
+    efin_deficit -= rhs.efin_deficit;
     return *this;
   }
 

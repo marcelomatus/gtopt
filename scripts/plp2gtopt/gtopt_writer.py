@@ -419,97 +419,141 @@ class GTOptWriter(
         model_opts: dict[str, Any],
         sddp_opts: dict[str, Any],
     ) -> dict[str, Any]:
-        """Build a 3-level default cascade configuration.
+        """Build a 4-level default cascade configuration.
 
-        Iteration budget split:
-          - Level 0 (uninodal):  **1.5 × max_iterations** — single-bus
-            relaxation gets the largest budget because it builds the
-            initial value-function envelope from the alpha-bootstrap
-            floor.  PLP's ``PDMaxIte`` was tuned for a monolithic-style
-            run; in the cascade, level 0 has to absorb the full
-            convergence load before the transport / full-network
-            refinements take over, so we widen the budget by 50 %.
-          - Level 1 (transport): 1/4 of max_iterations — lines enabled,
-            no losses, no kirchhoff (pure transport model); inherits
-            level 0's optimality cuts.
-          - Level 2 (full):      1/4 of max_iterations — full network
-            with the user's original model_options; inherits level 1's
-            optimality cuts.
+        Iteration budget split (PLP's ``PDMaxIte`` = ``total_iter``):
+          - L0 ``warmup``:        ``total_iter``     — single-bus, 1
+            wettest aperture; builds the initial value-function envelope
+            from the alpha-bootstrap floor.
+          - L1 ``uninodal``:      ``total_iter / 2`` — single-bus, 4
+            stride apertures; inherits warmup's cuts.
+          - L2 ``transport``:     ``total_iter / 3`` — line constraints
+            on, no losses, no kirchhoff; inherits uninodal's cuts.
+          - L3 ``full_network``:  ``total_iter / 4`` — full physics
+            (kirchhoff + line losses as configured); inherits transport's
+            cuts.
 
-        Aperture budget split (via ``SddpOptions.num_apertures``):
-          - Level 0: ``num_apertures = 4`` — take the 4 wettest per phase
-          - Level 1: ``num_apertures = 8`` — take the 8 wettest per phase
-          - Level 2: ``num_apertures`` absent — use the full per-phase list
+        Aperture budget split (via ``SddpOptions.num_apertures`` and
+        ``SddpOptions.aperture_selection_mode``):
+          - L0 ``warmup``:       ``num_apertures = 1, head``  — single
+            wettest hydrology.
+          - L1 ``uninodal``:     ``num_apertures = 4, stride`` —
+            wettest + driest + 2 evenly-spaced interior.
+          - L2 ``transport``:    ``num_apertures = 8, stride``.
+          - L3 ``full_network``: ``num_apertures`` /
+            ``aperture_selection_mode`` **unset** — iterates the full
+            per-phase aperture list (every scenario emitted by
+            :func:`aperture_writer.build_phase_apertures`).  Robust to
+            per-case variations in aperture count.
+
+        Stationary-convergence settings per level (``stationary_tol``
+        is the Δgap plateau threshold; ``stationary_gap_ceiling`` is
+        the ``|gap|`` ceiling — **either** triggers convergence with
+        the C++ OR semantics in ``sddp_iteration.cpp``).  Both
+        targets are equal at every level:
+          - L0:  ``Δgap < 8 %`` OR ``|gap| < 8 %``
+          - L1:  ``Δgap < 6 %`` OR ``|gap| < 6 %``
+          - L2:  ``Δgap < 4 %`` OR ``|gap| < 4 %``
+          - L3:  ``Δgap < 2 %`` OR ``|gap| < 2 %``
+        Whichever signal lands first ends the level.  Low-aperture
+        levels (warmup, uninodal) typically exit on the Δgap
+        plateau, while iters with a fast-collapsing gap exit on the
+        magnitude target directly.
+
+        Each level inherits state-variable targets and **all**
+        optimality cuts from previous levels via elastic constraints
+        (``inherit_targets = -1, inherit_optimality_cuts = -1``).  The
+        cut store therefore accumulates across the cascade: L1 sees
+        L0's cuts, L2 sees L0 + L1, L3 sees L0 + L1 + L2.  Preserves
+        the tightest available value-function envelope at every level
+        — at the cost of a larger master LP at the tail.
 
         ``Phase.apertures`` is emitted by
         :func:`aperture_writer.build_phase_apertures` in **wettest →
-        driest** order, so ``num_apertures = N`` naturally picks the N
-        wettest apertures *per phase* — no cross-phase whitelist needed.
-        Resolved at the C++ side by ``sddp_aperture_pass.cpp``'s
-        ``truncate_apertures`` helper.
-
-        Each level inherits state-variable targets from the previous level
-        via elastic constraints (``inherit_targets = -1``).
+        driest** order, so ``num_apertures = N`` paired with the
+        selection mode controls which N apertures each level visits per
+        phase.  Resolved on the C++ side by ``sddp_aperture.cpp``'s
+        ``select_apertures`` helper.
         """
         total_iter = sddp_opts.get("max_iterations", 100)
         convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
-        # Level 0 absorbs 1.5× the PLP-provided budget (PDMaxIte) — it
-        # needs more iters than the original PLP monolithic run because
-        # it has to build the cascade's initial value-function envelope
-        # before levels 1–2 can refine.  Round-up ceiling so the
-        # multiplier never reduces the budget on small PDMaxIte values
-        # (e.g. PDMaxIte=2 → 3 iters, not 2).
-        l0_iter = max((total_iter * 3 + 1) // 2, 1)
-        l1_iter = max(total_iter // 4, 1)
-        l2_iter = max(total_iter // 4, 1)
+        # ── Iteration budgets (floored at 1; see docstring §1) ──
+        l0_iter = max(total_iter, 1)
+        l1_iter = max(total_iter // 2, 1)
+        l2_iter = max(total_iter // 3, 1)
+        l3_iter = max(total_iter // 4, 1)
 
-        # The cascade-level max_iterations is interpreted by
-        # CascadePlanningMethod as a GLOBAL budget applied to the sum of
-        # every level's training iterations.  Leaving it equal to
-        # total_iter lets level 0 alone consume the whole budget (since
-        # l0_iter == total_iter) and skip levels 1–2 — see
-        # cascade_method.cpp: "global iteration budget exhausted".  Use
-        # the sum of per-level budgets so each level still runs, while
-        # keeping a conservative upper bound on total work.
-        cascade_sddp_opts = {**sddp_opts, "max_iterations": l0_iter + l1_iter + l2_iter}
+        # ── Cascade-global options ─────────────────────────────────────
+        # ``max_iterations`` here is a GLOBAL budget across all levels
+        # (cascade_method.cpp guards via "global iteration budget
+        # exhausted"); set it to the sum of per-level budgets so every
+        # level is reachable.
+        cascade_sddp_opts = {
+            **sddp_opts,
+            "max_iterations": l0_iter + l1_iter + l2_iter + l3_iter,
+            "stationary_tol": sddp_opts.get("stationary_tol", 0.01),
+        }
 
+        # ── Inter-level transition (see docstring §4) ──────────────────
         transition = {
             "inherit_targets": -1,
-            # Inherit all optimality cuts across cascade levels.  Default in
-            # gtopt (cascade_method.cpp:719) is 0 = no inherit, which causes
-            # each level to start with α bound only by the bootstrap floor —
-            # the level-N LB then resets to the α-bootstrap value (~24M for
-            # the juan/IPLP case) instead of carrying over level-(N−1)'s
-            # converged LB.  Setting -1 = inherit all & never forget keeps
-            # the value-function envelope tight across the cascade.
             "inherit_optimality_cuts": -1,
             "target_rtol": 0.05,
             "target_min_atol": 1.0,
             "target_penalty": 500.0,
         }
 
-        # Per-level aperture budget.  ``Phase.apertures`` (emitted by
-        # plp2gtopt's :func:`aperture_writer.build_phase_apertures`) is
-        # already sorted wettest → driest, so ``num_apertures = N`` takes
-        # the N wettest per phase.  No cross-phase UID whitelist is
-        # needed — the C++ ``truncate_apertures`` helper resolves the
-        # per-phase first-N at SDDP setup time.
+        # ── Per-level SDDP options (see docstring §§2, 3) ──────────────
+        # ``stationary_gap_ceiling`` mirrors ``stationary_tol`` per
+        # level (8 % / 6 % / 4 % / 2 %).  Combined with the C++ OR
+        # semantics on the stationary-convergence check, EITHER
+        # ``Δgap < tol`` OR ``|gap| < tol`` is enough to declare
+        # convergence — so a level can early-exit on whichever signal
+        # lands first.  Examples:
+        #   * warmup with 1 aperture: |gap| is structurally pinned at
+        #     ~37 %, but Δgap plateaus near 0 → exits on Δgap.
+        #   * uninodal iter where the gap collapses from +22 % to
+        #     +0.5 % in one step (still moving fast, Δgap huge) →
+        #     exits on |gap| < 6 % even though Δgap signal failed.
         l0_sddp_options: dict[str, Any] = {
             "max_iterations": l0_iter,
             "convergence_tol": convergence_tol,
-            "num_apertures": 4,
+            "stationary_tol": 0.08,
+            "stationary_gap_ceiling": 0.08,
+            "num_apertures": 1,
+            "aperture_selection_mode": "head",
         }
         l1_sddp_options: dict[str, Any] = {
             "max_iterations": l1_iter,
             "convergence_tol": convergence_tol,
+            "stationary_tol": 0.06,
+            "stationary_gap_ceiling": 0.06,
+            "num_apertures": 4,
+            "aperture_selection_mode": "stride",
+        }
+        l2_sddp_options: dict[str, Any] = {
+            "max_iterations": l2_iter,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.04,
+            "stationary_gap_ceiling": 0.04,
             "num_apertures": 8,
+            "aperture_selection_mode": "stride",
+        }
+        # L3: num_apertures / aperture_selection_mode intentionally
+        # unset → full per-phase list (docstring §2).
+        l3_sddp_options: dict[str, Any] = {
+            "max_iterations": l3_iter,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.02,
+            "stationary_gap_ceiling": 0.02,
         }
 
+        # ── Level array ────────────────────────────────────────────────
         level_array = [
             {
                 "uid": 1,
-                "name": "uninodal",
+                "name": "warmup",
                 "model_options": {
                     "use_single_bus": True,
                 },
@@ -517,17 +561,26 @@ class GTOptWriter(
             },
             {
                 "uid": 2,
-                "name": "transport",
+                "name": "uninodal",
                 "model_options": {
-                    "use_single_bus": False,
-                    "use_kirchhoff": False,
-                    "use_line_losses": False,
+                    "use_single_bus": True,
                 },
                 "sddp_options": l1_sddp_options,
                 "transition": transition,
             },
             {
                 "uid": 3,
+                "name": "transport",
+                "model_options": {
+                    "use_single_bus": False,
+                    "use_kirchhoff": False,
+                    "use_line_losses": False,
+                },
+                "sddp_options": l2_sddp_options,
+                "transition": transition,
+            },
+            {
+                "uid": 4,
                 "name": "full_network",
                 "model_options": {
                     k: v
@@ -536,6 +589,7 @@ class GTOptWriter(
                     in (
                         "use_single_bus",
                         "use_kirchhoff",
+                        "kirchhoff_mode",
                         "use_line_losses",
                         "kirchhoff_threshold",
                         "loss_segments",
@@ -550,12 +604,7 @@ class GTOptWriter(
                         "strict_storage_emin",
                     )
                 },
-                "sddp_options": {
-                    "max_iterations": l2_iter,
-                    "convergence_tol": convergence_tol,
-                    # ``num_apertures`` omitted → no truncation; the C++
-                    # side uses the full per-phase ``Phase.apertures``.
-                },
+                "sddp_options": l3_sddp_options,
                 "transition": transition,
             },
         ]
@@ -771,6 +820,8 @@ class GTOptWriter(
             model_opts["use_line_losses"] = src_model["use_line_losses"]
         if "line_losses_mode" in src_model:
             model_opts["line_losses_mode"] = src_model["line_losses_mode"]
+        if "kirchhoff_mode" in src_model:
+            model_opts["kirchhoff_mode"] = src_model["kirchhoff_mode"]
 
         planning_opts: dict[str, Any] = {
             "method": method,

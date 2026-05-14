@@ -101,9 +101,11 @@ inline void write_cut_coefficients(std::ostream& ofs,
     const auto it = col_keys.find(col);
     if (it == col_keys.end()) {
       throw std::runtime_error(std::format(
-          "SDDP write_cut_coefficients: cut '{}' references col {} that "
-          "is not a registered state variable",
-          cut.name,
+          "SDDP write_cut_coefficients: cut at (scene={}, phase={}, iter={}) "
+          "references col {} that is not a registered state variable",
+          cut.scene_uid,
+          cut.phase_uid,
+          uid_of(cut.iteration_index),
           col));
     }
     const auto& [cls, var, uid] = it->second;

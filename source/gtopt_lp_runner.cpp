@@ -218,6 +218,9 @@ void log_pre_solve_stats(
   const auto log_kv = [](std::string_view label, std::string_view value)
   { spdlog::info("  {:<18} : {}", label, value); };
   log_kv("use_kirchhoff", mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  log_kv("kirchhoff_mode",
+         mo.kirchhoff_mode.has_value() ? std::string(*mo.kirchhoff_mode)
+                                       : "node_angle (default)");
   log_kv("use_single_bus",
          mo.use_single_bus.value_or(false) ? "true" : "false");
   log_kv("scale_objective",

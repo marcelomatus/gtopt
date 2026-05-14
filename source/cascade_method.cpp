@@ -69,6 +69,9 @@ auto CascadePlanningMethod::build_level_sddp_opts(
   opts.min_iterations = cs.min_iterations.value_or(opts.min_iterations);
   opts.elastic_penalty = cs.elastic_penalty.value_or(opts.elastic_penalty);
   opts.scale_alpha = cs.scale_alpha.value_or(opts.scale_alpha);
+  opts.stationary_tol = cs.stationary_tol.value_or(opts.stationary_tol);
+  opts.stationary_gap_ceiling =
+      cs.stationary_gap_ceiling.value_or(opts.stationary_gap_ceiling);
 
   // Apply per-level overrides
   if (level_solver) {
@@ -88,6 +91,18 @@ auto CascadePlanningMethod::build_level_sddp_opts(
         level_solver->min_iterations.value_or(opts.min_iterations);
     opts.convergence_tol =
         level_solver->convergence_tol.value_or(opts.convergence_tol);
+    opts.stationary_tol =
+        level_solver->stationary_tol.value_or(opts.stationary_tol);
+    opts.stationary_gap_ceiling = level_solver->stationary_gap_ceiling.value_or(
+        opts.stationary_gap_ceiling);
+    opts.stationary_window =
+        level_solver->stationary_window.value_or(opts.stationary_window);
+    if (level_solver->elastic_mode.has_value()) {
+      opts.elastic_filter_mode = gtopt::require_enum<ElasticFilterMode>(
+          "elastic_mode", *level_solver->elastic_mode);
+    }
+    opts.elastic_penalty =
+        level_solver->elastic_penalty.value_or(opts.elastic_penalty);
   }
 
   // Cap max_iterations to the remaining global budget
@@ -411,6 +426,15 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     return m_cascade_opts_.level_array.size();
   }();
 
+  // Loop-scoped kappa carry-forward.  Captured BEFORE the per-level
+  // ``current_solver.reset()`` at the end of each iteration, so the
+  // next level can seed its solver's ``m_seed_max_kappa_`` with the
+  // previous level's value — keeps the ``kappa=…`` clause in the iter
+  // log alive across cascade levels even when CPLEX barrier without
+  // crossover leaves the new level's LPs without a queryable basis.
+  // Sentinel ``-1.0`` = "no observation yet" (first level).
+  double carry_kappa = -1.0;
+
   for (std::size_t level_idx = 0;
        level_idx < m_cascade_opts_.level_array.size();
        ++level_idx)
@@ -521,7 +545,23 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     level_opts.iteration_offset_hint = global_iter_index;
 
     // Always create a fresh solver for each level, ensuring clean state.
+    // Preserve the previous level's max kappa as an observability
+    // baseline — CPLEX barrier without crossover may leave the new
+    // level's LPs without a queryable basis, in which case
+    // ``global_max_kappa()`` would report -1 and the per-iter
+    // ``kappa=…`` log clause would silently disappear.  Seeding
+    // forward keeps the iter table readable across the cascade.
     current_solver = std::make_unique<SDDPMethod>(*current_lp, level_opts);
+    // ``carry_kappa`` was previously used to seed the new solver's
+    // baseline, keeping the ``kappa=…`` clause alive across cascade
+    // levels.  Removed: under CPLEX barrier without crossover the
+    // per-iter LP solve never refreshes the value, so the seed
+    // propagated a stale snapshot from the warmup LP into every later
+    // level (uninodal, transport, full_network all showed exactly the
+    // same 6.29e+05 — physically meaningless).  Leaving the kappa
+    // column empty when there is no fresh observation is more honest
+    // than displaying a misleading carry-forward.
+    (void)carry_kappa;
 
     // Aperture count to display:
     //   * explicit aperture list set     → its size
@@ -614,10 +654,27 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       return std::unexpected(result.error());
     }
 
+    // Phase-1 accumulators — folded into level_iterations / total_cuts
+    // below so the per-level summary log reports the FULL level work
+    // (phase-1 + phase-2), not just phase-2's tail.  Without this the
+    // ``Cascade [X]: N iters, new_cuts=M`` line under-reports at every
+    // level that ran a forget pass — same observability bug family as
+    // the "after 0 iters" off-by-one we fixed in the forget log.
+    int phase1_cuts_added = 0;
+    int phase1_iter_count_for_stats = 0;
+
     // Forget inherited cuts if any inherit mode was positive (N > 0).
     // Phase-1 was already capped to N iterations; now we delete the
     // inherited cuts from the LP and re-solve with remaining ones.
-    const auto phase1_iters = static_cast<int>(result->size()) - 1;
+    //
+    // `result->size()` = N_train + (sim_pass ? 1 : 0).  Intermediate
+    // cascade levels set `skip_simulation_pass = true` so the trailing
+    // simulation entry is absent — without this guard the count was
+    // off by one and the "forgetting X cuts after N iters" log read
+    // ``after 0 iters`` whenever a level skipped its sim pass.
+    const auto phase1_iters = level_opts.skip_simulation_pass
+        ? static_cast<int>(result->size())
+        : static_cast<int>(result->size()) - 1;
     const bool should_forget = inherited_cut_count > 0 && forget_threshold > 0;
 
     if (should_forget) {
@@ -634,7 +691,17 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         remaining_budget = std::max(0, remaining_budget - phase1_iters);
       }
 
-      // Keep phase-1 results
+      // Keep phase-1 results.  Track its cut count + iter count so the
+      // per-level summary log below reports the FULL level (phase-1 +
+      // phase-2), not just phase-2 — otherwise ``new_cuts=N`` and
+      // ``N iters`` under-report at every level that ran a forget pass.
+      phase1_cuts_added =
+          std::accumulate(result->begin(),
+                          result->end(),
+                          0,
+                          [](int sum, const SDDPIterationResult& r)
+                          { return sum + r.cuts_added; });
+      phase1_iter_count_for_stats = phase1_iters;
       m_all_results_.insert(
           m_all_results_.end(), result->begin(), result->end());
 
@@ -647,6 +714,17 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       solver_opts.max_iterations = phase2_opts.max_iterations;
       solver_opts.save_per_iteration = level_opts.save_per_iteration;
       current_solver->clear_stop();
+
+      // Bump the solver's iteration counter past phase-1's last
+      // training iter so phase-2 doesn't restart at the phase-1 offset
+      // and produce duplicate iter indices in the per-iter log.  The
+      // SDDPMethod sets ``m_iteration_offset_`` once at construction
+      // from ``iteration_offset_hint``; a plain re-entry into
+      // ``solve()`` would otherwise reuse the same starting index.
+      if (!result->empty()) {
+        current_solver->bump_iteration_offset(
+            next(result->back().iteration_index));
+      }
 
       SPDLOG_INFO(
           "Cascade [{}]: re-solving without inherited cuts "
@@ -673,22 +751,32 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // the extra sim-pass entry that needs subtracting.  Either way,
     // `level_iterations` counts only the training iters that consume
     // the global iteration budget.
+    // `level_iterations` counts ONLY the iters that have not yet been
+    // deducted from the global budget — phase-1's iters were already
+    // subtracted inside the forget branch at line ~660, so we keep
+    // this value at phase-2-only for the budget arithmetic below.
+    // `iterations_reported` is the FULL level (phase-1 + phase-2) for
+    // the per-level log + CascadeLevelStats so operators see the real
+    // work done.
     const auto level_iterations = level_opts.skip_simulation_pass
         ? static_cast<int>(result->size())
         : static_cast<int>(result->size()) - 1;  // exclude final fwd
+    const auto iterations_reported =
+        phase1_iter_count_for_stats + level_iterations;
 
     // ── Collect per-level stats ──
     const auto& last = result->back();
-    const int total_cuts =
+    const int phase2_cuts =
         std::accumulate(result->begin(),
                         result->end(),
                         0,
                         [](int sum, const SDDPIterationResult& r)
                         { return sum + r.cuts_added; });
+    const int total_cuts = phase1_cuts_added + phase2_cuts;
 
     m_level_stats_.push_back(CascadeLevelStats {
         .name = level_name,
-        .iterations = level_iterations,
+        .iterations = iterations_reported,
         .lower_bound = last.lower_bound,
         .upper_bound = last.upper_bound,
         .gap = last.gap,
@@ -710,7 +798,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         "Cascade [{}]: {} iters, LB={:.6g}, UB={:.6g}, "
         "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
         level_name,
-        level_iterations,
+        iterations_reported,
         last.lower_bound,
         last.upper_bound,
         last.gap,
@@ -872,8 +960,19 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // per-(scene, phase) cells so the shell stays alive but the heavy
       // solver backends are returned to the allocator — otherwise the
       // caller's LP sits resident while the next level doubles memory.
+      //
+      // Snapshot the solver's max kappa BEFORE the reset so the next
+      // level can seed its own kappa baseline.  Without this snapshot
+      // the kappa-carry would read -1 (current_solver already null)
+      // and the iter log would silently drop the ``kappa=…`` clause.
       const auto owned_before = m_owned_lps_.size();
       const bool released_caller = (current_lp == &planning_lp);
+      if (current_solver) {
+        const double k = current_solver->global_max_kappa();
+        if (k >= 0.0) {
+          carry_kappa = std::max(carry_kappa, k);
+        }
+      }
       current_solver.reset();
       current_lp = nullptr;
       m_owned_lps_.clear();

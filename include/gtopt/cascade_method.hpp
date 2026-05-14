@@ -86,7 +86,13 @@ struct CascadeLevelStats
  * and transition rules.  The solver automatically rebuilds the PlanningLP
  * when a level's LP options differ from the previous level.
  */
-class CascadePlanningMethod final : public PlanningMethod
+// ``final`` removed (2026-05): unit tests in
+// ``test/source/test_cascade_method.cpp::TestableCascade`` derive from
+// this class to wrap the protected ``build_level_sddp_opts`` helper
+// and pin the 3-layer priority chain (base SDDPOptions →
+// cascade-global → per-level override).  Keep the class behaviour
+// the same — derived overrides are not part of any production path.
+class CascadePlanningMethod : public PlanningMethod
 {
 public:
   explicit CascadePlanningMethod(SDDPOptions base_opts,
@@ -116,14 +122,20 @@ public:
     return m_owned_lps_.size();
   }
 
-private:
+protected:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param level_solver      Per-level solver configuration (may be absent).
   /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
+  ///
+  /// ``protected`` (not ``private``) so unit-test subclasses can wrap
+  /// it via a public ``test_build_level_sddp_opts`` shim and pin the
+  /// 3-layer priority chain (base → cascade-global → per-level) —
+  /// see ``test/source/test_cascade_method.cpp::TestableCascade``.
   [[nodiscard]] auto build_level_sddp_opts(
       const std::optional<CascadeLevelMethod>& level_solver,
       int remaining_budget) const -> SDDPOptions;
 
+private:
   /// Clone Planning data with model option overrides applied.
   [[nodiscard]] static auto clone_planning_with_overrides(
       const Planning& source, const ModelOptions& model_opts) -> Planning;

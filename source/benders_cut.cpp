@@ -1238,6 +1238,25 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   // cascade-fail on the next forward attempt.
   BoxEdgeStats box_stats;
 
+  // Per-cut counter used to make each multi-cut sibling's `extra`
+  // unique within this (scene, phase, iter) call.  All siblings share
+  // the same 3-tuple (scene, phase, iter) from ``context``; without a
+  // per-cut discriminator the StoredCut dedup ``CutKey`` would
+  // collapse them.  The caller's original ``extra = infeas_count``
+  // (carried in the ``IterationContext`` 4th slot when ``context``
+  // holds one) is folded into the high bits so this still
+  // distinguishes cuts emitted on different attempts of the same iter.
+  // ``context`` may also be a non-iteration variant (e.g. monostate
+  // for unit tests that build cuts directly without setting it) — in
+  // that case fall back to ``niter`` as the base and a fresh
+  // ``IterationContext`` cannot be assembled; we leave ``context``
+  // unchanged for those callers and only stamp ``extra`` when an
+  // IterationContext is present.
+  const bool has_iter_ctx = std::holds_alternative<IterationContext>(context);
+  const int base_extra =
+      has_iter_ctx ? std::get<3>(std::get<IterationContext>(context)) : niter;
+  constexpr int kExtraStride = 4096;  // > max plausible links per cell
+  int link_idx = 0;
   for (const auto& [info, link] : std::views::zip(link_infos, links)) {
     if (!info.relaxed) {
       continue;
@@ -1462,16 +1481,30 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
       continue;
     }
 
+    // Per-cut unique `extra`: combine the caller's base_extra
+    // (typically infeas_count) with a per-link counter so each sibling
+    // multi-cut row carries a distinct ``extra`` in its context.
+    // Without this, every mcut sibling shares the same CutKey and the
+    // StoredCut dedup view collapses them — observed as
+    // ``test_sddp_fcut_audit`` failures after the name-removal switch
+    // to CutKey-based identity.
+    auto sibling_context = context;
+    if (has_iter_ctx) {
+      auto& it_ctx = std::get<IterationContext>(sibling_context);
+      std::get<3>(it_ctx) = base_extra * kExtraStride + link_idx;
+    }
+
     auto cut = SparseRow {
         .lowb = clamped_rhs,
         .uppb = LinearProblem::DblMax,
         .class_name = link.class_name,
         .constraint_name = sddp_mcut_constraint_name,
         .variable_uid = link.uid,
-        .context = context,
+        .context = sibling_context,
     };
     cut[link.source_col] = pi;
     cuts.push_back(std::move(cut));
+    ++link_idx;
 
     box_stats.tally(clamped_bound, link);
   }

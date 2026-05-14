@@ -272,6 +272,18 @@ public:
     return m_iteration_offset_;
   }
 
+  /// Ratchet ``m_iteration_offset_`` forward to *value*.  Used by
+  /// :class:`CascadePlanningMethod` between the forget-pass and the
+  /// re-solve so phase-2 doesn't restart its iter counter at the
+  /// phase-1 offset (which otherwise produces duplicate iter numbers
+  /// in the per-iter log — observed as "iter 20" appearing twice at
+  /// the first iter of every cascade level that ran a forget pass).
+  /// ``std::max`` semantics: never moves the offset backwards.
+  void bump_iteration_offset(IterationIndex value) noexcept
+  {
+    m_iteration_offset_ = std::max(m_iteration_offset_, value);
+  }
+
   /// Current pass: 0=idle, 1=forward, 2=backward
   [[nodiscard]] int current_pass() const noexcept
   {
@@ -482,9 +494,12 @@ public:
       -> std::expected<void, Error>;
 
   /// Get the global max kappa across all (scene, phase) LP solves.
+  /// Returns the cached max regardless of when it was observed — used
+  /// by the SDDP warning machinery that just needs "worst kappa seen
+  /// during this solve".
   [[nodiscard]] double global_max_kappa() const noexcept
   {
-    double gmax = -1.0;
+    double gmax = m_seed_max_kappa_;
     for (const auto& phase_kappas : m_max_kappa_) {
       for (const auto k : phase_kappas) {
         if (k >= 0.0) {
@@ -493,6 +508,51 @@ public:
       }
     }
     return gmax;
+  }
+
+  /// Per-iter ``kappa`` for the per-iter log clause.  Returns the max
+  /// kappa observed during *this* iteration only — i.e. a freshly
+  /// computed condition number that reflects the LP at this iter, not
+  /// the historical maximum.  Once a CPLEX barrier solve returns
+  /// nullopt (no basis available, the common case under
+  /// ``backward_resolve_target``-driven re-solves), no cell on the
+  /// current iter gets updated, so this returns ``-1.0`` and the
+  /// per-iter log clause is suppressed — much more honest than
+  /// re-displaying the LP-construction probe value every iter.
+  /// Different from :meth:`global_max_kappa` which returns the
+  /// historical max for solve-time warnings.
+  [[nodiscard]] double current_iter_max_kappa(
+      IterationIndex iter) const noexcept
+  {
+    double imax = -1.0;
+    for (std::size_t s = 0; s < m_max_kappa_iter_.size(); ++s) {
+      const auto& phase_iters = m_max_kappa_iter_[SceneIndex {s}];
+      const auto& phase_vals = m_max_kappa_[SceneIndex {s}];
+      for (std::size_t p = 0; p < phase_iters.size(); ++p) {
+        if (phase_iters[PhaseIndex {p}] == iter
+            && phase_vals[PhaseIndex {p}] >= 0.0)
+        {
+          imax = std::max(imax, phase_vals[PhaseIndex {p}]);
+        }
+      }
+    }
+    return imax;
+  }
+
+  /// Seed the kappa baseline for this solver from an earlier solver's
+  /// max kappa.  Used by ``CascadePlanningMethod`` to carry the
+  /// warmup-derived condition number forward across cascade levels so
+  /// that observability (the ``kappa=…`` clause in the iter log) is
+  /// preserved when CPLEX barrier without crossover leaves the new
+  /// level's LPs without a freshly-queryable kappa.  Negative values
+  /// (including the ``-1`` sentinel meaning "no observation yet") are
+  /// ignored, so calling with ``other.global_max_kappa()`` is safe even
+  /// when the other solver also never produced a kappa.
+  void seed_max_kappa(double kappa) noexcept
+  {
+    if (kappa >= 0.0) {
+      m_seed_max_kappa_ = std::max(m_seed_max_kappa_, kappa);
+    }
   }
 
   // ─── Alpha / state-variable lifecycle (public for testability) ────────
@@ -908,6 +968,26 @@ private:
   /// solves (forward, backward, aperture).  Updated after every solve call.
   StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, double>>
       m_max_kappa_;
+
+  /// Per-(scene, phase) iteration index of the most recent kappa
+  /// observation.  Tracked alongside ``m_max_kappa_`` so the per-iter
+  /// log clause can filter to "kappa observed *this iter*" rather than
+  /// re-displaying the historical max every iteration.  Default
+  /// ``IterationIndex{}`` (= 0) is fine because the first solve at iter
+  /// 0 will overwrite it; subsequent iters either update with a fresh
+  /// observation or leave the prior iter index in place, which
+  /// :meth:`current_iter_max_kappa(iter)` then rejects.
+  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, IterationIndex>>
+      m_max_kappa_iter_;
+
+  /// Baseline kappa seeded by an earlier solver via :meth:`seed_max_kappa`
+  /// — typically the warmup-level max in a cascade run.  Folded into
+  /// :meth:`global_max_kappa` so the iter log keeps the ``kappa=…``
+  /// clause across cascade levels even when CPLEX barrier without
+  /// crossover leaves the new level's LPs without a queryable basis.
+  /// Negative sentinel ``-1.0`` means "no seed" (back-compat with
+  /// standalone SDDP runs).
+  double m_seed_max_kappa_ {-1.0};
 
   /// Per-scene retry state for `SDDPOptions::forward_infeas_rollback`.
   /// Public struct definition lives in the upper public block so the

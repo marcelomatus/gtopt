@@ -121,12 +121,28 @@ auto select_apertures(std::span<const Uid> phase_apertures,
       }
       break;
     case ApertureSelectionMode::stride:
-      // N entries evenly spaced across the full ordered list.
-      // Indices i*total/n for i = 0..n-1 — guaranteed strictly
-      // increasing and < total because n < total (checked above).
-      for (std::size_t i = 0; i < n; ++i) {
-        const auto idx = (i * total) / n;
-        out.push_back(phase_apertures[idx]);
+      // N entries evenly spaced across the full ordered list, ALWAYS
+      // including the first (wettest) and last (driest) entry — the
+      // (N-2) interior picks are evenly distributed between them.
+      // Indices = ``i * (total - 1) / (n - 1)`` for i = 0..n-1:
+      //   * i=0     → 0           (wettest)
+      //   * i=n-1   → total - 1   (driest)
+      //   * else    → interior, integer-truncated  (no duplicates because
+      //                n < total guarantees the step (total-1)/(n-1) ≥ 1
+      //                and ``i * (total - 1) / (n - 1)`` is monotone
+      //                non-decreasing in i; strictly increasing when
+      //                total ≥ n ≥ 2).
+      // The single-N case (n == 1) returns the MIDDLE entry — the
+      // median across the wet→dry spectrum is the most representative
+      // single sample for `stride` semantics.  (Use `head` if you want
+      // the wettest, `tail` for the driest.)
+      if (n == 1) {
+        out.push_back(phase_apertures[total / 2]);
+      } else {
+        for (std::size_t i = 0; i < n; ++i) {
+          const auto idx = (i * (total - 1)) / (n - 1);
+          out.push_back(phase_apertures[idx]);
+        }
       }
       break;
     case ApertureSelectionMode::tail:

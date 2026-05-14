@@ -439,6 +439,18 @@ constexpr auto flatten_from_collections(auto& collections,
   // has no theta variables to pin.
   const bool check_islands = kirchhoff_active && !is_cycle_basis;
 
+  // One-time per-cell INFO so operators can confirm which Kirchhoff
+  // formulation actually fires.  Without this the JSON might say
+  // ``kirchhoff_mode: "cycle_basis"`` while the cell silently fell
+  // back to node_angle (e.g. when the cascade level filter dropped
+  // the override) — an invisible failure mode for a flag whose only
+  // payoff is LP-size reduction.
+  if (kirchhoff_active) {
+    SPDLOG_DEBUG("system_lp: kirchhoff_mode={} (cycle_basis={})",
+                 enum_name(sc_opts.kirchhoff_mode()),
+                 is_cycle_basis ? "yes" : "no");
+  }
+
   // Process all active stages in phase
   for (auto&& stage : phase.stages()) {
     // Process all active scenarios in simulation
@@ -1194,6 +1206,93 @@ void SystemLP::write_out()
   }
 
   m_output_written_ = true;
+}
+
+void SystemLP::accumulate_convergence_indicators(SceneIndex scene_index,
+                                                 PhaseIndex phase_index)
+{
+  // Precondition: the LP has just been solved to optimum (the SDDP
+  // forward pass is the only caller and gates on `result.has_value()
+  // && solve_status == 0`).  Reading slack column values out of an
+  // unsolved backend would silently return zero, so short-circuit here
+  // if a future caller forgets the gate.
+  auto& li = linear_interface();
+  if (!li.is_optimal()) {
+    return;
+  }
+
+  auto& stats = li.mutable_solver_stats();
+  const auto col_sol = li.get_col_sol();
+
+  // Tiny adapter: read an optional<ColIndex> as a weighted col-sol
+  // value, folding "column not created" into a no-op `0.0`.  The slack
+  // columns are inherently sparse (created only when the corresponding
+  // *_cost is set on the input element), so the optional gate fires for
+  // most (scenario, stage, block, element) cells on a typical model.
+  const auto weighted = [&col_sol](std::optional<ColIndex> c,
+                                   double w) noexcept -> double
+  {
+    return c.transform([&](auto col) { return w * col_sol[col]; })
+        .value_or(0.0);
+  };
+
+  // m³/s × 1 h ÷ 1e6 m³/hm³ → block-duration must already be in hours,
+  // which `BlockLP::duration()` guarantees throughout gtopt.
+  constexpr double m3s_h_to_hm3 = 3600.0 / 1.0e6;
+
+  for (auto&& [scenario, stage] :
+       std::views::cartesian_product(scene().scenarios(), phase().stages()))
+  {
+    const double pw = scenario.probability_factor();
+
+    // ── Demand.fail  →  unserved_demand [MWh] ──────────────────────────
+    for (auto&& [d, blk] :
+         std::views::cartesian_product(elements<DemandLP>(), stage.blocks()))
+    {
+      stats.unserved_demand +=
+          weighted(d.fail_col_at(scenario, stage, blk), pw * blk.duration());
+    }
+
+    // ── FlowRight.fail  →  unserved_flow [hm³] ─────────────────────────
+    for (auto&& [f, blk] :
+         std::views::cartesian_product(elements<FlowRightLP>(), stage.blocks()))
+    {
+      stats.unserved_flow += weighted(f.fail_col_at(scenario, stage, blk),
+                                      pw * blk.duration() * m3s_h_to_hm3);
+    }
+
+    // ── Reservoir.soft_emin / efin_slack  →  hm³ ───────────────────────
+    //
+    // Only ReservoirLP is included here: BatteryLP and LngTerminalLP
+    // share the same `soft_emin_col_at` / `efin_slack_col_at` accessors
+    // (inherited from `StorageLP<>`) but their slack columns are in MWh
+    // and m³ respectively, so summing them into hm³ accumulators would
+    // mix units.  Extend with separate fields if those storage families
+    // ever need their own convergence indicators.
+    for (const auto& r : elements<ReservoirLP>()) {
+      stats.soft_emin_deficit +=
+          weighted(r.soft_emin_col_at(scenario, stage), pw);
+      stats.efin_deficit += weighted(r.efin_slack_col_at(scenario, stage), pw);
+    }
+  }
+
+  // scene_index / phase_index are accepted for callsite consistency with
+  // the surrounding SDDP forward-pass logs; the SystemLP already owns
+  // the corresponding `scene()` / `phase()` LP objects so we read the
+  // uids straight from them rather than going back through the
+  // SimulationLP.  Cast suppresses unused-parameter warnings under
+  // builds that disable spdlog::trace at compile time.
+  (void)scene_index;
+  (void)phase_index;
+  spdlog::trace(
+      "SystemLP::accumulate_convergence_indicators [scene={} phase={}]: "
+      "UD={:.3g} UF={:.3g} SEm={:.3g} Efin={:.3g}",
+      scene().uid(),
+      phase().uid(),
+      stats.unserved_demand,
+      stats.unserved_flow,
+      stats.soft_emin_deficit,
+      stats.efin_deficit);
 }
 
 auto SystemLP::write_lp(const std::string& filename) const

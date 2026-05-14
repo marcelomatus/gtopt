@@ -386,6 +386,10 @@ def build_options(args: argparse.Namespace) -> dict:
         "scale_objective": args.scale_objective,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
+        # Default to the cycle-basis KVL formulation: smaller LP (no θ
+        # column per bus, one KVL row per fundamental cycle instead of
+        # one per line) and no theta-scale tuning.
+        "kirchhoff_mode": args.kirchhoff_mode,
     }
     if args.scale_theta is not None:
         model_opts["scale_theta"] = args.scale_theta

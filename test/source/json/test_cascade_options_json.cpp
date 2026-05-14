@@ -68,7 +68,12 @@ TEST_CASE("CascadeLevelMethod JSON - Full deserialization")
     "max_iterations": 50,
     "min_iterations": 3,
     "apertures": [1, 2],
-    "convergence_tol": 1e-3
+    "convergence_tol": 1e-3,
+    "stationary_tol": 0.04,
+    "stationary_gap_ceiling": 0.30,
+    "stationary_window": 8,
+    "elastic_mode": "multi_cut",
+    "elastic_penalty": 750.0
   })";
 
   const auto m = daw::json::from_json<CascadeLevelMethod>(json_data);
@@ -82,6 +87,16 @@ TEST_CASE("CascadeLevelMethod JSON - Full deserialization")
   CHECK((*m.apertures)[0] == 1);
   REQUIRE(m.convergence_tol.has_value());
   CHECK(*m.convergence_tol == doctest::Approx(1e-3));
+  REQUIRE(m.stationary_tol.has_value());
+  CHECK(*m.stationary_tol == doctest::Approx(0.04));
+  REQUIRE(m.stationary_gap_ceiling.has_value());
+  CHECK(*m.stationary_gap_ceiling == doctest::Approx(0.30));
+  REQUIRE(m.stationary_window.has_value());
+  CHECK(*m.stationary_window == 8);
+  REQUIRE(m.elastic_mode.has_value());
+  CHECK(*m.elastic_mode == "multi_cut");
+  REQUIRE(m.elastic_penalty.has_value());
+  CHECK(*m.elastic_penalty == doctest::Approx(750.0));
 }
 
 TEST_CASE("CascadeLevelMethod JSON - Empty apertures")

@@ -48,18 +48,19 @@ class _FakeCenreParser:
 # spot-check the documented numbers without needing the full PLP case on
 # disk.
 # Reference juan/IPLP-style magnitudes for the
-# ``ANCHOR = (avg_thermal_gcost + min_falla_gcost) / 2`` formula:
+# ``ANCHOR = 0.75·avg_thermal_gcost + 0.25·min_falla_gcost`` formula:
 #
 #   * cheapest curtailment rung   = 100 $/MWh  (FALLA_T1)
 #   * thermal plants in fixture   = [PEAKER 200, BASE_THERMAL 50]
 #   * average thermal gcost       = (200 + 50) / 2 = 125 $/MWh
-#   * anchor                       = (125 + 100) / 2 = 112.5 $/MWh
+#   * anchor                       = 0.75·125 + 0.25·100 = 118.75 $/MWh
 #
-# Switched from `max(non-falla.gcost)` to `avg(termica.gcost)` so the
-# anchor reflects a representative *base* power price rather than the
-# peakers' marginal cost — keeps water value strictly below the SDDP
-# `2 × thermal_cost` LB-overshoot threshold (see DIAG ladder in
-# test/source/test_sddp_method.cpp).
+# The 75/25 split (vs. the previous 50/50) shifts the anchor toward
+# typical thermal dispatch cost — the LP operates near typical
+# thermal far more often than at the curtailment frontier.  Combined
+# with `avg(termica.gcost)` (not max) this keeps water value strictly
+# below the SDDP `2 × thermal_cost` LB-overshoot threshold (see DIAG
+# ladder in test/source/test_sddp_method.cpp).
 #
 # ``_FALLA_GCOST_MAX`` is retained for the higher tier-4 rung so the
 # fixture still exercises the "min reduction over falla" path
@@ -69,7 +70,7 @@ _FALLA_GCOST_MAX = 568.4
 _PEAKER_GCOST = 200.0  # most expensive non-falla unit
 _BASE_THERMAL_GCOST = 50.0  # cheaper thermal — both enter the mean
 _AVG_THERMAL_GCOST = (_PEAKER_GCOST + _BASE_THERMAL_GCOST) / 2.0  # 125.0
-_ANCHOR_AUTO = (_AVG_THERMAL_GCOST + _FALLA_GCOST_MIN) / 2.0  # 112.5
+_ANCHOR_AUTO = 0.75 * _AVG_THERMAL_GCOST + 0.25 * _FALLA_GCOST_MIN  # 118.75
 
 
 def _make_centrals() -> List[Dict[str, Any]]:
@@ -627,3 +628,124 @@ def test_soft_emin_cost_not_capped() -> None:
     # Identical input → identical output: the cap is not applied.
     expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
     assert resolver.efin_cost(10.05) == pytest.approx(expected, rel=1e-6)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HydroMixin._build_efin_cost_cap — present-value discounting of cut average
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _FakePlanosParser:
+    """Stub mirroring ``PlanosParser.average_abs_gradient_by_reservoir``."""
+
+    def __init__(self, raw: Dict[str, float]) -> None:
+        self._raw = dict(raw)
+
+    def average_abs_gradient_by_reservoir(
+        self, *, num_scenarios: Any = None, apply_fescala: bool = True
+    ) -> Dict[str, float]:
+        # Both kwargs are accepted but ignored — this fixture pre-computes
+        # the average to keep the tests focused on the discount step.
+        _ = (num_scenarios, apply_fescala)
+        return dict(self._raw)
+
+
+class _FakeStageParser:
+    """Stub mirroring ``StageParser.stages``."""
+
+    def __init__(self, stages: List[Dict[str, Any]]) -> None:
+        self.stages = list(stages)
+
+
+class _FakeParser:
+    """Stub mirroring ``Plp2GtoptParser.parsed_data`` for HydroMixin."""
+
+    def __init__(self, parsed_data: Dict[str, Any]) -> None:
+        self.parsed_data = dict(parsed_data)
+
+
+def _build_cap(parsed_data: Dict[str, Any]) -> Dict[str, float]:
+    """Invoke ``HydroMixin._build_efin_cost_cap`` against the stub parser."""
+    from plp2gtopt._writer_hydro import HydroMixin  # noqa: PLC0415
+
+    class _Probe(HydroMixin):
+        pass
+
+    probe = _Probe()
+    probe.parser = _FakeParser(parsed_data)  # type: ignore[assignment]
+    probe.planning = {}  # type: ignore[assignment]
+    return probe._build_efin_cost_cap()  # pylint: disable=protected-access
+
+
+def test_build_efin_cost_cap_undiscounts_to_face_value() -> None:
+    """Boundary-cut average is **divided** by the last stage discount factor.
+
+    PLP's cut gradients on disk are already-discounted (``∂E[Z*]/∂v_i``
+    where ``Z*`` is the LP's NPV objective).
+    ``WaterValueResolver.efin_cost_for`` compares them against an
+    un-discounted face-value ``ANCHOR × lost_pf`` derived from
+    stage-invariant ``gcost``.  Dividing the raw cap by the last
+    stage's ``discount_factor = 1 / FactTasa`` from ``plpeta.dat``
+    un-discounts the cuts back to the auto's frame — raising the cap
+    by ``FactTasa`` (== ``1 / discount_factor``).
+    """
+    raw = {"LMAULE": 1000.0, "COLBUN": 250.0}
+    stages = [
+        {"number": 1, "month": 1, "duration": 720.0, "discount_factor": 1.0},
+        {"number": 2, "month": 2, "duration": 720.0, "discount_factor": 0.5},
+    ]
+    out = _build_cap(
+        {
+            "planos_parser": _FakePlanosParser(raw),
+            "stage_parser": _FakeStageParser(stages),
+        }
+    )
+    assert out["LMAULE"] == pytest.approx(2000.0)  # 1000 / 0.5
+    assert out["COLBUN"] == pytest.approx(500.0)  # 250 / 0.5
+
+
+def test_build_efin_cost_cap_unity_discount_is_identity() -> None:
+    """A trivial 1.0 discount factor must not perturb the raw average."""
+    raw = {"LMAULE": 1000.0}
+    stages = [{"number": 1, "month": 1, "duration": 720.0, "discount_factor": 1.0}]
+    out = _build_cap(
+        {
+            "planos_parser": _FakePlanosParser(raw),
+            "stage_parser": _FakeStageParser(stages),
+        }
+    )
+    assert out["LMAULE"] == pytest.approx(1000.0)
+
+
+def test_build_efin_cost_cap_missing_stage_parser_keeps_raw() -> None:
+    """Without a stage parser the raw boundary-stage cap is returned."""
+    raw = {"LMAULE": 999.0}
+    out = _build_cap({"planos_parser": _FakePlanosParser(raw)})
+    assert out == pytest.approx(raw)
+
+
+def test_build_efin_cost_cap_no_planos_parser_returns_empty() -> None:
+    """No boundary cuts → empty dict → resolver treats every reservoir uncapped."""
+    out = _build_cap({})
+    assert out == {}
+
+
+def test_build_efin_cost_cap_negative_discount_falls_back_to_raw() -> None:
+    """A non-positive discount factor is treated as ``no information``.
+
+    Guards against pathological plpeta.dat entries (e.g. a malformed
+    FactTasa).  The method must not return a negative cap, which
+    would silently flip the ``min(auto, cap)`` comparison in
+    ``efin_cost_for``.
+    """
+    raw = {"LMAULE": 500.0}
+    stages = [
+        {"number": 1, "month": 1, "duration": 720.0, "discount_factor": -0.5},
+    ]
+    out = _build_cap(
+        {
+            "planos_parser": _FakePlanosParser(raw),
+            "stage_parser": _FakeStageParser(stages),
+        }
+    )
+    assert out == pytest.approx(raw)

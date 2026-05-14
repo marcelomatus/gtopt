@@ -166,11 +166,31 @@ auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
 auto SDDPMethod::load_cuts(const std::string& filepath)
     -> std::expected<CutLoadResult, Error>
 {
+  // Ensure ``m_cut_store_`` is sized before passing it as the
+  // ``cut_store`` argument to ``load_cuts_parquet`` — without this,
+  // callers that invoke ``load_cuts`` directly on a freshly-constructed
+  // ``SDDPMethod`` (the round-trip tests in ``test_sddp_cut_io.cpp``)
+  // hit a ``m_scene_cuts_[scene_index]`` out-of-bounds inside
+  // ``SDDPCutManager::store_cut``.  Cannot call ``ensure_initialized``
+  // here: ``initialize_solver`` itself calls ``load_cuts`` for the
+  // normal hot-start path, so we'd recurse infinitely.  Size the
+  // per-scene grid lazily; the normal solve path already sized it
+  // (idempotent).
+  const auto num_scenes = planning_lp().simulation().scene_count();
+  if (std::ssize(m_cut_store_.scene_cuts()) < num_scenes) {
+    m_cut_store_.resize_scenes(num_scenes);
+  }
+  // Pass the cut manager so loaded cuts are also stored in the
+  // per-scene vectors — without this, ``forget_first_cuts(N)`` would
+  // walk an empty store at the top of the level and delete the
+  // wrong LP rows (root cause of the cascade + compress-mode crash
+  // observed when ``inherit_optimality_cuts > 0``).
   auto result = load_cuts_parquet(planning_lp(),
                                   filepath,
                                   m_options_.scale_alpha,
                                   m_label_maker_,
-                                  &m_scene_phase_states_);
+                                  &m_scene_phase_states_,
+                                  &m_cut_store_);
   // Keep m_iteration_offset_ coherent with whatever was just loaded: the
   // first newly-generated cut must have an iteration_index strictly
   // greater than every loaded one, otherwise save_cuts_for_iteration

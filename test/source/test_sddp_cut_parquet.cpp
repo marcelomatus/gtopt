@@ -90,15 +90,16 @@ TEST_CASE("save_cuts_parquet writes a valid Parquet file")  // NOLINT
   std::shared_ptr<arrow::Table> table;
   REQUIRE(reader->ReadTable(&table).ok());
 
-  // Verify the expected columns are present.
+  // Verify the expected columns are present (schema v3 — ``name``
+  // column dropped, iteration is the authoritative identifier).
   CHECK(table->GetColumnByName("type") != nullptr);
   CHECK(table->GetColumnByName("phase") != nullptr);
   CHECK(table->GetColumnByName("scene") != nullptr);
-  CHECK(table->GetColumnByName("name") != nullptr);
   CHECK(table->GetColumnByName("iteration") != nullptr);
   CHECK(table->GetColumnByName("rhs") != nullptr);
   CHECK(table->GetColumnByName("dual") != nullptr);
   CHECK(table->GetColumnByName("coeffs") != nullptr);
+  CHECK(table->GetColumnByName("name") == nullptr);  // intentionally removed
 
   // Schema-level metadata records version + scale_objective.  The
   // writer enables `ArrowWriterProperties::store_schema()` so the Arrow

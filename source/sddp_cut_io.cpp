@@ -192,75 +192,16 @@ namespace gtopt
   });
 }
 
-// ─── Public free function (used across CSV / JSON loaders) ─────────────────
-
-// ``extract_iteration_from_name`` lives in namespace ``gtopt`` (not
-// the anonymous namespace) so the unit test in
-// ``test/source/test_sddp_cut_io.cpp`` can exercise it without having
-// to reach into a translation-unit-private symbol.  The function is
-// declared in ``sddp_cut_io.hpp``; the comment block on the
-// declaration documents the on-disk format and return-value
-// semantics.
-auto extract_iteration_from_name(std::string_view name) -> IterationIndex
-{
-  // scut, fcut, and bcut encode the iteration; ecut does not.  The
-  // prefix constants below mirror the runtime row label format and
-  // are pinned to (sddp_alpha_lp_class, sddp_<x>_constraint_name) by
-  // a static_assert in `sddp_types.hpp`.
-  if (!name.starts_with(sddp_scut_row_prefix)
-      && !name.starts_with(sddp_fcut_row_prefix)
-      && !name.starts_with(sddp_bcut_row_prefix))
-  {
-    return IterationIndex {0};
-  }
-  // Format: sddp_{type}_{uid}_{scene}_{phase}_{iteration}_{offset}
-  //
-  // Hardening (2026-04-25): every UID-bearing field
-  // (variable_uid, scene_uid, phase_uid, iteration_uid) MUST be
-  // a real positive identifier.  A negative value indicates the
-  // ``unknown_uid`` (= -1) sentinel propagated from a row that
-  // was emitted without a real UID attached — bad-formed cuts
-  // that should never reach load time.  Modern emitters
-  // (``make_iteration_context`` + the cut-name generators in
-  // ``label_maker.cpp``) all produce positive UIDs; the
-  // ``unknown_uid`` placeholder remains as a regression-guard
-  // signal rather than a routine path.  We throw
-  // ``std::invalid_argument`` so the upstream bug surfaces
-  // directly instead of silently round-tripping the sentinel.
-  //
-  // Only ``offset`` (the 6th field) is allowed to be negative —
-  // it is a free ``int`` discriminator, not a UID.  Scan the
-  // first five fields for any ``-`` immediately after a ``_``.
-  std::string_view::size_type pos = 0;
-  for (int field = 0; field < 5; ++field) {
-    pos = name.find('_', pos);
-    if (pos == std::string_view::npos) {
-      return IterationIndex {0};
-    }
-    ++pos;
-    if (field >= 1 && pos < name.size() && name[pos] == '-') {
-      throw std::invalid_argument(std::format(
-          "extract_iteration_from_name: cut name '{}' has a negative "
-          "UID at field {} (= unknown_uid sentinel — variable_uid, "
-          "scene_uid, phase_uid, or iteration_uid) — bad-formed "
-          "label, refusing to parse",
-          name,
-          field + 1));
-    }
-  }
-  // ``pos`` now points at the start of the iteration field
-  // (field index 5 in the 0-based count above; after 5 underscore
-  // advances).  Take the substring up to the next underscore.
-  if (pos >= name.size()) {
-    return IterationIndex {0};
-  }
-  const auto end = name.find('_', pos);
-  const auto token = name.substr(pos, end - pos);
-  int result = 0;
-  const auto* const first = token.data();
-  const auto* const last = first + token.size();
-  auto [ptr, ec] = std::from_chars(first, last, result);
-  return IterationIndex {(ec == std::errc {}) ? result : 0};
-}
+// ``extract_iteration_from_name`` was removed in 2026-05.  Every
+// consumer now reads the iteration index directly from the matching
+// struct field (``StoredCut::iteration_index``, ``CutEntry::iteration``,
+// ``RawBoundaryCut::iteration_index``) rather than parsing it back out
+// of a generated row label.  See:
+//   * ``sddp_cut_parquet.cpp::load_cuts_parquet`` — reads the
+//     ``iteration`` int32 column directly.
+//   * ``sddp_cut_json.cpp`` — uses ``CutEntry.iteration``.
+//   * ``sddp_boundary_cuts.cpp`` / ``sddp_named_cuts.cpp`` — both
+//     parsers populate ``iteration_index`` while reading CSV rows
+//     and reuse that variable downstream.
 
 }  // namespace gtopt

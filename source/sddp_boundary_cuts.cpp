@@ -418,11 +418,13 @@ using namespace gtopt::detail;
             .lowb = rc.rhs * bc_discount,
             .uppb = LinearProblem::DblMax,
             .variable_uid = sim.uid_of(last_phase),
-            .context = make_iteration_context(
-                sim.uid_of(scene_index),
-                sim.uid_of(last_phase),
-                uid_of(extract_iteration_from_name(std::string_view {rc.name})),
-                cuts_loaded),
+            // ``rc.iteration_index`` is already populated by the CSV
+            // parser above — use it directly instead of re-parsing the
+            // cut name via the removed ``extract_iteration_from_name``.
+            .context = make_iteration_context(sim.uid_of(scene_index),
+                                              sim.uid_of(last_phase),
+                                              uid_of(rc.iteration_index),
+                                              cuts_loaded),
         };
         // CutTag refactor (origin/cleanup/sddp-cut-tag-magic-strings)
         // — bundles `class_name = "Boundary"` + `constraint_name = "cut"`
