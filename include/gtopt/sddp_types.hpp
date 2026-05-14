@@ -68,19 +68,13 @@ class PlanningLP;
 /// File naming patterns for per-scene cut files
 namespace sddp_file
 {
-/// Combined cut file name (default: Parquet — typed schema with
+/// Combined cut file name (Parquet — typed schema with
 /// list<struct<key,val>> coefficients; bit-exact float64 storage).
 constexpr auto combined_cuts = "sddp_cuts.parquet";
 /// Versioned cut file pattern: format with iteration number
 constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.parquet";
 /// Per-scene cut file pattern: format with scene UID
 constexpr auto scene_cuts_fmt = "scene_{}.parquet";
-/// Combined cut file name (JSON format, used when `cut_io_format=json`)
-constexpr auto combined_cuts_json = "sddp_cuts.json";
-/// Versioned cut file pattern (JSON): format with iteration number
-constexpr auto versioned_cuts_json_fmt = "sddp_cuts_{}.json";
-/// Per-scene cut file pattern (JSON): format with scene UID
-constexpr auto scene_cuts_json_fmt = "scene_{}.json";
 /// Error-prefixed cut file pattern for infeasible scenes (scene UID)
 constexpr auto error_scene_cuts_fmt = "error_scene_{}.parquet";
 /// Error LP file pattern for unrecoverable-infeasibility dumps.
@@ -538,12 +532,6 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// cut on α_{t-1}.  See `SDDPOptions::backward_resolve_target` for
   /// the full rationale and cost analysis.
   bool backward_resolve_target {true};
-
-  /// File format for cut and state variable I/O (csv or json).
-  /// CSV uses structured keys (class:var:uid=coeff) and is backward
-  /// compatible with legacy name-based CSV files on the load side.
-  /// JSON uses compact daw::json serialization with fully structured data.
-  CutIOFormat cut_io_format {CutIOFormat::parquet};
 
   /// Save cuts after each training iteration (default: true).
   /// When false, cuts are only saved at the end of the solve or on stop.

@@ -1309,134 +1309,19 @@ TEST_CASE(
   std::filesystem::remove(tmp_file);
 }
 
-// ─── JSON cut I/O tests ────────────────────────────────────────────────────
-
-TEST_CASE("save_cuts_json writes a valid JSON file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_save.json").string();
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 3;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  auto save_result = save_cuts_json(stored, planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-  CHECK(std::filesystem::exists(cuts_file));
-
-  // Verify file contains expected JSON structure
-  std::ifstream ifs(cuts_file);
-  std::string content(std::istreambuf_iterator<char>(ifs),
-                      std::istreambuf_iterator<char> {});
-  CHECK(content.contains("\"version\""));
-  CHECK(content.contains("\"scale_objective\""));
-  CHECK(content.contains("\"cuts\""));
-  CHECK(content.contains("\"coefficients\""));
-
-  std::filesystem::remove(cuts_file);
-}
-
-TEST_CASE("save_cuts_json / load_cuts_json round-trip")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file =
-      (tmp_dir / "gtopt_test_cut_io_roundtrip.json").string();
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 3;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  auto save_result = save_cuts_json(stored, planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-
-  auto planning2 = make_3phase_hydro_planning();
-  PlanningLP planning_lp2(std::move(planning2));
-
-  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  auto load_result =
-      load_cuts_json(planning_lp2, cuts_file, scale_alpha, nullptr);
-  REQUIRE(load_result.has_value());
-  CHECK(load_result->count > 0);
-  CHECK(load_result->count == static_cast<int>(stored.size()));
-
-  std::filesystem::remove(cuts_file);
-}
-
-TEST_CASE("load_cuts_json returns error for nonexistent file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  auto result = load_cuts_json(planning_lp, "/tmp/nonexistent.json", 1.0);
-  REQUIRE_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::FileIOError);
-}
-
-TEST_CASE("save_cuts / load_cuts format dispatch with JSON")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto base_file = (tmp_dir / "gtopt_test_dispatch_json.json").string();
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 3;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  auto save_result =
-      save_cuts(stored, planning_lp, base_file, CutIOFormat::json);
-  REQUIRE(save_result.has_value());
-
-  auto planning2 = make_3phase_hydro_planning();
-  PlanningLP planning_lp2(std::move(planning2));
-
-  const auto scale_alpha = effective_scale_alpha(planning_lp2, 0.0);
-  const LabelMaker label_maker {LpNamesLevel::none};
-  auto load_result = load_cuts(
-      planning_lp2, base_file, scale_alpha, CutIOFormat::json, label_maker);
-  REQUIRE(load_result.has_value());
-  CHECK(load_result->count == static_cast<int>(stored.size()));
-
-  std::filesystem::remove(base_file);
-}
-
-// ─── Benchmark: CSV vs JSON with ~1000 cuts ────────────────────────────────
-
 // ``extract_iteration_from_name`` was removed in 2026-05.  Iteration
 // index is now stored directly on every cut struct
-// (``StoredCut::iteration_index``, ``CutEntry::iteration``,
-// ``RawBoundaryCut::iteration_index``) so there is nothing left to
-// parse from row labels.  The previous TEST_CASEs that exercised the
-// parser (label-format coverage + malformed-input rejects) were
-// deleted along with the function itself.
+// (``StoredCut::iteration_index``, ``RawBoundaryCut::iteration_index``)
+// so there is nothing left to parse from row labels.  The previous
+// TEST_CASEs that exercised the parser (label-format coverage +
+// malformed-input rejects) were deleted along with the function itself.
+//
+// The JSON cut I/O code paths (save_cuts_json / load_cuts_json) were
+// removed in 2026-05.  Parquet is the single supported on-disk format
+// for SDDP cut persistence; the format-dispatching ``save_cuts`` /
+// ``load_cuts`` free functions were removed alongside them.
+// Parquet-only round-trip coverage lives in
+// ``test_sddp_cut_parquet.cpp``.
 
 // ── is_final_state_col ───────────────────────────────────────────────────────
 //

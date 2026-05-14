@@ -5,11 +5,12 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Sibling of `sddp_cut_csv.cpp` and `sddp_cut_json.cpp`.  Uses a typed
+ * The single canonical on-disk format for SDDP cuts.  Uses a typed
  * Arrow schema with a `list<struct<key,val>>` column for cut
  * coefficients — eliminating the variable-schema CSV tail and the
  * `{:.17g}` text-formatting dance.  Bit-exactness comes free from
- * float64 storage in Parquet.
+ * float64 storage in Parquet.  The legacy CSV and JSON cut writers
+ * were retired in 2026-05.
  *
  * On-disk schema:
  *     type:      utf8        ("o" or "f")

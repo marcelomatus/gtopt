@@ -6,11 +6,11 @@
  * @copyright BSD-3-Clause
  *
  * Not part of the public gtopt API — these helpers are shared between
- * the four sibling translation units that implement the cut
- * persistence pipeline:
- *   * source/sddp_cut_io.cpp        — UID maps, format dispatchers
- *   * source/sddp_cut_csv.cpp       — CSV save / load
- *   * source/sddp_cut_json.cpp      — JSON save / load
+ * the sibling translation units that implement the cut persistence
+ * pipeline:
+ *   * source/sddp_cut_io.cpp        — UID maps, helpers
+ *   * source/sddp_cut_parquet.cpp   — Parquet save / load (single canonical
+ * format)
  *   * source/sddp_boundary_cuts.cpp — boundary (future-cost) cuts
  *   * source/sddp_named_cuts.cpp    — named hot-start cuts
  *

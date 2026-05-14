@@ -50,9 +50,8 @@ class PlanningLP;
 // ``extract_iteration_from_name`` was removed in 2026-05.  Every
 // consumer now reads the iteration index directly from the matching
 // struct field (``StoredCut::iteration_index``,
-// ``CutEntry::iteration``, ``RawBoundaryCut::iteration_index``).  See
-// the documentation block in ``source/sddp_cut_io.cpp`` for the
-// migration notes.
+// ``RawBoundaryCut::iteration_index``).  See the documentation block
+// in ``source/sddp_cut_io.cpp`` for the migration notes.
 
 /// Canonical state-variable column name that may appear as a cut
 /// coefficient column in boundary / hot-start cut CSV headers.
@@ -150,44 +149,6 @@ inline constexpr std::string_view EfinColName {"efin"};
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
         scene_phase_states) -> std::expected<CutLoadResult, Error>;
 
-// ─── JSON save/load functions ───────────────────────────────────────────────
-
-/// Save accumulated cuts to a JSON file using compact daw::json.
-///
-/// Coefficients use structured keys (class:var:uid).
-/// Fully portable — no LP column names required.
-///
-/// @param cuts         All stored cuts to save
-/// @param planning_lp  The PlanningLP (for scale and state variable map)
-/// @param filepath     Output JSON file path
-[[nodiscard]] auto save_cuts_json(std::span<const StoredCut> cuts,
-                                  const PlanningLP& planning_lp,
-                                  const std::string& filepath)
-    -> std::expected<void, Error>;
-
-/// Save cuts for a single scene to a per-scene JSON file.
-[[nodiscard]] auto save_scene_cuts_json(std::span<const StoredCut> cuts,
-                                        SceneIndex scene_index,
-                                        SceneUid scene_uid,
-                                        const PlanningLP& planning_lp,
-                                        const std::string& directory)
-    -> std::expected<void, Error>;
-
-/// Load cuts from a JSON file and add to all scenes' phase LPs.
-///
-/// @param planning_lp        The PlanningLP to add cuts to
-/// @param filepath           Input JSON file path
-/// @param scale_alpha        Scale for alpha variable
-/// @param scene_phase_states Unused (kept for API compatibility).
-/// @return CutLoadResult with count and max iteration, or an error
-[[nodiscard]] auto load_cuts_json(
-    PlanningLP& planning_lp,
-    const std::string& filepath,
-    double scale_alpha,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
-
 // ─── Parquet save/load functions ────────────────────────────────────────────
 //
 // Parquet schema:
@@ -245,30 +206,6 @@ inline constexpr std::string_view EfinColName {"efin"};
     PlanningLP& planning_lp,
     const std::string& directory,
     double scale_alpha,
-    const LabelMaker& label_maker,
-    const StrongIndexVector<SceneIndex,
-                            StrongIndexVector<PhaseIndex, PhaseStateInfo>>*
-        scene_phase_states = nullptr) -> std::expected<CutLoadResult, Error>;
-
-// ─── Format-dispatching functions ───────────────────────────────────────────
-
-/// Save cuts using the specified format (csv or json).
-[[nodiscard]] auto save_cuts(std::span<const StoredCut> cuts,
-                             const PlanningLP& planning_lp,
-                             const std::string& filepath,
-                             CutIOFormat format,
-                             bool append_mode = false)
-    -> std::expected<void, Error>;
-
-/// Load cuts trying the preferred format first, falling back to the other.
-///
-/// If the preferred-format file does not exist, the other format is tried.
-/// This allows seamless migration between CSV and JSON cut files.
-[[nodiscard]] auto load_cuts(
-    PlanningLP& planning_lp,
-    const std::string& filepath,
-    double scale_alpha,
-    CutIOFormat format,
     const LabelMaker& label_maker,
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>*

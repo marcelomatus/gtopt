@@ -246,35 +246,10 @@ TEST_CASE(
   std::filesystem::remove_all(dir);
 }
 
-TEST_CASE(
-    "save_cuts dispatcher routes CutIOFormat::parquet to the Parquet "
-    "writer")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 2;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  const auto dir = make_parquet_test_path("dispatch");
-  std::filesystem::create_directories(dir);
-  const auto cuts_file = (dir / "sddp_cuts.parquet").string();
-
-  // Dispatcher should call save_cuts_parquet under the hood.
-  auto save_result =
-      save_cuts(stored, planning_lp, cuts_file, CutIOFormat::parquet);
-  REQUIRE(save_result.has_value());
-  CHECK(std::filesystem::exists(cuts_file));
-
-  std::filesystem::remove_all(dir);
-}
+// The format-dispatching ``save_cuts`` / ``load_cuts`` free functions
+// and the ``CutIOFormat`` enum were removed in 2026-05 — Parquet is
+// the only supported format.  Call ``save_cuts_parquet`` /
+// ``load_cuts_parquet`` directly; the round-trip coverage above
+// already exercises that path.
 
 // NOLINTEND(misc-const-correctness)
