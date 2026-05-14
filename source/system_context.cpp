@@ -125,6 +125,27 @@ void SystemContext::add_ampl_variable(std::string_view class_name,
                                         stage_col);
 }
 
+void SystemContext::add_ampl_variable(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BIndexHolder<std::vector<ColIndex>>& block_cols_sum) const
+{
+  if (m_silent_flatten_pass_) {
+    return;  // registry already holds entries from the initial pass
+  }
+  m_simulation_.get().add_ampl_variable(system().scene().index(),
+                                        system().phase().index(),
+                                        class_name,
+                                        element_uid,
+                                        attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        block_cols_sum);
+}
+
 std::optional<ColIndex> SystemContext::find_ampl_col(
     std::string_view class_name,
     Uid element_uid,
@@ -141,6 +162,24 @@ std::optional<ColIndex> SystemContext::find_ampl_col(
                                     scenario_uid,
                                     stage_uid,
                                     block_uid);
+}
+
+std::span<const ColIndex> SystemContext::find_ampl_cols(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    ScenarioUid scenario_uid,
+    StageUid stage_uid,
+    BlockUid block_uid) const
+{
+  return simulation().find_ampl_cols(system().scene().index(),
+                                     system().phase().index(),
+                                     class_name,
+                                     element_uid,
+                                     attribute,
+                                     scenario_uid,
+                                     stage_uid,
+                                     block_uid);
 }
 
 void SystemContext::register_ampl_element_metadata(

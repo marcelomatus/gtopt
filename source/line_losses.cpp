@@ -20,20 +20,37 @@ namespace gtopt::line_losses
 namespace
 {
 
-/// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
-/// demote `piecewise_direct` → `piecewise` if expansion is active.
+/// Map `adaptive` → piecewise/piecewise_direct/bidirectional;
+/// `dynamic` → piecewise; demote `piecewise_direct` → `piecewise` if
+/// expansion is active.
 ///
-/// `adaptive` picks the smallest-LP piecewise-linear option:
-///   - no expansion → `piecewise` (K+3 cols, 2 rows — shared segments)
-///   - has expansion → `bidirectional` (2K+4 cols, 4 rows)
-/// `piecewise_direct` is opt-in only (PLP-diff parity; 2K+2 cols).
+/// `adaptive` picks the smallest-LP piecewise-linear option for the
+/// active KVL formulation:
+///   - has expansion           → `bidirectional` (2K+4 cols, 4 rows)
+///   - no expansion + cycle_basis → `piecewise_direct` (2K cols, 0 rows)
+///   - no expansion + node_angle  → `piecewise`        (K+3 cols, 2 rows)
+///
+/// Under cycle_basis the per-cycle KVL row already supports stamping
+/// segments directly (see ``kirchhoff_cycle_basis.cpp:379-390``), so
+/// the aggregator + link + loss rows of `piecewise` add no information
+/// — picking `piecewise_direct` saves 2 rows per (line, block, scenario,
+/// stage) at the cost of skipping the per-line `flowp`/`flown` solution
+/// columns.  AMPL access to `line.flow` is preserved via the multi-col
+/// segment-sum registration in ``line_lp.cpp``.
+///
+/// `piecewise_direct` is selectable explicitly in either KVL mode.
 constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
-                                                  bool has_expansion)
+                                                  bool has_expansion,
+                                                  KirchhoffMode kirchhoff_mode)
 {
   switch (mode) {
     case LineLossesMode::adaptive:
-      return has_expansion ? LineLossesMode::bidirectional
-                           : LineLossesMode::piecewise;
+      if (has_expansion) {
+        return LineLossesMode::bidirectional;
+      }
+      return (kirchhoff_mode == KirchhoffMode::cycle_basis)
+          ? LineLossesMode::piecewise_direct
+          : LineLossesMode::piecewise;
     case LineLossesMode::dynamic:
       return LineLossesMode::piecewise;
     case LineLossesMode::piecewise_direct:
@@ -89,7 +106,8 @@ LineLossesMode resolve_mode(const Line& line,
     }
   }
 
-  return resolve_adaptive_dynamic(mode, has_expansion);
+  return resolve_adaptive_dynamic(
+      mode, has_expansion, options.kirchhoff_mode());
 }
 
 // ─── Config builder ─────────────────────────────────────────────────

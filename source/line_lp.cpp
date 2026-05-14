@@ -256,6 +256,18 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // The `line.flow` compound (+1·flowp − 1·flown) is registered once
   // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
   // (called via std::call_once from the SystemLP constructor).
+  //
+  // Under `piecewise_direct` line-loss mode there is NO aggregator
+  // LP column for `flowp` / `flown` — both decompose into K segment
+  // cols stamped directly into the bus rows.  To keep `line.flow`
+  // AMPL-resolvable without paying the cost of materialising
+  // aggregator cols, the segment-col holders are registered as
+  // **sum-of-cols** AMPL attributes (see
+  // `AmplVariable::block_cols_sum`).  The resolver then expands
+  // `flow = +flowp − flown` to `+Σ flowp_seg_k − Σ flown_seg_k`
+  // by stamping each segment col with the leg coefficient.
+  // Per-direction registration is independent so a half-direction
+  // line (e.g., tmax_ba = 0) registers only its non-empty side.
   const auto register_if_present =
       [&](std::string_view attribute, const auto& cols)
   {
@@ -268,6 +280,22 @@ bool LineLP::add_to_lp(SystemContext& sc,
   register_if_present(FlownName, flown_cols);
   register_if_present(LosspName, lossp_cols);
   register_if_present(LossnName, lossn_cols);
+
+  // `piecewise_direct` virtual aggregator: only fires when the
+  // direct-mode segment holders were populated this call (single-col
+  // `flowp_cols` / `flown_cols` are empty in that mode, so the
+  // ordinary single-col registrations above are no-ops).  Other modes
+  // leave `flowp_seg_cols` / `flown_seg_cols` empty so this is a no-op.
+  const auto register_seg_sum_if_present =
+      [&](std::string_view attribute, const auto& seg_cols)
+  {
+    const auto& m = seg_cols.at(st_key);
+    if (!m.empty()) {
+      sc.add_ampl_variable(ampl_name, uid(), attribute, scenario, stage, m);
+    }
+  };
+  register_seg_sum_if_present(FlowpName, flowp_seg_cols);
+  register_seg_sum_if_present(FlownName, flown_seg_cols);
 
   return true;
 }

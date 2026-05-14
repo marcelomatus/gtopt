@@ -33,6 +33,7 @@
 #pragma once
 
 #include <format>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <typeinfo>
@@ -453,12 +454,37 @@ public:
                          const StageLP& stage,
                          ColIndex stage_col) const;
 
+  /// Register a per-block **sum of LP cols** for a virtual aggregator
+  /// attribute.  Used by `LineLP::add_to_lp` under `piecewise_direct`
+  /// line-loss mode so AMPL references to `line.flowp` / `line.flown`
+  /// expand to `Σ flowp_seg_k` / `Σ flown_seg_k` without ever
+  /// materialising an aggregator LP column.  See
+  /// `AmplVariable::block_cols_sum` for the data layout.
+  void add_ampl_variable(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BIndexHolder<std::vector<ColIndex>>& block_cols_sum) const;
+
   /// Look up a registered variable column.  Returns nullopt if the
   /// (class, uid, attribute, scenario, stage, block) combination was
   /// never registered.  Reads from the current SystemLP's
   /// `(scene, phase)` cell — the resolver always queries within the
   /// LP that owns the row being assembled.
   [[nodiscard]] std::optional<ColIndex> find_ampl_col(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      BlockUid block_uid) const;
+
+  /// Look up a registered **sum-of-cols** attribute (virtual
+  /// aggregator).  Returns an empty span when the attribute is not
+  /// registered as a sum (callers fall back to `find_ampl_col`).
+  [[nodiscard]] std::span<const ColIndex> find_ampl_cols(
       std::string_view class_name,
       Uid element_uid,
       std::string_view attribute,

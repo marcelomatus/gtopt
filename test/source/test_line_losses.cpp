@@ -97,24 +97,53 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     Line line;
     line.use_line_losses = true;
-    // Global default is adaptive → resolves to piecewise (no expansion).
-    // `adaptive` picks the smallest-LP PWL model, so piecewise_direct is
-    // opt-in only.
+    // Global default is adaptive, default kirchhoff_mode is node_angle
+    // → resolves to piecewise (no expansion).  Under node_angle the
+    // per-line KVL row stamps the aggregator, so piecewise wins on cols
+    // (K+3 vs 2K for piecewise_direct).
     CHECK(line_losses::resolve_mode(line, options_lp, false)
           == LineLossesMode::piecewise);
   }
 
-  SUBCASE("adaptive resolves to piecewise without expansion")
+  SUBCASE("adaptive + node_angle (default) + no expansion → piecewise")
   {
     Line line;
     CHECK(line_losses::resolve_mode(line, options_lp, false)
           == LineLossesMode::piecewise);
   }
 
-  SUBCASE("adaptive resolves to bidirectional with expansion")
+  SUBCASE("adaptive + expansion → bidirectional (any kirchhoff mode)")
   {
     Line line;
     CHECK(line_losses::resolve_mode(line, options_lp, true)
+          == LineLossesMode::bidirectional);
+  }
+
+  SUBCASE("adaptive + cycle_basis + no expansion → piecewise_direct")
+  {
+    // Under cycle_basis the per-cycle KVL row stamps segments directly,
+    // so the aggregator + link + loss rows of `piecewise` add no
+    // information.  `adaptive` therefore picks `piecewise_direct` to
+    // save 2 rows per (line, block, scenario, stage).  AMPL access to
+    // `line.flow` is preserved by the multi-col seg-sum registration
+    // in `line_lp.cpp::add_to_lp`.
+    PlanningOptions opts_cb;
+    opts_cb.model_options.kirchhoff_mode = OptName {"cycle_basis"};
+    const PlanningOptionsLP options_cb(opts_cb);
+
+    Line line;
+    CHECK(line_losses::resolve_mode(line, options_cb, false)
+          == LineLossesMode::piecewise_direct);
+  }
+
+  SUBCASE("adaptive + cycle_basis + expansion → bidirectional")
+  {
+    PlanningOptions opts_cb;
+    opts_cb.model_options.kirchhoff_mode = OptName {"cycle_basis"};
+    const PlanningOptionsLP options_cb(opts_cb);
+
+    Line line;
+    CHECK(line_losses::resolve_mode(line, options_cb, true)
           == LineLossesMode::bidirectional);
   }
 

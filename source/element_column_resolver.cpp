@@ -177,6 +177,64 @@ namespace
 
 // ── Compound-aware row emission ──────────────────────────────────────────────
 
+/// Resolve and stamp a single (class, uid, attribute) reference into
+/// `row` with coefficient `coef`.  Handles both single-col registrations
+/// (the common case) and **multi-col sum** registrations used by virtual
+/// aggregators like `line.flowp` under `piecewise_direct` line-loss mode
+/// (no aggregator LP col — `flowp` resolves to `Σ flowp_seg_k`, so we
+/// stamp `coef` on every segment col).  See
+/// `AmplVariable::block_cols_sum` for the sum-of-cols data layout.
+///
+/// Returns true if at least one column was stamped.
+[[nodiscard]] bool stamp_ref(const SystemContext& sc,
+                             const ScenarioLP& scenario,
+                             const StageLP& stage,
+                             const BlockLP& block,
+                             const ElementRef& ref,
+                             double coef,
+                             SparseRow& row,
+                             const LinearProblem& lp)
+{
+  // Resolve element_id (uid|name) once; multi-col path needs the uid.
+  const auto single_id = parse_element_id(ref.element_id);
+  const auto uid_opt = [&]() -> std::optional<Uid>
+  {
+    if (std::holds_alternative<Uid>(single_id)) {
+      return std::get<Uid>(single_id);
+    }
+    if (std::holds_alternative<Name>(single_id)) {
+      return sc.lookup_ampl_element_uid(ref.element_type,
+                                        std::get<Name>(single_id));
+    }
+    return std::nullopt;
+  }();
+
+  if (uid_opt) {
+    // Try multi-col (sum-of-cols) first.  When registered, the
+    // aggregator is virtual and the attribute expands to a sum of LP
+    // cols — stamp each with the leg coefficient.
+    const auto cols = sc.find_ampl_cols(ref.element_type,
+                                        *uid_opt,
+                                        ref.attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        block.uid());
+    if (!cols.empty()) {
+      for (const auto col : cols) {
+        row[col] += coef;
+      }
+      return true;
+    }
+  }
+
+  // Fall back to the single-col path (uses the lp scale).
+  if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
+    row[resolved->col] += coef;
+    return true;
+  }
+  return false;
+}
+
 bool resolve_col_to_row(const SystemContext& sc,
                         const ScenarioLP& scenario,
                         const StageLP& stage,
@@ -193,23 +251,23 @@ bool resolve_col_to_row(const SystemContext& sc,
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
-      if (auto resolved =
-              resolve_single_col(sc, scenario, stage, block, leg_ref, lp))
+      if (stamp_ref(sc,
+                    scenario,
+                    stage,
+                    block,
+                    leg_ref,
+                    base_coeff * leg.coefficient,
+                    row,
+                    lp))
       {
-        row[resolved->col] += base_coeff * leg.coefficient;
         emitted = true;
       }
     }
     return emitted;
   }
 
-  // 2. Single-column path: ordinary attribute.
-  if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
-    row[resolved->col] += base_coeff;
-    return true;
-  }
-
-  return false;
+  // 2. Single attribute path (handles both single-col and multi-col).
+  return stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
 }
 
 // ── Per-element parameter resolution ────────────────────────────────────────

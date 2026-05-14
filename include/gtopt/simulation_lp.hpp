@@ -463,6 +463,7 @@ public:
         AmplVariable {
             .block_cols = block_cols,
             .stage_col = ColIndex {unknown_index},
+            .block_cols_sum = {},
         });
   }
 
@@ -491,6 +492,47 @@ public:
         AmplVariable {
             .block_cols = {},
             .stage_col = stage_col,
+            .block_cols_sum = {},
+        });
+  }
+
+  /// Register a per-block **sum of columns** for a virtual aggregator
+  /// attribute (e.g., `line.flowp = Σ flowp_seg_k` under
+  /// `piecewise_direct` line-loss mode — no aggregator LP col, the
+  /// segments are summed at resolution time).  When the user-constraint
+  /// resolver hits this registration it stamps each col in the list with
+  /// the leg coefficient: `row[col] += base · coef` per col.
+  ///
+  /// Like the other overloads, no-op when `need_ampl_variables()` is
+  /// false.  The `BIndexHolder<std::vector<ColIndex>>` is copied by
+  /// value for the same lifetime reasons as the single-col overload
+  /// (the source map may move when later `add_to_lp` calls grow the
+  /// owner's `STBIndexHolder`).
+  void add_ampl_variable(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      const BIndexHolder<std::vector<ColIndex>>& block_cols_sum)
+  {
+    if (!m_need_ampl_variables_) {
+      return;
+    }
+    m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
+        AmplVariableKey {
+            .class_name = class_name,
+            .element_uid = element_uid,
+            .attribute = attribute,
+            .scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+        },
+        AmplVariable {
+            .block_cols = {},
+            .stage_col = ColIndex {unknown_index},
+            .block_cols_sum = block_cols_sum,
         });
   }
 
@@ -520,6 +562,36 @@ public:
       return std::nullopt;
     }
     return it->second.col_at(block_uid);
+  }
+
+  /// Look up a registered **sum-of-cols** attribute.  Returns an empty
+  /// span when the attribute is not registered or is registered as a
+  /// single col (callers should fall through to `find_ampl_col` in that
+  /// case).  Used by the user-constraint resolver to handle virtual
+  /// aggregators like `line.flowp` under `piecewise_direct` mode where
+  /// the attribute expands to a sum of segment LP cols.
+  [[nodiscard]] std::span<const ColIndex> find_ampl_cols(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      BlockUid block_uid) const
+  {
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.variables.find(AmplVariableKey {
+        .class_name = class_name,
+        .element_uid = element_uid,
+        .attribute = attribute,
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+    });
+    if (it == cell.variables.end()) {
+      return {};
+    }
+    return it->second.cols_at(block_uid);
   }
 
   /// Register an element's name so that user-expressions like

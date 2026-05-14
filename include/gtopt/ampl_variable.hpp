@@ -29,6 +29,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -79,8 +80,21 @@ struct AmplVariableKey
       const AmplVariableKey&, const AmplVariableKey&) noexcept = default;
 };
 
-/// Registry value: either a per-block column map copy (the common case)
-/// or a single stage-level column used for every block.
+/// Registry value: one of three shapes for the registered attribute —
+///  - **Per-block single col** (the common case): `block_cols`.
+///  - **Stage-level single col**: `stage_col`, broadcast to every block.
+///  - **Per-block sum of cols**: `block_cols_sum`.  The attribute
+///    resolves to `Σ cols` per block — used by the line PWL-direct mode
+///    where `flowp` / `flown` are the sum of per-segment LP cols rather
+///    than an aggregator column.  See `LineLP::add_to_lp` for the
+///    piecewise_direct registration site, and
+///    `element_column_resolver.cpp::resolve_col_to_row` for the
+///    stamping path that expands a sum-leg into one `row[col] +=
+///    base · coef` per element.
+///
+/// Exactly one of `block_cols`, `stage_col`, `block_cols_sum` is
+/// populated per registration (asserted by construction in the
+/// `add_ampl_variable` overloads).
 ///
 /// The per-block map is stored **by value** because elements hold their
 /// `STBIndexHolder`s (flat_map of BIndexHolder) and adding new entries
@@ -93,12 +107,22 @@ struct AmplVariableKey
 struct AmplVariable
 {
   /// Per-block column map for this (scenario, stage).  Empty when this
-  /// entry represents a stage-level variable (see `stage_col`).
+  /// entry represents a stage-level variable (see `stage_col`) or a
+  /// per-block sum-of-cols (see `block_cols_sum`).
   BIndexHolder<ColIndex> block_cols;
 
   /// Stage-level column: same value for every block in the stage.
-  /// Only meaningful when `block_cols` is empty.
+  /// Only meaningful when `block_cols` and `block_cols_sum` are empty.
   ColIndex stage_col {unknown_index};
+
+  /// Per-block sum-of-cols.  When this map has an entry for a block,
+  /// the attribute resolves to the **sum** of those columns (each
+  /// stamped with the leg coefficient by the resolver).  Used for
+  /// virtual aggregators like `line.flowp = Σ flowp_seg_k` in
+  /// `piecewise_direct` line-loss mode — no LP col is created for the
+  /// aggregator, the existing segment cols are summed at resolution
+  /// time.  Empty in the common single-col case.
+  BIndexHolder<std::vector<ColIndex>> block_cols_sum;
 
   /// Regular LP column or state-backed column.  Default is Regular;
   /// state-backed entries will be set by the Phase 2
@@ -118,6 +142,23 @@ struct AmplVariable
       return stage_col;
     }
     return std::nullopt;
+  }
+
+  /// Look up the per-block sum-of-cols list for this block.  Returns an
+  /// empty span when this registration is not a sum-of-cols entry, or
+  /// when the block has no list entry.  Callers prefer the single-col
+  /// `col_at` path; this is the fall-through for virtual aggregators.
+  [[nodiscard]] std::span<const ColIndex> cols_at(
+      BlockUid block_uid) const noexcept
+  {
+    if (block_cols_sum.empty()) {
+      return {};
+    }
+    const auto it = block_cols_sum.find(block_uid);
+    if (it == block_cols_sum.end()) {
+      return {};
+    }
+    return std::span<const ColIndex> {it->second};
   }
 };
 
