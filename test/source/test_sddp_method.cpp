@@ -1503,20 +1503,23 @@ TEST_CASE(  // NOLINT
 // ─── Convergence criteria unit tests ────────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod primary convergence - gap < convergence_tol stops the loop")
+    "SDDPMethod primary convergence path is gone — with stationary disabled, "
+    "loop runs to max_iterations (post-2026-05-14)")
 {
-  // 3-phase hydro problem converges in a few iterations.
-  // Verify that the primary criterion (gap < convergence_tol) fires and that
-  // SDDPIterationResult fields are properly populated.
+  // Pre-rewrite, ``gap < convergence_tol`` set ``ir.converged`` and
+  // broke the loop.  Post-rewrite, the ΔUB stationary check is the
+  // sole convergence path; disabling it (``stationary_tol = 0``)
+  // leaves the loop running to ``max_iterations`` regardless of how
+  // tight the gap gets.  This pins the new contract.
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 50;
+  sddp_opts.max_iterations = 5;  // small — we expect the full budget to run
   sddp_opts.min_iterations = 1;
   sddp_opts.convergence_tol = 1e-3;
-  // Disable stationary criterion so only the primary criterion can fire.
-  sddp_opts.stationary_tol = 0.0;
+  sddp_opts.stationary_tol = 0.0;  // disable the only remaining exit path
+  sddp_opts.stationary_window = 0;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
@@ -1525,16 +1528,15 @@ TEST_CASE(  // NOLINT
 
   const auto& last = results->back();
 
-  // Primary convergence: gap must be below convergence_tol.
-  CHECK(last.converged);
+  // No convergence — primary gap exit is gone, stationary is disabled.
+  CHECK_FALSE(last.converged);
   CHECK_FALSE(last.stationary_converged);
-  CHECK(last.gap < sddp_opts.convergence_tol);
 
   // gap_change is 1.0 (default / "not checked") when stationary is disabled.
   CHECK(last.gap_change == doctest::Approx(1.0));
 
-  // The solver should stop well before max_iterations.
-  CHECK(static_cast<int>(results->size()) < sddp_opts.max_iterations);
+  // The loop ran the full budget (training iters + one sim pass).
+  CHECK(static_cast<int>(results->size()) >= sddp_opts.max_iterations);
 }
 
 TEST_CASE(  // NOLINT
@@ -4607,10 +4609,15 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod::finalize_iteration_result — converges on tight positive gap")
+    "SDDPMethod::finalize_iteration_result — does NOT set converged on tight "
+    "positive gap (post-2026-05-14)")
 {
-  // Companion to the negative-gap test: positive gap below
-  // tolerance correctly registers as converged.
+  // Pin the new contract: ``finalize_iteration_result`` only computes
+  // ``ir.gap`` and ``ir.gap_change``; the convergence decision lives
+  // exclusively in ``evaluate_stationary_check`` (sddp_iteration.cpp
+  // anonymous namespace).  Pre-rewrite, this site set
+  // ``ir.converged = (gap < tol) && past_min`` — that primary gap
+  // exit has been removed.
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   auto planning = make_2scene_3phase_hydro_planning();
@@ -4633,7 +4640,8 @@ TEST_CASE(  // NOLINT
 
   CHECK(ir.gap > 0.0);
   CHECK(ir.gap < 0.01);
-  CHECK(ir.converged);
+  // New contract: finalize does NOT set converged regardless of gap.
+  CHECK_FALSE(ir.converged);
 }
 
 TEST_CASE(  // NOLINT
@@ -4677,13 +4685,15 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod::finalize_iteration_result — converged gates on tol AND min")
+    "SDDPMethod::finalize_iteration_result — never sets converged "
+    "(post-2026-05-14)")
 {
-  // Pin the convergence rule:
-  //   ir.converged ⇔ (ir.gap < convergence_tol)
-  //                 ∧ (iter ≥ iteration_offset + min_iterations - 1).
-  // A regression in either side of the AND would change SDDP termination
-  // behaviour in subtle ways.
+  // Pin the post-rewrite contract: finalize only populates gap /
+  // gap_change.  Regardless of how tight the gap is or whether
+  // ``min_iterations`` has cleared, ``ir.converged`` is NEVER set
+  // here.  Convergence is decided exclusively by
+  // ``evaluate_stationary_check``, called from the iterate / async
+  // dispatch loops.
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 
@@ -4691,24 +4701,26 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 5;
   sddp_opts.min_iterations = 3;
   sddp_opts.convergence_tol = 1e-5;
-  sddp_opts.stationary_tol = 0.0;  // disable stationary gate
+  sddp_opts.stationary_tol = 0.0;
   sddp_opts.stationary_window = 0;
   sddp_opts.enable_api = false;
   sddp_opts.apertures = std::vector<Uid> {};
   SDDPMethod sddp(plp, sddp_opts);
 
-  SUBCASE("iter < min_iterations - 1 → not converged even with zero gap")
+  SUBCASE("iter < min_iterations - 1 → not converged (zero gap, finalize-only)")
   {
     SDDPIterationResult ir;
     ir.upper_bound = 100.0;
-    ir.lower_bound = 100.0;  // gap = 0 / max(1, 100) = 0
+    ir.lower_bound = 100.0;
     const std::vector<SDDPIterationResult> empty_history;
     sddp.finalize_iteration_result(ir, IterationIndex {0}, empty_history);
     CHECK(ir.gap == doctest::Approx(0.0));
     CHECK_FALSE(ir.converged);
   }
 
-  SUBCASE("iter == min_iterations - 1 → converged when gap < tol")
+  SUBCASE(
+      "iter == min_iterations - 1 with zero gap → still NOT converged "
+      "(finalize alone never sets the flag)")
   {
     SDDPIterationResult ir;
     ir.upper_bound = 100.0;
@@ -4716,7 +4728,7 @@ TEST_CASE(  // NOLINT
     const std::vector<SDDPIterationResult> empty_history;
     sddp.finalize_iteration_result(ir, IterationIndex {2}, empty_history);
     CHECK(ir.gap == doctest::Approx(0.0));
-    CHECK(ir.converged);
+    CHECK_FALSE(ir.converged);
   }
 
   SUBCASE("iter past min_iterations but gap > tol → not converged")

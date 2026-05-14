@@ -1052,6 +1052,15 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // It inherits the convergence status from the last training iteration.
       // With max_iterations=0, no training ran, so converged stays false.
       ir.converged = !results.empty() && results.back().converged;
+      // ``finalize_iteration_result`` just published live-metrics with
+      // ``converged=false`` (its only data point — sim ir starts fresh).
+      // Re-publish the inherited flag so ``has_converged()`` agrees with
+      // ``results->back().converged`` post-sim.  Pre-2026-05-14 this was
+      // implicit because ``finalize_iteration_result`` also computed
+      // ``ir.converged`` from the primary gap test before publishing.
+      if (ir.converged) {
+        update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
+      }
 
       results.push_back(ir);
 
@@ -1827,6 +1836,25 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           ir.converged = true;
           ir.stationary_converged = true;
         }
+      }
+
+      // Async-only fall-through: when every scene has already been
+      // marked converged by the per-scene tracker (scene_gap < tol
+      // for ≥ min_iterations — see ``check_scene_convergence`` at
+      // line ~1304), the aggregate IS converged regardless of how
+      // many aggregate results we have collected.  Without this
+      // propagation the async path could only set ``ir.converged``
+      // via the stationary check, which needs ``!results.empty()``;
+      // when all scenes converge on the very first aggregate snapshot
+      // (e.g. the 2-scene 3-phase tests in test_sddp_async.cpp),
+      // the stationary block is skipped and ``ir.converged`` would
+      // never flip.  The per-scene tracker is the async equivalent
+      // of the synchronous stationary check for scheduler-driven
+      // early-exit; treating its terminal state as aggregate
+      // convergence keeps the two dispatch paths semantically
+      // aligned.
+      if (!ir.converged && tracker.all_converged()) {
+        ir.converged = true;
       }
 
       // Publish a fresh coherent live-metrics snapshot.  Preserves the
