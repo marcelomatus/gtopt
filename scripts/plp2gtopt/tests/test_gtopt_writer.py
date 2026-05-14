@@ -180,7 +180,7 @@ class TestGTOptWriterProcessMethods:
         # ``stationary_tol`` loosens deeper into the cascade because
         # each level's iter is progressively more expensive; the
         # tightest policy-stability demand sits on cheap L0 iters.
-        expected_stationary_tol = [0.0001, 0.005, 0.01, 0.01]
+        expected_stationary_tol = [0.0001, 0.0025, 0.01, 0.01]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.5
@@ -196,7 +196,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.0025  # 0.25 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -204,7 +204,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.01   # 1 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
@@ -233,10 +233,13 @@ class TestGTOptWriterProcessMethods:
             }
         )
         levels = writer.planning["options"]["cascade_options"]["level_array"]
+        # Post-2026-05 schedule: L0/L1 get PDMaxIte; L2/L3 get PDMaxIte/2
+        # (L2/L3 iters are 10-30× slower than L0/L1, so they get less
+        # budget and rely on the inherited cut envelope to converge).
         assert levels[0]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
-        assert levels[1]["sddp_options"]["max_iterations"] == 60  # /2
-        assert levels[2]["sddp_options"]["max_iterations"] == 40  # /3
-        assert levels[3]["sddp_options"]["max_iterations"] == 30  # /4
+        assert levels[1]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+        assert levels[2]["sddp_options"]["max_iterations"] == 60  # /2
+        assert levels[3]["sddp_options"]["max_iterations"] == 60  # /2
 
     def test_process_options_cascade_global_budget_is_sum_of_levels(self):
         """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
@@ -258,8 +261,8 @@ class TestGTOptWriterProcessMethods:
         levels = cascade["level_array"]
         per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
         assert cascade["sddp_options"]["max_iterations"] == per_level_sum
-        # 120 (warmup) + 60 (uninodal) + 40 (transport) + 30 (full_network).
-        assert cascade["sddp_options"]["max_iterations"] == 250
+        # 120 (warmup) + 120 (uninodal) + 60 (transport) + 60 (full_network).
+        assert cascade["sddp_options"]["max_iterations"] == 360
 
     def test_process_options_cascade_small_budget_still_runs_all_levels(self):
         """With max_iterations=5 the cascade still allots ≥1 iter per level.
@@ -280,11 +283,11 @@ class TestGTOptWriterProcessMethods:
         cascade = writer.planning["options"]["cascade_options"]
         levels = cascade["level_array"]
         assert levels[0]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
-        assert levels[1]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
-        assert levels[2]["sddp_options"]["max_iterations"] == 1  # max(5//3, 1)
-        assert levels[3]["sddp_options"]["max_iterations"] == 1  # max(5//4, 1)
-        # 5 + 2 + 1 + 1.
-        assert cascade["sddp_options"]["max_iterations"] == 9
+        assert levels[1]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        assert levels[2]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
+        assert levels[3]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
+        # 5 + 5 + 2 + 2.
+        assert cascade["sddp_options"]["max_iterations"] == 14
 
     def test_process_options_cascade_inherits_all_cuts(self):
         """Each cascade transition inherits ALL cuts from previous levels.

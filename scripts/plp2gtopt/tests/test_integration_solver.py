@@ -840,14 +840,14 @@ def test_hydro_4b_cascade_conversion(tmp_path):
     # Level 3: full network
     assert levels[3]["name"] == "full_network"
 
-    # Iteration budgets: L0=PDMaxIte, L1=PDMaxIte/2, L2=PDMaxIte/3, L3=PDMaxIte/4
-    # (decreasing schedule per the docstring on
-    # ``GTOptWriter._build_default_cascade_options``).  PLP fixture
-    # uses PDMaxIte = 60 → 60 / 30 / 20 / 15.
+    # Iteration budgets: L0/L1 get PDMaxIte; L2/L3 get PDMaxIte/2
+    # (L2/L3 iters are 10-30× slower than L0/L1, so they get half
+    # the budget and rely on the inherited cut envelope to converge).
+    # PLP fixture uses PDMaxIte = 60 → 60 / 60 / 30 / 30.
     assert levels[0]["sddp_options"]["max_iterations"] == 60
-    assert levels[1]["sddp_options"]["max_iterations"] == 30
-    assert levels[2]["sddp_options"]["max_iterations"] == 20
-    assert levels[3]["sddp_options"]["max_iterations"] == 15
+    assert levels[1]["sddp_options"]["max_iterations"] == 60
+    assert levels[2]["sddp_options"]["max_iterations"] == 30
+    assert levels[3]["sddp_options"]["max_iterations"] == 30
 
     # Transitions on levels 1, 2, 3 inherit targets + optimality cuts
     assert levels[1]["transition"]["inherit_targets"] == -1

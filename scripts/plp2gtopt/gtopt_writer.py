@@ -425,11 +425,11 @@ class GTOptWriter(
           - L0 ``warmup``:        ``total_iter``     — single-bus, 1
             wettest aperture; builds the initial value-function envelope
             from the alpha-bootstrap floor.
-          - L1 ``uninodal``:      ``total_iter / 2`` — single-bus, 4
+          - L1 ``uninodal``:      ``total_iter``     — single-bus, 4
             stride apertures; inherits warmup's cuts.
-          - L2 ``transport``:     ``total_iter / 3`` — line constraints
+          - L2 ``transport``:     ``total_iter / 2`` — line constraints
             on, no losses, no kirchhoff; inherits uninodal's cuts.
-          - L3 ``full_network``:  ``total_iter / 4`` — full physics
+          - L3 ``full_network``:  ``total_iter / 2`` — full physics
             (kirchhoff + line losses as configured); inherits transport's
             cuts.
 
@@ -456,7 +456,7 @@ class GTOptWriter(
         ceiling).  Negative gaps (multi-cut overshoot) automatically
         satisfy the ceiling without penalty.
           - L0 ``warmup``:       ``ΔUB < 0.01 %`` AND ``|gap| < 50 %``
-          - L1 ``uninodal``:     ``ΔUB < 0.5 %``  AND ``|gap| < 50 %``
+          - L1 ``uninodal``:     ``ΔUB < 0.25 %`` AND ``|gap| < 50 %``
           - L2 ``transport``:    ``ΔUB < 1 %``    AND ``|gap| < 50 %``
           - L3 ``full_network``: ``ΔUB < 1 %``    AND ``|gap| < 50 %``
         ``stationary_tol`` is LOOSENED deeper into the cascade because
@@ -492,10 +492,15 @@ class GTOptWriter(
         convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
         # ── Iteration budgets (floored at 1; see docstring §1) ──
+        # Per-level max_iterations: L0 / L1 get the full PDMaxIte
+        # because their per-iter cost is low (cheap 1- and 4-aperture
+        # iters); L2 / L3 get PDMaxIte/2 — their iters are 10-30×
+        # slower (8 / 16 apertures × multi-bus × full physics) and
+        # the inherited cut envelope makes them converge faster anyway.
         l0_iter = max(total_iter, 1)
-        l1_iter = max(total_iter // 2, 1)
-        l2_iter = max(total_iter // 3, 1)
-        l3_iter = max(total_iter // 4, 1)
+        l1_iter = max(total_iter, 1)
+        l2_iter = max(total_iter // 2, 1)
+        l3_iter = max(total_iter // 2, 1)
 
         # ── Cascade-global options ─────────────────────────────────────
         # ``max_iterations`` here is a GLOBAL budget across all levels
@@ -564,7 +569,7 @@ class GTOptWriter(
         l1_sddp_options: dict[str, Any] = {
             "max_iterations": l1_iter,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.005,
+            "stationary_tol": 0.0025,
             "stationary_gap_ceiling": 0.5,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
