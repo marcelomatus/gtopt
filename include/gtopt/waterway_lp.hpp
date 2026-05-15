@@ -45,10 +45,17 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  [[nodiscard]] constexpr auto&& flow_cols_at(const ScenarioLP& scenario,
-                                              const StageLP& stage) const
+  [[nodiscard]] const auto& flow_cols_at(const ScenarioLP& scenario,
+                                         const StageLP& stage) const
   {
-    return flow_cols.at({scenario.uid(), stage.uid()});
+    // Conditional-insert in `add_to_lp` (only when fcols is non-
+    // empty + waterway+both junctions active) leaves the outer key
+    // absent for inactive waterways.  Callers (turbine_lp, pump_lp,
+    // reservoir_seepage_lp, reservoir_discharge_limit_lp,
+    // reservoir_production_factor_lp) need a graceful empty fallback
+    // rather than a throw — pre-fix the throw triggered a NULL-deref
+    // during cascade level transitions.
+    return find_or_empty_inner(flow_cols, scenario, stage);
   }
 
 private:

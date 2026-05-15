@@ -113,7 +113,12 @@ public:
   [[nodiscard]] const auto& drain_cols_at(const ScenarioLP& scenario,
                                           const StageLP& stage) const
   {
-    return drain_cols.at({scenario.uid(), stage.uid()});
+    // `drain_cols[st_key]` is only inserted by `add_to_lp` when the
+    // junction's `drain()` is enabled.  Use the shared
+    // `find_or_empty_inner` helper so non-draining junctions return
+    // an empty inner map instead of throwing — pre-fix the throw
+    // manifested as a NULL-deref during cascade level transitions.
+    return find_or_empty_inner(drain_cols, scenario, stage);
   }
 
 private:
