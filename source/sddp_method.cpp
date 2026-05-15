@@ -608,6 +608,12 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       auto result = load_boundary_cuts(bc_path);
       if (result.has_value()) {
         boundary_count = result->count;
+        // Capture the per-scene α-rebase offsets (zero unless the
+        // mean-shift opt-in fired and the scene received cuts).
+        // Used by SDDP UB / LB display sites to add c̄_scene back so
+        // the user sees the pre-shift physical objective regardless
+        // of the LP-side cut storage convention.
+        m_scene_alpha_offsets_ = std::move(result->alpha_offsets_per_scene);
         SPDLOG_DEBUG(
             "SDDP: loaded {} boundary cuts from {}", result->count, bc_path);
       } else {

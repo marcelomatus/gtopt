@@ -829,6 +829,19 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// How to handle cut rows referencing state variables not in the model.
   MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
 
+  /// Apply an α-rebase (mean-shift) to boundary cuts on load.
+  ///
+  /// When `true`, per scene: subtract the per-scene mean from every
+  /// boundary cut's `lowb`, and carry the offset via
+  /// `LinearInterface::add_obj_constant` so `get_obj_value()` stays
+  /// algebraically equivalent to the unshifted formulation.
+  /// Mathematically exact (α' = α − c̄), but changes the on-LP cut
+  /// RHS magnitudes — pre-existing tests assert against the raw
+  /// values, so this is opt-in.  See `SddpOptions::boundary_cuts_mean_shift`
+  /// (input-side option) and `source/sddp_boundary_cuts.cpp` for the
+  /// implementation.
+  bool boundary_cuts_mean_shift {false};
+
   // ``named_cuts_file`` was retired in 2026-05.  Internal hot-start
   // cuts now use the typed Parquet path (``cuts_input_file``); the
   // legacy CSV-with-column-per-state-variable format is no longer

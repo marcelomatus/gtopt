@@ -349,6 +349,29 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<MissingCutVarMode> missing_cut_var_mode {};
 
+  /** @brief Apply an α-rebase (mean-shift) to boundary cuts on load.
+   *
+   * When enabled, for each scene the per-cut RHS is shifted so the
+   * scene's cut intercepts sum to zero, and the offset is carried
+   * via `LinearInterface::add_obj_constant` so `get_obj_value()`
+   * remains algebraically identical to the unshifted formulation.
+   *
+   * The rewrite is mathematically exact: α' = α − c̄ where c̄ is the
+   * per-scene mean of installed cut RHSs (post-`bc_discount`).
+   * Cuts on disk round-trip cleanly (the shift is recomputed each
+   * load) and all `get_obj_value()` readers (SDDP bounds, cut
+   * intercepts, forward-pass costs) see the same physical value
+   * whether the shift is on or off.
+   *
+   * Default: false — pre-existing tests assert against the on-disk
+   * RHS magnitudes, so the shift is opt-in for measurement /
+   * conditioning experiments.  Enable to centre boundary cut RHSs
+   * around 0 (helps LP equilibration on cases where boundary cut
+   * intercepts dominate runtime cut intercepts by orders of
+   * magnitude).
+   */
+  OptBool boundary_cuts_mean_shift {};
+
   // ``named_cuts_file`` (the CSV-based "named hot-start cuts" option)
   // was retired in 2026-05.  Internal hot-start cuts now travel via
   // ``cuts_input_file`` (Parquet) only — the typed schema is faster
@@ -661,6 +684,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
+    merge_opt(boundary_cuts_mean_shift, opts.boundary_cuts_mean_shift);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);

@@ -856,6 +856,12 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // the metadata structures are subject to `CloneKind` dispatch.
   auto cloned = LinearInterface {backend().clone(), m_log_file_};
   cloned.m_scale_objective_ = m_scale_objective_;
+  // Propagate the LP-external objective constant (physical units)
+  // so the clone's `get_obj_value()` reports the same algebraic
+  // value as the source after re-solve.  Without this, an SDDP
+  // clone that solves under the substituted formulation would
+  // under-report the obj-value by the substitution offset.
+  cloned.m_obj_constant_ = m_obj_constant_;
   cloned.m_equilibration_method_ = m_equilibration_method_;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
@@ -1072,6 +1078,13 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
   // Preserve global objective scale factor from flatten().
   m_scale_objective_ = flat_lp.scale_objective;
+
+  // Preserve the LP-external objective constant (physical units),
+  // accumulated via `LinearProblem::add_obj_constant` for variable-
+  // substitution rewrites such as the demand-failure fold.  Applied
+  // additively after the `× scale_objective` reverse-scale in
+  // `get_obj_value()`.
+  m_obj_constant_ = flat_lp.obj_constant;
 
   // Preserve per-column scale factors from LinearProblem.
   detach_for_write(m_col_scales_)
@@ -3210,7 +3223,55 @@ double LinearInterface::get_obj_value_raw() const
 
 double LinearInterface::get_obj_value() const
 {
-  return get_obj_value_raw() * m_scale_objective_;
+  // Compose the physical objective:
+  //   physical = solver_raw × scale_objective + obj_constant
+  // The `× scale_objective` reverses the per-cost divisor applied at
+  // flatten time (see `LinearProblem::flatten()` → `scale_obj` loop).
+  // `m_obj_constant_` is stored on the physical cost scale and added
+  // verbatim — it represents algebraic constants from variable
+  // substitutions (e.g. `fail = lmax − load`) that the solver never
+  // sees.  Zero by default, so the existing behaviour for every
+  // model that does not opt in is bit-identical.
+  return get_obj_value_raw() * m_scale_objective_ + m_obj_constant_;
+}
+
+void LinearInterface::add_obj_constant(double c) noexcept
+{
+  m_obj_constant_ += c;
+  // Mirror the addition into the held snapshot's flat LP so that a
+  // later `reconstruct_backend` (from `clone_from_flat` or a
+  // decompression-driven backend rebuild) sees the same physical
+  // objective.  Without this step `load_flat` would reset
+  // `m_obj_constant_` to the snapshot's stale value, silently
+  // dropping the addition — captured by the regression in
+  // `test_sddp_boundary_cuts_solve_effect.cpp` where the mean-
+  // shifted boundary cut left `get_obj_value()` short by `c̄`
+  // after the forward pass's per-phase backend rebuild.
+  //
+  // Scalar fields on `FlatLinearProblem` (incl. `obj_constant`,
+  // `scale_objective`, `nrows`, `ncols`) survive compression and
+  // decompression — only the bulk vectors are encoded into the
+  // compressed buffer (see `compress_flat_lp` and
+  // `decompress_flat_lp` in `memory_compress.cpp`).  So this single
+  // line covers both the uncompressed and compressed snapshot
+  // states.  When no snapshot is held (e.g. a fresh interface that
+  // never went through `freeze_for_cuts`), the snapshot is left
+  // alone — `m_obj_constant_` is the only state needed in that path.
+  if (m_snapshot_holder_.has_data()) {
+    m_snapshot_holder_.snapshot_mut().flat_lp.obj_constant += c;
+  }
+  try {
+    spdlog::trace(
+        "LinearInterface::add_obj_constant: +{:.6e} -> live={:.6e} "
+        "snapshot.has_data={} snapshot.flat_lp.obj_constant={:.6e}",
+        c,
+        m_obj_constant_,
+        m_snapshot_holder_.has_data() ? 1 : 0,
+        m_snapshot_holder_.has_data()
+            ? m_snapshot_holder_.snapshot().flat_lp.obj_constant
+            : 0.0);
+  } catch (...) {  // noexcept logging path
+  }
 }
 
 void LinearInterface::set_col_sol(const std::span<const double> sol)

@@ -614,6 +614,126 @@ using namespace gtopt::detail;
       ++cuts_loaded;
     }
 
+    // ── α-rebase (mean-shift): zero-mean cut RHSs via obj_constant ──
+    //
+    // Opt-in via `options.boundary_cuts_mean_shift` (default off).
+    // Disabled-path leaves `scene_c_bar` all-zero so the install
+    // loop below skips the `add_obj_constant` call entirely — the
+    // pre-existing cut RHS magnitudes survive byte-identical and
+    // every test that asserts on raw on-disk RHS continues to pass.
+    //
+    // Enabled-path is an algebraically equivalent rewrite that
+    // lets the LP-side α variable be centred around 0 instead of
+    // carrying the boundary cuts' typical multi-million-dollar
+    // terminal-value baseline.  Definition: α' = α − c̄ where c̄ is
+    // the per-scene mean of installed cut RHSs (post-`bc_discount`,
+    // same units as `row.lowb`).
+    //
+    // For each scene with at least one cut:
+    //   1. compute c̄_scene = mean(cut.lowb over cuts on this scene),
+    //   2. subtract c̄_scene from every cut.lowb on the scene,
+    //   3. call `li.add_obj_constant(c̄_scene)` on the scene's
+    //      last-phase LinearInterface so `get_obj_value()` reports
+    //      the algebraically-original physical objective.
+    //
+    // Effects / properties (enabled):
+    //   * Cut RHS range is unchanged (mean shift, not rescale), but
+    //     values centre on zero — LP equilibration sees comparable
+    //     RHS magnitudes for boundary vs. runtime cuts.
+    //   * Subsequent backward-pass cuts compose naturally — they're
+    //     computed from the shifted LP, so their intercepts already
+    //     live in the same basis.
+    //   * The α pin (`lowb = uppb = 0` from
+    //     `register_alpha_variables`) does NOT need to change: the
+    //     first cut install releases α to `(−∞, +∞)`, where α can
+    //     be negative.
+    //   * c̄ = 0 (no cuts on a scene, or already zero-mean) is a
+    //     no-op shift — `add_obj_constant(0)` is harmless.
+    //   * Loaded cut files round-trip correctly: c̄ is recomputed
+    //     from the on-disk RHSs each time, and the recomputed value
+    //     matches the original because the load is deterministic.
+    const bool mean_shift = options.boundary_cuts_mean_shift;
+    StrongIndexVector<SceneIndex, double> scene_c_bar(num_scenes, 0.0);
+    if (mean_shift) {
+      // c̄_scene is the mean of each cut's value AT THE MIDPOINT
+      // STATE — i.e., `rhs + ⟨g, midpoint⟩` where `midpoint_i =
+      // ½ (lowb_i + uppb_i)` for each state variable `i`.  Equivalent
+      // to the "expected α value" if every state variable were
+      // uniformly distributed on its physical bound box.  Subtracting
+      // this from each cut's `lowb` centres the LP-side α' at
+      // (approximately) zero across the polyhedral region the
+      // backward pass is likely to visit, which is sharper than the
+      // simple `mean(rhs)` for cuts with non-zero state coefficients.
+      //
+      // Cut row sign convention: rows are `α + Σ (−gᵢ) sᵢ ≥ rhs`, so
+      // `cut.cmap[sᵢ] = −gᵢ`.  The cut's value at the midpoint is
+      // `rhs + Σ gᵢ × midᵢ = rhs − Σ cut.cmap[sᵢ] × midᵢ` — the
+      // subtraction below absorbs the `−1` factor.
+      //
+      // Unbounded state variables: when any non-α coefficient touches
+      // a state with an unbounded raw bound (±infinity), the midpoint
+      // is undefined and the cut is skipped from the average — same
+      // safety gate as `apply_alpha_floor` in
+      // `source/sddp_method_alpha.cpp`.  Cuts that survive the gate
+      // are still installed; only their contribution to c̄ is dropped.
+      for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
+        if (cuts.empty()) {
+          continue;
+        }
+        const auto* alpha_svar = find_alpha_state_var(sim, si, last_phase);
+        if (alpha_svar == nullptr) {
+          continue;  // no α on this (scene, phase) → no shift
+        }
+        const auto alpha_col = alpha_svar->col();
+        auto& li = planning_lp.system(si, last_phase).linear_interface();
+        const auto col_low_phys = li.get_col_low();
+        const auto col_upp_phys = li.get_col_upp();
+        const auto col_low_raw = li.get_col_low_raw();
+        const auto col_upp_raw = li.get_col_upp_raw();
+
+        double sum_at_mid = 0.0;
+        int n_finite = 0;
+        for (const auto& cut : cuts) {
+          double cut_at_mid = cut.lowb;
+          bool unbounded = false;
+          for (const auto& [col, coef] : cut.cmap) {
+            if (col == alpha_col) {
+              continue;
+            }
+            if (coef == 0.0) {
+              continue;
+            }
+            const auto idx = static_cast<std::size_t>(col);
+            if (li.is_pos_inf(col_upp_raw[idx])
+                || li.is_neg_inf(col_low_raw[idx]))
+            {
+              unbounded = true;
+              break;
+            }
+            const double midpoint =
+                0.5 * (col_low_phys[col] + col_upp_phys[col]);
+            // cmap holds −gᵢ; the cut at midpoint is
+            //   `rhs + ⟨g, midpoint⟩ = rhs − Σ cmap[sᵢ] × midᵢ`.
+            cut_at_mid -= coef * midpoint;
+          }
+          if (unbounded) {
+            continue;
+          }
+          sum_at_mid += cut_at_mid;
+          ++n_finite;
+        }
+        if (n_finite > 0) {
+          const double c_bar = sum_at_mid / static_cast<double>(n_finite);
+          scene_c_bar[si] = c_bar;
+          if (c_bar != 0.0) {
+            for (auto& cut : cuts) {
+              cut.lowb -= c_bar;
+            }
+          }
+        }
+      }
+    }
+
     // Per-scene install through the unified `gtopt::add_cut_row` entry
     // (sddp_types.hpp) — same path that runtime-generated optimality
     // cuts take in `SDDPMethod::backward_pass_single_phase`.  That
@@ -651,6 +771,20 @@ using namespace gtopt::detail;
                                  cut,
                                  options.cut_coeff_eps);
       }
+      // Log the per-scene mean-shift (the shift itself was applied
+      // to `cut.lowb` in the pre-install pass above).  The c̄
+      // offsets are returned in `CutLoadResult` for SDDPMethod to
+      // add to UB / LB at display time — the LP stays purely in
+      // shifted space and `LinearInterface` is uninvolved.
+      const double c_bar = scene_c_bar[si];
+      if (c_bar != 0.0) {
+        SPDLOG_INFO(
+            "SDDP boundary cuts: α-rebase scene_uid={} c̄={:.6e} "
+            "({} cuts shifted)",
+            sim.uid_of(si),
+            c_bar,
+            cuts.size());
+      }
       // After every boundary cut on this scene's α_T is installed,
       // derive a universal lower-bound floor on α from the cuts'
       // RHS + coefficients projected onto the state-variable bound
@@ -681,6 +815,12 @@ using namespace gtopt::detail;
     return CutLoadResult {
         .count = cuts_loaded,
         .max_iteration = max_iteration,
+        // Return the per-scene α-rebase offsets (zero-filled when the
+        // shift is disabled).  SDDPMethod stores these and adds them
+        // back into UB / LB at display so the user sees physical
+        // (pre-shift) values regardless of how the cuts are stored
+        // internally on the LP.
+        .alpha_offsets_per_scene = std::move(scene_c_bar),
     };
 
   } catch (const std::exception& e) {

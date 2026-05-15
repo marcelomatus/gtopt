@@ -65,11 +65,20 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
-    const auto balance_row_a = balance_rows_a.at(buid);
-    const auto balance_row_b = balance_rows_b.at(buid);
 
     const auto [block_fmax, block_fmin] =
         sc.block_maxmin_at(stage, block, fmax, fmin, stage_capacity);
+
+    // P1 LP-size: when both bounds are zero the flow variable is
+    // fixed at zero — the LP column and the two `brow[...] = ...`
+    // coefficient writes contribute nothing.  Skip the whole block
+    // (saves 1 col per closed-flow block; balance rows are unchanged).
+    if (block_fmax == 0.0 && block_fmin == 0.0) [[unlikely]] {
+      continue;
+    }
+
+    const auto balance_row_a = balance_rows_a.at(buid);
+    const auto balance_row_b = balance_rows_b.at(buid);
 
     auto& brow_a = lp.row_at(balance_row_a);
     auto& brow_b = lp.row_at(balance_row_b);

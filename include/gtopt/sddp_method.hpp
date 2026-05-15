@@ -383,6 +383,19 @@ public:
     return m_scene_phase_states_;
   }
 
+  /// Per-scene α-rebase offset (zero when not opted in via
+  /// `SDDPOptions::boundary_cuts_mean_shift`).  Added to UB / LB at
+  /// display so users see the algebraically-original objective even
+  /// when the LP carries shifted boundary cuts.
+  [[nodiscard]] constexpr double scene_alpha_offset(
+      SceneIndex scene_index) const noexcept
+  {
+    const auto idx = static_cast<std::size_t>(scene_index);
+    return idx < m_scene_alpha_offsets_.size()
+        ? m_scene_alpha_offsets_[scene_index]
+        : 0.0;
+  }
+
   /// SDDP options (const)
   [[nodiscard]] constexpr auto& options() const noexcept { return m_options_; }
 
@@ -1003,6 +1016,19 @@ private:
   LabelMaker m_label_maker_;
   scene_phase_states_t m_scene_phase_states_;
   SDDPCutManager m_cut_store_;
+
+  /// Per-scene α-rebase offsets accumulated during boundary-cut load.
+  ///
+  /// When `SDDPOptions::boundary_cuts_mean_shift` is enabled,
+  /// `load_boundary_cuts_csv` shifts each scene's boundary cut RHSs
+  /// by `−c̄_scene` so the LP-side α is centred near zero.  The
+  /// offsets land here so SDDP UB / LB display can re-add `c̄_scene`
+  /// and present the algebraically-original physical objective —
+  /// the LP itself stays in shifted space.  Indexed by `SceneIndex`;
+  /// zero-filled when the shift is disabled or no cuts landed on a
+  /// scene.  See `SDDPOptions::boundary_cuts_mean_shift` and the
+  /// install loop in `source/sddp_boundary_cuts.cpp` for details.
+  StrongIndexVector<SceneIndex, double> m_scene_alpha_offsets_;
 
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,

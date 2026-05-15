@@ -156,72 +156,92 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
-    const auto bus_balance_row = bus_balance_rows.at(buid);
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
-    const auto load_lowb = is_forced ? block_lmax : 0.0;
+    const bool has_load = block_lmax > 0.0;
+    const bool has_lman = stage_emin && emin_row;
+    // P1 LP-size: when block_lmax == 0 AND no emin (lman) work is
+    // needed for this block, the entire iteration is degenerate
+    // (lcol, fcol, frow, crow all collapse).  Skip eagerly so we
+    // don't even fetch the bus balance row.
+    if (!has_load && !has_lman) [[unlikely]] {
+      continue;
+    }
+
+    const auto bus_balance_row = bus_balance_rows.at(buid);
     // Hoisted once per block: every `lp.add_col` / `SparseRow{...}`
     // initialiser below shares the same (scenario, stage, block)
     // context.  Pre-2026-05-14 the inner blocks re-built it 5×.
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
-    const auto lcol = lp.add_col({
-        .lowb = load_lowb,
-        .uppb = block_lmax,
-        .class_name = Element::class_name.full_name(),
-        .variable_name = LoadName,
-        .variable_uid = uid(),
-        .context = block_ctx,
-    });
+    auto& bus_brow = lp.row_at(bus_balance_row);
 
-    if (stage_fcost && !is_forced) {
-      const auto fcol = lp.add_col({
-          .cost = CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
+    // Load / capacity / fail machinery only when there is non-zero
+    // demand to serve.  When block_lmax == 0 the lcol is fixed at 0,
+    // fcol is pinned at 0 by `lcol + fcol = 0`, the capacity row is
+    // trivially satisfied, and the bus_brow coefficient is `0 × -(...)`
+    // — every entry below is a no-op.  Saves up to 2 cols + 2 rows
+    // per zero-load block (lcol + fcol + frow + crow).
+    if (has_load) {
+      const auto load_lowb = is_forced ? block_lmax : 0.0;
+      const auto lcol = lp.add_col({
+          .lowb = load_lowb,
+          .uppb = block_lmax,
           .class_name = Element::class_name.full_name(),
-          .variable_name = FailName,
+          .variable_name = LoadName,
           .variable_uid = uid(),
           .context = block_ctx,
       });
-      fcols[buid] = fcol;
 
-      auto frow =
-          SparseRow {
-              .class_name = Element::class_name.full_name(),
-              .constraint_name = BalanceName,
-              .variable_uid = uid(),
-              .context = block_ctx,
-          }
-              .equal(block_lmax);
+      if (stage_fcost && !is_forced) {
+        const auto fcol = lp.add_col({
+            .cost =
+                CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
+            .class_name = Element::class_name.full_name(),
+            .variable_name = FailName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        fcols[buid] = fcol;
 
-      frow[lcol] = 1;
-      frow[fcol] = 1;
-      brows[buid] = lp.add_row(std::move(frow));
+        auto frow =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = BalanceName,
+                .variable_uid = uid(),
+                .context = block_ctx,
+            }
+                .equal(block_lmax);
+
+        frow[lcol] = 1;
+        frow[fcol] = 1;
+        brows[buid] = lp.add_row(std::move(frow));
+      }
+
+      lcols[buid] = lcol;
+      bus_brow[lcol] = -(1.0 + stage_lossfactor);
+
+      // adding the capacity constraint
+      if (capacity_col) {
+        auto crow =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = CapacityName,
+                .variable_uid = uid(),
+                .context = block_ctx,
+            }
+                .greater_equal(0.0);
+
+        crow[*capacity_col] = 1.0;
+        crow[lcol] = -1.0;
+
+        crows[buid] = lp.add_row(std::move(crow));
+      }
     }
 
-    lcols[buid] = lcol;
-
-    // adding load variable to the balance and load rows
-    auto& bus_brow = lp.row_at(bus_balance_row);
-    bus_brow[lcol] = -(1.0 + stage_lossfactor);
-
-    // adding the capacity constraint
-    if (capacity_col) {
-      auto crow =
-          SparseRow {
-              .class_name = Element::class_name.full_name(),
-              .constraint_name = CapacityName,
-              .variable_uid = uid(),
-              .context = block_ctx,
-          }
-              .greater_equal(0.0);
-
-      crow[*capacity_col] = 1.0;
-      crow[lcol] = -1.0;
-
-      crows[buid] = lp.add_row(std::move(crow));
-    }
-
-    // adding the minimum energy constraint
-    if (stage_emin && emin_row) {
+    // adding the minimum energy constraint (lman is independent of
+    // lmax — represents extra load drawn to satisfy the stage-level
+    // emin floor, valid even when natural demand is zero).
+    if (has_lman) {
       const auto bdur = block.duration();
 
       const auto mcol = lp.add_col({

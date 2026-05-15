@@ -234,8 +234,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // headroom keeps `cpu_factor × physical_concurrency` slots free for
   // aperture solves regardless of how many cell tasks are mid-wait.
   // See `sddp_pool.hpp::make_sddp_work_pool` for the rationale.
-  const auto cell_task_headroom =
-      static_cast<int>(planning_lp().simulation().scene_count());
+  const auto cell_task_headroom = planning_lp().simulation().scene_count();
   auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
                                        m_options_.pool_memory_limit_mb,
                                        cell_task_headroom);
@@ -1566,7 +1565,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             sp.feasible = false;
             sp.upper_bound = 0.0;
           } else {
-            sp.upper_bound = *fwd;
+            // Per-scene UB = Σ forward_objective + α-rebase offset.
+            // The offset is zero unless
+            // `SDDPOptions::boundary_cuts_mean_shift` was enabled
+            // (see `m_scene_alpha_offsets_` and the install pass in
+            // `source/sddp_boundary_cuts.cpp`).  Without this term,
+            // shifted boundary cuts would silently push UB lower by
+            // `c̄_scene` and break the UB ↔ LB symmetry across the
+            // mean-shift flag.
+            sp.upper_bound = *fwd + scene_alpha_offset(scene);
             sp.feasible = true;
           }
 
@@ -1646,10 +1653,17 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // UB and LB in different unit spaces, producing a
           // permanent ``≈ scale_objective − 1`` / ``scale_objective``
           // gap that never closed regardless of cut quality.
+          // Per-scene LB = master.get_obj_value() + α-rebase offset.
+          // Mirrors the UB adjustment above: when the mean-shift
+          // opt-in fired, the master LP's `get_obj_value()` is short
+          // by `c̄_scene`, so we add it back here for display
+          // symmetry.  `scene_alpha_offset()` returns 0 when no
+          // offset applies.
           sp.lower_bound = planning_lp()
                                .system(scene, first_phase_index())
                                .linear_interface()
-                               .get_obj_value();
+                               .get_obj_value()
+              + scene_alpha_offset(scene);
 
           tracker.report_complete(scene,
                                   sp.current_iteration_index,
@@ -1700,7 +1714,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                                  uid_of(scene)),
                         sim.error().message);
           } else {
-            sp.upper_bound = *sim;
+            // Simulation pass UB also picks up the α-rebase offset
+            // (zero unless `boundary_cuts_mean_shift` is enabled).
+            // Same rationale as the iteration UB site above.
+            sp.upper_bound = *sim + scene_alpha_offset(scene);
           }
           {
             int scenes_still_active = 0;

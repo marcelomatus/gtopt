@@ -48,6 +48,13 @@ struct CutLoadResult
 {
   int count {};  ///< Number of unique cuts loaded
   IterationIndex max_iteration {};  ///< Highest iteration index found
+  /// Per-scene α-rebase offsets (zero unless
+  /// `SDDPOptions::boundary_cuts_mean_shift` is enabled and the
+  /// scene received at least one cut on its α column).  Indexed by
+  /// `SceneIndex`; consumed by `SDDPMethod` to shift UB / LB displays
+  /// back to the algebraically-original (pre-shift) physical
+  /// objective.  Empty when no offsets were applied.
+  StrongIndexVector<SceneIndex, double> alpha_offsets_per_scene {};
 };
 
 /// Unique identifier of a Benders cut across save / load / dedup

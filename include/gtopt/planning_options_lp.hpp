@@ -1320,6 +1320,13 @@ public:
         MissingCutVarMode::skip_coeff);
   }
 
+  /// Whether to apply α-rebase (mean-shift) on boundary cut load.
+  /// Default: false (preserve raw on-disk RHS magnitudes).
+  [[nodiscard]] constexpr auto sddp_boundary_cuts_mean_shift() const -> bool
+  {
+    return m_options_.sddp_options.boundary_cuts_mean_shift.value_or(false);
+  }
+
   // ``sddp_named_cuts_file`` accessor retired 2026-05 along with the
   // CSV named-cut path; hot-start cuts come from ``cuts_input_file``
   // (Parquet) only.

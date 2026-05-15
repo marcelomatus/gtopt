@@ -1118,7 +1118,14 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
     // the scene is healthy.
     rs.consecutive_structural_failures = 0;
     rs.terminal = false;
-    out.scene_upper_bounds[scene_index] = *fwd;
+    // Per-scene UB = Σ forward_objective + α-rebase offset (zero
+    // unless `SDDPOptions::boundary_cuts_mean_shift` is enabled,
+    // see `source/sddp_boundary_cuts.cpp` and
+    // `SDDPMethod::scene_alpha_offset`).  Same adjustment lives in
+    // the async path at `sddp_iteration.cpp:1577`; both must agree
+    // so the sync ↔ async UBs stay symmetric.
+    out.scene_upper_bounds[scene_index] =
+        *fwd + scene_alpha_offset(scene_index);
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
   }
@@ -1622,10 +1629,18 @@ void SDDPMethod::compute_iteration_bounds(
       continue;
     }
     upper += ir.scene_upper_bounds[scene];
+    // Per-scene LB = master.get_obj_value() + α-rebase offset.
+    // Mirrors the UB site above and the async path at
+    // `sddp_iteration.cpp:1663`: when the mean-shift opt-in fired,
+    // the master LP's `get_obj_value()` is short by `c̄_scene`, so
+    // we add it back here so the displayed LB matches the
+    // algebraically-original physical objective.  Zero when no
+    // shift was applied.
     const double lb_si = planning_lp()
                              .system(scene, first_phase_index())
                              .linear_interface()
-                             .get_obj_value();
+                             .get_obj_value()
+        + scene_alpha_offset(scene);
     ir.scene_lower_bounds[scene] = lb_si;
     lower += lb_si;
   }

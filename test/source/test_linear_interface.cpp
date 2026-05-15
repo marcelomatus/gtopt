@@ -2070,5 +2070,105 @@ TEST_CASE("LinearInterface - set_obj_coeffs_raw bulk overwrite")  // NOLINT
   }
 }
 
+TEST_CASE("LinearProblem::add_obj_constant — physical-units accumulator")
+{
+  using namespace gtopt;
+  // The accumulator is additive on the physical (post-scale_objective)
+  // cost scale.  Verify that explicit add_obj_constant calls survive
+  // round-trip through flatten() into FlatLinearProblem::obj_constant
+  // and onto LinearInterface::m_obj_constant_.
+
+  LinearProblem lp("obj_const_acc");
+  CHECK(lp.obj_constant() == doctest::Approx(0.0));
+
+  lp.add_obj_constant(7.5);
+  lp.add_obj_constant(-2.5);  // accumulates additively
+  CHECK(lp.obj_constant() == doctest::Approx(5.0));
+
+  // Need a non-empty LP for flatten() to return a populated struct.
+  [[maybe_unused]] const auto col = lp.add_col(SparseCol {
+      .uppb = 1.0,
+  });
+  [[maybe_unused]] const auto row = lp.add_row(SparseRow {
+      .uppb = 1.0,
+  });
+  lp.set_coeff(row, col, 1.0);
+
+  const auto flat_lp = lp.flatten();
+  CHECK(flat_lp.obj_constant == doctest::Approx(5.0));
+}
+
+TEST_CASE(
+    "LinearInterface::get_obj_value — composes scale_objective + obj_constant")
+{
+  using namespace gtopt;
+  // Build an LP whose optimal objective is exactly known, then verify
+  // that get_obj_value() applies the documented composition:
+  //   physical_obj = solver_raw × scale_objective + obj_constant
+  //
+  // Setup: minimise 4·x subject to 0 ≤ x ≤ 10 ⇒ x* = 0, raw obj = 0.
+  // With obj_constant = 12.5, the composed physical obj must be 12.5.
+
+  LinearProblem lp("obj_const_compose");
+  [[maybe_unused]] const auto x = lp.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 4.0,
+  });
+  // Add a trivial row so flatten() materialises both columns and rows.
+  [[maybe_unused]] const auto r = lp.add_row(SparseRow {
+      .uppb = 10.0,
+  });
+  lp.set_coeff(r, x, 1.0);
+
+  lp.add_obj_constant(12.5);
+
+  // Choose a non-unit scale_objective to exercise the multiplicative
+  // composition.  raw_solver_obj is computed on cost / scale_obj, then
+  // multiplied back by scale_obj; the constant rides on top untouched.
+  LpMatrixOptions opts;
+  opts.scale_objective = 2.0;
+  const auto flat_lp = lp.flatten(opts);
+
+  LinearInterface li;
+  li.load_flat(flat_lp);
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+
+  // raw solver obj = 0 (x* = 0).  Composed obj = 0 × 2.0 + 12.5.
+  CHECK(li.get_obj_value_raw() == doctest::Approx(0.0));
+  CHECK(li.get_obj_value() == doctest::Approx(12.5));
+}
+
+TEST_CASE("LinearInterface — obj_constant propagates across clone()")
+{
+  using namespace gtopt;
+  // Native backend.clone() route: verify m_obj_constant_ is copied so
+  // a cloned interface reports the same algebraic obj_value after
+  // re-solving from a fresh solver state.
+
+  LinearProblem lp("obj_const_clone");
+  [[maybe_unused]] const auto x = lp.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 1.0,
+  });
+  [[maybe_unused]] const auto r = lp.add_row(SparseRow {
+      .uppb = 5.0,
+  });
+  lp.set_coeff(r, x, 1.0);
+  lp.add_obj_constant(99.0);
+
+  const auto flat_lp = lp.flatten();
+  LinearInterface src;
+  src.load_flat(flat_lp);
+  REQUIRE(src.resolve().has_value());
+  CHECK(src.get_obj_value() == doctest::Approx(99.0));
+
+  // CloneKind::deep is the typical SDDP / cascade path.
+  auto cloned = src.clone(LinearInterface::CloneKind::deep);
+  REQUIRE(cloned.resolve().has_value());
+  CHECK(cloned.get_obj_value() == doctest::Approx(99.0));
+}
+
 // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,
 // misc-const-correctness)

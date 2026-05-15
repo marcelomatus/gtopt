@@ -71,6 +71,34 @@ struct FlatLinearProblem
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.
 
+  /// Constant offset added to `get_obj_value()` by `LinearInterface`.
+  ///
+  /// Accumulated by `LinearProblem::add_obj_constant(c)` whenever a
+  /// model rewrite folds a *dispatch-side* variable away via
+  /// substitution (e.g. the P0 demand-failure variable rewrite:
+  /// `fail = lmax − load` leaves the objective with a
+  /// `+fail_cost × lmax` constant term that the LP solver knows
+  /// nothing about, yet that constant IS dispatch cost and belongs
+  /// in every consumer of `get_obj_value()`).  Carried through
+  /// `flatten()` so every consumer of `LinearInterface::
+  /// get_obj_value()` — SDDP cut generation, forward-pass cost
+  /// tracking, standalone reporting — observes the algebraically-
+  /// correct value, not the LP-internal shifted one.
+  ///
+  /// Stored on the *physical* (post-scale_objective) cost scale so it
+  /// composes naturally with `obj_physical = raw × scale_objective
+  /// + obj_constant`.  Always 0.0 when no substitution has been
+  /// performed — keeps the existing behaviour bit-identical for
+  /// every model that does not opt in.
+  ///
+  /// Note: cost-to-go style shifts (e.g. the boundary-cut α-rebase
+  /// `α' = α − c̄` in `sddp_boundary_cuts.cpp`) are handled at the
+  /// SDDP level — they shift cut RHSs in-place and SDDPMethod adds
+  /// `c̄_scene` to UB/LB at compute time.  Those do NOT use
+  /// `obj_constant`; the field is exclusively for dispatch-side
+  /// substitutions.
+  double obj_constant {0.0};
+
   name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
   name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)
   index_map_t colmp;  ///< Map from variable names to indices
@@ -204,6 +232,38 @@ public:
   [[nodiscard]] constexpr double infinity() const noexcept
   {
     return m_infinity_;
+  }
+
+  /// Accumulate a physical-scale constant into the objective.
+  ///
+  /// Use this when a model rewrite folds a variable away by
+  /// substitution.  Example — demand-failure substitution:
+  /// the algebraic identity `fail = lmax − load` lets us drop both
+  /// the `fail` column and the `lcol + fcol = lmax` balance row, at
+  /// the cost of:
+  ///   1.  shifting `lcol`'s objective coefficient by `−fail_cost`
+  ///       (the linear-in-load part of the substituted cost), and
+  ///   2.  carrying `+fail_cost × lmax` as an LP-external constant
+  ///       (the constant part of the substitution).
+  ///
+  /// `c` is interpreted on the *physical* cost scale (same units as
+  /// the original `cost` fields of `SparseCol`).  It is NOT divided
+  /// by `scale_objective` — the solver never sees this term.  Final
+  /// reporting via `LinearInterface::get_obj_value()` combines:
+  ///   `physical_obj = solver_raw_obj × scale_objective + obj_constant`
+  /// so the obj-constant flows through SDDP cuts, forward-pass cost
+  /// accumulation, and standalone obj-value reporting at full
+  /// fidelity regardless of how aggressive `scale_objective` is.
+  ///
+  /// Calls accumulate (additive); pass a negative `c` to subtract.
+  constexpr void add_obj_constant(double c) noexcept { m_obj_constant_ += c; }
+
+  /// Current accumulated objective constant (physical units).  Zero
+  /// in every existing call site that does not opt into the
+  /// substitution rewrite.
+  [[nodiscard]] constexpr double obj_constant() const noexcept
+  {
+    return m_obj_constant_;
   }
 
   /// Set the VariableScaleMap used for automatic scale resolution in add_col.
@@ -530,6 +590,10 @@ private:
   size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
+  /// Physical-scale objective constant accumulated via
+  /// `add_obj_constant`.  Forwarded into `FlatLinearProblem` by
+  /// `flatten()`; never touched by the solver.
+  double m_obj_constant_ {0.0};
   VariableScaleMap m_vsm_ {};  ///< Auto-scale map (owned copy)
   LabelMaker m_label_maker_ {};  ///< Label generator (default = names off)
 

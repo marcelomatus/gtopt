@@ -120,10 +120,19 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto guid = uid();
   for (auto&& block : blocks) {
     const auto buid = block.uid();
-    const auto balance_row = balance_rows.at(buid);
 
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
+
+    // P1 LP-size: when both bounds are zero generation is fixed at
+    // zero — the LP column, the bus-balance coefficient, and the
+    // (gen ≤ capacity) capacity row are all degenerate.  Skip the
+    // whole block (saves 1 col + up to 1 row per offline-gen block).
+    if (block_pmax == 0.0 && block_pmin == 0.0) [[unlikely]] {
+      continue;
+    }
+
+    const auto balance_row = balance_rows.at(buid);
 
     SPDLOG_DEBUG(
         "GeneratorLP::add_to_lp: gen {} stage {} block {} pmin {} "
