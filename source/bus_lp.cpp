@@ -158,8 +158,13 @@ bool BusLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   // Physical = LP × scale_theta, auto-descaled by LinearInterface.
+  // `theta:cost` is **not** emitted — reduced cost of a free
+  // structural variable is zero by complementary slackness at LP
+  // optimality, and no downstream tooling consumes
+  // `Bus/theta_cost.*` (verified by grep across scripts/ /
+  // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
+  // line.flow:cost / line.theta:dual drops in commit ceabc88c.
   out.add_col_sol(cname, ThetaName, pid, theta_cols);
-  out.add_col_cost(cname, ThetaName, pid, theta_cols);
 
   return true;
 }

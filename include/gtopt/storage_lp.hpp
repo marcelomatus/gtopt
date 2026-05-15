@@ -586,13 +586,19 @@ public:
       // via prev_vc = eicol, so no explicit is_first_block guard is needed.
       const auto is_last_block = is_last_stage && (buid == blocks.back().uid());
 
+      // Hoisted once per block: every per-block LP col / row in this
+      // loop body shares the same (scenario, stage, block) context.
+      // Pre-2026-05-14 the four `SparseRow{...}` / `lp.add_col(...)`
+      // sites below re-built it from the three `.uid()` accessors.
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+
       auto erow =
           SparseRow {
               .class_name = cname,
               .constraint_name = EnergyBalanceName,
               .variable_uid = opts.variable_uid,
-              .context =
-                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+              .context = block_ctx,
           }
               .equal(0);
 
@@ -632,8 +638,7 @@ public:
           .class_name = opts.class_name,
           .variable_name = EnergyName,
           .variable_uid = opts.variable_uid,
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       });
 
       ecols[buid] = ec;
@@ -681,8 +686,7 @@ public:
             .class_name = opts.class_name,
             .variable_name = DrainName,
             .variable_uid = opts.variable_uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+            .context = block_ctx,
         });
 
         dcols[buid] = dcol;
@@ -699,8 +703,7 @@ public:
                 .class_name = cname,
                 .constraint_name = CapacityName,
                 .variable_uid = opts.variable_uid,
-                .context = make_block_context(
-                    scenario.uid(), stage.uid(), block.uid()),
+                .context = block_ctx,
             }
                 .greater_equal(0);
         crow[*capacity_col] = 1;

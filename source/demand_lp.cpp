@@ -133,26 +133,44 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> mcols;
   BIndexHolder<RowIndex> crows;
   BIndexHolder<RowIndex> brows;
-  map_reserve(lcols, blocks.size());
-  map_reserve(mcols, blocks.size());
-  map_reserve(crows, blocks.size());
-  map_reserve(fcols, blocks.size());
-  map_reserve(brows, blocks.size());
-
   const bool is_forced = demand().forced.value_or(false);
+
+  // Reserve only the holders that will actually be populated in this
+  // call.  Pre-2026-05-14 every reserve fired unconditionally, but
+  // mcols/crows/fcols/brows are populated only inside conditional
+  // branches (stage_emin / capacity_col / (stage_fcost && !is_forced)
+  // / same).  Guarding the reserves saves the up-front bucket
+  // allocations on the common case where the per-block holder ends
+  // up empty.
+  map_reserve(lcols, blocks.size());
+  if (stage_emin) {
+    map_reserve(mcols, blocks.size());
+  }
+  if (capacity_col) {
+    map_reserve(crows, blocks.size());
+  }
+  if (stage_fcost && !is_forced) {
+    map_reserve(fcols, blocks.size());
+    map_reserve(brows, blocks.size());
+  }
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto bus_balance_row = bus_balance_rows.at(buid);
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
     const auto load_lowb = is_forced ? block_lmax : 0.0;
+    // Hoisted once per block: every `lp.add_col` / `SparseRow{...}`
+    // initialiser below shares the same (scenario, stage, block)
+    // context.  Pre-2026-05-14 the inner blocks re-built it 5×.
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto lcol = lp.add_col({
         .lowb = load_lowb,
         .uppb = block_lmax,
         .class_name = Element::class_name.full_name(),
         .variable_name = LoadName,
         .variable_uid = uid(),
-        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        .context = block_ctx,
     });
 
     if (stage_fcost && !is_forced) {
@@ -161,8 +179,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
           .class_name = Element::class_name.full_name(),
           .variable_name = FailName,
           .variable_uid = uid(),
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       });
       fcols[buid] = fcol;
 
@@ -171,8 +188,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               .class_name = Element::class_name.full_name(),
               .constraint_name = BalanceName,
               .variable_uid = uid(),
-              .context =
-                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+              .context = block_ctx,
           }
               .equal(block_lmax);
 
@@ -194,8 +210,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
               .class_name = Element::class_name.full_name(),
               .constraint_name = CapacityName,
               .variable_uid = uid(),
-              .context =
-                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+              .context = block_ctx,
           }
               .greater_equal(0.0);
 
@@ -214,8 +229,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
           .class_name = Element::class_name.full_name(),
           .variable_name = LmanName,
           .variable_uid = uid(),
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       });
 
       mcols[buid] = mcol;
@@ -264,8 +278,13 @@ bool DemandLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, EminName, pid, emin_cols);
   out.add_row_dual(cname, EminName, pid, emin_rows);
 
+  // `lman:cost` is **not** emitted — the load-management slack
+  // column has no meaningful dispatch-cost interpretation and no
+  // downstream tooling consumes `Demand/lman_cost.*` (verified by
+  // grep across scripts/ / guiservice/ / integration_test/,
+  // 2026-05-14).  The `:sol` value is retained so post-mortem
+  // analysis can see how much emin slack each (s, t, b) used.
   out.add_col_sol(cname, LmanName, pid, lman_cols);
-  out.add_col_cost(cname, LmanName, pid, lman_cols);
 
   out.add_col_sol(cname, FailName, pid, fail_cols);
   out.add_col_cost(cname, FailName, pid, fail_cols);

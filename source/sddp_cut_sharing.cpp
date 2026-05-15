@@ -118,6 +118,13 @@ void share_cuts_for_phase(
     // path test fixtures (e.g. `test_sddp_bounds_sanity.cpp`'s
     // 2s10p case).
     std::vector<SparseRow> all_cuts;
+    {
+      size_t total = 0;
+      for (const auto& cuts : scene_cuts) {
+        total += cuts.size();
+      }
+      all_cuts.reserve(total);
+    }
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
     }
@@ -250,6 +257,13 @@ void share_cuts_for_phase(
     // the duplicate-label invariant within one LP when the same
     // cut is appended multiple times for max-mode broadcast).
     std::vector<SparseRow> all_cuts;
+    {
+      size_t total = 0;
+      for (const auto& cuts : scene_cuts) {
+        total += cuts.size();
+      }
+      all_cuts.reserve(total);
+    }
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       all_cuts.insert(all_cuts.end(), cuts.begin(), cuts.end());
     }

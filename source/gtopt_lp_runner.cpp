@@ -463,6 +463,13 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
 void log_lp_coefficient_stats(const PlanningLP& planning_lp)
 {
   std::vector<ScenePhaseLPStats> lp_entries;
+  {
+    size_t total_cells = 0;
+    for ([[maybe_unused]] const auto& phase_systems : planning_lp.systems()) {
+      total_cells += phase_systems.size();
+    }
+    lp_entries.reserve(total_cells);
+  }
   for (auto&& [si, phase_systems] :
        enumerate<SceneIndex>(planning_lp.systems()))
   {

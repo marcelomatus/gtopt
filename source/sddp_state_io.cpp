@@ -75,6 +75,19 @@ auto save_state_csv(PlanningLP& planning_lp, const std::string& filepath)
 
     const auto& sim = planning_lp.simulation();
 
+    // Pre-count state variables for capacity reservation.
+    size_t total_sv = 0;
+    for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
+      for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
+        total_sv += sim.state_variables(si, pi).size();
+      }
+    }
+    names.reserve(total_sv);
+    phases.reserve(total_sv);
+    scenes.reserve(total_sv);
+    values.reserve(total_sv);
+    rcosts.reserve(total_sv);
+
     for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
       for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
         auto& sys = planning_lp.system(si, pi);

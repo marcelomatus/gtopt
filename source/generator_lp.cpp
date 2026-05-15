@@ -109,7 +109,13 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> gcols;
   BIndexHolder<RowIndex> crows;
   map_reserve(gcols, blocks.size());
-  map_reserve(crows, blocks.size());
+  // `crows` is populated only on the expansion branch
+  // (`if (capacity_col)` below).  For generators without
+  // expansion (the majority at Juan scale), the reserved buckets
+  // would be allocated and discarded.
+  if (capacity_col) {
+    map_reserve(crows, blocks.size());
+  }
 
   const auto guid = uid();
   for (auto&& block : blocks) {

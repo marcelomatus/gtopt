@@ -182,6 +182,19 @@ auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
 {
   std::vector<StateTarget> targets;
 
+  // Pre-count state variables for capacity reservation.
+  size_t total_sv = 0;
+  for (auto&& [si, _sc] :
+       enumerate<SceneIndex>(planning_lp.simulation().scenes()))
+  {
+    for (auto&& [pi, _ph] :
+         enumerate<PhaseIndex>(planning_lp.simulation().phases()))
+    {
+      total_sv += planning_lp.simulation().state_variables(si, pi).size();
+    }
+  }
+  targets.reserve(total_sv);
+
   for (auto&& [scene, _sc] :
        enumerate<SceneIndex>(planning_lp.simulation().scenes()))
   {

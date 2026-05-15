@@ -71,9 +71,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
       sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
 
   BIndexHolder<ColIndex> rcols;
-  BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
-  map_reserve(scols, blocks.size());
 
   // flow_scale is resolved by add_col from the VariableScaleMap metadata.
   // We read back the resolved value from the first column for StorageOptions.

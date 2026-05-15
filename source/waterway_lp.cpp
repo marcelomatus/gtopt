@@ -95,12 +95,15 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     brow_b[fc] = 1.0 - stage_lossfactor;
   }
 
-  // storing the indices for this scenario and stage
+  // Conditional outer-key insertion (line_lp pattern, commit
+  // 4604f4d3): only insert the (s, t) outer key when at least one
+  // block populated the inner map.  For active waterways `fcols`
+  // is non-empty in practice, but aligning with the rest of the
+  // codebase removes the post-insert `at(st_key).empty()` guard.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  flow_cols[st_key] = std::move(fcols);
-
-  // Register PAMPL-visible columns.
-  if (!flow_cols.at(st_key).empty()) {
+  if (!fcols.empty()) {
+    flow_cols[st_key] = std::move(fcols);
+    // Register PAMPL-visible columns.
     sc.add_ampl_variable(
         ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
   }
@@ -113,8 +116,13 @@ bool WaterwayLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
+  // `flow:cost` is **not** emitted — the waterway flow variable's
+  // reduced cost has no dispatch-cost interpretation (unlike a
+  // generator) and no downstream tooling consumes
+  // `Waterway/flow_cost.*` (verified by grep across scripts/ /
+  // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
+  // bus.theta:cost / junction.drain:cost drops.
   out.add_col_sol(cname, FlowName, pid, flow_cols);
-  out.add_col_cost(cname, FlowName, pid, flow_cols);
 
   return true;
 }

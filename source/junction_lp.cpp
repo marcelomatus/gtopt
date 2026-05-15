@@ -69,13 +69,18 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
     brows[buid] = lp.add_row(std::move(brow));
   }
 
-  // Store indices for this scenario and stage
+  // Store indices for this scenario and stage.  The outer-key
+  // insertion for ``drain_cols`` is conditional on a non-empty inner
+  // map — mirrors the line_lp pattern (commit 4604f4d3) so the
+  // ``add_to_output`` and AMPL-registration paths can short-circuit
+  // for junctions where ``drain()`` is false.  ``balance_rows`` is
+  // always populated for active junctions, so its outer-key
+  // assignment stays unconditional.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  drain_cols[st_key] = std::move(dcols);
   balance_rows[st_key] = std::move(brows);
-
-  // Register PAMPL-visible columns — drain only exists when enabled.
-  if (!drain_cols.at(st_key).empty()) {
+  if (!dcols.empty()) {
+    drain_cols[st_key] = std::move(dcols);
+    // Register PAMPL-visible columns — drain only exists when enabled.
     sc.add_ampl_variable(
         ampl_name, uid(), DrainName, scenario, stage, drain_cols.at(st_key));
   }
@@ -88,9 +93,13 @@ bool JunctionLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  // Add all solution components to output context
+  // `drain:cost` is **not** emitted — the drain column is constructed
+  // with `.cost = 0.0` (no objective contribution), so its reduced
+  // cost is zero by construction.  No downstream tooling consumes
+  // `Junction/drain_cost.*` (verified by grep across scripts/ /
+  // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
+  // line.flow:cost / bus.theta:cost drops.
   out.add_col_sol(cname, DrainName, pid, drain_cols);
-  out.add_col_cost(cname, DrainName, pid, drain_cols);
   out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   return true;

@@ -50,6 +50,9 @@ std::expected<void, Error> add_provision(
   auto& prov_cols = rp.provision_cols[st_k];
   auto& prov_rows = rp.provision_rows[st_k];
   auto& cap_rows = rp.capacity_rows[st_k];
+  map_reserve(prov_cols, blocks.size());
+  map_reserve(prov_rows, blocks.size());
+  map_reserve(cap_rows, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();

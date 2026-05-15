@@ -567,6 +567,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto min_up_hours = commitment().min_up_time.value_or(0.0);
   if (min_up_hours > 0.0 && !ucols.empty() && !vcols.empty()) {
     BIndexHolder<RowIndex> mut_rows;
+    map_reserve(mut_rows, nperiods);
 
     // Compute period durations
     std::vector<double> period_dur(nperiods);
@@ -630,6 +631,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto min_down_hours = commitment().min_down_time.value_or(0.0);
   if (min_down_hours > 0.0 && !ucols.empty() && !wcols.empty()) {
     BIndexHolder<RowIndex> mdt_rows;
+    map_reserve(mdt_rows, nperiods);
 
     // Reuse or recompute period_dur if not already computed
     std::vector<double> pd(nperiods);
@@ -731,6 +733,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     BIndexHolder<RowIndex> st_rows;
     BIndexHolder<RowIndex> hr_rows;
     BIndexHolder<RowIndex> wr_rows;
+    map_reserve(hcols, nperiods);
+    map_reserve(wmcols, nperiods);
+    map_reserve(ccols, nperiods);
+    map_reserve(st_rows, nperiods);
+    map_reserve(hr_rows, nperiods);
+    map_reserve(wr_rows, nperiods);
 
     for (size_t p = 0; p < nperiods; ++p) {
       const auto rep_buid = blocks[period_starts[p]].uid();
