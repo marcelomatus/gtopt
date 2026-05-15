@@ -160,24 +160,25 @@ inline constexpr auto line_losses_mode_entries =
 /**
  * @brief Selects the Kirchhoff Voltage Law (KVL) formulation.
  *
- * - `node_angle` (0, default): the classical B–θ form.  One bus angle
+ * - `node_angle` (0): the classical B–θ form.  One bus angle
  *   (theta) variable per active bus, plus one KVL equality per active
  *   line per block:
  *     `−θ_a + θ_b + x_τ · f_p − x_τ · f_n = −φ`
  *   where `x_τ = τ · X / V²`.  A reference bus per island has its
- *   theta pinned at 0 to fix the gauge.  Suitable for monolithic LP,
- *   SDDP / Benders, and line expansion (topology can change per stage
- *   without rebuilding any extra structure).
+ *   theta pinned at 0 to fix the gauge.  Required for line expansion
+ *   that changes topology per stage and for phase-shift transformers.
  *
- * - `cycle_basis` (1): the loop-flow form — eliminates theta entirely
- *   and replaces per-line KVL with one equality per fundamental cycle:
+ * - `cycle_basis` (1, default): the loop-flow form — eliminates theta
+ *   entirely and replaces per-line KVL with one equality per
+ *   fundamental cycle:
  *     `Σ_{l∈C} ε_l · x_l · (f_p − f_n)  =  Σ_{l∈C} ε_l · φ_l`
  *   with `ε_l ∈ {+1,−1}` the cycle direction sign.  No reference-bus
  *   pin, no theta column scale to tune, typically `(|L| − |B| + #islands)`
- *   rows per block instead of `|L|`.  PyPSA-style; reference:
- *   Hörsch et al., "PyPSA: Python for Power System Analysis", 2018.
+ *   rows per block instead of `|L|` — strictly smaller LP for meshed
+ *   grids.  PyPSA-style; reference: Hörsch et al., "PyPSA: Python for
+ *   Power System Analysis", 2018.
  *
- * Default: `node_angle`.  Selected via `model_options.kirchhoff_mode`
+ * Default: `cycle_basis`.  Selected via `model_options.kirchhoff_mode`
  * (string) or the `--kirchhoff-mode` CLI flag.  See
  * `kirchhoff_node_angle.hpp` for the row-assembly helper.
  */

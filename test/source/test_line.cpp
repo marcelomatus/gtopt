@@ -419,6 +419,10 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
   opts.use_kirchhoff = true;
   opts.use_single_bus = false;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Pin node_angle: this test compares row-counts AC vs DC, which only
+  // diverge under the B-θ formulation (cycle_basis adds rows per cycle,
+  // not per line — a 2-bus topology has zero cycles).
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   SUBCASE("no reactance field — Kirchhoff skipped")
   {

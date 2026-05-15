@@ -196,8 +196,13 @@ TEST_CASE("BusLP needs_kirchhoff method")
 {
   // Create minimal input context
 
-  SUBCASE("Default behavior")
+  SUBCASE("Default (cycle_basis) — needs_kirchhoff is false")
   {
+    // Post-2026-05-14: the default `kirchhoff_mode` is `cycle_basis`,
+    // which never creates θ columns, so `needs_kirchhoff(sc)` short-
+    // circuits to false even when `use_kirchhoff=true` and
+    // `use_single_bus=false`.  KVL is enforced by per-cycle Σε·x·f sums
+    // instead of per-bus B–θ rows.
     const PlanningOptions opt;
     const PlanningOptionsLP options(opt);
     const Simulation simu = {
@@ -211,12 +216,34 @@ TEST_CASE("BusLP needs_kirchhoff method")
     const SystemContext sc(simulation, system);
     const InputContext ic(sc);
 
-    // Create a bus with defaults
     const Bus bus(1, "bus_1");
     const BusLP bus_lp(bus, ic);
 
-    // With default options (use_kirchhoff=true, use_single_bus=false)
-    // needs_kirchhoff should be true
+    CHECK(bus_lp.needs_kirchhoff(sc) == false);
+  }
+
+  SUBCASE("node_angle pinned — needs_kirchhoff is true")
+  {
+    PlanningOptions opt;
+    opt.model_options.kirchhoff_mode = OptName {"node_angle"};
+
+    const PlanningOptionsLP options(opt);
+    const Simulation simu = {
+        .block_array = {{.uid = Uid {1}, .duration = 1}},
+        .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+        .scenario_array = {{.uid = Uid {0}}},
+    };
+
+    SimulationLP simulation(simu, options);
+    SystemLP system({}, simulation);  // NOLINT
+    const SystemContext sc(simulation, system);
+    const InputContext ic(sc);
+
+    const Bus bus(1, "bus_1");
+    const BusLP bus_lp(bus, ic);
+
+    // Under explicit node_angle + use_kirchhoff=true (default) +
+    // use_single_bus=false (default), needs_kirchhoff returns true.
     CHECK(bus_lp.needs_kirchhoff(sc) == true);
   }
 
@@ -419,6 +446,9 @@ TEST_CASE("BusLP - DC OPF solve, theta col_sol")
   opts.use_kirchhoff = true;
   opts.use_single_bus = false;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Pin node_angle: this test asserts the θ column is solved to a
+  // specific value (-1.0 rad).  cycle_basis has no θ column at all.
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   const System system = {
       .name = "BusThetaDCOPF",

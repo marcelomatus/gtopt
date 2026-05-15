@@ -17,11 +17,13 @@
 #include <span>
 #include <vector>
 
+#include <daw/daw_read_file.h>
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -114,6 +116,54 @@ auto CascadePlanningMethod::build_level_sddp_opts(
 }
 
 // ─── Clone Planning with LP overrides ───────────────────────────────────────
+
+namespace
+{
+
+/// Resolve a relative ``system_file`` path the same way
+/// ``parse_planning_files`` resolves planning JSONs: try the path as
+/// given (relative to CWD) first, then fall back to
+/// ``input_directory / filename``.  Absolute paths are used as-is.
+[[nodiscard]] std::filesystem::path resolve_system_file(
+    std::string_view system_file, const std::string& input_directory)
+{
+  std::filesystem::path p(system_file);
+  if (p.is_absolute() || std::filesystem::exists(p)) {
+    return p;
+  }
+  if (!input_directory.empty()) {
+    auto alt = std::filesystem::path(input_directory) / p.filename();
+    if (std::filesystem::exists(alt)) {
+      return alt;
+    }
+  }
+  return p;  // caller will surface a clear error if not found
+}
+
+/// Load only the ``system`` block from an external Planning JSON file.
+/// The loaded file's ``options`` and ``simulation`` blocks are
+/// deliberately discarded — the cascade level's own ``model_options``
+/// overlay and the parent planning's ``simulation`` remain authoritative.
+[[nodiscard]] System load_system_from_file(std::string_view system_file,
+                                           const std::string& input_directory)
+{
+  const auto path = resolve_system_file(system_file, input_directory);
+  if (!std::filesystem::exists(path)) {
+    throw std::runtime_error(std::format(
+        "CascadeLevel.system_file '{}' not found (resolved to '{}')",
+        system_file,
+        path.string()));
+  }
+  const auto contents = daw::read_file(path.string());
+  if (!contents) {
+    throw std::runtime_error(std::format(
+        "Failed to read CascadeLevel.system_file '{}'", path.string()));
+  }
+  auto loaded = parse_planning_json(contents.value());
+  return std::move(loaded.system);
+}
+
+}  // namespace
 
 auto CascadePlanningMethod::clone_planning_with_overrides(
     const Planning& source, const ModelOptions& model_opts) -> Planning
@@ -466,7 +516,13 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     }
     prev_effective_model = effective_model;
 
-    if (level_idx == 0
+    // A non-empty system_file always forces a fresh LP build for this
+    // level — the network topology is being swapped wholesale, so the
+    // caller's pre-built PlanningLP cannot be reused.
+    const bool has_system_swap =
+        level.system_file.has_value() && !level.system_file->empty();
+
+    if (level_idx == 0 && !has_system_swap
         && planning_lp.planning().options.model_options.covers(effective_model))
     {
       current_lp = &planning_lp;
@@ -475,6 +531,24 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     } else {
       auto modified_planning = clone_planning_with_overrides(
           planning_lp.planning(), effective_model);
+
+      if (has_system_swap) {
+        const auto& input_dir =
+            planning_lp.planning().options.input_directory.value_or(
+                std::string {});
+        modified_planning.system =
+            load_system_from_file(*level.system_file, input_dir);
+        SPDLOG_INFO(
+            "Cascade [{}]: swapped system from '{}' "
+            "({} buses, {} lines, {} generators, {} demands)",
+            level_name,
+            *level.system_file,
+            modified_planning.system.bus_array.size(),
+            modified_planning.system.line_array.size(),
+            modified_planning.system.generator_array.size(),
+            modified_planning.system.demand_array.size());
+      }
+
       // State variable transfer uses structured keys — no LP names needed.
       auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
       current_lp = new_lp.get();

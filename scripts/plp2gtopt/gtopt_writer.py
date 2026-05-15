@@ -400,18 +400,31 @@ class GTOptWriter(
             "system": {},
             "simulation": {},
         }
+        # Set by ``process_options`` when ``method == "cascade-reduced"``;
+        # consumed by ``write()`` to trigger the post-step that emits the
+        # per-level reduced JSONs + CSVs.
+        self._cascade_reduced_active: bool = False
 
     @staticmethod
     def _normalize_method(method: str) -> str:
         """Normalize solver type string.
 
-        Accepts 'sddp', 'mono', 'monolithic', or 'cascade'; returns
-        'sddp', 'monolithic', or 'cascade'.
+        Accepts ``'sddp'``, ``'mono'`` / ``'monolithic'``, ``'cascade'``, or
+        ``'cascade-reduced'``; returns the canonical form.
+
+        ``cascade-reduced`` is a 4-level multi-fidelity cascade that uses the
+        ``gtopt_reduce_network`` package to produce reduced grids for the
+        middle two levels (L1 transport-only at ONB/6 buses, L2 DC-OPF with
+        per-demand loss-factor uplift at ONB/3 buses); the wrapper JSON is
+        written alongside the main case and referenced by each level's
+        ``system_file`` field.
         """
         if method in ("mono", "monolithic"):
             return "monolithic"
         if method == "cascade":
             return "cascade"
+        if method in ("cascade-reduced", "cascade_reduced"):
+            return "cascade-reduced"
         return "sddp"
 
     def _build_default_cascade_options(
@@ -657,6 +670,204 @@ class GTOptWriter(
             "level_array": level_array,
         }
 
+    def _build_reduced_cascade_options(
+        self,
+        model_opts: dict[str, Any],
+        sddp_opts: dict[str, Any],
+        cascade_opts: dict[str, Any],
+        case_stem: str,
+    ) -> dict[str, Any]:
+        """Build a 4-level cascade with reduced grids at L1 and L2.
+
+        Level shape:
+          - **L0 ``uninodal``** — full topology projected to a single bus
+            (``use_single_bus=true``); 1 ``head`` aperture; LB bootstrap.
+          - **L1 ``reduced_transport_K{K1}``** — reducer-emitted grid at
+            ``K1 = max(ONB // l1_reduce_ratio, l1_min_buses)`` buses, pure
+            transport (no KVL, no losses); 1 ``head`` aperture; LB
+            refinement on a coarse multi-bus grid.
+          - **L2 ``reduced_dcopf_K{K2}``** — reducer-emitted grid at
+            ``K2 = max(ONB // l2_reduce_ratio, l2_min_buses)`` buses,
+            full DC-OPF (KVL on, per-demand ``lossfactor`` uplift);
+            ``max(ONA // l2_aperture_ratio, 1)`` ``stride`` apertures;
+            first level with scenario diversity.
+          - **L3 ``full_network``** — full topology with the user's
+            original ``model_options``; full per-phase aperture list.
+
+        The actual reduced JSON+CSV artefacts are written in a later step
+        (``_emit_reduced_artefacts``) once the full ``self.planning`` is
+        populated; this builder only emits the cascade level dict shape
+        with ``system_file`` paths pointing at those future artefacts.
+
+        ``cascade_opts`` carries the runtime knobs (reduce ratios, min
+        buses, uplift pct, aperture ratio, distance metrics, disable
+        flags) — typically populated by the plp2gtopt CLI.
+
+        ``case_stem`` is the stem of the main JSON (without ``.json``
+        extension) — used to derive the reduced-file basenames so the
+        cascade can find them in the parent JSON's directory.
+        """
+        total_iter = sddp_opts.get("max_iterations", 100)
+        convergence_tol = sddp_opts.get("convergence_tol", 0.01)
+
+        l1_iter = max(total_iter // 2, 1)
+        l2_iter = max(total_iter // 2, 1)
+        l3_iter = max(total_iter // 4, 1)
+
+        disable_l1 = bool(cascade_opts.get("disable_l1", False))
+        disable_l2 = bool(cascade_opts.get("disable_l2", False))
+
+        cascade_sddp_opts = {
+            **sddp_opts,
+            "max_iterations": total_iter + l1_iter + l2_iter + l3_iter,
+            "stationary_tol": sddp_opts.get("stationary_tol", 0.01),
+        }
+
+        transition = {
+            "inherit_targets": -1,
+            "inherit_optimality_cuts": -1,
+            "target_rtol": 0.05,
+            "target_min_atol": 1.0,
+            "target_penalty": 500.0,
+        }
+
+        # Aperture inference: ONA = max apertures referenced by any phase
+        # in self.planning.simulation.phase_array.  Falls back to 1 if
+        # the field is absent (early-call edge case).
+        #
+        # L1 and L2 both use stride apertures derived from ONA.  L1 is
+        # coarser (ratio 4 → fewer apertures), L2 finer (ratio 2 → more).
+        ona = self._count_max_apertures_per_phase()
+        l1_aperture_ratio = max(int(cascade_opts.get("l1_aperture_ratio", 4)), 1)
+        l2_aperture_ratio = max(int(cascade_opts.get("l2_aperture_ratio", 2)), 1)
+        l1_num_apertures = max(ona // l1_aperture_ratio, 1)
+        l2_num_apertures = max(ona // l2_aperture_ratio, 1)
+
+        # L3 model_options: same filter as _build_default_cascade_options.
+        l3_model_options = {
+            k: v
+            for k, v in model_opts.items()
+            if k
+            in (
+                "use_single_bus",
+                "use_kirchhoff",
+                "kirchhoff_mode",
+                "use_line_losses",
+                "kirchhoff_threshold",
+                "loss_segments",
+                "strict_storage_emin",
+            )
+        }
+
+        l0_sddp_options: dict[str, Any] = {
+            "max_iterations": total_iter,
+            "min_iterations": 3,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.05,
+            "stationary_gap_ceiling": 0.5,
+            "num_apertures": 1,
+            "aperture_selection_mode": "head",
+        }
+        l1_sddp_options = {
+            "max_iterations": l1_iter,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.04,
+            "stationary_gap_ceiling": 0.5,
+            "num_apertures": l1_num_apertures,
+            "aperture_selection_mode": "stride",
+        }
+        l2_sddp_options = {
+            "max_iterations": l2_iter,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.03,
+            "stationary_gap_ceiling": 0.5,
+            "num_apertures": l2_num_apertures,
+            "aperture_selection_mode": "stride",
+        }
+        l3_sddp_options = {
+            "max_iterations": l3_iter,
+            "convergence_tol": convergence_tol,
+            "stationary_tol": 0.02,
+            "stationary_gap_ceiling": 0.5,
+        }
+
+        level_array: list[dict[str, Any]] = [
+            {
+                "uid": 1,
+                "name": "uninodal",
+                "model_options": {"use_single_bus": True},
+                "sddp_options": l0_sddp_options,
+            },
+        ]
+
+        next_uid = 2
+        if not disable_l1:
+            level_array.append(
+                {
+                    "uid": next_uid,
+                    "name": "reduced_transport",
+                    "model_options": {
+                        "use_single_bus": False,
+                        "use_kirchhoff": False,
+                        "use_line_losses": False,
+                    },
+                    "system_file": f"{case_stem}.L1.json",
+                    "sddp_options": l1_sddp_options,
+                    "transition": transition,
+                }
+            )
+            next_uid += 1
+
+        if not disable_l2:
+            level_array.append(
+                {
+                    "uid": next_uid,
+                    "name": "reduced_dcopf",
+                    "model_options": {
+                        "use_single_bus": False,
+                        "use_kirchhoff": True,
+                        "use_line_losses": False,
+                    },
+                    "system_file": f"{case_stem}.L2.json",
+                    "sddp_options": l2_sddp_options,
+                    "transition": transition,
+                }
+            )
+            next_uid += 1
+
+        level_array.append(
+            {
+                "uid": next_uid,
+                "name": "full_network",
+                "model_options": l3_model_options,
+                "sddp_options": l3_sddp_options,
+                "transition": transition,
+            }
+        )
+
+        return {
+            "model_options": model_opts,
+            "sddp_options": cascade_sddp_opts,
+            "level_array": level_array,
+        }
+
+    def _count_max_apertures_per_phase(self) -> int:
+        """Return the max ``apertures`` array length across all phases.
+
+        Used by the cascade-reduced builder to compute L2's
+        ``num_apertures``.  Defaults to 1 if phases or apertures are
+        absent (e.g. early-call before phases populated).
+        """
+        phase_array = self.planning.get("simulation", {}).get("phase_array", []) or []
+        if not phase_array:
+            return 1
+        max_aps = 0
+        for ph in phase_array:
+            aps = ph.get("apertures") or []
+            if isinstance(aps, list):
+                max_aps = max(max_aps, len(aps))
+        return max(max_aps, 1)
+
     def process_options(self, options):
         """Process options data to include input and output paths.
 
@@ -888,6 +1099,28 @@ class GTOptWriter(
             planning_opts["cascade_options"] = self._build_default_cascade_options(
                 model_opts, sddp_opts
             )
+        elif method == "cascade-reduced":
+            # 4-level multi-fidelity cascade: L0 uninodal, L1 reduced
+            # transport (ONB/6), L2 reduced DC-OPF + lossfactor uplift
+            # (ONB/3), L3 full network.  Reduced JSONs + busmap/linemap
+            # CSVs are written alongside the main case in a post-step
+            # (``_emit_reduced_artefacts``) once the full system arrays
+            # are populated — see ``write()``.
+            #
+            # On the C++ side this is just a regular cascade with
+            # ``system_file`` set on some levels — gtopt's MethodType
+            # enum still sees ``"cascade"`` in the JSON.  The Python
+            # writer tracks the cascade-reduced flavour internally so
+            # the post-step knows to emit the reduced artefacts.
+            case_stem = Path(options.get("output_file", "case.json")).stem
+            cascade_opts = options.get("cascade_reduced_opts") or {}
+            planning_opts["cascade_options"] = self._build_reduced_cascade_options(
+                model_opts, sddp_opts, cascade_opts, case_stem
+            )
+            planning_opts["method"] = "cascade"  # ← C++-facing label
+            # Remember the original label so ``write()``'s post-step
+            # knows to invoke the reducer.
+            self._cascade_reduced_active = True
 
         self.planning["options"] = planning_opts
 
@@ -990,4 +1223,144 @@ class GTOptWriter(
                 _sanitize_inf(_strip_internal_keys(planning)),
                 f,
                 indent=4,
+            )
+
+        # Post-step: when the cascade-reduced method is selected, run the
+        # network reducer on the now-complete planning to produce the
+        # per-level reduced JSONs + busmap/linemap/aggregator CSVs that
+        # the cascade level dicts already reference via ``system_file``.
+        if getattr(self, "_cascade_reduced_active", False):
+            self._emit_reduced_artefacts(output_file, options)
+
+    def _emit_reduced_artefacts(self, output_file: Path, options: dict) -> None:
+        """Run the network reducer on the completed planning and write
+        the L1 (transport-only) + L2 (DC-OPF with lossfactor uplift)
+        reduced JSONs alongside the main case.
+
+        ``options['cascade_reduced_opts']`` carries the runtime knobs
+        (``l1_reduce_ratio``, ``l2_reduce_ratio``, ``l1_min_buses``,
+        ``l2_min_buses``, ``l2_uplift_pct``, ``l2_uplift_collision``,
+        ``l1_distance``, ``l2_distance``, ``disable_l1``, ``disable_l2``).
+        """
+        # Local import — the reducer package is a peer of plp2gtopt; we
+        # import lazily so plp2gtopt cases that never use cascade-reduced
+        # don't pay the import cost (and stay testable in environments
+        # where gtopt_reduce_network is absent).
+        # pylint: disable=import-outside-toplevel
+        from gtopt_reduce_network._busmap import (  # noqa: PLC0415
+            save_aggregator,
+            save_busmap,
+            save_linemap,
+            save_reducer_config,
+        )
+        from gtopt_reduce_network._io import Case, _index_buses  # noqa: PLC0415
+        from gtopt_reduce_network._io import save_case as _save_case  # noqa: PLC0415
+        from gtopt_reduce_network._reduce import (  # noqa: PLC0415
+            ReduceConfig,
+            reduce_case,
+        )
+
+        cascade_opts = options.get("cascade_reduced_opts") or {}
+        disable_l1 = bool(cascade_opts.get("disable_l1", False))
+        disable_l2 = bool(cascade_opts.get("disable_l2", False))
+        if disable_l1 and disable_l2:
+            _logger.info(
+                "cascade-reduced: both L1 and L2 disabled — no reduced "
+                "artefacts emitted"
+            )
+            return
+
+        out_path = Path(output_file)
+        case_stem = out_path.stem
+        case_dir = out_path.parent
+
+        # Build a Case wrapping the in-memory planning (deep-copied so the
+        # reducer cannot mutate the writer's own dict).
+        base_case = Case(raw=json.loads(json.dumps(self.planning)))
+        _index_buses(base_case)
+        n_buses = len(base_case.array("bus_array"))
+        if n_buses == 0:
+            _logger.warning("cascade-reduced: bus_array is empty — skipping reducer")
+            return
+
+        l1_ratio = max(int(cascade_opts.get("l1_reduce_ratio", 6)), 1)
+        l2_ratio = max(int(cascade_opts.get("l2_reduce_ratio", 3)), 1)
+        l1_min = max(int(cascade_opts.get("l1_min_buses", 4)), 1)
+        l2_min = max(int(cascade_opts.get("l2_min_buses", 8)), 1)
+        l1_K = max(n_buses // l1_ratio, l1_min)
+        l2_K = max(n_buses // l2_ratio, l2_min)
+        # Cap at n_buses-1 so the reducer always has some merging to do
+        # (k == n_buses degenerates into the identity case, which still
+        # writes a valid JSON but defeats the purpose).
+        l1_K = min(l1_K, max(n_buses - 1, 1))
+        l2_K = min(l2_K, max(n_buses - 1, 1))
+
+        # parquet_case_dir is the directory containing the main JSON; the
+        # reducer reads <case_dir>/<input_directory>/Line/*.parquet there.
+        parquet_case_dir_str = str(case_dir)
+
+        for tag, cfg in (
+            (
+                "L1",
+                ReduceConfig(
+                    target_buses=l1_K,
+                    distance=cascade_opts.get("l1_distance", "reactance-shortest-path"),
+                    transport_only=True,
+                    # L1 carries the same per-demand uplift as L2 so the
+                    # bus-balance row is consistent across levels; the
+                    # only difference between L1 and L2 is the network
+                    # topology + KVL.
+                    loss_mode="uplift",
+                    loss_uplift_pct=float(cascade_opts.get("l1_uplift_pct", 3.0)),
+                    loss_uplift_collision=cascade_opts.get(
+                        "l1_uplift_collision", "replace"
+                    ),
+                    include_reservoir_hosts=True,
+                    reduced_tag="L1",
+                    parquet_case_dir=parquet_case_dir_str,
+                ),
+            ),
+            (
+                "L2",
+                ReduceConfig(
+                    target_buses=l2_K,
+                    distance=cascade_opts.get("l2_distance", "ptdf"),
+                    transport_only=False,
+                    loss_mode="uplift",
+                    loss_uplift_pct=float(cascade_opts.get("l2_uplift_pct", 3.0)),
+                    loss_uplift_collision=cascade_opts.get(
+                        "l2_uplift_collision", "replace"
+                    ),
+                    include_reservoir_hosts=True,
+                    reduced_tag="L2",
+                    parquet_case_dir=parquet_case_dir_str,
+                ),
+            ),
+        ):
+            if tag == "L1" and disable_l1:
+                continue
+            if tag == "L2" and disable_l2:
+                continue
+
+            # Each level needs a fresh deep-copied case — reduce_case
+            # mutates internal caches.
+            case = Case(raw=json.loads(json.dumps(self.planning)))
+            _index_buses(case)
+            result = reduce_case(case, cfg)
+
+            stem = f"{case_stem}.{tag}"
+            _save_case(result.case, case_dir / f"{stem}.json")
+            save_busmap(result.busmap, case_dir / f"{stem}.busmap.csv")
+            save_linemap(result.linemap, case_dir / f"{stem}.linemap.csv")
+            save_aggregator(result.aggregator, case_dir / f"{stem}.aggregator.csv")
+            save_reducer_config(cfg.as_dict(), case_dir / f"{stem}.reducer_config.json")
+            _logger.info(
+                "cascade-reduced %s: %d→%d buses, %d→%d lines "
+                "(written: %s.json + 3 CSVs + reducer_config.json)",
+                tag,
+                n_buses,
+                len(result.case.array("bus_array")),
+                len(self.planning.get("system", {}).get("line_array", [])),
+                len(result.case.array("line_array")),
+                stem,
             )

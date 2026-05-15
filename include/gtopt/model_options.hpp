@@ -32,9 +32,12 @@ struct ModelOptions
   OptBool use_single_bus {};
   /// Apply DC Kirchhoff voltage-law constraints.
   OptBool use_kirchhoff {};
-  /// Kirchhoff Voltage Law formulation: `"node_angle"` (B–θ, default)
-  /// or `"cycle_basis"` (loop-flow).  See KirchhoffMode enum.
-  /// When unset, defaults to `"node_angle"`.
+  /// Kirchhoff Voltage Law formulation: `"node_angle"` (B–θ) or
+  /// `"cycle_basis"` (loop-flow, default).  See KirchhoffMode enum.
+  /// When unset, defaults to `"cycle_basis"` — strictly smaller LP for
+  /// meshed grids (no theta column per bus, fewer KVL rows).  Override
+  /// with `"node_angle"` for cases with per-stage topology changes or
+  /// phase-shift transformers.
   OptName kirchhoff_mode {};
   /// @deprecated Use `line_losses_mode` instead.
   OptBool use_line_losses {};

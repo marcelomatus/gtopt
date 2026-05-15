@@ -776,13 +776,21 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
     constexpr auto line_cls = Line::class_name.snake_case();
     constexpr auto bus_cls = Bus::class_name.snake_case();
 
-    // The two flags are independent:
+    // The three flags are independent:
     //   * !use_kirchhoff suppresses `bus.theta` (theta columns are not
     //     materialized without the Kirchhoff path).
     //   * use_single_bus suppresses the whole `line` class AND
     //     `bus.theta` (LineLP early-exits, Kirchhoff is moot).
-    // When both apply, `use_single_bus=true` is the more fundamental
-    // reason, so it is registered second to win insert_or_assign.
+    //   * kirchhoff_mode == cycle_basis suppresses `bus.theta` because
+    //     the loop-flow formulation enforces KVL via per-cycle Σε·x·f
+    //     sums on existing flow vars, so no θ column is ever created
+    //     (`BusLP::needs_kirchhoff` short-circuits).
+    // When several apply, `use_single_bus=true` is the most fundamental
+    // reason and is registered last to win insert_or_assign.
+    if (opts.kirchhoff_mode() == KirchhoffMode::cycle_basis) {
+      sim.suppress_ampl_attribute(
+          bus_cls, BusLP::ThetaName, "kirchhoff_mode=cycle_basis");
+    }
     if (!opts.use_kirchhoff()) {
       sim.suppress_ampl_attribute(
           bus_cls, BusLP::ThetaName, "use_kirchhoff=false");

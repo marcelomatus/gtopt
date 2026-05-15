@@ -694,6 +694,11 @@ TEST_CASE("User constraint - resolve_single_col multi-component")
   using namespace gtopt;
 
   auto planning = parse_planning_json(uc_multi_component_json);
+  // The user constraints reference `bus.theta`, which only exists under
+  // the B-θ formulation.  Pin `node_angle` so the test continues to
+  // exercise theta-resolution after the post-2026-05-14 default flipped
+  // to `cycle_basis` (which has no theta vars).
+  planning.options.model_options.kirchhoff_mode = OptName {"node_angle"};
   PlanningLP planning_lp(std::move(planning));
   auto result = planning_lp.resolve();
 

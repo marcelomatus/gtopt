@@ -105,6 +105,10 @@ TEST_CASE(  // NOLINT
     auto json = make_theta_uc_json(st);
     Planning base;
     base.merge(parse_planning_json(json));
+    // Pin node_angle: bus.theta only exists in the B-θ formulation;
+    // the post-2026-05-14 default (cycle_basis) has no theta vars so
+    // the user constraint would be unresolvable.
+    base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
 
     PlanningLP planning_lp(std::move(base));
     auto result = planning_lp.resolve();
@@ -176,6 +180,8 @@ TEST_CASE(  // NOLINT
 
   Planning base;
   base.merge(parse_planning_json(json_tight));
+  // Pin node_angle so the bus.theta user constraint can resolve.
+  base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
 
@@ -707,6 +713,10 @@ TEST_CASE(  // NOLINT
       auto json = make_line_uc_json(st, so);
       Planning base;
       base.merge(parse_planning_json(json));
+      // Pin node_angle: this test exercises scale_theta on the B-θ
+      // formulation; cycle_basis (the post-2026-05-14 default) has no
+      // theta vars and ignores scale_theta entirely.
+      base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
 
       PlanningLP planning_lp(std::move(base));
       auto result = planning_lp.resolve();
@@ -806,6 +816,9 @@ TEST_CASE(  // NOLINT
 {
   Planning base;
   base.merge(parse_planning_json(multi_scale_uc_json));
+  // Pin node_angle so the bus.theta user constraints in this fixture
+  // resolve to a real LP column.
+  base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();

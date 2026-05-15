@@ -355,6 +355,32 @@ def build_options(args: argparse.Namespace) -> dict:
         "name": name,
         "sys_version": args.sys_version,
         "method": args.method,
+        # cascade-reduced runtime knobs.  ``getattr`` with defaults makes
+        # this resilient to test fixtures that build a minimal Namespace
+        # by hand (e.g. test_main_coverage.py) — the actual CLI parser
+        # always populates every attr from add_solver_arguments.
+        "cascade_reduced_opts": {
+            "l1_reduce_ratio": getattr(args, "cascade_l1_reduce_ratio", 6),
+            "l2_reduce_ratio": getattr(args, "cascade_l2_reduce_ratio", 3),
+            "l1_min_buses": getattr(args, "cascade_l1_min_buses", 4),
+            "l2_min_buses": getattr(args, "cascade_l2_min_buses", 8),
+            "l1_uplift_pct": getattr(args, "cascade_l1_uplift_pct", 3.0),
+            "l2_uplift_pct": getattr(args, "cascade_l2_uplift_pct", 3.0),
+            "l1_uplift_collision": getattr(
+                args, "cascade_l1_uplift_collision", "replace"
+            ),
+            "l2_uplift_collision": getattr(
+                args, "cascade_l2_uplift_collision", "replace"
+            ),
+            "l1_aperture_ratio": getattr(args, "cascade_l1_aperture_ratio", 4),
+            "l2_aperture_ratio": getattr(args, "cascade_l2_aperture_ratio", 2),
+            "l1_distance": getattr(
+                args, "cascade_l1_distance", "reactance-shortest-path"
+            ),
+            "l2_distance": getattr(args, "cascade_l2_distance", "ptdf"),
+            "disable_l1": getattr(args, "cascade_disable_l1", False),
+            "disable_l2": getattr(args, "cascade_disable_l2", False),
+        },
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,

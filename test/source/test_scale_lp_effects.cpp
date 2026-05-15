@@ -97,6 +97,10 @@ auto solve_ieee4b(double scale_obj,
   auto json = make_ieee4b_json(scale_obj, scale_theta_val, use_kirchhoff);
   Planning base;
   base.merge(parse_planning_json(json));
+  // Pin node_angle: this file's tests assert kappa / obj differ as
+  // scale_theta varies — meaningful only under the B-θ formulation,
+  // since cycle_basis (post-2026-05-14 default) has no theta vars.
+  base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   PlanningLP planning_lp(std::move(base));
   MonolithicMethod solver;

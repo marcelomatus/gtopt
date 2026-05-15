@@ -356,6 +356,74 @@ TEST_CASE("CascadeLevel - active JSON round-trip")
   }
 }
 
+TEST_CASE("CascadeLevel - system_file JSON round-trip")
+{
+  // system_file present
+  {
+    const CascadeLevel lv {
+        .name = "reduced_K50",
+        .system_file = "case.K50.json",
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.system_file.has_value());
+    CHECK(*parsed.system_file == "case.K50.json");
+    REQUIRE(parsed.name.has_value());
+    CHECK(*parsed.name == "reduced_K50");
+  }
+  // system_file absent → nullopt
+  {
+    constexpr std::string_view js = R"({"uid":7,"name":"plain"})";
+    const auto parsed = daw::json::from_json<CascadeLevel>(js);
+    CHECK_FALSE(parsed.system_file.has_value());
+  }
+  // empty string is preserved (caller's responsibility to treat as "off")
+  {
+    const CascadeLevel lv {
+        .system_file = std::string {""},
+    };
+    const auto json = daw::json::to_json(lv);
+    const auto parsed = daw::json::from_json<CascadeLevel>(json);
+    REQUIRE(parsed.system_file.has_value());
+    CHECK(parsed.system_file->empty());
+  }
+}
+
+TEST_CASE("CascadeLevel - system_file participates in merge()")
+{
+  // overlay sets it
+  {
+    CascadeLevel base {};
+    CascadeLevel ovl {
+        .system_file = "reduced.json",
+    };
+    base.merge(std::move(ovl));
+    REQUIRE(base.system_file.has_value());
+    CHECK(*base.system_file == "reduced.json");
+  }
+  // overlay overrides existing
+  {
+    CascadeLevel base {
+        .system_file = std::string {"old.json"},
+    };
+    CascadeLevel ovl {
+        .system_file = std::string {"new.json"},
+    };
+    base.merge(std::move(ovl));
+    CHECK(*base.system_file == "new.json");
+  }
+  // overlay unset leaves existing intact
+  {
+    CascadeLevel base {
+        .system_file = std::string {"keep.json"},
+    };
+    CascadeLevel ovl {};
+    base.merge(std::move(ovl));
+    REQUIRE(base.system_file.has_value());
+    CHECK(*base.system_file == "keep.json");
+  }
+}
+
 TEST_CASE("CascadeLevel - Construction with all fields")
 {
   const CascadeLevel lv {

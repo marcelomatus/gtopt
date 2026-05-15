@@ -41,6 +41,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/validate_planning.hpp>
+#include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
@@ -120,23 +121,98 @@ namespace
       .string();
 }
 
+/// Name of the async default logger we register; reused as the idempotent
+/// guard so a second call to ``ensure_default_logger_async`` is a no-op.
+constexpr std::string_view kAsyncLoggerName = "gtopt_async";
+
+/// Initialise spdlog's async thread pool exactly once per process.
+///
+/// All sinks attached to async loggers afterwards dispatch their writes
+/// through a single background thread + bounded message queue, so the
+/// application's hot threads never block on disk I/O nor on the sink
+/// mutex.  Queue size = 8192 messages; on overflow the producing thread
+/// blocks (no message dropping) — losing log lines is worse than a
+/// momentary stall.
+///
+/// The pool must be initialised before any async logger is created;
+/// guarded with a function-local flag so subsequent calls are no-ops.
+void ensure_async_thread_pool()
+{
+  static const bool initialised = []
+  {
+    constexpr std::size_t queue_size = 8192;
+    constexpr std::size_t worker_threads = 1;
+    spdlog::init_thread_pool(queue_size, worker_threads);
+    return true;
+  }();
+  (void)initialised;
+}
+
+/// Replace spdlog's default logger with an `async_logger` wrapping the
+/// current sinks.  All subsequent ``spdlog::info(...)`` /
+/// ``spdlog::warn(...)`` / etc. calls — including the stdout console
+/// stream — dispatch via the background thread pool.  Idempotent: a
+/// second call is a no-op (detected by the registered name).
+///
+/// Must be called early in ``gtopt_main`` so every later sink-attaching
+/// helper (``setup_file_logging``, ``setup_trace_log``) just pushes onto
+/// the already-async default logger.
+void ensure_default_logger_async()
+{
+  auto current = spdlog::default_logger();
+  if (current && current->name() == kAsyncLoggerName) {
+    return;  // already async
+  }
+  ensure_async_thread_pool();
+  const auto previous_level = current ? current->level() : spdlog::level::info;
+  std::vector<spdlog::sink_ptr> sinks;
+  if (current) {
+    const auto& current_sinks = current->sinks();
+    sinks.assign(current_sinks.begin(), current_sinks.end());
+  }
+  auto async = std::make_shared<spdlog::async_logger>(
+      std::string {kAsyncLoggerName},
+      sinks.begin(),
+      sinks.end(),
+      spdlog::thread_pool(),
+      spdlog::async_overflow_policy::block);
+  async->set_level(previous_level);
+  spdlog::set_default_logger(async);
+}
+
 /// Set up trace-level file sink for detailed SPDLOG_TRACE output.
 ///
-/// When --trace-log is given explicitly, uses that path; otherwise
-/// auto-creates a `trace_N.log` next to the matching `gtopt_N.log`
-/// (same `N`, picked once per run by `pick_run_number()`).
+/// **Opt-in only**: requires the user to pass `--trace-log` / `-T`
+/// (with or without a path).  When `trace_log` is unset this function
+/// is a no-op — the global spdlog level stays at INFO and no trace
+/// file is created.  This avoids the ~MB-scale auto-trace file +
+/// global level=trace overhead that previously fired on every run.
+///
+/// Path resolution:
+///   - `-T PATH`  → write to PATH verbatim
+///   - `-T`       → write to auto-numbered `<log_dir>/trace_<N>.log`
+///                 (same `N` as the matching `gtopt_<N>.log`)
+///
+/// Assumes the default logger has already been upgraded to async via
+/// ``ensure_default_logger_async`` (called at the top of
+/// ``gtopt_main``).  Just appends the new trace sink to the existing
+/// default logger and raises its level to ``trace``.
 void setup_trace_log(const MainOptions& opts)
 {
-  const auto log_dir = resolve_log_dir(opts);
-  const std::string trace_path = opts.trace_log.has_value()
-      ? opts.trace_log.value()
-      : numbered_log_path(log_dir, "trace");
+  if (!opts.trace_log.has_value()) {
+    return;  // ← gated; keep global level at INFO
+  }
+  // Empty string means "user passed -T without an argument" → auto-name.
+  const std::string trace_path = opts.trace_log.value().empty()
+      ? numbered_log_path(resolve_log_dir(opts), "trace")
+      : opts.trace_log.value();
 
   try {
     const auto parent = std::filesystem::path(trace_path).parent_path();
     if (!parent.empty()) {
       std::filesystem::create_directories(parent);
     }
+    ensure_default_logger_async();
     auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         trace_path, /*truncate=*/true);
     trace_sink->set_level(spdlog::level::trace);
@@ -148,14 +224,9 @@ void setup_trace_log(const MainOptions& opts)
     // TRACE-level lines emitted via `spdlog::trace(...)` (function form)
     // never carried source-location anyway, so this is a no-op for them.
     trace_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
-    // Keep the first sink (assumed to be the console/stdout sink) at its
-    // current level so trace messages only go to the file, not terminal.
-    auto& sinks = spdlog::default_logger()->sinks();
-    if (!sinks.empty()) {
-      sinks.front()->set_level(spdlog::default_logger()->level());
-    }
-    sinks.push_back(std::move(trace_sink));
-    spdlog::set_level(spdlog::level::trace);
+    auto logger = spdlog::default_logger();
+    logger->sinks().push_back(std::move(trace_sink));
+    logger->set_level(spdlog::level::trace);
     spdlog::info("trace log file: {}", trace_path);
   } catch (const spdlog::spdlog_ex& ex) {
     spdlog::warn("could not open trace log file: {}", ex.what());
@@ -239,10 +310,14 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     // Match the trace sink: drop source-location, keep date + level.
     file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
 
-    auto& sinks = spdlog::default_logger()->sinks();
+    // Ensure the default logger is async — gtopt_main does this at
+    // entry, but setup_file_logging is a public API and may be called
+    // standalone (e.g. from the webservice path).  Idempotent.
+    ensure_default_logger_async();
+
+    auto logger = spdlog::default_logger();
+    auto& sinks = logger->sinks();
     if (suppress_stdout) {
-      // Drop every existing sink (typically the auto-installed stdout
-      // colour sink) so log output only goes to the file.
       sinks.clear();
     }
     sinks.push_back(std::move(file_sink));
@@ -261,6 +336,11 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   }
   const auto& opts = *resolved;
 
+  // Upgrade the default logger to async once, before any sink-attaching
+  // helper runs.  All subsequent spdlog::info / warn / trace calls
+  // (including the stdout colour sink) dispatch via the background
+  // thread pool, so SDDP workers don't block on the sink mutex.
+  ensure_default_logger_async();
   setup_trace_log(opts);
 
   try {

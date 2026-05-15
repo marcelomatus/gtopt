@@ -472,10 +472,14 @@ TEST_CASE(  // NOLINT
           .expression = "bus('b2').theta <= 1.0",
       },
   };
-  const LineAmplFixture fix(/*use_single_bus=*/false,
-                            /*use_kirchhoff=*/true,
-                            /*line_losses_mode=*/std::string {"none"},
-                            std::move(ucs));
+  LineAmplFixture fix(/*use_single_bus=*/false,
+                      /*use_kirchhoff=*/true,
+                      /*line_losses_mode=*/std::string {"none"},
+                      std::move(ucs));
+  // Pin B-θ formulation: this test asserts that `bus('b2').theta` resolves
+  // to a real column.  The post-2026-05-14 default `cycle_basis` does not
+  // create theta vars, so the AMPL resolver throws.
+  fix.opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   const PlanningOptionsLP options(fix.opts);
   SimulationLP sim_lp(fix.simulation, options);
@@ -627,7 +631,8 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "AMPL independence — `bus('nope').theta` throws under Kirchhoff multi-bus")
+    "AMPL independence — `bus('nope').theta` throws under Kirchhoff "
+    "multi-bus (node_angle)")
 {
   Array<UserConstraint> ucs = {
       {
@@ -636,10 +641,16 @@ TEST_CASE(  // NOLINT
           .expression = "bus('b_nope').theta <= 1.0",
       },
   };
-  const LineAmplFixture fix(/*use_single_bus=*/false,
-                            /*use_kirchhoff=*/true,
-                            /*line_losses_mode=*/std::string {"none"},
-                            std::move(ucs));
+  LineAmplFixture fix(/*use_single_bus=*/false,
+                      /*use_kirchhoff=*/true,
+                      /*line_losses_mode=*/std::string {"none"},
+                      std::move(ucs));
+  // Pin node_angle so `bus.theta` is NOT mode-suppressed.  Under the
+  // post-2026-05-14 default `cycle_basis`, the AMPL resolver suppresses
+  // `bus.theta` entirely (mode-driven silent skip), so even a missing
+  // bus name would not throw — the throw signal we want here is the
+  // strict element-not-found path used when theta resolution is live.
+  fix.opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   const PlanningOptionsLP options(fix.opts);
   SimulationLP sim_lp(fix.simulation, options);
@@ -647,6 +658,39 @@ TEST_CASE(  // NOLINT
   CHECK_THROWS_AS(
       SystemLP(fix.system, sim_lp, LineAmplFixture::build_matrix_opts()),
       std::runtime_error);
+}
+
+TEST_CASE(  // NOLINT
+    "AMPL independence — `bus('nope').theta` is silently dropped under "
+    "cycle_basis (post-2026-05-14 default)")
+{
+  // Companion test to the node_angle case above.  Under cycle_basis the
+  // entire `bus.theta` attribute is mode-suppressed (no theta column is
+  // ever materialised), so user constraints touching it are silently
+  // dropped — including those with mistyped bus names.  This is the
+  // documented trade-off for mode-driven suppression: typo guards
+  // weaken to the surrounding `use_kirchhoff=false` / `use_single_bus`
+  // precedent.
+  Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "uc_bad_bus_id_cycle_basis",
+          .expression = "bus('b_nope').theta <= 1.0",
+      },
+  };
+  LineAmplFixture fix(/*use_single_bus=*/false,
+                      /*use_kirchhoff=*/true,
+                      /*line_losses_mode=*/std::string {"none"},
+                      std::move(ucs));
+  // Default is cycle_basis but pin explicitly to make the contract
+  // visible at the test site.
+  fix.opts.model_options.kirchhoff_mode = OptName {"cycle_basis"};
+
+  const PlanningOptionsLP options(fix.opts);
+  SimulationLP sim_lp(fix.simulation, options);
+
+  CHECK_NOTHROW(
+      SystemLP(fix.system, sim_lp, LineAmplFixture::build_matrix_opts()));
 }
 
 TEST_CASE(  // NOLINT

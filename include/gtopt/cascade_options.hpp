@@ -150,6 +150,17 @@ struct CascadeLevel
   OptBool active {};
   /// Model overrides for this level (absent → reuse previous LP).
   std::optional<ModelOptions> model_options {};
+  /// Optional path to a Planning JSON whose ``system`` (bus_array,
+  /// line_array, component bus refs) replaces the parent planning's
+  /// system for this level only.  Used by the cascade-reduced mode: the
+  /// reducer emits per-level reduced JSONs and this field points each
+  /// cascade level at its dedicated one.  Resolution: tried as-is from
+  /// the current working directory first, then under
+  /// ``options.input_directory`` as a fallback.  Only ``.system`` is
+  /// taken from the loaded JSON; its ``.options`` and ``.simulation``
+  /// blocks are deliberately ignored — the cascade level's
+  /// ``model_options`` overlay remains authoritative.
+  OptName system_file {};
   /// SDDP solver options for this level.
   std::optional<CascadeLevelMethod> sddp_options {};
   /// Transition from the previous level.
@@ -176,6 +187,8 @@ struct CascadeLevel
         model_options = std::move(opts.model_options);
       }
     }
+
+    merge_opt(system_file, std::move(opts.system_file));
 
     if (opts.sddp_options.has_value()) {
       if (sddp_options.has_value()) {
