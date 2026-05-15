@@ -1557,34 +1557,41 @@ public:
   /// Accumulate a physical-scale constant onto the LP objective.
   ///
   /// Counterpart to `LinearProblem::add_obj_constant` for callers
-  /// that need to add a constant AFTER `load_flat` — typical case is
-  /// the boundary-cut mean-shift in `sddp_boundary_cuts.cpp`, where
-  /// the shift value `c̄` is only computable once the cut RHSs have
-  /// been read from disk.  Same physical-units semantics as the
-  /// LinearProblem-side method — composes additively into
-  /// `get_obj_value()` after the `× scale_objective` reverse-scale.
-  /// Calls accumulate (additive); pass a negative `c` to subtract.
+  /// that need to add a constant AFTER `load_flat`.  Callers always
+  /// pass values in *physical* (post-scale_objective) units; the
+  /// API divides by `m_scale_objective_` internally so the running
+  /// `m_obj_constant_raw_` stays on the same raw scale as the
+  /// solver's value — `get_obj_value_raw()` then composes the two
+  /// with a plain add.  Calls accumulate (additive); pass a
+  /// negative `c` to subtract.
   ///
-  /// **Persistence**: also mirrors the addition into the snapshot's
-  /// `FlatLinearProblem::obj_constant` (when a snapshot is held).
-  /// Without this, a subsequent reconstruct via `load_flat` —
-  /// triggered by `clone_from_flat`, aperture clones, or any
-  /// post-`freeze_for_cuts` decompression — would reset
-  /// `m_obj_constant_` to the snapshot's stale value, silently
-  /// dropping the addition.  Out-of-line because the snapshot
-  /// mutation depends on `LpSnapshotHolder` which is forward-
-  /// declared at this point.
+  /// Also mirrors the change into the snapshot's
+  /// `FlatLinearProblem::obj_constant_raw` so a subsequent
+  /// reconstruct via `load_flat` re-establishes the constant.
+  /// Out-of-line because the snapshot mutation depends on
+  /// `LpSnapshotHolder`.
   void add_obj_constant(double c) noexcept;
 
   /// Current accumulated objective constant on this interface
-  /// (physical units).  Zero on a freshly-loaded LP with no
-  /// `add_obj_constant` calls; otherwise reflects the sum of
-  /// `LinearProblem::add_obj_constant` (forwarded via `flatten()`)
-  /// plus any post-flatten `LinearInterface::add_obj_constant`
-  /// calls.
+  /// (physical units, i.e. raw × `scale_objective`).  Zero on a
+  /// freshly-loaded LP with no `add_obj_constant` calls; otherwise
+  /// reflects the sum of `LinearProblem::add_obj_constant`
+  /// (forwarded via `flatten()`) plus any post-flatten
+  /// `LinearInterface::add_obj_constant` calls.  Returns physical
+  /// scale for API symmetry with the mutator, even though the
+  /// underlying storage is raw-scale `m_obj_constant_raw_`.
   [[nodiscard]] constexpr double obj_constant() const noexcept
   {
-    return m_obj_constant_;
+    return m_obj_constant_raw_ * m_scale_objective_;
+  }
+
+  /// Raw-scale view of the accumulated constant (LP units).  Useful
+  /// for diagnostics that need to inspect what gets added to
+  /// `get_obj_value_raw()` directly.  Equal to `obj_constant() /
+  /// scale_objective`.
+  [[nodiscard]] constexpr double obj_constant_raw() const noexcept
+  {
+    return m_obj_constant_raw_;
   }
 
   /**
@@ -2774,19 +2781,25 @@ private:
   bool m_base_numrows_set_ {false};
 
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
-  /// Constant offset added to `get_obj_value()` after the
-  /// `× scale_objective` reverse-scale.  Stored on the physical cost
-  /// scale, propagated from `FlatLinearProblem::obj_constant`
-  /// (originally accumulated in the source `LinearProblem` via
-  /// `add_obj_constant`).  Copied through `CloneKind::shallow` /
-  /// `CloneKind::deep` so clones report the same algebraic
-  /// objective.  Default 0.0 — opt-in by the substitution rewrite.
+  /// Constant offset added to `get_obj_value_raw()`.  Stored on the
+  /// LP *raw* (post-scale_objective-division) cost scale so it
+  /// composes additively with the solver's raw value:
+  ///
+  ///   get_obj_value_raw() = solver_raw + m_obj_constant_raw_
+  ///   get_obj_value()     = get_obj_value_raw() × m_scale_objective_
+  ///
+  /// Propagated from `FlatLinearProblem::obj_constant_raw` at
+  /// `load_flat` time.  Copied through native clone / clone-from-flat
+  /// so clones report the same algebraic objective.  Default 0.0 —
+  /// every model that does not opt in keeps bit-identical raw / phys
+  /// reports.
   ///
   /// Public mutators `add_obj_constant` / `obj_constant` are declared
   /// in the class's public section near `get_obj_value()` so callers
-  /// can adjust the constant POST-`load_flat` (e.g. the boundary-cut
-  /// mean-shift in `sddp_boundary_cuts.cpp`).
-  double m_obj_constant_ {0.0};
+  /// can adjust the constant POST-`load_flat`.  Callers always pass
+  /// values in *physical* units; the API divides by
+  /// `m_scale_objective_` before accumulating here.
+  double m_obj_constant_raw_ {0.0};
   /// Column / row scale vectors.  `shared_ptr` so shallow clones
   /// can share with the source — see `CloneKind`.  The scale vectors
   /// are populated in `load_flat` and only mutated post-flatten by

@@ -1081,7 +1081,12 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .row_scales = std::move(row_scales_vec),
       .equilibration_method = eq_method,
       .scale_objective = scale_obj,
-      .obj_constant = m_obj_constant_,
+      // `m_obj_constant_` is on the physical (user-facing) cost
+      // scale; convert to the LP raw scale so that
+      // `LinearInterface::get_obj_value_raw()` can compose it
+      // additively with the solver's raw value (and
+      // `get_obj_value()` falls out as raw × scale_objective).
+      .obj_constant_raw = m_obj_constant_ / scale_obj,
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),

@@ -71,33 +71,35 @@ struct FlatLinearProblem
                                  ///< flatten().  obj_physical = obj_LP ×
                                  ///< scale_objective.
 
-  /// Constant offset added to `get_obj_value()` by `LinearInterface`.
+  /// Constant offset added to `get_obj_value_raw()` by
+  /// `LinearInterface`.  Stored on the *raw* (LP-scaled) cost scale
+  /// — i.e. the source `LinearProblem::m_obj_constant_` (physical
+  /// scale) divided by `scale_objective` at `flatten()` time.  This
+  /// makes both views compose naturally without an extra constant
+  /// term in `get_obj_value()`:
   ///
-  /// Accumulated by `LinearProblem::add_obj_constant(c)` whenever a
-  /// model rewrite folds a *dispatch-side* variable away via
-  /// substitution (e.g. the P0 demand-failure variable rewrite:
-  /// `fail = lmax − load` leaves the objective with a
+  ///   get_obj_value_raw() = solver_raw + obj_constant_raw
+  ///   get_obj_value()     = get_obj_value_raw() × scale_objective
+  ///
+  /// Pre-substitution tests that assert raw-value magnitudes
+  /// continue to hold across formulations because the raw view
+  /// already includes the substituted constant in LP-scaled units.
+  ///
+  /// Accumulated by `LinearProblem::add_obj_constant(c)` (physical
+  /// scale) whenever a model rewrite folds a *dispatch-side* variable
+  /// away via substitution (e.g. the P0 demand-failure variable
+  /// rewrite: `fail = lmax − load` leaves the objective with a
   /// `+fail_cost × lmax` constant term that the LP solver knows
   /// nothing about, yet that constant IS dispatch cost and belongs
-  /// in every consumer of `get_obj_value()`).  Carried through
-  /// `flatten()` so every consumer of `LinearInterface::
-  /// get_obj_value()` — SDDP cut generation, forward-pass cost
-  /// tracking, standalone reporting — observes the algebraically-
-  /// correct value, not the LP-internal shifted one.
-  ///
-  /// Stored on the *physical* (post-scale_objective) cost scale so it
-  /// composes naturally with `obj_physical = raw × scale_objective
-  /// + obj_constant`.  Always 0.0 when no substitution has been
-  /// performed — keeps the existing behaviour bit-identical for
-  /// every model that does not opt in.
+  /// in every consumer of `get_obj_value()`).
   ///
   /// Note: cost-to-go style shifts (e.g. the boundary-cut α-rebase
   /// `α' = α − c̄` in `sddp_boundary_cuts.cpp`) are handled at the
   /// SDDP level — they shift cut RHSs in-place and SDDPMethod adds
   /// `c̄_scene` to UB/LB at compute time.  Those do NOT use
-  /// `obj_constant`; the field is exclusively for dispatch-side
+  /// `obj_constant_raw`; the field is exclusively for dispatch-side
   /// substitutions.
-  double obj_constant {0.0};
+  double obj_constant_raw {0.0};
 
   name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
   name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)

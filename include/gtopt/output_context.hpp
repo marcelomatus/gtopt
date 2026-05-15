@@ -92,6 +92,18 @@ public:
 
   [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
+  /// Physical primal value at the given LP column.  Equivalent to
+  /// `linear_interface().get_col_sol()[col]` but reads from the
+  /// already-cached `col_sol_span` so callers in `add_to_output`
+  /// don't need to re-fetch the LP-solution view.  Used by the
+  /// reconstruction sites (e.g. the planned P0 demand-failure
+  /// rewrite) that need to read a surviving variable's primal value
+  /// in order to compute the substituted variable's output.
+  [[nodiscard]] constexpr double primal(ColIndex col) const noexcept
+  {
+    return col_sol_span[col];
+  }
+
   // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
   //
   // Counterpart to the index-emit overloads below.  These take a

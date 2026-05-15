@@ -861,7 +861,9 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // value as the source after re-solve.  Without this, an SDDP
   // clone that solves under the substituted formulation would
   // under-report the obj-value by the substitution offset.
-  cloned.m_obj_constant_ = m_obj_constant_;
+  // Propagate raw-scale obj constant so the clone's
+  // `get_obj_value_raw()` matches the source after re-solve.
+  cloned.m_obj_constant_raw_ = m_obj_constant_raw_;
   cloned.m_equilibration_method_ = m_equilibration_method_;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
@@ -1079,12 +1081,13 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve global objective scale factor from flatten().
   m_scale_objective_ = flat_lp.scale_objective;
 
-  // Preserve the LP-external objective constant (physical units),
-  // accumulated via `LinearProblem::add_obj_constant` for variable-
-  // substitution rewrites such as the demand-failure fold.  Applied
-  // additively after the `× scale_objective` reverse-scale in
-  // `get_obj_value()`.
-  m_obj_constant_ = flat_lp.obj_constant;
+  // Preserve the LP-external objective constant (LP raw scale) from
+  // the flat LP.  `LinearProblem::add_obj_constant` accumulates in
+  // physical units; `flatten()` divides by `scale_objective` so the
+  // value stored here is already on the same raw basis as the
+  // solver's reported value — `get_obj_value_raw()` then composes
+  // them with a plain add.
+  m_obj_constant_raw_ = flat_lp.obj_constant_raw;
 
   // Preserve per-column scale factors from LinearProblem.
   detach_for_write(m_col_scales_)
@@ -3215,62 +3218,50 @@ bool LinearInterface::is_prim_infeasible() const
 
 double LinearInterface::get_obj_value_raw() const
 {
-  if (m_backend_released_) {
-    return m_cache_.obj_value();
-  }
-  return m_backend_->obj_value();
+  // Composed raw-scale obj: solver's value plus the LP-external
+  // `obj_constant_raw` (algebraic constants from variable
+  // substitutions, e.g. the P0 demand-failure `fail = lmax − load`
+  // rewrite).  Adding here — rather than only in `get_obj_value()`
+  // — keeps pre-substitution test assertions on `get_obj_value_raw()`
+  // bit-stable across formulations: the raw view reflects the
+  // algebraically-equivalent objective the pre-rewrite LP would
+  // have reported.
+  const double solver_raw =
+      m_backend_released_ ? m_cache_.obj_value() : m_backend_->obj_value();
+  return solver_raw + m_obj_constant_raw_;
 }
 
 double LinearInterface::get_obj_value() const
 {
-  // Compose the physical objective:
-  //   physical = solver_raw × scale_objective + obj_constant
-  // The `× scale_objective` reverses the per-cost divisor applied at
-  // flatten time (see `LinearProblem::flatten()` → `scale_obj` loop).
-  // `m_obj_constant_` is stored on the physical cost scale and added
-  // verbatim — it represents algebraic constants from variable
-  // substitutions (e.g. `fail = lmax − load`) that the solver never
-  // sees.  Zero by default, so the existing behaviour for every
-  // model that does not opt in is bit-identical.
-  return get_obj_value_raw() * m_scale_objective_ + m_obj_constant_;
+  // Physical (post-`scale_objective`) view: simply the raw value
+  // multiplied back up by `scale_objective`.  `obj_constant_raw`
+  // is already folded into `get_obj_value_raw()`, so multiplying
+  // gives `(solver_raw + obj_constant_raw) × scale_objective`
+  // = `solver_raw × scale_objective + obj_constant_phys`, matching
+  // the algebraic objective of the pre-substitution formulation.
+  return get_obj_value_raw() * m_scale_objective_;
 }
 
 void LinearInterface::add_obj_constant(double c) noexcept
 {
-  m_obj_constant_ += c;
-  // Mirror the addition into the held snapshot's flat LP so that a
-  // later `reconstruct_backend` (from `clone_from_flat` or a
-  // decompression-driven backend rebuild) sees the same physical
-  // objective.  Without this step `load_flat` would reset
-  // `m_obj_constant_` to the snapshot's stale value, silently
-  // dropping the addition — captured by the regression in
-  // `test_sddp_boundary_cuts_solve_effect.cpp` where the mean-
-  // shifted boundary cut left `get_obj_value()` short by `c̄`
-  // after the forward pass's per-phase backend rebuild.
-  //
-  // Scalar fields on `FlatLinearProblem` (incl. `obj_constant`,
-  // `scale_objective`, `nrows`, `ncols`) survive compression and
+  // Convert physical (caller-facing) → raw (storage) scale.  Mirrors
+  // the `m_obj_constant_ / scale_obj` conversion done at `flatten()`
+  // time so that the running `m_obj_constant_raw_` always lives on
+  // the same basis as the solver's value, letting
+  // `get_obj_value_raw()` compose them with a plain add.
+  const double c_raw = c / m_scale_objective_;
+  m_obj_constant_raw_ += c_raw;
+
+  // Mirror the addition into the held snapshot's flat LP.  Scalar
+  // fields on `FlatLinearProblem` (incl. `obj_constant_raw`,
+  // `scale_objective`, `nrows`, `ncols`) survive compression /
   // decompression — only the bulk vectors are encoded into the
-  // compressed buffer (see `compress_flat_lp` and
-  // `decompress_flat_lp` in `memory_compress.cpp`).  So this single
-  // line covers both the uncompressed and compressed snapshot
-  // states.  When no snapshot is held (e.g. a fresh interface that
-  // never went through `freeze_for_cuts`), the snapshot is left
-  // alone — `m_obj_constant_` is the only state needed in that path.
+  // compressed buffer (see `compress_flat_lp` /
+  // `decompress_flat_lp` in `memory_compress.cpp`).  This single
+  // line therefore covers both snapshot states, ensuring a later
+  // `load_flat` reconstruct re-establishes the same raw constant.
   if (m_snapshot_holder_.has_data()) {
-    m_snapshot_holder_.snapshot_mut().flat_lp.obj_constant += c;
-  }
-  try {
-    spdlog::trace(
-        "LinearInterface::add_obj_constant: +{:.6e} -> live={:.6e} "
-        "snapshot.has_data={} snapshot.flat_lp.obj_constant={:.6e}",
-        c,
-        m_obj_constant_,
-        m_snapshot_holder_.has_data() ? 1 : 0,
-        m_snapshot_holder_.has_data()
-            ? m_snapshot_holder_.snapshot().flat_lp.obj_constant
-            : 0.0);
-  } catch (...) {  // noexcept logging path
+    m_snapshot_holder_.snapshot_mut().flat_lp.obj_constant_raw += c_raw;
   }
 }
 

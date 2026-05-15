@@ -2073,10 +2073,10 @@ TEST_CASE("LinearInterface - set_obj_coeffs_raw bulk overwrite")  // NOLINT
 TEST_CASE("LinearProblem::add_obj_constant — physical-units accumulator")
 {
   using namespace gtopt;
-  // The accumulator is additive on the physical (post-scale_objective)
-  // cost scale.  Verify that explicit add_obj_constant calls survive
-  // round-trip through flatten() into FlatLinearProblem::obj_constant
-  // and onto LinearInterface::m_obj_constant_.
+  // The user-facing API is physical-scale: `add_obj_constant(c)`
+  // accumulates into `m_obj_constant_` (physical) and `flatten()`
+  // converts to raw via `/scale_objective` into
+  // `FlatLinearProblem::obj_constant_raw`.
 
   LinearProblem lp("obj_const_acc");
   CHECK(lp.obj_constant() == doctest::Approx(0.0));
@@ -2094,20 +2094,25 @@ TEST_CASE("LinearProblem::add_obj_constant — physical-units accumulator")
   });
   lp.set_coeff(row, col, 1.0);
 
+  // Default `scale_objective = 1.0` → raw == physical.
   const auto flat_lp = lp.flatten();
-  CHECK(flat_lp.obj_constant == doctest::Approx(5.0));
+  CHECK(flat_lp.obj_constant_raw == doctest::Approx(5.0));
 }
 
 TEST_CASE(
-    "LinearInterface::get_obj_value — composes scale_objective + obj_constant")
+    "LinearInterface::get_obj_value — raw includes obj_constant; phys = raw × "
+    "scale")
 {
   using namespace gtopt;
-  // Build an LP whose optimal objective is exactly known, then verify
-  // that get_obj_value() applies the documented composition:
-  //   physical_obj = solver_raw × scale_objective + obj_constant
+  // `get_obj_value_raw()` composes the solver's raw value with the
+  // raw-scale `obj_constant` stored on the LP.  `get_obj_value()`
+  // is `get_obj_value_raw() × scale_objective`.  No extra physical
+  // term in the composition — both views fall out of one formula.
   //
-  // Setup: minimise 4·x subject to 0 ≤ x ≤ 10 ⇒ x* = 0, raw obj = 0.
-  // With obj_constant = 12.5, the composed physical obj must be 12.5.
+  // Setup: minimise 4·x subject to 0 ≤ x ≤ 10 ⇒ x* = 0, solver raw = 0.
+  // With `obj_constant = 12.5` (physical) and `scale_objective = 2.0`,
+  // raw-scale constant = 6.25; raw view = 0 + 6.25 = 6.25;
+  // physical view = 6.25 × 2.0 = 12.5.
 
   LinearProblem lp("obj_const_compose");
   [[maybe_unused]] const auto x = lp.add_col(SparseCol {
@@ -2122,9 +2127,10 @@ TEST_CASE(
 
   lp.add_obj_constant(12.5);
 
-  // Choose a non-unit scale_objective to exercise the multiplicative
-  // composition.  raw_solver_obj is computed on cost / scale_obj, then
-  // multiplied back by scale_obj; the constant rides on top untouched.
+  // Non-unit scale_objective exercises the conversion at flatten()
+  // (physical → raw) and the inverse at `get_obj_value()` (raw →
+  // physical).  At unit scale both views would be identical and the
+  // test wouldn't distinguish the two.
   LpMatrixOptions opts;
   opts.scale_objective = 2.0;
   const auto flat_lp = lp.flatten(opts);
@@ -2135,8 +2141,10 @@ TEST_CASE(
   const auto result = li.resolve();
   REQUIRE(result.has_value());
 
-  // raw solver obj = 0 (x* = 0).  Composed obj = 0 × 2.0 + 12.5.
-  CHECK(li.get_obj_value_raw() == doctest::Approx(0.0));
+  // Solver raw obj = 0 (x* = 0).  Raw view = 0 + 12.5/2 = 6.25.
+  CHECK(li.get_obj_value_raw() == doctest::Approx(6.25));
+  // Physical view = 6.25 × 2.0 = 12.5 — same as the
+  // `add_obj_constant(12.5)` input, since the LP has no other cost.
   CHECK(li.get_obj_value() == doctest::Approx(12.5));
 }
 
