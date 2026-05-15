@@ -82,7 +82,7 @@ template<typename T>
   if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
   {
     const int v = s.front() - '0';
-    if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
+    if (v >= 0 && v < std::to_underlying(LPAlgo::last_algo)) {
       return static_cast<LPAlgo>(v);
     }
   }

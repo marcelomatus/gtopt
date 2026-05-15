@@ -941,8 +941,7 @@ struct CellCuts
             planning_lp.system(scene_index, phase_index).linear_interface();
         // Capture base row index BEFORE add_rows so each cut's
         // assigned row index can be reconstructed as ``base + i``.
-        const auto base_row =
-            static_cast<std::size_t>(static_cast<int>(li.get_numrows()));
+        const auto base_row = static_cast<std::size_t>(li.get_numrows());
         li.add_rows(cell_cuts.opt);
         for (const auto& cut : cell_cuts.opt) {
           li.record_cut_row(cut);
@@ -963,8 +962,7 @@ struct CellCuts
       if (!cell_cuts.feas.empty()) {
         auto& li =
             planning_lp.system(scene_index, phase_index).linear_interface();
-        const auto base_row =
-            static_cast<std::size_t>(static_cast<int>(li.get_numrows()));
+        const auto base_row = static_cast<std::size_t>(li.get_numrows());
         li.add_rows(cell_cuts.feas);
         for (const auto& cut : cell_cuts.feas) {
           li.record_cut_row(cut);

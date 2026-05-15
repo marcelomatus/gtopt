@@ -313,7 +313,7 @@ void CascadePlanningMethod::add_elastic_targets(
           "(class={}, var={}, uid={})",
           t.class_name,
           t.col_name,
-          static_cast<int>(t.uid));
+          t.uid);
       continue;
     }
 

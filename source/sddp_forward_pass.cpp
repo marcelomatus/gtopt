@@ -414,7 +414,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                elastic_result->link_infos,
                                                elastic_result->clone,
                                                m_options_.cut_coeff_eps,
-                                               static_cast<int>(infeas_count))
+                                               infeas_count)
               : SparseRow {};
 
           if (!use_multi_cut) {
@@ -455,7 +455,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                        gtopt::uid_of(iteration_index),
                                        infeas_count),
                 m_options_.cut_coeff_eps,
-                static_cast<int>(infeas_count));
+                infeas_count);
             // Bulk install — Feasibility cuts have no α-release coupling
             // (only Optimality cuts trigger `bound_alpha_for_cut` in the
             // unified `add_cut_row`), so the per-cut path reduces to
@@ -504,12 +504,12 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   uid_of(phase_index),
                   uid_of(prev_phase_index));
 
-              feas_cut = build_feasibility_cut_physical(
-                  prev_state.outgoing_links,
-                  elastic_result->link_infos,
-                  elastic_result->clone,
-                  m_options_.cut_coeff_eps,
-                  static_cast<int>(infeas_count));
+              feas_cut =
+                  build_feasibility_cut_physical(prev_state.outgoing_links,
+                                                 elastic_result->link_infos,
+                                                 elastic_result->clone,
+                                                 m_options_.cut_coeff_eps,
+                                                 infeas_count);
               sddp_fcut_tag.apply_to(feas_cut);
               // Same uid invariant as the non-multi-cut path (master #426)
               // — avoids `sddp_fcut_-1_…` rows that CoinLpIO rejects.

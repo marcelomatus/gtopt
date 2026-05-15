@@ -470,7 +470,7 @@ template<typename OptField>
         using T = std::remove_cvref_t<decltype(v)>;
         if constexpr (std::is_same_v<T, Uid>) {
           for (const auto& r : reservoirs) {
-            if (r.uid == static_cast<int>(v)) {
+            if (r.uid == v) {
               return &r;
             }
           }
@@ -496,7 +496,7 @@ template<typename OptField>
         using T = std::remove_cvref_t<decltype(v)>;
         if constexpr (std::is_same_v<T, Uid>) {
           for (const auto& w : waterways) {
-            if (w.uid == static_cast<int>(v)) {
+            if (w.uid == v) {
               return &w;
             }
           }
@@ -1029,7 +1029,7 @@ void check_aperture_references(ValidationResult& result,
   std::vector<int> known_uids;
   known_uids.reserve(sim.aperture_array.size());
   for (const auto& ap : sim.aperture_array) {
-    known_uids.push_back(static_cast<int>(ap.uid));
+    known_uids.push_back(ap.uid);
   }
   std::ranges::sort(known_uids);
 
@@ -1038,14 +1038,14 @@ void check_aperture_references(ValidationResult& result,
       continue;
     }
     for (const auto& uid : ph.apertures) {
-      const auto u = static_cast<int>(uid);
+      const auto u = uid;
       if (!std::ranges::binary_search(known_uids, u)) {
         result.errors.push_back(std::format(
             "Phase uid={}: aperture uid={} listed in `apertures` does not "
             "exist in `simulation.aperture_array` (declared uids range from "
             "{} to {}).  Either add the aperture definition or remove the "
             "uid from this phase's list.",
-            static_cast<int>(ph.uid),
+            ph.uid,
             u,
             known_uids.front(),
             known_uids.back()));

@@ -171,7 +171,7 @@ public:
    * @param flat_opts Configuration options (default empty)
    */
   template<typename PlanningT>
-    requires(std::is_same_v<std::remove_cvref_t<PlanningT>, gtopt::Planning>)
+    requires std::same_as<std::remove_cvref_t<PlanningT>, gtopt::Planning>
   explicit PlanningLP(PlanningT&& planning,
                       const LpMatrixOptions& flat_opts = {})
       : m_planning_(  // NOLINT

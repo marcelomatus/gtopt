@@ -31,15 +31,11 @@ using namespace gtopt;
 
 std::vector<std::string> split(std::string_view str, char delim = ' ')
 {
-  std::vector<std::string> result;
-
-  auto view =
-      str | std::views::split(delim)
+  return str | std::views::split(delim)
       | std::views::transform(
-          [](auto&& range) { return std::string(range.begin(), range.end()); });
-
-  std::ranges::copy(view, std::back_inserter(result));
-  return result;
+             [](auto&& range)
+             { return std::string(range.begin(), range.end()); })
+      | std::ranges::to<std::vector>();
 }
 
 auto make_izone_indexes(const InputContext& ic, const std::string& izstr)

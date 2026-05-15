@@ -194,11 +194,11 @@ namespace
       so.algorithm = *algo;
     } else {
       const auto v = std::stoi(value);
-      if (v < 0 || v >= static_cast<int>(LPAlgo::last_algo)) {
+      if (v < 0 || v >= std::to_underlying(LPAlgo::last_algo)) {
         throw std::invalid_argument(
             std::format("algorithm value {} out of range (0–{})",
                         v,
-                        static_cast<int>(LPAlgo::last_algo) - 1));
+                        std::to_underlying(LPAlgo::last_algo) - 1));
       }
       so.algorithm = static_cast<LPAlgo>(v);
     }

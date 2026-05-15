@@ -591,13 +591,10 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
   const std::scoped_lock lock(m_mutex_);
-  std::vector<std::string> result;
-  for (const auto& plugin : m_plugins_) {
-    for (const auto& name : plugin.solver_names) {
-      result.push_back(name);
-    }
-  }
-  return result;
+  return m_plugins_
+      | std::views::transform([](const auto& p) -> const auto&
+                              { return p.solver_names; })
+      | std::views::join | std::ranges::to<std::vector>();
 }
 
 std::string_view SolverRegistry::default_solver()

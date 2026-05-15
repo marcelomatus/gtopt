@@ -547,7 +547,7 @@ public:
             "(class='{}' uid={}) — eini is independently provisioned "
             "(reset_month or similar).",
             cname,
-            static_cast<int>(uid()));
+            uid());
       }
       // If !use_state_variable: sini is free (within emin/emax bounds).
       // An efin==eini close constraint is added after the block loop below.
