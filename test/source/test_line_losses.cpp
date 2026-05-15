@@ -97,19 +97,19 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     Line line;
     line.use_line_losses = true;
-    // Global default is adaptive, default kirchhoff_mode is node_angle
-    // → resolves to piecewise (no expansion).  Under node_angle the
-    // per-line KVL row stamps the aggregator, so piecewise wins on cols
-    // (K+3 vs 2K for piecewise_direct).
+    // Global default is adaptive, default kirchhoff_mode is cycle_basis
+    // → resolves to piecewise_direct (no expansion).  Under cycle_basis
+    // the per-cycle KVL row stamps segments directly, so piecewise_direct
+    // saves 2 rows per (line, block, scenario, stage).
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise);
+          == LineLossesMode::piecewise_direct);
   }
 
-  SUBCASE("adaptive + node_angle (default) + no expansion → piecewise")
+  SUBCASE("adaptive + cycle_basis (default) + no expansion → piecewise_direct")
   {
     Line line;
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise);
+          == LineLossesMode::piecewise_direct);
   }
 
   SUBCASE("adaptive + expansion → bidirectional (any kirchhoff mode)")
@@ -192,9 +192,9 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
     Line line;
     line.use_line_losses = true;
     // Global is none, but per-line enables → falls back to default (adaptive)
-    // Without expansion → piecewise (smallest-LP PWL)
+    // Without expansion → piecewise_direct (cycle_basis default)
     CHECK(line_losses::resolve_mode(line, options_none, false)
-          == LineLossesMode::piecewise);
+          == LineLossesMode::piecewise_direct);
     // With expansion → bidirectional
     CHECK(line_losses::resolve_mode(line, options_none, true)
           == LineLossesMode::bidirectional);
@@ -1323,22 +1323,22 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
 
   // Totals per mode (per line, per block, no expansion, no Kirchhoff):
   //
-  // | mode                 | loss-engine cols | loss-engine rows |
-  // |----------------------|-----------------:|-----------------:|
-  // | none                 | 1                | 0                |
-  // | linear               | 2                | 0                |
-  // | piecewise            | K + 3            | 2                |
-  // | bidirectional        | 2·(K + 2)        | 4                |
-  // | dynamic              | K + 3            | 2                |
-  // | adaptive (→piecewise) | K + 3           | 2                |
-  // | piecewise_direct     | 2·K              | 0                |
+  // | mode                | cols (excl. capacity) | rows (loss engine) |
+  // |---------------------|-----------------------|---------------------|
+  // | none                | 1                     | 0                   |
+  // | linear              | 2                     | 0                   |
+  // | piecewise           | K + 3                 | 2                   |
+  // | bidirectional       | 2·(K + 2)             | 4                   |
+  // | dynamic             | K + 3                 | 2                   |
+  // | adaptive (→piecewise_direct) | 2·K         | 0                   |
+  // | piecewise_direct    | 2·K                   | 0                   |
   //
-  // NOTE: piecewise_direct is the only mode with **zero** line-loss-engine
-  // rows.  Per direction, K segments stamp directly into the bus-balance
-  // row (with allocation-aware loss factor) and into the KVL row (with
-  // ±x_τ).  No aggregator, no link, no loss column — the most compact
-  // formulation, matching PLP `genpdlin.f` exactly.  `adaptive` still
-  // picks `piecewise`; `piecewise_direct` remains opt-in.
+  // NOTE: Under cycle_basis (the default kirchhoff_mode), `adaptive`
+  // resolves to `piecewise_direct` — the per-cycle KVL row stamps
+  // segments directly, making the aggregator + link + loss rows of
+  // `piecewise` redundant.  This saves 2 rows per (line, block,
+  // scenario, stage). AMPL access to `line.flow` is preserved via the
+  // multi-col seg-sum registration in `line_lp.cpp::add_to_lp`.
   const std::array<ModeExpect, 7> expect = {{
       {.name = "none",
        .flowp_like_cols = 1,
@@ -1420,22 +1420,22 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .lossn_link_rows = 0,
        .total_loss_cols = K + 3,
        .total_loss_rows = 2},
-      {.name = "adaptive",  // → piecewise (no expansion)
-       .flowp_like_cols = 1,
-       .flown_like_cols = 1,
-       .seg_cols = K,
-       .flowp_seg_cols = 0,
-       .flown_seg_cols = 0,
-       .lossp_cols = 1,
+      {.name = "adaptive",  // → piecewise_direct (cycle_basis default)
+       .flowp_like_cols = K,
+       .flown_like_cols = K,
+       .seg_cols = 0,
+       .flowp_seg_cols = K,
+       .flown_seg_cols = K,
+       .lossp_cols = 0,
        .lossn_cols = 0,
-       .flow_link_rows = 1,
+       .flow_link_rows = 0,
        .flowp_link_rows = 0,
        .flown_link_rows = 0,
-       .loss_link_rows = 1,
+       .loss_link_rows = 0,
        .lossp_link_rows = 0,
        .lossn_link_rows = 0,
-       .total_loss_cols = K + 3,
-       .total_loss_rows = 2},
+       .total_loss_cols = 2 * K,
+       .total_loss_rows = 0},
       {.name = "piecewise_direct",
        .flowp_like_cols = K,
        .flown_like_cols = K,
@@ -1551,13 +1551,14 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     // All PWL modes must use the same per-segment
     //   λ_k = width · R · (2k-1) / V²
     // but encode it differently:
-    //  - piecewise / dynamic / adaptive (→piecewise): coefficient -λ_k
+    //  - piecewise / dynamic: coefficient -λ_k
     //    on the `loss_link_` row for each `line_seg_` col.
     //  - bidirectional: coefficient -λ_k on `lossn_link_` for each
     //    `line_flown_seg_` col (and analogously for the positive side).
-    //  - piecewise_direct: no loss row — +(1 − λ_k) stamped on the
-    //    receiver bus-balance row for each `line_flowp_seg_` col.
-    if (e.name == "piecewise" || e.name == "dynamic" || e.name == "adaptive") {
+    //  - piecewise_direct / adaptive (→piecewise_direct): no loss row —
+    //    +(1 − λ_k) stamped on the receiver bus-balance row for each
+    //    `line_flowp_seg_` col.
+    if (e.name == "piecewise" || e.name == "dynamic") {
       const auto lsl = find_row(li, "line_loss_link_");
       std::vector<std::pair<std::string, double>> coeffs;
       for (const auto& [n, idx] : li.col_name_map()) {
@@ -1591,7 +1592,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
       }
     }
 
-    if (e.name == "piecewise_direct") {
+    if (e.name == "piecewise_direct" || e.name == "adaptive") {
       // Direct: no loss row — λ_k is stamped on the bus-balance row
       // (receiver allocation: bus_b coeff = +(1 - λ_k)).
       const auto bal_b = find_row(li, "bus_balance_2");

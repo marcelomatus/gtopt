@@ -762,12 +762,14 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("no aggregator cols, no link rows — direct stamping only")
   {
-    // Aggregator absent.
-    CHECK(count_cols_containing(lp, "line_flowp_") == 0);
-    CHECK(count_cols_containing(lp, "line_flown_") == 0);
     // Per-direction K segs present (line.loss_segments = 3).
     CHECK(count_cols_containing(lp, "line_flowp_seg_") == 3);
     CHECK(count_cols_containing(lp, "line_flown_seg_") == 3);
+    // All flowp/flown matches come from segment cols (no aggregator).
+    CHECK(count_cols_containing(lp, "line_flowp_")
+          == count_cols_containing(lp, "line_flowp_seg_"));
+    CHECK(count_cols_containing(lp, "line_flown_")
+          == count_cols_containing(lp, "line_flown_seg_"));
     // No loss vars and no link rows in this mode.
     CHECK(count_cols_containing(lp, "line_lossp_") == 0);
     CHECK(count_cols_containing(lp, "line_flowp_link_") == 0);
@@ -782,12 +784,11 @@ TEST_CASE(  // NOLINT
     // Every flowp_seg col contributes +1·base_coeff to the row,
     // every flown_seg col contributes −1·base_coeff.  base_coeff is
     // the constraint's coefficient on `line.flow` (= 1 here).
-    for (auto i = 0; i < lp.get_numcols(); ++i) {
-      const auto& cname_i = lp.get_col_name(static_cast<gtopt::ColIndex>(i));
-      const auto coef = lp.get_coeff(uc_row, static_cast<gtopt::ColIndex>(i));
-      if (cname_i.find("line_flowp_seg_") != std::string_view::npos) {
+    for (const auto& [name, col] : lp.col_name_map()) {
+      const auto coef = lp.get_coeff(uc_row, col);
+      if (name.find("line_flowp_seg_") != std::string_view::npos) {
         CHECK(coef == doctest::Approx(+1.0));
-      } else if (cname_i.find("line_flown_seg_") != std::string_view::npos) {
+      } else if (name.find("line_flown_seg_") != std::string_view::npos) {
         CHECK(coef == doctest::Approx(-1.0));
       }
     }
@@ -801,9 +802,8 @@ TEST_CASE(  // NOLINT
     // the seg_p sum to absorb the loss; the signed flow ≈ demand + loss.
     double sum_p = 0.0;
     double sum_n = 0.0;
-    for (auto i = 0; i < lp.get_numcols(); ++i) {
-      const auto& cname_i = lp.get_col_name(static_cast<gtopt::ColIndex>(i));
-      const auto sol = lp.get_col_sol()[i];
+    for (const auto& [cname_i, col] : lp.col_name_map()) {
+      const auto sol = lp.get_col_sol()[col];
       if (cname_i.find("line_flowp_seg_") != std::string_view::npos) {
         sum_p += sol;
       } else if (cname_i.find("line_flown_seg_") != std::string_view::npos) {
