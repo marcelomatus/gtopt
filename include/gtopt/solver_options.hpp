@@ -195,6 +195,20 @@ struct SolverOptions
     if (!user.presolve) {
       presolve = user.presolve;
     }
+    if (!user.crossover) {
+      // `crossover` defaults to true on both sides (struct default
+      // for `user` and backend-optimal default).  Mirror the
+      // presolve sentinel: only the explicit "user wants OFF" case
+      // overrides the base — which is precisely the SDDP forward
+      // pass (`sddp_iteration.cpp:270 fwd_opts.crossover = false`)
+      // and the elastic-filter clone solve.  Without this line the
+      // user's `crossover = false` was silently dropped during the
+      // overlay, leaving CPLEX `CPX_PARAM_BARCROSSALG` at primal
+      // crossover on every forward solve — observed on juan/IPLP
+      // 2026-05-15 as `CPXPARAM_Barrier_Crossover 1` in every one
+      // of 4 K cplex_*.log files including pure forward passes.
+      crossover = user.crossover;
+    }
     if (user.log_level != 0) {
       log_level = user.log_level;
     }

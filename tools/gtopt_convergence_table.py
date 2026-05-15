@@ -206,8 +206,20 @@ def parse_level_configs(input_json: Path) -> list[LevelConfig]:
     return out
 
 
-def collect_iter_rows(cuts_dir: Path) -> list[IterRow]:
-    """Walk ``cuts/<level>/sddp_cuts_*.parquet`` to anchor per-iter mtimes."""
+def collect_iter_rows(
+    cuts_dir: Path, *, min_mtime: float | None = None
+) -> list[IterRow]:
+    """Walk ``cuts/<level>/sddp_cuts_*.parquet`` to anchor per-iter mtimes.
+
+    When ``min_mtime`` is supplied, cut files older than that timestamp
+    are excluded.  Used to filter out artifacts from prior runs that
+    overlapped the same ``cuts/`` directory: the SDDP solver only
+    overwrites cut files for iter numbers it actually reaches in the
+    current run, so iters > current_iter persist as stale leftovers
+    until the cuts dir is cleared.  Without this filter the table
+    would mix mtimes from two different runs and produce nonsensical
+    per-iter wall times.
+    """
     rows: list[IterRow] = []
     if not cuts_dir.is_dir():
         return rows
@@ -218,11 +230,14 @@ def collect_iter_rows(cuts_dir: Path) -> list[IterRow]:
             m = CUT_FILE_RE.match(f.name)
             if not m:
                 continue
+            mtime = f.stat().st_mtime
+            if min_mtime is not None and mtime < min_mtime:
+                continue
             rows.append(
                 IterRow(
                     level=level_dir.name,
                     iter=int(m.group(1)),
-                    mtime=f.stat().st_mtime,
+                    mtime=mtime,
                 )
             )
     rows.sort(key=lambda r: r.mtime)
@@ -486,7 +501,30 @@ def main(argv: list[str] | None = None) -> int:
     logs_dir = results_dir / "logs"
 
     cfgs = parse_level_configs(input_json)
-    rows = collect_iter_rows(cuts_dir)
+
+    # Derive the current run's start time from solver_status.json's
+    # `timestamp - elapsed_s` to filter out stale cut files from
+    # prior runs in the same `cuts/` directory.  The SDDP solver
+    # only overwrites cut files for iter numbers it actually reaches
+    # in the current run; iters > current_iter persist as stale
+    # leftovers and would corrupt the per-iter wall-time deltas.
+    min_mtime: float | None = None
+    if solver_status.is_file():
+        try:
+            with solver_status.open() as f:
+                s_peek = json.load(f)
+            ts = s_peek.get("timestamp")
+            elapsed = s_peek.get("elapsed_s")
+            if isinstance(ts, (int, float)) and isinstance(elapsed, (int, float)):
+                # `timestamp` is the last status-write unix time; subtract
+                # elapsed to get the run's start time.  Subtract a small
+                # slack (5s) so the very first cut file (which may
+                # predate the status snapshot by a moment) isn't filtered.
+                min_mtime = float(ts) - float(elapsed) - 5.0
+        except (OSError, json.JSONDecodeError, KeyError, ValueError):
+            pass
+
+    rows = collect_iter_rows(cuts_dir, min_mtime=min_mtime)
     status = merge_history(rows, solver_status)
     attach_kappa_from_log(rows, logs_dir)
 

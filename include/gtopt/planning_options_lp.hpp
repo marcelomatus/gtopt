@@ -720,6 +720,19 @@ private:
     if (opts.threads == 0) {
       opts.threads = 4;
     }
+    // Pin scaling=automatic explicitly (instead of relying on
+    // CPLEX's own automatic default).  Functionally identical
+    // today — the CPLEX default for `CPX_PARAM_SCAIND` is 0
+    // (equilibration + aggressive scaling) which matches our
+    // `SolverScaling::automatic` enum — but making the choice
+    // explicit at the gtopt level keeps the value visible in
+    // `cplex_*.log` parameter dumps alongside threads/algorithm
+    // for post-mortem reading, and locks us in if CPLEX ever
+    // shifts its default.  `scaling` is `OptSolverScaling`
+    // (std::optional) so `has_value()` is the sentinel.
+    if (!opts.scaling.has_value()) {
+      opts.scaling = SolverScaling::automatic;
+    }
   }
 
 public:
