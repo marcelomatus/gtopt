@@ -373,7 +373,6 @@ TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
                   .inherit_optimality_cuts = OptInt {-1},
                   .inherit_targets = OptInt {-1},
                   .target_penalty = OptReal {500.0},
-                  .optimality_dual_threshold = OptReal {0.001},
               },
       },
   };

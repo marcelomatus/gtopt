@@ -15,6 +15,7 @@
 
 #include <dlfcn.h>
 #include <gtopt/solver_registry.hpp>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -297,6 +298,34 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // This catches both vtable ABI mismatches AND solvers that crash during
     // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
     //
+    // ── async-logger fork race ─────────────────────────────────────────
+    // The parent installs `gtopt_async` as the default logger at the top
+    // of `main()`.  `fork()` duplicates the parent's address space but
+    // does NOT replicate threads — so the inherited `async_logger` here
+    // has a queue + handle but no worker thread to drain it.  Any
+    // `spdlog::*(...)` call from this branch would enqueue into a dead
+    // queue (and, under the `block` policy, deadlock forever; under
+    // `overrun_oldest`, silently lose every message including the
+    // diagnostic that should help the user understand what went wrong).
+    //
+    // Mitigation: replace the default logger with a fresh synchronous
+    // stderr logger before any logging happens.  We deliberately don't
+    // call `spdlog::shutdown()` — that walks the registry and tries to
+    // flush every async logger (including ours), which would just hang.
+    // Setting a new default logger and dropping the global reference
+    // table is the minimum we can do safely from a post-fork context.
+    try {
+      auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+      auto child_logger =
+          std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
+      child_logger->set_level(spdlog::level::warn);
+      spdlog::set_default_logger(std::move(child_logger));
+      spdlog::drop_all();  // detach any inherited async logger handles
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // Best effort — if logger swap fails, validation continues without
+      // logging.  We must NOT propagate exceptions across the fork barrier.
+    }
+
     // Reset signal handlers so doctest's crash-recovery logic (inherited
     // from the parent via fork) does not fire inside the child — without
     // this, an uncaught exception → abort → doctest's SIGABRT handler

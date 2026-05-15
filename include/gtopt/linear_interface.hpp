@@ -2389,13 +2389,23 @@ public:
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
     // Single source of truth: prefer the LI cache when populated.
-    // `ensure_duals()` runs only when we're going to consult the
-    // live backend — the cached duals were already crossed-over at
-    // the time of solve so no further crossover is needed.
+    // The cached duals were already crossed-over at the time of
+    // solve so no further crossover is needed.
     if (const auto sp = m_cache_.row_dual(); !sp.empty()) {
       return sp;
     }
     ensure_duals();
+    // `ensure_duals` is a no-op when the backend is released /
+    // null — there are simply no duals to ensure (see the function
+    // comment for the full taxonomy).  In that case the live-
+    // backend `row_price()` fallback below is not safe.  Return an
+    // empty span; the documented caller
+    // (`SceneCutStore::update_duals`) already guards
+    // `row_idx < duals.size()` and leaves `cut.dual` at the prior
+    // value, which is the correct semantics.
+    if (m_backend_released_ || m_backend_ == nullptr) {
+      return {};
+    }
     return {backend().row_price(), static_cast<size_t>(get_numrows())};
   }
 
@@ -2446,6 +2456,15 @@ public:
               m_scale_objective_};
     }
     ensure_duals();
+    // Same degraded path as `get_row_dual_raw`: `ensure_duals` is
+    // a no-op when no duals exist to ensure (released backend /
+    // empty cache).  Return a default-constructed empty view
+    // rather than dereferencing `backend()` here.  Callers that
+    // need duals on a released cell must invoke `ensure_backend()`
+    // first.
+    if (m_backend_released_ || m_backend_ == nullptr) {
+      return {};
+    }
     return {backend().row_price(),
             n,
             m_row_scales_->data(),
@@ -2471,7 +2490,18 @@ public:
   /// When empty, warnings fall back to `get_prob_name()`.  Callers are
   /// expected to set this before each solve so fallback messages carry
   /// the same context as the surrounding SDDP/monolithic info logs.
-  void set_log_tag(std::string_view tag) { m_log_tag_.assign(tag); }
+  ///
+  /// Takes the tag by value so `set_log_tag(sddp_log(...))` (which
+  /// returns the lightweight `SDDPLogTag` aggregate with an implicit
+  /// `operator std::string()`) materialises the string ONCE and moves
+  /// it into `m_log_tag_` — the previous `string_view` signature
+  /// forced callers to wrap as `std::string(sddp_log(...))` and then
+  /// `assign(string_view)` re-allocated, totalling 2 allocs + 1 free
+  /// per call.  Now: 1 alloc (in `operator std::string`) + 1 move
+  /// (zero-alloc when the SBO buffer matches).  `std::format(...)`
+  /// callers and string-literal callers (via `const char*` → `string`
+  /// implicit ctor) keep working unchanged.
+  void set_log_tag(std::string tag) noexcept { m_log_tag_ = std::move(tag); }
 
   [[nodiscard]] constexpr const std::string& get_log_tag() const noexcept
   {

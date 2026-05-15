@@ -6,6 +6,7 @@
 #include <string>
 
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -977,6 +978,7 @@ BlockResult add_block(const LossConfig& config,
             "bypassed.  Aborting to avoid silently producing an "
             "unconstrained-capacity LP.",
             uid);
+        flush_default_logger_best_effort();
         std::abort();
       }
       return add_piecewise_direct(config,

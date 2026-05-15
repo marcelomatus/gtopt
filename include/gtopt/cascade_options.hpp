@@ -41,10 +41,6 @@ struct CascadeTransition
   OptReal target_min_atol {};
   /// Elastic penalty cost per unit violation of target.  Default: 500.
   OptReal target_penalty {};
-  /// Minimum |dual| threshold for transferring cuts.  Cuts with
-  /// |dual| < threshold are considered inactive and skipped.
-  /// Default: 0.0 (transfer all cuts regardless of dual).
-  OptReal optimality_dual_threshold {};
 
   void merge(const CascadeTransition& opts)
   {
@@ -53,7 +49,6 @@ struct CascadeTransition
     merge_opt(target_rtol, opts.target_rtol);
     merge_opt(target_min_atol, opts.target_min_atol);
     merge_opt(target_penalty, opts.target_penalty);
-    merge_opt(optimality_dual_threshold, opts.optimality_dual_threshold);
   }
 };
 

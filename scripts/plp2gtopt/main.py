@@ -195,7 +195,9 @@ _SECTION_DEFAULTS: dict[str, str] = {
     # explicitly along with `--compression zstd`.
     "output_format": "parquet",
     "input_format": "parquet",
-    "method": "sddp",
+    # `cascade` is the production-grade default since 2026-05-15.  See
+    # ``_parsers.py``'s ``--method`` default for the rationale.
+    "method": "cascade",
     "state_fail_cost": "1000.0",
     "scale_objective": "1000.0",
     "discount_rate": "0.0",

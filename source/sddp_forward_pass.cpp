@@ -224,10 +224,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // Tag the LP with the SDDP Forward key so fallback warnings emitted
     // by LinearInterface::resolve() carry the same context as the
     // surrounding SDDP info logs.
-    li.set_log_tag(std::string(sddp_log("Forward",
-                                        gtopt::uid_of(iteration_index),
-                                        uid_of(scene_index),
-                                        uid_of(phase_index))));
+    li.set_log_tag(sddp_log("Forward",
+                            gtopt::uid_of(iteration_index),
+                            uid_of(scene_index),
+                            uid_of(phase_index)));
 
     // Solve directly — already running in a pool thread.
     spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve begin",

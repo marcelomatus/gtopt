@@ -270,7 +270,6 @@ TEST_CASE("save_cuts_parquet -> load_cuts round-trip preserves cut count")
     auto results = sddp.solve();
     REQUIRE(results.has_value());
 
-    sddp.update_stored_cut_duals();
     const auto cuts = sddp.stored_cuts();
     REQUIRE(!cuts.empty());
     saved_count = static_cast<int>(cuts.size());
@@ -668,7 +667,6 @@ TEST_CASE(
       .scene_uid = make_uid<Scene>(1),
       .iteration_index = IterationIndex {0},
       .rhs = 10.0,
-      .dual = 100.0,
   });
   raw.push_back(StoredCut {
       .type = CutType::Feasibility,
@@ -676,7 +674,6 @@ TEST_CASE(
       .scene_uid = make_uid<Scene>(1),
       .iteration_index = IterationIndex {0},
       .rhs = 5.0,
-      .dual = 200.0,
   });
   raw.push_back(StoredCut {
       .type = CutType::Optimality,
@@ -684,7 +681,6 @@ TEST_CASE(
       .scene_uid = make_uid<Scene>(2),
       .iteration_index = IterationIndex {1},
       .rhs = 20.0,
-      .dual = 50.0,
   });
 
   // Apply the same predicate the cascade does: keep CutType::Optimality.
@@ -706,88 +702,15 @@ TEST_CASE(
   }
 }
 
-TEST_CASE(
-    "Cascade pre-save filter respects optimality_dual_threshold "
-    "(|dual| >= threshold)")
-{
-  // Mirrors cascade_method.cpp:740-745.  The juan run sets
-  // optimality_dual_threshold absent (= 0.0), so this filter is a
-  // no-op there.  Test it in isolation so the threshold semantics are
-  // pinned (and we catch a sign-flip / >= vs > regression).
-  std::vector<StoredCut> raw;
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = 150.0,
-  });  // keep
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = -120.0,
-  });  // keep (abs)
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = 50.0,
-  });  // drop
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = 0.0,
-  });  // drop
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      // dual = nullopt
-  });  // kept under has_value() guard
-
-  const double threshold = 100.0;
-  std::vector<StoredCut> filtered;
-  int skipped = 0;
-  for (const auto& cut : raw) {
-    if (cut.type == CutType::Optimality) {
-      if (threshold > 0.0 && cut.dual.has_value()
-          && std::abs(*cut.dual) < threshold)
-      {
-        ++skipped;
-        continue;
-      }
-      filtered.push_back(cut);
-    }
-  }
-
-  CHECK(filtered.size() == 3);  // 150, -120, nullopt
-  CHECK(skipped == 2);  // 50, 0
-}
-
-TEST_CASE("Cascade pre-save filter: threshold=0 keeps every Optimality cut")
-{
-  // Default `optimality_dual_threshold` is nullopt → value_or(0.0) → 0.0.
-  // In that case the filter must keep every Optimality cut regardless
-  // of dual (juan/IPLP set this implicitly so every cut survives).
-  std::vector<StoredCut> raw;
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = 1e-12,
-  });
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      .dual = -1e-12,
-  });
-  raw.push_back(StoredCut {
-      .type = CutType::Optimality,
-      // dual = nullopt
-  });
-
-  const double threshold = 0.0;
-  std::vector<StoredCut> filtered;
-  for (const auto& cut : raw) {
-    if (cut.type == CutType::Optimality) {
-      if (threshold > 0.0 && cut.dual.has_value()
-          && std::abs(*cut.dual) < threshold)
-      {
-        continue;
-      }
-      filtered.push_back(cut);
-    }
-  }
-  CHECK(filtered.size() == raw.size());
-}
+// Tests for `optimality_dual_threshold` removed on 2026-05-15: the
+// option was structurally broken (it filtered on `StoredCut.dual`,
+// which was only ever populated by reading the wrong LP — the main
+// cell's post-cut-add-without-resolve state, never the apertures
+// where cuts are actually exercised), and is now deleted alongside
+// the `update_stored_cut_duals` machinery.  A correct cut-activity
+// signal would be a probability-weighted aperture-dual aggregate
+// accumulated during the backward pass; that's a real feature, not
+// a fix, and it is not currently implemented.
 
 // ───────────────────────────────────────────────────────────────────────────
 // Layer 6 — Forget-after-N, multi-level, selective and threshold modes

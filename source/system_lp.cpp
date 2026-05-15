@@ -23,6 +23,7 @@
 
 #include <gtopt/bus_island.hpp>
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/gtopt_main.hpp>
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
@@ -1094,6 +1095,13 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
   // under NDEBUG, so we use `std::terminate` to keep the check live in
   // release builds as well (noexcept-compatible).
   if (&m_system_.get() != &other.m_system_.get()) [[unlikely]] {
+    try {
+      spdlog::critical(
+          "SystemLP move-assign across different System instances — "
+          "this would leave m_system_context_ dangling.  Terminating.");
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+    flush_default_logger_best_effort();
     std::terminate();
   }
   m_system_ = other.m_system_;

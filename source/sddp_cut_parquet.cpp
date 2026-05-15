@@ -20,7 +20,6 @@
  *     extra:     int32       (4th element of IterationContext — multi-cut
  *                             sibling discriminator, sentinel -1 = unset)
  *     rhs:       float64
- *     dual:      float64?    (nullable)
  *     coeffs:    list<struct<key: utf8, val: float64>>
  *
  * The legacy schema-v2 ``name: utf8`` column was dropped in 2026-05; cut
@@ -125,7 +124,6 @@ auto make_cuts_schema(double scale_objective) -> std::shared_ptr<arrow::Schema>
           // what makes the :class:`CutKey` 5-tuple unique.
           arrow::field("extra", arrow::int32(), /*nullable=*/false),
           arrow::field("rhs", arrow::float64(), /*nullable=*/false),
-          arrow::field("dual", arrow::float64(), /*nullable=*/true),
           arrow::field("coeffs",
                        arrow::list(coeff_struct_type),
                        /*nullable=*/false),
@@ -152,7 +150,6 @@ auto build_cuts_table(
   arrow::Int32Builder iter_b {pool};
   arrow::Int32Builder extra_b {pool};
   arrow::DoubleBuilder rhs_b {pool};
-  arrow::DoubleBuilder dual_b {pool};
 
   // List<Struct<key, val>> for coefficients
   auto coeff_struct_type = arrow::struct_({
@@ -196,9 +193,6 @@ auto build_cuts_table(
   if (auto e = reserve_status(rhs_b.Reserve(std::ssize(cuts))); !e) {
     return std::unexpected(e.error());
   }
-  if (auto e = reserve_status(dual_b.Reserve(std::ssize(cuts))); !e) {
-    return std::unexpected(e.error());
-  }
 
   for (const auto& cut : cuts) {
     // Store the CutType enum directly as its underlying uint8_t
@@ -227,15 +221,6 @@ auto build_cuts_table(
     }
     if (auto s = rhs_b.Append(cut.rhs); !s.ok()) {
       return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
-    }
-    if (cut.dual.has_value()) {
-      if (auto s = dual_b.Append(*cut.dual); !s.ok()) {
-        return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
-      }
-    } else {
-      if (auto s = dual_b.AppendNull(); !s.ok()) {
-        return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
-      }
     }
 
     // Start a new list element for this cut's coefficient vector.
@@ -297,7 +282,6 @@ auto build_cuts_table(
   std::shared_ptr<arrow::Array> iter_a;
   std::shared_ptr<arrow::Array> extra_a;
   std::shared_ptr<arrow::Array> rhs_a;
-  std::shared_ptr<arrow::Array> dual_a;
   std::shared_ptr<arrow::Array> coeffs_a;
   if (auto s = type_b.Finish(&type_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
@@ -317,9 +301,6 @@ auto build_cuts_table(
   if (auto s = rhs_b.Finish(&rhs_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
   }
-  if (auto s = dual_b.Finish(&dual_a); !s.ok()) {
-    return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
-  }
   if (auto s = coeff_list_b.Finish(&coeffs_a); !s.ok()) {
     return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
   }
@@ -327,7 +308,7 @@ auto build_cuts_table(
   auto schema = make_cuts_schema(scale_objective);
   return arrow::Table::Make(
       std::move(schema),
-      {type_a, phase_a, scene_a, iter_a, extra_a, rhs_a, dual_a, coeffs_a});
+      {type_a, phase_a, scene_a, iter_a, extra_a, rhs_a, coeffs_a});
 }
 
 /// Resolve the actual output path for a save call.  In append mode the

@@ -97,9 +97,13 @@ TEST_CASE("save_cuts_parquet writes a valid Parquet file")  // NOLINT
   CHECK(table->GetColumnByName("scene") != nullptr);
   CHECK(table->GetColumnByName("iteration") != nullptr);
   CHECK(table->GetColumnByName("rhs") != nullptr);
-  CHECK(table->GetColumnByName("dual") != nullptr);
   CHECK(table->GetColumnByName("coeffs") != nullptr);
   CHECK(table->GetColumnByName("name") == nullptr);  // intentionally removed
+  // `dual` column dropped on 2026-05-15 alongside the
+  // `update_stored_cut_duals` machinery (the producer always read
+  // from the wrong LP — the main cell post-cut-add-without-resolve,
+  // never the apertures that actually exercise the cut).
+  CHECK(table->GetColumnByName("dual") == nullptr);
 
   // Schema-level metadata records version + scale_objective.  The
   // writer enables `ArrowWriterProperties::store_schema()` so the Arrow

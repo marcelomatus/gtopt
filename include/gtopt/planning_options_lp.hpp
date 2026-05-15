@@ -707,18 +707,29 @@ private:
   ///
   /// Defaults only fire on the struct sentinels.  Any explicit
   /// user value (top-level `solver_options` JSON block, per-pass
-  /// override, or CLI `--algorithm` / `--threads`) survives — the
-  /// JSON-parsed SolverOptionsConstructor already substitutes its
-  /// own defaults (barrier, threads=2) for omitted fields, and
-  /// neither of those equals the sentinel, so user JSON wins as
-  /// expected.
+  /// override, or CLI `--threads`/`--set solver_options.threads=N`)
+  /// survives — the JSON-parsed SolverOptionsConstructor already
+  /// substitutes its own defaults (barrier, threads=2) for omitted
+  /// fields, and neither of those equals the sentinel, so user JSON
+  /// wins as expected.
+  ///
+  /// **Default `threads = 1` (changed from 4 on 2026-05-15)**:
+  /// juan/IPLP empirically showed `threads = 1` is faster than
+  /// `threads = 4` for SDDP forward/backward passes — at the SDDP
+  /// scale the LPs are small enough that CPLEX's per-LP
+  /// thread-coordination overhead exceeds the parallel speedup,
+  /// and the work pool can fit more concurrent LP solves without
+  /// oversubscribing the host.  Observed wall-time speedup on
+  /// L0 warmup: ~2.6× per iter (15-17 s → 6-8 s).  L1 / L2 see a
+  /// similar 1.5-2× speedup.  CPU utilisation is healthier too
+  /// (more threads in R, fewer in `futex_wait_queue`).
   static constexpr void apply_sddp_pass_defaults(SolverOptions& opts) noexcept
   {
     if (opts.algorithm == LPAlgo::default_algo) {
       opts.algorithm = LPAlgo::barrier;
     }
     if (opts.threads == 0) {
-      opts.threads = 4;
+      opts.threads = 1;
     }
     // Pin scaling=automatic explicitly (instead of relying on
     // CPLEX's own automatic default).  Functionally identical

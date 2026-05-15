@@ -548,18 +548,21 @@ auto solve_apertures_for_phase(
             const bool feasible = clone.is_optimal();
             if (!feasible) {
               const auto status = clone.get_status();
-              const auto ap_s = std::chrono::duration<double>(
-                                    std::chrono::steady_clock::now() - ap_start)
-                                    .count();
-              spdlog::trace(
-                  "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
-                  "[thread {}]",
-                  gtopt::uid_of(iteration_index),
-                  scene_uid_val,
-                  phase_uid_val,
-                  ap_uid,
-                  ap_s,
-                  std::hash<std::thread::id> {}(task_tid) % 10000);
+              if (spdlog::should_log(spdlog::level::trace)) {
+                const auto ap_s =
+                    std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - ap_start)
+                        .count();
+                spdlog::trace(
+                    "SDDP Aperture [i{} s{} p{} a{}]: infeasible ({:.3f}s) "
+                    "[thread {}]",
+                    gtopt::uid_of(iteration_index),
+                    scene_uid_val,
+                    phase_uid_val,
+                    ap_uid,
+                    ap_s,
+                    std::hash<std::thread::id> {}(task_tid) % 10000);
+              }
               results.push_back(ApertureCutResult {
                   .ap_uid = ap_uid,
                   .weight = weight,
@@ -582,18 +585,20 @@ auto solve_apertures_for_phase(
             cut.context = make_aperture_context(
                 scene_uid_val, phase_uid_val, ap_uid, total_cuts);
 
-            const auto ap_s = std::chrono::duration<double>(
-                                  std::chrono::steady_clock::now() - ap_start)
-                                  .count();
-            spdlog::trace(
-                "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) "
-                "[thread {}]",
-                gtopt::uid_of(iteration_index),
-                scene_uid_val,
-                phase_uid_val,
-                ap_uid,
-                ap_s,
-                std::hash<std::thread::id> {}(task_tid) % 10000);
+            if (spdlog::should_log(spdlog::level::trace)) {
+              const auto ap_s = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - ap_start)
+                                    .count();
+              spdlog::trace(
+                  "SDDP Aperture [i{} s{} p{} a{}]: solved ({:.3f}s) "
+                  "[thread {}]",
+                  gtopt::uid_of(iteration_index),
+                  scene_uid_val,
+                  phase_uid_val,
+                  ap_uid,
+                  ap_s,
+                  std::hash<std::thread::id> {}(task_tid) % 10000);
+            }
 
             results.push_back(ApertureCutResult {
                 .ap_uid = ap_uid,
@@ -605,22 +610,25 @@ auto solve_apertures_for_phase(
             seen.push_back({.uid = ap_uid, .idx = results.size() - 1});
           }
 
-          const auto chunk_s =
-              std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                            - chunk_start)
-                  .count();
           // spdlog::trace function form — SPDLOG_TRACE macro is baked
-          // to `(void)0` in this build (PCH compiles spdlog at INFO),
-          // which would also leave `chunk_s` unused → compile error.
-          spdlog::trace(
-              "SDDP Aperture [i{} s{} p{}]: chunk of {} done ({:.3f}s) "
-              "[thread {}]",
-              gtopt::uid_of(iteration_index),
-              scene_uid_val,
-              phase_uid_val,
-              chunk.size(),
-              chunk_s,
-              std::hash<std::thread::id> {}(task_tid) % 10000);
+          // to `(void)0` in this build (PCH compiles spdlog at INFO).
+          // Gate explicitly so we don't materialise the chunk elapsed
+          // time / std::format args on the common no-trace path.
+          if (spdlog::should_log(spdlog::level::trace)) {
+            const auto chunk_s =
+                std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                              - chunk_start)
+                    .count();
+            spdlog::trace(
+                "SDDP Aperture [i{} s{} p{}]: chunk of {} done ({:.3f}s) "
+                "[thread {}]",
+                gtopt::uid_of(iteration_index),
+                scene_uid_val,
+                phase_uid_val,
+                chunk.size(),
+                chunk_s,
+                std::hash<std::thread::id> {}(task_tid) % 10000);
+          }
 
           return results;
         }));
@@ -652,7 +660,7 @@ auto solve_apertures_for_phase(
               result.ap_uid,
               aperture_timeout,
               result.status);
-        } else {
+        } else if (spdlog::should_log(spdlog::level::trace)) {
           spdlog::trace(
               "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), "
               "skipping",

@@ -104,6 +104,23 @@ struct MainOptions
    * all trace-level messages are captured for later review. */
   std::optional<std::string> trace_log {};
 
+  /** @brief Enable/disable the spdlog async logger wrapper.
+   *
+   * Default (``true`` / unset): the default logger is wrapped in an
+   * ``async_logger`` with bounded queue + ``overrun_oldest`` overflow
+   * policy + 2 worker threads.  This isolates the solver's hot threads
+   * from sink I/O and prevents the queue-full deadlock that previously
+   * fired during cascade level transitions on juan/IPLP.
+   *
+   * Set to ``false`` (``--no-async-logger``) to keep the synchronous
+   * default logger.  Useful as a debug fallback when a future workload
+   * exposes a different async-logger pathology (e.g. silent drops under
+   * trace storms, drain stalls during signal handling).  Costs a sink
+   * mutex on every log call from every solver thread, so expect a
+   * measurable slowdown on cascade transitions and parallel LP build —
+   * use only for diagnosis. */
+  std::optional<bool> async_logger {};
+
   /** @brief Directory to dump backward-pass tgt LPs (one .lp file per
    * `(iter, scene, phase)`) immediately before each `tgt_li.resolve(opts)`.
    *
@@ -334,6 +351,47 @@ struct MainOptions
  * process's stdout clean and avoiding duplicate-output overhead.
  */
 void setup_file_logging(const MainOptions& opts, bool suppress_stdout);
+
+/**
+ * @brief Install the async wrapper as spdlog's default logger.
+ *
+ * Public, idempotent wrapper around the internal
+ * `ensure_default_logger_async()` helper.  Safe to call from the
+ * standalone binary before any other spdlog state is touched so that
+ * pre-`gtopt_main()` log lines (CLI parsing diagnostics, env-level
+ * load, etc.) are also dispatched through the background thread pool.
+ *
+ * A second call is a no-op (detected by the registered logger name).
+ */
+void install_async_default_logger();
+
+/**
+ * @brief Swap the default logger back to a synchronous one.
+ *
+ * Reverses `install_async_default_logger()`: rebuilds the default
+ * logger as a plain `spdlog::logger` wrapping the same sinks, with
+ * the same level.  Useful when the caller decides — after CLI
+ * parsing — that the run should NOT use the async wrapper, e.g.:
+ *
+ *   - `--no-async-logger` / `--async-logger=false` was passed.
+ *   - `--trace-log` / `-T` was passed: every trace line must land on
+ *     disk, so we avoid the bounded queue's `overrun_oldest` policy.
+ *
+ * Idempotent: a second call is a no-op (the default logger is already
+ * synchronous).
+ */
+void switch_to_sync_default_logger();
+
+/**
+ * @brief Best-effort flush of spdlog's default logger.
+ *
+ * Wraps `spdlog::default_logger()->flush()` in try/catch + noexcept so
+ * it can be called immediately before `std::abort()`, `std::terminate()`,
+ * or a fatal `return` without risking an exception inside a noexcept
+ * frame or a terminate handler.  Silently swallows any failure — at the
+ * call sites it's the last thing we do before tearing the process down.
+ */
+void flush_default_logger_best_effort() noexcept;
 
 /**
  * @brief Classify an error string into an exit code.

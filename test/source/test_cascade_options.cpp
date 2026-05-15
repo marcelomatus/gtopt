@@ -24,7 +24,6 @@ TEST_CASE("CascadeTransition - Default construction")
   CHECK_FALSE(tr.target_rtol.has_value());
   CHECK_FALSE(tr.target_min_atol.has_value());
   CHECK_FALSE(tr.target_penalty.has_value());
-  CHECK_FALSE(tr.optimality_dual_threshold.has_value());
 }
 
 TEST_CASE("CascadeTransition - Construction with all fields")
@@ -35,7 +34,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
       .target_rtol = 0.05,
       .target_min_atol = 1.0,
       .target_penalty = 500.0,
-      .optimality_dual_threshold = 1e-6,
   };
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
@@ -48,8 +46,6 @@ TEST_CASE("CascadeTransition - Construction with all fields")
   CHECK(*tr.target_min_atol == doctest::Approx(1.0));
   REQUIRE(tr.target_penalty.has_value());
   CHECK(*tr.target_penalty == doctest::Approx(500.0));
-  REQUIRE(tr.optimality_dual_threshold.has_value());
-  CHECK(*tr.optimality_dual_threshold == doctest::Approx(1e-6));
 }
 
 TEST_CASE("CascadeTransition - Merge (overlay wins)")
@@ -79,7 +75,6 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
   // Still unset
   CHECK_FALSE(base.inherit_targets.has_value());
   CHECK_FALSE(base.target_min_atol.has_value());
-  CHECK_FALSE(base.optimality_dual_threshold.has_value());
 }
 
 // ── CascadeLevelMethod ──────────────────────────────────────────────────────

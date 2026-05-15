@@ -61,11 +61,6 @@ void SDDPMethod::forget_first_cuts(std::ptrdiff_t count)
   m_cut_store_.forget_first_cuts(count, planning_lp());
 }
 
-void SDDPMethod::update_stored_cut_duals()
-{
-  m_cut_store_.update_stored_cut_duals(planning_lp());
-}
-
 // ── Initialisation ──────────────────────────────────────────────────────────
 
 void SDDPMethod::store_cut(SceneIndex scene_index,

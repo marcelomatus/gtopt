@@ -1430,15 +1430,17 @@ TEST_CASE("SDDPMethod - forget_first_cuts removes inherited cuts")  // NOLINT
   {
     sddp.forget_first_cuts(2);
 
-    // After forgetting, update duals to verify row indices are valid.
-    // update_stored_cut_duals reads duals at cut.row — if the index
-    // were stale/out-of-range, the solver would crash or return garbage.
-    sddp.update_stored_cut_duals();
-
+    // After forgetting, row indices on the remaining cuts must still
+    // be valid (non-negative).  Pre-2026-05-15 this subcase also
+    // exercised `update_stored_cut_duals()` as an indirect crash-
+    // canary for stale `cut.row` values; that machinery was removed
+    // because the duals it produced were read from the wrong LP (the
+    // main cell, post-cut-add-without-resolve — never the apertures
+    // that exercise the cut).  The row-validity invariant is checked
+    // directly now.
     const auto& cuts = sddp.stored_cuts();
     for (const auto& cut : cuts) {
       CHECK(static_cast<int>(cut.row) >= 0);
-      CHECK(cut.dual.has_value());
     }
   }
 

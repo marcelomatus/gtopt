@@ -315,8 +315,7 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
               "inherit_targets": -1,
               "target_rtol": 0.08,
               "target_min_atol": 2.0,
-              "target_penalty": 1000.0,
-              "optimality_dual_threshold": 0.001
+              "target_penalty": 1000.0
             }
           }
         ]
@@ -361,8 +360,6 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
     CHECK(trans.target_rtol.value_or(0.0) == doctest::Approx(0.08));
     CHECK(trans.target_min_atol.value_or(0.0) == doctest::Approx(2.0));
     CHECK(trans.target_penalty.value_or(0.0) == doctest::Approx(1000.0));
-    CHECK(trans.optimality_dual_threshold.value_or(0.0)
-          == doctest::Approx(0.001));
   }
 }
 

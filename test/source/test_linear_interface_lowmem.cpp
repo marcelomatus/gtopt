@@ -246,6 +246,132 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(li.is_optimal());
 }
 
+// Regression: `ensure_duals` must accept that sometimes there are no
+// duals to ensure — released backend + empty cache must not crash.
+//
+// Pre-fix the L0 → L1 cascade transition crashed (segfault on null
+// `m_backend_`) when `SDDPMethod::update_stored_cut_duals` walked
+// stored cuts and called `LinearInterface::get_row_dual_raw()` on
+// cells whose:
+//   - last LP operation was a Benders `add_row` (cut creation),
+//     which invokes `invalidate_cached_optimal_on_mutation()` and
+//     clears `row_dual` from the LI cache and sets
+//     `backend_solution_fresh = false`,
+//   - and then went through `release_backend()` under
+//     `LowMemoryMode::compress`: the `backend_solution_fresh()` gate
+//     in the release path leaves the cache empty (no fresh fill).
+//
+// The crash chain was:
+//   `get_row_dual_raw` → cache empty → `ensure_duals` → `m_backend_`
+//   is null → `m_backend_->apply_options(opts)` → SIGSEGV.
+//
+// The fix: `ensure_duals` itself returns gracefully when there are
+// no duals to ensure (released / null backend or solver already has
+// vertex duals), and `get_row_dual_raw` / `get_row_dual` return an
+// empty span/view rather than dereferencing `backend().row_price()`.
+// All consumers cooperate with the empty case (cut-store via
+// `row_idx < duals.size()` and explicit `duals.empty()` checks;
+// output via the upstream `if (!is_optimal()) return;` gate;
+// Benders / check_solvers only run on a live backend).
+TEST_CASE(  // NOLINT
+    "LinearInterface — ensure_duals tolerates released backend with "
+    "empty dual cache (cascade-transition regression)")
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // ─── Build a one-col / one-row LP via the snapshot path so we have
+  // a flat to reconstruct from if needed.
+  LinearProblem lp;
+  const auto c1 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 1.0,
+      .uppb = SparseRow::DblMax,
+  });
+  lp.set_coeff(r, c1, 1.0);
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+
+  // ─── First solve under barrier + nocrossover.  This matches the
+  // SDDP forward-pass solver configuration that triggered the bug:
+  // post-solve `m_last_solver_options_.algorithm = barrier` and
+  // `crossover = false`, so `ensure_duals` does NOT early-return on
+  // either guard — it falls through to
+  // `m_backend_->apply_options(opts)` which is the line that
+  // segfaults on a null backend.
+  //
+  // If barrier isn't available in this build (CLP-only sandbox),
+  // skip — we still cover the LinearInterface lifecycle in other
+  // tests; this case is barrier-specific.
+  auto& reg = SolverRegistry::instance();
+  if (!reg.has_solver("cplex") && !reg.has_solver("highs")) {
+    return;
+  }
+  auto r1 = li.initial_solve(SolverOptions {
+      .algorithm = LPAlgo::barrier,
+      .log_level = 0,
+      .crossover = false,
+  });
+  REQUIRE(r1.has_value());
+  REQUIRE(li.is_optimal());
+
+  // ─── Wire up compress + snapshot.  Equivalent to the SDDP
+  // low-memory configuration applied per cell.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+
+  // ─── Mutate (simulates the Benders cut `add_row` at the end of a
+  // backward pass).  This calls
+  // `invalidate_cached_optimal_on_mutation()` which clears the LI
+  // cache row_dual span and trips the `backend_solution_fresh`
+  // gate.
+  SparseRow cut;
+  cut[c1] = 1.0;
+  cut.lowb = 0.5;
+  cut.uppb = SparseRow::DblMax;
+  [[maybe_unused]] const auto cut_row = li.add_row(cut);
+
+  // Note: post-mutation but pre-release, `get_row_dual_raw()` still
+  // returns non-empty values from the LIVE backend (`backend().row_price()`
+  // fallback after the empty LI cache).  The bug manifests ONLY after
+  // `release_backend()` because that's when the backend pointer goes
+  // null AND the cache stays empty (the `backend_solution_fresh` gate
+  // blocks the fill).
+  //
+  // ─── Release the backend.  Per release_backend()'s
+  // `if (m_cache_.backend_solution_fresh())` gate, the cache is NOT
+  // re-populated here because the mutation invalidated freshness.
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+
+  // ─── The actual regression assertion: reading duals on a released
+  // cell whose cache was wiped by mutation must not crash.  Pre-fix
+  // this segfaulted inside `ensure_duals` on a null `m_backend_`.
+  // Post-fix it returns an empty span / view.
+  std::span<const double> duals_raw;
+  CHECK_NOTHROW(duals_raw = li.get_row_dual_raw());
+  CHECK(duals_raw.empty());
+
+  CHECK_NOTHROW([[maybe_unused]] auto v = li.get_row_dual());
+  const auto duals_view = li.get_row_dual();
+  CHECK(duals_view.empty());
+  CHECK(duals_view.size() == 0);
+
+  // ─── Cooperating-consumer pattern: a `cut.row < duals.size()`
+  // guard naturally skips the update.  Mimic `SceneCutStore::update_duals`
+  // to document the contract: empty span ⇒ caller leaves the prior
+  // `cut.dual` untouched.
+  constexpr double stale_cut_dual = 1.25;
+  double cut_dual_field = stale_cut_dual;
+  const std::size_t row_idx = 0;
+  if (row_idx < duals_raw.size()) {
+    cut_dual_field = duals_raw[row_idx];
+  }
+  CHECK(cut_dual_field == doctest::Approx(stale_cut_dual));
+}
+
 TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-global-names-in-headers)

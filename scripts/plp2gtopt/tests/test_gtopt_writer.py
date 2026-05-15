@@ -175,12 +175,26 @@ class TestGTOptWriterProcessMethods:
         # things, so they NO LONGER mirror each other.  Pin the new
         # invariant: ceiling is flat 50 % across every level (gap
         # quality is bounded; the binding signal is policy
-        # stationarity), and ``stationary_tol`` tightens 5 / 4 / 3 /
-        # 2 % as fidelity rises.
-        # ``stationary_tol`` loosens deeper into the cascade because
-        # each level's iter is progressively more expensive; the
-        # tightest policy-stability demand sits on cheap L0 iters.
-        expected_stationary_tol = [0.0001, 0.0025, 0.01, 0.01]
+        # stationarity), and ``stationary_tol`` LOOSENS deeper into
+        # the cascade — 0.005 % / 0.01 % / 0.1 % / 0.5 % — calibrated
+        # to the empirical Δgap noise floor at each level:
+        #   * L0 single deterministic head aperture → no MC noise,
+        #     floor dominated by gtopt log emit precision (0.0001 %)
+        #     and LP solver tolerances → 0.005 %, paired with the
+        #     doubled L0 iter budget so the bootstrap can actually
+        #     reach this floor;
+        #   * L1 4-stride apertures → 2× L0's MC sampling floor
+        #     → 0.01 %;
+        #   * L2 multi-bus + 8 apertures (modelling + sampling
+        #     noise) → 0.1 %;
+        #   * L3 + Kirchhoff + full aperture list (widest sampling
+        #     noise) → 0.5 %.
+        # Earlier same-day attempts at the looser knob values
+        # (e.g. L2=1 % then 0.25 %) converged with real Δgap still
+        # well below the threshold, leaving genuine policy
+        # improvement on the table.  See ``gtopt_writer.py`` L0–L3
+        # sddp_options comments for the per-level rationale.
+        expected_stationary_tol = [0.00005, 0.0001, 0.001, 0.005]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.5
@@ -190,13 +204,13 @@ class TestGTOptWriterProcessMethods:
         assert levels[0]["model_options"]["use_single_bus"] is True
         assert levels[0]["sddp_options"]["num_apertures"] == 1
         assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
-        assert levels[0]["sddp_options"]["stationary_tol"] == 0.0001  # 0.01 %
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.00005  # 0.005 %
         # Level 1: uninodal (single-bus, 4 stride apertures).
         assert levels[1]["name"] == "uninodal"
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.0025  # 0.25 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.0001  # 0.01 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -204,7 +218,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
@@ -213,16 +227,21 @@ class TestGTOptWriterProcessMethods:
         assert levels[3]["name"] == "full_network"
         assert "num_apertures" not in levels[3]["sddp_options"]
         assert "aperture_selection_mode" not in levels[3]["sddp_options"]
-        assert levels[3]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        assert levels[3]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
 
     def test_process_options_cascade_iteration_split(self):
-        """Level budgets: L0=PDMaxIte, L1=PDMaxIte/2, L2=PDMaxIte/3, L3=PDMaxIte/4.
+        """Level budgets: L0=2·PDMaxIte, L1=PDMaxIte, L2=PDMaxIte/2, L3=PDMaxIte/2.
 
-        Decreasing schedule: warmup gets the full PDMaxIte (starts from
-        the alpha-bootstrap floor with 1 aperture), uninodal half as
-        many (inherits cuts, broadens to 4 apertures), transport a
-        third (lines on, 8 apertures), full_network a quarter (full
-        physics, every aperture — most expensive per iter).
+        Decreasing schedule from L0 down: warmup gets 2× PDMaxIte
+        (single-aperture iters are the cheapest in the cascade, so
+        the bootstrap can run twice as many cheap iters to drive
+        the policy seed below the 0.025 % Δgap floor before handing
+        off — every later level inherits a tighter envelope as a
+        result), uninodal gets the full PDMaxIte (4 apertures still
+        cheap), transport / full_network get PDMaxIte/2 because
+        their iters are 10-30× slower (8 / all apertures × multi-bus
+        × full physics) and the inherited cut envelope makes them
+        converge faster anyway.
         """
         writer = GTOptWriter(MagicMock())
         writer.process_options(
@@ -233,10 +252,13 @@ class TestGTOptWriterProcessMethods:
             }
         )
         levels = writer.planning["options"]["cascade_options"]["level_array"]
-        # Post-2026-05 schedule: L0/L1 get PDMaxIte; L2/L3 get PDMaxIte/2
-        # (L2/L3 iters are 10-30× slower than L0/L1, so they get less
-        # budget and rely on the inherited cut envelope to converge).
-        assert levels[0]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+        # Post-2026-05 schedule: L0 = 2·PDMaxIte; L1 = PDMaxIte;
+        # L2/L3 = PDMaxIte/2.  L0 doubled on 2026-05-15 to give the
+        # cheap 1-aperture bootstrap headroom to qualify on the
+        # 0.025 % stationary tol (otherwise it routinely hits
+        # ``max_iterations`` because the LP-solver-tolerance floor
+        # sits at ~0.02-0.06 %).
+        assert levels[0]["sddp_options"]["max_iterations"] == 240  # 2·PDMaxIte
         assert levels[1]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
         assert levels[2]["sddp_options"]["max_iterations"] == 60  # /2
         assert levels[3]["sddp_options"]["max_iterations"] == 60  # /2
@@ -261,8 +283,8 @@ class TestGTOptWriterProcessMethods:
         levels = cascade["level_array"]
         per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
         assert cascade["sddp_options"]["max_iterations"] == per_level_sum
-        # 120 (warmup) + 120 (uninodal) + 60 (transport) + 60 (full_network).
-        assert cascade["sddp_options"]["max_iterations"] == 360
+        # 240 (warmup, 2·PDMaxIte) + 120 (uninodal) + 60 (transport) + 60.
+        assert cascade["sddp_options"]["max_iterations"] == 480
 
     def test_process_options_cascade_small_budget_still_runs_all_levels(self):
         """With max_iterations=5 the cascade still allots ≥1 iter per level.
@@ -282,12 +304,12 @@ class TestGTOptWriterProcessMethods:
         )
         cascade = writer.planning["options"]["cascade_options"]
         levels = cascade["level_array"]
-        assert levels[0]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        assert levels[0]["sddp_options"]["max_iterations"] == 10  # 2·PDMaxIte
         assert levels[1]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
         assert levels[2]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
         assert levels[3]["sddp_options"]["max_iterations"] == 2  # max(5//2, 1)
-        # 5 + 5 + 2 + 2.
-        assert cascade["sddp_options"]["max_iterations"] == 14
+        # 10 + 5 + 2 + 2.
+        assert cascade["sddp_options"]["max_iterations"] == 19
 
     def test_process_options_cascade_inherits_all_cuts(self):
         """Each cascade transition inherits ALL cuts from previous levels.

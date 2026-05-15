@@ -448,10 +448,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
-    tgt_li.set_log_tag(std::string(sddp_log("Backward",
-                                            gtopt::uid_of(iteration_index),
-                                            uid_of(scene_index),
-                                            uid_of(phase_index))));
+    tgt_li.set_log_tag(sddp_log("Backward",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(phase_index)));
     const auto z_old = phase_states[phase_index].forward_full_obj_physical;
 
     // Optional LP dump for off↔compress diff debugging.  Activated by
@@ -726,10 +726,10 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   double dt_resolve = 0.0;
   double dt_kappa = 0.0;
   if (phase_index) {
-    src_li.set_log_tag(std::string(sddp_log("Backward",
-                                            gtopt::uid_of(iteration_index),
-                                            uid_of(scene_index),
-                                            uid_of(prev_phase_index))));
+    src_li.set_log_tag(sddp_log("Backward",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(prev_phase_index)));
     const auto t_resolve = Clock::now();
     auto r = src_li.resolve(opts);
     dt_resolve = elapsed_s(t_resolve);
@@ -1665,22 +1665,38 @@ void SDDPMethod::finalize_iteration_result(
   // mid-iteration log below reports the same value carried forward to
   // the downstream "Iter [iN]: done" and stationary-convergence logs.
   // Keep the 1.0 sentinel when stationarity tracking is disabled or no
-  // prior results exist — the same default used when constructing ir.
-  if (m_options_.stationary_window > 0 && m_options_.stationary_tol > 0.0
-      && !results.empty())
-  {
+  // prior results exist (and no cross-level seed is installed) — the
+  // same default used when constructing ir.
+  if (m_options_.stationary_window > 0 && m_options_.stationary_tol > 0.0) {
+    // Walk a combined index over ``[seed ⧺ results]`` (seed entries
+    // are oldest-first; last seed entry is the previous cascade
+    // level's most recent iter).  This lets a ``stationary_window=N``
+    // configuration exercise a real N-iter lookback at iter 1 of a
+    // new cascade level — previously the seed was a single point,
+    // so a window > 1 silently degraded to a 1-iter lookback at
+    // every cascade transition.  See :func:`seed_prior_bounds`
+    // for the seed-array rationale and convergence-safety pairing
+    // with ``min_iterations >= 2``.
     const auto window = static_cast<std::size_t>(m_options_.stationary_window);
-    const auto lookback = std::min(window, results.size());
-    // Stationarity tracked on UB, not on the (UB-LB) gap — UB is the
-    // unbiased Monte-Carlo estimate of the realised policy cost and
-    // is the quantity we are optimising.  Δgap_relative computed on a
-    // signed gap was confounded by zero-crossings (the denominator
-    // shrinks to 0 right when the cuts overshoot, blowing the
-    // relative metric up to thousands of percent).  See
-    // :member:`SDDPIterationResult::gap_change`.
-    const double old_ub = results[results.size() - lookback].upper_bound;
-    ir.gap_change =
-        std::abs(ir.upper_bound - old_ub) / std::max(1e-10, std::abs(old_ub));
+    const std::size_t seed_n = m_seed_prior_history_.size();
+    const std::size_t avail = seed_n + results.size();
+    const std::size_t lookback = std::min(window, avail);
+    if (lookback > 0) {
+      // Index counted from the OLDEST entry in the combined sequence.
+      const std::size_t pos = avail - lookback;
+      // Stationarity tracked on UB, not on the (UB-LB) gap — UB is the
+      // unbiased Monte-Carlo estimate of the realised policy cost and
+      // is the quantity we are optimising.  Δgap_relative computed on a
+      // signed gap was confounded by zero-crossings (the denominator
+      // shrinks to 0 right when the cuts overshoot, blowing the
+      // relative metric up to thousands of percent).  See
+      // :member:`SDDPIterationResult::gap_change`.
+      const double old_ub = (pos < seed_n)
+          ? m_seed_prior_history_[pos].upper_bound
+          : results[pos - seed_n].upper_bound;
+      ir.gap_change =
+          std::abs(ir.upper_bound - old_ub) / std::max(1e-10, std::abs(old_ub));
+    }
   }
 
   // Convergence semantics (after 2026-05-14 rewrite):

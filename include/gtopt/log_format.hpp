@@ -33,9 +33,16 @@ namespace gtopt::log
   return format_si(v);
 }
 
-/// Signed percentage with two decimals, always rendered as `+N.NN%`
-/// or `-N.NN%`.  Pass the fractional gap (0.1066 → "+10.66%") so
-/// callers don't need to multiply by 100 at every emit site.
+/// Signed percentage with four decimals, always rendered as
+/// `+N.NNNN%` or `-N.NNNN%`.  Pass the fractional gap (0.1066 →
+/// "+10.6600%") so callers don't need to multiply by 100 at every
+/// emit site.  Four decimals (vs the prior two) make sub-0.01 %
+/// Δgap values distinguishable from rounded zero — needed by the
+/// cascade convergence tables where ``stationary_tol`` reaches the
+/// 0.01 %–0.025 % band on tight levels (L0 warmup, L1 uninodal).
+/// At two decimals every Δgap under 0.005 % rounded to "+0.00 %"
+/// and the table couldn't tell stationarity-converged iters from
+/// proxy-zero ones.
 struct FormatPct
 {
   double frac;
@@ -73,7 +80,7 @@ struct std::formatter<gtopt::log::FormatPct, CharT>  // NOLINT(cert-dcl58-cpp)
   template<class FormatContext>
   auto format(const gtopt::log::FormatPct& f, FormatContext& ctx) const
   {
-    return std::format_to(ctx.out(), "{:+6.2f}%", 100.0 * f.frac);
+    return std::format_to(ctx.out(), "{:+8.4f}%", 100.0 * f.frac);
   }
 };
 

@@ -241,6 +241,21 @@ template<typename T>
        "auto-name `<log_dir>/trace_<N>.log` matching the gtopt_<N>.log "
        "from the same run.  Without `-T` no trace file is written.")
       //
+      ("async-logger",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "enable (default) or disable the spdlog async logger wrapper.  "
+       "Pass `--async-logger=false` (or `--no-async-logger` shorthand) "
+       "to keep the synchronous default logger.  Async mode isolates "
+       "solver threads from sink I/O via a bounded queue + overrun_oldest "
+       "policy + 2 worker threads; sync mode takes a sink mutex on every "
+       "log call from every thread.  Disable only as a diagnostic fallback "
+       "when async-related symptoms (silent log drops under -T, drain "
+       "stalls during signal handling) are suspected.  Implicitly forced "
+       "to false when `--trace-log`/`-T` is set, to guarantee every trace "
+       "line lands on disk (the bounded async queue's overrun_oldest "
+       "policy would silently drop trace bursts).")  //
+      ("no-async-logger", "shorthand for `--async-logger=false`.")
+      //
       ("lp-dump-backward",
        po::value<std::string>(),
        "shim onto the unified LP-debug mechanism: directory to dump "
@@ -954,6 +969,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .json_file = get_opt<std::string>(vm, "json-file"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
+      .async_logger = [&vm]() -> std::optional<bool>
+      {
+        // `--no-async-logger` (pure flag) is authoritative when set —
+        // it forces sync mode regardless of `--async-logger=...`.
+        if (vm.contains("no-async-logger")) {
+          return false;
+        }
+        return get_opt<bool>(vm, "async-logger");
+      }(),
       .lp_dump_backward = get_opt<std::string>(vm, "lp-dump-backward"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
@@ -1099,6 +1123,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.json_file = get_str("json-file");
   opts.print_stats = get_bool("stats");
   opts.trace_log = get_str("trace-log");
+  opts.async_logger = get_bool("async-logger");
   opts.lp_dump_backward = get_str("lp-dump-backward");
 
   // SDDP directories
@@ -1264,6 +1289,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.json_file, defaults.json_file);
   merge(opts.print_stats, defaults.print_stats);
   merge(opts.trace_log, defaults.trace_log);
+  merge(opts.async_logger, defaults.async_logger);
   merge(opts.lp_dump_backward, defaults.lp_dump_backward);
   merge(opts.cut_directory, defaults.cut_directory);
   merge(opts.log_directory, defaults.log_directory);

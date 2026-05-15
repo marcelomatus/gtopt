@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <set>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
@@ -205,7 +206,12 @@ void System::expand_reservoir_constraints()
         s.uid = seep_uid++;
       }
       if (s.name.empty() || seep_names.contains(s.name)) {
-        s.name = rsv.name + "_seepage_" + std::to_string(s.uid);
+        // `as_label(name, "seepage", uid)` formats uid via `to_chars`
+        // into a stack buffer and joins all parts with the `_`
+        // separator in a single allocation.  Saves the two extra
+        // allocations the previous `name + "_seepage_" +
+        // std::to_string(uid)` chain incurred.
+        s.name = as_label(rsv.name, "seepage", s.uid);
       }
       s.reservoir = rsv_id;
       seep_uids.insert(s.uid);
@@ -219,7 +225,9 @@ void System::expand_reservoir_constraints()
         d.uid = dlim_uid++;
       }
       if (d.name.empty() || dlim_names.contains(d.name)) {
-        d.name = rsv.name + "_dlim_" + std::to_string(d.uid);
+        // See `as_label` rationale on the analogous seepage branch
+        // above — 3 allocs → 1.
+        d.name = as_label(rsv.name, "dlim", d.uid);
       }
       d.reservoir = rsv_id;
       dlim_uids.insert(d.uid);
@@ -233,7 +241,9 @@ void System::expand_reservoir_constraints()
         p.uid = pfac_uid++;
       }
       if (p.name.empty() || pfac_names.contains(p.name)) {
-        p.name = rsv.name + "_pfac_" + std::to_string(p.uid);
+        // See `as_label` rationale on the analogous seepage branch
+        // above — 3 allocs → 1.
+        p.name = as_label(rsv.name, "pfac", p.uid);
       }
       p.reservoir = rsv_id;
       pfac_uids.insert(p.uid);

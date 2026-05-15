@@ -284,6 +284,72 @@ public:
     m_iteration_offset_ = std::max(m_iteration_offset_, value);
   }
 
+  /// A single (UB, LB) pair from one prior cascade iter, used as
+  /// an element of the cross-level Δgap seed array.
+  struct PriorIterBounds
+  {
+    double upper_bound {0.0};
+    double lower_bound {0.0};
+  };
+
+  /// Seed the stationary Δgap lookback with the prior cascade
+  /// level's recent iter history.
+  ///
+  /// At construction the per-level ``results`` history is empty, so
+  /// ``finalize_iteration_result`` falls back to the 1.0 sentinel for
+  /// ``ir.gap_change`` on iter 1 (no lookback available).  When this
+  /// solver is the second-or-later level of a :class:`CascadePlanning
+  /// Method`, the previous level's last few iter bounds are a
+  /// meaningful reference — the cuts and policy state have been
+  /// inherited, so iter 1's Δgap should measure the cross-level UB
+  /// delta against the prior level's tail (windowed) rather than a
+  /// sentinel.
+  ///
+  /// **Array, not a single point**: ``stationary_window=N`` means the
+  /// gap_change lookback compares ``results[size-1]`` against
+  /// ``results[size-N]``.  At iter 1 of a new level the in-level
+  /// ``results`` has size 0 / 1 / 2 — short of any window > 1.  Pass
+  /// the LAST ``N`` (or more — STATIONARY_SEED_DEPTH below caps the
+  /// max we'll consume) entries of the previous level so the new
+  /// level's first ``N-1`` iters can still pull a windowed reference
+  /// from the seed, ordered OLDEST-FIRST (the last element is the
+  /// previous level's most-recent iter).
+  ///
+  /// ``finalize_iteration_result`` (sync) and the async equivalent
+  /// at ``sddp_iteration.cpp:1846`` walk a combined index over
+  /// ``[seed... | results...]`` to resolve the lookback target.
+  ///
+  /// **Convergence safety**: a tiny seed-vs-iter-1 Δgap can fall
+  /// below ``stationary_tol`` on a level whose inherited envelope
+  /// nearly matches the prior level's UB.  Pair this seed with
+  /// ``min_iterations >= 2`` at the level (plp2gtopt enables this
+  /// on L0/L1/L2) so the stationary check cannot fire on iter 1
+  /// alone.  Without the min-iter guard, an L0→L1 transition where
+  /// the multi-aperture solve happens to land at L0's UB would
+  /// converge L1 immediately, defeating the whole cascade
+  /// refinement.
+  void seed_prior_bounds(std::vector<PriorIterBounds> history) noexcept
+  {
+    m_seed_prior_history_ = std::move(history);
+  }
+
+  /// Read the carried prior history (empty when no seed is installed
+  /// — typical for L0 or for plain-SDDP runs).
+  [[nodiscard]] auto seed_prior_bounds() const noexcept
+      -> const std::vector<PriorIterBounds>&
+  {
+    return m_seed_prior_history_;
+  }
+
+  /// Max number of prior-level iter results the cascade orchestrator
+  /// should pass into :func:`seed_prior_bounds`.  Chosen to cover any
+  /// realistic ``stationary_window`` (current max in use is 4 for L0
+  /// warmup; cascade L1+ use window ≤ 3).  Bigger is harmless — the
+  /// gap_change calc only consumes ``min(window, seed.size() +
+  /// results.size())`` entries — but keeps the per-cascade-transition
+  /// memory footprint trivially small.
+  static constexpr std::size_t STATIONARY_SEED_DEPTH = 8;
+
   /// Current pass: 0=idle, 1=forward, 2=backward
   [[nodiscard]] int current_pass() const noexcept
   {
@@ -339,11 +405,6 @@ public:
   ///
   /// @param count  Number of leading cuts to remove (clamped to size).
   void forget_first_cuts(std::ptrdiff_t count);
-
-  /// Update dual values of stored cuts from the current LP solution.
-  /// Call after the solver finishes to populate the dual field in each
-  /// StoredCut with the row dual from the last forward-pass solve.
-  void update_stored_cut_duals();
 
   /// Union view over every stored cut across scenes, rebuilt on call.
   /// Equivalent to the former flat-vector accessor — kept for places
@@ -999,6 +1060,20 @@ private:
   /// the highest iteration found in the loaded cuts, avoiding name
   /// collisions.
   IterationIndex m_iteration_offset_ {};
+
+  /// Cross-level seed history installed by
+  /// :func:`seed_prior_bounds`.  Each element is one (UB, LB) pair
+  /// from a recent iter of the previous cascade level, ordered
+  /// oldest-first; the last element is the previous level's most
+  /// recent iter.  Consumed by ``finalize_iteration_result`` (sync)
+  /// and the async gap_change site at ``sddp_iteration.cpp:1846``
+  /// — those walk a combined index over ``[seed ⧺ results]`` so
+  /// the new level's first ``stationary_window`` iters can still
+  /// resolve a windowed lookback target.  Empty when this solver
+  /// is not the second-or-later level of a cascade.  See setter
+  /// docstring for the convergence-safety rationale (pair with
+  /// min_iterations >= 2).
+  std::vector<PriorIterBounds> m_seed_prior_history_ {};
 
   // ── Stop / callback machinery ──
   SDDPIterationCallback m_iteration_callback_ {};

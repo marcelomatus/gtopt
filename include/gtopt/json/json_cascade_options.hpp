@@ -30,8 +30,7 @@ struct json_data_contract<CascadeTransition>
                        json_number_null<"inherit_targets", OptInt>,
                        json_number_null<"target_rtol", OptReal>,
                        json_number_null<"target_min_atol", OptReal>,
-                       json_number_null<"target_penalty", OptReal>,
-                       json_number_null<"optimality_dual_threshold", OptReal>>;
+                       json_number_null<"target_penalty", OptReal>>;
 
   constexpr static auto to_json_data(CascadeTransition const& opt)
   {
@@ -39,8 +38,7 @@ struct json_data_contract<CascadeTransition>
                                  opt.inherit_targets,
                                  opt.target_rtol,
                                  opt.target_min_atol,
-                                 opt.target_penalty,
-                                 opt.optimality_dual_threshold);
+                                 opt.target_penalty);
   }
 };
 

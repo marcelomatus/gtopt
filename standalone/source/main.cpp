@@ -22,6 +22,23 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 int main(int argc, char** argv)
 {
+  // Install the async default-logger wrapper at the very first
+  // opportunity — BEFORE any `spdlog::set_level` / `spdlog::set_pattern` /
+  // env-level load.  Otherwise the short window between `main()` entry
+  // and `gtopt_main()` installing the wrapper runs through the
+  // synchronous default logger, which serialises every log call on the
+  // sink mutex.  If a background monitor thread (CPU sampler, signal
+  // handler) fires during that window it would contend with the main
+  // thread's setup-time `spdlog::info(...)` calls.
+  //
+  // Idempotent: a second call from inside `gtopt_main` is a no-op.
+  //
+  // Note: this unconditionally installs async even when the user passes
+  // `--no-async-logger` / `--trace-log`, because CLI parsing has not
+  // happened yet.  `gtopt_main` will switch the default logger back to
+  // sync once the options are parsed.
+  gtopt::install_async_default_logger();
+
   //
   // process the command options
   //
@@ -281,19 +298,24 @@ record — `--quiet` further silences the log file too.
 
     auto result = gtopt::gtopt_main(main_opts);
     if (result.has_value()) {
+      gtopt::flush_default_logger_best_effort();
       return *result;  // 0 = optimal, 1 = non-optimal
     }
     spdlog::critical(result.error());
-    return classify_error_exit_code(result.error());
+    const int exit_code = classify_error_exit_code(result.error());
+    gtopt::flush_default_logger_best_effort();
+    return exit_code;
   } catch (const std::exception& ex) {
     try {
       spdlog::critical("Exception: {}", ex.what());
     } catch (...) {
       spdlog::critical(ex.what());
     }
+    gtopt::flush_default_logger_best_effort();
     return 3;  // internal error
   } catch (...) {
     spdlog::critical("Unknown exception");
+    gtopt::flush_default_logger_best_effort();
     return 3;  // internal error
   }
 }

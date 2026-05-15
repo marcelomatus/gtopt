@@ -23,8 +23,7 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
     "inherit_targets": 10,
     "target_rtol": 0.05,
     "target_min_atol": 1.0,
-    "target_penalty": 500.0,
-    "optimality_dual_threshold": 1e-6
+    "target_penalty": 500.0
   })";
 
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
@@ -39,8 +38,6 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
   CHECK(*tr.target_min_atol == doctest::Approx(1.0));
   REQUIRE(tr.target_penalty.has_value());
   CHECK(*tr.target_penalty == doctest::Approx(500.0));
-  REQUIRE(tr.optimality_dual_threshold.has_value());
-  CHECK(*tr.optimality_dual_threshold == doctest::Approx(1e-6));
 }
 
 TEST_CASE("CascadeTransition JSON - Round-trip")

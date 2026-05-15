@@ -840,11 +840,13 @@ def test_hydro_4b_cascade_conversion(tmp_path):
     # Level 3: full network
     assert levels[3]["name"] == "full_network"
 
-    # Iteration budgets: L0/L1 get PDMaxIte; L2/L3 get PDMaxIte/2
-    # (L2/L3 iters are 10-30× slower than L0/L1, so they get half
+    # Iteration budgets: L0 gets 2·PDMaxIte (doubled on 2026-05-15
+    # so the cheap 1-aperture bootstrap can drive Δgap to the
+    # 0.005 % stationary floor); L1 gets PDMaxIte; L2/L3 get
+    # PDMaxIte/2 (L2/L3 iters are 10-30× slower so they get half
     # the budget and rely on the inherited cut envelope to converge).
-    # PLP fixture uses PDMaxIte = 60 → 60 / 60 / 30 / 30.
-    assert levels[0]["sddp_options"]["max_iterations"] == 60
+    # PLP fixture uses PDMaxIte = 60 → 120 / 60 / 30 / 30.
+    assert levels[0]["sddp_options"]["max_iterations"] == 120
     assert levels[1]["sddp_options"]["max_iterations"] == 60
     assert levels[2]["sddp_options"]["max_iterations"] == 30
     assert levels[3]["sddp_options"]["max_iterations"] == 30

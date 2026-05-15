@@ -3027,6 +3027,27 @@ bool LinearInterface::is_integer(const ColIndex index) const
 
 void LinearInterface::ensure_duals()
 {
+  // Some LP states have no duals to ensure — this is normal, not an
+  // error.  Callers must handle the "no duals available" outcome by
+  // observing an empty cache span on the next read.
+  //
+  //   (a) Backend released under `LowMemoryMode::compress` and the
+  //       cache was wiped (`invalidate_cached_optimal_on_mutation`)
+  //       between the last solve and the release — typical for cells
+  //       whose last op was a Benders `add_row` with no subsequent
+  //       resolve.  Reconstructing the backend just to re-solve for
+  //       duals would force a full re-solve per call, which is
+  //       prohibitively expensive at cascade-transition
+  //       `update_stored_cut_duals` time (every L0 cell would
+  //       otherwise re-solve here).  Accept the missing duals — the
+  //       caller's prior `cut.dual` (captured at cut creation) is
+  //       the right fallback.
+  //
+  //   (b) Backend null pre-`load_flat` / mid-shutdown.
+  //
+  if (m_backend_ == nullptr || m_backend_released_) {
+    return;
+  }
   // Duals are always available unless we solved with barrier w/o crossover.
   // CLP/CBC (simplex-only) always produce vertex duals regardless of options.
   if (m_last_solver_options_.algorithm != LPAlgo::barrier

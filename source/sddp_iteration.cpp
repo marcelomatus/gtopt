@@ -1475,6 +1475,37 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             break;
           }
 
+          // ── Stop check BEFORE spread gate ──
+          //
+          // The spread gate is a TRAINING optimization: it prevents
+          // any single scene from running too far ahead of the
+          // slowest active scene so cuts stay broadly aligned.
+          // Under ``m_stop_requested_`` we are NOT training anymore —
+          // we're winding down, and every idle scene should
+          // transition to ``done`` so the outer ``while(!all_done)``
+          // loop can exit.
+          //
+          // Previous ordering (spread check first) had a deadlock:
+          // when aggregate-convergence fires with N scenes in
+          // ``backward_running`` and the cancellation cascade leaves
+          // some scene's ``m_scene_completed_iter_`` lagging the
+          // fast scenes (e.g. iter 25 vs 33), the spread gate
+          // ``current_iter > min + max_spread`` blocks every fast
+          // scene from transitioning past the gate.  ``should_stop``
+          // is below the gate, so it never fires for those scenes.
+          // The work pool drains to 0/0/Done=N, the main thread
+          // parks in the 1 ms sleep at the bottom of the loop,
+          // ``all_done`` never flips.  Observed on juan/IPLP L1
+          // uninodal twice (2026-05-15 sessions).
+          //
+          // Moving the stop check first guarantees a stop signal
+          // drains every idle scene to ``done`` in O(N_scenes) loop
+          // iterations regardless of tracker state.
+          if (should_stop()) {
+            sp.state = SceneState::done;
+            break;
+          }
+
           // Spread limit: don't advance too far ahead of slowest
           // non-converged scene.  When max_spread >= max_iterations this
           // is effectively unlimited — scenes never wait.
@@ -1498,11 +1529,6 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                   > min_iteration_index + IterationIndex {max_spread})
           {
             break;  // wait for slow scenes to catch up
-          }
-          // Check stop conditions
-          if (should_stop()) {
-            sp.state = SceneState::done;
-            break;
           }
 
           // Submit forward pass
@@ -1816,25 +1842,46 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // here (the sync path delegates to ``finalize_iteration_result``
       // upstream) because the async aggregate result is assembled
       // inline; everything after that delegates to the shared helper.
-      if (m_options_.stationary_tol > 0.0 && m_options_.stationary_window > 0
-          && !results.empty())
-      {
+      //
+      // Cross-level seed: on iter 1 of a non-first cascade level the
+      // in-level ``results`` vector is empty (per-level reset).
+      // When :func:`SDDPMethod::seed_prior_bounds` has been called by
+      // the cascade orchestrator with the last N iters of the
+      // previous level (oldest-first), walk a combined index over
+      // ``[seed ⧺ results]`` so a ``stationary_window=N``
+      // configuration actually exercises an N-iter lookback at iter 1
+      // — previously the seed was a single point and any window > 1
+      // silently degraded to a 1-iter lookback at every cascade
+      // transition.  Pair with ``min_iterations >= 2`` to avoid
+      // converging instantly when the inherited envelope nearly
+      // matches the previous level's UB (see the sync companion at
+      // :func:`SDDPMethod::finalize_iteration_result`).
+      if (m_options_.stationary_tol > 0.0 && m_options_.stationary_window > 0) {
         const auto window =
             static_cast<std::size_t>(m_options_.stationary_window);
-        const auto lookback = std::min(window, results.size());
-        const double old_ub = results[results.size() - lookback].upper_bound;
-        ir.gap_change = std::abs(ir.upper_bound - old_ub)
-            / std::max(1e-10, std::abs(old_ub));
+        const std::size_t seed_n = m_seed_prior_history_.size();
+        const std::size_t avail = seed_n + results.size();
+        const std::size_t lookback = std::min(window, avail);
+        if (lookback > 0) {
+          // Index over the combined sequence, counted from the
+          // OLDEST entry.
+          const std::size_t pos = avail - lookback;
+          const double old_ub = (pos < seed_n)
+              ? m_seed_prior_history_[pos].upper_bound
+              : results[pos - seed_n].upper_bound;
+          ir.gap_change = std::abs(ir.upper_bound - old_ub)
+              / std::max(1e-10, std::abs(old_ub));
 
-        const auto stationary =
-            evaluate_stationary_check(ir,
-                                      next_converge_iteration_index,
-                                      m_iteration_offset_,
-                                      results.size(),
-                                      m_options_);
-        if (!ir.converged && stationary.converged()) {
-          ir.converged = true;
-          ir.stationary_converged = true;
+          const auto stationary =
+              evaluate_stationary_check(ir,
+                                        next_converge_iteration_index,
+                                        m_iteration_offset_,
+                                        results.size(),
+                                        m_options_);
+          if (!ir.converged && stationary.converged()) {
+            ir.converged = true;
+            ir.stationary_converged = true;
+          }
         }
       }
 

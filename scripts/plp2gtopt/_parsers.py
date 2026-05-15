@@ -357,7 +357,13 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--method",
         dest="method",
         metavar="METHOD",
-        default=conf.get("method", "sddp"),
+        # Default `cascade` since 2026-05-15: the 4-level multi-fidelity
+        # ladder (warmup/uninodal/transport/full_network) is the
+        # production-grade path on juan/IPLP-scale problems — plain
+        # `sddp` is retained as a CLI choice for diagnostic / one-level
+        # runs but no longer the default.  `--plp-legacy` still pins
+        # `sddp` to match the legacy PLP equivalence shim.
+        default=conf.get("method", "cascade"),
         # `mono` is kept as a deprecated alias for `monolithic` —
         # simulation_writer.py:58 normalises it back to `monolithic`.
         choices=[

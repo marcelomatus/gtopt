@@ -191,6 +191,14 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   };
   row[alpha_col] = 1.0;
 
+  // Hoist the trace-level check outside the link loop.  At juan/IPLP
+  // scale this loop iterates ~50 times per cut × ~8 apertures × ~50
+  // phases × 16 scenes per backward pass — emitting a TRACE line per
+  // link materialises ~320K `std::format` argument lists per iteration
+  // even when trace is OFF (the common case).  spdlog's runtime gate
+  // happens AFTER argument formatting, so guard explicitly.
+  const bool trace_on = spdlog::should_log(spdlog::level::trace);
+  double max_abs_coeff = 0.0;
   for (const auto& link : links) {
     if (link.state_var == nullptr) {
       continue;
@@ -202,40 +210,36 @@ auto build_benders_cut_physical(ColIndex alpha_col,
     const auto v_hat_phys = link.state_var->col_sol_physical();
     row[link.source_col] = -rc_phys;
     row.lowb -= rc_phys * v_hat_phys;
+    max_abs_coeff = std::max(max_abs_coeff, std::abs(rc_phys));
 
-    // (DIAG 2026-04-30) Cut-math instrumentation: print just the
-    // physical values that actually enter the cut row.  The user's
-    // pattern: `prefer the physical values directly from the linear
-    // interface`.  rc_phys here came from
-    // `state_var->reduced_cost_physical(scale_obj)` which, after the
-    // A3 post-flatten sync of `m_var_scale_`, equals what
-    // `target_li.get_col_cost()[dep_col]` would return.  v_hat_phys
-    // came from `state_var->col_sol_physical()` which equals what
-    // `source_li.get_col_sol()[source_col]` would return.  TRACE
-    // level — invisible at default log_level=info.
-    // Use `spdlog::trace(...)` (function call, runtime-gated) rather
-    // than `SPDLOG_TRACE(...)` (macro, compile-time gated).  The PCH
-    // bakes `<spdlog/spdlog.h>` at default `SPDLOG_ACTIVE_LEVEL=INFO`,
-    // so the macro form was preprocessed to `(void)0` regardless of
-    // any per-file `#define` block placed after the gtopt header
-    // includes.  The function form always compiles in and is gated
-    // only by `spdlog::default_logger()->level()`.
-    spdlog::trace(
-        "build_benders_cut_physical[ovld1]: src_col={} dep_col={} "
-        "rc_phys={:.6e} v_hat_phys={:.6e}",
-        static_cast<int>(link.source_col),
-        static_cast<int>(link.dependent_col),
-        rc_phys,
-        v_hat_phys);
+    if (trace_on) {
+      // (DIAG 2026-04-30) Cut-math instrumentation: print just the
+      // physical values that actually enter the cut row.  rc_phys came
+      // from `state_var->reduced_cost_physical(scale_obj)`; v_hat_phys
+      // came from `state_var->col_sol_physical()`.  See the per-cut
+      // summary line below for the loop-final aggregate.
+      spdlog::trace(
+          "build_benders_cut_physical[ovld1]: src_col={} dep_col={} "
+          "rc_phys={:.6e} v_hat_phys={:.6e}",
+          static_cast<int>(link.source_col),
+          static_cast<int>(link.dependent_col),
+          rc_phys,
+          v_hat_phys);
+    }
   }
 
-  spdlog::trace(
-      "build_benders_cut_physical[ovld1]: alpha_col={} obj_phys={:.6e} "
-      "→ row.lowb={:.6e} ({} links)",
-      static_cast<int>(alpha_col),
-      objective_value_physical,
-      row.lowb,
-      links.size());
+  // Single per-cut summary line — emitted even when the per-link
+  // detail is silenced (cheap: O(1) format args, fires O(cuts/iter)).
+  if (trace_on) {
+    spdlog::trace(
+        "build_benders_cut_physical[ovld1]: alpha_col={} obj_phys={:.6e} "
+        "→ row.lowb={:.6e} ({} links, max|coeff|={:.6e})",
+        static_cast<int>(alpha_col),
+        objective_value_physical,
+        row.lowb,
+        links.size(),
+        max_abs_coeff);
+  }
 
   return row;
 }
@@ -259,6 +263,10 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   };
   row[alpha_col] = 1.0;
 
+  // Hoist trace gate outside the per-link loop — see ovld1 for the
+  // ~320K-line/iter rationale at juan/IPLP scale.
+  const bool trace_on = spdlog::should_log(spdlog::level::trace);
+  double max_abs_coeff = 0.0;
   const auto rc_view = rc_source.get_col_cost();
   for (const auto& link : links) {
     const auto rc_phys = rc_view[link.dependent_col];
@@ -269,33 +277,31 @@ auto build_benders_cut_physical(ColIndex alpha_col,
         (link.state_var != nullptr) ? link.state_var->col_sol_physical() : 0.0;
     row[link.source_col] = -rc_phys;
     row.lowb -= rc_phys * v_hat_phys;
+    max_abs_coeff = std::max(max_abs_coeff, std::abs(rc_phys));
 
-    // (DIAG 2026-04-30) Same instrumentation as overload 1: print
-    // only the physical values entering the cut row.  rc_phys came
-    // directly from `rc_source.get_col_cost()[dep_col]` (a
-    // ScaledView returning `rc_LP × scale_obj / col_scale` —
-    // physical $/unit modulo the cost_factor cancellation).
-    // v_hat_phys came from state_var cache which, after A3 sync,
-    // equals what `source_li.get_col_sol()[source_col]` would
-    // return.
-    // See ovld1 above for the rationale on `spdlog::trace` vs
-    // `SPDLOG_TRACE` (PCH preprocesses the macro to `(void)0`).
-    spdlog::trace(
-        "build_benders_cut_physical[ovld2]: src_col={} dep_col={} "
-        "rc_phys={:.6e} v_hat_phys={:.6e}",
-        static_cast<int>(link.source_col),
-        static_cast<int>(link.dependent_col),
-        rc_phys,
-        v_hat_phys);
+    if (trace_on) {
+      // (DIAG 2026-04-30) rc_phys: from `rc_source.get_col_cost()[dep_col]`
+      // (ScaledView, physical $/unit); v_hat_phys: state_var cache.
+      spdlog::trace(
+          "build_benders_cut_physical[ovld2]: src_col={} dep_col={} "
+          "rc_phys={:.6e} v_hat_phys={:.6e}",
+          static_cast<int>(link.source_col),
+          static_cast<int>(link.dependent_col),
+          rc_phys,
+          v_hat_phys);
+    }
   }
 
-  spdlog::trace(
-      "build_benders_cut_physical[ovld2]: alpha_col={} obj_phys={:.6e} "
-      "→ row.lowb={:.6e} ({} links)",
-      static_cast<int>(alpha_col),
-      objective_value_physical,
-      row.lowb,
-      links.size());
+  if (trace_on) {
+    spdlog::trace(
+        "build_benders_cut_physical[ovld2]: alpha_col={} obj_phys={:.6e} "
+        "→ row.lowb={:.6e} ({} links, max|coeff|={:.6e})",
+        static_cast<int>(alpha_col),
+        objective_value_physical,
+        row.lowb,
+        links.size(),
+        max_abs_coeff);
+  }
 
   return row;
 }

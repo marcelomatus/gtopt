@@ -107,7 +107,6 @@ struct StoredCut
   int extra {-1};
   double rhs {};  ///< Right-hand side (lower bound)
   double scale {1.0};  ///< Row scale (physical → LP), mirrors SparseRow::scale
-  std::optional<double> dual {};  ///< Row dual value (nullopt = unknown)
   RowIndex row {};  ///< LP row index where this cut was added
   /// Coefficient pairs: (column_index, coefficient)
   std::vector<std::pair<ColIndex, double>> coefficients {};
@@ -224,22 +223,6 @@ public:
   /// store live on `(scene_index, *)` cells by ownership invariant).
   /// The caller already has it in scope.
   std::ptrdiff_t clear_with_lp(PlanningLP& planning_lp, SceneIndex scene_index);
-
-  // ── Refresh stored cut duals from the live LP ───────────────────────
-  /// Update each stored cut's `dual` field by reading
-  /// `LinearInterface::get_row_dual_raw()` at `cut.row` on the
-  /// `(scene_index, phase)` cell.  Cuts whose `phase_uid` cannot be
-  /// resolved are left with their existing dual (no error).  Used by
-  /// `SDDPMethod::update_stored_cut_duals` to refresh duals after a
-  /// solve so subsequent cut-pruning decisions read up-to-date values.
-  ///
-  /// This method drops the `scene_uid` lookup the legacy
-  /// `SDDPCutManager::update_stored_cut_duals` did via
-  /// `build_scene_uid_map`: every cut in this store is owned by
-  /// `scene_index` by construction (the per-scene single-writer
-  /// invariant), so the caller-supplied index is the authoritative
-  /// scene for every cut here.
-  void update_duals(PlanningLP& planning_lp, SceneIndex scene_index);
 
   // ── Direct access to the underlying vector ──────────────────────────
   /// Mutable view; used by call sites that need
@@ -367,9 +350,6 @@ public:
   /// from "received peer cuts and can retry".
   std::ptrdiff_t clear_scene_cuts(SceneIndex scene_index,
                                   PlanningLP& planning_lp);
-
-  /// Update dual values of stored cuts from the current LP solution.
-  void update_stored_cut_duals(PlanningLP& planning_lp);
 
   /// Prune inactive cuts from all (scene, phase) LPs.
   void prune_inactive_cuts(

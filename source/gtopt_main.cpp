@@ -232,7 +232,15 @@ void setup_trace_log(const MainOptions& opts)
     if (!parent.empty()) {
       std::filesystem::create_directories(parent);
     }
-    ensure_default_logger_async();
+    // NOTE: do NOT call `ensure_default_logger_async()` here.  The
+    // gtopt_main entry point already installs the async wrapper; if
+    // the caller subsequently asked for sync mode (via
+    // `--no-async-logger` or `-T`), `gtopt_main` invoked
+    // `switch_to_sync_default_logger()` immediately afterwards.
+    // Re-asserting async here would silently undo that switch — and
+    // under `-T` it would re-enable the very `overrun_oldest` policy
+    // that drops trace lines under load.  Just attach the sink to
+    // whichever default logger is currently registered.
     auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         trace_path, /*truncate=*/true);
     trace_sink->set_level(spdlog::level::trace);
@@ -313,6 +321,50 @@ void setup_trace_log(const MainOptions& opts)
 
 }  // namespace
 
+void install_async_default_logger()
+{
+  ensure_default_logger_async();
+}
+
+void switch_to_sync_default_logger()
+{
+  auto current = spdlog::default_logger();
+  if (!current) {
+    return;
+  }
+  if (current->name() != kAsyncLoggerName) {
+    return;  // already synchronous
+  }
+  // Drain any messages already enqueued on the async wrapper before we
+  // detach its sinks.  Otherwise messages "logged" up to this point
+  // might never reach disk because we're about to drop the only owner
+  // of the async_logger handle.
+  try {
+    current->flush();
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  }
+  const auto previous_level = current->level();
+  std::vector<spdlog::sink_ptr> sinks;
+  {
+    const auto& current_sinks = current->sinks();
+    sinks.assign(current_sinks.begin(), current_sinks.end());
+  }
+  auto sync = std::make_shared<spdlog::logger>(
+      "gtopt_sync", sinks.begin(), sinks.end());
+  sync->set_level(previous_level);
+  spdlog::set_default_logger(std::move(sync));
+}
+
+void flush_default_logger_best_effort() noexcept
+{
+  try {
+    if (auto logger = spdlog::default_logger()) {
+      logger->flush();
+    }
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  }
+}
+
 void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
 {
   const auto log_dir = resolve_log_dir(opts);
@@ -361,6 +413,23 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   // (including the stdout colour sink) dispatch via the background
   // thread pool, so SDDP workers don't block on the sink mutex.
   ensure_default_logger_async();
+
+  // Two cases force the default logger back to synchronous:
+  //   1. The user explicitly disabled async via `--no-async-logger` /
+  //      `--async-logger=false`.
+  //   2. Trace mode is enabled (`--trace-log` / `-T`).  The async
+  //      wrapper's bounded queue + `overrun_oldest` policy silently
+  //      drops trace bursts, which defeats the purpose of trace mode
+  //      (we want EVERY trace line on disk for post-mortem analysis).
+  //      Sync mode takes a sink mutex per log call — slower under
+  //      load but deterministic.
+  // Idempotent: no-op when the default logger is already sync.
+  const bool async_disabled = !opts.async_logger.value_or(true);
+  const bool trace_enabled = opts.trace_log.has_value();
+  if (async_disabled || trace_enabled) {
+    switch_to_sync_default_logger();
+  }
+
   setup_trace_log(opts);
 
   try {
