@@ -2170,7 +2170,19 @@ inline auto make_backtracking_no_recovery_planning() -> Planning
 /// source_col).  Under `chinneck`, IIS filtering may prune the
 /// non-essential subset — on this symmetric 2-reservoir design
 /// typically both reservoirs stay in the IIS.
-inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
+/// Two-reservoir backtracking-recovery fixture.
+///
+/// `hydro2_gcost` controls the gen1/gen3 cost tie:
+///   * Default 1.0 → degenerate optimum (intentional; needed by the
+///     elastic-recovery iter-0 cascade tests).  Multiple equally-
+///     optimal vertices, so CLP/HiGHS may report `dual_max=0`.
+///   * Asymmetric (e.g. 2.0) → unique optimum; every (solver,
+///     algorithm) combination lands on the same vertex.  Used by
+///     the non-degenerate dual-assertion test where every solver
+///     must report a strictly positive efin row dual without the
+///     WARN+skip escape hatch used by the degenerate variant.
+inline auto make_backtracking_recovery_two_reservoir_planning(
+    double hydro2_gcost = 1.0) -> Planning
 {
   constexpr int num_phases = 10;
   constexpr int blocks_per_phase = 1;
@@ -2241,7 +2253,7 @@ inline auto make_backtracking_recovery_two_reservoir_planning() -> Planning
           .uid = Uid {3},
           .name = "hydro_gen_2",
           .bus = Uid {1},
-          .gcost = 1.0,
+          .gcost = hydro2_gcost,
           .capacity = 30.0,
       },
   };

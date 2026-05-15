@@ -5,11 +5,12 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Implements the LP formulation for volume-dependent discharge limits.
- * Creates a stage-average `qeh` variable, block-level averaging constraints,
- * and a stage-level volume-dependent upper bound on discharge.
- * When piecewise-linear segments are present, update_lp() dynamically
- * adjusts the constraint coefficients based on current reservoir volume.
+ * Implements the LP formulation for volume-dependent peak-discharge limits.
+ * For each (scenario, stage, block) triple emits one row
+ * `flow_b - slope·efin ≤ intercept`, enforcing the physical penstock cap on
+ * every block independently (max-of-blocks).  When piecewise-linear segments
+ * are present, update_lp() dynamically adjusts coefficient/RHS on every
+ * block-level row of the active stage from the current reservoir volume.
  */
 
 #include <gtopt/input_context.hpp>
@@ -63,77 +64,54 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   // InputContext into add_to_lp.
 
   const auto& blocks = stage.blocks();
-  const auto stage_dur = stage.duration();
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
-  const auto stage_context = make_stage_context(scenario.uid(), stage.uid());
-
-  // 1. Create qeh variable (free, stage-average hourly discharge)
-  const auto qeh_col = lp.add_col(SparseCol {
-      .class_name = Element::class_name.full_name(),
-      .variable_name = QehName,
-      .variable_uid = uid(),
-      .context = stage_context,
-  });
-  qeh_cols[st_key] = qeh_col;
-
-  // 2. Single averaging constraint: qeh - Σ_b (dur_b / dur_stage) × flow_b = 0
-  auto avg_row =
-      SparseRow {
-          .class_name = Element::class_name.full_name(),
-          .constraint_name = QavgName,
-          .variable_uid = uid(),
-          .context = stage_context,
-      }
-          .equal(0.0);
-
-  avg_row[qeh_col] = 1.0;
+  // Per-block peak-flow rows: flow_b − slope · efin ≤ intercept
+  //
+  // Replaces the prior stage-average formulation (qeh = Σ_b
+  // (dur_b/dur_stage)·flow_b, qeh − slope·efin ≤ intercept) with one
+  // row per block, enforcing the DCMax cap on every block individually
+  // instead of on the duration-weighted average.  Rationale:
+  //
+  //   * DCMax(V) is a **peak-flow** capacity (penstock m³/s from
+  //     plpmaness.dat), not an energy.  The averaged form let a
+  //     peaky pattern (e.g. one block at 8×DCMax for 1h, the rest
+  //     at zero) satisfy `qeh ≤ DCMax` while violating the physical
+  //     penstock in the peak block.  The max-of-blocks form rules
+  //     this out.
+  //
+  //   * Anchoring on `efin` only (not `0.5·(eini + efin)`) keeps the
+  //     constraint feasible at the segment-boundary `efin = emin`
+  //     whenever the input data satisfies `intercept + slope·emin ≥ 0`
+  //     (validated in `validate_planning.cpp`), and keeps segment
+  //     selection consistent with `ReservoirSeepageLP`.  The averaging
+  //     form could go infeasible mid-segment if `eini` was much
+  //     smaller than `emin` during SDDP iter-1+ when a backward cut
+  //     pulled `eini` toward zero.
+  //
+  //   * Eliminates `eini`'s coefficient entirely from the row, which
+  //     removes a state-link coefficient and simplifies the
+  //     cut-construction reduced-cost accounting on the SDDP backward
+  //     pass.
   for (auto&& block : blocks) {
-    const auto fcol = flow_cols.at(block.uid());
-    const auto dur_ratio = block.duration() / stage_dur;
-    avg_row[fcol] = -dur_ratio;
+    const auto buid = block.uid();
+    const auto fcol = flow_cols.at(buid);
+
+    auto vol_row =
+        SparseRow {
+            .class_name = Element::class_name.full_name(),
+            .constraint_name = DvolName,
+            .variable_uid = uid(),
+            .context = make_block_context(scenario.uid(), stage.uid(), buid),
+        }
+            .less_equal(coeffs.intercept);
+
+    vol_row[fcol] = 1.0;
+    vol_row[efin_col] = -lp_slope;
+
+    vol_rows[st_key][buid] = lp.add_row(std::move(vol_row));
   }
-  avg_rows[st_key] = lp.add_row(std::move(avg_row));
-
-  // 3. Stage-level volume constraint (efin-only formulation):
-  //    qeh − slope · efin  ≤  intercept
-  //
-  // Rationale (matches `ReservoirSeepageLP::add_to_lp`):
-  //
-  //   * Anchoring on `efin` only — instead of the prior
-  //     `0.5·(eini + efin)` average — guarantees the constraint
-  //     is feasible at the segment-boundary `efin = emin` whenever
-  //     the input data satisfies `intercept + slope·emin ≥ 0`
-  //     (see the warning emitted above).  The averaging form
-  //     could go infeasible mid-segment if the slope is steep
-  //     and `eini` is much smaller than `emin` (transient state
-  //     during SDDP iter-1+ when a backward cut pulls `eini`
-  //     toward zero).
-  //
-  //   * Symmetry with seepage's discretisation keeps the two
-  //     constraints' segment selections consistent: both pick
-  //     coefficients from the volume Vα the predecessor solved
-  //     to (via `physical_eini`), so they don't disagree on
-  //     which segment is active.
-  //
-  //   * Eliminates `eini`'s coefficient entirely from the row,
-  //     which removes a state-link coefficient and simplifies
-  //     the cut-construction reduced-cost accounting on the
-  //     SDDP backward pass.
-  auto vol_row =
-      SparseRow {
-          .class_name = Element::class_name.full_name(),
-          .constraint_name = DvolName,
-          .variable_uid = uid(),
-          .context = stage_context,
-      }
-          .less_equal(coeffs.intercept);
-
-  vol_row[qeh_col] = 1.0;
-  vol_row[efin_col] = -lp_slope;
-
-  vol_rows[st_key] = lp.add_row(std::move(vol_row));
 
   // Store state for update_lp.  The reservoir cache eliminates
   // `sys.element<ReservoirLP>(reservoir_sid())` from the update_lp path.
@@ -153,7 +131,6 @@ bool ReservoirDischargeLimitLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, QehName, pid, qeh_cols);
   out.add_row_dual(cname, DvolName, pid, vol_rows);
 
   return true;
@@ -197,19 +174,21 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   // efin-only formulation — see `add_to_lp` above for the
   // feasibility rationale.  Only the `efin_col` coefficient is
   // re-issued; `eini_col`'s coefficient is permanently 0 in this
-  // row.
+  // row.  Max-of-blocks formulation: re-issue on every block's row.
   int total = 0;
-  const auto row = vol_rows.at(st_key);
+  const auto& brows = vol_rows.at(st_key);
 
-  li.set_coeff(row, state.efin_col, -new_slope);
-  ++total;
-  li.set_rhs(row, new_rhs);
-  ++total;
+  for (const auto& [buid, row] : brows) {
+    li.set_coeff(row, state.efin_col, -new_slope);
+    li.set_rhs(row, new_rhs);
+    total += 2;
+  }
 
   SPDLOG_TRACE(
-      "ReservoirDischargeLimitLP uid={}: updated constraints "
+      "ReservoirDischargeLimitLP uid={}: updated {} block rows "
       "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
+      brows.size(),
       volume,
       new_slope,
       new_rhs);

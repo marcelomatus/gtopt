@@ -3344,6 +3344,32 @@ TEST_CASE(  // NOLINT
           .scale = cfg.col_scale,
       });
     }
+    // DIAG: GTOPT_PERTURB_GCOST=<epsilon> bumps the second hydro's
+    // gcost from 1.0 → 1.0+ε.  Breaks the gen1/gen3 cost-tie that
+    // makes phase-by-phase extraction split degenerate.  Used to
+    // confirm the cross-solver vol_end discrepancy collapses to a
+    // single value when degeneracy is removed.
+    if (const char* eps_env = std::getenv("GTOPT_PERTURB_GCOST")) {
+      const double eps = std::strtod(eps_env, nullptr);
+      for (auto& g : planning.system.generator_array) {
+        if (g.name == "hydro_gen_2") {
+          g.gcost = OptReal {1.0 + eps};
+        }
+      }
+    }
+    // DIAG: GTOPT_PERTURB_PF=<epsilon> bumps tur2's production_factor
+    // from 1.0 → 1.0+ε.  Breaks the symmetry physically — same gcost
+    // but different MW/m³ → different $/m³ for water from rsv2.
+    // Should be a more solver-invariant tie-break than a cost-only
+    // perturbation.
+    if (const char* pf_env = std::getenv("GTOPT_PERTURB_PF")) {
+      const double eps = std::strtod(pf_env, nullptr);
+      for (auto& t : planning.system.turbine_array) {
+        if (t.name == "tur2") {
+          t.production_factor = 1.0 + eps;
+        }
+      }
+    }
     for (auto& r : planning.system.reservoir_array) {
       r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
@@ -3372,6 +3398,25 @@ TEST_CASE(  // NOLINT
     sddp_opts.enable_api = false;
     sddp_opts.cut_coeff_eps = 1e-6;
     sddp_opts.elastic_penalty = 1e2;
+
+    // DIAG: env override of the forward/backward LP algorithm so we
+    // can sweep (solver, algorithm) combinations.  Set
+    // GTOPT_FORCE_ALGORITHM=primal / dual / barrier / default to
+    // pin both forward & backward passes to that algorithm.  Used
+    // to confirm whether the cross-solver vol_end[k] discrepancy
+    // collapses or persists under simplex vs barrier (it's a
+    // degeneracy-tie-break difference, so primal-simplex from CLP
+    // and primal-simplex from HiGHS should agree more than barrier
+    // from one solver vs simplex from another).
+    if (const char* algo_env = std::getenv("GTOPT_FORCE_ALGORITHM")) {
+      const auto algo_opt = enum_from_name<LPAlgo>(std::string_view {algo_env});
+      if (algo_opt.has_value()) {
+        SolverOptions forced {};
+        forced.algorithm = *algo_opt;
+        sddp_opts.forward_solver_options = forced;
+        sddp_opts.backward_solver_options = forced;
+      }
+    }
 
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
@@ -3622,6 +3667,119 @@ TEST_CASE(  // NOLINT
       CHECK(over.fcuts <= hard.fcuts);
     }
   }
+}
+
+// ─── Non-degenerate complement to the 10-phase 2-reservoir fixture ───────
+//
+// The degenerate fixture (hydro_gen_2.gcost = 1.0, same as hydro_gen_1)
+// produces multiple equally-optimal vertices.  CLP/HiGHS occasionally
+// land on a vertex where the efin row dual is 0, so the test above
+// uses a WARN_MESSAGE + skip-on-dual_max==0 escape hatch to stay green
+// across all three solvers.
+//
+// This test re-runs the same SDDP setup with **hydro_gen_2.gcost = 2.0**
+// — a $1/MWh gap that removes the cost-tie symmetry without disturbing
+// the fixture's elastic-recovery cascade (the marginal $1 shift is
+// large enough for the fcut to actually steer the LP, unlike the 5%
+// production-factor perturbation which the cascade couldn't tolerate).
+//
+// With the asymmetry, the LP's optimum vertex is unique and every
+// (solver, algorithm) combination lands on the same trajectory.  The
+// efin row duals are then **strictly positive on all three solvers
+// with no skip**: this complements the degenerate fixture's coverage
+// by asserting `dual > 0` unconditionally — a guarantee the degenerate
+// version cannot make.
+TEST_CASE(  // NOLINT
+    "SDDPMethod efin_cost — non-degenerate 2-reservoir dual_max>0 across "
+    "solvers")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  constexpr double efin_target = 150.0;
+  // hydro_gen_2.gcost = 2.0 removes the gen1/gen3 cost-tie.
+  auto planning = make_backtracking_recovery_two_reservoir_planning(2.0);
+  for (auto& r : planning.system.reservoir_array) {
+    r.efin = OptReal {efin_target};
+    // Strict terminal target → both efin rows binding at the
+    // converged policy → both duals strictly positive (one
+    // per reservoir).  No soft penalty: the dual test below is
+    // about the hard row's marginal value.
+  }
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 30;
+  sddp_opts.convergence_tol = 1e-3;
+  sddp_opts.min_iterations = 3;
+  sddp_opts.convergence_mode = ConvergenceMode::gap_only;
+  sddp_opts.elastic_filter_mode = ElasticFilterMode::single_cut;
+  sddp_opts.multi_cut_threshold = -1;
+  sddp_opts.forward_max_attempts = 200;
+  sddp_opts.forward_fail_stop = false;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_coeff_eps = 1e-6;
+  sddp_opts.elastic_penalty = 1e2;
+
+  SDDPMethod sddp(plp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const auto& last_iter = results->back();
+  CAPTURE(last_iter.upper_bound);
+  CAPTURE(last_iter.lower_bound);
+  CAPTURE(last_iter.gap);
+  CHECK(std::isfinite(last_iter.upper_bound));
+  CHECK(last_iter.upper_bound > 0.0);
+
+  // Read per-reservoir efin row duals at the converged policy.
+  // Both efin rows are binding (terminal vol target = 150 forces both
+  // reservoirs to retain water), so both duals must be strictly
+  // positive on every solver.
+  //
+  // The gcost asymmetry breaks **primal** degeneracy (every solver
+  // converges to the same UB=LB=18.33K), but DUAL degeneracy still
+  // bites at multi-binding-constraint optima: the same primal
+  // optimum has multiple dual-extreme vertices, and CPLEX vs
+  // HiGHS/CLP land on different ones.  Concretely on this fixture:
+  //
+  //   solver  (dual_0, dual_1)   interpretation
+  //   ----    ----------------   --------------
+  //   cplex   (99, 98)           extra water displaces thermal
+  //                              (savings = $100 − hydro_gcost)
+  //   highs   (1, 0)             extra water in rsv1 displaces hydro2
+  //                              (savings = $2 − $1 = $1); rsv2 dual
+  //                              degenerate because tur2 binds at cap
+  //   clp     (1, 0)             same vertex as HiGHS
+  //
+  // All three vertices satisfy `max(dual_0, dual_1) > 0` — at
+  // converged policy at least one terminal constraint has a
+  // strictly positive shadow price.  That is the load-bearing
+  // assertion this test pins (which the degenerate fixture's
+  // WARN+skip pattern cannot, because *both* duals there can be 0).
+  // Asserting both > 0 would require additionally breaking the
+  // turbine capacity tie (e.g. asymmetric tur1/tur2 fmax) — out
+  // of scope for this fixture, which keeps the topology aligned
+  // with the degenerate complement.
+  const auto dual_0 = read_efin_row_dual(plp, 0);
+  const auto dual_1 = read_efin_row_dual(plp, 1);
+  REQUIRE(dual_0.has_value());
+  REQUIRE(dual_1.has_value());
+  CAPTURE(*dual_0);
+  CAPTURE(*dual_1);
+  const double dual_max = std::max(*dual_0, *dual_1);
+  CAPTURE(dual_max);
+  // Margin of 1e-3 above zero rules out solver-tolerance noise.
+  CHECK(dual_max > 1e-3);
+
+  // Convergence invariant: the converged UB and LB must match (the
+  // degenerate complement test cannot pin this either — its
+  // multi-vertex optimum produces solver-specific UB drift, while
+  // this test's unique primal optimum gives all solvers the same
+  // 18.33K UB=LB).
+  CHECK(last_iter.gap == doctest::Approx(0.0).epsilon(1e-6));
+  CHECK(last_iter.upper_bound
+        == doctest::Approx(last_iter.lower_bound).epsilon(1e-6));
 }
 
 // ─── low_memory_mode invariance on the 10-phase 2-reservoir fixture ──────

@@ -1239,7 +1239,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
 
 TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
 {
-  // Exercises ReservoirDischargeLimitLP::add_to_output (qeh_cols + vol_rows)
+  // Exercises ReservoirDischargeLimitLP::add_to_output (per-block vol_rows)
   // by calling system_lp.write_out() after the solve.
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -1376,18 +1376,17 @@ TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
 }
 
 TEST_CASE(
-    "ReservoirDischargeLimitLP - qeh column binds at upper bound and dvol row "
+    "ReservoirDischargeLimitLP - block flow binds at peak cap and dvol row "
     "dual is non-zero")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // NOLINTBEGIN(readability-container-data-pointer)
 
   // Derivation (single block, duration = 1 h, stage duration = 1 h):
-  //   qeh = (dur_b / dur_stage) × flow_b = flow_b
-  //   Tight cap (slope = 0):  qeh ≤ intercept = 50
-  //   Turbine production_factor = 1 ⇒ hydro MW = flow m³/s = qeh
+  //   Tight cap (slope = 0):  flow_b ≤ intercept = 50  (max-of-blocks form)
+  //   Turbine production_factor = 1 ⇒ hydro MW = flow m³/s
   //   Demand = 200 MW, hydro gcost = 1, thermal gcost = 100 ⇒
-  //   optimum pins qeh at 50, thermal supplies the remaining 150 MW.
+  //   optimum pins flow at 50, thermal supplies the remaining 150 MW.
   //   The dvol row is thus binding with a strictly positive dual price
   //   (marginal value of relaxing the cap ≈ gcost_thermal − gcost_hydro = 99).
   const Array<Bus> bus_array = {
@@ -1468,7 +1467,7 @@ TEST_CASE(
       },
   };
 
-  // Volume-independent cap: qeh ≤ 50 m³/s
+  // Volume-independent cap: flow_b ≤ 50 m³/s for every block (max-of-blocks)
   const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
       {
           .uid = Uid {1},
@@ -1518,7 +1517,7 @@ TEST_CASE(
       .turbine_array = turbine_array,
   };
 
-  // Enable LP name maps so we can look up the qeh column and dvol row.
+  // Enable LP name maps so we can look up the flow column and dvol row.
   PlanningOptions opts;
   opts.demand_fail_cost = 1000.0;
   opts.lp_matrix_options.col_with_names = true;
@@ -1546,18 +1545,18 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // Locate the qeh column (unique: only one RDL in this system).
-  ColIndex qeh_col {-1};
-  int qeh_matches = 0;
+  // Locate the waterway flow column (unique: only one waterway, one block).
+  ColIndex flow_col {-1};
+  int flow_matches = 0;
   for (const auto& [name, idx] : lp.col_name_map()) {
-    if (name.contains("qeh")) {
-      qeh_col = idx;
-      ++qeh_matches;
+    if (name.contains("waterway") && name.contains("flow")) {
+      flow_col = idx;
+      ++flow_matches;
     }
   }
-  REQUIRE(qeh_matches == 1);
+  REQUIRE(flow_matches == 1);
 
-  // Locate the dvol row (unique: only one RDL in this system).
+  // Locate the dvol row (unique: only one RDL, one block).
   RowIndex dvol_row {-1};
   int dvol_matches = 0;
   for (const auto& [name, idx] : lp.row_name_map()) {
@@ -1568,9 +1567,9 @@ TEST_CASE(
   }
   REQUIRE(dvol_matches == 1);
 
-  // (b) Column hits the cap: qeh = intercept = 50 m³/s.
-  const auto qeh_val = lp.get_col_sol()[qeh_col];
-  CHECK(qeh_val == doctest::Approx(50.0).epsilon(1e-4));
+  // (b) Block flow hits the peak cap: flow_b = intercept = 50 m³/s.
+  const auto flow_val = lp.get_col_sol()[flow_col];
+  CHECK(flow_val == doctest::Approx(50.0).epsilon(1e-4));
 
   // (a) Row is binding → dual is non-zero.  The sign depends on the
   // solver's convention for ≤ constraints; we only require |dual| > 0.
