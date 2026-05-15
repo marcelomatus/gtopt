@@ -481,7 +481,7 @@ private:
     auto sum_proj = [&](const auto& cols)
     {
       double s = 0.0;
-      for (const auto c : cols) {
+      for (const auto& c : cols) {
         s += value_span[c];
       }
       return s;

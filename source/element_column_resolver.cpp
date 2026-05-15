@@ -220,7 +220,7 @@ namespace
                                         stage.uid(),
                                         block.uid());
     if (!cols.empty()) {
-      for (const auto col : cols) {
+      for (const auto& col : cols) {
         row[col] += coef;
       }
       return true;
