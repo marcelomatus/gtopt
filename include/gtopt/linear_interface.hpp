@@ -1580,16 +1580,16 @@ public:
   /// `LinearInterface::add_obj_constant` calls.  Returns physical
   /// scale for API symmetry with the mutator, even though the
   /// underlying storage is raw-scale `m_obj_constant_raw_`.
-  [[nodiscard]] constexpr double obj_constant() const noexcept
+  [[nodiscard]] constexpr double get_obj_constant() const noexcept
   {
     return m_obj_constant_raw_ * m_scale_objective_;
   }
 
   /// Raw-scale view of the accumulated constant (LP units).  Useful
   /// for diagnostics that need to inspect what gets added to
-  /// `get_obj_value_raw()` directly.  Equal to `obj_constant() /
+  /// `get_obj_value_raw()` directly.  Equal to `get_obj_constant() /
   /// scale_objective`.
-  [[nodiscard]] constexpr double obj_constant_raw() const noexcept
+  [[nodiscard]] constexpr double get_obj_constant_raw() const noexcept
   {
     return m_obj_constant_raw_;
   }

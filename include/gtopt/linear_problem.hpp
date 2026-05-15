@@ -262,8 +262,9 @@ public:
 
   /// Current accumulated objective constant (physical units).  Zero
   /// in every existing call site that does not opt into the
-  /// substitution rewrite.
-  [[nodiscard]] constexpr double obj_constant() const noexcept
+  /// substitution rewrite.  Named with the `get_` prefix to match
+  /// the other LP-side accessors (`get_obj_value` family).
+  [[nodiscard]] constexpr double get_obj_constant() const noexcept
   {
     return m_obj_constant_;
   }

@@ -364,7 +364,7 @@ TEST_CASE(
   // post `release_backend`; here we do it directly to keep the
   // test scope tight).
   src.load_flat(flat);
-  REQUIRE(src.obj_constant_raw() == doctest::Approx(42.0));
+  REQUIRE(src.get_obj_constant_raw() == doctest::Approx(42.0));
 
   // Release + reconstruct — exercises the compress/decompress code
   // path that production hits when a cell is reloaded for the
@@ -374,7 +374,7 @@ TEST_CASE(
 
   // After reconstruct, the live value must still be 42.0 (snapshot
   // round-trip preserved the scalar field through compression).
-  CHECK(src.obj_constant_raw() == doctest::Approx(42.0));
+  CHECK(src.get_obj_constant_raw() == doctest::Approx(42.0));
 }
 
 // NOLINTEND(misc-const-correctness, modernize-use-designated-initializers)

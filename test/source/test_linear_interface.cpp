@@ -2079,11 +2079,11 @@ TEST_CASE("LinearProblem::add_obj_constant — physical-units accumulator")
   // `FlatLinearProblem::obj_constant_raw`.
 
   LinearProblem lp("obj_const_acc");
-  CHECK(lp.obj_constant() == doctest::Approx(0.0));
+  CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
 
   lp.add_obj_constant(7.5);
   lp.add_obj_constant(-2.5);  // accumulates additively
-  CHECK(lp.obj_constant() == doctest::Approx(5.0));
+  CHECK(lp.get_obj_constant() == doctest::Approx(5.0));
 
   // Need a non-empty LP for flatten() to return a populated struct.
   [[maybe_unused]] const auto col = lp.add_col(SparseCol {

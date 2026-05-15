@@ -1373,4 +1373,212 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   CHECK(sol[*cap_col] == doctest::Approx(40.0).epsilon(1e-6));
 }
 
+TEST_CASE(
+    "DemandLP P0 substitution — get_obj_value matches pre-P0 algebraic obj")
+{
+  // Pins the algebraic invariant of the P0 demand-failure
+  // substitution.  Pre-P0 the LP had `lcol` (cost 0, bounds
+  // [0, lmax]) + `fcol` (cost = fail_cost × ecost, bounds [0, ∞])
+  // + balance row `lcol + fcol = lmax`.  Post-P0 those are folded
+  // into `lcol.cost = −fail_cost × ecost` plus
+  // `lp.add_obj_constant(fail_cost × ecost × lmax)`.
+  //
+  // For a single 1-h block / 1-stage / 1-scenario fixture with all
+  // probability / discount / duration factors at 1.0,
+  // `block_ecost(s, t, b, c) = c × scenario.probability_factor() ×
+  // stage.discount() × block.duration() × scale_inv = c × 1 × 1 × 1
+  // × 1 = c`, so the LP-side numbers are easy to hand-compute.
+  //
+  // This test exercises both feasibility regimes — supply-sufficient
+  // and supply-insufficient — to verify the substitution preserves
+  // the physical objective in both cases.  The integration tests
+  // already cover this byte-for-byte across the IEEE suite; this
+  // unit test localises the algebra so a future refactor that
+  // accidentally breaks the constant accumulation surfaces here
+  // with a clear failure rather than in a downstream CSV diff.
+  using namespace gtopt;
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 1000.0,  // per-demand fail cost ($/MWh)
+          .capacity = 100.0,  // lmax
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  SUBCASE("supply-sufficient: load = lmax, fail = 0")
+  {
+    // Generator can serve the full 100 MW.  Pre-P0 obj would be
+    //   gcost × gen × duration = 50 × 100 × 1 = 5000.
+    // Post-P0 (algebraically equivalent):
+    //   solver_raw = −fail_cost × load + gcost × gen = −1000 × 100 + 50 × 100
+    //              = −95000
+    //   obj_constant_raw × scale = fail_cost × lmax = 1000 × 100 = 100000
+    //   get_obj_value() = −95000 + 100000 = 5000  ✓
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 50.0,
+            .capacity = 300.0,  // sufficient
+        },
+    };
+
+    const System system = {
+        .name = "DemandP0SubstitutionFullServe",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    CHECK(lp.get_obj_value() == doctest::Approx(5000.0));
+    // Algebraic identity: `get_obj_value() == get_obj_value_raw() ×
+    // scale_objective`.  Holds regardless of the global
+    // `scale_objective` value (default 1000) — the raw view scales
+    // proportionally with `obj_constant_raw` baked in.
+    CHECK(lp.get_obj_value()
+          == doctest::Approx(lp.get_obj_value_raw() * lp.scale_objective()));
+    CHECK(lp.get_obj_constant() == doctest::Approx(100000.0));
+  }
+
+  SUBCASE("supply-insufficient: load < lmax, fail > 0")
+  {
+    // Generator caps at 50 MW; 50 MW of demand is unserved.
+    // Pre-P0 obj:  gcost × gen + fail_cost × fail
+    //            = 50 × 50  + 1000 × 50
+    //            = 2500 + 50000 = 52500
+    // Post-P0:
+    //   solver_raw = −1000 × 50 + 50 × 50 = −47500
+    //   obj_constant = 1000 × 100 = 100000
+    //   get_obj_value() = −47500 + 100000 = 52500  ✓
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 50.0,
+            .capacity = 50.0,  // half of demand
+        },
+    };
+
+    const System system = {
+        .name = "DemandP0SubstitutionPartialServe",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    CHECK(lp.get_obj_value() == doctest::Approx(52500.0));
+    CHECK(lp.get_obj_value()
+          == doctest::Approx(lp.get_obj_value_raw() * lp.scale_objective()));
+    CHECK(lp.get_obj_constant() == doctest::Approx(100000.0));
+  }
+
+  SUBCASE("forced demand: no substitution, no obj_constant accumulation")
+  {
+    // `forced = true` pins lcol at lmax; the substitution path is
+    // skipped (no `−fail_cost` cost on lcol, no `add_obj_constant`).
+    // Post-P0 obj == pre-P0 obj == gcost × lmax = 5000, with
+    // obj_constant = 0.
+    const Array<Demand> forced_demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .fcost = 1000.0,  // irrelevant — no failure path
+            .forced = true,
+            .capacity = 100.0,
+        },
+    };
+
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 50.0,
+            .capacity = 300.0,
+        },
+    };
+
+    const System system = {
+        .name = "DemandP0SubstitutionForced",
+        .bus_array = bus_array,
+        .demand_array = forced_demand_array,
+        .generator_array = generator_array,
+    };
+
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    CHECK(lp.get_obj_value() == doctest::Approx(5000.0));
+    // No substitution → no obj_constant accumulation.
+    CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
+  }
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
