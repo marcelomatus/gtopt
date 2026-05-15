@@ -128,11 +128,21 @@ constexpr std::string_view kAsyncLoggerName = "gtopt_async";
 /// Initialise spdlog's async thread pool exactly once per process.
 ///
 /// All sinks attached to async loggers afterwards dispatch their writes
-/// through a single background thread + bounded message queue, so the
+/// through a background thread pool + bounded message queue, so the
 /// application's hot threads never block on disk I/O nor on the sink
-/// mutex.  Queue size = 8192 messages; on overflow the producing thread
-/// blocks (no message dropping) — losing log lines is worse than a
-/// momentary stall.
+/// mutex.  Queue size = 65536 messages, 2 worker threads.
+///
+/// **Overflow policy** is set to ``overrun_oldest`` in
+/// ``ensure_default_logger_async`` (NOT ``block``): under the
+/// burst-y log pattern of cascade level transitions (every parallel
+/// scene-build emits LP-element log lines simultaneously) a
+/// ``block`` policy would freeze producer threads — including the
+/// main thread — when the queue fills, deadlocking the solve.
+/// Observed on juan/IPLP L1→L2 with the original 8192/1/block
+/// config: main thread parked in ``hrtimer_nanosleep`` indefinitely
+/// while 71 worker threads waited on the queue futex.  Losing a
+/// few oldest log lines under sustained backpressure is strictly
+/// preferable to halting the solve.
 ///
 /// The pool must be initialised before any async logger is created;
 /// guarded with a function-local flag so subsequent calls are no-ops.
@@ -140,8 +150,8 @@ void ensure_async_thread_pool()
 {
   static const bool initialised = []
   {
-    constexpr std::size_t queue_size = 8192;
-    constexpr std::size_t worker_threads = 1;
+    constexpr std::size_t queue_size = 65536;
+    constexpr std::size_t worker_threads = 2;
     spdlog::init_thread_pool(queue_size, worker_threads);
     return true;
   }();
@@ -170,12 +180,22 @@ void ensure_default_logger_async()
     const auto& current_sinks = current->sinks();
     sinks.assign(current_sinks.begin(), current_sinks.end());
   }
+  // ``overrun_oldest``: when the bounded queue is full, the new
+  // message overwrites the oldest one rather than blocking the
+  // producer thread.  This trades occasional log-line loss under
+  // sustained backpressure for guaranteed solver forward
+  // progress — see the ``ensure_async_thread_pool`` docstring for
+  // the juan/IPLP deadlock that motivated the switch from
+  // ``block``.  The 65536-slot queue + 2 workers means the
+  // overrun window only opens during truly sustained bursts
+  // (level transitions × 16 scenes × many LP-element log lines);
+  // normal iteration logging fits comfortably.
   auto async = std::make_shared<spdlog::async_logger>(
       std::string {kAsyncLoggerName},
       sinks.begin(),
       sinks.end(),
       spdlog::thread_pool(),
-      spdlog::async_overflow_policy::block);
+      spdlog::async_overflow_policy::overrun_oldest);
   async->set_level(previous_level);
   spdlog::set_default_logger(async);
 }
