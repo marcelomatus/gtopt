@@ -286,9 +286,7 @@ def test_find_status_file_planning_output_directory_absolute(tmp_path: Path):
     status = custom / "solver_status.json"
     status.write_text("{}")
     json_path = tmp_path / f"{tmp_path.name}.json"
-    import json as _json  # noqa: PLC0415
-
-    json_path.write_text(_json.dumps({"options": {"output_directory": str(custom)}}))
+    json_path.write_text(json.dumps({"options": {"output_directory": str(custom)}}))
     result = _find_status_file(tmp_path)
     assert result == status
 

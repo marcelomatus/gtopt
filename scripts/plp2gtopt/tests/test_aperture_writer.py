@@ -520,7 +520,7 @@ def test_compute_global_wetness_sums_all_stages(tmp_path: Path) -> None:
 
 def test_compute_global_wetness_empty_without_parsers() -> None:
     """Missing parsers → empty dict (callers fall back to UID order)."""
-    assert compute_global_wetness(None, None, num_stages=3) == {}
+    assert not compute_global_wetness(None, None, num_stages=3)
 
 
 def test_compute_global_wetness_zero_stages() -> None:

@@ -67,7 +67,7 @@ def test_list_runs_empty_when_no_registry(
     """No directory → empty list, no exception."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "missing"))
     monkeypatch.delenv("HOME", raising=False)
-    assert list_runs() == []
+    assert not list_runs()
 
 
 def test_list_runs_picks_up_live_pid(isolated_registry: Path, tmp_path: Path):
@@ -98,7 +98,7 @@ def test_list_runs_prunes_stale_entries(isolated_registry: Path, tmp_path: Path)
     stale.write_text(str(out) + "\n")
 
     runs = list_runs(prune_stale=True)
-    assert runs == []
+    assert not runs
     assert not stale.exists(), "stale entry should have been pruned"
 
 

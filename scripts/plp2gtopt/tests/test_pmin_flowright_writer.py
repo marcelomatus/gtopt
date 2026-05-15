@@ -781,4 +781,4 @@ def test_waterway_fmin_skipped_when_disabled() -> None:
         "turbine_array": [],
     }
     result = writer.process(planning)
-    assert result == []
+    assert not result

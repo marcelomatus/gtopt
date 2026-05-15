@@ -813,8 +813,10 @@ def _build_header(
     ub = data.get("upper_bound")
     gap = data.get("gap")
     if lb is not None or ub is not None:
-        from rich.text import Text as _T  # noqa: PLC0415
-
+        # ``Text`` already imported at the top of the function — no
+        # need to re-import as ``_T``; just alias it for the same
+        # locality the prior alias provided.
+        _T = Text
         bounds = _T()
         bounds.append("LB ", style="bold cyan")
         bounds.append(_format_number(lb or 0.0), style="cyan")
