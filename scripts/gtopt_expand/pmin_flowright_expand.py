@@ -272,7 +272,6 @@ def _scale_pmin(
     )
 
 
-
 # ---------------------------------------------------------------------------
 # Spillway at FlowRight junctions — only for soft FlowRights (fail_cost)
 # ---------------------------------------------------------------------------
@@ -280,20 +279,26 @@ _DRAIN_UID_OFFSET: int = 100_000
 
 
 def _ensure_spillway(
-    system: dict[str, Any], junction: str,
-    name: str, uid: int,
+    system: dict[str, Any],
+    junction: str,
+    name: str,
+    uid: int,
 ) -> None:
     waterways: list[dict[str, Any]] = system.setdefault("waterway_array", [])
     ocean_name = f"{junction}_spill"
     sid = _DRAIN_UID_OFFSET + uid
     junctions = system.setdefault("junction_array", [])
-    if not any(j.get("name") == ocean_name for j in junctions
-               if isinstance(j, dict)):
+    if not any(j.get("name") == ocean_name for j in junctions if isinstance(j, dict)):
         junctions.append({"uid": sid + 1, "name": ocean_name})
-    waterways.append({
-        "uid": sid, "name": f"{name}_spill_{sid}",
-        "junction_a": junction, "junction_b": ocean_name, "fmin": 0.0,
-    })
+    waterways.append(
+        {
+            "uid": sid,
+            "name": f"{name}_spill_{sid}",
+            "junction_a": junction,
+            "junction_b": ocean_name,
+            "fmin": 0.0,
+        }
+    )
 
 
 def ensure_drain_for_flowrights(system: dict[str, Any]) -> int:
@@ -309,8 +314,9 @@ def ensure_drain_for_flowrights(system: dict[str, Any]) -> int:
         if not isinstance(j, str) or not j:
             continue
         before = len(system.get("waterway_array", []))
-        _ensure_spillway(system, str(j), str(fr.get("name", "fr")),
-                         int(fr.get("uid", 0)))
+        _ensure_spillway(
+            system, str(j), str(fr.get("name", "fr")), int(fr.get("uid", 0))
+        )
         if len(system.get("waterway_array", [])) > before:
             created += 1
     return created
@@ -481,7 +487,10 @@ def expand_pmin_flowright(
         flow_rights.append(flow_right)
 
         _ensure_spillway(
-            system, junction_b, f"{central_name}{_FLOW_RIGHT_SUFFIX}", uid,
+            system,
+            junction_b,
+            f"{central_name}{_FLOW_RIGHT_SUFFIX}",
+            uid,
         )
 
         uid += 1
