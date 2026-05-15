@@ -725,4 +725,100 @@ TEST_CASE(  // NOLINT
   CHECK(count_cols_containing(sys_lp.linear_interface(), "bus_theta_") == 0);
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+//   piecewise_direct: no aggregator cols, AMPL `line.flow` via seg-sum
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "LineLP AMPL — piecewise_direct: line.flow expands to Σ seg_p − Σ seg_n")
+{
+  // Pin the multi-col virtual-aggregator path (added 2026-05-14):
+  //   * No `flowp` / `flown` aggregator LP cols exist.
+  //   * No `flow_link` / `loss_link` rows exist.
+  //   * The K segment cols stamp directly into the bus rows and the
+  //     KVL row (node_angle here; cycle_basis is symmetric).
+  //   * `line.flow` is reachable in PAMPL via the seg-sum AMPL
+  //     registration in `LineLP::add_to_lp` — the user-constraint
+  //     resolver expands `+flowp − flown` into +Σ seg_p − Σ seg_n.
+  Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "uc_flow_bound",
+          .expression = "line('l1_2').flow <= 1000",
+      },
+  };
+  const LineAmplFixture fix(
+      /*use_single_bus=*/false,
+      /*use_kirchhoff=*/true,
+      /*line_losses_mode=*/std::string {"piecewise_direct"},
+      std::move(ucs));
+
+  const PlanningOptionsLP options(fix.opts);
+  SimulationLP sim_lp(fix.simulation, options);
+  SystemLP sys_lp(fix.system, sim_lp, LineAmplFixture::build_matrix_opts());
+  auto& lp = sys_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  SUBCASE("no aggregator cols, no link rows — direct stamping only")
+  {
+    // Aggregator absent.
+    CHECK(count_cols_containing(lp, "line_flowp_") == 0);
+    CHECK(count_cols_containing(lp, "line_flown_") == 0);
+    // Per-direction K segs present (line.loss_segments = 3).
+    CHECK(count_cols_containing(lp, "line_flowp_seg_") == 3);
+    CHECK(count_cols_containing(lp, "line_flown_seg_") == 3);
+    // No loss vars and no link rows in this mode.
+    CHECK(count_cols_containing(lp, "line_lossp_") == 0);
+    CHECK(count_cols_containing(lp, "line_flowp_link_") == 0);
+    CHECK(count_cols_containing(lp, "line_lossp_link_") == 0);
+  }
+
+  SUBCASE(
+      "uc_flow_bound row stamps Σ seg_p with +1, Σ seg_n with −1 "
+      "(seg-sum AMPL expansion)")
+  {
+    const auto uc_row = find_row(lp, "uc_flow_bound_constraint_");
+    // Every flowp_seg col contributes +1·base_coeff to the row,
+    // every flown_seg col contributes −1·base_coeff.  base_coeff is
+    // the constraint's coefficient on `line.flow` (= 1 here).
+    for (auto i = 0; i < lp.get_numcols(); ++i) {
+      const auto& cname_i = lp.get_col_name(static_cast<gtopt::ColIndex>(i));
+      const auto coef = lp.get_coeff(uc_row, static_cast<gtopt::ColIndex>(i));
+      if (cname_i.find("line_flowp_seg_") != std::string_view::npos) {
+        CHECK(coef == doctest::Approx(+1.0));
+      } else if (cname_i.find("line_flown_seg_") != std::string_view::npos) {
+        CHECK(coef == doctest::Approx(-1.0));
+      }
+    }
+  }
+
+  SUBCASE("primal Σ seg_p − Σ seg_n equals expected line flow (50 MW A→B)")
+  {
+    // Cheap generator at b1 serves 50 MW demand at b2 via the line.
+    // The line operates A→B, so Σ seg_p ≈ 50 and Σ seg_n ≈ 0.  Loss
+    // segments fill smallest-first so a small offset is expected for
+    // the seg_p sum to absorb the loss; the signed flow ≈ demand + loss.
+    double sum_p = 0.0;
+    double sum_n = 0.0;
+    for (auto i = 0; i < lp.get_numcols(); ++i) {
+      const auto& cname_i = lp.get_col_name(static_cast<gtopt::ColIndex>(i));
+      const auto sol = lp.get_col_sol()[i];
+      if (cname_i.find("line_flowp_seg_") != std::string_view::npos) {
+        sum_p += sol;
+      } else if (cname_i.find("line_flown_seg_") != std::string_view::npos) {
+        sum_n += sol;
+      }
+    }
+    // Reverse direction must be zero — A→B feeds the demand.
+    CHECK(sum_n == doctest::Approx(0.0));
+    // Forward direction must cover demand plus losses.  Loose tol
+    // because PWL loss adds ≈ R·f²/V² · stage factors that vary with
+    // segment width; pin the magnitude band rather than the exact
+    // value to keep the test robust to segment-count changes.
+    CHECK(sum_p >= 50.0 - 1e-3);
+    CHECK(sum_p < 60.0);  // generous upper bound for the loss premium
+  }
+}
+
 // NOLINTEND(google-global-names-in-headers)

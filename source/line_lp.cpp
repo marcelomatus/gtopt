@@ -311,24 +311,45 @@ bool LineLP::add_to_output(OutputContext& out) const
 
   const auto pid = id();
 
+  // Output policy (2026-05-14):
+  //
+  //   * Flow solutions and loss solutions are kept — they are the
+  //     primary post-solve quantities consumers (analysis notebooks,
+  //     PLP-comparison scripts, dashboards) read off lines.
+  //   * Flow reduced costs are NOT emitted.  In aggregator modes the
+  //     reduced cost of `flowp` / `flown` is recoverable from the
+  //     bus-balance duals; in `piecewise_direct` the segment-sum
+  //     interpretation of "reduced cost of an implicit aggregator"
+  //     is ambiguous (Σ rc(seg_k) ≠ marginal cost of a +ε increase
+  //     in |f|).  Better to omit than to emit a misleading scalar.
+  //   * Theta-row duals and capacity-row duals are also dropped.
+  //     The KVL theta dual is locational-marginal-price adjacent
+  //     and easier to read off `Bus.balance:dual`; capacity duals
+  //     are recoverable from CapacityBase's `capainst` reduced cost
+  //     when expansion is active.  Skipping them saves I/O.
+  //
+  // Aggregator-mode emission (none / linear / piecewise / bidirectional).
+  // No-op for piecewise_direct, where the holders are empty.
   out.add_col_sol(cname, FlowpName, pid, flowp_cols);
-  out.add_col_cost(cname, FlowpName, pid, flowp_cols);
-
   out.add_col_sol(cname, FlownName, pid, flown_cols);
-  out.add_col_cost(cname, FlownName, pid, flown_cols);
 
+  // Direct-mode emission: under `piecewise_direct` the seg holders
+  // carry the K per-segment cols and the sum-of-cols overload writes
+  // Σ col_sol[seg_k] under the same `flowp:sol` / `flown:sol` field
+  // names.  Outer-level gate avoids paying the flat() walk on the
+  // empty per-block maps in non-direct modes (where the outer key
+  // exists but every inner BIndexHolder is empty).
+  if (!flowp_seg_cols.empty()) {
+    out.add_col_sol(cname, FlowpName, pid, flowp_seg_cols);
+  }
+  if (!flown_seg_cols.empty()) {
+    out.add_col_sol(cname, FlownName, pid, flown_seg_cols);
+  }
+
+  // Loss solutions: piecewise / bidirectional only.  none / linear /
+  // piecewise_direct don't create loss vars so these are no-ops.
   out.add_col_sol(cname, LosspName, pid, lossp_cols);
   out.add_col_sol(cname, LossnName, pid, lossn_cols);
-
-  out.add_row_dual(cname, CapacitypName, pid, capacityp_rows);
-  out.add_row_dual(cname, CapacitynName, pid, capacityn_rows);
-
-  // Kirchhoff rows are emitted in their natural form (no manual pre-
-  // scaling), so duals come out in physical units directly and no
-  // post-hoc back-scale is needed.  Row-max equilibration is handled
-  // by the LP layer, which auto-unscales duals.  In `cycle_basis`
-  // mode `theta_rows` is empty (no per-line KVL), so this is a no-op.
-  out.add_row_dual(cname, ThetaName, pid, theta_rows);
 
   return CapacityBase::add_to_output(out);
 }

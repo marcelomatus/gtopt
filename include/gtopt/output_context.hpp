@@ -130,6 +130,36 @@ public:
               block_factor_matrix_t {});
   }
 
+  /// Sum-of-cols solution overload: writes Σ col_sol[col] for each
+  /// block.  Used by `piecewise_direct` line-loss mode to emit
+  /// `Line.flowp:sol` / `Line.flown:sol` as the per-block segment-sum
+  /// even though no aggregator LP column was created.  The output
+  /// scalar is the same value the AMPL resolver computes for
+  /// `line.flowp` via the multi-col registration (see
+  /// `AmplVariable::block_cols_sum` and `LineLP::add_to_lp`), so
+  /// downstream consumers — solution.csv, the `line.flow` derivation,
+  /// PAMPL user-constraints — see a consistent flow scalar across LP /
+  /// AMPL / output regardless of whether the line is aggregator-mode or
+  /// direct-mode.
+  constexpr void add_col_sol(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<std::vector<ColIndex>>& holder)
+  {
+    if (!emit_solution()) {
+      return;
+    }
+    add_field_sum(cname,
+                  col_name,
+                  "sol",
+                  id,
+                  holder,
+                  col_sol_span,
+                  &stb_prelude,
+                  block_factor_matrix_t {});
+  }
+
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
@@ -414,6 +444,49 @@ private:
 
     auto&& [values, valid] =
         sc.get().flat(holder, [&](auto i) { return value_span[i]; }, factor);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
+  }
+
+  /// add_field variant for **sum-of-cols** holders.  `IndexHolder` is
+  /// expected to be `STBIndexHolder<std::vector<ColIndex>>` (a per-
+  /// block list of cols).  Each block's projection is
+  /// `Σ value_span[c]` over the cols in the list, then optionally
+  /// multiplied by the per-block factor like the single-col variant.
+  /// Used to emit `flowp` / `flown` solution and reduced-cost columns
+  /// for `piecewise_direct` line-loss mode where no aggregator LP col
+  /// exists.
+  template<typename IndexHolder,
+           typename Span,
+           typename Prelude,
+           typename Factor = std::span<double>>
+  void add_field_sum(std::string_view cname,
+                     std::string_view fname,
+                     std::string_view sname,
+                     const Id& id,
+                     const IndexHolder& holder,
+                     const Span& value_span,
+                     const Prelude* prelude,
+                     const Factor& factor)
+  {
+    if (holder.empty() || value_span.empty()) {
+      return;
+    }
+
+    auto sum_proj = [&](const auto& cols)
+    {
+      double s = 0.0;
+      for (const auto c : cols) {
+        s += value_span[c];
+      }
+      return s;
+    };
+    auto&& [values, valid] = sc.get().flat(holder, std::move(sum_proj), factor);
 
     if (values.empty()) {
       return;
