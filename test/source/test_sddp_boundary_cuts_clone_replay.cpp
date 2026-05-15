@@ -169,6 +169,15 @@ struct LpBoundsFingerprint
 /// comparison matches the precision the cut install / replay path
 /// works with — exact equality would be too strict because
 /// `compose_physical` runs FP multiplications during add_row.
+///
+/// **Infinity handling**: ``doctest::Approx`` does NOT compare
+/// infinities (``inf == Approx(inf)`` is FALSE under doctest's
+/// tolerance check because the relative-tolerance formula computes
+/// ``|inf - inf| = NaN`` and fails the comparison).  Unbounded LP
+/// rows/cols legitimately carry ``+/-inf``, and OSI/CLP exposes them
+/// as exact ``inf`` (vs ``DblMax`` on some other backends).  Use a
+/// helper that short-circuits to exact equality when either operand
+/// is infinite.
 inline void check_lp_fingerprints_equal(const LpBoundsFingerprint& a,
                                         const LpBoundsFingerprint& b)
 {
@@ -183,20 +192,34 @@ inline void check_lp_fingerprints_equal(const LpBoundsFingerprint& a,
   REQUIRE(a.col_scales.size() == b.col_scales.size());
   REQUIRE(a.row_scales.size() == b.row_scales.size());
 
+  // Inf-tolerant approximate equality.  Returns true when both
+  // operands are equal (covering inf == inf, -inf == -inf, NaN
+  // pairs treated as equal here so unset bounds don't trip the
+  // comparison) OR when the doctest::Approx relative-tolerance
+  // check passes.  Lambda-local to keep the helper self-contained.
+  const auto approx_eq = [eps](double x, double y) -> bool
+  {
+    if (std::isinf(x) || std::isinf(y) || std::isnan(x) || std::isnan(y)) {
+      return std::isinf(x) == std::isinf(y) && (std::isnan(x) == std::isnan(y))
+          && (!std::isfinite(x) ? x == y : true);
+    }
+    return x == doctest::Approx(y).epsilon(eps);
+  };
+
   for (std::size_t i = 0; i < a.row_low.size(); ++i) {
-    CHECK(a.row_low[i] == doctest::Approx(b.row_low[i]).epsilon(eps));
-    CHECK(a.row_upp[i] == doctest::Approx(b.row_upp[i]).epsilon(eps));
+    CHECK(approx_eq(a.row_low[i], b.row_low[i]));
+    CHECK(approx_eq(a.row_upp[i], b.row_upp[i]));
   }
   for (std::size_t i = 0; i < a.col_low.size(); ++i) {
-    CHECK(a.col_low[i] == doctest::Approx(b.col_low[i]).epsilon(eps));
-    CHECK(a.col_upp[i] == doctest::Approx(b.col_upp[i]).epsilon(eps));
-    CHECK(a.col_cost[i] == doctest::Approx(b.col_cost[i]).epsilon(eps));
+    CHECK(approx_eq(a.col_low[i], b.col_low[i]));
+    CHECK(approx_eq(a.col_upp[i], b.col_upp[i]));
+    CHECK(approx_eq(a.col_cost[i], b.col_cost[i]));
   }
   for (std::size_t i = 0; i < a.col_scales.size(); ++i) {
-    CHECK(a.col_scales[i] == doctest::Approx(b.col_scales[i]).epsilon(eps));
+    CHECK(approx_eq(a.col_scales[i], b.col_scales[i]));
   }
   for (std::size_t i = 0; i < a.row_scales.size(); ++i) {
-    CHECK(a.row_scales[i] == doctest::Approx(b.row_scales[i]).epsilon(eps));
+    CHECK(approx_eq(a.row_scales[i], b.row_scales[i]));
   }
 }
 
