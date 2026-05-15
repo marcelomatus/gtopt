@@ -668,6 +668,7 @@ public:
     }
     opts.max_fallbacks = m_options_.sddp_options.forward_max_fallbacks.value_or(
         opts.max_fallbacks);
+    apply_sddp_pass_defaults(opts);
     return opts;
   }
 
@@ -688,9 +689,40 @@ public:
     }
     opts.max_fallbacks =
         m_options_.sddp_options.backward_max_fallbacks.value_or(0);
+    apply_sddp_pass_defaults(opts);
     return opts;
   }
 
+private:
+  /// SDDP-pass-specific solver defaults applied to the merged
+  /// forward/backward options when the user hasn't overridden them
+  /// (struct-default sentinels still present after merge).  Both
+  /// passes solve thousands of small-to-medium LPs in parallel via
+  /// the SDDP work pool; leaving the CPLEX backend at its own
+  /// default (algorithm picked per LP, threads = min(32, ncores))
+  /// catastrophically oversubscribes a multi-core host when
+  /// multiple cells are in flight.  Pin barrier + a small per-LP
+  /// thread count so the WorkPool's scene-level parallelism wins
+  /// the CPU budget.
+  ///
+  /// Defaults only fire on the struct sentinels.  Any explicit
+  /// user value (top-level `solver_options` JSON block, per-pass
+  /// override, or CLI `--algorithm` / `--threads`) survives — the
+  /// JSON-parsed SolverOptionsConstructor already substitutes its
+  /// own defaults (barrier, threads=2) for omitted fields, and
+  /// neither of those equals the sentinel, so user JSON wins as
+  /// expected.
+  static constexpr void apply_sddp_pass_defaults(SolverOptions& opts) noexcept
+  {
+    if (opts.algorithm == LPAlgo::default_algo) {
+      opts.algorithm = LPAlgo::barrier;
+    }
+    if (opts.threads == 0) {
+      opts.threads = 4;
+    }
+  }
+
+public:
   /** @brief Aperture LP timeout in seconds.
    * @return Aperture timeout (default 15s)
    */
