@@ -403,6 +403,13 @@ class TestCascadeOptionKeys:
             "model_options",
             "sddp_options",
             "transition",
+            # ``system_file`` was added to ``CascadeLevel`` to support
+            # the cascade-reduced multi-fidelity ladder: each
+            # intermediate level may reference its own pre-reduced
+            # system JSON (rather than re-deriving the reduced grid
+            # at run time).  Kept here so the C++ ↔ Python field
+            # sync test catches future additions.
+            "system_file",
         }
         assert expected == cpp_fields, (
             f"CascadeLevel fields mismatch: expected {expected}, got {cpp_fields}"
@@ -431,7 +438,14 @@ class TestCascadeOptionKeys:
             "target_rtol",
             "target_min_atol",
             "target_penalty",
-            "optimality_dual_threshold",
+            # ``optimality_dual_threshold`` removed 2026-05-15
+            # alongside the entire ``update_stored_cut_duals``
+            # machinery — the cut-activity signal it gated was
+            # structurally wrong (read from the main cell's LP
+            # post-add-without-resolve, never the apertures that
+            # exercise the cut), and the filter was the only
+            # consumer.  See the commit that removed it for the
+            # full rationale.
         }
         assert expected == cpp_fields, (
             f"CascadeTransition fields mismatch: expected {expected}, got {cpp_fields}"
