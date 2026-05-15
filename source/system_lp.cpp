@@ -1262,11 +1262,17 @@ void SystemLP::accumulate_convergence_indicators(SceneIndex scene_index,
     const double pw = scenario.probability_factor();
 
     // ── Demand.fail  →  unserved_demand [MWh] ──────────────────────────
+    //
+    // Post-P0 the `fail` LP variable is gone; `DemandLP::fail_sol_at`
+    // reconstructs the value from cached `block_lmax_values_` and
+    // `load_cols`'s primal solution (`max(0, lmax − load_sol)`).
+    // Same per-block scaling (probability × duration) as the
+    // pre-substitution `weighted(fail_col, ...)` path.
     for (auto&& [d, blk] :
          std::views::cartesian_product(elements<DemandLP>(), stage.blocks()))
     {
       stats.unserved_demand +=
-          weighted(d.fail_col_at(scenario, stage, blk), pw * blk.duration());
+          d.fail_sol_at(scenario, stage, blk, col_sol) * pw * blk.duration();
     }
 
     // ── FlowRight.fail  →  unserved_flow [hm³] ─────────────────────────

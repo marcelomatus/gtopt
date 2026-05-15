@@ -652,8 +652,8 @@ static constexpr std::string_view uc_multi_component_json = R"json({
         "expression": "demand('d1').load <= 90"
       },
       {
-        "uid": 3, "name": "uc_demand_fail",
-        "expression": "demand('d1').fail <= 50"
+        "uid": 3, "name": "uc_demand_load_lo",
+        "expression": "demand('d1').load >= 30"
       },
       {
         "uid": 4, "name": "uc_line_flow",

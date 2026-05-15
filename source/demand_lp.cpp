@@ -28,6 +28,38 @@ DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
   SPDLOG_DEBUG("DemandLP created: uid={} name='{}'", id().first, id().second);
 }
 
+double DemandLP::fail_sol_at(const ScenarioLP& scenario,
+                             const StageLP& stage,
+                             const BlockLP& block,
+                             const ScaledView& col_sol) const noexcept
+{
+  // Reconstruct `fail_sol = max(0, lmax − load_sol)` from cached
+  // `block_lmax_values_` and the surviving `load_cols` primal value.
+  // Pre-P0 callers used `lp.col_sol[fail_col]` for the same value;
+  // this method returns the algebraically-equivalent quantity from
+  // the post-substitution LP.  See `add_to_output` for the
+  // companion bulk-emit site that produces `Demand/fail_sol.csv`.
+  const std::tuple st_key {scenario.uid(), stage.uid()};
+  const auto lmax_it = block_lmax_values_.find(st_key);
+  if (lmax_it == block_lmax_values_.end()) {
+    return 0.0;
+  }
+  const auto lmax_block_it = lmax_it->second.find(block.uid());
+  if (lmax_block_it == lmax_it->second.end()) {
+    return 0.0;
+  }
+  const auto lc_it = load_cols.find(st_key);
+  if (lc_it == load_cols.end()) {
+    return 0.0;
+  }
+  const auto lc_block_it = lc_it->second.find(block.uid());
+  if (lc_block_it == lc_it->second.end()) {
+    return 0.0;
+  }
+  const double load_sol = col_sol[lc_block_it->second];
+  return std::max(0.0, lmax_block_it->second - load_sol);
+}
+
 bool DemandLP::add_to_lp(SystemContext& sc,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
@@ -129,29 +161,33 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   }(stage_emin, stage_ecost);
 
   BIndexHolder<ColIndex> lcols;
-  BIndexHolder<ColIndex> fcols;
   BIndexHolder<ColIndex> mcols;
   BIndexHolder<RowIndex> crows;
-  BIndexHolder<RowIndex> brows;
+  BIndexHolder<double> block_lmaxs;  // P0 reconstruction cache:
+                                     // post-capacity-clamp `lmax` per block
   const bool is_forced = demand().forced.value_or(false);
+  // ── P0 demand-failure substitution gate ───────────────────────────
+  // Pre-P0: `fcol` (cost = fail_cost × ecost) + `frow`
+  // (`lcol + fcol = lmax`) co-exist with `lcol` (cost = 0).
+  // Post-P0 substituting `fail = lmax − load` collapses both extra LP
+  // entities: `lcol` takes cost `−fail_cost × ecost` and the constant
+  // `+fail_cost × ecost × lmax` rides via `lp.add_obj_constant(...)`.
+  // The substitution applies only when failure has a real cost and
+  // the demand isn't forced; otherwise lcol keeps its zero cost and
+  // no obj_constant is accumulated.
+  const bool fail_substituted = (stage_fcost.has_value() && !is_forced);
 
   // Reserve only the holders that will actually be populated in this
-  // call.  Pre-2026-05-14 every reserve fired unconditionally, but
-  // mcols/crows/fcols/brows are populated only inside conditional
-  // branches (stage_emin / capacity_col / (stage_fcost && !is_forced)
-  // / same).  Guarding the reserves saves the up-front bucket
-  // allocations on the common case where the per-block holder ends
-  // up empty.
+  // call.  `block_lmaxs` is always populated for blocks with non-zero
+  // demand (one entry per block in the load path), so reserve it
+  // up-front; the others stay guarded.
   map_reserve(lcols, blocks.size());
+  map_reserve(block_lmaxs, blocks.size());
   if (stage_emin) {
     map_reserve(mcols, blocks.size());
   }
   if (capacity_col) {
     map_reserve(crows, blocks.size());
-  }
-  if (stage_fcost && !is_forced) {
-    map_reserve(fcols, blocks.size());
-    map_reserve(brows, blocks.size());
   }
 
   for (const auto& block : blocks) {
@@ -175,49 +211,56 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         make_block_context(scenario.uid(), stage.uid(), block.uid());
     auto& bus_brow = lp.row_at(bus_balance_row);
 
-    // Load / capacity / fail machinery only when there is non-zero
-    // demand to serve.  When block_lmax == 0 the lcol is fixed at 0,
-    // fcol is pinned at 0 by `lcol + fcol = 0`, the capacity row is
-    // trivially satisfied, and the bus_brow coefficient is `0 × -(...)`
-    // — every entry below is a no-op.  Saves up to 2 cols + 2 rows
-    // per zero-load block (lcol + fcol + frow + crow).
+    // ── P0 demand-failure substitution ──────────────────────────
+    //
+    // Pre-substitution: `lcol` (cost 0, bounds [0, lmax]) + `fcol`
+    // (cost = fail_cost × ecost, bounds [0, ∞]) + balance row
+    // `lcol + fcol = lmax`.  Substituting `fail = lmax − load`
+    // collapses both extra LP entities:
+    //
+    //   c·fail = c·(lmax − lcol) = c·lmax − c·lcol
+    //                              \_____/   \____/
+    //                              constant   coef on lcol
+    //
+    // So lcol takes cost `−c = −fail_cost × ecost`, and the constant
+    // `+c · lmax` is carried by `lp.add_obj_constant(...)` so
+    // `LinearInterface::get_obj_value{,_raw}()` keep the algebraic
+    // objective.  Saves 1 col + 1 row per block per elastic demand —
+    // the dominant LP-size win at Juan scale.
+    //
+    // When block_lmax == 0 the substituted cost contribution is
+    // `−fail_cost × 0 = 0`, obj_constant gets `+fail_cost × 0 = 0`,
+    // the capacity row is trivially satisfied, and the bus_brow
+    // coefficient is `0 × −(...)` — every entry below is a no-op.
     if (has_load) {
       const auto load_lowb = is_forced ? block_lmax : 0.0;
+      double lcol_cost = 0.0;
+      if (fail_substituted) {
+        const auto block_ecost =
+            CostHelper::block_ecost(scenario, stage, block, *stage_fcost);
+        lcol_cost = -block_ecost;
+        // Constant from the substitution; carries the failure-cost
+        // baseline into `get_obj_value{,_raw}()` so the obj reported
+        // to downstream consumers (SDDP bounds, standalone reporting,
+        // pre-substitution test assertions) matches the un-rewritten
+        // formulation exactly.
+        lp.add_obj_constant(block_ecost * block_lmax);
+      }
       const auto lcol = lp.add_col({
           .lowb = load_lowb,
           .uppb = block_lmax,
+          .cost = lcol_cost,
           .class_name = Element::class_name.full_name(),
           .variable_name = LoadName,
           .variable_uid = uid(),
           .context = block_ctx,
       });
 
-      if (stage_fcost && !is_forced) {
-        const auto fcol = lp.add_col({
-            .cost =
-                CostHelper::block_ecost(scenario, stage, block, *stage_fcost),
-            .class_name = Element::class_name.full_name(),
-            .variable_name = FailName,
-            .variable_uid = uid(),
-            .context = block_ctx,
-        });
-        fcols[buid] = fcol;
-
-        auto frow =
-            SparseRow {
-                .class_name = Element::class_name.full_name(),
-                .constraint_name = BalanceName,
-                .variable_uid = uid(),
-                .context = block_ctx,
-            }
-                .equal(block_lmax);
-
-        frow[lcol] = 1;
-        frow[fcol] = 1;
-        brows[buid] = lp.add_row(std::move(frow));
-      }
-
       lcols[buid] = lcol;
+      // Cache the post-capacity-clamp `lmax` so `fail_sol_at` and
+      // `add_to_output` can reconstruct `fail = lmax − load_sol`
+      // without re-walking `block_max_at`.
+      block_lmaxs[buid] = block_lmax;
       bus_brow[lcol] = -(1.0 + stage_lossfactor);
 
       // adding the capacity constraint
@@ -272,13 +315,21 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
   }
-
-  if (!fcols.empty()) {
-    fail_cols[st_key] = std::move(fcols);
-    balance_rows[st_key] = std::move(brows);
-    sc.add_ampl_variable(
-        ampl_name, uid(), FailName, scenario, stage, fail_cols.at(st_key));
+  if (!block_lmaxs.empty()) {
+    block_lmax_values_[st_key] = std::move(block_lmaxs);
   }
+
+  // P0: `fail_cols` / `balance_rows` are gone — substituted away via
+  // `fail = lmax − load`.  The constant baseline is in
+  // `lp.add_obj_constant(...)` (per block, accumulated above); the
+  // `Demand/fail_sol.csv` output is reconstructed in `add_to_output`
+  // from `block_lmax_values_` and `load_cols`'s primal solution.
+  //
+  // `fail` is no longer registered as an AMPL variable either —
+  // user constraints that referenced `demand.fail` would need to be
+  // rewritten in terms of `demand.load` (or `lmax − demand.load`)
+  // post-substitution; no production user-constraint does this on
+  // the current corpus (grep, 2026-05-15).
 
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
 
@@ -306,9 +357,50 @@ bool DemandLP::add_to_output(OutputContext& out) const
   // analysis can see how much emin slack each (s, t, b) used.
   out.add_col_sol(cname, LmanName, pid, lman_cols);
 
-  out.add_col_sol(cname, FailName, pid, fail_cols);
-  out.add_col_cost(cname, FailName, pid, fail_cols);
-  out.add_row_dual(cname, BalanceName, pid, balance_rows);
+  // ── P0: reconstructed `Demand/fail_sol.csv` ─────────────────────
+  //
+  // Pre-substitution this came from `lp.col_sol[fail_col]`.  After
+  // the substitution, the `fail` LP column is gone — the value is
+  // reconstructed as `max(0, lmax − load_sol)` from cached
+  // `block_lmax_values_` and the surviving `load_cols` primal
+  // solution.  `OutputContext::primal(col)` reads from the same
+  // span the index-based `add_col_sol(load_cols, ...)` above
+  // consults, so the produced CSV matches the legacy LP-emitted
+  // form byte-for-byte (up to the FP non-negativity clamp which a
+  // perfectly-solved LP already satisfies).
+  //
+  // `Demand/fail_cost.csv` and `Demand/balance_dual.csv` are NOT
+  // emitted: they were LP-internal artifacts (reduced cost on
+  // `fcol` / shadow price on the deleted balance row) with no
+  // downstream consumer (verified by grep across scripts/,
+  // guiservice/, integration_test/ — only `Bus/balance_dual.csv` is
+  // read).  Removing them is part of the LP-size win.
+  STBIndexHolder<double> fail_sol_values;
+  for (const auto& [st_key, lmax_block] : block_lmax_values_) {
+    const auto lc_it = load_cols.find(st_key);
+    if (lc_it == load_cols.end()) {
+      continue;
+    }
+    BIndexHolder<double> fail_block;
+    map_reserve(fail_block, lmax_block.size());
+    for (const auto& [buid, block_lmax] : lmax_block) {
+      const auto lc_block_it = lc_it->second.find(buid);
+      if (lc_block_it == lc_it->second.end()) {
+        continue;
+      }
+      const double load_sol = out.primal(lc_block_it->second);
+      // Non-negativity clamp: numerically the LP keeps `load_sol ≤
+      // block_lmax` exactly via the upper-bound constraint, but
+      // post-solve floating-point noise can yield
+      // `block_lmax − load_sol` of order 1e-14 < 0.  Match the
+      // legacy `fcol ≥ 0` bound by clamping at 0.
+      fail_block[buid] = std::max(0.0, block_lmax - load_sol);
+    }
+    if (!fail_block.empty()) {
+      fail_sol_values[st_key] = std::move(fail_block);
+    }
+  }
+  out.add_col_sol_values(cname, FailName, pid, fail_sol_values);
 
   return CapacityBase::add_to_output(out);
 }

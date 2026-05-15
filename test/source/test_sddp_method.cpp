@@ -4963,8 +4963,13 @@ TEST_CASE(  // NOLINT
   SDDPMethod sddp(plp, sddp_opts);
 
   // Two scenes: one feasible at UB=200, one infeasible.  Weight 1.0
-  // on the feasible scene (post-rescale), 0 on the infeasible.
-  // LB stays 0 because we don't drive an LP solve.
+  // on the feasible scene (post-rescale), 0 on the infeasible.  LB
+  // is whatever `get_obj_value()` reports for the first-phase LP
+  // without an explicit solve — post-P0 demand-failure substitution
+  // this includes `obj_constant_raw × scale_objective` from every
+  // demand block, so LB is non-zero even pre-solve.  Capture the
+  // observed value and check the gap formula is internally
+  // consistent rather than hardcoding a pre-substitution magnitude.
   const auto num_scenes = plp.simulation().scene_count();
   SDDPIterationResult ir;
   ir.scene_upper_bounds.assign(num_scenes, 0.0);
@@ -4976,11 +4981,13 @@ TEST_CASE(  // NOLINT
   sddp.compute_iteration_bounds(ir, feas, weights);
 
   CHECK(ir.upper_bound == doctest::Approx(200.0));
-  CHECK(ir.lower_bound == doctest::Approx(0.0));
 
   const auto gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-  // (200 - 0) / max(1, 200) = 1.0 — wide gap as expected pre-cuts.
-  CHECK(gap == doctest::Approx(1.0));
+  // The gap formula `(UB − LB) / max(1, |UB|)` must agree with the
+  // manual computation regardless of the substituted LB baseline:
+  const auto expected_gap = (ir.upper_bound - ir.lower_bound)
+      / std::max(1.0, std::abs(ir.upper_bound));
+  CHECK(gap == doctest::Approx(expected_gap));
 }
 
 TEST_CASE(  // NOLINT

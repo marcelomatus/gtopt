@@ -337,4 +337,44 @@ TEST_CASE("compress mode: clone_from_flat survives source's release_backend")
   std::filesystem::remove(stem + ".lp", ec);
 }
 
+TEST_CASE(
+    "obj_constant_raw survives release_backend + ensure_backend under "
+    "LowMemoryMode::compress")
+{
+  // P0 prerequisite: the LP-external `obj_constant_raw` (set from
+  // `FlatLinearProblem::obj_constant_raw`, or accumulated post-load
+  // via `add_obj_constant`) must round-trip cleanly through the
+  // compress / reconstruct cycle.  If the snapshot's scalar field
+  // were lost (e.g. by the compression buffer accidentally
+  // overwriting it), `get_obj_value_raw()` would drop the constant
+  // on every reconstruct, and post-substitution test assertions
+  // would silently regress.  This pins the round-trip explicitly.
+  auto [src, flat] = make_lowmem_lp();
+  src.set_low_memory(LowMemoryMode::compress);
+
+  // Pre-populate the snapshot with a non-zero obj_constant_raw so
+  // we can verify the round trip moves a real value (not just a
+  // default 0).  Setting flat.obj_constant_raw before save_snapshot
+  // mirrors what `LinearProblem::flatten()` does in production.
+  flat.obj_constant_raw = 42.0;
+  src.save_snapshot(FlatLinearProblem {flat});
+
+  // Re-`load_flat` so the live `m_obj_constant_raw_` mirrors the
+  // snapshot's value (production does this via `reconstruct_backend`
+  // post `release_backend`; here we do it directly to keep the
+  // test scope tight).
+  src.load_flat(flat);
+  REQUIRE(src.obj_constant_raw() == doctest::Approx(42.0));
+
+  // Release + reconstruct — exercises the compress/decompress code
+  // path that production hits when a cell is reloaded for the
+  // forward/backward pass.
+  src.release_backend();
+  src.ensure_backend();
+
+  // After reconstruct, the live value must still be 42.0 (snapshot
+  // round-trip preserved the scalar field through compression).
+  CHECK(src.obj_constant_raw() == doctest::Approx(42.0));
+}
+
 // NOLINTEND(misc-const-correctness, modernize-use-designated-initializers)

@@ -5,6 +5,7 @@
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/linear_interface.hpp>  // ScaledView
 
 namespace gtopt
 {
@@ -55,34 +56,23 @@ public:
     return load_cols.at({scenario.uid(), stage.uid()});
   }
 
-  [[nodiscard]]
-  constexpr const auto& fail_cols_at(const ScenarioLP& scenario,
-                                     const StageLP& stage) const
-  {
-    return fail_cols.at({scenario.uid(), stage.uid()});
-  }
-
-  /// Return the demand-failure slack column for (scenario, stage, block),
-  /// if it exists.  The slack is only created when `fail_cost > 0` on the
-  /// containing stage and the demand is not forced; returns `std::nullopt`
-  /// otherwise.  Used by SystemLP::accumulate_convergence_indicators().
-  [[nodiscard]]
-  constexpr std::optional<ColIndex> fail_col_at(
-      const ScenarioLP& scenario,
-      const StageLP& stage,
-      const BlockLP& block) const noexcept
-  {
-    const auto st_it = fail_cols.find({scenario.uid(), stage.uid()});
-    if (st_it == fail_cols.end()) {
-      return std::nullopt;
-    }
-    const auto& by_block = st_it->second;
-    const auto b_it = by_block.find(block.uid());
-    if (b_it == by_block.end()) {
-      return std::nullopt;
-    }
-    return b_it->second;
-  }
+  /// Reconstructed failure quantity at (scenario, stage, block).
+  ///
+  /// After the P0 demand-failure substitution (`fail = lmax − load`)
+  /// the `fail` LP variable no longer exists.  The value is derived
+  /// at read time from the surviving `load_cols` primal solution and
+  /// the cached `block_lmax_values_` (post-capacity-clamp `lmax`).
+  /// Returns `0.0` when no `load_cols` entry exists for the (s, t, b)
+  /// — semantically "no failure because there is no demand to serve
+  /// here".  `col_sol` is the LP's primal-solution view (the same
+  /// span that `OutputContext::col_sol_span` wraps); callers pass it
+  /// in to avoid per-call re-fetch.  Used by
+  /// `SystemLP::accumulate_convergence_indicators` to track
+  /// `unserved_demand`.
+  [[nodiscard]] double fail_sol_at(const ScenarioLP& scenario,
+                                   const StageLP& stage,
+                                   const BlockLP& block,
+                                   const ScaledView& col_sol) const noexcept;
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
@@ -112,8 +102,12 @@ private:
 
   STBIndexHolder<ColIndex> lman_cols;
 
-  STBIndexHolder<ColIndex> fail_cols;
-  STBIndexHolder<RowIndex> balance_rows;
+  /// Cached `block_lmax` post-capacity-clamp values populated during
+  /// `add_to_lp` and consumed by `fail_sol_at` / `add_to_output` to
+  /// reconstruct `Demand/fail_sol.csv` after the P0 demand-failure
+  /// substitution removed the `fail` LP column.  One entry per
+  /// (scenario, stage, block) that participates in the load path.
+  STBIndexHolder<double> block_lmax_values_;
 };
 
 using DemandLPId = ObjectId<DemandLP>;

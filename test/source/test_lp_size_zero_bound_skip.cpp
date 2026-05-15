@@ -271,13 +271,14 @@ TEST_CASE("LP-size: DemandLP skips zero-capacity blocks (P1)")
   const auto [baseline_cols, baseline_rows] = solve(/*capacity=*/100.0);
   const auto [zero_cols, zero_rows] = solve(/*capacity=*/0.0);
 
-  // Per block, baseline emits:
-  //   - 1 load column
-  //   - 1 fail column  (demand_fail_cost > 0 and demand not forced)
-  // and one balance row glueing them together.
-  // The zero case skips all three.  Two blocks → 4 cols and 2 rows.
-  CHECK(baseline_cols - zero_cols == 4);
-  CHECK(baseline_rows - zero_rows == 2);
+  // Per block, post-P0 demand-failure substitution baseline emits:
+  //   - 1 load column (carrying both load and fail semantics via
+  //     the `−fail_cost × ecost` cost coefficient + `add_obj_constant`
+  //     baseline)
+  // The zero case skips it.  Two blocks → 2 cols saved.
+  // No `balance` row anymore (substituted away); no row diff.
+  CHECK(baseline_cols - zero_cols == 2);
+  CHECK(baseline_rows - zero_rows == 0);
 }
 
 TEST_CASE("LP-size: DemandLP zero-capacity with emin retains lman columns (P1)")

@@ -210,9 +210,11 @@ TEST_CASE(  // NOLINT
 
     const auto& lcols = dem_lp.load_cols_at(scenario, stage);
     CHECK(!lcols.empty());
-    // fail_cols may be empty depending on demand_fail_cost / configuration.
-    const auto& fcols = dem_lp.fail_cols_at(scenario, stage);
-    CHECK(fcols.size() == lcols.size());
+    // P0: `fail_cols_at` removed (fcol substituted away via
+    // `fail = lmax − load`).  Reconstructed `fail_sol` is reachable
+    // through `dem_lp.fail_sol_at(scenario, stage, block, col_sol)`
+    // — see `SystemLP::accumulate_convergence_indicators` and the
+    // `Demand/fail_sol.csv` emit site in `DemandLP::add_to_output`.
 
     CHECK(dem_lp.param_lmax(suid, buid).value_or(-1.0)
           == doctest::Approx(80.0));

@@ -101,7 +101,9 @@ TEST_CASE("GeneratorLP - basic generation")
   REQUIRE(result.has_value());
 
   const auto sol = lp.get_col_sol();
-  CHECK(sol[2] == doctest::Approx(100.0));  // generation matches demand
+  // Post-P0 layout: load(0), generation(1).  The pre-P0 `fail` col
+  // at index 1 is gone, so generation moves up to sol[1].
+  CHECK(sol[1] == doctest::Approx(100.0));  // generation matches demand
 }
 
 TEST_CASE("GeneratorLP - multiple generators merit order")

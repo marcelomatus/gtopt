@@ -244,11 +244,13 @@ TEST_CASE("CommitmentLP non-chronological stage skip")
   auto&& li = system_lp.linear_interface();
 
   // Non-chronological: commitment should be skipped.
-  // Columns: demand(4) + fail(4) + g1(4) + g2(4) = 16 (no u/v/w)
-  CHECK(li.get_numcols() == 16);
+  // Post-P0 demand-failure substitution: `fail` col and demand
+  // balance row are gone (folded into lcol cost / obj_constant).
+  // Columns: demand(4) + g1(4) + g2(4) = 12 (no u/v/w, no fail)
+  CHECK(li.get_numcols() == 12);
 
-  // Rows: balance(4) + demand_balance(4) = 8
-  CHECK(li.get_numrows() == 8);
+  // Rows: bus balance(4) = 4 (demand balance row substituted away)
+  CHECK(li.get_numrows() == 4);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -351,11 +353,10 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
-    // g1 (col 2) should dispatch 80 MW (gcost=10 < 30)
-    // Layout: demand(0), fail(1), g1(2), g2(3)
-    CHECK(sol[2] == doctest::Approx(80.0));
-    // g2 (col 3) should dispatch 0 MW
-    CHECK(sol[3] == doctest::Approx(0.0));
+    // Post-P0 layout: demand(0), g1(1), g2(2).  `fail` col is gone.
+    // g1 should dispatch 80 MW (gcost=10 < 30); g2 dispatches 0.
+    CHECK(sol[1] == doctest::Approx(80.0));
+    CHECK(sol[2] == doctest::Approx(0.0));
   }
 
   SUBCASE("High emission cost: g2 dispatches (total cost g1 > g2)")
@@ -396,11 +397,10 @@ TEST_CASE("CommitmentLP emission cost shifts dispatch")
 
     const auto sol = li.get_col_sol();
     // g1 effective cost = 10 + 25 = 35 $/MWh > g2 cost = 30 $/MWh
-    // So g2 should dispatch fully (80 MW) and g1 should be at 0
-    // Layout: demand(0), fail(1), g1(2), ..., g2(N)
-    CHECK(sol[2] == doctest::Approx(0.0));
-    // g1 should be 0 (committed but too expensive)
-    // Check that demand is served (sol[0] == 80)
+    // → g2 dispatches 80 MW, g1 = 0.  Post-P0 layout: demand(0),
+    // g1(1), ..., g2(N) — `fail` col removed.
+    CHECK(sol[1] == doctest::Approx(0.0));
+    // Demand fully served (sol[0] == 80).
     CHECK(sol[0] == doctest::Approx(80.0));
   }
 }
@@ -453,10 +453,10 @@ TEST_CASE("Emission cap constrains dirty generation")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
-    // Layout: demand(0), fail(1), g1(2), g2(3)
-    // g1 dispatches 80 MW (cheapest), g2 dispatches 0
-    CHECK(sol[2] == doctest::Approx(80.0));
-    CHECK(sol[3] == doctest::Approx(0.0));
+    // Post-P0 layout: demand(0), g1(1), g2(2).  `fail` col gone.
+    // g1 dispatches 80 MW (cheapest), g2 dispatches 0.
+    CHECK(sol[1] == doctest::Approx(80.0));
+    CHECK(sol[2] == doctest::Approx(0.0));
   }
 
   SUBCASE("Binding emission cap forces g2 to dispatch")
@@ -477,11 +477,11 @@ TEST_CASE("Emission cap constrains dirty generation")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
-    // Layout: demand(0), fail(1), g1(2), g2(3)
-    // g1 limited to 30 MW by emission cap (30 tCO2 / 1.0 / 1h = 30 MW)
-    CHECK(sol[2] == doctest::Approx(30.0));
-    // g2 must produce the rest: 80 - 30 = 50 MW
-    CHECK(sol[3] == doctest::Approx(50.0));
+    // Post-P0 layout: demand(0), g1(1), g2(2).  `fail` col gone.
+    // g1 limited to 30 MW by emission cap (30 tCO2 / 1.0 / 1h).
+    CHECK(sol[1] == doctest::Approx(30.0));
+    // g2 must produce the rest: 80 - 30 = 50 MW.
+    CHECK(sol[2] == doctest::Approx(50.0));
   }
 }
 
@@ -784,12 +784,11 @@ TEST_CASE("Piecewise heat rate curve shifts dispatch cost")
   // g1 should dispatch 50 MW (all from seg1 at 40 $/MWh),
   // g2 dispatches 30 MW at 50 $/MWh (cheaper than g1 seg2 at 60)
   const auto sol = li.get_col_sol();
-  // Layout: demand(0), fail(1), g1_seg(2+), g2(N)
-  // g1 should dispatch 50 MW (seg1 at 40 < g2 at 50)
-  // g2 dispatches 30 MW (80 - 50)
-  // Verify via demand: all 80 MW served
+  // Post-P0 layout: demand(0), then g1_seg/g2 cols (no `fail` col).
+  // The old sol[1] == 0.0 "no shedding" check pointed at the now-
+  // deleted fail col, so we drop it; demand fully served is implied
+  // by sol[0] == lmax.
   CHECK(sol[0] == doctest::Approx(80.0));
-  CHECK(sol[1] == doctest::Approx(0.0));  // no shedding
 }
 
 TEST_CASE("Commitment JSON round-trip with ramp fields")
@@ -989,9 +988,10 @@ TEST_CASE("CommitmentLP min up/down time constraints")
 
     auto&& li = system_lp.linear_interface();
 
-    // Without min up/down: balance(6) + demand_balance(6) + gen_upper(6) +
-    // gen_lower(6) + logic(6) + exclusion(6) = 36 rows
-    CHECK(li.get_numrows() == 36);
+    // Without min up/down (post-P0 demand-failure substitution
+    // removed demand_balance):
+    // balance(6) + gen_upper(6) + gen_lower(6) + logic(6) + exclusion(6) = 30
+    CHECK(li.get_numrows() == 30);
 
     const auto result = li.resolve();
     REQUIRE(result.has_value());
@@ -1315,10 +1315,12 @@ TEST_CASE("Fuel emission factor with piecewise segments")
     CHECK(result.value() == 0);
 
     const auto sol = li.get_col_sol();
-    // g1=50 (seg1 at 40 < 55), g2=30 (55 < seg2 at 60)
-    // Layout: demand(0), fail(1), then gen/segment cols
+    // g1=50 (seg1 at 40 < 55), g2=30 (55 < seg2 at 60).
+    // Post-P0 layout: demand(0), then gen/segment cols — the old
+    // sol[1] == 0.0 "no shedding" check pointed at the now-deleted
+    // `fail` col, so we drop it.  Demand fully served is implied by
+    // sol[0] == lmax (and by the LP being feasible with cheap gen).
     CHECK(sol[0] == doctest::Approx(80.0));  // demand served
-    CHECK(sol[1] == doctest::Approx(0.0));  // no shedding
   }
 
   SUBCASE("With emission cost: g1 even more expensive")
@@ -1489,15 +1491,15 @@ TEST_CASE("Startup tiers: cold_time < hot_time is gracefully skipped")
 
   auto&& li = system_lp.linear_interface();
 
-  // Without startup tiers: demand(4) + fail(4) + g1(4) + g2(4) + u(4) +
-  // v(4) + w(4) = 28.  With startup tiers: would add hot(4) + warm(4) +
-  // cold(4) = 12 extra cols. Since tiers are skipped, should be 28.
-  CHECK(li.get_numcols() == 28);
+  // Post-P0 demand-failure substitution removed fail cols + demand
+  // balance rows.  Without startup tiers:
+  // demand(4) + g1(4) + g2(4) + u(4) + v(4) + w(4) = 24 cols.
+  CHECK(li.get_numcols() == 24);
 
-  // Baseline rows: balance(4) + demand_balance(4) + gen_upper(4) +
-  //   gen_lower(4) + logic(4) + exclusion(4) = 24
-  // No tier rows (type_select, hot_window, warm_window).
-  CHECK(li.get_numrows() == 24);
+  // Rows: balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
+  // exclusion(4) = 20.  No tier rows (type_select, hot_window,
+  // warm_window).
+  CHECK(li.get_numrows() == 20);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -1624,11 +1626,12 @@ TEST_CASE("Emission cap with piecewise segments uses flat emission_factor")
   CHECK(result.value() == 0);
 
   const auto sol = li.get_col_sol();
-  // Column layout (1 block): demand(0), fail(1), g1(2), g2(3), u(4), ...
+  // Post-P0 column layout (1 block): demand(0), g1(1), g2(2), u(3), ...
+  // (fail col is gone after the demand-failure substitution).
   // g1 limited to 50 MW by cap (25 tCO2 / 0.5 tCO2/MWh / 1h = 50 MW)
-  CHECK(sol[2] == doctest::Approx(50.0));
+  CHECK(sol[1] == doctest::Approx(50.0));
   // g2 picks up the remaining 30 MW
-  CHECK(sol[3] == doctest::Approx(30.0));
+  CHECK(sol[2] == doctest::Approx(30.0));
 }
 
 TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
@@ -1686,10 +1689,11 @@ TEST_CASE("Min up/down time: single-block coverage is correctly trivial")
 
   auto&& li = system_lp.linear_interface();
 
-  // Baseline rows: balance(4) + demand_balance(4) + gen_upper(4) +
-  //   gen_lower(4) + logic(4) + exclusion(4) = 24
-  // NO min up/down rows (all trivially satisfied).
-  CHECK(li.get_numrows() == 24);
+  // Post-P0 demand-failure substitution: demand_balance rows are
+  // gone.  Baseline rows: balance(4) + gen_upper(4) + gen_lower(4)
+  // + logic(4) + exclusion(4) = 20.  NO min up/down rows (all
+  // trivially satisfied).
+  CHECK(li.get_numrows() == 20);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());
@@ -2236,11 +2240,10 @@ TEST_CASE("Non-uniform block durations affect min-up-time block count")
 
   auto&& li = system_lp.linear_interface();
 
-  // Baseline: balance(4) + demand_balance(4) + gen_upper(4) +
-  //           gen_lower(4) + logic(4) + exclusion(4) = 24
-  // Min up rows: 2
-  // Total: 26
-  CHECK(li.get_numrows() == 26);
+  // Post-P0: demand_balance gone.  Baseline:
+  // balance(4) + gen_upper(4) + gen_lower(4) + logic(4) +
+  // exclusion(4) = 20.  Plus min up rows: 2.  Total: 22.
+  CHECK(li.get_numrows() == 22);
 
   const auto result = li.resolve();
   REQUIRE(result.has_value());

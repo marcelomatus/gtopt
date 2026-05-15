@@ -588,9 +588,11 @@ TEST_CASE("PlanningLP - Solver test")
   auto&& lp_interface = system_lp.linear_interface();
 
   const auto sol = lp_interface.get_col_sol();
+  // Post-P0 demand-failure substitution: layout is demand(0),
+  // generation(1) — the `fail` col is gone.  Demand fully served is
+  // visible via sol[0] == lmax (= 100).
   REQUIRE(sol[0] == doctest::Approx(100));  // demand load
-  REQUIRE(sol[1] == doctest::Approx(0));  // demand fail
-  REQUIRE(sol[2] == doctest::Approx(100));  // generation
+  REQUIRE(sol[1] == doctest::Approx(100));  // generation
 
   const auto dual = lp_interface.get_row_dual();
   // get_row_dual() returns physical duals (already includes scale_objective).
