@@ -164,10 +164,22 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> lncols;
   BIndexHolder<std::vector<ColIndex>> fpsegcols;
   BIndexHolder<std::vector<ColIndex>> fnsegcols;
+  // Reserve every per-block holder up-front to avoid rehash churn as
+  // the block loop populates each map.  All eight grow at most to
+  // `blocks.size()` (one entry per block) so a single reservation
+  // each gets us to steady-state capacity in the common case.  The
+  // seg holders carry an outer entry per block and an inner segment
+  // vector — the inner vector is reserved by `add_direct_direction`
+  // via `seg_cols.reserve(nseg)`, so we only need the outer-map
+  // reservation here.
   map_reserve(fpcols, blocks.size());
-  map_reserve(cprows, blocks.size());
   map_reserve(fncols, blocks.size());
+  map_reserve(cprows, blocks.size());
   map_reserve(cnrows, blocks.size());
+  map_reserve(lpcols, blocks.size());
+  map_reserve(lncols, blocks.size());
+  map_reserve(fpsegcols, blocks.size());
+  map_reserve(fnsegcols, blocks.size());
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -219,15 +231,31 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // rows — the cycle_basis dispatcher reads `flowp_*` / `flown_*` /
   // `*_seg_cols` via the LineLP accessors when it runs at the system
   // level, so the persistent state must be in place by then.
+  //
+  // Outer-map assignment is **conditional on a non-empty inner**
+  // (2026-05-14).  Pre-fix every (s, t) key was inserted even when
+  // the per-block map was empty (e.g., `flowp_seg_cols` for non-
+  // direct modes, `flowp_cols` for `piecewise_direct`), making the
+  // `STBIndexHolder::empty()` gate in `add_to_output` useless — the
+  // outer map always had entries.  The four flow-col accessors in
+  // `line_lp.hpp` now return a static empty BIndexHolder when the
+  // key is missing, so callers (the kirchhoff dispatcher, the
+  // resolver) stay unchanged.
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  capacityp_rows[st_key] = std::move(cprows);
-  capacityn_rows[st_key] = std::move(cnrows);
-  flowp_cols[st_key] = std::move(fpcols);
-  flown_cols[st_key] = std::move(fncols);
-  lossp_cols[st_key] = std::move(lpcols);
-  lossn_cols[st_key] = std::move(lncols);
-  flowp_seg_cols[st_key] = std::move(fpsegcols);
-  flown_seg_cols[st_key] = std::move(fnsegcols);
+  const auto cond_assign = [&](auto& dst, auto&& src)
+  {
+    if (!src.empty()) {
+      dst[st_key] = std::forward<decltype(src)>(src);
+    }
+  };
+  cond_assign(capacityp_rows, std::move(cprows));
+  cond_assign(capacityn_rows, std::move(cnrows));
+  cond_assign(flowp_cols, std::move(fpcols));
+  cond_assign(flown_cols, std::move(fncols));
+  cond_assign(lossp_cols, std::move(lpcols));
+  cond_assign(lossn_cols, std::move(lncols));
+  cond_assign(flowp_seg_cols, std::move(fpsegcols));
+  cond_assign(flown_seg_cols, std::move(fnsegcols));
 
   // ── Kirchhoff KVL rows ────────────────────────────────────────────
   // Dispatch by `kirchhoff_mode`:
@@ -236,6 +264,13 @@ bool LineLP::add_to_lp(SystemContext& sc,
   //   * cycle_basis: returns empty; KVL rows are emitted at the
   //     system level by `kirchhoff::cycle_basis::add_kvl_rows`
   //     after every line has finished creating its flow vars.
+  //
+  // Reads via the `*_cols_at` accessors so the conditional-insert
+  // pattern above is transparent — the accessors return a static
+  // empty `BIndexHolder<...>` when the outer key was skipped (e.g.,
+  // `flowp_seg_cols` for non-direct-mode lines, `flowp_cols` for
+  // piecewise_direct lines).  `.at(st_key)` would throw on those
+  // missing keys.
   auto trows = kirchhoff::add_line_kvl_rows(sc,
                                             scenario,
                                             stage,
@@ -243,10 +278,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                             *this,
                                             bus_a_lp,
                                             bus_b_lp,
-                                            flowp_cols.at(st_key),
-                                            flown_cols.at(st_key),
-                                            flowp_seg_cols.at(st_key),
-                                            flown_seg_cols.at(st_key));
+                                            flowp_cols_at(scenario, stage),
+                                            flown_cols_at(scenario, stage),
+                                            flowp_seg_cols_at(scenario, stage),
+                                            flown_seg_cols_at(scenario, stage));
   if (!trows.empty()) {
     theta_rows[st_key] = std::move(trows);
   }
@@ -268,13 +303,19 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // by stamping each segment col with the leg coefficient.
   // Per-direction registration is independent so a half-direction
   // line (e.g., tmax_ba = 0) registers only its non-empty side.
+  // The conditional-insert pattern above means `cols.at(st_key)`
+  // would throw on the (s,t) keys we skipped.  Look up via
+  // `.find()` and silently no-op when the outer key is absent —
+  // semantically equivalent to "no LP cols for this (s,t)".
   const auto register_if_present =
       [&](std::string_view attribute, const auto& cols)
   {
-    const auto& m = cols.at(st_key);
-    if (!m.empty()) {
-      sc.add_ampl_variable(ampl_name, uid(), attribute, scenario, stage, m);
+    const auto it = cols.find(st_key);
+    if (it == cols.end() || it->second.empty()) {
+      return;
     }
+    sc.add_ampl_variable(
+        ampl_name, uid(), attribute, scenario, stage, it->second);
   };
   register_if_present(FlowpName, flowp_cols);
   register_if_present(FlownName, flown_cols);
@@ -289,10 +330,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   const auto register_seg_sum_if_present =
       [&](std::string_view attribute, const auto& seg_cols)
   {
-    const auto& m = seg_cols.at(st_key);
-    if (!m.empty()) {
-      sc.add_ampl_variable(ampl_name, uid(), attribute, scenario, stage, m);
+    const auto it = seg_cols.find(st_key);
+    if (it == seg_cols.end() || it->second.empty()) {
+      return;
     }
+    sc.add_ampl_variable(
+        ampl_name, uid(), attribute, scenario, stage, it->second);
   };
   register_seg_sum_if_present(FlowpName, flowp_seg_cols);
   register_seg_sum_if_present(FlownName, flown_seg_cols);

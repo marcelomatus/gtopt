@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdlib>
 #include <string>
 
 #include <gtopt/constraint_names.hpp>
@@ -458,13 +459,22 @@ BlockResult add_piecewise(const LossConfig& config,
 
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
-  const auto reserve_sz = static_cast<size_t>(nseg) + 2;
+  // linkrow non-zeros: fp + fn + K segs ≤ K + 2.
+  // lossrow non-zeros: loss + K segs    ≤ K + 1 (tighter, separate var).
+  const auto link_reserve_sz = static_cast<size_t>(nseg) + 2;
+  const auto loss_reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = fmax / nseg;
+
+  // Hoisted once per (block, line): the AMPL/PAMPL block context is
+  // identical for fp_col, fn_col, loss_col, linkrow and lossrow.
+  // Pre-2026-05-14 each site rebuilt it from (scenario.uid(),
+  // stage.uid(), block.uid()) — 5× per block, ≈ 5×K-of-segments calls
+  // are similarly hoisted inside ``add_segments`` via the caller.
+  const auto block_ctx =
+      make_block_context(scenario.uid(), stage.uid(), block.uid());
 
   // Directional flow variables (for bus balance + Kirchhoff).
   if (block_tmax_ab > 0.0) {
-    const auto block_ctx =
-        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fpc = lp.add_col({
         .lowb = 0,
         .uppb = block_tmax_ab,
@@ -480,8 +490,6 @@ BlockResult add_piecewise(const LossConfig& config,
   }
 
   if (block_tmax_ba > 0.0) {
-    const auto block_ctx =
-        make_block_context(scenario.uid(), stage.uid(), block.uid());
     const auto fnc = lp.add_col({
         .lowb = 0,
         .uppb = block_tmax_ba,
@@ -503,7 +511,7 @@ BlockResult add_piecewise(const LossConfig& config,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::LosspName,
       .variable_uid = uid,
-      .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      .context = block_ctx,
   });
   result.lossp_col = loss_col;
 
@@ -515,11 +523,10 @@ BlockResult add_piecewise(const LossConfig& config,
           .class_name = Line::class_name.full_name(),
           .constraint_name = flow_link_constraint_name,
           .variable_uid = uid,
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       }
           .equal(0);
-  linkrow.reserve(reserve_sz);
+  linkrow.reserve(link_reserve_sz);
   if (result.fp_col) {
     linkrow[*result.fp_col] = +1.0;
   }
@@ -533,11 +540,10 @@ BlockResult add_piecewise(const LossConfig& config,
           .class_name = Line::class_name.full_name(),
           .constraint_name = loss_link_constraint_name,
           .variable_uid = uid,
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       }
           .equal(0);
-  lossrow.reserve(reserve_sz);
+  lossrow.reserve(loss_reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
   add_segments(lp,
@@ -645,13 +651,14 @@ DirResult add_direction(const LossConfig& config,
       sending_brow, receiving_brow, loss_col, config.allocation);
 
   // Linking: f_total − Σ f_seg_k = 0
+  // `block_ctx` already hoisted at top of function — reuse here
+  // instead of rebuilding it twice more (linkrow + lossrow).
   auto linkrow =
       SparseRow {
           .class_name = Line::class_name.full_name(),
           .constraint_name = labels.link,
           .variable_uid = uid,
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       }
           .equal(0);
   linkrow.reserve(reserve_sz);
@@ -663,8 +670,7 @@ DirResult add_direction(const LossConfig& config,
           .class_name = Line::class_name.full_name(),
           .constraint_name = labels.loss_link,
           .variable_uid = uid,
-          .context =
-              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          .context = block_ctx,
       }
           .equal(0);
   lossrow.reserve(reserve_sz);
@@ -955,10 +961,24 @@ BlockResult add_block(const LossConfig& config,
 
     case LineLossesMode::piecewise_direct:
       // `resolve_mode` demotes direct + expansion to `piecewise`,
-      // so capacity_col must be empty here.
-      assert(!capacity_col
-             && "piecewise_direct reached with capacity_col; "
-                "resolve_mode demotion was bypassed");
+      // so capacity_col must be empty here.  This is a **hard**
+      // contract — if a future code path bypasses `resolve_mode`
+      // and reaches `piecewise_direct` with `capacity_col` set,
+      // the segments would be created without any capacity row to
+      // constrain them, silently producing a model where flow can
+      // exceed line capacity.  The Release build compiles asserts
+      // out, so the prior `assert(!capacity_col, ...)` would have
+      // missed it.  Promote to a runtime check that survives
+      // -DNDEBUG.
+      if (capacity_col) [[unlikely]] {
+        spdlog::critical(
+            "line_losses: piecewise_direct dispatcher reached with "
+            "capacity_col (line uid={}); resolve_mode demotion was "
+            "bypassed.  Aborting to avoid silently producing an "
+            "unconstrained-capacity LP.",
+            uid);
+        std::abort();
+      }
       return add_piecewise_direct(config,
                                   scenario,
                                   stage,

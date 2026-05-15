@@ -83,16 +83,49 @@ public:
 
   bool add_to_output(OutputContext& out) const;
 
+  /// `STBIndexHolder<X>::at({s,t})` throws on missing key; callers
+  /// that tolerate empty inner maps (`flowp_cols_at`, etc.) need a
+  /// graceful fallback after the conditional-assignment pattern in
+  /// `add_to_lp` (which only inserts an outer key when the inner
+  /// map is non-empty).  This template returns a reference to a
+  /// per-instantiation static empty `BIndexHolder<Inner>` when the
+  /// `(scenario, stage)` outer key is missing.  One static instance
+  /// per `Inner` type — `ColIndex` and `std::vector<ColIndex>` are
+  /// the two used by LineLP.  Defined here (above the accessors that
+  /// use it) so the deduced return type is resolved before the
+  /// accessor templates instantiate.
+  template<typename Holder>
+  [[nodiscard]] static constexpr const auto& find_or_empty_inner(
+      const Holder& holder,
+      const ScenarioLP& scenario,
+      const StageLP& stage) noexcept
+  {
+    using Inner = typename Holder::mapped_type;
+    static const Inner empty {};
+    const auto it = holder.find({scenario.uid(), stage.uid()});
+    return (it != holder.end()) ? it->second : empty;
+  }
+
+  /// All four flow-col accessors below tolerate a missing
+  /// `(scenario, stage)` outer key by returning a reference to a
+  /// static empty BIndexHolder via `find_or_empty_inner`.
+  /// Pre-2026-05-14 the assignment in ``add_to_lp`` was unconditional
+  /// even when the inner map was empty (e.g. `flowp_seg_cols` for
+  /// non-direct modes, `flowp_cols` for `piecewise_direct`), keeping
+  /// the outer key present.  The new conditional-assignment pattern
+  /// only inserts the outer key when at least one block populated
+  /// the inner map, so callers must handle the missing-key case —
+  /// these helpers centralise it.
   [[nodiscard]] constexpr const auto& flowp_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
-    return flowp_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(flowp_cols, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& flown_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
-    return flown_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(flown_cols, scenario, stage);
   }
 
   /// Per-block segment columns for the A→B direction (only populated
@@ -104,37 +137,37 @@ public:
   [[nodiscard]] constexpr const auto& flowp_seg_cols_at(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
-    return flowp_seg_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(flowp_seg_cols, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& flown_seg_cols_at(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
-    return flown_seg_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(flown_seg_cols, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& lossp_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
-    return lossp_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(lossp_cols, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& lossn_cols_at(const ScenarioLP& scenario,
                                                     const StageLP& stage) const
   {
-    return lossn_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(lossn_cols, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& capacityp_rows_at(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
-    return capacityp_rows.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(capacityp_rows, scenario, stage);
   }
 
   [[nodiscard]] constexpr const auto& capacityn_rows_at(
       const ScenarioLP& scenario, const StageLP& stage) const
   {
-    return capacityn_rows.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(capacityn_rows, scenario, stage);
   }
 
   /// Check if this line created Kirchhoff (theta) rows for a given
