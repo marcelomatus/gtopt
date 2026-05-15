@@ -92,6 +92,81 @@ public:
 
   [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
+  // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
+  //
+  // Counterpart to the index-emit overloads below.  These take a
+  // holder whose values are already physical doubles (rather than
+  // LP column / row indices) and emit them directly, applying the
+  // same per-block factor pipeline as the index variant so the CSV
+  // output is bit-for-bit compatible with the LP-emitted form.
+  //
+  // Use case: model rewrites that fold an LP variable away via
+  // substitution (e.g. the planned P0 demand-failure rewrite
+  // `fail = lmax − load`).  The substituted variable no longer
+  // exists as an LP column, so its `:sol` / `:cost` outputs must be
+  // reconstructed from observable quantities (parameters + the
+  // surviving variable's primal/dual values) and emitted directly.
+  // The new `add_to_output` site builds an
+  // `STBIndexHolder<double>` of reconstructed values and hands it
+  // to these methods — same semantics, no LP column lookup.
+
+  constexpr void add_col_sol_values(std::string_view cname,
+                                    std::string_view col_name,
+                                    const Id& id,
+                                    const STBIndexHolder<double>& holder)
+  {
+    if (!emit_solution()) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     block_factor_matrix_t {});
+  }
+
+  constexpr void add_col_cost_values(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<double>& holder)
+  {
+    if (!emit_reduced_cost()) {
+      return;
+    }
+    // Mirrors the `:cost` factor pipeline of `add_col_cost`: applies
+    // `block_icost_factors` so the emitted scalar lands on the same
+    // physical-cost scale that an LP-derived reduced cost would.
+    // Callers that wish to emit values already on physical scale
+    // (no further multiplication) should construct the holder so
+    // each entry is `physical_value × block_ecost_factor[s,t,b]`.
+    add_field_values(cname,
+                     col_name,
+                     "cost",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
+  constexpr void add_row_dual_values(std::string_view cname,
+                                     std::string_view row_name,
+                                     const Id& id,
+                                     const STBIndexHolder<double>& holder)
+  {
+    if (!emit_dual()) {
+      return;
+    }
+    add_field_values(cname,
+                     row_name,
+                     "dual",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
   // ── STB/GSTB block-indexed overloads ─────────────────────────────
 
   constexpr void add_col_sol(std::string_view cname,
@@ -444,6 +519,45 @@ private:
 
     auto&& [values, valid] =
         sc.get().flat(holder, [&](auto i) { return value_span[i]; }, factor);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
+  }
+
+  /// add_field variant that **emits precomputed values directly** —
+  /// no LP-side index lookup.  `IndexHolder` is expected to be
+  /// `STBIndexHolder<double>` whose per-block values are already in
+  /// the desired physical scale.  The same `factor` pipeline as
+  /// `add_field` is applied (block-level scale on each value) so the
+  /// CSV output is byte-compatible with the LP-emitted form when
+  /// the caller has prepared values that match the LP would have
+  /// produced.  Backs the `add_col_sol_values` / `add_col_cost_values`
+  /// / `add_row_dual_values` public overloads, used by model rewrites
+  /// that fold an LP variable away via algebraic substitution (e.g.
+  /// the planned P0 demand-failure `fail = lmax − load`).
+  template<typename Prelude, typename Factor = std::span<double>>
+  void add_field_values(std::string_view cname,
+                        std::string_view fname,
+                        std::string_view sname,
+                        const Id& id,
+                        const STBIndexHolder<double>& holder,
+                        const Prelude* prelude,
+                        const Factor& factor)
+  {
+    if (holder.empty()) {
+      return;
+    }
+
+    // Identity projection: the holder already carries doubles, so
+    // pass each one through unchanged into the standard flat()
+    // pipeline.  `factor` still applies post-projection — matching
+    // the index-based `add_field` so block scaling stays uniform.
+    auto&& [values, valid] =
+        sc.get().flat(holder, [](double v) { return v; }, factor);
 
     if (values.empty()) {
       return;
