@@ -97,7 +97,14 @@ private:
 
   STBIndexHolder<ColIndex> load_cols;
   STBIndexHolder<RowIndex> capacity_rows;
-  STIndexHolder<ColIndex> emin_cols;
+
+  /// Stage-level emin-balance constraint row index (one per
+  /// (scenario, stage) when emin is active).  Post-collapse this
+  /// is `sum_b bdur*mcol ≤ stage_emin` (soft, ecost set) or
+  /// `sum_b bdur*mcol = stage_emin` (hard, no ecost) — direct on
+  /// the surviving `mcol` (`lman`) per-block columns; the
+  /// pre-collapse stage-aggregator `emin_col` is gone.  Kept for
+  /// potential dual-value diagnostics.
   STIndexHolder<RowIndex> emin_rows;
 
   STBIndexHolder<ColIndex> lman_cols;

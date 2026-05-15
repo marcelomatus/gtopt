@@ -111,54 +111,62 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     stage_ecost = stage_fcost;
   }
 
+  // ── emin aggregator collapse ─────────────────────────────────────
+  //
+  // Pre-collapse: a stage-level `emin_col` (variable) + an equality
+  // row `sum_b bdur*mcol[b] − emin_col = 0` glued the per-block
+  // `mcol[b]` (lman) variables to one stage aggregator.
+  // Post-collapse: the aggregator is gone — `emin_col` and the
+  // gluing row are both deleted.  In their place:
+  //
+  //   * `mcol[b].cost = −c_per_unit × bdur` (soft, ecost set), where
+  //     `c_per_unit = scenario_stage_ecost(s, t, stage_ecost /
+  //     stage.duration())`. The negative coefficient rewards drawing more
+  //     energy.
+  //
+  //   * A single stage-level row replaces the aggregator-gluing row:
+  //         sum_b bdur*mcol[b] ≤ stage_emin   (soft, ecost set)
+  //         sum_b bdur*mcol[b] = stage_emin   (hard, no ecost)
+  //     Same semantic as the pre-collapse `emin_col ∈ [0, stage_emin]`
+  //     (soft) / `emin_col = stage_emin` (hard) — the aggregator was
+  //     redundant tautological glue.
+  //
+  // Saves 1 column per (scenario, stage) per demand with emin
+  // active.  Algebraically identical: pre-collapse obj contribution
+  // was `−c × emin_col_optimal = −c × stage_emin` (soft) / `0` (hard);
+  // post-collapse it's `Σ_b −c × bdur × mcol[b] = −c × stage_emin`
+  // (soft) / `0` (hard) — same.
   auto emin_row = [&](const auto& stage_emin,
                       const auto& stage_ecost) -> std::optional<SparseRow>
   {
     if (!stage_emin) [[unlikely]] {
       return std::nullopt;
     }
-
-    const auto emin_col = stage_ecost
-        ? lp.add_col({
-              .uppb = *stage_emin,
-              // Use scenario_stage_ecost (not stage_ecost) so the
-              // scenario probability_factor is folded into the LP
-              // cost coefficient — matches the inverse applied by
-              // OutputContext::add_col_cost on STIndexHolder columns
-              // (scenario_stage_icost_factors).  Without prob folded
-              // here the ledger is unbalanced for prob != 1 and the
-              // reduced cost is wrong by 1/prob.  Mirrors the
-              // storage_lp.hpp:787,822 pattern.
-              .cost = -CostHelper::scenario_stage_ecost(
-                  scenario, stage, *stage_ecost / stage.duration()),
-              .class_name = Element::class_name.full_name(),
-              .variable_name = EminName,
-              .variable_uid = uid(),
-              .context = make_stage_context(scenario.uid(), stage.uid()),
-          })
-        : lp.add_col({
-              .lowb = *stage_emin,
-              .uppb = *stage_emin,
-              .class_name = Element::class_name.full_name(),
-              .variable_name = EminName,
-              .variable_uid = uid(),
-              .context = make_stage_context(scenario.uid(), stage.uid()),
-          });
-
-    emin_cols[st_key] = emin_col;
-
-    auto row =
-        SparseRow {
-            .class_name = Element::class_name.full_name(),
-            .constraint_name = EminName,
-            .variable_uid = uid(),
-            .context = make_stage_context(scenario.uid(), stage.uid()),
-        }
-            .equal(0);
-    row[emin_col] = -1.0;
-
+    auto row = SparseRow {
+        .class_name = Element::class_name.full_name(),
+        .constraint_name = EminName,
+        .variable_uid = uid(),
+        .context = make_stage_context(scenario.uid(), stage.uid()),
+    };
+    if (stage_ecost) {
+      // Soft: total energy ≤ stage_emin (the per-mcol cost provides
+      // the incentive to push the total up to the cap).
+      row.less_equal(*stage_emin);
+    } else {
+      // Hard: total energy exactly stage_emin.  No incentive cost —
+      // the LP must hit the floor.
+      row.equal(*stage_emin);
+    }
     return row;
   }(stage_emin, stage_ecost);
+
+  // Per-block lman-cost coefficient applied directly to each mcol
+  // (soft path).  Zero when `stage_ecost` is unset (hard path) —
+  // the LP must hit `stage_emin` via the equality row instead.
+  const double per_unit_neg_cost = (stage_ecost && stage_emin)
+      ? -CostHelper::scenario_stage_ecost(
+            scenario, stage, *stage_ecost / stage.duration())
+      : 0.0;
 
   BIndexHolder<ColIndex> lcols;
   BIndexHolder<ColIndex> mcols;
@@ -283,12 +291,16 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
     // adding the minimum energy constraint (lman is independent of
     // lmax — represents extra load drawn to satisfy the stage-level
-    // emin floor, valid even when natural demand is zero).
+    // emin floor, valid even when natural demand is zero).  Post-
+    // collapse `mcol[b]` directly carries the soft-emin reward cost
+    // `−c × bdur` (zero on the hard path); the stage-level emin row
+    // built above caps `sum_b bdur*mcol[b]` at `stage_emin`.
     if (has_lman) {
       const auto bdur = block.duration();
 
       const auto mcol = lp.add_col({
           .uppb = *stage_emin / bdur,
+          .cost = per_unit_neg_cost * bdur,
           .class_name = Element::class_name.full_name(),
           .variable_name = LmanName,
           .variable_uid = uid(),
@@ -345,8 +357,14 @@ bool DemandLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, LoadName, pid, load_cols);
   out.add_row_dual(cname, CapacityName, pid, capacity_rows);
 
-  out.add_col_sol(cname, EminName, pid, emin_cols);
-  out.add_col_cost(cname, EminName, pid, emin_cols);
+  // Stage-level emin row dual (post-collapse the only emin entity
+  // still in the LP).  `Demand/emin_dual.csv` captures the marginal
+  // value of relaxing the stage-energy cap — useful for diagnostics
+  // even though no production tooling reads it today.  The legacy
+  // `Demand/emin_sol.csv` and `Demand/emin_cost.csv` outputs are
+  // gone because the aggregator `emin_col` no longer exists; the
+  // "energy delivered toward emin" value is `sum_b bdur × mcol[b]`,
+  // i.e. the same information available via `lman_cols` if needed.
   out.add_row_dual(cname, EminName, pid, emin_rows);
 
   // `lman:cost` is **not** emitted — the load-management slack
