@@ -116,14 +116,10 @@ constexpr auto debug_backward_lp_fmt = "gtopt_backward_s{}_p{}_i{}";
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
 constexpr auto stop_sentinel = "sddp_stop";
-/// State variable column solution — CSV format (latest)
-constexpr auto state_cols = "sddp_state.csv";
-/// Versioned state column solution (CSV): format with iteration number
-constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
-/// State variable column solution — JSON format (latest)
-constexpr auto state_cols_json = "sddp_state.json";
-/// Versioned state column solution (JSON): format with iteration number
-constexpr auto versioned_state_json_fmt = "sddp_state_{}.json";
+// State-variable column file names were removed (2026-05-14) — the
+// per-iter `sddp_state.csv` writer (and its retired `_<iter>` /
+// `.json` siblings) had no readers anywhere; policy state is
+// reconstructed from the versioned cut files at recovery time.
 /// Monitoring API stop-request file name: if this file exists, the solver
 /// stops gracefully after the current iteration (same behaviour as the
 /// sentinel file).  Written by the webservice soft-stop endpoint as part

@@ -458,9 +458,9 @@ public:
   ///
   /// `release_backend()` populates three primal/dual snapshots so that
   /// post-release readers can keep accessing the solution:
-  ///   - `col_sol` and `col_cost` are read by `OutputContext`,
-  ///     `save_state_csv`, and the SDDP state-variable propagation
-  ///     paths during the iteration that produced the solve.
+  ///   - `col_sol` and `col_cost` are read by `OutputContext` and the
+  ///     SDDP state-variable propagation paths during the iteration
+  ///     that produced the solve.
   ///   - `row_dual` is read **across iterations** by
   ///     `update_stored_cut_duals` and `prune_inactive_cuts`
   ///     (`sddp_cut_store.cpp:177, 222`).

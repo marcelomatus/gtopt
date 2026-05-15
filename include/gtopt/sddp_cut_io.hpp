@@ -207,5 +207,7 @@ inline constexpr std::string_view EfinColName {"efin"};
 
 }  // namespace gtopt
 
-// Backwards compatibility: state I/O was extracted to its own header.
-#include <gtopt/sddp_state_io.hpp>
+// `sddp_state_io.hpp` was removed (2026-05-14) along with its
+// `save_state_csv` writer — no consumer in the codebase reads the
+// resulting state CSV; policy state is reconstructed from the
+// versioned cut files at recovery.

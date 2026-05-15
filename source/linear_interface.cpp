@@ -237,7 +237,7 @@ void LinearInterface::release_backend() noexcept
   }
 
   // Order matters under async iter-overlap: a concurrent reader
-  // (e.g. main-thread `save_state_csv` -> `get_numcols` -> ...) might
+  // (e.g. SDDP state-variable propagation -> `get_numcols` -> ...) might
   // see `m_backend_released_ == false` and then dereference
   // `m_backend_`.  Setting the flag BEFORE resetting the pointer
   // narrows the race window to the load of the flag (a CPU-visible
@@ -2968,8 +2968,9 @@ Index LinearInterface::get_numcols() const
 {
   // Defensive against the async-iter-overlap race: a worker thread can
   // call `release_backend()` on a cell whose state the main thread is
-  // simultaneously reading via `save_state_csv` -> `get_col_sol` ->
-  // `get_numcols()`.  `release_backend` resets the unique_ptr AFTER
+  // simultaneously reading via the SDDP state-variable propagation
+  // (`get_col_sol` -> `get_numcols()`).  `release_backend` resets the
+  // unique_ptr AFTER
   // populating the cache (line ~214 sets `m_cache_.numcols`), so a
   // reader that observes a null `m_backend_` is guaranteed the cache
   // already carries the right value.  Without the null check this

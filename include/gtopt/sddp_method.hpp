@@ -479,12 +479,6 @@ public:
   // (PLP-imported "planos de embalse") remain CSV-compatible via
   // ``load_boundary_cuts`` above — the only CSV cut path left.
 
-  /// Save state variable column solutions and reduced costs to a CSV file.
-  /// Writes one row per column with its name, phase, scene, value, and
-  /// reduced cost.
-  [[nodiscard]] auto save_state(const std::string& filepath)
-      -> std::expected<void, Error>;
-
   /// Get the global max kappa across all (scene, phase) LP solves.
   /// Returns the cached max regardless of when it was observed — used
   /// by the SDDP warning machinery that just needs "worst kappa seen

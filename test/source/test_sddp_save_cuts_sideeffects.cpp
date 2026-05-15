@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Side-effect tests for `save_cuts_for_iteration`.  Pins two contracts
-// introduced by the post-iter-gap optimisation work:
+// Side-effect tests for `save_cuts_for_iteration`.  Pins two contracts:
 //
-//   1. The versioned state file `sddp_state_<iter>.csv` is **no longer
-//      written**.  Only the latest `sddp_state.csv` is kept.  This is
-//      a deletion contract — without a regression test someone re-
-//      adding the versioned write would not trip CI.
+//   1. **No state CSV is written, of either flavour.**  Pre-2026-05-14
+//      `save_cuts_for_iteration` wrote `sddp_state.csv` (latest) every
+//      iter and historically also `sddp_state_<iter>.csv` (versioned).
+//      The versioned file was retired first; the latest-only file was
+//      removed when an audit found zero readers anywhere — policy state
+//      is reconstructed from the versioned cut files at recovery.  This
+//      test pins the **deletion** of both, so a regression that re-
+//      introduces either would trip CI immediately.
 //
 //   2. The per-scene cut writes work correctly under both the parallel
 //      (pool != nullptr, num_scenes > 1) and sequential (pool == nullptr
 //      OR num_scenes == 1) branches of `SDDPCutManager::save_cuts_for_
 //      iteration`.  The parallel branch is exercised by the 2-scene
 //      SDDP fixture; the sequential branch by the 1-scene fixture.
-//      Both must produce identical output structure (combined +
-//      per-scene + state CSVs).
 
 #include <filesystem>
 #include <regex>
@@ -51,13 +52,14 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 // ═══════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDPCutManager::save_cuts_for_iteration does NOT write "
-    "sddp_state_<iter>.csv")
+    "SDDPCutManager::save_cuts_for_iteration does NOT write any "
+    "sddp_state CSV (latest or versioned)")
 {
-  // The versioned state file was historically written alongside the
-  // latest `sddp_state.csv` (PR #442 deleted that write).  This test
-  // pins the deletion: walk the cut directory after a 2-iter solve
-  // and assert no file matches `sddp_state_*.csv` — only the latest.
+  // Pre-2026-05-14: both the versioned `sddp_state_<iter>.csv` AND
+  // the latest-only `sddp_state.csv` were written every iter.  Both
+  // were retired (no readers).  This test pins both deletions: walk
+  // the cut directory after a 2-iter solve and assert no file
+  // matches `sddp_state*.csv`.
   // The versioned cuts file (`sddp_cuts_<iter>.parquet` since C-2) is
   // unaffected and SHOULD be present.
   const auto tmp_dir = make_tmp_subdir("no_versioned_state");
@@ -80,8 +82,8 @@ TEST_CASE(  // NOLINT
   REQUIRE(results.has_value());
   REQUIRE(results->size() >= 1);
 
-  // Latest state file MUST exist.
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
+  // Latest state file MUST NOT exist (writer removed 2026-05-14).
+  CHECK_FALSE(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
 
   // Versioned state files MUST NOT exist.
   std::vector<std::string> versioned_state_files;
@@ -155,11 +157,10 @@ TEST_CASE(  // NOLINT
   }
   CHECK(scene_files.size() == 1U);
 
-  // Latest state file.
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
+  // Latest state file MUST NOT exist (writer removed 2026-05-14).
+  CHECK_FALSE(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
 
-  // Versioned state file MUST NOT exist (covered by test #1 — pinned
-  // here too so the 1-scene path can't drift).
+  // Versioned state file MUST NOT exist (retired earlier).
   CHECK_FALSE(std::filesystem::exists(tmp_dir / "sddp_state_0.csv"));
 }
 
@@ -194,7 +195,8 @@ TEST_CASE(  // NOLINT
 
   CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts.parquet"));
   CHECK(std::filesystem::exists(tmp_dir / "sddp_cuts_0.parquet"));
-  CHECK(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
+  // Latest state file MUST NOT exist (writer removed 2026-05-14).
+  CHECK_FALSE(std::filesystem::exists(tmp_dir / "sddp_state.csv"));
 
   // Both per-scene files (UID-named, globbed for fixture independence).
   std::vector<std::string> scene_files;

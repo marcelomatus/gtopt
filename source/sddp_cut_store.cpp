@@ -24,7 +24,6 @@
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/sddp_state_io.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
@@ -627,7 +626,6 @@ void SDDPCutManager::save_cuts_for_iteration(
   { return std::chrono::duration<double>(Clock::now() - start).count(); };
   double dt_combined = 0.0;
   double dt_per_scene = 0.0;
-  double dt_state = 0.0;
   double dt_rename = 0.0;
 
   // Helper: save all cuts to a file
@@ -724,26 +722,15 @@ void SDDPCutManager::save_cuts_for_iteration(
     dt_per_scene = elapsed_s(t0);
   }
 
-  // ── Save state variable column solutions (latest only) ──
-  //
-  // Previous design wrote both `sddp_state.csv` (latest) and
-  // `sddp_state_<iter>.csv` (versioned).  The versioned file
-  // doubled the per-iter cost (~8 GB written cumulatively over a
-  // full juan run) for negligible benefit: the policy is encoded
-  // by the cuts, which ARE versioned, and re-running from cuts
-  // reconstructs state.  Keeping only the latest file is enough
-  // for real-time monitoring.
-  if (!cut_dir.empty()) {
-    const auto t0 = Clock::now();
-    const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    auto sr = save_state_csv(planning_lp, state_file);
-    if (!sr.has_value()) {
-      SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
-                  iteration_index,
-                  sr.error().message);
-    }
-    dt_state = elapsed_s(t0);
-  }
+  // Note (2026-05-14): the per-iter `sddp_state.csv` write was
+  // removed.  Previously this block dumped LP state-variable
+  // column solutions for real-time monitoring, but the file had
+  // no readers anywhere in the codebase (recovery / hot-start
+  // reconstruct from the cuts, which ARE versioned).  The
+  // versioned `sddp_state_<iter>.csv` had already been retired
+  // earlier for the same reason plus the cumulative I/O cost
+  // (~8 GB/run on juan); removing the latest-only write
+  // completes the cleanup.
 
   // ── Rename cut files for infeasible scenes ──
   {
@@ -773,16 +760,15 @@ void SDDPCutManager::save_cuts_for_iteration(
     dt_rename = elapsed_s(t0);
   }
 
-  const auto dt_total = dt_combined + dt_per_scene + dt_state + dt_rename;
+  const auto dt_total = dt_combined + dt_per_scene + dt_rename;
   SPDLOG_INFO(
       "SDDP Iter [i{}]: save_cuts_for_iteration {:.2f}s "
-      "— combined={:.2f}s per_scene={:.2f}s state={:.2f}s rename={:.3f}s "
+      "— combined={:.2f}s per_scene={:.2f}s rename={:.3f}s "
       "(parallel={})",
       gtopt::uid_of(iteration_index),
       dt_total,
       dt_combined,
       dt_per_scene,
-      dt_state,
       dt_rename,
       pool != nullptr ? "yes" : "no");
 }

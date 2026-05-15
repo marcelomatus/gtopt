@@ -3204,8 +3204,8 @@ TEST_CASE(  // NOLINT
   // Pins the contract introduced for the SDDP between-iter memory drop:
   // `col_sol` and `col_cost` are dead between iterations (the iteration
   // that produced them has already consumed them via OutputContext +
-  // save_state_csv + state-variable propagation), but `row_dual` is
-  // re-read across iterations by `update_stored_cut_duals` and
+  // state-variable propagation), but `row_dual` is re-read across
+  // iterations by `update_stored_cut_duals` and
   // `prune_inactive_cuts`.  Dropping the wrong vector silently breaks
   // SDDP cut prune; this test catches that regression.
   //

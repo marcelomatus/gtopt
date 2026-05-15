@@ -222,11 +222,10 @@ auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
                                 m_scene_phase_states_);
 }
 
-auto SDDPMethod::save_state(const std::string& filepath)
-    -> std::expected<void, Error>
-{
-  return save_state_csv(planning_lp(), filepath);
-}
+// `SDDPMethod::save_state` was removed (2026-05-14) along with the
+// underlying `save_state_csv` writer — no caller (recovery /
+// hot-start / cascade) reads the resulting `sddp_state.csv`; policy
+// state is reconstructed from the versioned cut files instead.
 
 // ── Monitoring API ───────────────────────────────────────────────────────────
 // Implementation moved to sddp_monitor.cpp (write_solver_status free fn).

@@ -5334,32 +5334,11 @@ TEST_CASE(
   std::filesystem::remove_all(dir);
 }
 
-TEST_CASE("SDDPMethod state save creates file (smoke)")  // NOLINT
-{
-  // ``save_state`` writes a JSON dump of the cut store + iteration
-  // metadata.  ``load_state`` is the inverse on a fresh instance —
-  // but it is hot-start-aware and re-derives many fields, so we
-  // pin only the save side here (file appears on disk and is valid
-  // JSON).  The full reload contract is exercised by the
-  // ``--cuts-input-file`` integration tests.
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP plp(std::move(planning));
-
-  SDDPOptions opts;
-  opts.max_iterations = 5;
-  opts.convergence_tol = 1e-3;
-  SDDPMethod sddp(plp, opts);
-  REQUIRE(sddp.solve().has_value());
-  REQUIRE(sddp.num_stored_cuts() > 0);
-
-  const auto path =
-      std::filesystem::temp_directory_path() / "test_state_roundtrip.json";
-  REQUIRE(sddp.save_state(path.string()).has_value());
-  CHECK(std::filesystem::exists(path));
-  CHECK(std::filesystem::file_size(path) > 0);
-
-  std::filesystem::remove(path);
-}
+// `SDDPMethod state save creates file (smoke)` was retired
+// (2026-05-14) along with `SDDPMethod::save_state` and the
+// underlying `save_state_csv` writer — the resulting state CSV had
+// no reader anywhere in the codebase (recovery / hot-start
+// reconstruct from the versioned cut files instead).
 
 // ─── Group C: stop-condition state machine ─────────────────────────────────
 

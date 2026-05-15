@@ -1,0 +1,63 @@
+\Problem name: gtopt_0_1
+
+Minimize
+obj: 1000 demand_fail_1_1_1_1 + 1000 demand_fail_1_1_1_2 + 1000 demand_fail_1_1_1_3 + 1000 demand_fail_1_1_1_4 + generator_generation_1_1_1_1 + generator_generation_1_1_1_2 + generator_generation_1_1_1_3 + generator_generation_1_1_1_4 + 100 generator_generation_2_1_1_1 + 100 generator_generation_2_1_1_2
+ + 100 generator_generation_2_1_1_3 + 100 generator_generation_2_1_1_4 + sddp_alpha_0_0_1
+Subject To
+bus_balance_1_1_1_1:  - demand_load_1_1_1_1 + generator_generation_1_1_1_1 + generator_generation_2_1_1_1 = 0
+bus_balance_1_1_1_2:  - demand_load_1_1_1_2 + generator_generation_1_1_1_2 + generator_generation_2_1_1_2 = 0
+bus_balance_1_1_1_3:  - demand_load_1_1_1_3 + generator_generation_1_1_1_3 + generator_generation_2_1_1_3 = 0
+bus_balance_1_1_1_4:  - demand_load_1_1_1_4 + generator_generation_1_1_1_4 + generator_generation_2_1_1_4 = 0
+demand_balance_1_1_1_1:  demand_load_1_1_1_1 + demand_fail_1_1_1_1 = 80
+demand_balance_1_1_1_2:  demand_load_1_1_1_2 + demand_fail_1_1_1_2 = 80
+demand_balance_1_1_1_3:  demand_load_1_1_1_3 + demand_fail_1_1_1_3 = 80
+demand_balance_1_1_1_4:  demand_load_1_1_1_4 + demand_fail_1_1_1_4 = 80
+junction_balance_1_1_1_1:  - waterway_flow_1_1_1_1 + flow_flow_1_1_1_1 + reservoir_extraction_1_1_1_1 = 0
+junction_balance_1_1_1_2:  - waterway_flow_1_1_1_2 + flow_flow_1_1_1_2 + reservoir_extraction_1_1_1_2 = 0
+junction_balance_1_1_1_3:  - waterway_flow_1_1_1_3 + flow_flow_1_1_1_3 + reservoir_extraction_1_1_1_3 = 0
+junction_balance_1_1_1_4:  - waterway_flow_1_1_1_4 + flow_flow_1_1_1_4 + reservoir_extraction_1_1_1_4 = 0
+junction_balance_2_1_1_1:  - junction_drain_2_1_1_1 + waterway_flow_1_1_1_1 = 0
+junction_balance_2_1_1_2:  - junction_drain_2_1_1_2 + waterway_flow_1_1_1_2 = 0
+junction_balance_2_1_1_3:  - junction_drain_2_1_1_3 + waterway_flow_1_1_1_3 = 0
+junction_balance_2_1_1_4:  - junction_drain_2_1_1_4 + waterway_flow_1_1_1_4 = 0
+reservoir_energy_balance_1_1_1_1:  reservoir_extraction_1_1_1_1 - reservoir_eini_1_1_1 + reservoir_energy_1_1_1_1 = 0
+reservoir_energy_balance_1_1_1_2:  reservoir_extraction_1_1_1_2 - reservoir_energy_1_1_1_1 + reservoir_energy_1_1_1_2 = 0
+reservoir_energy_balance_1_1_1_3:  reservoir_extraction_1_1_1_3 - reservoir_energy_1_1_1_2 + reservoir_energy_1_1_1_3 = 0
+reservoir_energy_balance_1_1_1_4:  reservoir_extraction_1_1_1_4 - reservoir_energy_1_1_1_3 + reservoir_energy_1_1_1_4 = 0
+turbine_conversion_1_1_1_1:  generator_generation_1_1_1_1 - waterway_flow_1_1_1_1 = 0
+turbine_conversion_1_1_1_2:  generator_generation_1_1_1_2 - waterway_flow_1_1_1_2 = 0
+turbine_conversion_1_1_1_3:  generator_generation_1_1_1_3 - waterway_flow_1_1_1_3 = 0
+turbine_conversion_1_1_1_4:  generator_generation_1_1_1_4 - waterway_flow_1_1_1_4 = 0
+sddp_fcut_1_0_2_1_1:  reservoir_energy_1_1_1_4 >= 100
+Bounds
+ 0 <= demand_load_1_1_1_1 <= 80
+ 0 <= demand_load_1_1_1_2 <= 80
+ 0 <= demand_load_1_1_1_3 <= 80
+ 0 <= demand_load_1_1_1_4 <= 80
+ 0 <= generator_generation_1_1_1_1 <= 100
+ 0 <= generator_generation_1_1_1_2 <= 100
+ 0 <= generator_generation_1_1_1_3 <= 100
+ 0 <= generator_generation_1_1_1_4 <= 100
+ 0 <= generator_generation_2_1_1_1 <= 500
+ 0 <= generator_generation_2_1_1_2 <= 500
+ 0 <= generator_generation_2_1_1_3 <= 500
+ 0 <= generator_generation_2_1_1_4 <= 500
+ 2 <= waterway_flow_1_1_1_1 <= 100
+ 2 <= waterway_flow_1_1_1_2 <= 100
+ 2 <= waterway_flow_1_1_1_3 <= 100
+ 2 <= waterway_flow_1_1_1_4 <= 100
+ 1 <= flow_flow_1_1_1_1 <= 1
+ 1 <= flow_flow_1_1_1_2 <= 1
+ 1 <= flow_flow_1_1_1_3 <= 1
+ 1 <= flow_flow_1_1_1_4 <= 1
+ -1000 <= reservoir_extraction_1_1_1_1 <= 1000
+ -1000 <= reservoir_extraction_1_1_1_2 <= 1000
+ -1000 <= reservoir_extraction_1_1_1_3 <= 1000
+ -1000 <= reservoir_extraction_1_1_1_4 <= 1000
+ 60 <= reservoir_eini_1_1_1 <= 60
+ 0 <= reservoir_energy_1_1_1_1 <= 100
+ 0 <= reservoir_energy_1_1_1_2 <= 100
+ 0 <= reservoir_energy_1_1_1_3 <= 100
+ 0 <= reservoir_energy_1_1_1_4 <= 100
+ 0 <= sddp_alpha_0_0_1 <= 0
+End

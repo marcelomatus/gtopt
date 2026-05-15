@@ -21,7 +21,6 @@
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/sddp_state_io.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
