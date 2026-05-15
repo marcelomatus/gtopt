@@ -147,6 +147,25 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
           == LineLossesMode::bidirectional);
   }
 
+  SUBCASE("adaptive + node_angle + no expansion → piecewise")
+  {
+    // Mirror of the cycle_basis cases above for the older
+    // B-θ formulation.  Under node_angle the per-line KVL row stamps
+    // the `flowp` / `flown` aggregator cols, so `piecewise_direct`
+    // (which only emits segments) would force the kirchhoff stamper
+    // onto the per-segment path — same physics but with K stamps per
+    // line per block instead of 1.  `adaptive` therefore keeps
+    // `piecewise` (K+3 cols, 2 rows) here as the more compact
+    // choice for node_angle.
+    PlanningOptions opts_na;
+    opts_na.model_options.kirchhoff_mode = OptName {"node_angle"};
+    const PlanningOptionsLP options_na(opts_na);
+
+    Line line;
+    CHECK(line_losses::resolve_mode(line, options_na, false)
+          == LineLossesMode::piecewise);
+  }
+
   SUBCASE("piecewise_direct + expansion demotes to piecewise")
   {
     Line line;

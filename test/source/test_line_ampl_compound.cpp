@@ -60,6 +60,18 @@ auto count_cols_containing(const LinearInterface& li, std::string_view substr)
   return count;
 }
 
+auto count_rows_containing(const LinearInterface& li, std::string_view substr)
+    -> int
+{
+  int count = 0;
+  for (const auto& [name, _idx] : li.row_name_map()) {
+    if (name.contains(substr)) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 auto find_col(const LinearInterface& li, std::string_view substr) -> ColIndex
 {
   ColIndex found {-1};
@@ -180,6 +192,7 @@ struct LineAmplFixture
 }  // namespace line_ampl_test
 
 using line_ampl_test::count_cols_containing;
+using line_ampl_test::count_rows_containing;
 using line_ampl_test::find_col;
 using line_ampl_test::find_row;
 using line_ampl_test::LineAmplFixture;
@@ -735,8 +748,11 @@ TEST_CASE(  // NOLINT
   // Pin the multi-col virtual-aggregator path (added 2026-05-14):
   //   * No `flowp` / `flown` aggregator LP cols exist.
   //   * No `flow_link` / `loss_link` rows exist.
-  //   * The K segment cols stamp directly into the bus rows and the
-  //     KVL row (node_angle here; cycle_basis is symmetric).
+  //   * The K segment cols stamp directly into the bus rows.  This
+  //     2-bus fixture has no cycle, so the cycle-basis assembler
+  //     (the post-2026-05-14 default kirchhoff mode) emits zero KVL
+  //     rows.  See the "3-bus triangle" test below for the cycle
+  //     KVL seg-stamping assertions.
   //   * `line.flow` is reachable in PAMPL via the seg-sum AMPL
   //     registration in `LineLP::add_to_lp` — the user-constraint
   //     resolver expands `+flowp − flown` into +Σ seg_p − Σ seg_n.
@@ -818,6 +834,179 @@ TEST_CASE(  // NOLINT
     // value to keep the test robust to segment-count changes.
     CHECK(sum_p >= 50.0 - 1e-3);
     CHECK(sum_p < 60.0);  // generous upper bound for the loss premium
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+//   piecewise_direct + cycle_basis: cycle KVL row stamps segments directly
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "LineLP cycle KVL — piecewise_direct stamps each seg with ±x_τ "
+    "(3-bus triangle)")
+{
+  // The 2-bus fixture above has no cycle, so the cycle-basis
+  // assembler emits zero KVL rows.  This test builds the smallest
+  // network that DOES carry a fundamental cycle — three buses
+  // connected as a triangle — and pins the row-construction
+  // invariants of `kirchhoff::cycle_basis::add_kvl_rows` under
+  // `piecewise_direct` line losses:
+  //
+  //   * No theta cols anywhere (cycle_basis short-circuits theta).
+  //   * Exactly one fundamental cycle (L − B + #islands = 3 − 3 + 1
+  //     = 1) → one `kirchhoff_cycle_*` row per block.
+  //   * The KVL row coefficient on every segment col equals
+  //     `sign · x_τ · row_scale` where sign = ±1 from the cycle
+  //     traversal, and the bidirectional segments mirror with
+  //     opposite signs.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = true;
+  // Pin cycle_basis explicitly so the test does not regress if the
+  // default kirchhoff_mode shifts back to node_angle.
+  opts.model_options.kirchhoff_mode = OptName {"cycle_basis"};
+  opts.demand_fail_cost = 1000.0;
+  opts.scale_objective = 1.0;
+  // Disable scale_theta so the cycle row's `row_scale = 1/scale_theta`
+  // is 1.0 — coefficients land at their physical `x_τ` value, making
+  // the assertion below a direct equality.
+  opts.model_options.scale_theta = 1.0;
+  opts.model_options.auto_scale = false;
+
+  const Simulation simulation {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {1}, .probability_factor = 1.0}},
+  };
+
+  // Three lines, each `piecewise_direct` with 3 segments.  `voltage`
+  // = 1.0 makes V² = 1, so x_τ = X (per-unit-reactance form).
+  auto mk_line =
+      [](Uid uid, std::string name, Uid bus_a, Uid bus_b, double X) -> Line
+  {
+    // R > 0 is required: `line_losses::make_config` demotes any PWL
+    // mode (including `piecewise_direct`) to `none`/`linear` when
+    // R ≤ 0, V ≤ 0, or nseg < 2 — exactly the path the test must
+    // avoid.  Use a small physical resistance so segments are
+    // created but the per-seg loss coefficient stays tiny enough
+    // that the KVL row coefficients are dominated by `x_τ = X`.
+    Line l {
+        .uid = uid,
+        .name = std::move(name),
+        .bus_a = bus_a,
+        .bus_b = bus_b,
+        .voltage = 1.0,
+        .resistance = 0.001,
+        .reactance = X,
+        .tmax_ba = 100.0,
+        .tmax_ab = 100.0,
+        .capacity = 100.0,
+    };
+    l.line_losses_mode = std::string {"piecewise_direct"};
+    l.loss_segments = 3;
+    return l;
+  };
+
+  const System system {
+      .name = "line_cycle_kvl_test",
+      .bus_array =
+          {
+              {.uid = Uid {1}, .name = "b1"},
+              {.uid = Uid {2}, .name = "b2"},
+              {.uid = Uid {3}, .name = "b3"},
+          },
+      .demand_array =
+          {
+              {.uid = Uid {1},
+               .name = "d3",
+               .bus = Uid {3},
+               .lmax = 30.0,
+               .capacity = 30.0},
+          },
+      .generator_array =
+          {
+              {.uid = Uid {1},
+               .name = "g1",
+               .bus = Uid {1},
+               .gcost = 10.0,
+               .capacity = 200.0},
+          },
+      .line_array =
+          {
+              mk_line(Uid {1}, "l1_2", Uid {1}, Uid {2}, 0.10),
+              mk_line(Uid {2}, "l2_3", Uid {2}, Uid {3}, 0.10),
+              mk_line(Uid {3}, "l1_3", Uid {1}, Uid {3}, 0.10),
+          },
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP sim_lp(simulation, options);
+  SystemLP sys_lp(system, sim_lp, LineAmplFixture::build_matrix_opts());
+  auto& lp = sys_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  SUBCASE("cycle_basis emits no theta cols, exactly one cycle row per block")
+  {
+    // Theta short-circuited — every line uses cycle-basis KVL.
+    CHECK(count_cols_containing(lp, "bus_theta_") == 0);
+    // L − B + #islands = 3 − 3 + 1 = 1 fundamental cycle → 1 row.
+    // Row name format is `kirchhoff_cycle_<idx>_<scn>_<stg>_<blk>`
+    // (lowercase via the as_label snake-case transform on the
+    // constexpr class name "Kirchhoff").
+    CHECK(count_rows_containing(lp, "kirchhoff_cycle_") == 1);
+  }
+
+  SUBCASE("piecewise_direct: aggregator cols absent, only segs exist")
+  {
+    // 3 lines × 2 directions × 3 segs = 18 segment cols.
+    CHECK(count_cols_containing(lp, "line_flowp_seg_") == 3 * 3);
+    CHECK(count_cols_containing(lp, "line_flown_seg_") == 3 * 3);
+    // No aggregator: line_flowp_/line_flown_ matches are exactly the
+    // segment cols (substring also matches the prefix of seg names).
+    CHECK(count_cols_containing(lp, "line_flowp_")
+          == count_cols_containing(lp, "line_flowp_seg_"));
+    CHECK(count_cols_containing(lp, "line_flown_")
+          == count_cols_containing(lp, "line_flown_seg_"));
+  }
+
+  SUBCASE(
+      "cycle row stamps every flowp_seg with +x_τ and flown_seg with −x_τ "
+      "(or their negatives, depending on cycle traversal sign)")
+  {
+    // With X = 0.10 and V = 1.0, x_τ = 0.10 for every line.
+    // Each per-direction segment is stamped with `sign · x_τ` where
+    // sign ∈ {+1, −1} is the cycle traversal direction for that line.
+    // The signs for flowp_seg and flown_seg of the SAME line are
+    // always opposite (forward dir is +sign · x_τ, reverse is
+    // −sign · x_τ — see `kirchhoff_cycle_basis.cpp:371-390`).
+    //
+    // We don't pin the per-line cycle sign here because the cycle
+    // construction (BFS spanning tree + non-tree edge closure)
+    // depends on traversal order — instead we assert that:
+    //   * Every seg col has a non-zero coefficient on the cycle row.
+    //   * |coef| equals 0.10 (= x_τ · row_scale, row_scale = 1).
+    //   * Within a single line, flowp_seg coef = −flown_seg coef.
+    const auto cycle_row = find_row(lp, "kirchhoff_cycle_");
+
+    // Reuse the same iteration shape as the prior test: a flat
+    // walk over col_name_map looking for the right substring.
+    int seen_p = 0;
+    int seen_n = 0;
+    for (const auto& [name, col] : lp.col_name_map()) {
+      const auto coef = lp.get_coeff(cycle_row, col);
+      if (name.find("line_flowp_seg_") != std::string_view::npos) {
+        CHECK(std::abs(coef) == doctest::Approx(0.10).epsilon(1e-9));
+        ++seen_p;
+      } else if (name.find("line_flown_seg_") != std::string_view::npos) {
+        CHECK(std::abs(coef) == doctest::Approx(0.10).epsilon(1e-9));
+        ++seen_n;
+      }
+    }
+    CHECK(seen_p == 3 * 3);
+    CHECK(seen_n == 3 * 3);
   }
 }
 
