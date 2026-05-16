@@ -839,7 +839,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   {
     constexpr std::string_view reason =
         "per-element: capacity expansion is opt-in";
-    for (const auto cls :
+    for (const auto& cls :
          {
              Generator::class_name.snake_case(),
              Demand::class_name.snake_case(),

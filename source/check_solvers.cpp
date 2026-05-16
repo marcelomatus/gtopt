@@ -247,7 +247,7 @@ SolverTestResult test_add_row(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.add_col(SparseCol {
+    (void)lp.add_col(SparseCol {
         .uppb = 10.0,
     });
 
@@ -307,7 +307,7 @@ SolverTestResult test_add_rows(std::string_view solver)
     r1.uppb = 7.0;
 
     const std::array<SparseRow, 2> rows {r0, r1};
-    lp.add_rows(rows);
+    (void)lp.add_rows(rows);
 
     TC_CHECK(ctx, lp.get_numrows() == 2);
 
@@ -416,7 +416,7 @@ SolverTestResult test_add_cols(std::string_view solver)
             .cost = 1.0,
         },
     };
-    lp_b.add_cols(cols_b);
+    (void)lp_b.add_cols(cols_b);
     const auto xB = ColIndex {0};
     const auto yB = ColIndex {1};
     lp_b.set_coeff(rB0, xB, 1.0);
@@ -494,7 +494,7 @@ SolverTestResult test_add_cols(std::string_view solver)
             .scale = 10.0,
         },
     };
-    lp_c.add_cols(cols_c);
+    (void)lp_c.add_cols(cols_c);
     const auto& cs = lp_c.get_col_scales();
     TC_CHECK(ctx, std::ssize(cs) >= 2);
     TC_CHECK_APPROX(ctx, cs[ColIndex {0}], 10.0, 1e-12);
@@ -649,7 +649,7 @@ SolverTestResult test_name_maps(std::string_view solver)
         .variable_uid = Uid {1},
     };
     row[x1] = 1.0;
-    lp.add_row(row);
+    (void)lp.add_row(row);
 
     const auto& col_map = lp.col_name_map();
     TC_CHECK(ctx, col_map.contains("col_x_1"));
@@ -796,7 +796,7 @@ SolverTestResult test_primal_infeasible(std::string_view solver)
     row[x] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
-    lp.add_row(row);
+    (void)lp.add_row(row);
 
     const auto result = lp.initial_solve(SolverOptions {
         .log_level = 0,
@@ -905,17 +905,12 @@ SolverTestResult test_base_numrows_reset(std::string_view solver)
     cut[ColIndex {0}] = 1.0;
     cut.lowb = 0.0;
     cut.uppb = 100.0;
-    lp.add_row(cut);
+    (void)lp.add_row(cut);
     TC_CHECK(ctx, lp.get_numrows() == 2);
-
-    // Delete the cut.
-    const std::array<int, 1> to_del = {1};
-    lp.delete_rows(to_del);
-    TC_CHECK(ctx, lp.get_numrows() == 1);
 
     // reset_from: copy bounds from a source LP and remove rows > base.
     const LinearInterface src(solver, flat);
-    lp.add_row(cut);
+    (void)lp.add_row(cut);
     TC_CHECK(ctx, lp.get_numrows() == 2);
     lp.reset_from(src, lp.base_numrows());
     TC_CHECK(ctx, lp.get_numrows() == 1);

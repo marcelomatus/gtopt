@@ -248,19 +248,12 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // `extraction`; `flow` is kept as a convenience spelling that matches
   // waterway/flow_right.  Storage-generic variables (energy/eini/efin/
   // soft_emin) are registered centrally by StorageBase::add_to_lp.
-  if (!extraction_cols_.at(st_key).empty()) {
-    sc.add_ampl_variable(ampl_name,
-                         uid(),
-                         ExtractionName,
-                         scenario,
-                         stage,
-                         extraction_cols_.at(st_key));
-    sc.add_ampl_variable(ampl_name,
-                         uid(),
-                         FlowName,
-                         scenario,
-                         stage,
-                         extraction_cols_.at(st_key));
+  const auto& extr_cols = extraction_cols_.at(st_key);
+  if (!extr_cols.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), ExtractionName, scenario, stage, extr_cols);
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, extr_cols);
   }
   if (const auto it = saving_cols_.find(st_key);
       it != saving_cols_.end() && !it->second.empty())

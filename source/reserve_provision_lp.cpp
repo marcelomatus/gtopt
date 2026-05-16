@@ -119,12 +119,11 @@ std::expected<void, Error> add_provision(
   return {};
 }
 
-std::vector<std::string> split(std::string_view str, char delim = ' ')
+std::vector<std::string_view> split(std::string_view str, char delim = ' ')
 {
   return str | std::views::split(delim)
-      | std::views::transform(
-             [](auto&& range)
-             { return std::string(range.begin(), range.end()); })
+      | std::views::transform([](auto&& range) -> std::string_view
+                              { return {range.begin(), range.end()}; })
       | std::ranges::to<std::vector>();
 }
 
@@ -132,9 +131,14 @@ auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
 {
   auto rzones = split(rzstr, ':');
 
-  auto is_uid = [](const auto& s)
+  auto is_uid = [](std::string_view s)
   { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
-  auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
+  auto str2uid = [](std::string_view s)
+  {
+    Uid result {};
+    std::from_chars(s.data(), s.data() + s.size(), result);
+    return result;
+  };
 
   return std::ranges::to<std::vector>(
       rzones
@@ -143,7 +147,7 @@ auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
           {
             using RZoneId = ObjectSingleId<ReserveZoneLP>;
             return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
-                                               : RZoneId {std::move(rz)});
+                                               : RZoneId {std::string(rz)});
           }));
 }
 

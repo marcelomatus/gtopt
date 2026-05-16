@@ -706,9 +706,9 @@ public:
   /// entry was found and updated.  No-op under `LowMemoryMode::off`
   /// (where `m_dynamic_cols_` stays empty) — the live backend is the
   /// sole authority and needs no dynamic-col mirror.
-  bool update_dynamic_col_lowb(std::string_view class_name,
-                               std::string_view variable_name,
-                               double new_lowb) noexcept;
+  [[nodiscard]] bool update_dynamic_col_lowb(std::string_view class_name,
+                                             std::string_view variable_name,
+                                             double new_lowb) noexcept;
 
   /// Two-sided bound update for a dynamic column — used by the SDDP
   /// `bound_alpha` path which relaxes both the pinned `lowb = 0` and
@@ -716,10 +716,10 @@ public:
   /// `update_dynamic_col_lowb`: no-op under `LowMemoryMode::off`,
   /// returns `true` iff a matching `(class_name, variable_name)`
   /// entry was found in `m_dynamic_cols_` and both bounds overwritten.
-  bool update_dynamic_col_bounds(std::string_view class_name,
-                                 std::string_view variable_name,
-                                 double new_lowb,
-                                 double new_uppb) noexcept;
+  [[nodiscard]] bool update_dynamic_col_bounds(std::string_view class_name,
+                                               std::string_view variable_name,
+                                               double new_lowb,
+                                               double new_uppb) noexcept;
 
   /// Record a structural row added after the initial flatten/load_flat
   /// (typically cascade elastic-target constraints).  No-op under
@@ -1711,7 +1711,7 @@ private:
   /// (indirectly) `add_col_raw`.  The disposable APIs deliberately do
   /// NOT route through this helper — they call `m_backend_->add_col`
   /// directly to keep their mutation surface trivially auditable.
-  ColIndex emit_col_to_backend(const SparseCol& col);
+  [[nodiscard]] ColIndex emit_col_to_backend(const SparseCol& col);
 
   /// Bulk variant of `emit_col_to_backend`.  Assembles CSC buffers
   /// for the batch and dispatches a single `m_backend_->add_cols(...)`.
@@ -1720,15 +1720,15 @@ private:
   /// the `emit_col_to_backend` ↔ `add_col` / `add_col_raw` shape.
   /// Returns the `ColIndex` of the FIRST added column; callers
   /// compute per-element indices as `first + c`.
-  ColIndex emit_cols_to_backend(std::span<const SparseCol> cols,
-                                bool apply_col_scale = true);
+  [[nodiscard]] ColIndex emit_cols_to_backend(std::span<const SparseCol> cols,
+                                              bool apply_col_scale = true);
 
   /// Pure backend emit: append a row to the solver's matrix.  Composes
   /// `SparseRow::scale` (mirroring `flatten()`'s static-row handling)
   /// but applies no `col_scale` multiplication and no per-row
   /// equilibration.  Used as the shared core of `add_row_raw`.  The
   /// disposable APIs do NOT route through this helper.
-  RowIndex emit_row_to_backend(const SparseRow& row, double eps);
+  [[nodiscard]] RowIndex emit_row_to_backend(const SparseRow& row, double eps);
 
   /// Append/update the col-label metadata for a freshly-added column.
   /// Called by `add_col(SparseCol)` and `add_col_raw` after the col
@@ -2650,9 +2650,11 @@ public:
 private:
   /// @name Legacy column/row helpers (used internally and by tests)
   /// @{
-  ColIndex add_col(const std::string& name);
-  ColIndex add_col(const std::string& name, double collb, double colub);
-  ColIndex add_free_col(const std::string& name);
+  [[nodiscard]] ColIndex add_col(const std::string& name);
+  [[nodiscard]] ColIndex add_col(const std::string& name,
+                                 double collb,
+                                 double colub);
+  [[nodiscard]] ColIndex add_free_col(const std::string& name);
   RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,

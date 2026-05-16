@@ -515,7 +515,7 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   // unique reference to the shared metadata
   // (`detach_for_write(m_col_scales_)` is a no-op).
   if (!source.dynamic_cols().empty()) {
-    add_cols(source.dynamic_cols());
+    (void)add_cols(source.dynamic_cols());
   }
 
   // 2. Replay structural rows that were added after the snapshot was
