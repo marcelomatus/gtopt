@@ -312,6 +312,17 @@ struct RuizScalingResult
 
 auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 {
+  // Caller-requested bypass: the LinearProblem-builder side has done
+  // its work (cols / rows / cmaps populated, XLP per-element index
+  // maps stamped via `add_to_lp`), and the caller doesn't want the
+  // CSC matrix.  Used by `system_lp.cpp::rebuild_collections_if_needed`
+  // where the FlatLinearProblem is discarded.  Returning empty
+  // short-circuits the two CSC passes, the row/col bound scans, the
+  // label-name materialisation, and the equilibration loop — typically
+  // 5–10× faster on juan-scale rebuild slices.
+  if (opts.skip_matrix_build) [[unlikely]] {
+    return {};
+  }
   const size_t ncols = get_numcols();
   const size_t nrows = get_numrows();
   if (ncols == 0 || nrows == 0) [[unlikely]] {

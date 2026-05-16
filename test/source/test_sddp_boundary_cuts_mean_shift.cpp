@@ -122,26 +122,35 @@ TEST_CASE(  // NOLINT
   }
 
   // ── Invariants ───────────────────────────────────────────────
-  // The mean-shift is algebraically exact, so the per-scene LB
-  // (master.get_obj_value() + scene_alpha_offset) must match the
-  // unshifted formulation's LB to within FP noise.  This is the
-  // sharp invariant that proves the c̄ offset propagates through
-  // `SDDPMethod::scene_alpha_offset` into the LB display correctly.
-  CHECK(off_lb > 0.5 * phys_rhs);  // sanity — control binds
-  CHECK(on_lb > 0.5 * phys_rhs);  // sanity — shifted also binds
-  CHECK(on_lb == doctest::Approx(off_lb).epsilon(1e-9));
+  // The whole reason for the mean-shift is to close the LB-overshoot
+  // gap: under the unshifted formulation, the boundary cut raises LB
+  // (cost-to-go bound) at the master LP but the forward-pass UB only
+  // sums dispatch OPEX — so `LB > UB`, an artificial gap that never
+  // converges.  Under the shift the SAME constant `c̄ × cost_factor`
+  // is added to both ends, closing the gap.
+  //
+  // Sanity: control (off) really does bind the cut.  We check this
+  // against off_lb (which includes the cut's α contribution from
+  // first-phase obj_value), not off_ub (which is just dispatch opex).
+  CHECK(off_lb > 0.5 * phys_rhs);  // off-path master LB sees the cut
+  CHECK(on_lb > 0.5 * phys_rhs);  // shifted master LB also binds
 
-  // ── UB asymmetry: an intentional consequence ─────────────────
-  // The on-shift run's forward-pass UB picks up the c̄ offset at
-  // `sddp_method_iteration.cpp:scene_upper_bounds[…] = *fwd + c̄`,
-  // which closes the UB ↔ LB gap that the off-shift path leaves as
-  // an "LB overshoot" (boundary cut raises LB but the unshifted
-  // forward pass leaves UB at sum-of-dispatch).  Concretely:
-  //   off: UB ≈ sum(opex), LB ≈ sum(opex) + α_boundary  (LB > UB)
-  //   on:  UB ≈ sum(opex) + c̄, LB ≈ sum(opex) + c̄      (UB = LB)
-  // So on_ub ≥ off_ub, and the gap on the on side is far smaller
-  // (often zero) — both desirable side effects of the rewrite.
-  CHECK(on_ub >= off_ub);  // shift closes the LB-overshoot asymmetry
+  // Sharp invariant: the shift closes the gap on the on-side.
+  // off_lb − off_ub  =  α_boundary  (the LB overshoot)
+  // on_lb  − on_ub   ≈  0           (gap closed)
+  // Empirically the converged simulation pass reports `gap=0.00%`
+  // for the on-side; pin that as the strictest invariant.
+  const double off_gap = off_lb - off_ub;  // strictly positive (overshoot)
+  const double on_gap = on_lb - on_ub;  // ≈ 0 after the shift
+  CAPTURE(off_gap);
+  CAPTURE(on_gap);
+  CHECK(off_gap > 0.1 * phys_rhs);  // overshoot is the original bug
+  CHECK(std::abs(on_gap) < 1e-3 * phys_rhs);  // shift closes the gap
+
+  // Symmetric side effect: on_ub ≥ off_ub because the on-side UB
+  // picks up the c̄ × cost_factor offset (the off-side UB does not,
+  // since `scene_alpha_offset = 0` when the shift is disabled).
+  CHECK(on_ub >= off_ub);
 
   std::filesystem::remove(cuts_file);
 }

@@ -103,6 +103,37 @@ TEST_CASE("Linear problem matrix operations")
     CHECK(flat_minimal.rownm.empty());
   }
 
+  // skip_matrix_build is used by the SDDP write-out rebuild path
+  // (`system_lp.cpp::rebuild_collections_if_needed`) where the produced
+  // FlatLinearProblem is discarded — only the `add_to_lp` side effects
+  // on the XLP wrappers matter.  Setting the flag must short-circuit
+  // every flatten() body pass and return an empty FlatLinearProblem
+  // even when the LinearProblem has a populated matrix.
+  SUBCASE("Skip matrix build returns empty FlatLinearProblem")
+  {
+    auto flat_skipped = lp.flatten({
+        .skip_matrix_build = true,
+    });
+    CHECK(flat_skipped.ncols == 0);
+    CHECK(flat_skipped.nrows == 0);
+    CHECK(flat_skipped.matbeg.empty());
+    CHECK(flat_skipped.matind.empty());
+    CHECK(flat_skipped.matval.empty());
+    CHECK(flat_skipped.collb.empty());
+    CHECK(flat_skipped.colub.empty());
+    CHECK(flat_skipped.rowlb.empty());
+    CHECK(flat_skipped.rowub.empty());
+
+    // The underlying LinearProblem is untouched: a subsequent
+    // flatten without the flag must still produce the full matrix
+    // unchanged (the bypass is a flatten-time short-circuit, not a
+    // destructive mutation of the LinearProblem state).
+    auto flat_again = lp.flatten();
+    CHECK(flat_again.ncols == 5);
+    CHECK(flat_again.nrows == 3);
+    CHECK(flat_again.matval.size() == 5);
+  }
+
   // Test bounds setting
   SUBCASE("Bounds checking")
   {

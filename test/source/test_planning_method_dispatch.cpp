@@ -268,8 +268,12 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.api_stop_request_file == expected_api_stop);
 
     // ── Pool / async ──
-    CHECK(so.max_async_spread
-          == 2);  // default flipped from 0 to 2 — async by default
+    // Default flipped 2026-05 from 2 → 1: tighter lockstep keeps the
+    // backward pass close to the forward pass on heterogeneous-scene
+    // runs, reducing race-condition drain cuts after convergence.
+    // Async dispatch is still enabled (>0); only the spread budget is
+    // tighter.
+    CHECK(so.max_async_spread == 1);
     CHECK(so.pool_cpu_factor == doctest::Approx(4.0));
     CHECK(so.pool_memory_limit_mb == doctest::Approx(0.0));
 

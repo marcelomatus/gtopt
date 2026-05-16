@@ -998,6 +998,12 @@ void SystemLP::rebuild_collections_if_needed()
   flat_opts.row_with_name_map = false;
   flat_opts.scale_objective = 1.0;
   flat_opts.validation.enable = OptBool {false};
+  // The CSC matrix produced by `lp.flatten()` is discarded immediately
+  // below — only the `add_to_lp` side effects on the XLP wrappers
+  // matter.  Bypass the entire flatten body (two CSC passes, row /
+  // col bound scans, label materialisation, equilibration) for a
+  // 5–10× speedup on the per-cell rebuild slice.
+  flat_opts.skip_matrix_build = true;
 
   // Silence SystemContext registrations (state variables, AMPL
   // variable registry, deferred cross-phase links) on this pass.
@@ -1202,6 +1208,30 @@ void SystemLP::write_out()
   // backend is live and optimal; monolithic leaves the backend live
   // and optimal).
   if (!linear_interface().is_optimal()) {
+    return;
+  }
+
+  // Early-exit when no output fields are requested.  Every per-element
+  // `add_to_output` short-circuits inside `OutputContext` when its
+  // `emit_*` flag is unset, so the only outputs that would land on disk
+  // are the (already-written) merged planning JSON and — if explicitly
+  // requested — the LP fingerprint.  Skipping the entire rebuild +
+  // OutputContext setup + visit pipeline saves the whole write-out slice
+  // on cells where the user passed `--write-out none` or no output flag
+  // implies emission (compress + diagnostics-only runs).  Mark
+  // `m_output_written_` so the idempotence guard fires on subsequent
+  // calls from PlanningLP's pool.
+  if (options().write_out() == OutputFlags::none) {
+    if (options().lp_fingerprint()) {
+      const auto fname = as_label(
+          "lp_fingerprint", "scene", scene().uid(), "phase", phase().uid());
+      const auto filepath = (std::filesystem::path(options().output_directory())
+                             / (fname + ".json"))
+                                .string();
+      write_lp_fingerprint(
+          fingerprint(), filepath, scene().uid(), phase().uid());
+    }
+    m_output_written_ = true;
     return;
   }
 

@@ -31,47 +31,52 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
 TEST_CASE("FormatSI: bucket boundaries and decimal counts")  // NOLINT
 {
-  SUBCASE("plain bucket below 1e3 keeps 4 decimals")
+  // FormatSI uses a UNIFORM 6-decimal precision across every SI band
+  // since the convergence-table rewrite (so UB / LB / α / gap columns
+  // line up at the decimal point across magnitudes).  These pins guard
+  // a regression back to the legacy per-bucket precision (4 / 2 / 2 /
+  // 3 / 3 decimals).
+  SUBCASE("plain bucket below 1e3 uses 6 decimals")
   {
     const std::string s = format_si(0.5);
-    CHECK(s == "0.5000");
+    CHECK(s == "0.500000");
   }
 
-  SUBCASE("kilo bucket [1e3, 1e6) uses K suffix and 2 decimals")
+  SUBCASE("kilo bucket [1e3, 1e6) uses K suffix and 6 decimals")
   {
     const std::string s = format_si(1234.5);
-    CHECK(s == "1.23K");
+    CHECK(s == "1.234500K");
   }
 
-  SUBCASE("mega bucket [1e6, 1e9) uses M suffix and 2 decimals")
+  SUBCASE("mega bucket [1e6, 1e9) uses M suffix and 6 decimals")
   {
-    // 161.00e6 / 1e6 = 161.00 exactly.
+    // 161e6 / 1e6 = 161.000000 exactly.
     const std::string s = format_si(1.61e8);
-    CHECK(s == "161.00M");
+    CHECK(s == "161.000000M");
   }
 
-  SUBCASE("giga bucket [1e9, 1e12) uses G suffix and 3 decimals")
+  SUBCASE("giga bucket [1e9, 1e12) uses G suffix and 6 decimals")
   {
     const std::string s = format_si(1.234e+9);
-    CHECK(s == "1.234G");
+    CHECK(s == "1.234000G");
   }
 
-  SUBCASE("tera bucket [1e12, ...) uses T suffix and 3 decimals")
+  SUBCASE("tera bucket [1e12, ...) uses T suffix and 6 decimals")
   {
     const std::string s = format_si(1.5e+12);
-    CHECK(s == "1.500T");
+    CHECK(s == "1.500000T");
   }
 
   SUBCASE("negative values get a leading sign before the magnitude")
   {
     const std::string s = format_si(-1234.5);
-    CHECK(s == "-1.23K");
+    CHECK(s == "-1.234500K");
   }
 
   SUBCASE("zero falls into the plain bucket")
   {
     const std::string s = format_si(0.0);
-    CHECK(s == "0.0000");
+    CHECK(s == "0.000000");
   }
 }
 

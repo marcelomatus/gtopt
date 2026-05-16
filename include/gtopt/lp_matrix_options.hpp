@@ -80,6 +80,17 @@ struct LpMatrixOptions
   /// Default false — only enabled when `--lp-fingerprint` is set.
   bool compute_fingerprint {false};
 
+  /// Skip the entire `LinearProblem::flatten()` matrix-build body and
+  /// return an empty `FlatLinearProblem`.  Used by the write-out
+  /// rebuild path in `system_lp.cpp::rebuild_collections_if_needed`
+  /// where the produced flat LP is discarded — only the `add_to_lp`
+  /// side effects (XLP per-element col/row indices) are needed.
+  /// Setting this kills the CSC build pass, the row-bound scan, the
+  /// col-bound scan, the label-name pass and the equilibration pass
+  /// — typically 5–10× faster on the rebuild slice for juan-scale
+  /// cells.  Default false.
+  bool skip_matrix_build {false};
+
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */

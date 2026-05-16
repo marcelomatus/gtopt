@@ -1439,17 +1439,13 @@ void PlanningLP::write_out()
     // ensure_lp_built entirely so we don't needlessly rehydrate the
     // backend just to find m_output_written_ == true.
     //
-    // Drop the per-cell scratch (label metadata + flat-LP snapshot)
-    // here too: the sim-pass write_out path doesn't drop them, and
-    // PlanningLP::resolve() is the last LP-touching step in the run,
-    // so no future caller will reconstruct.  This mirrors the slow
-    // path / Fast Path B drops below — without it, sim-pass cells
-    // would leak ~1 MB compressed label-meta + ~3-5 MB compressed
-    // snapshot per cell to end-of-run.  Both calls are idempotent
-    // (the snapshot was already dropped by the sim-pass mid-run
-    // hook in `sddp_iteration.cpp::run_scene_simulation` cleanup).
+    // Drop the per-cell flat-LP snapshot here: the sim-pass write_out
+    // path doesn't drop it, and PlanningLP::resolve() is the last
+    // LP-touching step in the run, so no future caller will
+    // reconstruct.  Idempotent (the snapshot was already dropped by
+    // the sim-pass mid-run hook in
+    // `sddp_iteration.cpp::run_scene_simulation` cleanup).
     if (system.output_written()) {
-      system.linear_interface().drop_label_meta_buffers();
       system.linear_interface().clear_snapshot();
       return;
     }
@@ -1469,12 +1465,6 @@ void PlanningLP::write_out()
       // Drop XLP collections rebuilt inside — the LinearInterface is
       // already released so this is a no-op on the backend side.
       system.release_backend();
-      // Drop label-metadata buffers: this cell's parquet output is
-      // emitted, no further consumer (cut JSON, debug write_lp,
-      // OutputContext) will need the col / row label metadata.  At
-      // ~1 MB compressed per cell × 816 cells = ~800 MB freed on
-      // juan-scale runs, just before the writer thread exits.
-      system.linear_interface().drop_label_meta_buffers();
       // Opportunity A — drop the compressed flat-LP snapshot now that
       // the cell's parquet output is written.  `PlanningLP::resolve()`
       // is the last LP-touching step in the run, so no future caller
@@ -1489,7 +1479,6 @@ void PlanningLP::write_out()
     system.ensure_lp_built();
     system.write_out();
     system.release_backend();
-    system.linear_interface().drop_label_meta_buffers();
     system.linear_interface().clear_snapshot();
   };
 
