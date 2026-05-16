@@ -1,7 +1,6 @@
-#include <algorithm>
 #include <expected>
 #include <ranges>
-#include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -119,36 +118,20 @@ std::expected<void, Error> add_provision(
   return {};
 }
 
-std::vector<std::string_view> split(std::string_view str, char delim = ' ')
+auto make_rzone_indexes(const InputContext& ic,
+                        std::span<const SingleId> rzones)
 {
-  return str | std::views::split(delim)
-      | std::views::transform([](auto&& range) -> std::string_view
-                              { return {range.begin(), range.end()}; })
-      | std::ranges::to<std::vector>();
-}
-
-auto make_rzone_indexes(const InputContext& ic, const std::string& rzstr)
-{
-  auto rzones = split(rzstr, ':');
-
-  auto is_uid = [](std::string_view s)
-  { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
-  auto str2uid = [](std::string_view s)
-  {
-    Uid result {};
-    std::from_chars(s.data(), s.data() + s.size(), result);
-    return result;
-  };
-
+  // Typed-array form post-2026-05-16: each `SingleId` in `rzones` is
+  // resolved directly via `ic.element_index`.  No string splitting,
+  // no Uid-vs-name discriminator, no per-element heap allocation.
+  // Replaces the colon/comma-delimited `String` parser that lived
+  // here previously (`split` + `is_uid` + `str2uid` +
+  // `RZoneId{std::string(...)}` materialisation per zone).
+  using RZoneId = ObjectSingleId<ReserveZoneLP>;
   return std::ranges::to<std::vector>(
       rzones
-      | std::views::transform(
-          [&](auto rz)
-          {
-            using RZoneId = ObjectSingleId<ReserveZoneLP>;
-            return ic.element_index(is_uid(rz) ? RZoneId {str2uid(rz)}
-                                               : RZoneId {std::string(rz)});
-          }));
+      | std::views::transform([&](const SingleId& rz)
+                              { return ic.element_index(RZoneId {rz}); }));
 }
 
 }  // namespace

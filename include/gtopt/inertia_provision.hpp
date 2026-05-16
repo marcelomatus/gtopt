@@ -32,6 +32,7 @@
 
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/single_id.hpp>
 
 namespace gtopt
 {
@@ -58,7 +59,7 @@ struct InertiaProvision
   OptActive active {};  ///< Activation status
 
   SingleId generator {unknown_uid};  ///< FK to the providing generator
-  String inertia_zones {};  ///< Colon-separated list of InertiaZone IDs/names
+  Array<SingleId> inertia_zones {};  ///< Typed array of InertiaZone IDs / names
 
   OptReal inertia_constant {};  ///< Machine inertia constant H [seconds]
   OptReal rated_power {};  ///< Rated apparent power S [MVA]

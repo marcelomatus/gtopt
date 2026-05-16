@@ -474,8 +474,8 @@ _RESERVE_PLANNING = {
             {"uid": 2, "name": "RZ_Sur"},
         ],
         "reserve_provision_array": [
-            {"uid": 1, "generator": 1, "reserve_zones": "RZ_Norte:RZ_Sur"},
-            {"uid": 2, "generator": 2, "reserve_zones": "RZ_Norte"},
+            {"uid": 1, "generator": 1, "reserve_zones": ["RZ_Norte", "RZ_Sur"]},
+            {"uid": 2, "generator": 2, "reserve_zones": ["RZ_Norte"]},
         ],
     }
 }

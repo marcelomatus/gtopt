@@ -153,7 +153,7 @@ TEST_CASE("OutputContext - write output with reserve components")
           .uid = Uid {1},
           .name = "rp1",
           .generator = Uid {1},
-          .reserve_zones = "1",
+          .reserve_zones = {SingleId {Uid {1}}},
           .urmax = 100.0,
           .ur_provision_factor = 1.0,
       },

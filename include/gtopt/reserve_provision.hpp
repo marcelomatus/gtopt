@@ -16,6 +16,7 @@
 
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/single_id.hpp>
 
 namespace gtopt
 {
@@ -28,7 +29,8 @@ namespace gtopt
  * the maximum reserve it may offer, optional capacity-factor limits, and the
  * reserve bid cost.
  *
- * `reserve_zones` is a comma-separated list of ReserveZone UIDs or names.
+ * `reserve_zones` is a typed array of ReserveZone references (each element
+ * is either a Uid number or a Name string).
  *
  * @see ReserveZone for zone-level requirements
  * @see ReserveProvisionLP for the LP formulation
@@ -48,7 +50,7 @@ struct ReserveProvision
   OptActive active {};  ///< Activation status
 
   SingleId generator {unknown_uid};  ///< ID of the providing generator
-  String reserve_zones {};  ///< Comma-separated list of ReserveZone IDs/names
+  Array<SingleId> reserve_zones {};  ///< Typed array of ReserveZone IDs / names
 
   OptTBRealFieldSched urmax {};  ///< Maximum up-reserve offer [MW]
   OptTBRealFieldSched drmax {};  ///< Maximum down-reserve offer [MW]

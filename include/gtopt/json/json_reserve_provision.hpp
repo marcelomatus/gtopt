@@ -6,6 +6,7 @@
 
 namespace daw::json
 {
+using gtopt::Array;
 using gtopt::ReserveProvision;
 using gtopt::String;
 
@@ -17,7 +18,13 @@ struct json_data_contract<ReserveProvision>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_variant<"generator", SingleId>,
-      json_string<"reserve_zones", String>,
+      // Typed array of ReserveZone references — each element is a
+      // Uid (number) or Name (string).  Replaces the legacy
+      // colon/comma-delimited string form: `"reserve_zones": [1,
+      // "ZONE_A"]` rather than `"reserve_zones": "1:ZONE_A"`.
+      json_array_null<"reserve_zones",
+                      Array<SingleId>,
+                      json_variant_no_name<SingleId, jvtl_SingleId>>,
       json_variant_null<"urmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"ur_capacity_factor",

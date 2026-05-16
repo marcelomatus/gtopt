@@ -387,7 +387,7 @@ static constexpr std::string_view uc_reserve_json = R"json({
     "reserve_provision_array": [
       {
         "uid": 1, "name": "rp1",
-        "generator": 1, "reserve_zones": "1",
+        "generator": 1, "reserve_zones": [1],
         "urmax": 100, "drmax": 80,
         "ur_provision_factor": 1.0,
         "dr_provision_factor": 1.0

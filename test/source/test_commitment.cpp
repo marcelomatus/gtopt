@@ -549,7 +549,7 @@ TEST_CASE("Reserve-UC integration: headroom conditional on u")
           .uid = Uid {1},
           .name = "g1_rprov",
           .generator = Uid {1},
-          .reserve_zones = "1",
+          .reserve_zones = {SingleId {Uid {1}}},
           .urmax = 100.0,
           .ur_provision_factor = 1.0,
       },

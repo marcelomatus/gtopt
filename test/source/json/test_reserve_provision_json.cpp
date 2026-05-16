@@ -12,7 +12,7 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
     "uid":1,
     "name":"RPROV_A",
     "generator":10,
-    "reserve_zones":"ZONE_1,ZONE_2",
+    "reserve_zones":["ZONE_1","ZONE_2"],
     "urmax":50.0,
     "drmax":30.0
   })";
@@ -23,7 +23,9 @@ TEST_CASE("ReserveProvision daw json test - basic fields")
   CHECK(rp.name == "RPROV_A");
   CHECK_FALSE(rp.active.has_value());
   CHECK(std::get<Uid>(rp.generator) == 10);
-  CHECK(rp.reserve_zones == "ZONE_1,ZONE_2");
+  REQUIRE(rp.reserve_zones.size() == 2);
+  CHECK(std::get<Name>(rp.reserve_zones[0]) == "ZONE_1");
+  CHECK(std::get<Name>(rp.reserve_zones[1]) == "ZONE_2");
 
   REQUIRE(rp.urmax.has_value());
   CHECK(std::get<double>(rp.urmax.value_or(0.0)) == doctest::Approx(50.0));
@@ -38,7 +40,7 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
     "name":"RPROV_B",
     "active":1,
     "generator":"GEN_COAL",
-    "reserve_zones":"ZONE_A",
+    "reserve_zones":["ZONE_A"],
     "urmax":100.0,
     "drmax":80.0,
     "ur_capacity_factor":0.9,
@@ -56,7 +58,8 @@ TEST_CASE("ReserveProvision daw json test - with factors and costs")
   REQUIRE(rp.active.has_value());
   CHECK(std::get<IntBool>(rp.active.value_or(Active {False})) == True);
   CHECK(std::get<Name>(rp.generator) == "GEN_COAL");
-  CHECK(rp.reserve_zones == "ZONE_A");
+  REQUIRE(rp.reserve_zones.size() == 1);
+  CHECK(std::get<Name>(rp.reserve_zones[0]) == "ZONE_A");
 
   REQUIRE(rp.ur_capacity_factor.has_value());
   CHECK(std::get<double>(rp.ur_capacity_factor.value_or(0.0))
@@ -83,7 +86,7 @@ TEST_CASE("ReserveProvision daw json test - minimal fields")
     "uid":3,
     "name":"RPROV_MINIMAL",
     "generator":5,
-    "reserve_zones":"Z1"
+    "reserve_zones":["Z1"]
   })";
 
   const ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
@@ -107,12 +110,12 @@ TEST_CASE("ReserveProvision array json test")
     "uid":1,
     "name":"RPROV_A",
     "generator":10,
-    "reserve_zones":"Z1"
+    "reserve_zones":["Z1"]
   },{
     "uid":2,
     "name":"RPROV_B",
     "generator":20,
-    "reserve_zones":"Z1,Z2"
+    "reserve_zones":["Z1","Z2"]
   }])";
 
   std::vector<ReserveProvision> provisions =
@@ -123,7 +126,9 @@ TEST_CASE("ReserveProvision array json test")
   CHECK(provisions[0].name == "RPROV_A");
   CHECK(provisions[1].uid == 2);
   CHECK(provisions[1].name == "RPROV_B");
-  CHECK(provisions[1].reserve_zones == "Z1,Z2");
+  REQUIRE(provisions[1].reserve_zones.size() == 2);
+  CHECK(std::get<Name>(provisions[1].reserve_zones[0]) == "Z1");
+  CHECK(std::get<Name>(provisions[1].reserve_zones[1]) == "Z2");
 }
 
 TEST_CASE("ReserveProvision round-trip serialization")
@@ -133,7 +138,7 @@ TEST_CASE("ReserveProvision round-trip serialization")
   rp.name = "RT_RPROV";
   rp.active = True;
   rp.generator = Uid {42};
-  rp.reserve_zones = "ZONE_X,ZONE_Y";
+  rp.reserve_zones = {SingleId {Name {"ZONE_X"}}, SingleId {Name {"ZONE_Y"}}};
   rp.urmax = 200.0;
   rp.drmax = 150.0;
   rp.urcost = 5000.0;
@@ -145,7 +150,9 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(roundtrip.uid == rp.uid);
   CHECK(roundtrip.name == rp.name);
   CHECK(std::get<Uid>(roundtrip.generator) == 42);
-  CHECK(roundtrip.reserve_zones == "ZONE_X,ZONE_Y");
+  REQUIRE(roundtrip.reserve_zones.size() == 2);
+  CHECK(std::get<Name>(roundtrip.reserve_zones[0]) == "ZONE_X");
+  CHECK(std::get<Name>(roundtrip.reserve_zones[1]) == "ZONE_Y");
   REQUIRE(roundtrip.urmax.has_value());
   CHECK(std::get<double>(roundtrip.urmax.value_or(0.0))
         == doctest::Approx(200.0));

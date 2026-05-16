@@ -742,38 +742,28 @@ class TopologyHydroMixin(TopologyIdsMixin):
             gen_id = self._find_node_id(
                 "generator_array", rp.get("generator"), self._gid
             )
-            # reserve_zones is a colon-separated string of zone refs
-            rz_str = rp.get("reserve_zones", "")
-            if isinstance(rz_str, str) and rz_str:
-                for rz_ref in rz_str.split(":"):
-                    rz_ref = rz_ref.strip()
-                    if not rz_ref:
-                        continue
-                    rz_id = self._find_node_id("reserve_zone_array", rz_ref, self._rzid)
-                    if gen_id and rz_id:
-                        self.model.add_edge(
-                            Edge(
-                                gen_id,
-                                rz_id,
-                                label="reserve",
-                                style="dotted",
-                                color=_PALETTE.get(
-                                    "reserve_edge", _PALETTE["gen_border"]
-                                ),
-                            )
+            # reserve_zones is a typed array of zone refs (Uid number
+            # or Name string per element).  Pre-2026-05-16 the field
+            # was a colon-delimited string; accept both forms here so
+            # legacy JSON inputs still render — drop the str branch
+            # once nothing in the wild uses the old form.
+            rz_field = rp.get("reserve_zones", [])
+            rz_refs: list = []
+            if isinstance(rz_field, list):
+                rz_refs = [r for r in rz_field if r not in (None, "")]
+            elif isinstance(rz_field, str) and rz_field:
+                rz_refs = [s.strip() for s in rz_field.split(":") if s.strip()]
+            for rz_ref in rz_refs:
+                rz_id = self._find_node_id("reserve_zone_array", rz_ref, self._rzid)
+                if gen_id and rz_id:
+                    self.model.add_edge(
+                        Edge(
+                            gen_id,
+                            rz_id,
+                            label="reserve",
+                            style="dotted",
+                            color=_PALETTE.get(
+                                "reserve_edge", _PALETTE["gen_border"]
+                            ),
                         )
-            elif isinstance(rz_str, (list, tuple)):
-                for rz_ref in rz_str:
-                    rz_id = self._find_node_id("reserve_zone_array", rz_ref, self._rzid)
-                    if gen_id and rz_id:
-                        self.model.add_edge(
-                            Edge(
-                                gen_id,
-                                rz_id,
-                                label="reserve",
-                                style="dotted",
-                                color=_PALETTE.get(
-                                    "reserve_edge", _PALETTE["gen_border"]
-                                ),
-                            )
-                        )
+                    )

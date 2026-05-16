@@ -13,10 +13,8 @@
  * coefficient on r_inertia into the InertiaZone requirement row.
  */
 
-#include <algorithm>
 #include <ranges>
-#include <string>
-#include <string_view>
+#include <span>
 #include <vector>
 
 #include <gtopt/inertia_provision_lp.hpp>
@@ -29,32 +27,20 @@ namespace
 
 using namespace gtopt;
 
-std::vector<std::string> split(std::string_view str, char delim = ' ')
+auto make_izone_indexes(const InputContext& ic,
+                        std::span<const SingleId> izones)
 {
-  return str | std::views::split(delim)
-      | std::views::transform(
-             [](auto&& range)
-             { return std::string(range.begin(), range.end()); })
-      | std::ranges::to<std::vector>();
-}
-
-auto make_izone_indexes(const InputContext& ic, const std::string& izstr)
-{
-  auto izones = split(izstr, ':');
-
-  auto is_uid = [](const auto& s)
-  { return !s.empty() && std::ranges::all_of(s, ::isdigit); };
-  auto str2uid = [](const auto& s) { return static_cast<Uid>(std::stoi(s)); };
-
+  // Typed-array form post-2026-05-16: each `SingleId` in `izones` is
+  // resolved directly via `ic.element_index`.  No string splitting,
+  // no Uid-vs-name discriminator, no per-element heap allocation.
+  // Replaces the colon-delimited `String` parser that lived here
+  // previously (`split` + `is_uid` + `str2uid` +
+  // `IZoneId{std::string(...)}` materialisation per zone).
+  using IZoneId = ObjectSingleId<InertiaZoneLP>;
   return std::ranges::to<std::vector>(
       izones
-      | std::views::transform(
-          [&](auto iz)
-          {
-            using IZoneId = ObjectSingleId<InertiaZoneLP>;
-            return ic.element_index(is_uid(iz) ? IZoneId {str2uid(iz)}
-                                               : IZoneId {std::move(iz)});
-          }));
+      | std::views::transform([&](const SingleId& iz)
+                              { return ic.element_index(IZoneId {iz}); }));
 }
 
 }  // namespace

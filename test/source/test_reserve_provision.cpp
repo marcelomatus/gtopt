@@ -18,7 +18,7 @@ TEST_CASE("ReserveProvision construction and default values")
 
   // Check default values for references
   CHECK(reserve_provision.generator == SingleId {unknown_uid});
-  CHECK(reserve_provision.reserve_zones == String {});
+  CHECK(reserve_provision.reserve_zones.empty());
 
   // Check default values for provision limits
   CHECK_FALSE(reserve_provision.urmax.has_value());  // up reserve max
@@ -48,8 +48,9 @@ TEST_CASE("ReserveProvision attribute assignment")
 
   // Assign references
   reserve_provision.generator = Uid {1001};  // Reference to a generator UID
-  reserve_provision.reserve_zones =
-      "2001:2002";  // References to reserve zone UIDs, colon-separated
+  // Typed array of ReserveZone references (Uids).
+  reserve_provision.reserve_zones = {SingleId {Uid {2001}},
+                                     SingleId {Uid {2002}}};
 
   // Assign max values
   reserve_provision.urmax = 50.0;  // 50 MW up reserve max
@@ -78,7 +79,9 @@ TEST_CASE("ReserveProvision attribute assignment")
 
   // Check references
   CHECK(std::get<Uid>(reserve_provision.generator) == Uid {1001});
-  CHECK(reserve_provision.reserve_zones == "2001:2002");
+  REQUIRE(reserve_provision.reserve_zones.size() == 2);
+  CHECK(std::get<Uid>(reserve_provision.reserve_zones[0]) == Uid {2001});
+  CHECK(std::get<Uid>(reserve_provision.reserve_zones[1]) == Uid {2002});
 
   // Check max values
   REQUIRE(reserve_provision.urmax.has_value());
