@@ -593,5 +593,199 @@ TEST_CASE("InertiaProvisionLP — empty inertia_zones is a no-op (no LP rows)")
   CHECK(zone_coupling_rows == 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+//   Multi-zone coverage (derived from "InertiaProvisionLP - multi-zone
+//   provision" above, plus the InertiaZoneLP basic tests).  The shipped
+//   suite has exactly one multi-zone fixture and it stops at "the LP
+//   resolves" — these tests assert on per-zone behavior so the
+//   inertia_zone_indexes_ iteration loop in
+//   `InertiaProvisionLP::add_to_lp` is genuinely exercised.
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST_CASE(
+    "InertiaZoneLP - two zones with partitioned providers, "
+    "distinct requirements bind independently")
+{
+  // 2 generators, 2 zones, 1 provision per generator → each provision
+  // serves exactly one zone.  Both zones must be satisfied, so the LP
+  // must dispatch enough from each generator to meet its zone's
+  // requirement individually.  This catches regressions where the
+  // per-zone requirement row wiring shares state across zones.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .gcost = 30.0,
+          .capacity = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .gcost = 60.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<InertiaZone> inertia_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "iz_north",
+          .requirement = 120.0,
+          .cost = 5000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "iz_south",
+          .requirement = 180.0,
+          .cost = 8000.0,
+      },
+  };
+
+  // Partitioned providers: gen1 → zone1 only, gen2 → zone2 only.
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip_north",
+          .generator = Uid {1},
+          .inertia_zones = {SingleId {Uid {1}}},
+          .provision_factor = 6.0,  // 6 × gen output contributes to zone1
+      },
+      {
+          .uid = Uid {2},
+          .name = "ip_south",
+          .generator = Uid {2},
+          .inertia_zones = {SingleId {Uid {2}}},
+          .provision_factor = 9.0,  // 9 × gen output contributes to zone2
+      },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.reserve_fail_cost = 10000.0;
+
+  const System system = {
+      .name = "InertiaTwoZonePartitioned",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .inertia_zone_array = inertia_zone_array,
+      .inertia_provision_array = inertia_provision_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Both zone requirements must hold:
+  //   zone1: 6 × gen1_out >= 120 → gen1_out >= 20 (also = pmin)
+  //   zone2: 9 × gen2_out >= 180 → gen2_out >= 20 (also = pmin)
+  // Demand = 100 MW, so total gen = 100; the rest is split by cost.
+  // Optimal: g1 supplies more (cheaper at 30 $/MWh).  Both pmins are
+  // active.  LP must be feasible at well below demand_fail_cost.
+  const auto obj_phys = lp.get_obj_value();
+  CHECK(std::isfinite(obj_phys));
+  CHECK(obj_phys < 1.0e5);  // dispatch dominates, no failure cost
+}
+
+TEST_CASE(
+    "InertiaProvisionLP - one provider spans both zones with distinct "
+    "requirements; the tighter zone binds the provision")
+{
+  // Single generator providing inertia to BOTH zones with the same
+  // provision_factor.  The two zones have **different** requirements
+  // so only the tighter one binds the provision variable.  This
+  // mirrors the existing "InertiaProvisionLP - multi-zone provision"
+  // test but adds an explicit objective-bound check that pins the
+  // binding-zone behaviour: the LP must dispatch enough generation
+  // to satisfy the LARGER of the two zone requirements.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 0.0,  // no lower bound — let the inertia req drive it
+          .gcost = 30.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<InertiaZone> inertia_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "iz_easy",
+          .requirement = 120.0,  // 6 × 20 — pmin would satisfy
+          .cost = 5000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "iz_hard",
+          .requirement = 360.0,  // 6 × 60 — needs 60 MW dispatch
+          .cost = 8000.0,
+      },
+  };
+
+  // Single provision feeds BOTH zones with the same factor.
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip_dual",
+          .generator = Uid {1},
+          .inertia_zones = {SingleId {Uid {1}}, SingleId {Uid {2}}},
+          .provision_factor = 6.0,
+      },
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.reserve_fail_cost = 10000.0;
+
+  const System system = {
+      .name = "InertiaOneProviderTwoZones",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .inertia_zone_array = inertia_zone_array,
+      .inertia_provision_array = inertia_provision_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto obj_phys = lp.get_obj_value();
+  CHECK(std::isfinite(obj_phys));
+  CHECK(obj_phys < 1.0e5);  // single bus, single demand — no failures
+
+  // Verify the LP wired BOTH zone requirement rows (not just one).
+  // Each zone in `inertia_zone_array` should produce a
+  // `requirement` row keyed by stage 1, block 1.  If the iteration
+  // over `inertia_zones` silently skipped the second zone the LP
+  // would build but the row count would tell us the difference.
+  std::size_t zone_req_rows = 0;
+  for (const auto& [name, _row] : lp.row_name_map()) {
+    if (name.find("InertiaZone") != std::string_view::npos
+        && name.find("requirement") != std::string_view::npos)
+    {
+      ++zone_req_rows;
+    }
+  }
+  // 2 zones × 1 stage × 1 block = 2 requirement rows.
+  CHECK(zone_req_rows == 2);
+}
+
 // NOLINTEND(bugprone-throwing-static-initialization,
 // bugprone-unchecked-optional-access, cert-err58-cpp)

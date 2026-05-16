@@ -873,7 +873,15 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         phase1_iter_count_for_stats + level_iterations;
 
     // ── Collect per-level stats ──
-    const auto& last = result->back();
+    // When this level runs with max_iterations=0 *and*
+    // skip_simulation_pass=true (i.e. every cascade level except the
+    // last one, in a no-training cascade run) the SDDP solver returns
+    // an empty results vector — no training iters, no sim pass slot.
+    // Fall back to a default-constructed sentinel so the per-level
+    // stats and log line stay well-defined and the global iteration
+    // index does not advance (no iterations consumed any budget).
+    const SDDPIterationResult empty_sentinel {};
+    const auto& last = result->empty() ? empty_sentinel : result->back();
     const int phase2_cuts =
         std::accumulate(result->begin(),
                         result->end(),
@@ -925,8 +933,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // Advance the global iteration index past every index this level
     // produced — `last.iteration_index` is the simulation-pass slot at
     // `next(last training iteration)`, so `next()` of that is strictly
-    // past even the discarded sim index.
-    global_iter_index = next(last.iteration_index);
+    // past even the discarded sim index.  When the level produced no
+    // results (max_iters=0 + skip_simulation_pass) keep the index where
+    // it was — no iterations have been emitted on this level.
+    if (!result->empty()) {
+      global_iter_index = next(last.iteration_index);
+    }
 
     // ── 4. Check convergence ──
     if (last.converged) {
