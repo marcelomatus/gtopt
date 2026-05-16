@@ -93,6 +93,10 @@ TEST_CASE(  // NOLINT
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
+  // Raw RHS round-trip across release/ensure cycles — bypass the
+  // mean-shift α-rebase (enabled by default) so the asserted RHS
+  // values match the on-disk magnitudes.
+  opts.boundary_cuts_mean_shift = false;
 
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_default_scene_phase_states(planning_lp);

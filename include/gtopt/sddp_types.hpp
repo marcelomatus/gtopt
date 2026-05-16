@@ -835,12 +835,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// boundary cut's `lowb`, and carry the offset via
   /// `LinearInterface::add_obj_constant` so `get_obj_value()` stays
   /// algebraically equivalent to the unshifted formulation.
-  /// Mathematically exact (α' = α − c̄), but changes the on-LP cut
-  /// RHS magnitudes — pre-existing tests assert against the raw
-  /// values, so this is opt-in.  See `SddpOptions::boundary_cuts_mean_shift`
-  /// (input-side option) and `source/sddp_boundary_cuts.cpp` for the
-  /// implementation.
-  bool boundary_cuts_mean_shift {false};
+  /// Mathematically exact (α' = α − c̄); LP-side α is centred near
+  /// zero so equilibration sees comparable RHS magnitudes for
+  /// boundary vs. runtime cuts.  See `SddpOptions::boundary_cuts_mean_shift`
+  /// (input-side option, defaulted to true via
+  /// `planning_options_lp.hpp::sddp_boundary_cuts_mean_shift`) and
+  /// `source/sddp_boundary_cuts.cpp` for the implementation.  Plain-bool
+  /// storage default is `true` so callers that construct an
+  /// `SddpOptions` directly (test fixtures, etc.) inherit the same
+  /// default as the input-option path.
+  bool boundary_cuts_mean_shift {true};
 
   // ``named_cuts_file`` was retired in 2026-05.  Internal hot-start
   // cuts now use the typed Parquet path (``cuts_input_file``); the

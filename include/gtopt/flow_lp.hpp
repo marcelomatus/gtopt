@@ -72,6 +72,18 @@ public:
     return flow_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Tolerant lookup over `flow_cols` — see `lookup_inner`
+  /// (`index_holder.hpp`).  Consumers (turbine_lp, etc.) use this
+  /// to skip blocks where the producer elided the column, instead
+  /// of throwing `flat_map::at`.
+  [[nodiscard]] std::optional<ColIndex> lookup_flow_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    return lookup_inner(flow_cols, scenario, stage, buid);
+  }
+
   /**
    * @brief Return the discharge value for a given scenario/stage/block.
    * @param scenario_uid Scenario UID to look up

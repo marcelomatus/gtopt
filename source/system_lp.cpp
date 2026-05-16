@@ -145,6 +145,19 @@ constexpr auto add_to_lp(auto& collections,
         if (dynamic_cast<const std::runtime_error*>(&ex) != nullptr) {
           throw;
         }
+        // `std::logic_error` (and subclasses: `std::out_of_range`,
+        // `std::invalid_argument`, `std::domain_error`, etc.) signals
+        // a programmer/data bug — `flat_map::at` on a missing key, a
+        // sentinel array indexed past its size, etc.  These are NOT
+        // transient noise that "log and continue" can paper over: the
+        // LP being built is structurally wrong and continuing produces
+        // either a malformed solve or a downstream cascade of thousands
+        // of identical errors that bury the root cause.  Fail fast so
+        // the caller (gtopt_main) returns a clean non-zero exit with
+        // one diagnostic on stderr instead of a 6k-error log file.
+        if (dynamic_cast<const std::logic_error*>(&ex) != nullptr) {
+          throw;
+        }
         return false;
       }
     }

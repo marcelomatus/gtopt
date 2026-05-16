@@ -105,19 +105,14 @@ public:
 
   /// Look up an already-created theta column without lazy initialisation.
   /// Returns std::nullopt if no theta column exists for this (scenario, stage,
-  /// block) triple (e.g. single-bus or reference bus).
+  /// block) triple (e.g. single-bus or reference bus).  Delegates to the
+  /// shared `lookup_inner` helper (`index_holder.hpp`).
   [[nodiscard]]
   std::optional<ColIndex> lookup_theta_col(const ScenarioLP& scenario,
                                            const StageLP& stage,
                                            BlockUid buid) const noexcept
   {
-    const auto key = std::tuple {scenario.uid(), stage.uid()};
-    if (const auto mit = theta_cols.find(key); mit != theta_cols.end()) {
-      if (const auto it = mit->second.find(buid); it != mit->second.end()) {
-        return it->second;
-      }
-    }
-    return std::nullopt;
+    return lookup_inner(theta_cols, scenario, stage, buid);
   }
 
 private:

@@ -60,7 +60,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   auto&& blocks = stage.blocks();
 
   const auto& generator = sc.element<GeneratorLP>(generator_sid());
-  const auto& gen_cols = generator.generation_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> rrows;
   BIndexHolder<RowIndex> crows;
@@ -75,12 +74,23 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     // automatically adapts when FlowLP::update_aperture changes
     // the flow column bounds — no separate aperture update needed.
     const auto& flow_lp = sc.element<FlowLP>(flow_sid());
-    const auto& discharge_cols = flow_lp.flow_cols_at(scenario, stage);
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto gcol = gen_cols.at(buid);
-      const auto dcol = discharge_cols.at(buid);
+      // Optional lookups so the zero-bound P1 skip in generator_lp /
+      // flow_lp doesn't trip a `flat_map::at` here.  When either the
+      // generation column or the flow column is missing for this
+      // block, the conversion row would have no LP unknown to bind —
+      // skip the row entirely (no constraint required when the
+      // producer dropped its variable).
+      const auto gcol_opt =
+          generator.lookup_generation_col(scenario, stage, buid);
+      const auto dcol_opt = flow_lp.lookup_flow_col(scenario, stage, buid);
+      if (!gcol_opt || !dcol_opt) {
+        continue;
+      }
+      const auto gcol = *gcol_opt;
+      const auto dcol = *dcol_opt;
 
       auto rrow = SparseRow {
           .class_name = Element::class_name.full_name(),
@@ -97,13 +107,20 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   } else if (turbine().waterway.has_value()) {
     // ── Waterway-connected turbine (traditional) ───────────────────
     const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
-    const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
 
     const auto use_drain = drain();
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto fcol = flow_cols.at(buid);
-      const auto gcol = gen_cols.at(buid);
+      // Same rationale as the flow-connected branch: tolerate
+      // zero-bound P1 skips in waterway_lp / generator_lp.
+      const auto fcol_opt = waterway.lookup_flow_col(scenario, stage, buid);
+      const auto gcol_opt =
+          generator.lookup_generation_col(scenario, stage, buid);
+      if (!fcol_opt || !gcol_opt) {
+        continue;
+      }
+      const auto fcol = *fcol_opt;
+      const auto gcol = *gcol_opt;
 
       auto rrow = SparseRow {
           .class_name = Element::class_name.full_name(),
@@ -146,6 +163,11 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
   // uid + ampl_name, pointing at the associated generator's per-block
   // generation column map.  Safe: the generator's generation_cols map is
   // owned by the GeneratorLP instance and persists for the full solve.
+  // `lookup_generation_cols` returns an empty map (not a throw) when
+  // every block of (scenario, stage) was skipped by the P1 zero-pmax
+  // optimization — registering an empty ampl variable would no-op,
+  // so the `!empty()` guard skips the call entirely.
+  const auto& gen_cols = generator.lookup_generation_cols(scenario, stage);
   if (!gen_cols.empty()) {
     sc.add_ampl_variable(ampl_name,
                          uid(),

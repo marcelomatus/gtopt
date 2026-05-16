@@ -43,6 +43,7 @@
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -391,6 +392,19 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     auto& sinks = logger->sinks();
     if (suppress_stdout) {
       sinks.clear();
+      // Belt-and-suspenders: even when the user pipes / redirects
+      // stdout (non-tty → suppress_stdout=true), fatal-level messages
+      // should still surface on stderr so an early failure
+      // (apply_set_options rejecting an unknown --set key, missing
+      // input file, etc.) produces a visible diagnostic without the
+      // user having to find the gtopt_N.log.  The stderr sink is
+      // gated at err-level so routine info/warn lines stay quiet
+      // and only the failure reason hits the user's terminal.
+      auto stderr_sink =
+          std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+      stderr_sink->set_level(spdlog::level::err);
+      stderr_sink->set_pattern("gtopt: [%l] %v");
+      sinks.push_back(std::move(stderr_sink));
     }
     sinks.push_back(std::move(file_sink));
   } catch (const spdlog::spdlog_ex& ex) {

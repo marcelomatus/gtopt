@@ -54,20 +54,13 @@ public:
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   /// Look up the provision column for (scenario, stage, block).
+  /// Delegates to the shared `lookup_inner` helper (`index_holder.hpp`).
   [[nodiscard]] std::optional<ColIndex> lookup_provision_col(
       const ScenarioLP& scenario,
       const StageLP& stage,
       BlockUid buid) const noexcept
   {
-    const auto mit = provision_cols_.find({scenario.uid(), stage.uid()});
-    if (mit == provision_cols_.end()) {
-      return std::nullopt;
-    }
-    const auto it = mit->second.find(buid);
-    if (it == mit->second.end()) {
-      return std::nullopt;
-    }
-    return it->second;
+    return lookup_inner(provision_cols_, scenario, stage, buid);
   }
 
 private:

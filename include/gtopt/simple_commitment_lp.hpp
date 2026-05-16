@@ -52,21 +52,14 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
-  /// Look up the status column for (scenario, stage, block).
+  /// Look up the status column for (scenario, stage, block).  Delegates
+  /// to the shared `lookup_inner` helper (`index_holder.hpp`).
   [[nodiscard]] std::optional<ColIndex> lookup_status_col(
       const ScenarioLP& scenario,
       const StageLP& stage,
       BlockUid buid) const noexcept
   {
-    const auto mit = status_cols_.find({scenario.uid(), stage.uid()});
-    if (mit == status_cols_.end()) {
-      return std::nullopt;
-    }
-    const auto it = mit->second.find(buid);
-    if (it == mit->second.end()) {
-      return std::nullopt;
-    }
-    return it->second;
+    return lookup_inner(status_cols_, scenario, stage, buid);
   }
 
 private:

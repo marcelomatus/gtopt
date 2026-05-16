@@ -49,20 +49,13 @@ public:
   [[nodiscard]] auto&& requirement_cols() const { return rr.requirement_cols; }
 
   /// Look up the requirement column for (scenario, stage, block).
+  /// Delegates to the shared `lookup_inner` helper (`index_holder.hpp`).
   [[nodiscard]] std::optional<ColIndex> lookup_requirement_col(
       const ScenarioLP& scenario,
       const StageLP& stage,
       BlockUid buid) const noexcept
   {
-    const auto mit = rr.requirement_cols.find({scenario.uid(), stage.uid()});
-    if (mit == rr.requirement_cols.end()) {
-      return std::nullopt;
-    }
-    const auto it = mit->second.find(buid);
-    if (it == mit->second.end()) {
-      return std::nullopt;
-    }
-    return it->second;
+    return lookup_inner(rr.requirement_cols, scenario, stage, buid);
   }
 
 private:

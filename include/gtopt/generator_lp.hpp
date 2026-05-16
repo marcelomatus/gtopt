@@ -66,6 +66,30 @@ public:
     return generation_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Tolerant inner-map lookup over `generation_cols`.  When every
+  /// block of `(scenario, stage)` was skipped by the P1 zero-pmax
+  /// optimization, the outer key is absent and `generation_cols_at`
+  /// would throw.  Mirrors `WaterwayLP::flow_cols_at`'s tolerant
+  /// behaviour via `find_or_empty_inner`.
+  [[nodiscard]]
+  const auto& lookup_generation_cols(const ScenarioLP& scenario,
+                                     const StageLP& stage) const noexcept
+  {
+    return find_or_empty_inner(generation_cols, scenario, stage);
+  }
+
+  /// Tolerant block-level lookup over `generation_cols` — see
+  /// `lookup_inner` (`index_holder.hpp`).  Consumers (turbines, etc.)
+  /// use this to handle blocks where the P1 zero-pmax skip elided
+  /// the gen column, instead of `flat_map::at`-throwing.
+  [[nodiscard]]
+  std::optional<ColIndex> lookup_generation_col(const ScenarioLP& scenario,
+                                                const StageLP& stage,
+                                                BlockUid buid) const noexcept
+  {
+    return lookup_inner(generation_cols, scenario, stage, buid);
+  }
+
   [[nodiscard]]
   const auto& capacity_rows_at(const ScenarioLP& scenario,
                                const StageLP& stage) const

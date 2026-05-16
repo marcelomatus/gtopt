@@ -1321,10 +1321,14 @@ public:
   }
 
   /// Whether to apply α-rebase (mean-shift) on boundary cut load.
-  /// Default: false (preserve raw on-disk RHS magnitudes).
+  /// Default: **true** — centre α around zero so LP equilibration
+  /// sees comparable RHS magnitudes for boundary vs. runtime cuts.
+  /// Override with `--set sddp_options.boundary_cuts_mean_shift=false`
+  /// when you need raw on-disk RHS magnitudes preserved (e.g. for
+  /// byte-identical cut-file round-trips during regression bisects).
   [[nodiscard]] constexpr auto sddp_boundary_cuts_mean_shift() const -> bool
   {
-    return m_options_.sddp_options.boundary_cuts_mean_shift.value_or(false);
+    return m_options_.sddp_options.boundary_cuts_mean_shift.value_or(true);
   }
 
   // ``sddp_named_cuts_file`` accessor retired 2026-05 along with the

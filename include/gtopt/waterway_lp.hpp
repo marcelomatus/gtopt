@@ -58,6 +58,19 @@ public:
     return find_or_empty_inner(flow_cols, scenario, stage);
   }
 
+  /// Tolerant lookup over `flow_cols` — see `lookup_inner`
+  /// (`index_holder.hpp`).  Consumers (turbine_lp, pump_lp, etc.)
+  /// use this to skip the matching constraint row when the P1
+  /// zero-bound skip (waterway_lp.cpp:72) elided the flow column,
+  /// instead of throwing `flat_map::at`.
+  [[nodiscard]] std::optional<ColIndex> lookup_flow_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    return lookup_inner(flow_cols, scenario, stage, buid);
+  }
+
 private:
   OptTBRealSched fmin;
   OptTBRealSched fmax;

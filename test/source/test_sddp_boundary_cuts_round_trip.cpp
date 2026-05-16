@@ -123,6 +123,11 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
+  // This test asserts raw RHS byte-identity through the load
+  // round-trip.  The mean-shift α-rebase (enabled by default in
+  // `planning_options_lp.hpp::sddp_boundary_cuts_mean_shift`)
+  // would alter the on-LP RHS values.  Force off here.
+  opts.boundary_cuts_mean_shift = false;
 
   const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_default_scene_phase_states(planning_lp);

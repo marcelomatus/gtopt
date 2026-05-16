@@ -61,6 +61,7 @@ struct SddpOptionsConstructor
       OptInt aperture_chunk_size,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
+      OptBool boundary_cuts_mean_shift,
       OptInt boundary_max_iterations,
       OptName missing_cut_var_mode_str,
       OptInt max_cuts_per_phase,
@@ -132,6 +133,7 @@ struct SddpOptionsConstructor
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
           "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
+    opts.boundary_cuts_mean_shift = boundary_cuts_mean_shift;
     opts.boundary_max_iterations = boundary_max_iterations;
     if (missing_cut_var_mode_str) {
       opts.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
@@ -214,6 +216,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
+      json_bool_null<"boundary_cuts_mean_shift", OptBool>,
       json_number_null<"boundary_max_iterations", OptInt>,
       json_string_null<"missing_cut_var_mode", OptName>,
       json_number_null<"max_cuts_per_phase", OptInt>,
@@ -272,6 +275,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_chunk_size,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
+        opt.boundary_cuts_mean_shift,
         opt.boundary_max_iterations,
         detail::enum_to_opt_name(opt.missing_cut_var_mode),
         opt.max_cuts_per_phase,
