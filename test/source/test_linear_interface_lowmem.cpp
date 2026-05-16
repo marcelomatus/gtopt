@@ -2119,14 +2119,17 @@ TEST_CASE(  // NOLINT
     // Duplicate detection survives: inserting the same (class, var, uid)
     // as x1 after a decompress cycle must still throw.
     {
-      auto try_add = [&] { (void)li.add_col(SparseCol {
-        .lowb = 0.0,
-        .uppb = 10.0,
-        .cost = 2.0,
-        .class_name = "Gen",
-        .variable_name = "generation",
-        .variable_uid = Uid {1},  // same uid as x1 → duplicate
-      }); };
+      auto try_add = [&]
+      {
+        (void)li.add_col(SparseCol {
+            .lowb = 0.0,
+            .uppb = 10.0,
+            .cost = 2.0,
+            .class_name = "Gen",
+            .variable_name = "generation",
+            .variable_uid = Uid {1},  // same uid as x1 → duplicate
+        });
+      };
       CHECK_THROWS_AS(try_add(), std::runtime_error);
     }
   }
@@ -2211,14 +2214,17 @@ TEST_CASE(  // NOLINT
 
   // Same-uid insertion must still be detected as duplicate after round-trip.
   {
-    auto try_add = [&] { (void)li.add_col(SparseCol {
-        .lowb = 0.0,
-        .uppb = 20.0,
-        .cost = 5.0,
-        .class_name = "Demand",
-        .variable_name = "load",
-        .variable_uid = Uid {7},
-    }); };
+    auto try_add = [&]
+    {
+      (void)li.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 20.0,
+          .cost = 5.0,
+          .class_name = "Demand",
+          .variable_name = "load",
+          .variable_uid = Uid {7},
+      });
+    };
     CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
@@ -2632,7 +2638,8 @@ TEST_CASE(  // NOLINT
   LinearInterface li;
 
   for (int k = 1; k <= 4; ++k) {
-    (void)li.add_col(SparseCol {  // NOLINT
+    (void)li.add_col(SparseCol {
+        // NOLINT
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = static_cast<double>(k),
@@ -3834,35 +3841,44 @@ TEST_CASE(  // NOLINT
 
   // First post-flatten add with a NEW key: succeeds.
   {
-    auto try_add = [&] { (void)li.add_col(SparseCol {
-        .uppb = 1.0,
-        .class_name = "Sddp",
-        .variable_name = "alpha",
-        .variable_uid = 0,
-    }); };
+    auto try_add = [&]
+    {
+      (void)li.add_col(SparseCol {
+          .uppb = 1.0,
+          .class_name = "Sddp",
+          .variable_name = "alpha",
+          .variable_uid = 0,
+      });
+    };
     CHECK_NOTHROW(try_add());
   }
 
   // Cross-layer collision: same metadata as the FROZEN entry → throw.
   {
-    auto try_add = [&] { (void)li.add_col(SparseCol {
-        .uppb = 1.0,
-        .class_name = "Bus",
-        .variable_name = "theta",
-        .variable_uid = 1,
-    }); };
+    auto try_add = [&]
+    {
+      (void)li.add_col(SparseCol {
+          .uppb = 1.0,
+          .class_name = "Bus",
+          .variable_name = "theta",
+          .variable_uid = 1,
+      });
+    };
     CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 
   // Within-post-flatten collision: same metadata as the previous
   // post-flatten add → throw.
   {
-    auto try_add = [&] { (void)li.add_col(SparseCol {
-        .uppb = 2.0,
-        .class_name = "Sddp",
-        .variable_name = "alpha",
-        .variable_uid = 0,
-    }); };
+    auto try_add = [&]
+    {
+      (void)li.add_col(SparseCol {
+          .uppb = 2.0,
+          .class_name = "Sddp",
+          .variable_name = "alpha",
+          .variable_uid = 0,
+      });
+    };
     CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
@@ -4580,7 +4596,8 @@ TEST_CASE(  // NOLINT
 
   li.reconstruct_backend();
   // Add a fresh column (alpha-style) and verify cache drops.
-  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 100.0, .cost = 1.0});  // NOLINT
+  (void)li.add_col(
+      SparseCol {.lowb = 0.0, .uppb = 100.0, .cost = 1.0});  // NOLINT
 
   CHECK_FALSE(li.is_optimal());
   CHECK(li.cached_col_sol_size() == 0);

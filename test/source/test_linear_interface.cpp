@@ -182,14 +182,16 @@ TEST_CASE("LinearInterface - LP file output")
   // real labels at write_lp time.  SparseCols added without a
   // `class_name` deliberately throw under the on-demand labelling
   // contract (no generic `c<i>`/`r<i>` fallback).
-  (void)interface.add_col(SparseCol {  // NOLINT
+  (void)interface.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 10.0,
       .class_name = "V",
       .variable_name = "x",
       .variable_uid = Uid {0},
   });
-  (void)interface.add_col(SparseCol {  // NOLINT
+  (void)interface.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 10.0,
       .class_name = "V",
@@ -364,7 +366,8 @@ TEST_CASE("LinearInterface - write LP to empty filename (no-op)")
   using namespace gtopt;
 
   LinearInterface interface;
-  (void)interface.add_col(SparseCol {  // NOLINT
+  (void)interface.add_col(SparseCol {
+      // NOLINT
       .uppb = 10.0,
   });
 
@@ -710,7 +713,8 @@ TEST_CASE("LinearInterface - set_col_sol with null span (no-op)")
   using namespace gtopt;
 
   LinearInterface interface;
-  (void)interface.add_col(SparseCol {  // NOLINT
+  (void)interface.add_col(SparseCol {
+      // NOLINT
       .uppb = 10.0,
   });
 
@@ -827,7 +831,8 @@ TEST_CASE(
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // First column with labelled metadata is accepted.
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -840,14 +845,17 @@ TEST_CASE(
   // variable_uid, context)` metadata is rejected at add_col time
   // — no need to wait for `materialize_labels` or `write_lp`.
   {
-    auto try_add = [&] { (void)li.add_col(SparseCol {
-      .lowb = 0.0,
-      .uppb = 1.0,
-      .class_name = "X",
-      .variable_name = "v",
-      .variable_uid = Uid {1},
-      .context = ctx,
-    }); };
+    auto try_add = [&]
+    {
+      (void)li.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .class_name = "X",
+          .variable_name = "v",
+          .variable_uid = Uid {1},
+          .context = ctx,
+      });
+    };
     CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
@@ -862,7 +870,8 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
   const auto ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -870,7 +879,8 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
       .variable_uid = Uid {1},
       .context = ctx,
   });
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -928,7 +938,8 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // Column provides a live ColIndex for the SparseRow cmap.
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",

@@ -183,11 +183,10 @@ public:
   template<std::invocable<StageUid, BlockUid> F>
     requires std::same_as<std::invoke_result_t<F, StageUid, BlockUid>,
                           std::optional<double>>
-  [[nodiscard]] bool update_aperture(
-      LinearInterface& li,
-      const ScenarioLP& base_scenario,
-      F&& value_fn,
-      const StageLP& stage) const
+  [[nodiscard]] bool update_aperture(LinearInterface& li,
+                                     const ScenarioLP& base_scenario,
+                                     F&& value_fn,
+                                     const StageLP& stage) const
   {
     if (!is_active(stage)) {
       return true;

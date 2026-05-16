@@ -2656,11 +2656,11 @@ private:
                                  double colub);
   [[nodiscard]] ColIndex add_free_col(const std::string& name);
   [[nodiscard]] RowIndex add_row(const std::string& name,
-                   size_t numberElements,
-                   const std::span<const int>& columns,
-                   const std::span<const double>& elements,
-                   double rowlb,
-                   double rowub);
+                                 size_t numberElements,
+                                 const std::span<const int>& columns,
+                                 const std::span<const double>& elements,
+                                 double rowlb,
+                                 double rowub);
 
   /// @}
 

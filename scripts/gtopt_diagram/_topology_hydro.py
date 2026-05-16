@@ -762,8 +762,6 @@ class TopologyHydroMixin(TopologyIdsMixin):
                             rz_id,
                             label="reserve",
                             style="dotted",
-                            color=_PALETTE.get(
-                                "reserve_edge", _PALETTE["gen_border"]
-                            ),
+                            color=_PALETTE.get("reserve_edge", _PALETTE["gen_border"]),
                         )
                     )

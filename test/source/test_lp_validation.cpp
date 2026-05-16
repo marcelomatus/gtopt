@@ -138,7 +138,8 @@ TEST_CASE("LP validation: solver-infinity bound is NOT noted")  // NOLINT
   CHECK(li.lp_validation_stats().bound_huge_count == 0);
 
   // 1e13 finite bound: must produce a huge-bound warning.
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .uppb = 1e13,
       .cost = 1.0,
   });
@@ -334,7 +335,8 @@ TEST_CASE("LP validation: huge objective triggers WARN")  // NOLINT
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
 
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .uppb = 1.0,
       .cost = 1e12,  // way above obj_warn_max=1e10
   });
@@ -382,7 +384,8 @@ TEST_CASE("LP validation: huge bound triggers WARN")  // NOLINT
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
 
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .lowb = 0.0,
       .uppb = 1e15,  // huge but finite — exceeds bound_warn_max
       .cost = 1.0,
@@ -408,7 +411,8 @@ TEST_CASE(
   // already covered by the "clean LP produces zero warnings" test).
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
-  (void)li.add_col(SparseCol {  // NOLINT
+  (void)li.add_col(SparseCol {
+      // NOLINT
       .uppb = 1.0,
       .cost = 1e12,  // tickles obj_huge
   });

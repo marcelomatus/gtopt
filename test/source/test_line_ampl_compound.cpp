@@ -1052,7 +1052,8 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LineLP AMPL — piecewise_direct: use_single_bus makes line a loop (no cols)")
+    "LineLP AMPL — piecewise_direct: use_single_bus makes line a loop (no "
+    "cols)")
 {
   // Single-bus mode: both line ends connect to the same bus → is_loop() is
   // true → add_to_lp returns early, producing no LP columns at all.
