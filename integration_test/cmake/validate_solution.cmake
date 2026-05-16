@@ -86,7 +86,10 @@ foreach(i RANGE 1 ${last_line})
   list(GET data_fields ${col_obj_value} obj_val)
   string(STRIP "${obj_val}" obj_val)
   string(REGEX MATCH "^-?[0-9]+(\\.[0-9]+(e[+-]?[0-9]+)?)?$" is_numeric "${obj_val}")
-  if(NOT is_numeric)
+  # `is_numeric` holds the matched substring (or empty when no match).
+  # Use STREQUAL "" — `if(NOT is_numeric)` would mis-fire when the
+  # objective value itself is "0" (CMake coerces "0" to false).
+  if(is_numeric STREQUAL "")
     message(FATAL_ERROR "Solution row ${i}: obj_value is not a valid number: '${obj_val}'")
   endif()
 

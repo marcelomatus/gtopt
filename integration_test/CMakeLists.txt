@@ -181,6 +181,16 @@ add_e2e_case(exp_gen_4b exp_gen_4b.json)
 add_e2e_case(exp_bat_4b exp_bat_4b.json)
 add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 
+# Hydro / thermal benchmarks derived from SDDP.jl reference examples
+# (MIT-licensed, https://github.com/odow/SDDP.jl).  These cover the
+# Reservoir / Waterway / Turbine / Junction cascade that the IEEE
+# cases above do not exercise (those are network/dispatch-only).  The
+# `test_hydro_thermal_benchmark.cpp` unit tests cover the same
+# fixtures via in-code and inline-JSON construction; the e2e cases
+# here cover the disk-loaded JSON + golden-CSV comparison path.
+add_e2e_case(hydro_valley_sddpjl system_hydro_valley_sddpjl.json)
+add_e2e_case(fast_hydro_thermal system_fast_hydro_thermal.json)
+
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
 # that has method="sddp", then add a line:

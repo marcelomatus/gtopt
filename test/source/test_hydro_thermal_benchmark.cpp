@@ -31,13 +31,19 @@
 // shape-preserving fixtures with the same topology and parameter
 // magnitudes.
 
+#include <string_view>
+
 #include <doctest/doctest.h>
 #include <gtopt/bus.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
+#include <gtopt/json/json_planning.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/linear_interface.hpp>
+#include <gtopt/planning.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/reservoir.hpp>
@@ -274,47 +280,52 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // ── Invariants ──────────────────────────────────────────────────
-  // 1. The LP is feasible (REQUIRE above).
-  // 2. The optimal objective is finite — both hydro and thermal
-  //    contribute, demand is met everywhere.  The P0 demand-failure
-  //    substitution can shift the sign of `get_obj_value()` so we
-  //    only require `isfinite` (matches the convention used by the
-  //    reserve / inertia benchmarks next door).
-  // 3. With 100 MW demand × 3 blocks × 1 h = 300 MWh of energy to
-  //    serve, and 2 hydro generators each capped at 70 m³/h × 1.1 =
-  //    77 MW (turbine flow × production_factor), the cheapest
-  //    feasible dispatch is hydro-priority — the LP must use hydro
-  //    up to the cascade flow limit before drawing thermal.  Total
-  //    cost is well below the thermal-only outcome (300 × 100 =
-  //    30 000 raw).
-  const auto obj_phys = lp.get_obj_value();
-  const auto obj_raw = lp.get_obj_value_raw();
-  CHECK(std::isfinite(obj_phys));
-  CHECK(std::isfinite(obj_raw));
+  // ── Correctness check vs. analytical optimum ────────────────────
+  // 2 hydro generators × 70 m³/h × 1.1 = 77 MW max each = 154 MW
+  // total hydro capacity, well above the 100-MW demand per block.
+  // Both reservoirs start full (200 each) and the inflows (20 + 10
+  // m³/h) keep them topped up across the 3-block run, so hydro
+  // alone can serve every block.  gcost on both hydro generators
+  // is 0 and the fixture has no spill cost, therefore the optimal
+  // objective is exactly **0** — matches the value gtopt writes to
+  // `cases/hydro_valley_sddpjl/output/solution.csv`.
+  CHECK(lp.get_obj_value() == doctest::Approx(0.0).epsilon(1e-6));
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-//   SDDP.jl Hydro-thermal — 1 reservoir + 1 thermal generator
+//   FAST hydro-thermal (deterministic worst-case branch)
 // ═════════════════════════════════════════════════════════════════════════
 //
-// SDDP.jl reference parameters from the canonical Hydro-thermal
-// scheduling example:
+// SDDP.jl `FAST_hydro_thermal.jl` (MIT-licensed, port of the original
+// Cambier "FAST" hydro-thermal example).  Single reservoir x ∈ [0, 8],
+// initial 0; demand p + y ≥ 6; reservoir balance x.out ≤ x.in − y + ξ;
+// thermal cost 5 $/MWh; objective max −5p ≡ min 5p.
 //
-//   reservoir bounds: xmin = 5, xmax = 15, initial = 10
-//   thermal cost per stage: c_t = stage * 1.0 (1, 2, 3)
-//   stagewise-independent inflow drawn from {0, 3, 10} with equal prob
-//   demand: w_d ∈ {7.5, 5, 2.5} (paired with inflow)
+// SDDP.jl's deterministic-equivalent objective is −10 in max sense
+// (= +10 in min sense) and is the **expected** value over a 2-scenario
+// second stage ξ_2 ∈ {2, 10} (block-1 ξ_1 = 6 is deterministic).
+// We use the **worst-case** scenario ξ_2 = 2 with ξ_1 = 6 as a single
+// deterministic LP to keep this a plain LP test (no SDDP needed).
 //
-// We linearize to a single-stage 3-block fixture: each block carries
-// one of the SDDP.jl (inflow, demand) pairs (0, 7.5), (3, 5),
-// (10, 2.5).  Thermal cost is held at a constant 2.0 (middle stage).
-// The reservoir balance integrates over blocks so the LP must
-// time-shift water between blocks to meet the per-block demand.
+// Analytical expected value
+// -------------------------
+//   block 1:  x_in = 0, ξ_1 = 6  → y_1 ≤ 6, p_1 = 6 − y_1
+//             x_out_1 = 6 − y_1  (must satisfy ≥ 0 and ≤ 8 cap)
+//   block 2:  x_in = 6 − y_1, ξ_2 = 2  → y_2 ≤ (6 − y_1) + 2 = 8 − y_1
+//             and y_2 ≤ 6 (demand cap), p_2 = 6 − y_2
+//
+//   total cost  =  5 · (p_1 + p_2)  =  5 · [(6 − y_1) + (6 − y_2)]
+//
+//   For y_1 ∈ [0, 2]:  y_2 = min(8 − y_1, 6) = 6 − 0 = 6  (when 8-y_1 ≥ 6)
+//                       p_2 = 0, total = 5(6 − y_1), min at y_1 = 2: **20**.
+//   For y_1 ∈ [2, 6]:  y_2 = 8 − y_1, p_2 = y_1 − 2,
+//                       total = 5(6 − y_1) + 5(y_1 − 2) = 20.
+//
+// Optimal cost ≡ **20** $/h × 1 h = 20 $.  Independent of where in
+// [2, 6] y_1 lands — the LP is degenerate above y_1 = 2 — so the
+// numeric assertion is exact, not "approximate".
 
-TEST_CASE(
-    "Hydro thermal benchmark — SDDP.jl single-reservoir + thermal "
-    "(stagewise inflow/demand pairs as blocks)")
+TEST_CASE("Hydro thermal benchmark — SDDP.jl FAST single-reservoir worst-case")
 {
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -332,7 +343,7 @@ TEST_CASE(
           .junction_a = Uid {1},
           .junction_b = Uid {2},
           .fmin = 0.0,
-          .fmax = 50.0,
+          .fmax = 100.0,
       },
       {
           .uid = Uid {2},
@@ -344,34 +355,31 @@ TEST_CASE(
       },
   };
 
-  // SDDP.jl: xmin=5, xmax=15, xini=10.  We scale ×10 so the LP's
-  // numerical conditioning stays comfortable next to the 100 MW
-  // demand magnitude on the bus side.
+  // SDDP.jl FAST: x ∈ [0, 8], initial 0.
   const Array<Reservoir> reservoir_array = {
       {
           .uid = Uid {1},
           .name = "rsv",
           .junction = Uid {1},
-          .capacity = 150.0,
-          .emin = 50.0,
-          .emax = 150.0,
-          .eini = 100.0,
+          .capacity = 8.0,
+          .emin = 0.0,
+          .emax = 8.0,
+          .eini = 0.0,
       },
   };
 
-  // Per-block deterministic inflow.  SDDP.jl pairs (inflow, demand)
-  // as (0, 7.5), (3, 5), (10, 2.5) — block 1 has zero inflow forcing
-  // thermal use; block 3 has high inflow and low demand so the
-  // reservoir can refill.  Folded into a single Flow with mid-value
-  // discharge here for fixture simplicity; per-block heterogeneity
-  // is exercised via the per-block demand schedule below.
+  // SDDP.jl FAST worst-case branch: ξ_1 = 6, ξ_2 = 2.  Constant
+  // 4.0 averages both, leaving the LP at the same degenerate
+  // optimum (cost = 20) as the explicit (6, 2) scenario — see the
+  // header comment for the algebra.  Using the constant keeps this
+  // a single-scalar `discharge` so the fixture stays inline.
   const Array<Flow> flow_array = {
       {
           .uid = Uid {1},
-          .name = "inflow",
+          .name = "rainfall",
           .direction = 1,
           .junction = Uid {1},
-          .discharge = 5.0,
+          .discharge = 4.0,
       },
   };
 
@@ -387,8 +395,8 @@ TEST_CASE(
           .uid = Uid {2},
           .name = "g_thermal",
           .bus = Uid {1},
-          .gcost = 50.0,  // SDDP.jl uses stage-dependent cost; pick t=2
-          .capacity = 200.0,
+          .gcost = 5.0,  // SDDP.jl FAST thermal coefficient
+          .capacity = 100.0,
       },
   };
 
@@ -405,9 +413,9 @@ TEST_CASE(
   const Array<Demand> demand_array = {
       {
           .uid = Uid {1},
-          .name = "d1",
+          .name = "d",
           .bus = Uid {1},
-          .capacity = 50.0,
+          .capacity = 6.0,
       },
   };
 
@@ -416,11 +424,10 @@ TEST_CASE(
           {
               {.uid = Uid {1}, .duration = 1.0},
               {.uid = Uid {2}, .duration = 1.0},
-              {.uid = Uid {3}, .duration = 1.0},
           },
       .stage_array =
           {
-              {.uid = Uid {1}, .first_block = 0, .count_block = 3},
+              {.uid = Uid {1}, .first_block = 0, .count_block = 2},
           },
       .scenario_array = {{.uid = Uid {0}}},
   };
@@ -429,7 +436,7 @@ TEST_CASE(
   opts.demand_fail_cost = 1000.0;
 
   const System system = {
-      .name = "HydroThermalSingleReservoir",
+      .name = "FASTHydroThermal",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
@@ -449,10 +456,222 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  const auto obj_phys = lp.get_obj_value();
-  const auto obj_raw = lp.get_obj_value_raw();
-  CHECK(std::isfinite(obj_phys));
-  CHECK(std::isfinite(obj_raw));
+  // Literature expected value: see the analytical derivation in the
+  // header comment above.  Worst-case scenario in the SDDP.jl FAST
+  // 2-stage stochastic problem, single-block-averaged here for the
+  // deterministic LP path.
+  CHECK(lp.get_obj_value() == doctest::Approx(20.0).epsilon(1e-6));
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+//   JSON-loaded variants — exercise the gtopt JSON loader path
+// ═════════════════════════════════════════════════════════════════════════
+//
+// The struct-built fixtures above cover the in-code Planning construction
+// path; these JSON-loaded variants cover the `daw::json::from_json<Planning>`
+// + `PlanningLP(std::move(planning))` path that the standalone gtopt binary
+// uses (and that scripts/sddp2gtopt also produces).  A regression in either
+// the JSON schema bindings or the deserialization helpers would fire here
+// without affecting the struct path, and vice versa.
+
+namespace
+{
+
+// SDDP.jl Hydro Valley — same 2-reservoir cascade as the struct fixture
+// above, expressed as a JSON Planning literal.  Single-bus, single-
+// scenario, single-stage / 3-block to keep this an LP-only fixture.
+constexpr std::string_view hydro_valley_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1,
+    "use_single_bus": true
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1.0},
+      {"uid": 2, "duration": 1.0},
+      {"uid": 3, "duration": 1.0}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 3}
+    ],
+    "scenario_array": [{"uid": 0, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "HydroValleyJson",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "junction_array": [
+      {"uid": 1, "name": "j_top"},
+      {"uid": 2, "name": "j_mid"},
+      {"uid": 3, "name": "j_bot", "drain": true}
+    ],
+    "waterway_array": [
+      {"uid": 1, "name": "ww_turb1", "junction_a": 1, "junction_b": 2,
+       "fmin": 0.0, "fmax": 70.0},
+      {"uid": 2, "name": "ww_spill1", "junction_a": 1, "junction_b": 2,
+       "fmin": 0.0, "fmax": 10000.0},
+      {"uid": 3, "name": "ww_turb2", "junction_a": 2, "junction_b": 3,
+       "fmin": 0.0, "fmax": 70.0},
+      {"uid": 4, "name": "ww_spill2", "junction_a": 2, "junction_b": 3,
+       "fmin": 0.0, "fmax": 10000.0}
+    ],
+    "reservoir_array": [
+      {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 200.0,
+       "emin": 0.0, "emax": 200.0, "eini": 200.0},
+      {"uid": 2, "name": "rsv2", "junction": 2, "capacity": 200.0,
+       "emin": 0.0, "emax": 200.0, "eini": 200.0}
+    ],
+    "flow_array": [
+      {"uid": 1, "name": "inflow1", "direction": 1, "junction": 1,
+       "discharge": 20.0},
+      {"uid": 2, "name": "inflow2", "direction": 1, "junction": 2,
+       "discharge": 10.0}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "g_hydro1", "bus": 1, "gcost": 0.0,
+       "capacity": 300.0},
+      {"uid": 2, "name": "g_hydro2", "bus": 1, "gcost": 0.0,
+       "capacity": 300.0},
+      {"uid": 3, "name": "g_thermal", "bus": 1, "gcost": 100.0,
+       "capacity": 500.0}
+    ],
+    "turbine_array": [
+      {"uid": 1, "name": "t1", "waterway": 1, "generator": 1,
+       "production_factor": 1.1},
+      {"uid": 2, "name": "t2", "waterway": 3, "generator": 2,
+       "production_factor": 1.1}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d1", "bus": 1, "capacity": 100.0}
+    ]
+  }
+})json";
+
+// SDDP.jl FAST hydro-thermal — minimal 2-block reservoir + thermal
+// fixture from leopoldcambier/FAST.  Reservoir state x ∈ [0, 8],
+// initial 0.  Each block: hydro outflow y + thermal p ≥ 6 (demand),
+// reservoir balance x_out ≤ x_in − y + ξ (inflow).  Deterministic
+// inflows ξ = (6, 2) — block 1 plenty of water, block 2 drought so
+// the LP must hoard water across blocks.  Thermal cost = 5 $/MWh.
+constexpr std::string_view fast_hydro_thermal_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1,
+    "use_single_bus": true
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1.0},
+      {"uid": 2, "duration": 1.0}
+    ],
+    "stage_array": [
+      {"uid": 1, "first_block": 0, "count_block": 2}
+    ],
+    "scenario_array": [{"uid": 0, "probability_factor": 1}]
+  },
+  "system": {
+    "name": "FASTHydroThermalJson",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "junction_array": [
+      {"uid": 1, "name": "j_top"},
+      {"uid": 2, "name": "j_bot", "drain": true}
+    ],
+    "waterway_array": [
+      {"uid": 1, "name": "ww_turb", "junction_a": 1, "junction_b": 2,
+       "fmin": 0.0, "fmax": 100.0},
+      {"uid": 2, "name": "ww_spill", "junction_a": 1, "junction_b": 2,
+       "fmin": 0.0, "fmax": 10000.0}
+    ],
+    "reservoir_array": [
+      {"uid": 1, "name": "rsv", "junction": 1, "capacity": 8.0,
+       "emin": 0.0, "emax": 8.0, "eini": 0.0}
+    ],
+    "flow_array": [
+      {"uid": 1, "name": "rainfall", "direction": 1, "junction": 1,
+       "discharge": 4.0}
+    ],
+    "generator_array": [
+      {"uid": 1, "name": "g_hydro", "bus": 1, "gcost": 0.0,
+       "capacity": 100.0},
+      {"uid": 2, "name": "g_thermal", "bus": 1, "gcost": 5.0,
+       "capacity": 100.0}
+    ],
+    "turbine_array": [
+      {"uid": 1, "name": "t", "waterway": 1, "generator": 1,
+       "production_factor": 1.0}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "d", "bus": 1, "capacity": 6.0}
+    ]
+  }
+})json";
+
+}  // namespace
+
+TEST_CASE("Hydro thermal benchmark — Hydro Valley loaded from JSON literal")
+{
+  // Analytical optimum: with 2 turbines (each capped at 70 m³/h ×
+  // 1.1 MWh/m³ = 77 MW) and 100 MW demand per block, hydro alone
+  // can serve the entire 100 MW load every block.  Both reservoirs
+  // start full (eini=200), inflows top them up at 20+10 m³/h, so
+  // there is enough water for the 3-block run.  With gcost=0 on
+  // both hydro generators and no spill cost in the fixture, the
+  // optimal LP cost is exactly **0** — matching the gtopt solver
+  // status `obj_value=0` reported in
+  // `cases/hydro_valley_sddpjl/output/solution.csv`.
+  const auto planning =
+      daw::json::from_json<Planning>(hydro_valley_json, StrictParsePolicy);
+
+  PlanningLP planning_lp(Planning {planning});
+  const auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& li = systems.front().front().linear_interface();
+  CHECK(li.get_obj_value() == doctest::Approx(0.0).epsilon(1e-6));
+}
+
+TEST_CASE(
+    "Hydro thermal benchmark — FAST hydro-thermal loaded from JSON literal")
+{
+  // Analytical optimum for the deterministic LP variant (ξ = 4 in
+  // both blocks, demand = 6, reservoir eini = 0, capacity = 8,
+  // thermal cost = 5):
+  //
+  //   block 1:  x_in = 0,  inflow = 4  → y_1 ≤ 4, p_1 = 6 − y_1
+  //   block 2:  x_in = 4 − y_1, inflow = 4 → y_2 ≤ 8 − y_1 (and ≤ 6),
+  //                                            p_2 = 6 − y_2
+  //
+  // The y_1 = 4, y_2 = 4 corner solves both blocks with maximal
+  // hydro use, leaving p_1 = p_2 = 2 → cost = 5 × (2 + 2) = **20**.
+  //
+  // This matches:
+  //   * gtopt's reported `obj_value = 20` in
+  //     `cases/fast_hydro_thermal/output/solution.csv`;
+  //   * the SDDP.jl FAST stochastic reference (objective = 10 in
+  //     min sense, expected over ξ_2 ∈ {2, 10}).  Our deterministic
+  //     fixture uses the per-block average ξ = (6+2+10)/3? No —
+  //     we use ξ = 4 in both blocks as a *worst-case* deterministic
+  //     proxy.  Under the worst-case (ξ_2 = 2) SDDP.jl scenario the
+  //     per-scenario cost is 20 (matching ours); the stochastic
+  //     expectation over both scenarios is 0.5 × 20 + 0.5 × 0 = 10.
+  //     Our deterministic-LP test pins the worst-case branch.
+  const auto planning = daw::json::from_json<Planning>(fast_hydro_thermal_json,
+                                                       StrictParsePolicy);
+
+  PlanningLP planning_lp(Planning {planning});
+  const auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& li = systems.front().front().linear_interface();
+  CHECK(li.get_obj_value() == doctest::Approx(20.0).epsilon(1e-6));
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
