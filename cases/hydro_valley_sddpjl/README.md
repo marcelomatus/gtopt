@@ -64,3 +64,31 @@ The same fixture is exercised inline by the C++ unit tests
 `Hydro thermal benchmark — SDDP.jl Hydro Valley (2-reservoir cascade)` and
 `Hydro thermal benchmark — Hydro Valley loaded from JSON literal` in
 `test/source/test_hydro_thermal_benchmark.cpp`.
+
+## Cross-tool validation status
+
+**Pandapower DC OPF is not a meaningful cross-check for this case.**
+The Hydro Valley LP couples three blocks via the reservoir energy
+balance (`x.out = x.in + inflow − turbine − spill`), but
+pandapower is a single-snapshot solver — it has no model of
+multi-block water storage and would not see the inter-block
+constraint that the LP relies on.  Running `gtopt2pp(case) → pp.rundcopp`
+happens to return `obj = 0` (same as gtopt's analytical value), but
+the match is a coincidence of this specific fixture (hydro covers
+the demand at gcost = 0); other reservoir-coupled fixtures
+(`fast_hydro_thermal`, `hydro_thermal_sddpjl`) deliberately disagree
+with pp by 100 % or more for the same reason.
+
+The validation chain for this case is therefore:
+
+1. **Analytical** — `obj = 0` from "hydro capacity ≫ demand and
+   gcost = 0", documented above.
+2. **C++ unit tests** — both struct-built and inline-JSON variants
+   in `test_hydro_thermal_benchmark.cpp`.
+3. **CTest e2e** — `e2e_hydro_valley_sddpjl_compare_solution` pins
+   the analytical `obj_value` golden.
+
+A true cross-tool reference would require a JuMP / SDDP.jl helper
+that runs the same deterministic LP under a different solver
+(planned but not implemented; see the project-level discussion
+captured under conversation date 2026-05-16).

@@ -48,3 +48,11 @@ populated system; the empty system is trivially feasible.
 `add_e2e_case(psri_case3_via_sddp2gtopt, system_psri_case3_via_sddp2gtopt.json)`
 — same trio (solve / validate_solution / compare_solution) as
 `psri_case2_via_sddp2gtopt`.
+
+## Cross-tool validation status
+
+Identical to `psri_case2_via_sddp2gtopt` — `gtopt2pp(case) → pp.rundcopp`
+agrees with gtopt at `obj = 0`, but only because the v0 converter
+drops `PSRFuel.Custo`.  See that fixture's README section for the
+detailed reasoning.  When fuel costs land in a future converter
+release, regenerate the golden here as well.

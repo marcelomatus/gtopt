@@ -78,3 +78,26 @@ the Hydro Valley fixture (`Hydro thermal benchmark — SDDP.jl FAST
 single-reservoir worst-case` and `Hydro thermal benchmark — FAST hydro-
 thermal loaded from JSON literal` in
 `test/source/test_hydro_thermal_benchmark.cpp`).
+
+## Cross-tool validation status
+
+**Pandapower DC OPF cannot validate this case.**  The FAST optimum
+depends on the inter-block reservoir balance — block 1 deliberately
+under-uses hydro to save water for block 2's drought.  Pandapower
+is single-snapshot: each block looks independent, hydro appears
+"free and plentiful", and `pp.rundcopp` returns `obj = 0` instead
+of the analytical 20.  The disagreement is by physics, not by bug
+— pp simply isn't solving the same LP.
+
+The validation chain for this case is therefore:
+
+1. **Analytical** — `obj = 20` from the worst-case scenario water-
+   balance algebra above.
+2. **C++ unit tests** — struct-built and inline-JSON variants in
+   `test_hydro_thermal_benchmark.cpp`.
+3. **CTest e2e** — `e2e_fast_hydro_thermal_compare_solution` pins
+   the analytical golden.
+
+A true cross-tool reference would need a multi-block LP solver such
+as JuMP or SDDP.jl running the same deterministic worst-case LP;
+not currently implemented.

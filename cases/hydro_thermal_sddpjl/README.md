@@ -81,3 +81,29 @@ in `integration_test/CMakeLists.txt`.  The companion C++
 test in `test/source/test_hydro_thermal_benchmark.cpp` exercises the
 same fixture inline; the e2e case adds the disk-loaded JSON +
 golden-CSV path.
+
+## Cross-tool validation status
+
+**Pandapower DC OPF cannot validate this case.**  The 21.111…
+optimum hinges on the gtopt-specific `flow_conversion_rate = 3.6`
+factor on the `Reservoir` element (m³/s → per-hour reservoir
+depletion).  Pandapower is single-snapshot, has no `Reservoir`
+element, and reports `obj = 0` (free hydro at gcost = 0).  The
+gap from `21.111` to `0` is by physics, not bug.
+
+The validation chain for this case is:
+
+1. **Analytical** — `obj = 22.5 − 5/3.6 = 21.111…` from the
+   block-by-block algebra above, derived from the `flow_conversion_
+   rate` source comment in `include/gtopt/reservoir_lp.hpp:53`.
+2. **C++ unit test** — `Hydro thermal benchmark — Hydro_thermal
+   loaded from JSON literal` (no struct-built variant — see
+   header comment).
+3. **CTest e2e** — `e2e_hydro_thermal_sddpjl_compare_solution`
+   pins the analytical golden.
+
+A meaningful cross-tool reference would need a tool that models
+gtopt's specific reservoir-flow conversion + emin/eini bounds (so
+neither SDDP.jl nor pandapower works directly).  The closest
+deterministic LP comparison would be a hand-rolled JuMP model
+with the same conversion factor; not currently implemented.

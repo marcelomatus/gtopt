@@ -9,7 +9,7 @@ This case is provided as a **reference system definition** (JSON).  It can be
 run manually with gtopt but is not registered as an automated e2e test because
 independent golden reference files are not yet available — pandapower's DC OPF
 and gtopt's LP formulation produce numerically different solutions for this
-size of network.
+size of network.  See "Why gtopt ≠ pandapower" below for the root cause.
 
 ## Source
 
@@ -37,6 +37,41 @@ size of network.
 ```bash
 gtopt cases/ieee_118b/ieee_118b.json --output-directory /tmp/ieee_118b_out
 ```
+
+## Why gtopt ≠ pandapower
+
+Running both tools on this case gives different objective values:
+
+| Tool                                         | obj_value |
+|----------------------------------------------|----------:|
+| `pandapower.networks.case118()` + `pp.rundcopp` | 125 947.87 |
+| `gtopt cases/ieee_118b/ieee_118b.json`       | **84 840** |
+
+The 33 % gap is **not a bug** in either tool — they are solving
+different problems:
+
+* **pandapower** uses pglib-opf's **quadratic** generator costs:
+  `cost(P) = cp1·P + cp2·P²` with `cp1 = 20 $/MWh` (uniform across
+  thermals) and `cp2 ∈ [0.016, 0.063]`.  The quadratic term
+  incentivises spreading the dispatch across many generators, each
+  hitting its individual cost sweet spot.
+* **gtopt** is a pure-LP formulation; `Generator.gcost` is a single
+  linear coefficient.  `pp2gtopt` collapses the quadratic curve to
+  its linear part (`gcost = cp1 = 20`) and discards `cp2`.  Every MW
+  from any generator then costs 20 $/MWh, so the LP optimum is
+  exactly `20 × 4242 = 84 840` regardless of which generators are
+  dispatched (the LP is degenerate at the dispatch level — many
+  feasible dispatches, one objective).
+
+The 84 840 figure is therefore the analytical optimum of the
+gtopt-linearised LP.  Pinning it as a golden would give us a
+correct-by-construction smoke test but not a meaningful cross-tool
+check — pandapower simply isn't solving the same problem after the
+``pp2gtopt`` lossy conversion.
+
+To restore pandapower-equivalent results, encode the quadratic curve
+as a piecewise-linear (PWL) gcost segment list — out of scope for
+v0 of ``pp2gtopt``; tracked under the pglib-opf cp2 import roadmap.
 
 ## Generating golden files (for future e2e registration)
 

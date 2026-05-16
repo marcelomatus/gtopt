@@ -78,3 +78,28 @@ cases_convert_to_multi_bus` and
 `scripts/sddp2gtopt/tests/test_integration_solver.py` (which
 round-trips the smaller `case_two_systems` fixture through the
 gtopt binary).
+
+## Cross-tool validation status
+
+**Pandapower DC OPF agrees with gtopt at `obj = 0`** for this
+case, but the agreement is shallow: both tools see every generator
+at `gcost = 0` (the v0 ``sddp2gtopt`` converter drops the
+`PSRFuel.Custo × efficiency` cost path, so a future converter
+version that wires fuel costs through to `Generator.gcost` will
+break this match).  The cross-tool check here therefore validates
+the **multi-bus topology + balance constraints**, not the cost
+calculation.
+
+The validation chain for this case is:
+
+1. **Analytical** — `obj = 0` from "all generators have gcost = 0
+   and the demand is feasible", documented above.
+2. **CTest e2e** — `e2e_psri_case2_via_sddp2gtopt_compare_solution`
+   pins the analytical golden.
+3. **`gtopt2pp(case) → pp.rundcopp`** — independent solver reports
+   the same `obj = 0`; structural sanity check on the multi-bus
+   build.
+
+When the v4+ converter lands fuel costs, regenerate the golden
+(`obj_value` will become non-zero) and re-confirm pp agreement at
+that point.
