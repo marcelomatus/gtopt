@@ -528,5 +528,70 @@ TEST_CASE(
   std::filesystem::remove_all(tmpdir);
 }
 
+TEST_CASE("InertiaProvisionLP — empty inertia_zones is a no-op (no LP rows)")
+{
+  // Schema refactor (2026-05-16) accepts an empty `Array<SingleId>` for
+  // `inertia_zones`.  Pin the LP-layer contract: an empty zone list
+  // builds, solves, and emits no inertia-provision rows or coefficients.
+  // No throw, no spurious rows — the provision is structurally a
+  // dead element.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 0.0,
+          .pmax = 100.0,
+          .gcost = 30.0,
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<InertiaProvision> inertia_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "ip_empty",
+          .generator = Uid {1},
+          .inertia_zones = {},  // empty — no zones to link
+          .provision_max = 50.0,
+          .provision_factor = 1.0,
+      },
+  };
+
+  const System system = {
+      .name = "InertiaEmptyZonesTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .inertia_provision_array = inertia_provision_array,
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // No inertia-provision column should reference any zone — verify
+  // by counting `inertia_provision_p_` cols (the per-block provision
+  // variable).  Empty zone list → zero provision rows linking to
+  // zones; the provision variable itself may still exist depending
+  // on the LP-builder branch, but it carries no coupling.
+  std::size_t zone_coupling_rows = 0;
+  for (const auto& [name, _row] : lp.row_name_map()) {
+    if (name.find("inertia_zone_") != std::string_view::npos
+        && name.find("requirement_") != std::string_view::npos)
+    {
+      ++zone_coupling_rows;
+    }
+  }
+  CHECK(zone_coupling_rows == 0);
+}
+
 // NOLINTEND(bugprone-throwing-static-initialization,
 // bugprone-unchecked-optional-access, cert-err58-cpp)

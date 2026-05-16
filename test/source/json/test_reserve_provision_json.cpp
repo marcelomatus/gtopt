@@ -167,3 +167,77 @@ TEST_CASE("ReserveProvision round-trip serialization")
   CHECK(std::get<double>(roundtrip.drcost.value_or(0.0))
         == doctest::Approx(3000.0));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+//   reserve_zones typed-array edge cases (post-2026-05-16 schema refactor)
+// ─────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("ReserveProvision json — empty reserve_zones array")
+{
+  // Empty array is legal: a provision with no zones contributes no
+  // LP rows.  This pins the JSON parser's acceptance of `[]`.
+  std::string_view json_data = R"({
+    "uid":4,
+    "name":"RPROV_EMPTY",
+    "generator":7,
+    "reserve_zones":[]
+  })";
+
+  const ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
+  CHECK(rp.uid == 4);
+  CHECK(rp.reserve_zones.empty());
+}
+
+TEST_CASE(
+    "ReserveProvision json — missing reserve_zones field defaults to empty")
+{
+  // `json_array_null<...>` allows the field to be absent; the
+  // default-constructed `Array<SingleId>` is empty.  This is the
+  // backward-compat path for partially-populated JSON inputs that
+  // never had `reserve_zones`.
+  std::string_view json_data = R"({
+    "uid":5,
+    "name":"RPROV_NO_ZONES",
+    "generator":8
+  })";
+
+  const ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
+  CHECK(rp.uid == 5);
+  CHECK(rp.reserve_zones.empty());
+}
+
+TEST_CASE("ReserveProvision json — mixed Uid + Name in reserve_zones array")
+{
+  // The typed-array form supports per-element Uid (number) or Name
+  // (string) freely mixed.  This is the key advantage over the
+  // legacy delimited string — types are explicit at the array-element
+  // level instead of inferred from "is this all digits" heuristics.
+  std::string_view json_data = R"({
+    "uid":6,
+    "name":"RPROV_MIXED",
+    "generator":9,
+    "reserve_zones":[1, "ZONE_B", 3]
+  })";
+
+  const ReserveProvision rp = daw::json::from_json<ReserveProvision>(json_data);
+  REQUIRE(rp.reserve_zones.size() == 3);
+  CHECK(std::get<Uid>(rp.reserve_zones[0]) == Uid {1});
+  CHECK(std::get<Name>(rp.reserve_zones[1]) == "ZONE_B");
+  CHECK(std::get<Uid>(rp.reserve_zones[2]) == Uid {3});
+}
+
+TEST_CASE("ReserveProvision json — legacy delimited string is rejected")
+{
+  // The pre-2026-05-16 schema accepted `"reserve_zones": "1:2"`
+  // (colon-delimited string).  The post-refactor schema only accepts
+  // arrays — feeding a string MUST raise a parse error so silent
+  // mis-parses (e.g., the historical comma-vs-colon delimiter bug)
+  // cannot recur.
+  std::string_view json_data = R"({
+    "uid":7,
+    "name":"RPROV_LEGACY",
+    "generator":10,
+    "reserve_zones":"1:2"
+  })";
+  CHECK_THROWS((void)daw::json::from_json<ReserveProvision>(json_data));
+}
