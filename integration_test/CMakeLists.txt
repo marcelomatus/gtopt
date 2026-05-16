@@ -210,6 +210,27 @@ add_e2e_case(hydro_thermal_sddpjl system_hydro_thermal_sddpjl.json)
 add_e2e_case(psri_case2_via_sddp2gtopt system_psri_case2_via_sddp2gtopt.json)
 add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
 
+# IEEE 24-bus Reliability Test System converted from pandapower's
+# `case24_ieee_rts` via `pp2gtopt`.  Exercises gtopt's demand-fail
+# accounting path: pp's case ships under-sized generation (1509 MW
+# capacity vs 2850 MW load), so gtopt's LP routes the 1341 MW
+# shortfall through `Demand.fail` at `demand_fail_cost = 1000`.  The
+# analytical `obj_value = 1 368 194.16` is the sum of dispatched
+# generation cost (27 194.16) and demand-fail penalty (1 341 000).
+# See cases/ieee_24b_rts/README.md for the full breakdown.
+add_e2e_case(ieee_24b_rts ieee_24b_rts.json)
+
+# Polish 3375-bus transmission grid (MATPOWER `case3375wp`, BSD).
+# Largest network in the e2e suite — solves a ~3375-bus DC OPF in
+# ~1.5 s under CPLEX.  Acts as a publicly-available substitute for
+# the Chinese provincial 3266-bus dataset (IEEE DataPort, paywalled
+# — see cases/cn_3266b/README.md).  No exact `obj_value` golden:
+# heterogeneous linear costs + KVL constraints make the optimum
+# only computable by solving the LP, so this case is registered
+# with an empty `output/` (solve + validate_solution only, no
+# compare_solution).  See cases/case3375wp/README.md.
+add_e2e_case(case3375wp case3375wp.json)
+
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
 # that has method="sddp", then add a line:

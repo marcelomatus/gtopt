@@ -5,6 +5,15 @@ one year of load data and renewable generation profiles.  This is a
 large-scale test case for validating gtopt's SDDP and cascade methods on
 real-world-sized problems.
 
+> **Documentation-only fixture.**  The underlying dataset is behind
+> IEEE DataPort's paid subscription wall and cannot be vendored or
+> fetched in CI.  This directory is therefore not registered as an
+> automated e2e test — it documents the case for users who have
+> independent access to the data.  **For an automated large-scale
+> e2e test (~3375-bus DC OPF) see `cases/case3375wp/`**, which uses
+> the publicly-available MATPOWER Polish grid as a substitute of
+> comparable scale.
+
 ## Source
 
 - **Dataset**: Zhibo Xu, "118-bus, 300-bus and 3266-bus system data",
