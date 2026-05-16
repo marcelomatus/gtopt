@@ -1449,10 +1449,29 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
       switch (sp.state) {
         case SceneState::idle: {
-          // Scene converged or hit max iterations → simulation pass
+          // Scene finished training when any of these fires:
+          //   * per-scene convergence flag (`sp.scene_converged`)
+          //   * exhausted iteration budget
+          //   * aggregate convergence has flipped `m_stop_requested_`.
+          //
+          // The third condition is what catches the cascade's
+          // last-active level: aggregate convergence fires (see
+          // `if (... results.back().converged ...)` at the bottom of
+          // this loop), `m_stop_requested_` is set, and on the next
+          // orchestration tick every idle scene needs to enter its
+          // sim pass — otherwise the stop-check below would short-
+          // circuit straight to `done`, the sim pass would never
+          // run, and the per-cell parquet output would carry only
+          // last-training-forward primal data (no row duals, since
+          // training forward passes run with crossover=false).
+          // Cascade intermediate levels still funnel through this
+          // branch but the `skip_simulation_pass` guard inside
+          // transitions them to `done` immediately, so the drain
+          // semantics carried by the stop-check below are
+          // preserved for them.
           const bool scene_finished =
               sp.current_iteration_index > last_iteration_index
-              || sp.scene_converged;
+              || sp.scene_converged || should_stop();
           if (scene_finished) {
             // Cascade intermediate levels skip the sim pass entirely:
             // jump straight to `done` so the orchestration loop reports

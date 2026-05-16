@@ -374,7 +374,7 @@ TEST_CASE("line_losses::make_config validates and auto-computes")
 /// Helper: build a 2-bus system with one line configured for the given
 /// losses mode and solve it.  Generator on bus 1 (cost 10), demand 100
 /// on bus 2, line capacity 200, R=0.01Ω, V=100kV.
-auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
+auto solve_with_loss_mode(std::string_view mode_name, int loss_segments = 3)
     -> double
 {
   const Array<Bus> bus_array = {
@@ -451,7 +451,7 @@ auto solve_with_mode(std::string_view mode_name, int loss_segments = 3)
 TEST_CASE("line_losses engine - none mode produces zero-loss objective")
 {
   // gen=100MW at $10, obj = 100*10/1000 = 1.0 (no losses)
-  const auto obj = solve_with_mode("none");
+  const auto obj = solve_with_loss_mode("none");
   CHECK(obj == doctest::Approx(1.0).epsilon(0.001));
 }
 
@@ -459,7 +459,7 @@ TEST_CASE("line_losses engine - linear mode produces small loss overhead")
 {
   // With auto-computed lossfactor = R*fmax/V² = 0.01*200/10000 = 0.0002
   // Very small loss → obj just slightly above 1.0
-  const auto obj = solve_with_mode("linear");
+  const auto obj = solve_with_loss_mode("linear");
   CHECK(obj > 1.0);
   CHECK(obj < 1.001);
 }
@@ -467,7 +467,7 @@ TEST_CASE("line_losses engine - linear mode produces small loss overhead")
 TEST_CASE("line_losses engine - piecewise mode produces loss overhead")
 {
   // PWL approximation of R*f²/V² with 3 segments
-  const auto obj = solve_with_mode("piecewise");
+  const auto obj = solve_with_loss_mode("piecewise");
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);
 }
@@ -475,7 +475,7 @@ TEST_CASE("line_losses engine - piecewise mode produces loss overhead")
 TEST_CASE("line_losses engine - bidirectional mode produces loss overhead")
 {
   // Same quadratic loss but with two-direction decomposition
-  const auto obj = solve_with_mode("bidirectional");
+  const auto obj = solve_with_loss_mode("bidirectional");
   CHECK(obj > 1.0);
   CHECK(obj < 1.01);
 }
@@ -484,15 +484,15 @@ TEST_CASE(
     "line_losses engine - piecewise and bidirectional produce similar "
     "objectives")
 {
-  const auto obj_pw = solve_with_mode("piecewise");
-  const auto obj_bi = solve_with_mode("bidirectional");
+  const auto obj_pw = solve_with_loss_mode("piecewise");
+  const auto obj_bi = solve_with_loss_mode("bidirectional");
   // Both approximate the same quadratic loss; should agree closely.
   CHECK(obj_pw == doctest::Approx(obj_bi).epsilon(0.01));
 }
 
 // ── Measured P_loss vs analytical ─────────────────────────────────
 //
-// `solve_with_mode` uses a 2-bus problem with demand D=100 MW at bus_b
+// `solve_with_loss_mode` uses a 2-bus problem with demand D=100 MW at bus_b
 // and gen on bus_a (gcost=10).  With scale_objective=1000 and zero
 // transmission cost, the LP objective is `obj = gen·gcost/scale = gen/100`,
 // so `gen = 100·obj` and the *measured* loss is `P_loss = gen − D`.
@@ -533,31 +533,32 @@ TEST_CASE("line_losses - measured P_loss vs analytical per mode")
 
   SUBCASE("none — zero measured loss")
   {
-    const auto loss = measured_loss(solve_with_mode("none", K));
+    const auto loss = measured_loss(solve_with_loss_mode("none", K));
     CHECK(loss == doctest::Approx(0.0).epsilon(1e-9));
   }
 
   SUBCASE("linear — D·λ/(1−λ) with auto λ = R·f_max/V²")
   {
-    const auto loss = measured_loss(solve_with_mode("linear", K));
+    const auto loss = measured_loss(solve_with_loss_mode("linear", K));
     CHECK(loss == doctest::Approx(expected_linear).epsilon(1e-6));
   }
 
   SUBCASE("piecewise — PLP per-segment loss factor with partial seg_2")
   {
-    const auto loss = measured_loss(solve_with_mode("piecewise", K));
+    const auto loss = measured_loss(solve_with_loss_mode("piecewise", K));
     CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
   }
 
   SUBCASE("bidirectional — same PWL on the active direction")
   {
-    const auto loss = measured_loss(solve_with_mode("bidirectional", K));
+    const auto loss = measured_loss(solve_with_loss_mode("bidirectional", K));
     CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
   }
 
   SUBCASE("piecewise_direct — PLP-faithful, segments stamp directly")
   {
-    const auto loss = measured_loss(solve_with_mode("piecewise_direct", K));
+    const auto loss =
+        measured_loss(solve_with_loss_mode("piecewise_direct", K));
     CHECK(loss == doctest::Approx(expected_pwl).epsilon(1e-6));
   }
 
@@ -570,7 +571,7 @@ TEST_CASE("line_losses - measured P_loss vs analytical per mode")
     for (const auto& mode : {"piecewise", "bidirectional", "piecewise_direct"})
     {
       CAPTURE(mode);
-      const auto loss_pw = measured_loss(solve_with_mode(mode, K));
+      const auto loss_pw = measured_loss(solve_with_loss_mode(mode, K));
       const double f = D + loss_pw;
       const double loss_q = (R * f * f) / V2;
       CHECK(loss_pw == doctest::Approx(loss_q).epsilon(1.0 / (2.0 * K)));
@@ -582,8 +583,8 @@ TEST_CASE("line_losses engine - adaptive mode selects based on expansion")
 {
   // Without expansion → piecewise.  We can test this indirectly:
   // adaptive with no expcap should match piecewise objective.
-  const auto obj_adaptive = solve_with_mode("adaptive");
-  const auto obj_piecewise = solve_with_mode("piecewise");
+  const auto obj_adaptive = solve_with_loss_mode("adaptive");
+  const auto obj_piecewise = solve_with_loss_mode("piecewise");
   CHECK(obj_adaptive == doctest::Approx(obj_piecewise).epsilon(0.001));
 }
 
@@ -1242,9 +1243,9 @@ TEST_CASE("line_losses LP structure - piecewise_direct mode")
 
 TEST_CASE("line_losses engine - piecewise_direct objective matches piecewise")
 {
-  const auto obj_dir = solve_with_mode("piecewise_direct");
-  const auto obj_pw = solve_with_mode("piecewise");
-  const auto obj_bi = solve_with_mode("bidirectional");
+  const auto obj_dir = solve_with_loss_mode("piecewise_direct");
+  const auto obj_pw = solve_with_loss_mode("piecewise");
+  const auto obj_bi = solve_with_loss_mode("bidirectional");
   // All three approximate the same quadratic loss for this unidirectional
   // flow case; direct must agree with both to segment granularity.
   CHECK(obj_dir > 1.0);
@@ -1258,8 +1259,8 @@ TEST_CASE("line_losses engine - adaptive defaults to piecewise")
   // With no explicit mode, global default is adaptive → piecewise on
   // lines without expansion (smallest LP of the PWL modes).  Objective
   // must match explicit piecewise.
-  const auto obj_adaptive = solve_with_mode("adaptive");
-  const auto obj_piecewise = solve_with_mode("piecewise");
+  const auto obj_adaptive = solve_with_loss_mode("adaptive");
+  const auto obj_piecewise = solve_with_loss_mode("piecewise");
   CHECK(obj_adaptive == doctest::Approx(obj_piecewise).epsilon(1e-9));
 }
 
@@ -1637,13 +1638,13 @@ TEST_CASE("line_losses - all modes agree on total-cost ordering")
   // One solve per mode; direct, adaptive, piecewise, bidirectional all
   // approximate the same quadratic loss — they must agree.  Linear is
   // a looser single-piece approximation; none is the lower bound.
-  const double obj_none = solve_with_mode("none");
-  const double obj_linear = solve_with_mode("linear");
-  const double obj_piecewise = solve_with_mode("piecewise");
-  const double obj_bidirectional = solve_with_mode("bidirectional");
-  const double obj_dynamic = solve_with_mode("dynamic");
-  const double obj_adaptive = solve_with_mode("adaptive");
-  const double obj_direct = solve_with_mode("piecewise_direct");
+  const double obj_none = solve_with_loss_mode("none");
+  const double obj_linear = solve_with_loss_mode("linear");
+  const double obj_piecewise = solve_with_loss_mode("piecewise");
+  const double obj_bidirectional = solve_with_loss_mode("bidirectional");
+  const double obj_dynamic = solve_with_loss_mode("dynamic");
+  const double obj_adaptive = solve_with_loss_mode("adaptive");
+  const double obj_direct = solve_with_loss_mode("piecewise_direct");
 
   // Lossless baseline
   CHECK(obj_none == doctest::Approx(1.0).epsilon(0.001));
