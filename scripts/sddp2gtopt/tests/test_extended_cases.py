@@ -86,17 +86,27 @@ def test_case1_demand_parser_handles_85_loads(psri_case1_dir: Path) -> None:
 
 
 @pytest.mark.parametrize("fixture_name", ["psri_case2_dir", "psri_case3_dir"])
-def test_multi_system_cases_validate_but_reject_convert(
+def test_multi_system_cases_convert_to_multi_bus(
     fixture_name: str, request: pytest.FixtureRequest, tmp_path: Path
 ) -> None:
-    """Multi-system cases pass ``--validate`` (Study + System present)
-    but the writer rejects them so we don't silently flatten across
-    interconnections.
+    """Post-2026-05-16: multi-system cases are accepted and produce a
+    multi-bus planning (one ``Bus`` per ``PSRSystem``, ``use_single_bus
+    = false``).  Interconnection lines between systems remain a v4+
+    item — for now the converted LP is a set of disjoint subproblems,
+    which solves correctly when every system has its own balance of
+    generation and demand.
     """
+    import json
+
     case_dir: Path = request.getfixturevalue(fixture_name)
     assert validate_sddp_case({"input_dir": case_dir}) is True
-    with pytest.raises(ValueError, match="single-system"):
-        convert_sddp_case({"input_dir": case_dir, "output_dir": tmp_path / "x"})
+    out_dir = tmp_path / "multi_sys"
+    rc = convert_sddp_case({"input_dir": case_dir, "output_dir": out_dir})
+    assert rc == 0
+    plan = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert plan["options"]["use_single_bus"] is False
+    # Both PSRSystems materialise as buses.
+    assert len(plan["system"]["bus_array"]) >= 2
 
 
 def test_case2_collections_present(psri_case2_dir: Path) -> None:

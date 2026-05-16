@@ -5,8 +5,15 @@ The output schema matches the small reference cases under
 ``simulation`` and ``system`` — so it can be solved by ``gtopt
 --lp-only`` directly without further post-processing.
 
-v0 produces a single-bus, monolithic LP. Multi-bus topology comes in
-P3 once we parse ``ccombus*.dat``.
+v0 produced a single-bus, monolithic LP.  The post-2026-05-16 update
+adds **multi-system** support: each ``PSRSystem`` becomes its own
+gtopt ``Bus`` and every ``PSRThermalPlant`` / ``PSRHydroPlant`` /
+``PSRDemand`` is routed to the bus matching its ``system`` cross-ref
+(``system_ref`` on the parsed specs).  Inter-system topology
+(``PSRInterconnection`` → gtopt ``Line``) remains a P4 item; without
+interconnections the converted multi-system LP is a set of disjoint
+single-bus problems, which is the correct semantics for SDDP cases
+where the user has deliberately not declared any inter-area links.
 """
 
 from __future__ import annotations
@@ -89,6 +96,44 @@ def _bus_name(system: SystemSpec) -> str:
     return f"sys_{system.code}_bus"
 
 
+def _build_system_bus_map(
+    systems: list[SystemSpec],
+) -> tuple[dict[int, str], str]:
+    """Index ``PSRSystem.reference_id`` → gtopt bus name.
+
+    Returns ``(bus_by_ref, fallback_bus)``.  Specs that lack a
+    ``system_ref`` (some legacy cases) fall back to the first system's
+    bus — the same behaviour as the pre-multi-system v0 default.
+    """
+    bus_by_ref: dict[int, str] = {s.reference_id: _bus_name(s) for s in systems}
+    fallback_bus = _bus_name(systems[0])
+    return bus_by_ref, fallback_bus
+
+
+def _resolve_bus(
+    spec_system_ref: int | None,
+    bus_by_ref: dict[int, str],
+    fallback_bus: str,
+) -> str:
+    """Map a spec's ``system_ref`` to its gtopt bus name.
+
+    Logs a debug message and routes to ``fallback_bus`` when the ref
+    is missing or unresolvable — guards against partial / hand-crafted
+    fixtures whose entities omit the ``system`` cross-ref.
+    """
+    if spec_system_ref is None:
+        return fallback_bus
+    bus = bus_by_ref.get(spec_system_ref)
+    if bus is None:
+        logger.debug(
+            "system_ref %d not in PSRSystem index; routing to fallback bus %s",
+            spec_system_ref,
+            fallback_bus,
+        )
+        return fallback_bus
+    return bus
+
+
 def _gen_gcost(plant: ThermalSpec) -> float:
     """Pick a representative gcost for a thermal plant.
 
@@ -105,18 +150,38 @@ def _gen_gcost(plant: ThermalSpec) -> float:
 def build_thermal_generators(
     plants: list[ThermalSpec],
     *,
-    bus_name: str,
+    bus_name: str | None = None,
+    bus_by_ref: dict[int, str] | None = None,
+    fallback_bus: str | None = None,
     start_uid: int = 1,
 ) -> list[dict[str, Any]]:
-    """Map :class:`ThermalSpec` list onto gtopt ``generator_array`` entries."""
+    """Map :class:`ThermalSpec` list onto gtopt ``generator_array`` entries.
+
+    Two calling conventions are supported:
+
+    * **Single-bus (legacy):** pass ``bus_name`` and every plant maps
+      onto that single bus.  Preserved so older call sites keep
+      working unchanged.
+    * **Multi-system:** pass ``bus_by_ref`` and ``fallback_bus``; each
+      plant routes to ``bus_by_ref[plant.system_ref]``.
+    """
+    if bus_by_ref is None:
+        if bus_name is None:
+            raise ValueError("build_thermal_generators: pass bus_name or bus_by_ref")
+        bus_by_ref = {}
+        fallback_bus = bus_name
+    elif fallback_bus is None:
+        raise ValueError("build_thermal_generators: bus_by_ref needs fallback_bus")
+
     out: list[dict[str, Any]] = []
     uid = start_uid
     for plant in plants:
+        bus = _resolve_bus(plant.system_ref, bus_by_ref, fallback_bus)
         out.append(
             {
                 "uid": uid,
                 "name": plant.name or f"thermal_{plant.code}",
-                "bus": bus_name,
+                "bus": bus,
                 "pmin": plant.pmin,
                 "pmax": plant.pmax,
                 "gcost": _gen_gcost(plant),
@@ -130,7 +195,9 @@ def build_thermal_generators(
 def build_hydro_generators(
     plants: list[HydroSpec],
     *,
-    bus_name: str,
+    bus_name: str | None = None,
+    bus_by_ref: dict[int, str] | None = None,
+    fallback_bus: str | None = None,
     start_uid: int,
 ) -> list[dict[str, Any]]:
     """Hydros are flattened to zero-cost generators in v0.
@@ -139,15 +206,28 @@ def build_hydro_generators(
     (see DESIGN.md). Until then we treat each hydro as a free-fuel
     generator capped at ``PotInst`` so the LP at least contains the
     right capacity.
+
+    Bus-routing follows the same dual-convention as
+    :func:`build_thermal_generators` — single-bus (``bus_name``) or
+    per-system (``bus_by_ref`` + ``fallback_bus``).
     """
+    if bus_by_ref is None:
+        if bus_name is None:
+            raise ValueError("build_hydro_generators: pass bus_name or bus_by_ref")
+        bus_by_ref = {}
+        fallback_bus = bus_name
+    elif fallback_bus is None:
+        raise ValueError("build_hydro_generators: bus_by_ref needs fallback_bus")
+
     out: list[dict[str, Any]] = []
     uid = start_uid
     for plant in plants:
+        bus = _resolve_bus(plant.system_ref, bus_by_ref, fallback_bus)
         out.append(
             {
                 "uid": uid,
                 "name": plant.name or f"hydro_{plant.code}",
-                "bus": bus_name,
+                "bus": bus,
                 "pmin": 0.0,
                 "pmax": plant.p_inst,
                 "gcost": 0.0,
@@ -182,18 +262,32 @@ def build_demands(
     demands: list[DemandSpec],
     study: StudySpec,
     *,
-    bus_name: str,
+    bus_name: str | None = None,
+    bus_by_ref: dict[int, str] | None = None,
+    fallback_bus: str | None = None,
     start_uid: int = 1,
 ) -> list[dict[str, Any]]:
-    """Map demands onto gtopt ``demand_array`` with inline ``lmax`` matrices."""
+    """Map demands onto gtopt ``demand_array`` with inline ``lmax`` matrices.
+
+    Same dual bus-routing convention as the generator builders.
+    """
+    if bus_by_ref is None:
+        if bus_name is None:
+            raise ValueError("build_demands: pass bus_name or bus_by_ref")
+        bus_by_ref = {}
+        fallback_bus = bus_name
+    elif fallback_bus is None:
+        raise ValueError("build_demands: bus_by_ref needs fallback_bus")
+
     out: list[dict[str, Any]] = []
     uid = start_uid
     for d in demands:
+        bus = _resolve_bus(d.system_ref, bus_by_ref, fallback_bus)
         out.append(
             {
                 "uid": uid,
                 "name": d.name or f"demand_{d.code}",
-                "bus": bus_name,
+                "bus": bus,
                 "lmax": _normalize_demand_profile(d, study),
             }
         )
@@ -212,32 +306,54 @@ def build_planning(
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON.
 
-    Multi-system cases are not yet supported; the writer raises
-    :class:`ValueError` to make the limitation visible at conversion
-    time rather than letting gtopt produce an unsolvable model.
+    Single-system cases produce one bus and one ``use_single_bus =
+    true`` planning (identical output to pre-2026-05-16 v0).
+    Multi-system cases emit one bus per ``PSRSystem``, set
+    ``use_single_bus = false`` so gtopt honors the multi-bus
+    topology, and route every thermal / hydro / demand to its
+    ``system_ref`` bus.
+
+    Without ``PSRInterconnection`` parsing (planned for v4) the
+    multi-system LP is a set of disjoint single-bus subproblems —
+    the correct semantics for a PSR study that has been declared as
+    multi-system but with no inter-area transmission yet.
     """
-    if len(systems) != 1:
-        raise ValueError(
-            f"sddp2gtopt v0 supports single-system cases only; "
-            f"found {len(systems)} PSRSystem entities. "
-            "Multi-system support is on the P4 roadmap (see DESIGN.md)."
-        )
-    bus = _bus_name(systems[0])
+    if not systems:
+        raise ValueError("build_planning: no PSRSystem entities")
+
+    bus_by_ref, fallback_bus = _build_system_bus_map(systems)
+    use_single_bus = len(systems) == 1
+
+    bus_array: list[dict[str, Any]] = [
+        {"uid": i + 1, "name": _bus_name(s)} for i, s in enumerate(systems)
+    ]
 
     gen_array: list[dict[str, Any]] = []
-    gen_array.extend(build_thermal_generators(thermals, bus_name=bus))
     gen_array.extend(
-        build_hydro_generators(hydros, bus_name=bus, start_uid=len(gen_array) + 1)
+        build_thermal_generators(
+            thermals, bus_by_ref=bus_by_ref, fallback_bus=fallback_bus
+        )
+    )
+    gen_array.extend(
+        build_hydro_generators(
+            hydros,
+            bus_by_ref=bus_by_ref,
+            fallback_bus=fallback_bus,
+            start_uid=len(gen_array) + 1,
+        )
+    )
+    demand_array = build_demands(
+        demands, study, bus_by_ref=bus_by_ref, fallback_bus=fallback_bus
     )
 
     return {
-        "options": build_options(study),
+        "options": build_options(study, use_single_bus=use_single_bus),
         "simulation": build_simulation(study),
         "system": {
             "name": name,
-            "bus_array": [{"uid": 1, "name": bus}],
+            "bus_array": bus_array,
             "generator_array": gen_array,
-            "demand_array": build_demands(demands, study, bus_name=bus),
+            "demand_array": demand_array,
         },
     }
 

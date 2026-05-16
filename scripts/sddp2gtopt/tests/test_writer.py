@@ -197,16 +197,98 @@ def test_build_planning_single_system_full_round_trip() -> None:
     assert plan["system"]["demand_array"][0]["lmax"] == [[10.0], [8.0]]
 
 
-def test_build_planning_multi_system_rejected() -> None:
-    with pytest.raises(ValueError, match="single-system"):
+def test_build_planning_multi_system_emits_multi_bus() -> None:
+    """Post-2026-05-16: two ``PSRSystem`` entries produce two buses
+    and ``use_single_bus = false``."""
+    sys_a = SystemSpec(code=1, name="N", reference_id=2000)
+    sys_b = SystemSpec(code=2, name="S", reference_id=2001)
+    plan = build_planning(
+        study=_study(),
+        systems=[sys_a, sys_b],
+        thermals=[
+            ThermalSpec(
+                code=1,
+                name="T_N",
+                reference_id=4000,
+                pmax=10,
+                g_segments=[(100.0, 8.0)],
+                system_ref=2000,
+            ),
+            ThermalSpec(
+                code=2,
+                name="T_S",
+                reference_id=4001,
+                pmax=5,
+                g_segments=[(50.0, 9.0)],
+                system_ref=2001,
+            ),
+        ],
+        hydros=[],
+        demands=[
+            DemandSpec(
+                code=1,
+                name="D_N",
+                reference_id=5000,
+                system_ref=2000,
+                profile=[3.0],
+            ),
+            DemandSpec(
+                code=2,
+                name="D_S",
+                reference_id=5001,
+                system_ref=2001,
+                profile=[2.0],
+            ),
+        ],
+        name="multi",
+    )
+    assert plan["options"]["use_single_bus"] is False
+    bus_names = {b["name"] for b in plan["system"]["bus_array"]}
+    assert bus_names == {"sys_1_bus", "sys_2_bus"}
+    # Each generator routed to its system's bus.
+    gen_buses = {g["name"]: g["bus"] for g in plan["system"]["generator_array"]}
+    assert gen_buses["T_N"] == "sys_1_bus"
+    assert gen_buses["T_S"] == "sys_2_bus"
+    dem_buses = {d["name"]: d["bus"] for d in plan["system"]["demand_array"]}
+    assert dem_buses["D_N"] == "sys_1_bus"
+    assert dem_buses["D_S"] == "sys_2_bus"
+
+
+def test_build_planning_empty_systems_rejected() -> None:
+    """At least one ``PSRSystem`` is still required."""
+    with pytest.raises(ValueError, match="no PSRSystem"):
         build_planning(
             study=_study(),
-            systems=[_system(), _system()],
+            systems=[],
             thermals=[],
             hydros=[],
             demands=[],
             name="oops",
         )
+
+
+def test_build_planning_missing_system_ref_falls_back() -> None:
+    """A spec without ``system_ref`` lands on the first system's bus —
+    preserves backward compatibility with partial / hand-crafted
+    fixtures."""
+    plan = build_planning(
+        study=_study(),
+        systems=[_system()],
+        thermals=[
+            ThermalSpec(
+                code=1,
+                name="T_orphan",
+                reference_id=4000,
+                pmax=10,
+                g_segments=[(100.0, 8.0)],
+                system_ref=None,
+            ),
+        ],
+        hydros=[],
+        demands=[],
+        name="fallback",
+    )
+    assert plan["system"]["generator_array"][0]["bus"] == "sys_1_bus"
 
 
 def test_build_planning_includes_hydro_after_thermal() -> None:

@@ -144,16 +144,47 @@ def test_convert_case_thermal_only(case_thermal_only_dir: Path, tmp_path: Path) 
     assert plan["options"]["annual_discount_rate"] == pytest.approx(0.05)
 
 
-def test_convert_two_systems_rejected(
+def test_convert_two_systems_accepted(
     case_two_systems_dir: Path, tmp_path: Path
 ) -> None:
-    with pytest.raises(ValueError, match="single-system"):
-        convert_sddp_case(
-            {
-                "input_dir": case_two_systems_dir,
-                "output_dir": tmp_path / "x",
-            }
-        )
+    """Post-2026-05-16: multi-system cases are accepted.
+
+    The vendored ``case_two_systems`` fixture has 2 ``PSRSystem``
+    entities (North = ref 2000, South = ref 2001), with a single
+    thermal + demand both anchored to system 2000.  The converted
+    planning must:
+
+    * emit ``use_single_bus = false`` (multi-bus mode),
+    * contain one bus per PSRSystem (so 2 entries in ``bus_array``),
+    * route the thermal and demand to ``sys_1_bus`` (system 2000 → code 1),
+    * leave ``sys_2_bus`` (system 2001 → code 2) as an empty bus with
+      no generator / demand attached.
+    """
+    out_dir = tmp_path / "two_sys"
+    rc = convert_sddp_case(
+        {
+            "input_dir": case_two_systems_dir,
+            "output_dir": out_dir,
+            "name": "two_systems",
+        }
+    )
+    assert rc == 0
+
+    plan = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert plan["options"]["use_single_bus"] is False
+
+    buses = plan["system"]["bus_array"]
+    assert len(buses) == 2
+    bus_names = sorted(b["name"] for b in buses)
+    assert bus_names == ["sys_1_bus", "sys_2_bus"]
+
+    gens = plan["system"]["generator_array"]
+    assert len(gens) == 1
+    assert gens[0]["bus"] == "sys_1_bus"  # routed by system_ref
+
+    dems = plan["system"]["demand_array"]
+    assert len(dems) == 1
+    assert dems[0]["bus"] == "sys_1_bus"
 
 
 def test_convert_truncated_raises(case_bad_truncated_dir: Path, tmp_path: Path) -> None:

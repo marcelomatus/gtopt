@@ -11,6 +11,7 @@ Skipped when ``gtopt`` is not on ``$PATH`` and ``GTOPT_BIN`` is unset
 from __future__ import annotations
 
 import csv
+import math
 import subprocess
 from pathlib import Path
 
@@ -115,7 +116,7 @@ def test_integration_case_min_solves(
     # 1 thermal × 1 demand — objective must be finite and non-negative
     # for the cost-minimisation default (no negative-cost generators).
     assert obj is not None
-    assert obj == obj  # not NaN
+    assert not math.isnan(obj)
 
 
 @pytest.mark.integration
@@ -158,7 +159,47 @@ def test_integration_case0_thermal_hydro_solves(
     status, obj = _read_solution_status(results_dir)
     assert status == 0, f"solver status={status}, expected 0"
     assert obj is not None
-    assert obj == obj  # not NaN
+    assert not math.isnan(obj)
+
+
+@pytest.mark.integration
+def test_integration_case_two_systems_solves(
+    case_two_systems_dir: Path, tmp_path: Path, gtopt_bin: str
+) -> None:
+    """Multi-system fixture (2 ``PSRSystem`` → 2 buses), end-to-end.
+
+    The hand-crafted ``case_two_systems`` fixture has one thermal
+    plant + one demand both anchored to system 2000 (``sys_1_bus``);
+    system 2001 (``sys_2_bus``) is an empty island.  Both subproblems
+    are independent — the populated bus must satisfy its demand from
+    its single thermal, the empty bus is trivially feasible.
+
+    This is the only integration test that exercises
+    ``use_single_bus = false`` end-to-end through ``sddp2gtopt``;
+    earlier coverage rejected multi-system at the converter.
+    """
+    out_dir = tmp_path / "two_sys_out"
+    rc = convert_sddp_case(
+        {
+            "input_dir": case_two_systems_dir,
+            "output_dir": out_dir,
+            "name": "two_systems",
+        }
+    )
+    assert rc == 0
+
+    json_files = sorted(out_dir.glob("*.json"))
+    assert len(json_files) == 1
+    json_file = json_files[0]
+
+    rc, log = _run_gtopt(gtopt_bin, out_dir, json_file.stem)
+    assert rc == 0, f"gtopt failed (rc={rc}): {log}"
+
+    results_dir = out_dir / "output"
+    status, obj = _read_solution_status(results_dir)
+    assert status == 0, f"solver status={status}, expected 0"
+    assert obj is not None
+    assert not math.isnan(obj)
 
 
 @pytest.mark.integration
@@ -191,4 +232,4 @@ def test_integration_case_thermal_only_solves(
     status, obj = _read_solution_status(results_dir)
     assert status == 0, f"solver status={status}, expected 0"
     assert obj is not None
-    assert obj == obj
+    assert not math.isnan(obj)
