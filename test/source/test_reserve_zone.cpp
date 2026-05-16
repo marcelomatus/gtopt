@@ -1871,4 +1871,144 @@ TEST_CASE(
   CHECK(std::isfinite(obj_phys));
 }
 
+TEST_CASE(
+    "ReserveProvisionLP - one provision in TWO zones, distinct "
+    "requirements, both zones must see the provision")
+{
+  // Regression test for the multi-zone refactor: prior to that commit
+  // `ReserveProvisionLP::add_to_lp` created one column per (provision,
+  // zone) with identical class/var/uid metadata, which made every zone
+  // past the first throw "Duplicate LP column metadata" from
+  // `LinearProblem::add_col` — so only the first zone's requirement row
+  // ever saw a non-zero provision coefficient.
+  //
+  // This fixture pins the post-fix behaviour: a single provision in
+  // TWO zones must contribute to BOTH zones' requirement rows, exactly
+  // like `InertiaProvisionLP`.  We check by examining the LP row
+  // coefficients on each zone's requirement row directly — the cheap
+  // way that doesn't depend on solver-specific obj decompositions.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 30.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0},
+  };
+
+  // Two zones with **different** requirements so the LP can't trivially
+  // satisfy both from a single zone's allocation.
+  const Array<ReserveZone> reserve_zone_array = {
+      {
+          .uid = Uid {1},
+          .name = "rz_a",
+          .urreq = 80.0,
+          .urcost = 5000.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "rz_b",
+          .urreq = 120.0,
+          .urcost = 5000.0,
+      },
+  };
+
+  // Single provision spanning BOTH zones — this is the case the
+  // duplicate-metadata bug would silently drop.
+  const Array<ReserveProvision> reserve_provision_array = {
+      {
+          .uid = Uid {1},
+          .name = "rp_dual",
+          .generator = Uid {1},
+          .reserve_zones = {SingleId {Uid {1}}, SingleId {Uid {2}}},
+          .urmax = 200.0,
+          .ur_provision_factor = 1.0,
+          .urcost = 10.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array =
+          {
+              {.uid = Uid {1}, .first_block = 0, .count_block = 1},
+          },
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.demand_fail_cost = 1000.0;
+  opts.reserve_fail_cost = 10000.0;
+
+  const System system = {
+      .name = "ReserveOneProvisionTwoZones",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .reserve_zone_array = reserve_zone_array,
+      .reserve_provision_array = reserve_provision_array,
+  };
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // The critical regression check: locate the up-provision column and
+  // verify it appears with a non-zero coefficient in BOTH zones'
+  // requirement rows.  Pre-fix, the SECOND zone's row had a zero
+  // coefficient (the duplicate-col attempt was rejected so no
+  // `set_coeff` call ran for that zone).
+  const auto& rp_lps = system_lp.elements<ReserveProvisionLP>();
+  REQUIRE(rp_lps.size() == 1);
+  const auto& rp_lp = rp_lps.front();
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto up_col =
+      rp_lp.lookup_up_provision_col(scenario_lp, stage_lp, block_lp.uid());
+  REQUIRE(up_col.has_value());
+
+  // Walk both zones' requirement rows and verify the coefficient on
+  // the up-provision column equals `ur_provision_factor = 1.0`.
+  const auto& rz_lps = system_lp.elements<ReserveZoneLP>();
+  REQUIRE(rz_lps.size() == 2);
+  const auto st_k = std::tuple {scenario_lp.uid(), stage_lp.uid()};
+  std::size_t injected_zones = 0;
+  for (const auto& rz_lp : rz_lps) {
+    const auto& urreq_rows = rz_lp.urequirement_rows();
+    const auto outer_it = urreq_rows.find(st_k);
+    if (outer_it == urreq_rows.end()) {
+      continue;
+    }
+    const auto inner_it = outer_it->second.find(block_lp.uid());
+    if (inner_it == outer_it->second.end()) {
+      continue;
+    }
+    const auto coeff = lp.get_coeff(inner_it->second, *up_col);
+    if (std::abs(coeff - 1.0) < 1e-9) {
+      ++injected_zones;
+    }
+  }
+  CHECK(injected_zones == 2);  // BOTH zones see the same provision col
+
+  // The LP must be feasible with a single shared provision satisfying
+  // both 80 + 120 = 200 MW total demand on the same column (urmax=200).
+  const auto obj_phys = lp.get_obj_value();
+  CHECK(std::isfinite(obj_phys));
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)

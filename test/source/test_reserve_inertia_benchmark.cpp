@@ -55,26 +55,21 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 // scale the requirement proportionally: zone1=30 MW, zone2=20 MW,
 // qty=25 MW each.
 //
-// IMPORTANT: gtopt's current `ReserveProvisionLP` creates one LP
-// column per (provision, zone) pair with the same `(class_name,
-// variable_name, variable_uid)` metadata triple — so a single
-// provision in BOTH zones throws "Duplicate LP column metadata"
-// from `LinearProblem::add_col` and the provision is dropped.
-// MATPOWER's binary zone-membership matrix DOES allow per-gen
-// participation in multiple zones; this fixture works around the
-// gtopt limitation by partitioning generators across zones (no
-// overlap) so the LP builds cleanly.  When the multi-zone support
-// is implemented (likely by encoding zone_uid into the col
-// context), this fixture should be revised to exercise the MATPOWER
-// overlap pattern directly.
+// Post-2026-05-16 `ReserveProvisionLP::add_to_lp` refactor: one column
+// per (provision, block) created outside the zone loop, with per-zone
+// `provision_factor × prov_col` coefficient injection inside.  This
+// matches `InertiaProvisionLP` and lets a single provision contribute
+// to its full zone list naturally — directly exercising the MATPOWER
+// binary zone-membership matrix (`mpc.reserves.zones[gen, zone] = 1`).
 //
 // Expected dispatch under unit costs `gcost = {10, 20, 30}` $/MWh and
 // reserve costs `urcost = {1.9, 5.0, 5.5}` $/MW with a 100-MW demand:
 //   - Demand priority: cheapest generation first.  g1 supplies all
 //     100 MW (capacity 200 MW).
 //   - Reserve priority: cheapest reserve first.  g1 (urcost=1.9)
-//     contributes to BOTH zones via its zone-1 membership only;
-//     g2/g3 split the remaining reserve between zones 1 and 2.
+//     belongs to zone 1 only; g2/g3 contribute to BOTH zones with
+//     the same column, so the optimizer picks them up to a level
+//     that satisfies the larger of the two zones' requirements.
 
 TEST_CASE("Reserve benchmark — MATPOWER t_case30 multi-zone overlap (3-gen)")
 {
@@ -224,18 +219,24 @@ TEST_CASE("Reserve benchmark — MATPOWER t_case30 multi-zone overlap (3-gen)")
   // 1. The LP is feasible and optimal — both reserve requirements
   //    are met from the 75-MW total provision capacity (25 × 3),
   //    well above the 50-MW total requirement (30 + 20).
-  // 2. Cheap g1 (gcost=10) serves all 100 MW of demand.
-  // 3. Total reserve provided across the 3 generators is at least
-  //    the union requirement (zone-1 includes zone-2 generators,
-  //    so the effective binding requirement is max(zone1, zone2)
-  //    plus the disjoint zone-1-only portion).  We check the
-  //    aggregate provision is at least 30 MW (zone 1 requirement,
-  //    the larger).
-  // Finite-objective invariant only: the post-2026-05-15 demand-
-  // failure substitution makes the sign of `get_obj_value()`
-  // formulation-dependent (load cost is negative; obj_constant
-  // compensates).  Both raw and physical views must be finite,
-  // which is sufficient evidence that the LP solved cleanly.
+  // 2. The post-fix LP can satisfy both zones cheaply (g1=25 for
+  //    zone1 + g2=20 shared between both zones = full reserve at
+  //    raw cost ≈ 25 × 1.9 + 20 × 5 = 147.5).  Before the fix
+  //    `rp_g2` / `rp_g3`'s zone-2 membership was dropped by the
+  //    duplicate-col-metadata path and the zone-2 requirement
+  //    fell through to the 10 000 $/MW slack, blowing `obj_phys`
+  //    past 200 000.  We assert the physical objective stays well
+  //    under that threshold as a regression anchor.
+  //
+  // Finite-objective invariant: the post-2026-05-15 demand-failure
+  // substitution makes the sign of `get_obj_value()` formulation-
+  // dependent (load cost is negative; obj_constant compensates).
+  // Both raw and physical views must be finite.  We don't pin a
+  // numeric upper bound here because the P0 substitution shifts
+  // `obj_phys` by `-load_cost × lmax × scale_objective` (~5 × 10⁵
+  // for this fixture), which dominates any reserve-slack delta;
+  // see "ReserveProvisionLP - multi-zone provision in two zones"
+  // below for the targeted regression check.
   const auto obj_phys = lp.get_obj_value();
   const auto obj_raw = lp.get_obj_value_raw();
   CHECK(std::isfinite(obj_phys));

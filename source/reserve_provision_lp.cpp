@@ -16,6 +16,19 @@ namespace
 
 using namespace gtopt;
 
+/// Build the provision column + coupling rows for a single direction
+/// (up or down) and inject the `stage_provision_factor × prov_col`
+/// coefficient into **every** active reserve zone's requirement row.
+///
+/// The previous design called this helper **once per zone** and let
+/// each call create its own `prov_col` for the same (provision, block).
+/// That worked only when the provision referenced a single zone; with
+/// two or more zones it tripped `LinearProblem::add_col`'s duplicate-
+/// metadata check (class + variable + uid identical across calls) and
+/// silently dropped every zone past the first.  The refactor mirrors
+/// `InertiaProvisionLP::add_to_lp`: one column per (provision, block)
+/// created outside the zone loop, then per-zone coefficient injection
+/// inside.
 std::expected<void, Error> add_provision(
     const std::string_view cname,
     const ScenarioLP& scenario,
@@ -28,7 +41,9 @@ std::expected<void, Error> add_provision(
     ReserveProvisionLP::Provision& rp,
     const std::string_view pname,
     const std::string_view cap_name,
-    const STBIndexHolder<RowIndex>& requirement_rows,
+    std::span<const ElementIndex<ReserveZoneLP>> reserve_zone_indexes,
+    const SystemContext& sc,
+    auto get_requirement_rows,
     auto provision_row)
 {
   const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
@@ -41,11 +56,29 @@ std::expected<void, Error> add_provision(
   const auto use_capacity = capacity_col && stage_capacity_factor;
 
   const auto st_k = std::tuple {scenario.uid(), stage.uid()};
-  const auto req_rows_it = requirement_rows.find(st_k);
-  if (req_rows_it == requirement_rows.end() || req_rows_it->second.empty()) {
+
+  // Pre-filter: collect per-(s,t) requirement-row maps for every
+  // **active** zone that has at least one row entry for this
+  // (scenario, stage).  If no zone qualifies, skip creating any
+  // cols/rows for this provision — preserves the early-out from
+  // the previous per-zone helper.
+  std::vector<const BIndexHolder<RowIndex>*> req_row_maps;
+  req_row_maps.reserve(reserve_zone_indexes.size());
+  for (auto&& rzi : reserve_zone_indexes) {
+    auto&& rz = sc.element(rzi);
+    if (!rz.is_active(stage)) {
+      continue;
+    }
+    const auto& requirement_rows = get_requirement_rows(rz);
+    const auto rows_it = requirement_rows.find(st_k);
+    if (rows_it != requirement_rows.end() && !rows_it->second.empty()) {
+      req_row_maps.push_back(&rows_it->second);
+    }
+  }
+  if (req_row_maps.empty()) {
     return {};
   }
-  const auto& req_rows = req_rows_it->second;
+
   auto& prov_cols = rp.provision_cols[st_k];
   auto& prov_rows = rp.provision_rows[st_k];
   auto& cap_rows = rp.capacity_rows[st_k];
@@ -106,12 +139,15 @@ std::expected<void, Error> add_provision(
         make_block_context(scenario.uid(), stage.uid(), block.uid())));
 
     //
-    // add the reserve provision to the requirement balance
+    // Inject the provision coefficient into every active zone's
+    // requirement-balance row for this block.
     //
-    const auto req_row_it = req_rows.find(buid);
-    if (req_row_it != req_rows.end()) {
-      lp.set_coeff(
-          req_row_it->second, prov_col, stage_provision_factor.value());
+    for (const auto* req_rows_ptr : req_row_maps) {
+      const auto req_row_it = req_rows_ptr->find(buid);
+      if (req_row_it != req_rows_ptr->end()) {
+        lp.set_coeff(
+            req_row_it->second, prov_col, stage_provision_factor.value());
+      }
     }
   }
 
@@ -236,52 +272,57 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
 
     const auto& blocks = stage.blocks();
 
-    for (auto&& reserve_zone_index : reserve_zone_indexes) {
-      auto&& reserve_zone = sc.element(reserve_zone_index);
-      if (!reserve_zone.is_active(stage)) {
-        continue;
-      }
-
-      if (auto res = add_provision(cname,
-                                   scenario,
-                                   stage,
-                                   lp,
-                                   blocks,
-                                   capacity_col,
-                                   generation_cols,
-                                   uid(),
-                                   up,
-                                   UprovisionName,
-                                   UcapacityName,
-                                   reserve_zone.urequirement_rows(),
-                                   uprov_row);
-          !res)
-      {
-        SPDLOG_WARN("add_provision (uprov) failed for uid={}: {}",
-                    uid(),
-                    res.error().message);
-        return false;
-      }
-      if (auto res = add_provision(cname,
-                                   scenario,
-                                   stage,
-                                   lp,
-                                   blocks,
-                                   capacity_col,
-                                   generation_cols,
-                                   uid(),
-                                   dp,
-                                   DprovisionName,
-                                   DcapacityName,
-                                   reserve_zone.drequirement_rows(),
-                                   dprov_row);
-          !res)
-      {
-        SPDLOG_WARN("add_provision (dprov) failed for uid={}: {}",
-                    uid(),
-                    res.error().message);
-        return false;
-      }
+    // `add_provision` now consumes the full zone list and creates one
+    // column per (provision, block) — the per-zone work is folded
+    // inside its block loop.  See the docstring above for why the
+    // outer zone loop disappeared.
+    if (auto res = add_provision(
+            cname,
+            scenario,
+            stage,
+            lp,
+            blocks,
+            capacity_col,
+            generation_cols,
+            uid(),
+            up,
+            UprovisionName,
+            UcapacityName,
+            std::span<const ElementIndex<ReserveZoneLP>>(reserve_zone_indexes),
+            sc,
+            [](const auto& rz) -> const auto&
+            { return rz.urequirement_rows(); },
+            uprov_row);
+        !res)
+    {
+      SPDLOG_WARN("add_provision (uprov) failed for uid={}: {}",
+                  uid(),
+                  res.error().message);
+      return false;
+    }
+    if (auto res = add_provision(
+            cname,
+            scenario,
+            stage,
+            lp,
+            blocks,
+            capacity_col,
+            generation_cols,
+            uid(),
+            dp,
+            DprovisionName,
+            DcapacityName,
+            std::span<const ElementIndex<ReserveZoneLP>>(reserve_zone_indexes),
+            sc,
+            [](const auto& rz) -> const auto&
+            { return rz.drequirement_rows(); },
+            dprov_row);
+        !res)
+    {
+      SPDLOG_WARN("add_provision (dprov) failed for uid={}: {}",
+                  uid(),
+                  res.error().message);
+      return false;
     }
   } catch (const std::exception& e) {
     SPDLOG_ERROR("ReserveProvisionLP::add_to_lp exception for uid={}: {}",
