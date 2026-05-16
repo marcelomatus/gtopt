@@ -1473,14 +1473,25 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             // the discard then wiped every backward Optimality cut.
             sim_before_scene_sizes[static_cast<std::size_t>(scene)] =
                 m_cut_store_.at(scene).size();
-            // Submit simulation forward pass for this scene
+            // Submit simulation forward pass for this scene.
+            //
+            // Priority is `Medium`, the same tier as still-training
+            // forward/backward solves.  An earlier draft used `High`
+            // here, but that lets the simulation tasks of an
+            // early-converged scene preempt the training LP solves of
+            // peers that have not converged yet — a priority inversion
+            // since the converged-scene output is no more urgent than
+            // training progress for the rest of the cohort.  At
+            // `Medium`, the iteration_index in the `SDDPTaskKey` tuple
+            // still gives older iterations precedence (so a slow
+            // scene's iter-N forward still beats a fast scene's
+            // sim-at-iter-(N+k)), but without the tier preemption.
             m_in_simulation_ = true;
             const auto sim_iteration_index = sp.current_iteration_index;
             const BasicTaskRequirements<SDDPTaskKey> sim_req {
-                .priority = TaskPriority::High,
+                .priority = TaskPriority::Medium,
                 .priority_key = make_sddp_task_key(sim_iteration_index,
                                                    SDDPPassDirection::forward,
-                                                   first_phase_index(),
                                                    SDDPTaskKind::lp),
                 .name = {},
             };
@@ -1555,7 +1566,6 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
               .priority = TaskPriority::Medium,
               .priority_key = make_sddp_task_key(sp.current_iteration_index,
                                                  SDDPPassDirection::forward,
-                                                 first_phase_index(),
                                                  SDDPTaskKind::lp),
               .name = {},
           };
@@ -1602,7 +1612,6 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 .priority = TaskPriority::Medium,
                 .priority_key = make_sddp_task_key(sp.current_iteration_index,
                                                    SDDPPassDirection::backward,
-                                                   first_phase_index(),
                                                    SDDPTaskKind::lp),
                 .name = {},
             };

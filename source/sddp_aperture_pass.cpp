@@ -351,7 +351,7 @@ auto SDDPMethod::install_aperture_backward_cut(
 
 // ── Helper: build the ApertureChunkSubmitFunc callback ─────────────────────
 
-auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
+auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
                                          IterationIndex iteration_index)
     -> ApertureChunkSubmitFunc
 {
@@ -367,12 +367,13 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
   auto* pool = m_pool_;
   // TaskPriority::Medium is the scheduling tier (controls CPU threshold);
   // the SDDPTaskKey tuple provides the secondary sort within that tier.
+  // `phase_index` is no longer encoded in the key — see the rationale
+  // in sddp_pool.hpp's tuple-shape docs.  The parameter is retained on
+  // the public signature for callers that may want to log it.
   const BasicTaskRequirements<SDDPTaskKey> req {
       .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(iteration_index,
-                                         SDDPPassDirection::backward,
-                                         phase_index,
-                                         SDDPTaskKind::lp),
+      .priority_key = make_sddp_task_key(
+          iteration_index, SDDPPassDirection::backward, SDDPTaskKind::lp),
       .name = {},
   };
 

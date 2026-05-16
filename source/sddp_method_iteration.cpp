@@ -1024,9 +1024,9 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Forward-pass scene tasks use High priority; lower iteration = higher key.
-  const auto fwd_req =
-      make_forward_lp_task_req(iteration_index, first_phase_index());
+  // Forward-pass scene tasks: lower iteration = higher priority via
+  // `SDDPTaskKey`; all sit at TaskPriority::Medium.
+  const auto fwd_req = make_forward_lp_task_req(iteration_index);
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (skip_scene[scene_index]) {
@@ -1258,10 +1258,11 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   std::vector<std::future<std::expected<int, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Backward-pass scene tasks use Medium priority; scenes with lower index
-  // get slightly higher priority_key (phase 0 = lowest phase index).
-  const auto bwd_req =
-      make_backward_lp_task_req(iteration_index, first_phase_index());
+  // Backward-pass scene tasks at TaskPriority::Medium; lower iteration
+  // = higher priority via `SDDPTaskKey`.  All scenes in this submission
+  // burst share the same key (one (iter, is_backward, kind) tuple) so
+  // dequeue order across scenes is FIFO.
+  const auto bwd_req = make_backward_lp_task_req(iteration_index);
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[scene_index] == 0U) {
@@ -1375,8 +1376,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
         futures;
     futures.reserve(num_scenes);
 
-    const auto bwd_req =
-        make_backward_lp_task_req(iteration_index, phase_index);
+    // The phase-by-phase synchronised path serialises phase steps with
+    // futures (line ~1405) — only one phase's tasks are ever in flight
+    // — so `SDDPTaskKey` has no per-phase field to differentiate them.
+    const auto bwd_req = make_backward_lp_task_req(iteration_index);
 
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       if (scene_feasible[scene_index] == 0U) {
