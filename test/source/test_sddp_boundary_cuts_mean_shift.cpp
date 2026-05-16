@@ -191,14 +191,21 @@ TEST_CASE(  // NOLINT
 
   // Hand computation:
   //   rsv1 emin=0, emax=500  ⇒ midpoint = 250
-  //   c̄ = rhs + g × midpoint = 1000 + 2.0 × 250 = 1500
+  //   raw c̄ = rhs + g × midpoint = 1000 + 2.0 × 250 = 1500
   // (Equivalent in cmap form: cmap[s_rsv1] = −g = −2.0, and the
   //  implementation computes `cut.lowb − cmap[s_rsv1] × midpoint =
   //  1000 − (−2.0) × 250 = 1500`.)
-  const double expected_c_bar = 1500.0;
+  //
+  // `scene_alpha_offset()` stores the **cf-weighted** c̄ so the four
+  // UB / LB display sites can add it back without re-fetching the
+  // cost factor.  cf = prob × discount × duration at the last stage.
+  // For this 3-phase hydro fixture: single scene (prob=1), no
+  // discount (1.0), last-stage duration = 24 h → cf = 24.
+  //   stored offset = c̄ × cf = 1500 × 24 = 36 000.
+  const double expected_c_bar_pv = 36000.0;
 
   CHECK(sddp.scene_alpha_offset(SceneIndex {0})
-        == doctest::Approx(expected_c_bar).epsilon(1e-6));
+        == doctest::Approx(expected_c_bar_pv).epsilon(1e-6));
 
   std::filesystem::remove(cuts_file);
 }

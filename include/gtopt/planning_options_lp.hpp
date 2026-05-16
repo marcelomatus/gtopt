@@ -1395,13 +1395,21 @@ public:
    * barrier that otherwise blocks every scene from starting iter
    * ``i+1`` until all scenes have finished iter ``i``.
    *
-   * Default 2 (lightly async) trades determinism for ~10-20%
-   * fewer barrier-wait stalls on heterogeneous-runtime fixtures.
-   * Set to 0 to restore the legacy fully-synchronous behaviour.
+   * Default 1 (lock-step + 1 iter slack) is the tightest non-trivial
+   * spread: it lets a fast scene advance by exactly one iteration
+   * past the slowest active scene, eliminating most of the
+   * post-convergence drain-pass race while still hiding short
+   * per-iter timing jitter behind the 1-iter buffer.  Earlier
+   * default of 2 let scenes race further ahead, which translated
+   * directly into longer drains and more race-condition cuts on
+   * the full_network level (juan/IPLP: 71s drain at L3 with
+   * `max_async_spread=2`).  Set to 0 for fully synchronous; set
+   * higher only when in-flight task heterogeneity (e.g. heavily
+   * unbalanced scene complexity) actually justifies the trade-off.
    */
   [[nodiscard]] constexpr auto sddp_max_async_spread() const
   {
-    return m_options_.sddp_options.max_async_spread.value_or(2);
+    return m_options_.sddp_options.max_async_spread.value_or(1);
   }
 
   /** @brief SDDP work pool CPU over-commit factor (default: 4.0). */

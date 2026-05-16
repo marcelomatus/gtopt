@@ -337,6 +337,21 @@ LOG_ITER_VALS_RE = re.compile(
     r"Δgap=\s*(?P<dgap>[+\-]?[\d.]+)%\s+"
     r"kappa=(?P<k>[\d.eE+\-]+)"
 )
+# ``SDDP Async [iN sS]: completed UB=... LB=... gap=±NN.NNNN%`` — emitted
+# during the asynchronous DRAIN pass after the master declared
+# convergence at iter N-1.  These iters do NOT get an aggregate
+# ``iter N obj UB=...`` summary line, so without this fallback they
+# disappear from the table entirely (visible gap iter 11 → iter 14 on
+# juan/IPLP cascade).  Capturing the per-scene UB / LB lets the parser
+# emit a "drain" row showing the iter number is occupied, with a
+# probability-weighted-mean UB / LB across the scenes that completed
+# at that iter.
+LOG_ASYNC_COMPLETED_RE = re.compile(
+    r"SDDP Async \[i(?P<i>\d+)\s+s(?P<s>\d+)\]:\s+completed\s+"
+    r"UB=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
+    r"LB=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
+    r"gap=\s*(?P<gap>[+\-]?[\d.]+)%"
+)
 LOG_LEVEL_SUMMARY_RE = re.compile(
     r"Cascade \[(?P<level>[^\]]+)\]:\s+(?P<n>\d+)\s+iters.*?"
     r"new_cuts=(?P<cuts>\d+).*?,\s*(?P<wall>[\d.]+)s\s+"
@@ -413,6 +428,17 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
 
     current_level = "sddp"
     last_iter_meta: dict[int, dict] = {}  # iter -> {wall, ts, conv}
+    # Per-(level, iter) bucket of async-drain UB / LB samples, keyed
+    # by (level_name, iter).  After all aggregate-iter rows are
+    # parsed, any (level, iter) bucket that has no matching
+    # ``LOG_ITER_VALS_RE`` row is emitted as a synthetic "drain" row
+    # carrying the mean UB / LB across the scenes that completed at
+    # that iter.  This fills the iter-number gap (e.g. iter 12, 13
+    # between L0 convergence at iter 11 and L1 start at iter 14)
+    # that the cascade async-drain pass otherwise leaves blank.
+    async_samples: dict[tuple[str, int], list[tuple[float, float, float]]] = {}
+    async_ts: dict[tuple[str, int], float] = {}
+    iters_with_vals_row: set[tuple[str, int]] = set()
     try:
         text = log_file.read_text(errors="replace")
     except OSError:
@@ -491,7 +517,75 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
                     kappa=kappa,
                 )
             )
+            iters_with_vals_row.add((current_level, i))
             continue
+        m = LOG_ASYNC_COMPLETED_RE.search(line)
+        if m:
+            i = int(m.group("i"))
+            ub = _parse_money_token(m.group("ub"))
+            lb = _parse_money_token(m.group("lb"))
+            try:
+                gap = float(m.group("gap")) / 100.0
+            except ValueError:
+                gap = None
+            if ub is not None and lb is not None and gap is not None:
+                key = (current_level, i)
+                async_samples.setdefault(key, []).append((ub, lb, gap))
+                ts = _parse_log_timestamp(line)
+                if ts is not None:
+                    # Track the latest async timestamp for this iter so
+                    # the synthetic drain row sorts after preceding
+                    # rows.
+                    if key not in async_ts or ts > async_ts[key]:
+                        async_ts[key] = ts
+            continue
+
+    # Synthesize drain-iter PLACEHOLDER rows for (level, iter)
+    # buckets that have async-completed samples but no aggregate
+    # iter-vals row.  The async-completed UB / LB are PER-SCENE
+    # values (one scene's forward objective each), NOT comparable to
+    # the aggregate iter-vals UB (probability-weighted sum across
+    # scenes × discount factors × stage costs).  Averaging per-scene
+    # values would produce a misleading display value ~1/16× the
+    # real aggregate.  Instead we emit a placeholder row with iter
+    # number and `[drain]` note but NO UB / LB / gap / Δgap / kappa
+    # — the iter is acknowledged in the table sequence without
+    # implying a comparable aggregate measurement.  These iters are
+    # what the user calls "race-condition iters": post-convergence
+    # async drains whose cuts are typically dropped by the cascade
+    # (see ``sddp_iteration.cpp:2151`` ``save_simulation_cuts`` block).
+    drain_iters: set[tuple[str, int]] = set()
+    for (lvl, i), samples in async_samples.items():
+        if (lvl, i) in iters_with_vals_row:
+            continue
+        if not samples:
+            continue
+        drain_iters.add((lvl, i))
+        ts = async_ts.get((lvl, i), 0.0)
+        rows.append(
+            IterRow(
+                level=lvl,
+                iter=i,
+                mtime=ts,
+                upper_bound=None,
+                lower_bound=None,
+                gap=None,
+                delta_gap=None,
+                converged=False,
+                kappa=None,
+            )
+        )
+
+    # Re-sort: per-level rows by iter then mtime (mirrors
+    # ``split_by_level`` so the renderer sees them ordered).
+    rows.sort(key=lambda r: (r.level, r.iter, r.mtime))
+    # Tag drain rows so the renderer can show a ``[drain]`` note.
+    for r in rows:
+        if (r.level, r.iter) in drain_iters:
+            # Reuse the converged-bool slot would mislead; instead
+            # we mark via cuts_added=-1 sentinel, picked up in the
+            # render loop's note logic.
+            r.cuts_added = -1
     return rows, metas
 
 
@@ -716,8 +810,10 @@ def render_table(
             if r.upper_bound is not None:
                 prev_ub = r.upper_bound
 
-            new_cuts += r.cuts_added or 0
+            new_cuts += r.cuts_added or 0 if (r.cuts_added or 0) > 0 else 0
             note = "[CONVERGED]" if r.converged else ""
+            if r.cuts_added == -1:
+                note = "[drain — discarded]"
 
             out.append(
                 f"  {r.iter:>4d}   {fmt_money(r.upper_bound):>7}    "

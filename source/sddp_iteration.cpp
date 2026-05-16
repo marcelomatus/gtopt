@@ -1424,6 +1424,25 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       static_cast<std::size_t>(num_scenes),
       std::numeric_limits<std::size_t>::max());
 
+  // Per-scene cut-store snapshot at the moment `m_stop_requested_`
+  // fires from aggregate convergence (line ~2125).  Any cuts added
+  // by scenes that finished their in-flight forward+backward pass
+  // AFTER the stop signal but BEFORE the orchestration loop noticed
+  // are race-condition cuts: they depend on the timing of when the
+  // pool drained each task vs. when the master picked up the
+  // results.  Without truncation, those cuts get serialised to the
+  // next cascade level and the inherited cut count is
+  // non-deterministic between runs of the same case (drain-pass
+  // races change the per-scene count).  Truncating back to this
+  // snapshot at the end of orchestrate_async makes the inherited
+  // cut set match exactly what was certified at the converged iter.
+  //
+  // Same default sentinel as `sim_before_scene_sizes`: "stop never
+  // fired for this scene" → no truncation.
+  std::vector<std::size_t> stop_before_scene_sizes(
+      static_cast<std::size_t>(num_scenes),
+      std::numeric_limits<std::size_t>::max());
+
   while (!all_done) {
     for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
       auto& sp = progress[static_cast<std::size_t>(scene)];
@@ -2123,6 +2142,19 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           "stopping training loop, transitioning remaining scenes",
           gtopt::uid_of(results.back().iteration_index));
       m_stop_requested_.store(true);
+      // Snapshot per-scene cut counts AT the stop boundary so any
+      // cuts added by in-flight tasks that complete after this
+      // point during the drain pass can be truncated deterministically.
+      // Without this, the inherited cut count at the next cascade
+      // level depends on the pool's drain timing race.
+      auto& scene_cuts_at_stop = m_cut_store_.scene_cuts();
+      for (std::size_t si_sz = 0; si_sz < scene_cuts_at_stop.size()
+           && si_sz < stop_before_scene_sizes.size();
+           ++si_sz)
+      {
+        const auto si = SceneIndex {static_cast<Index>(si_sz)};
+        stop_before_scene_sizes[si_sz] = scene_cuts_at_stop[si].size();
+      }
     }
 
     // Avoid busy-spin: brief sleep when no futures are ready
@@ -2167,6 +2199,44 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     }
     if (dropped > 0) {
       SPDLOG_INFO("SDDP: discarding {} simulation feasibility cut(s)", dropped);
+    }
+  }
+
+  // Discard RACE-CONDITION training cuts: any cuts added by scenes
+  // whose in-flight forward+backward pass completed AFTER
+  // `m_stop_requested_` fired (aggregate convergence at the master
+  // side) are non-deterministic — their presence depends on whether
+  // the pool's worker happened to be mid-backward-pass when the
+  // master picked up the converged result.  Re-running the same case
+  // would change the cut count.  Truncate every scene's cut store
+  // back to its snapshot at the stop boundary so the count handed off
+  // to the next cascade level is deterministic.
+  //
+  // Same sentinel as the sim discard: `size_t::max()` marks "stop
+  // never fired for this scene" (e.g. the level ran to max_iters
+  // without aggregate convergence) — no truncation in that case.
+  {
+    std::size_t dropped = 0;
+    auto& scene_cuts = m_cut_store_.scene_cuts();
+    for (std::size_t si_sz = 0;
+         si_sz < scene_cuts.size() && si_sz < stop_before_scene_sizes.size();
+         ++si_sz)
+    {
+      const auto si = SceneIndex {static_cast<Index>(si_sz)};
+      const auto pre = stop_before_scene_sizes[si_sz];
+      if (pre == std::numeric_limits<std::size_t>::max()) {
+        continue;  // stop never fired — keep everything
+      }
+      if (scene_cuts[si].size() > pre) {
+        dropped += scene_cuts[si].size() - pre;
+        scene_cuts[si].resize(pre);
+      }
+    }
+    if (dropped > 0) {
+      SPDLOG_INFO(
+          "SDDP: discarding {} race-condition training cut(s) "
+          "(post-aggregate-convergence drain)",
+          dropped);
     }
   }
 

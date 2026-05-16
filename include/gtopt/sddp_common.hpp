@@ -280,21 +280,23 @@ struct FormatSI
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
   [[nodiscard]] operator std::string() const
   {
+    // Uniform 6dp across all SI bands.  See the matching block in
+    // the std::formatter specialisation below for rationale.
     const double a = std::abs(value);
     const char* sign = (value < 0.0) ? "-" : "";
     if (a >= 1e12) {
-      return std::format("{}{:.3f}T", sign, a / 1e12);
+      return std::format("{}{:.6f}T", sign, a / 1e12);
     }
     if (a >= 1e9) {
-      return std::format("{}{:.3f}G", sign, a / 1e9);
+      return std::format("{}{:.6f}G", sign, a / 1e9);
     }
     if (a >= 1e6) {
-      return std::format("{}{:.2f}M", sign, a / 1e6);
+      return std::format("{}{:.6f}M", sign, a / 1e6);
     }
     if (a >= 1e3) {
-      return std::format("{}{:.2f}K", sign, a / 1e3);
+      return std::format("{}{:.6f}K", sign, a / 1e3);
     }
-    return std::format("{}{:.4f}", sign, a);
+    return std::format("{}{:.6f}", sign, a);
   }
 };
 
@@ -353,19 +355,24 @@ struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
     auto out = ctx.out();
     const double a = std::abs(f.value);
     const char* sign = (f.value < 0.0) ? "-" : "";
+    // Uniform 6dp across all SI bands so a column of numbers
+    // printed back-to-back lines up at the decimal point.  Kept in
+    // sync with the implicit-conversion `operator std::string()`
+    // above (the cold path used by `std::string(format_si(v))`)
+    // so the hot and cold paths produce byte-identical output.
     if (a >= 1e12) {
-      return std::format_to(out, "{}{:.3f}T", sign, a / 1e12);
+      return std::format_to(out, "{}{:.6f}T", sign, a / 1e12);
     }
     if (a >= 1e9) {
-      return std::format_to(out, "{}{:.3f}G", sign, a / 1e9);
+      return std::format_to(out, "{}{:.6f}G", sign, a / 1e9);
     }
     if (a >= 1e6) {
-      return std::format_to(out, "{}{:.2f}M", sign, a / 1e6);
+      return std::format_to(out, "{}{:.6f}M", sign, a / 1e6);
     }
     if (a >= 1e3) {
-      return std::format_to(out, "{}{:.2f}K", sign, a / 1e3);
+      return std::format_to(out, "{}{:.6f}K", sign, a / 1e3);
     }
-    return std::format_to(out, "{}{:.4f}", sign, a);
+    return std::format_to(out, "{}{:.6f}", sign, a);
   }
 };
 

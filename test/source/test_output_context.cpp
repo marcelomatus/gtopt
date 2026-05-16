@@ -1335,3 +1335,95 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
+
+// ---------------------------------------------------------------------------
+// Coverage for the throwaway-rebuild path:
+// `rebuild_collections_if_needed` runs ONLY when `low_memory_mode != off`.
+// Existing tests above all default to `off`, so the per-cell rebuild that
+// `SystemLP::write_out` performs under `compress` mode (and the overrides
+// added 2026-05-16 — equilibration=none, compute_stats=false, names off,
+// scale_objective=1.0, validation off — see `system_lp.cpp:952`) was
+// otherwise untested.  The test below forces the release+rebuild round
+// trip and asserts the resulting parquet matches the `off`-mode baseline.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - write_out under low_memory=compress matches off baseline")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  auto [system, simulation] = make_basic_system();
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_compress_writeout";
+  const auto off_dir = tmpdir / "off";
+  const auto compress_dir = tmpdir / "compress";
+  std::filesystem::create_directories(off_dir);
+  std::filesystem::create_directories(compress_dir);
+
+  auto run = [&](const std::filesystem::path& out_dir, LowMemoryMode mode)
+  {
+    PlanningOptions opts;
+    opts.output_directory = out_dir.string();
+    opts.output_format = DataFormat::parquet;
+    opts.lp_matrix_options.low_memory_mode = mode;
+    if (mode != LowMemoryMode::off) {
+      opts.lp_matrix_options.memory_codec = CompressionCodec::lz4;
+    }
+
+    const PlanningOptionsLP options(opts);
+    SimulationLP sim_lp(simulation, options);
+    SystemLP sys_lp(system, sim_lp);
+
+    auto&& lp = sys_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    if (mode != LowMemoryMode::off) {
+      // Drop the live backend so the subsequent `write_out` is forced
+      // through `rebuild_collections_if_needed` (which re-flattens
+      // with the 2026-05-16 throwaway overrides).  Without this
+      // release, the disposable collections remain populated and the
+      // rebuild path is bypassed — exactly the gap left by every
+      // pre-existing `test_output_context` case (all default off).
+      sys_lp.release_backend();
+    }
+
+    sys_lp.write_out();
+  };
+
+  run(off_dir, LowMemoryMode::off);
+  run(compress_dir, LowMemoryMode::compress);
+
+  // Both modes must have produced the same set of element class
+  // directories — compress's rebuild-then-emit must not drop any
+  // emitter that off's direct-emit produced.
+  CHECK(std::filesystem::exists(off_dir / "Generator"));
+  CHECK(std::filesystem::exists(compress_dir / "Generator"));
+  CHECK(std::filesystem::exists(off_dir / "Demand"));
+  CHECK(std::filesystem::exists(compress_dir / "Demand"));
+  CHECK(std::filesystem::exists(off_dir / "Bus"));
+  CHECK(std::filesystem::exists(compress_dir / "Bus"));
+
+  // The two output trees must have the same shape: same set of
+  // (relative) file paths.  Byte-comparing parquet payloads is
+  // fragile across Arrow versions (compression, metadata), so we
+  // check the path set — the throwaway-rebuild path must emit
+  // every shard the live-backend path emits, no more no less.
+  auto collect = [](const std::filesystem::path& root)
+  {
+    std::vector<std::filesystem::path> rels;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(root)) {
+      if (e.is_regular_file()) {
+        rels.push_back(std::filesystem::relative(e.path(), root));
+      }
+    }
+    std::ranges::sort(rels);
+    return rels;
+  };
+  const auto off_files = collect(off_dir);
+  const auto compress_files = collect(compress_dir);
+  CHECK(off_files == compress_files);
+
+  std::filesystem::remove_all(tmpdir);
+}

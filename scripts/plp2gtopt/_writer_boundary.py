@@ -136,18 +136,16 @@ class BoundaryMixin:
             )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
-            # Path relative to where gtopt runs (same dir as the JSON).
-            # When JSON is inside output_dir, input_directory is "." and
-            # the file is at "./boundary_cuts.csv".
-            # When JSON is outside, input_directory is the output_dir path,
-            # so use "{input_directory}/boundary_cuts.csv".
-            input_dir_val = self.planning["options"].get("input_directory", ".")
-            if input_dir_val == ".":
-                sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
-            else:
-                sddp_opts["boundary_cuts_file"] = str(
-                    Path(input_dir_val) / "boundary_cuts.csv"
-                )
+            # ALWAYS emit just the bare ``"boundary_cuts.csv"`` —
+            # gtopt's `resolve_input` (`source/sddp_method.cpp::535`)
+            # already prepends ``input_directory`` to every relative
+            # path, so emitting ``"{input_directory}/boundary_cuts.csv"``
+            # produced a double-prefixed path like
+            # ``gtopt_iplp_plain/gtopt_iplp_plain/boundary_cuts.csv``
+            # which then silently fell back to "no boundary cuts"
+            # (α pinned at 0, terminal value treated as zero, UB
+            # shifted down by the missing future-cost envelope).
+            sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
 
         # Wire mode and max-iterations options through to the JSON.
         # Default to `combined` so gtopt's loader feeds every cut into

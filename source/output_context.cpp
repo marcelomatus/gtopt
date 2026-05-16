@@ -15,7 +15,9 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <semaphore>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 
@@ -450,12 +452,43 @@ void OutputContext::write() const
       fmt,
       zfmt);
 
+  // Per-cell shard-write throttle.  Earlier the per-(scene, phase)
+  // ``OutputContext::write`` spawned one ``std::jthread`` per shard
+  // (one per element class' parquet file).  Combined with the
+  // parent ``PlanningLP::write_out`` cell pool (cpu_factor=1.0 →
+  // ~20 cells in flight on a 20-core host) and ~55 shards per cell,
+  // ~1100 jthreads piled into Arrow's default memory pool and
+  // parquet encoders simultaneously, producing pathological lock
+  // contention (observed on juan/IPLP: 60s+ per-cell ``oc.write``
+  // wall time when the inner storm peaked).  A static
+  // ``std::counting_semaphore`` bounds total in-flight shard writes
+  // ACROSS every cell currently running ``write()`` — independent
+  // of how many cells the parent pool dispatched in parallel.
+  //
+  // Slot count: ``hardware_concurrency()`` is the natural ceiling
+  // (one slot per core).  Bound below at 4 so a 2-core CI host
+  // still gets some parallelism; bound above at 32 so very wide
+  // hosts don't immediately re-introduce the lock pathology.
+  //
+  // The semaphore is constructed exactly once (static local) — its
+  // capacity is intentionally independent of the parent pool's
+  // dispatch concurrency.
+  static std::counting_semaphore<> shard_throttle {
+      static_cast<std::ptrdiff_t>(
+          std::clamp<unsigned>(std::thread::hardware_concurrency(), 4U, 32U)),
+  };
+
   std::vector<std::jthread> tasks;
   tasks.reserve(path_tables.size());
   for (auto& [path, table] : path_tables) {
     tasks.emplace_back(
         [path = std::move(path), table = std::move(table), fmt, zfmt]
         {
+          shard_throttle.acquire();
+          struct ReleaseGuard
+          {
+            ~ReleaseGuard() { shard_throttle.release(); }
+          } const guard {};
           SPDLOG_DEBUG("Writing table to '{}'", path.string());
           const auto st = write_table(fmt, path, table, zfmt);
           if (!st.ok()) {

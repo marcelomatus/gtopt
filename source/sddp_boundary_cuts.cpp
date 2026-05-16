@@ -725,16 +725,31 @@ using namespace gtopt::detail;
         }
         if (n_finite > 0) {
           const double c_bar = sum_at_mid / static_cast<double>(n_finite);
-          // Store the raw c̄ — the α variable's objective coefficient
-          // is 1.0 (physical $; see
-          // `sddp_method_alpha.cpp::register_alpha_variables` comment "physical
-          // cost: α is in $ — scaling handled by emit_col_to_backend"), so when
-          // the LP picks α' = α − c̄ the obj_value drops by exactly c̄ (not cf ×
-          // c̄).  Adding raw c̄ back at every UB/LB display site recovers the
-          // unshifted objective.  The constant is symmetric on UB and LB, so
-          // the gap is invariant — the LP itself stays algebraically equivalent
-          // to the unshifted formulation.
-          scene_c_bar[si] = c_bar;
+          // Pre-multiply by `cost_factor(scenario, last_stage)`
+          // (= probability × discount × duration) before storing.
+          // Per-scene `get_obj_value()` is in PROBABILITY-WEIGHTED
+          // physical-$ space (each LP cost coefficient is scaled by
+          // `CostHelper::block_ecost` = cost × p × disc × dur).
+          // When the LP picks α' = α − c̄, the contribution of the
+          // α variable to obj_value drops by exactly `cf × c̄`
+          // (the α coefficient is `cf`, not 1.0).  Storing the
+          // cf-weighted offset makes the four UB/LB display sites
+          // (`scene_alpha_offset`) restore the algebraically-original
+          // physical objective with unit-consistent arithmetic.
+          //
+          // Storing raw c̄ over-corrects by `(N_scenes − 1) × c̄`:
+          // 16 scenes × $18.5M = +$296M added to aggregate UB/LB vs
+          // the ~$18.5M drop the shift actually induces in the
+          // probability-weighted forward sum (since each scene's
+          // contribution is already `1/N_scenes × c̄` after baked
+          // probability weighting).
+          auto& sys = planning_lp.system(si, last_phase);
+          const auto& scenario = sim.scenarios()[static_cast<std::size_t>(
+              sys.scene().first_scenario())];
+          const auto& last_phase_lp = sim.phases()[last_phase];
+          const auto& last_stage = last_phase_lp.stages().back();
+          const double cf = CostHelper::cost_factor(scenario, last_stage);
+          scene_c_bar[si] = c_bar * cf;
           if (c_bar != 0.0) {
             for (auto& cut : cuts) {
               cut.lowb -= c_bar;

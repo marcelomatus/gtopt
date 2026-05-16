@@ -959,6 +959,46 @@ void SystemLP::rebuild_collections_if_needed()
   // them would waste allocations.
   flat_opts.compute_fingerprint = false;
 
+  // ── Throwaway-rebuild override (2026-05-16) ─────────────────────────
+  //
+  // The flatten produced here is DISCARDED (`(void)
+  // flatten_from_collections(...)` below) — we only consume the
+  // `add_to_lp` side effects that repopulate the XLP wrappers' col /
+  // row indices inside `m_collections_`.  Every other heavyweight
+  // step in `flatten()` is wasted work on this path:
+  //
+  //   * Ruiz / row-max equilibration computes scaling factors that
+  //     the discarded CSC arrays were going to carry.  We don't need
+  //     them — kill the entire equilibration pass.
+  //   * `compute_stats` builds per-row-type min/max/ratio statistics
+  //     for the `LP_QUALITY` log.  Already emitted at solve time —
+  //     re-emitting on the write-out rebuild path doubles the cost
+  //     and clutters the log.
+  //   * Label-string assembly (`col_with_names` / `row_with_names`
+  //     and the two `*_name_map` variants) materialises every column
+  //     and row label.  No consumer of this rebuild reads them; the
+  //     parquet output uses `Id`-based identifiers, not LP labels.
+  //   * `scale_objective` divides every objective coefficient by
+  //     the global scale factor — pure CPU since the result is
+  //     discarded.  Force to 1.0.
+  //   * `validation` checks every coefficient / bound / RHS against
+  //     LP-quality thresholds and emits spdlog::warn lines.  Already
+  //     emitted at solve time; re-firing them on rebuild spams the
+  //     log and burns CPU.
+  //
+  // Profile on juan/IPLP cascade: this slice was 30-50% of the
+  // per-cell write-out wall time under `low_memory=compress`.  The
+  // overrides below collapse it to little more than a tight
+  // `add_to_lp` walk over the elements.
+  flat_opts.equilibration_method = LpEquilibrationMethod::none;
+  flat_opts.compute_stats = OptBool {false};
+  flat_opts.col_with_names = false;
+  flat_opts.row_with_names = false;
+  flat_opts.col_with_name_map = false;
+  flat_opts.row_with_name_map = false;
+  flat_opts.scale_objective = 1.0;
+  flat_opts.validation.enable = OptBool {false};
+
   // Silence SystemContext registrations (state variables, AMPL
   // variable registry, deferred cross-phase links) on this pass.
   // They were populated during the original flatten and every col/row
