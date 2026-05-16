@@ -201,6 +201,7 @@ add_e2e_case(exp_bat_4b_24 exp_bat_4b_24.json)
 # here cover the disk-loaded JSON + golden-CSV comparison path.
 add_e2e_case(hydro_valley_sddpjl system_hydro_valley_sddpjl.json)
 add_e2e_case(fast_hydro_thermal system_fast_hydro_thermal.json)
+add_e2e_case(hydro_thermal_sddpjl system_hydro_thermal_sddpjl.json)
 
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
