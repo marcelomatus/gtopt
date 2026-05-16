@@ -840,14 +840,15 @@ TEST_CASE(
   // variable_uid, context)` metadata is rejected at add_col time
   // — no need to wait for `materialize_labels` or `write_lp`.
   {
-    [[maybe_unused]] auto _ = li.add_col(SparseCol {  // NOLINT
+    auto try_add = [&] { (void)li.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
       .variable_name = "v",
       .variable_uid = Uid {1},
       .context = ctx,
-                        });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 
@@ -947,7 +948,8 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
 
   // Second row with identical metadata is rejected at add_row time.
   {
-    [[maybe_unused]] auto _ = li.add_row(row);
+    auto try_add = [&] { (void)li.add_row(row); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 

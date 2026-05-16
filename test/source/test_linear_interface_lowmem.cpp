@@ -2119,14 +2119,15 @@ TEST_CASE(  // NOLINT
     // Duplicate detection survives: inserting the same (class, var, uid)
     // as x1 after a decompress cycle must still throw.
     {
-      [[maybe_unused]] auto _ = li.add_col(SparseCol {  // NOLINT
+      auto try_add = [&] { (void)li.add_col(SparseCol {
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
         .class_name = "Gen",
         .variable_name = "generation",
         .variable_uid = Uid {1},  // same uid as x1 → duplicate
-            });
+      }); };
+      CHECK_THROWS_AS(try_add(), std::runtime_error);
     }
   }
 
@@ -2210,14 +2211,15 @@ TEST_CASE(  // NOLINT
 
   // Same-uid insertion must still be detected as duplicate after round-trip.
   {
-    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+    auto try_add = [&] { (void)li.add_col(SparseCol {
         .lowb = 0.0,
         .uppb = 20.0,
         .cost = 5.0,
         .class_name = "Demand",
         .variable_name = "load",
         .variable_uid = Uid {7},
-    });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 
@@ -3832,33 +3834,36 @@ TEST_CASE(  // NOLINT
 
   // First post-flatten add with a NEW key: succeeds.
   {
-    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+    auto try_add = [&] { (void)li.add_col(SparseCol {
         .uppb = 1.0,
         .class_name = "Sddp",
         .variable_name = "alpha",
         .variable_uid = 0,
-    });
+    }); };
+    CHECK_NOTHROW(try_add());
   }
 
   // Cross-layer collision: same metadata as the FROZEN entry → throw.
   {
-    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+    auto try_add = [&] { (void)li.add_col(SparseCol {
         .uppb = 1.0,
         .class_name = "Bus",
         .variable_name = "theta",
         .variable_uid = 1,
-    });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 
   // Within-post-flatten collision: same metadata as the previous
   // post-flatten add → throw.
   {
-    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+    auto try_add = [&] { (void)li.add_col(SparseCol {
         .uppb = 2.0,
         .class_name = "Sddp",
         .variable_name = "alpha",
         .variable_uid = 0,
-    });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 
