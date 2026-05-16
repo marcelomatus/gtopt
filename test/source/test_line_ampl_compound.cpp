@@ -1010,4 +1010,78 @@ TEST_CASE(  // NOLINT
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+//   piecewise_direct edge cases
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "LineLP AMPL — piecewise_direct: B→A direction disabled (tmax_ba=0)")
+{
+  // Only tmax_ab is non-zero → only flowp_seg cols exist.
+  LineAmplFixture fix(
+      /*use_single_bus=*/false,
+      /*use_kirchhoff=*/true,
+      /*line_losses_mode=*/std::string {"piecewise_direct"},
+      Array<UserConstraint> {});
+  // Override the fixture's line to disable B→A flow.
+  fix.system.line_array[0].tmax_ba = 0.0;
+  fix.system.line_array[0].tmax_ab = 200.0;
+
+  const PlanningOptionsLP options(fix.opts);
+  SimulationLP sim_lp(fix.simulation, options);
+  SystemLP sys_lp(fix.system, sim_lp, LineAmplFixture::build_matrix_opts());
+  auto& lp = sys_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  // Only A→B segment cols exist.
+  CHECK(count_cols_containing(lp, "line_flowp_seg_") == 3);
+  CHECK(count_cols_containing(lp, "line_flown_seg_") == 0);
+  // No aggregator cols.
+  CHECK(count_cols_containing(lp, "line_flowp_")
+        == count_cols_containing(lp, "line_flowp_seg_"));
+  CHECK(count_cols_containing(lp, "line_flown_") == 0);
+  // Line carries 50 MW A→B.
+  double sum_p = 0.0;
+  for (const auto& [name, col] : lp.col_name_map()) {
+    if (name.find("line_flowp_seg_") != std::string_view::npos) {
+      sum_p += lp.get_col_sol()[col];
+    }
+  }
+  CHECK(sum_p == doctest::Approx(50.0).epsilon(1e-3));
+}
+
+TEST_CASE(  // NOLINT
+    "LineLP AMPL — piecewise_direct: use_single_bus makes line a loop (no cols)")
+{
+  // Single-bus mode: both line ends connect to the same bus → is_loop() is
+  // true → add_to_lp returns early, producing no LP columns at all.
+  Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "uc_demand",
+          .expression = "demand('d2').load >= 0",
+      },
+  };
+  const LineAmplFixture fix(
+      /*use_single_bus=*/true,
+      /*use_kirchhoff=*/false,
+      /*line_losses_mode=*/std::string {"piecewise_direct"},
+      std::move(ucs));
+
+  const PlanningOptionsLP options(fix.opts);
+  SimulationLP sim_lp(fix.simulation, options);
+  SystemLP sys_lp(fix.system, sim_lp, LineAmplFixture::build_matrix_opts());
+  auto& lp = sys_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  // No seg cols — line is a loop in single-bus mode.
+  CHECK(count_cols_containing(lp, "line_flowp_seg_") == 0);
+  CHECK(count_cols_containing(lp, "line_flown_seg_") == 0);
+  CHECK(count_cols_containing(lp, "bus_theta_") == 0);
+  // Demand constraint still works.
+  (void)find_row(lp, "uc_demand_constraint_");
+}
+
 // NOLINTEND(google-global-names-in-headers)

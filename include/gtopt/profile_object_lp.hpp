@@ -180,10 +180,13 @@ public:
    * @param stage         Stage to update.
    * @return true on success.
    */
+  template<std::invocable<StageUid, BlockUid> F>
+    requires std::same_as<std::invoke_result_t<F, StageUid, BlockUid>,
+                          std::optional<double>>
   [[nodiscard]] bool update_aperture(
       LinearInterface& li,
       const ScenarioLP& base_scenario,
-      const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
+      F&& value_fn,
       const StageLP& stage) const
   {
     if (!is_active(stage)) {
