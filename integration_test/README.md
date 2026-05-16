@@ -51,14 +51,19 @@ code with gtopt, so it serves as an unbiased reference.
 
 The workflow is:
 
-1. Convert the gtopt JSON to a pandapower network using
-   `scripts/gtopt2pp/convert.py`
-2. Run `pandapower.rundcopp(net)` to solve the DC optimal power flow
-3. Extract solution values (bus angles, generator dispatch, line flows,
+1. Create the gtopt system JSON — either by hand or via `pp2gtopt`
+   (`scripts/pp2gtopt/convert.py`) which reads a pandapower network or
+   MATPOWER `.m` file and writes the corresponding gtopt JSON.
+2. Convert the gtopt JSON back to a pandapower network using
+   `scripts/gtopt2pp/convert.py` (this tests the round-trip fidelity).
+3. Run `pandapower.rundcopp(net)` to solve the DC optimal power flow.
+4. Extract solution values (bus angles, generator dispatch, line flows,
    demand served, duals) from the pandapower result dataframes
-4. Write them in gtopt's CSV output format under `cases/<name>/output/`
+   (`net.res_bus`, `net.res_gen`, `net.res_line`, `net.res_load`).
+5. Write them in gtopt's CSV output format under `cases/<name>/output/`.
 
-This process is implemented in `tools/generate_golden.py` (see below).
+The result is a set of CSV files that gtopt's own output is compared against
+during CI.
 
 ### Solver-specific golden files
 
@@ -74,32 +79,44 @@ solvers produce equally-valid but different primal results.  For these cases:
 
 ### Regenerating golden files
 
-To regenerate golden files for all cases after a formulation change:
+To regenerate golden files for all cases using pandapower:
 
 ```bash
-# Ensure pandapower is installed
 pip install pandapower
+cd cases/
+python -c "
+import pandapower as pp
+import pandapower.networks as pn
+from pp2gtopt.convert import convert
+from gtopt2pp.convert import convert as pp_convert
 
-# Run the golden file generator
-python tools/generate_golden.py --cases-dir cases/
+# Load a built-in pandapower network
+net = pn.case_ieee30()
+
+# Convert to gtopt JSON
+gtopt_case = convert(net)
+
+# Solve with pandapower DC OPF
+pp.rundcopp(net)
+
+# Write golden CSVs from net.res_* dataframes
+"
 ```
 
-Or for a single case:
+For new cases sourced from MATPOWER `.m` files:
 
 ```bash
-python tools/generate_golden.py --cases-dir cases/ --case ieee_118b
+python -m pp2gtopt path/to/case.m -o cases/<name>/<name>.json
 ```
 
-The generator reads each system JSON, converts to pandapower, solves the
-DC OPF, and writes the output files.
+Then convert back to pandapower, solve, and extract golden files.
 
 ## Adding a new test case
 
-1. Place the system JSON under `cases/<name>/<name>.json`
-2. Generate golden files:
-   ```bash
-   python tools/generate_golden.py --cases-dir cases/ --case <name>
-   ```
+1. Create the system JSON under `cases/<name>/<name>.json` — either by hand
+   or via `pp2gtopt` from a MATPOWER `.m` file.
+2. Generate golden files by running pandapower DC OPF on the same network
+   and writing the `net.res_*` dataframes as gtopt CSV files.
 3. Register in `integration_test/CMakeLists.txt`:
    ```cmake
    add_e2e_case(<name> <name>.json)
@@ -107,8 +124,8 @@ DC OPF, and writes the output files.
 4. Build and test:
    ```bash
    cmake --build build -j$(nproc)
-   ctest --output-on-failure -R "e2e_<name>"
-   ```
+    ctest --output-on-failure -R "e2e_<name>"
+    ```
 
 ## Available test cases
 
