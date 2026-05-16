@@ -537,7 +537,18 @@ def convert(
         if bus_idx is None:
             continue
 
+        # The demand magnitude is the per-block ``lmax`` schedule.  Some
+        # gtopt fixtures (notably the small SDDP.jl-derived hydro
+        # benchmarks under ``cases/hydro_*_sddpjl``) leave ``lmax``
+        # unset and put the same value on the expansion-planning
+        # ``capacity`` field; gtopt's LP build treats the two as
+        # interchangeable when ``capacity`` is a plain scalar.  Mirror
+        # that lenient interpretation here so the pandapower DC OPF
+        # sees the real load rather than silently dispatching against
+        # a zero demand.
         lmax = _rfs(dem.get("lmax"), "Demand", dem_uid, dem_name)
+        if lmax is None:
+            lmax = _rfs(dem.get("capacity"), "Demand", dem_uid, dem_name)
         if lmax is None:
             lmax = 0.0
 
