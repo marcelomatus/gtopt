@@ -1,0 +1,248 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": false,
+    "demand_fail_cost": 500.0,
+    "scale_objective": 1000,
+    "use_kirchhoff": false
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 730.0
+      },
+      {
+        "uid": 2,
+        "duration": 730.0
+      },
+      {
+        "uid": 3,
+        "duration": 730.0
+      },
+      {
+        "uid": 4,
+        "duration": 730.0
+      },
+      {
+        "uid": 5,
+        "duration": 730.0
+      },
+      {
+        "uid": 6,
+        "duration": 730.0
+      },
+      {
+        "uid": 7,
+        "duration": 730.0
+      },
+      {
+        "uid": 8,
+        "duration": 730.0
+      },
+      {
+        "uid": 9,
+        "duration": 730.0
+      },
+      {
+        "uid": 10,
+        "duration": 730.0
+      },
+      {
+        "uid": 11,
+        "duration": 730.0
+      },
+      {
+        "uid": 12,
+        "duration": 730.0
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 2,
+        "first_block": 1,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 3,
+        "first_block": 2,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 4,
+        "first_block": 3,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 5,
+        "first_block": 4,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 6,
+        "first_block": 5,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 7,
+        "first_block": 6,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 8,
+        "first_block": 7,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 9,
+        "first_block": 8,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 10,
+        "first_block": 9,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 11,
+        "first_block": 10,
+        "count_block": 1,
+        "active": 1
+      },
+      {
+        "uid": 12,
+        "first_block": 11,
+        "count_block": 1,
+        "active": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "psri_case2_via_sddp2gtopt",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "sys_1_bus"
+      },
+      {
+        "uid": 2,
+        "name": "sys_2_bus"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "Thermal 1",
+        "bus": "sys_1_bus",
+        "pmin": 0.0,
+        "pmax": 10.0,
+        "gcost": 0.0,
+        "capacity": 10.0
+      },
+      {
+        "uid": 2,
+        "name": "Thermal 2",
+        "bus": "sys_1_bus",
+        "pmin": 0.0,
+        "pmax": 5.0,
+        "gcost": 0.0,
+        "capacity": 5.0
+      },
+      {
+        "uid": 3,
+        "name": "Thermal 3",
+        "bus": "sys_1_bus",
+        "pmin": 0.0,
+        "pmax": 20.0,
+        "gcost": 0.0,
+        "capacity": 20.0
+      },
+      {
+        "uid": 4,
+        "name": "Hydro 1",
+        "bus": "sys_1_bus",
+        "pmin": 0.0,
+        "pmax": 11.0,
+        "gcost": 0.0,
+        "capacity": 11.0
+      },
+      {
+        "uid": 5,
+        "name": "Hydro 2",
+        "bus": "sys_1_bus",
+        "pmin": 0.0,
+        "pmax": 16.5,
+        "gcost": 0.0,
+        "capacity": 16.5
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "System 1",
+        "bus": "sys_1_bus",
+        "lmax": [
+          [
+            17.21917808219178
+          ],
+          [
+            15.561643835616438
+          ],
+          [
+            17.21917808219178
+          ],
+          [
+            16.671232876712327
+          ],
+          [
+            17.21917808219178
+          ],
+          [
+            16.671232876712327
+          ],
+          [
+            17.21917808219178
+          ],
+          [
+            17.21917808219178
+          ],
+          [
+            16.671232876712327
+          ],
+          [
+            17.21917808219178
+          ],
+          [
+            16.671232876712327
+          ],
+          [
+            17.21917808219178
+          ]
+        ]
+      }
+    ]
+  }
+}

@@ -203,6 +203,13 @@ add_e2e_case(hydro_valley_sddpjl system_hydro_valley_sddpjl.json)
 add_e2e_case(fast_hydro_thermal system_fast_hydro_thermal.json)
 add_e2e_case(hydro_thermal_sddpjl system_hydro_thermal_sddpjl.json)
 
+# PSR SDDP multi-system fixtures, converted to gtopt JSON by
+# `scripts/sddp2gtopt/` (multi-system support landed 2026-05-16).
+# Each case dir holds the converter's output as a vendored
+# snapshot; if the converter changes shape, re-run and update.
+add_e2e_case(psri_case2_via_sddp2gtopt system_psri_case2_via_sddp2gtopt.json)
+add_e2e_case(psri_case3_via_sddp2gtopt system_psri_case3_via_sddp2gtopt.json)
+
 # ---- SDDP test cases ----
 # To add a new SDDP case, place it under cases/<name>/ with a system JSON file
 # that has method="sddp", then add a line:
