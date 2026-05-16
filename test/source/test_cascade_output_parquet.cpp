@@ -18,22 +18,40 @@
  * --------
  * Run a tiny two-level cascade on the canonical 3-phase / single-bus
  * hydro fixture, redirect output to a tmpdir as Parquet, call
- * `planning_lp.write_out()`, then read the resulting `Generator` and
- * `Bus` parquets back via `parquet::arrow::FileReader` and assert:
+ * `planning_lp.write_out()`, then read the resulting `Generator`,
+ * `Demand` and `Bus` parquets back via `parquet::arrow::FileReader`
+ * and assert:
  *
- *   1. `generation_sol.parquet` exists at every (scene, phase) cell
- *      and at least one numeric value column carries a finite,
- *      strictly-positive entry — proof that the per-cell solution
- *      vector reached the parquet writer.
- *   2. `balance_dual.parquet` exists and carries finite values
+ *   1. `Generator/generation_sol.parquet` — total dispatch per block
+ *      equals demand on every active block.  Failure means the LP
+ *      either crashed (no shard) or wrote partial data.
+ *   2. `Demand/load_sol.parquet` — *served* demand per block equals
+ *      the demand capacity (100 MW) for every active block.
+ *      Combined with the generator-side check this proves the LP
+ *      balance row was honoured end-to-end.
+ *   3. `Bus/balance_dual.parquet` — exists and carries finite values
  *      (NOT all-NaN) — proof that the **simulation pass** ran with
  *      `crossover=true`.  Training forward passes set
  *      `crossover=false`, so row duals are unset and the output
  *      file would be all-NaN if the sim pass were skipped.
- *   3. The aggregate generation in MW (sum over generators per block)
- *      matches the demand to within a small tolerance — the network
- *      cannot have unserved load at this scale (50 MW hydro + 500 MW
- *      thermal vs 100 MW demand), so the balance is tight.
+ *
+ * The whole sequence is parameterised over the
+ * (low_memory_mode, max_iterations) cross-product:
+ *
+ *   * `LowMemoryMode::off` — backend stays resident; write_out
+ *     reads the still-live LP.
+ *   * `LowMemoryMode::compress` — backend is released between
+ *     solves; write_out has to rehydrate the LP from the
+ *     compressed snapshot.  This is the path the 2026-05
+ *     drain-skip bug actually surfaced under (juan/IPLP uses
+ *     `compress` by default).
+ *
+ *   * `max_iterations` 0 / 1 / 5 — bracket the spectrum from
+ *     "no training at all, only sim pass" up to "enough cuts to
+ *     converge before max_iter".  All three must produce the
+ *     same served-demand answer because the network is small
+ *     enough to be optimal at every cut-count level (50 MW hydro
+ *     + 500 MW thermal vs 100 MW demand — far from binding).
  *
  * This test exercises the failure mode caught only by reading the
  * parquet payload, not by checking the in-memory `level_stats` or
@@ -51,6 +69,7 @@
 #include <gtopt/json/json_planning.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <parquet/arrow/reader.h>
 
 #include "cascade_helpers.hpp"
@@ -93,26 +112,27 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return table;
 }
 
-// Count finite (non-NaN, non-Inf) doubles across every numeric column
-// of `table` that isn't a partition / index key.  Used to distinguish
-// "sim pass ran" (lots of finite duals/sols) from "sim pass skipped"
-// (all-NaN dual columns).
+// True for index / partition column names — value columns are everything
+// else.
+[[nodiscard]] constexpr auto is_index_column(std::string_view name) noexcept
+    -> bool
+{
+  return name == "scenario" || name == "stage" || name == "block"
+      || name == "scene" || name == "phase";
+}
+
+// Count finite (non-NaN, non-Inf) doubles across every numeric value
+// column of `table`.  Used to distinguish "sim pass ran" (lots of
+// finite duals/sols) from "sim pass skipped" (all-NaN dual columns).
 [[nodiscard]] auto count_finite_doubles(const arrow::Table& table)
     -> std::size_t
 {
   std::size_t finite_count = 0;
   for (int c = 0; c < table.num_columns(); ++c) {
-    const auto& col = table.column(c);
-    const auto& field_name = table.schema()->field(c)->name();
-    // Skip the partition / index columns (scenario / stage / block,
-    // and the hive partition fields scene / phase).  Only count
-    // double-typed value columns.
-    if (field_name == "scenario" || field_name == "stage"
-        || field_name == "block" || field_name == "scene"
-        || field_name == "phase")
-    {
+    if (is_index_column(table.schema()->field(c)->name())) {
       continue;
     }
+    const auto& col = table.column(c);
     if (col->type()->id() != arrow::Type::DOUBLE) {
       continue;
     }
@@ -120,11 +140,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
       const auto chunk =
           std::static_pointer_cast<arrow::DoubleArray>(col->chunk(ch));
       for (int64_t i = 0; i < chunk->length(); ++i) {
-        if (chunk->IsNull(i)) {
-          continue;
-        }
-        const auto v = chunk->Value(i);
-        if (std::isfinite(v)) {
+        if (!chunk->IsNull(i) && std::isfinite(chunk->Value(i))) {
           ++finite_count;
         }
       }
@@ -133,17 +149,16 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return finite_count;
 }
 
-// Aggregate `generation_sol` per (stage, block) row: sum across
-// every generator column.  Used to check energy balance vs demand.
+// Sum across value columns per row.  Inactive (NaN-filled) blocks
+// leave their row at 0.0 — caller filters by `total > eps` to skip
+// them.  Used for both `generation_sol` (sum of generators) and
+// `load_sol` (only one demand in the fixture, so the sum trivially
+// equals that demand's served value).
 [[nodiscard]] auto sum_per_row(const arrow::Table& table) -> std::vector<double>
 {
   std::vector<double> totals(static_cast<std::size_t>(table.num_rows()), 0.0);
   for (int c = 0; c < table.num_columns(); ++c) {
-    const auto& field_name = table.schema()->field(c)->name();
-    if (field_name == "scenario" || field_name == "stage"
-        || field_name == "block" || field_name == "scene"
-        || field_name == "phase")
-    {
+    if (is_index_column(table.schema()->field(c)->name())) {
       continue;
     }
     const auto& col = table.column(c);
@@ -155,11 +170,10 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
       const auto chunk =
           std::static_pointer_cast<arrow::DoubleArray>(col->chunk(ch));
       for (int64_t i = 0; i < chunk->length(); ++i) {
-        const auto idx = static_cast<std::size_t>(row_offset + i);
         if (!chunk->IsNull(i)) {
           const auto v = chunk->Value(i);
           if (std::isfinite(v)) {
-            totals[idx] += v;
+            totals[static_cast<std::size_t>(row_offset + i)] += v;
           }
         }
       }
@@ -169,16 +183,25 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return totals;
 }
 
-}  // namespace
-
-TEST_CASE(  // NOLINT
-    "Cascade: last-level simulation pass writes finite parquet outputs")
+// One end-to-end (build → solve → write_out → read-back) check at a
+// given low-memory mode + max_iterations.  Asserts on:
+//   * Σ generation == demand per active block (both sides of the
+//     bus balance row).
+//   * Σ served load (`load_sol`) == demand capacity per active block.
+//   * Bus balance duals are finite for ≥ half of active blocks
+//     (sim pass with crossover ran).
+auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
+    -> void
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  CAPTURE(enum_name(memory_mode));
+  CAPTURE(max_iters);
 
-  // ── Tmpdir for output ─────────────────────────────────────────
-  const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_cascade_parquet_test";
+  // Per-case tmpdir so concurrent SUBCASEs (and parallel test
+  // discovery) cannot stomp on each other's output.
+  const auto tmpdir = std::filesystem::temp_directory_path()
+      / std::format("gtopt_cascade_parquet_test_{}_iter{}",
+                    enum_name(memory_mode),
+                    max_iters);
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
@@ -186,19 +209,25 @@ TEST_CASE(  // NOLINT
   auto planning = make_3phase_hydro_planning();
   planning.options.output_directory = tmpdir.string();
   planning.options.output_format = DataFormat::parquet;
-  // Default fixture asks for csv/uncompressed; override above for
-  // parquet round-trip.  `output_compression` stays at uncompressed
-  // so the test doesn't depend on snappy / zstd availability.
   PlanningLP planning_lp(std::move(planning));
 
-  // ── Two-level cascade.  L0 short, L1 the rest.  This exercises ──
-  // the level-to-level cell transfer AND the last-level sim pass
-  // (the failure mode this test guards).
+  // ── Two-level cascade.  Each level inherits `max_iters` from the
+  // outer parameterisation so the test exercises:
+  //   max_iters=0 → no training, sim pass only (the most fragile
+  //                  path; sim must still produce a feasible LP from
+  //                  the initial α-bounds alone).
+  //   max_iters=1 → 1 training iter then sim.
+  //   max_iters=5 → enough iters to converge for this small fixture.
+  // For every value the served-demand answer must be the same (the
+  // network is far from binding).
   SDDPOptions base_opts;
-  base_opts.max_iterations = 8;
+  base_opts.max_iterations = max_iters;
+  base_opts.min_iterations =
+      0;  // allow max_iters=0 to bypass training entirely
   base_opts.convergence_tol = 0.01;
-  base_opts.apertures = std::vector<Uid> {};  // disable apertures
+  base_opts.apertures = std::vector<Uid> {};
   base_opts.enable_api = false;
+  base_opts.low_memory_mode = memory_mode;
 
   CascadeOptions cascade;
   cascade.level_array = {
@@ -206,7 +235,7 @@ TEST_CASE(  // NOLINT
           .name = OptName {"warmup"},
           .sddp_options =
               CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
+                  .max_iterations = OptInt {max_iters},
                   .apertures = Array<Uid> {},
               },
       },
@@ -214,7 +243,7 @@ TEST_CASE(  // NOLINT
           .name = OptName {"final"},
           .sddp_options =
               CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
+                  .max_iterations = OptInt {max_iters},
                   .apertures = Array<Uid> {},
               },
       },
@@ -224,11 +253,8 @@ TEST_CASE(  // NOLINT
   const SolverOptions lp_opts;
   const auto res = solver.solve(planning_lp, lp_opts);
   REQUIRE(res.has_value());
-
-  // Cascade reports two level_stats (one per level).
   REQUIRE(solver.level_stats().size() == 2);
 
-  // ── Write parquet outputs to tmpdir ───────────────────────────
   planning_lp.write_out();
 
   // OutputContext partitions on the SCENE uid (0-indexed; SceneLP
@@ -237,32 +263,61 @@ TEST_CASE(  // NOLINT
   // Phase UIDs are 1 / 2 / 3 (as declared in phase_array).
   constexpr gtopt::uid_t scene_uid = 0;
   constexpr std::array<gtopt::uid_t, 3> phase_uids = {1, 2, 3};
+  // Demand capacity from the fixture: 1 demand × 100 MW × 24 active
+  // blocks per phase × 3 phases = 7200 MWh balanced cells.
+  constexpr double expected_demand_mw = 100.0;
+  constexpr std::size_t active_blocks_per_phase = 24;
+  constexpr std::size_t expected_balanced_cells =
+      active_blocks_per_phase * phase_uids.size();
 
-  // ── 1. Generator/generation_sol — primal solutions ────────────
-  // Existence + finite values across every phase shard.
+  // ── 1. Generation balance: Σ generation == demand per block ────
   const auto gen_sol_root =
       std::filesystem::path(tmpdir) / "Generator" / "generation_sol.parquet";
   REQUIRE(std::filesystem::exists(gen_sol_root));
 
-  // OutputContext emits 72 rows per shard (one per simulation block);
-  // only 24 belong to the active phase, the rest are NaN-filled.
+  std::size_t gen_balanced_blocks = 0;
   for (const auto phase_uid : phase_uids) {
     CAPTURE(phase_uid);
     auto gen_sol = read_parquet_shard(gen_sol_root, scene_uid, phase_uid);
     REQUIRE(gen_sol != nullptr);
     CHECK(gen_sol->num_rows() == 72);
-    const auto finite_gen = count_finite_doubles(*gen_sol);
-    // 24 active blocks × 2 generators = 48 finite cells per phase.
-    CHECK(finite_gen >= 24);  // every active block has ≥1 generator dispatched
+    for (const auto total : sum_per_row(*gen_sol)) {
+      if (total > 1e-6) {
+        CHECK(total == doctest::Approx(expected_demand_mw).epsilon(1e-3));
+        ++gen_balanced_blocks;
+      }
+    }
   }
+  CHECK(gen_balanced_blocks == expected_balanced_cells);
 
-  // ── 2. Bus/balance_dual — proves the simulation pass ran ──────
-  // Training forward passes run with crossover=false, so row duals
-  // are NEVER populated.  Only the simulation pass (which uses
-  // crossover=true in run_scene_simulation) writes finite duals.
-  // If this assertion ever fails, the sim pass was silently
-  // skipped — exactly the bug the 2026-05 `should_stop()` patch
-  // in `scene_finished` fixed.
+  // ── 2. Served demand: load_sol == demand capacity per block ────
+  // load_sol = (demand capacity) − fail_sol.  With ~unlimited
+  // thermal headroom the LP must dispatch the full 100 MW every
+  // active block — fail_sol should be exactly zero.
+  const auto load_sol_root =
+      std::filesystem::path(tmpdir) / "Demand" / "load_sol.parquet";
+  REQUIRE(std::filesystem::exists(load_sol_root));
+
+  std::size_t load_balanced_blocks = 0;
+  for (const auto phase_uid : phase_uids) {
+    CAPTURE(phase_uid);
+    auto load_sol = read_parquet_shard(load_sol_root, scene_uid, phase_uid);
+    REQUIRE(load_sol != nullptr);
+    CHECK(load_sol->num_rows() == 72);
+    for (const auto served : sum_per_row(*load_sol)) {
+      if (served > 1e-6) {
+        CHECK(served == doctest::Approx(expected_demand_mw).epsilon(1e-3));
+        ++load_balanced_blocks;
+      }
+    }
+  }
+  CHECK(load_balanced_blocks == expected_balanced_cells);
+
+  // ── 3. Bus balance duals — sim pass with crossover ran ─────────
+  // Training forward passes use `crossover=false`, so row duals are
+  // never populated.  Only the simulation pass writes finite duals.
+  // Without the fix, every dual cell stays NaN regardless of
+  // `max_iters` or `memory_mode`.
   const auto bus_dual_root =
       std::filesystem::path(tmpdir) / "Bus" / "balance_dual.parquet";
   REQUIRE(std::filesystem::exists(bus_dual_root));
@@ -273,40 +328,51 @@ TEST_CASE(  // NOLINT
     REQUIRE(bus_dual != nullptr);
     total_finite_duals += count_finite_doubles(*bus_dual);
   }
-  // 1 bus × 24 active blocks × 3 phases = 72 dual cells.  The
-  // remaining 24×3 = 72 inactive blocks per shard stay NaN.
-  // Tolerate a few degenerate-block dual gaps (LP solver may
-  // mark some basic-row duals as null) by asking for at least
-  // half of the expected finite count.
-  CHECK(total_finite_duals >= 36);
+  // 1 bus × 24 active blocks × 3 phases = 72 finite cells expected.
+  // Allow some slack for degenerate-block dual gaps (LP solver may
+  // mark a few basic-row duals as null even with crossover); ask
+  // for at least half.
+  CHECK(total_finite_duals >= expected_balanced_cells / 2);
 
-  // ── 3. Energy balance: Σ generation ≈ demand per block ────────
-  // Demand is 100 MW.  Hydro+thermal capacity (50 + 500 = 550 MW)
-  // is far above demand, so the LP serves it fully.  Sum
-  // generation across the two generators per block and compare.
-  std::size_t balanced_blocks = 0;
-  for (const auto phase_uid : phase_uids) {
-    CAPTURE(phase_uid);
-    auto gen_sol = read_parquet_shard(gen_sol_root, scene_uid, phase_uid);
-    REQUIRE(gen_sol != nullptr);
-    const auto per_block_gen = sum_per_row(*gen_sol);
-    REQUIRE(per_block_gen.size() == 72);
-    for (std::size_t b = 0; b < per_block_gen.size(); ++b) {
-      // Inactive blocks for this phase are NaN-filled → sum_per_row
-      // skips them and leaves the slot at 0.0.  Only check the
-      // active blocks where generation was actually written.
-      if (per_block_gen[b] > 1e-6) {
-        CAPTURE(b);
-        CHECK(per_block_gen[b] == doctest::Approx(100.0).epsilon(1e-3));
-        ++balanced_blocks;
-      }
-    }
-  }
-  // 3 phases × 24 active blocks = 72 balanced (demand, hydro+thermal)
-  // entries.  Any drop below this means the sim pass under-wrote the
-  // shard — the original "sim skipped" bug surfaces as 0 here.
-  CHECK(balanced_blocks == 72);
-
-  // ── Cleanup ───────────────────────────────────────────────────
   std::filesystem::remove_all(tmpdir);
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "Cascade output: served demand + finite duals "
+    "across (memory_mode × max_iterations)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // ── LowMemoryMode::off — backend stays resident ─────────────────
+  SUBCASE("off, max_iters=0 (sim pass only)")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::off, 0);
+  }
+  SUBCASE("off, max_iters=1")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::off, 1);
+  }
+  SUBCASE("off, max_iters=5")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::off, 5);
+  }
+
+  // ── LowMemoryMode::compress — backend released, snapshot path ──
+  // This is the mode juan/IPLP uses; the rehydrate-then-write_out
+  // round trip is where the 2026-05 sim-pass-skip bug originally
+  // surfaced.
+  SUBCASE("compress, max_iters=0 (sim pass only)")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::compress, 0);
+  }
+  SUBCASE("compress, max_iters=1")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::compress, 1);
+  }
+  SUBCASE("compress, max_iters=5")
+  {
+    run_cascade_and_check_outputs(LowMemoryMode::compress, 5);
+  }
 }
