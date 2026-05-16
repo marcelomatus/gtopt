@@ -94,13 +94,17 @@ function(add_e2e_case case_name system_json)
     set_tests_properties(e2e_${case_name}_solve PROPERTIES LABELS "${ARG_LABELS}")
   endif()
 
-  # Test 2: validate the solution output structure and status
+  # Test 2: validate the solution output structure and status.
+  # Backed by `tools/validate_solution.py` — Python handles CSV
+  # parsing, numeric checks, and quoted-field semantics correctly
+  # (the prior `validate_solution.cmake` was lossy on obj_value=0
+  # because CMake coerces "0" to false in boolean context).
   add_test(
     NAME e2e_${case_name}_validate_solution
-    COMMAND ${CMAKE_COMMAND}
-      -DOUTPUT_DIR=${test_output}
-      -DEXPECTED_DIR=${expected_dir}
-      -P ${CMAKE_SCRIPTS_DIR}/validate_solution.cmake
+    COMMAND ${Python3_EXECUTABLE}
+      ${VALIDATE_SOLUTION_PY}
+      --output-dir ${test_output}
+      --expected-dir ${expected_dir}
   )
   set_tests_properties(e2e_${case_name}_validate_solution
     PROPERTIES DEPENDS e2e_${case_name}_solve

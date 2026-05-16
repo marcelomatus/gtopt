@@ -146,6 +146,17 @@ include(TestParallelism)
 set(CASES_DIR "${CMAKE_CURRENT_LIST_DIR}/../cases")
 set(CMAKE_SCRIPTS_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
+# Locate the Python validator (`tools/validate_solution.py`) plus a
+# Python interpreter to drive it.  Both are consumed by
+# `add_e2e_case()` for the `e2e_<case>_validate_solution` test step.
+set(VALIDATE_SOLUTION_PY
+    "${CMAKE_CURRENT_LIST_DIR}/../tools/validate_solution.py")
+if(NOT EXISTS "${VALIDATE_SOLUTION_PY}")
+  message(FATAL_ERROR
+    "tools/validate_solution.py not found at: ${VALIDATE_SOLUTION_PY}")
+endif()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 include(${CMAKE_SCRIPTS_DIR}/add_e2e_case.cmake)
 include(${CMAKE_SCRIPTS_DIR}/add_sddp_case.cmake)
 
