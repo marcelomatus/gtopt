@@ -117,12 +117,13 @@ TEST_CASE("add_col_disposable rejects duplicate disposable metadata")
 
   // Same (class, variable, uid, context) — must throw.
   {
-    [[maybe_unused]] auto _ = li.add_col_disposable(SparseCol {
+    auto try_add = [&] { (void)li.add_col_disposable(SparseCol {
         .uppb = 2.0,
         .class_name = "TestDisp",
         .variable_name = "slack",
         .variable_uid = 7,
-    });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 
@@ -142,12 +143,13 @@ TEST_CASE("add_col_disposable rejects duplicate of a shared production col")
   // col — must be rejected so we don't silently shadow the shared
   // entry with a clone-local one.
   {
-    [[maybe_unused]] auto _ = li.add_col_disposable(SparseCol {
+    auto try_add = [&] { (void)li.add_col_disposable(SparseCol {
         .uppb = 1.0,
         .class_name = "Shared",
         .variable_name = "production",
         .variable_uid = 99,
-    });
+    }); };
+    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 }
 
