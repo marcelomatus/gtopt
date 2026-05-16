@@ -17,6 +17,7 @@
 #include <arrow/csv/api.h>
 #include <arrow/io/api.h>
 #include <gtopt/as_label.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -724,6 +725,15 @@ using namespace gtopt::detail;
         }
         if (n_finite > 0) {
           const double c_bar = sum_at_mid / static_cast<double>(n_finite);
+          // Store the raw c̄ — the α variable's objective coefficient
+          // is 1.0 (physical $; see
+          // `sddp_method_alpha.cpp::register_alpha_variables` comment "physical
+          // cost: α is in $ — scaling handled by emit_col_to_backend"), so when
+          // the LP picks α' = α − c̄ the obj_value drops by exactly c̄ (not cf ×
+          // c̄).  Adding raw c̄ back at every UB/LB display site recovers the
+          // unshifted objective.  The constant is symmetric on UB and LB, so
+          // the gap is invariant — the LP itself stays algebraically equivalent
+          // to the unshifted formulation.
           scene_c_bar[si] = c_bar;
           if (c_bar != 0.0) {
             for (auto& cut : cuts) {
@@ -785,17 +795,14 @@ using namespace gtopt::detail;
             c_bar,
             cuts.size());
       }
-      // After every boundary cut on this scene's α_T is installed,
-      // derive a universal lower-bound floor on α from the cuts'
-      // RHS + coefficients projected onto the state-variable bound
-      // box (see `apply_terminal_alpha_floor` in
-      // sddp_method_alpha.cpp).  This pins α_T's column at the
-      // tightest cut-derived floor (clamped at 0), so aperture
-      // clones with perturbed trial states that fall outside the
-      // cuts' polyhedral region still see a finite α_T — closing the
-      // `CPX_STAT_UNBOUNDED` window observed at the terminal phase
-      // on juan/gtopt_iplp_plain.
-      apply_terminal_alpha_floor(planning_lp, si);
+      // Terminal α stays free (no derived floor).  An earlier version
+      // pinned α_T's column at a cut-derived lower-bound floor to
+      // close a `CPX_STAT_UNBOUNDED` window on aperture clones with
+      // perturbed trial states; under mean-shift the floor was
+      // conflated with α's natural movement, so we drop the pin
+      // entirely.  α_T behaves like any other α_t — bounded only by
+      // its cuts.  Re-add the floor here if `CPX_STAT_UNBOUNDED`
+      // resurfaces at the terminal phase under aperture perturbations.
     }
 
     if (cuts_skipped > 0) {

@@ -324,13 +324,23 @@ public:
              enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
-            const auto value = proj(stiter->second.at(buid));
-            values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
+            // Tolerant inner lookup: the P1 zero-bound skip in
+            // `generator_lp.cpp:131` / `waterway_lp.cpp:72` /
+            // `demand_lp.cpp:206` may have elided individual block
+            // entries while leaving the outer (scenario, stage) key
+            // populated.  `.at(buid)` would throw `std::out_of_range`
+            // on those missing blocks; treat them the same as the
+            // outer-key-missing case (valid[idx] = false).
+            if (auto it = stiter->second.find(buid); it != stiter->second.end())
+            {
+              const auto value = proj(it->second);
+              values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
 
-            valid[idx] = true;
-            ++count;
+              valid[idx] = true;
+              ++count;
 
-            need_values = true;
+              need_values = true;
+            }
           }
           need_valids |= count != ++idx;
         }
@@ -386,14 +396,20 @@ public:
              enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
-            const auto value = proj(stiter->second.at(buid));
-            values[idx] =
-                factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
+            // Tolerant inner lookup (see the non-st_scale overload
+            // above): P1 zero-bound skips may elide individual block
+            // entries while keeping the outer (scenario, stage) key.
+            if (auto it = stiter->second.find(buid); it != stiter->second.end())
+            {
+              const auto value = proj(it->second);
+              values[idx] =
+                  factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
 
-            valid[idx] = true;
-            ++count;
+              valid[idx] = true;
+              ++count;
 
-            need_values = true;
+              need_values = true;
+            }
           }
           need_valids |= count != ++idx;
         }

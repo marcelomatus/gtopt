@@ -434,17 +434,18 @@ class GTOptWriter(
     ) -> dict[str, Any]:
         """Build a 4-level default cascade configuration.
 
-        Iteration budget split (PLP's ``PDMaxIte`` = ``total_iter``):
-          - L0 ``warmup``:        ``total_iter``     — single-bus, 1
-            wettest aperture; builds the initial value-function envelope
-            from the alpha-bootstrap floor.
-          - L1 ``uninodal``:      ``total_iter``     — single-bus, 4
-            stride apertures; inherits warmup's cuts.
-          - L2 ``transport``:     ``total_iter / 2`` — line constraints
-            on, no losses, no kirchhoff; inherits uninodal's cuts.
-          - L3 ``full_network``:  ``total_iter / 2`` — full physics
-            (kirchhoff + line losses as configured); inherits transport's
-            cuts.
+        Iteration budgets (PLP's ``PDMaxIte`` = ``total_iter``):
+          - L0 ``warmup``:       ``2 × total_iter`` — cheapest iter
+            (1 aperture × single-bus), worth the extra headroom for
+            the bootstrap policy that every later level inherits.
+          - L1 / L2 / L3:        ``total_iter`` each.  Earlier the
+            deeper levels were capped at ``total_iter / 2`` on the
+            rationale that inherited cuts converge them faster, but
+            the asymmetric caps made the transport / full_network
+            exits opaque (e.g. "why did transport stop at iter 6?").
+            With uniform ``total_iter`` caps, each level either
+            stationary-converges or hits its own explicit budget — no
+            magic-number ratios.
 
         Aperture budget split (via ``SddpOptions.num_apertures`` and
         ``SddpOptions.aperture_selection_mode``):
@@ -505,20 +506,19 @@ class GTOptWriter(
         convergence_tol = sddp_opts.get("convergence_tol", 0.01)
 
         # ── Iteration budgets (floored at 1; see docstring §1) ──
-        # Per-level max_iterations: L0 gets 2 × PDMaxIte (doubled on
-        # 2026-05-15 because L0 runs the cheapest 1-aperture iter
-        # — ~6-8 s at threads=1 — and the bootstrap is the most
-        # important policy seed for L1+ to inherit; giving it more
-        # headroom to drive Δgap to the 0.025 % floor pays off in
-        # every later level's starting envelope); L1 gets the full
-        # PDMaxIte (4-aperture iters still cheap); L2 / L3 get
-        # PDMaxIte/2 — their iters are 10-30× slower (8 / all
-        # apertures × multi-bus × full physics) and the inherited
-        # cut envelope makes them converge faster anyway.
+        # L0 gets 2 × total_iter (cheapest 1-aperture iter — doubling
+        # buys the most policy-seed headroom).  L1/L2/L3 each receive
+        # the full ``total_iter`` budget.  Earlier the deeper levels
+        # were capped at ``total_iter / 2`` on the rationale that
+        # inherited cuts would converge them faster, but the
+        # asymmetric caps made the transport / full_network exits
+        # opaque (e.g. "why did transport stop at iter 6?").  Each
+        # level now either stationary-converges or hits its own
+        # explicit cap.
         l0_iter = max(2 * total_iter, 1)
         l1_iter = max(total_iter, 1)
-        l2_iter = max(total_iter // 2, 1)
-        l3_iter = max(total_iter // 2, 1)
+        l2_iter = max(total_iter, 1)
+        l3_iter = max(total_iter, 1)
 
         # ── Cascade-global options ─────────────────────────────────────
         # ``max_iterations`` here is a GLOBAL budget across all levels

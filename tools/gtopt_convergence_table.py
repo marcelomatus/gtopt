@@ -76,16 +76,20 @@ LOG_FILE_RE = re.compile(r"^gtopt_\d+\.log$")
 
 
 def fmt_money(x: float | None) -> str:
-    """Format a money-like number as e.g. ``2.874G`` / ``18.45M`` / ``42.1k``."""
+    """Format a money-like number as e.g. ``2.87451G`` / ``18.4567M`` /
+    ``42.123k``.  Precision: 5dp for G / 4dp for M / 3dp for k / 2dp for
+    bare units — enough to distinguish multi-million-dollar SDDP bounds
+    that differ in the 4th–5th significant digit (e.g. UB drift across
+    iter-by-iter Δgap convergence)."""
     if x is None:
         return "—"
     a = abs(x)
     if a >= 1e9:
-        return f"{x / 1e9:.3f}G"
+        return f"{x / 1e9:.5f}G"
     if a >= 1e6:
-        return f"{x / 1e6:.2f}M"
+        return f"{x / 1e6:.4f}M"
     if a >= 1e3:
-        return f"{x / 1e3:.2f}k"
+        return f"{x / 1e3:.3f}k"
     return f"{x:.2f}"
 
 
@@ -577,9 +581,18 @@ def render_table(
 
     bar = "═" * width
     sep = "─" * width
+    # Two Δgap columns:
+    #   Δgap(gt)   = gtopt's WINDOWED stationary metric parsed from
+    #                the log (the value the solver compares against
+    #                `stationary_tol`).
+    #   Δgap(now)  = tool-computed per-iter |ΔUB|/|UB|, no windowing.
+    #                Useful for spotting iters where the policy moved
+    #                a lot at this single step even if the windowed
+    #                metric stays small (or vice versa).
     iter_header = (
         f"  {'iter':>4}   {'UB':>7}    {'LB':>7}    "
-        f"{'gap':>11}   {'Δgap':>11}   {'kappa':>9}    "
+        f"{'gap':>11}   {'Δgap(gt)':>11}   {'Δgap(now)':>11}   "
+        f"{'kappa':>9}    "
         f"{'iter_wall':>10}   {'level_wall':>11}   {'total_wall':>11}    note"
     )
 
@@ -612,8 +625,11 @@ def render_table(
             header_fields.append(f"max_iters={c.max_iterations}")
         if c.num_apertures is not None:
             header_fields.append(f"apertures={c.num_apertures}")
-        if c.convergence_tol is not None:
-            header_fields.append(f"tol={c.convergence_tol:g}")
+        # `convergence_tol` (the legacy |gap| threshold) is no longer
+        # consumed by gtopt — the post-2026-05-14 SDDP convergence path
+        # is purely ΔUB stationarity (see `sddp_iteration.cpp`).  Hide
+        # it from the level header so the displayed knobs match what
+        # the solver actually checks.
         if c.stationary_tol is not None:
             header_fields.append(f"stationary_tol={c.stationary_tol:g}")
         if c.stationary_gap_ceiling is not None:
@@ -642,29 +658,36 @@ def render_table(
             level_wall = r.mtime - level_start
             total_wall = r.mtime - t0
 
-            # Δgap: prefer gtopt's WINDOWED Δgap from the log
-            # (``r.delta_gap``, populated by ``parse_log``).  This is
-            # the authoritative metric the SDDP convergence check
-            # evaluates against ``stationary_tol`` — it uses a
-            # multi-iter lookback to filter sample noise, so it can
-            # differ substantially from a naïve per-iter |ΔUB|/|UB|.
-            # Pre-fix, the table showed the proxy and misled the user
-            # into thinking convergence should fire one iter earlier
-            # than it actually does (e.g. iter 18 proxy = 0.24 % vs
-            # gtopt's actual Δgap = 1.20 % at the same iter).
+            # Two Δgap values shown side by side:
             #
-            # Cross-level override: gtopt emits Δgap = 100 % (the
-            # "no prior" sentinel) at the FIRST iter of every cascade
-            # level because its per-level iter tracker resets on
-            # construction.  For the display table that sentinel is
+            #   delta_gap_gt — gtopt's WINDOWED Δgap from the log
+            #     (``r.delta_gap``, populated by ``parse_log``).  This
+            #     is the authoritative metric the SDDP convergence
+            #     check evaluates against ``stationary_tol``.  Uses a
+            #     multi-iter lookback to filter sample noise, so it
+            #     can differ substantially from a naïve per-iter
+            #     |ΔUB|/|UB|.
+            #
+            #   delta_gap_now — tool-computed per-iter |ΔUB|/|UB|
+            #     against the PREVIOUS row's UB (or the cross-level
+            #     anchor for the first row of a non-first level).
+            #     No windowing.  Useful for spotting iters where the
+            #     policy moved a lot at this single step even if
+            #     gtopt's windowed metric stays small (or vice
+            #     versa) — and for cross-checking the parser.
+            #
+            # Cross-level override (applies to both): gtopt emits
+            # Δgap = 100 % (the "no prior" sentinel) at the FIRST iter
+            # of every cascade level because its per-level iter
+            # tracker resets.  For the table that sentinel is
             # uninformative — every cascade boundary shows a misleading
             # +100 % jump.  When this row is the first of a non-first
             # level AND we have a carried `cross_level_prev_ub` from
-            # the previous level's tail, recompute Δgap against the
-            # cross-level anchor instead.  The solver's own
-            # convergence check still uses its per-level reset value;
-            # this override is purely for the table.
-            delta_gap: float | None = r.delta_gap
+            # the previous level's tail, recompute against the
+            # cross-level anchor for BOTH columns.
+            delta_gap_gt: float | None = r.delta_gap
+            delta_gap_now: float | None = None
+
             is_first_row_of_non_first_level = (
                 row_idx == 0 and cross_level_prev_ub is not None
             )
@@ -673,15 +696,22 @@ def render_table(
                 and r.upper_bound is not None
                 and cross_level_prev_ub != 0
             ):
-                delta_gap = abs(r.upper_bound - cross_level_prev_ub) / abs(
+                cross = abs(r.upper_bound - cross_level_prev_ub) / abs(
                     cross_level_prev_ub
                 )
-            elif delta_gap is None:
+                delta_gap_gt = cross
+                delta_gap_now = cross
+            else:
+                # Tool-side per-iter Δgap against prev_ub.
                 if r.upper_bound is not None and prev_ub is not None and prev_ub != 0:
-                    delta_gap = abs(r.upper_bound - prev_ub) / abs(prev_ub)
+                    delta_gap_now = abs(r.upper_bound - prev_ub) / abs(prev_ub)
                 elif r.upper_bound is not None and prev_ub is None:
-                    # First iter we see with UB — no lookback to compute Δ.
-                    delta_gap = 1.0  # sentinel matches gtopt's "no prior" default
+                    delta_gap_now = 1.0  # sentinel for "no prior"
+                # Fill gtopt-side from tool-side only when the log
+                # parse genuinely produced None (i.e. the log line
+                # had no Δgap field) — never overwrite a real value.
+                if delta_gap_gt is None:
+                    delta_gap_gt = delta_gap_now
             # Update lookback anchor only when we have a real UB.
             if r.upper_bound is not None:
                 prev_ub = r.upper_bound
@@ -692,7 +722,9 @@ def render_table(
             out.append(
                 f"  {r.iter:>4d}   {fmt_money(r.upper_bound):>7}    "
                 f"{fmt_money(r.lower_bound):>7}    "
-                f"{fmt_pct(r.gap):>11}   {fmt_pct(delta_gap):>11}   "
+                f"{fmt_pct(r.gap):>11}   "
+                f"{fmt_pct(delta_gap_gt):>11}   "
+                f"{fmt_pct(delta_gap_now):>11}   "
                 f"{fmt_kappa(r.kappa):>9}    "
                 f"{fmt_wall(iter_wall_s):>10}   "
                 f"{fmt_wall(level_wall):>11}   "
@@ -794,16 +826,32 @@ def main(argv: list[str] | None = None) -> int:
     # gtopt writes its log under `<case_dir>/output/logs/gtopt_N.log` by
     # default (the `output` subdir is created by `setup_file_logging`,
     # independent of the `results/` directory used for cut/parquet
-    # output).  Search several conventional locations so the script
-    # works regardless of where the run was launched from.
+    # output).  When the run is launched from the case's parent
+    # directory the log instead lands under `<parent>/output/logs/` —
+    # so we also probe one level up.  Pick the FIRST candidate that
+    # actually contains a `gtopt_*.log` file, not just the first that
+    # exists: prior behaviour stopped at an empty `case_dir/output/
+    # logs/` and never fell through to the populated alternative,
+    # which dropped the tool back to the cut-file fallback path with
+    # no UB / LB / kappa per iter.
     log_search_dirs = [
         case_dir / "output" / "logs",
         results_dir / "logs",
         case_dir / "logs",
+        case_dir.parent / "output" / "logs",
     ]
+
+    def _dir_has_log(d: Path) -> bool:
+        if not d.is_dir():
+            return False
+        try:
+            return any(LOG_FILE_RE.match(p.name) for p in d.iterdir())
+        except OSError:
+            return False
+
     logs_dir = next(
-        (d for d in log_search_dirs if d.is_dir()),
-        log_search_dirs[0],
+        (d for d in log_search_dirs if _dir_has_log(d)),
+        next((d for d in log_search_dirs if d.is_dir()), log_search_dirs[0]),
     )
 
     cfgs = parse_level_configs(input_json)

@@ -264,6 +264,109 @@ TEST_CASE("Flat Helper - Edge Cases")
   }
 }
 
+// Regression test for the P1 zero-bound skip contract.
+//
+// `GeneratorLP` / `WaterwayLP` / `DemandLP` may elide per-block LP
+// columns when both dispatch bounds collapse to `[0, 0]`.  When SOME
+// blocks of an (s, t) cell are elided but others survive, the outer
+// (s, t) key in the holder is present and the inner BIndexHolder is
+// non-empty — but it lacks the elided block uids.  Pre-2026-05-15
+// the flat() helper called `stiter->second.at(buid)` unconditionally,
+// which threw `std::out_of_range` on the elided blocks and caused
+// `write_out()` to crash on the juan/IPLP case during the SDDP
+// simulation pass.  The fixed helper uses `find()` and falls through
+// to `valid[idx] = false` for missing blocks — same behaviour as the
+// outer-key-missing case.
+TEST_CASE("Flat Helper - STBIndexHolder tolerates partial-block elision")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const PlanningOptionsLP options;
+  const Simulation psimulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+              {
+                  .uid = Uid {1},
+              },
+          },
+      .stage_array = {{.uid = Uid {0}}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const SimulationLP simulation {psimulation, options};
+  const FlatHelper helper(simulation);
+
+  SUBCASE("STBIndexHolder - inner map missing one block (no factor)")
+  {
+    // Outer (scenario 0, stage 0) is present, inner map has ONLY
+    // Block 0 — Block 1 was elided by a P1 zero-bound skip.  Pre-fix
+    // this threw std::out_of_range on `at(Block 1)`.
+    STBIndexHolder<Index> holder;
+    const IndexHolder0<BlockUid> partial = {
+        {make_uid<Block>(0), 10},
+    };
+    holder[{make_uid<Scenario>(0), make_uid<Stage>(0)}] = partial;
+
+    auto [values, valid] = helper.flat(holder, [](auto v) { return v; });
+    REQUIRE(values.size() == 2);
+    REQUIRE(valid.size() == 2);
+    CHECK(values[0] == doctest::Approx(10.0));
+    CHECK(values[1] == doctest::Approx(0.0));
+    CHECK(valid[0] == true);
+    CHECK(valid[1] == false);
+  }
+
+  SUBCASE("STBIndexHolder - inner map missing one block (with factor)")
+  {
+    // Same as above but with a non-empty per-block factor matrix to
+    // exercise the multiplicative path (values[idx] = value * factor).
+    STBIndexHolder<Index> holder;
+    const IndexHolder0<BlockUid> partial = {
+        {make_uid<Block>(1), 20},
+    };
+    holder[{make_uid<Scenario>(0), make_uid<Stage>(0)}] = partial;
+
+    block_factor_matrix_t factor(1, 1);
+    factor[0][0] = {3.0, 5.0};  // per-block factors for blocks 0,1
+
+    auto [values, valid] =
+        helper.flat(holder, [](auto v) { return v; }, factor);
+    REQUIRE(values.size() == 2);
+    REQUIRE(valid.size() == 2);
+    CHECK(values[0] == doctest::Approx(0.0));
+    CHECK(values[1] == doctest::Approx(100.0));  // 20 × 5.0
+    CHECK(valid[0] == false);
+    CHECK(valid[1] == true);
+  }
+
+  SUBCASE("STBIndexHolder - st_scale overload also tolerates elision")
+  {
+    // Same scenario but exercising the st_scale overload (line ~357
+    // in flat_helper.hpp), used by StorageLP::add_to_output to
+    // back-scale daily-cycle volume-balance duals.
+    STBIndexHolder<Index> holder;
+    const IndexHolder0<BlockUid> partial = {
+        {make_uid<Block>(0), 8},
+    };
+    holder[{make_uid<Scenario>(0), make_uid<Stage>(0)}] = partial;
+
+    block_factor_matrix_t factor;
+    STIndexHolder<double> st_scale;
+    st_scale[{make_uid<Scenario>(0), make_uid<Stage>(0)}] = 2.0;
+
+    auto [values, valid] =
+        helper.flat(holder, [](auto v) { return v; }, factor, st_scale);
+    REQUIRE(values.size() == 2);
+    REQUIRE(valid.size() == 2);
+    CHECK(values[0] == doctest::Approx(16.0));  // 8 × 2.0 (ss)
+    CHECK(values[1] == doctest::Approx(0.0));
+    CHECK(valid[0] == true);
+    CHECK(valid[1] == false);
+  }
+}
+
 TEST_CASE("FlatHelper Move Semantics")
 {
   const PlanningOptionsLP options;
