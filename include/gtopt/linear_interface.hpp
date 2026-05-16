@@ -892,7 +892,7 @@ public:
    * @param col The sparse column specification
    * @return The index of the newly added column
    */
-  ColIndex add_col(const SparseCol& col);
+  [[nodiscard]] ColIndex add_col(const SparseCol& col);
 
   /**
    * @brief Adds a new column WITHOUT extending `m_col_scales_`.
@@ -993,7 +993,7 @@ public:
    *            are ignored).
    * @return The index of the newly added row.
    */
-  RowIndex add_row(const SparseRow& row, double eps = 0.0);
+  [[nodiscard]] RowIndex add_row(const SparseRow& row, double eps = 0.0);
 
   /**
    * @brief Add a row in LP-raw space (skip col_scale / row-max

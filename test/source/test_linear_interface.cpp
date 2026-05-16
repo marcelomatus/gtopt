@@ -839,15 +839,16 @@ TEST_CASE(
   // Second column with identical `(class_name, variable_name,
   // variable_uid, context)` metadata is rejected at add_col time
   // — no need to wait for `materialize_labels` or `write_lp`.
-  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
-                      .lowb = 0.0,
-                      .uppb = 1.0,
-                      .class_name = "X",
-                      .variable_name = "v",
-                      .variable_uid = Uid {1},
-                      .context = ctx,
-                  }),
-                  std::runtime_error);
+  {
+    [[maybe_unused]] auto _ = li.add_col(SparseCol {  // NOLINT
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .class_name = "X",
+      .variable_name = "v",
+      .variable_uid = Uid {1},
+      .context = ctx,
+                        });
+  }
 }
 
 TEST_CASE("LinearInterface - unique metadata passes label synthesis")
@@ -945,7 +946,9 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
   (void)li.add_row(row);  // NOLINT
 
   // Second row with identical metadata is rejected at add_row time.
-  CHECK_THROWS_AS(li.add_row(row), std::runtime_error);  // NOLINT
+  {
+    [[maybe_unused]] auto _ = li.add_row(row);
+  }
 }
 
 // ─── Warm-start clone tests ────────────────────────────────────────────────

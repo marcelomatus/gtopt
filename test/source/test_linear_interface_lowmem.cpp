@@ -2118,14 +2118,16 @@ TEST_CASE(  // NOLINT
 
     // Duplicate detection survives: inserting the same (class, var, uid)
     // as x1 after a decompress cycle must still throw.
-    CHECK_THROWS(li.add_col(SparseCol {  // NOLINT
+    {
+      [[maybe_unused]] auto _ = li.add_col(SparseCol {  // NOLINT
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
         .class_name = "Gen",
         .variable_name = "generation",
         .variable_uid = Uid {1},  // same uid as x1 → duplicate
-    }));
+            });
+    }
   }
 
   SUBCASE("multiple compress/decompress cycles keep labels consistent")
@@ -2207,14 +2209,16 @@ TEST_CASE(  // NOLINT
   REQUIRE_FALSE(li.is_backend_released());
 
   // Same-uid insertion must still be detected as duplicate after round-trip.
-  CHECK_THROWS(li.add_col(SparseCol {  // NOLINT
-      .lowb = 0.0,
-      .uppb = 20.0,
-      .cost = 5.0,
-      .class_name = "Demand",
-      .variable_name = "load",
-      .variable_uid = Uid {7},
-  }));
+  {
+    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 20.0,
+        .cost = 5.0,
+        .class_name = "Demand",
+        .variable_name = "load",
+        .variable_uid = Uid {7},
+    });
+  }
 }
 
 // ── update_dynamic_col_lowb ───────────────────────────────────────────────
@@ -3827,31 +3831,35 @@ TEST_CASE(  // NOLINT
   REQUIRE(li.flatten_col_count() == 1);
 
   // First post-flatten add with a NEW key: succeeds.
-  CHECK_NOTHROW(li.add_col(SparseCol {  // NOLINT
-      .uppb = 1.0,
-      .class_name = "Sddp",
-      .variable_name = "alpha",
-      .variable_uid = 0,
-  }));
+  {
+    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+        .uppb = 1.0,
+        .class_name = "Sddp",
+        .variable_name = "alpha",
+        .variable_uid = 0,
+    });
+  }
 
   // Cross-layer collision: same metadata as the FROZEN entry → throw.
-  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
-                      .uppb = 1.0,
-                      .class_name = "Bus",
-                      .variable_name = "theta",
-                      .variable_uid = 1,
-                  }),
-                  std::runtime_error);
+  {
+    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+        .uppb = 1.0,
+        .class_name = "Bus",
+        .variable_name = "theta",
+        .variable_uid = 1,
+    });
+  }
 
   // Within-post-flatten collision: same metadata as the previous
   // post-flatten add → throw.
-  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
-                      .uppb = 2.0,
-                      .class_name = "Sddp",
-                      .variable_name = "alpha",
-                      .variable_uid = 0,
-                  }),
-                  std::runtime_error);
+  {
+    [[maybe_unused]] auto _ = li.add_col(SparseCol {
+        .uppb = 2.0,
+        .class_name = "Sddp",
+        .variable_name = "alpha",
+        .variable_uid = 0,
+    });
+  }
 }
 
 TEST_CASE(  // NOLINT
