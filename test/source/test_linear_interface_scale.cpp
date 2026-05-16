@@ -1368,7 +1368,7 @@ TEST_CASE(  // NOLINT
   {
     ColIndex c0_single {0};
     auto li = make_base_li(c0_single);
-    li.add_row(cut_row);
+    (void)li.add_row(cut_row);  // NOLINT
 
     const auto status = li.initial_solve({});
     REQUIRE((status && *status == 0));
@@ -1773,7 +1773,7 @@ TEST_CASE("add_cols: bulk path applies col.scale consistently with add_col")
           .scale = 10.0,
       },
   });
-  li.add_cols(cols);
+  (void)li.add_cols(cols);  // NOLINT
 
   // raw = cost × scale / scale_obj
   // col0: 2 × 1 / 1000 = 0.002
@@ -1823,7 +1823,7 @@ TEST_CASE("add_cols_raw: does NOT apply col.scale to cost")
           .scale = 10.0,
       },
   });
-  li.add_cols_raw(cols);
+  (void)li.add_cols_raw(cols);  // NOLINT
 
   // raw path ignores col.scale: 20 / 1000 = 0.02
   // (physical path would be 20 × 10 / 1000 = 0.2)

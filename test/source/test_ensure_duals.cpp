@@ -42,7 +42,7 @@ TEST_CASE("LinearInterface - ensure_duals no-op for simplex solve")  // NOLINT
   row[x2] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::dual,
@@ -76,7 +76,7 @@ TEST_CASE(
   row1[x2] = 1.0;
   row1.lowb = 5.0;
   row1.uppb = LinearProblem::DblMax;
-  li.add_row(row1);
+  (void)li.add_row(row1);  // NOLINT
 
   auto res1 = li.initial_solve(SolverOptions {
       .log_level = 0,
@@ -88,7 +88,7 @@ TEST_CASE(
   SparseRow row2;
   row2[x1] = 1.0;
   row2.uppb = 3.0;
-  li.add_row(row2);
+  (void)li.add_row(row2);  // NOLINT
   CHECK(li.get_numrows() == 2);
 
   // Resolve
@@ -118,7 +118,7 @@ TEST_CASE("LinearInterface - get_row_dual on infeasible problem")  // NOLINT
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto result = li.initial_solve(SolverOptions {
       .log_level = 0,
@@ -150,7 +150,7 @@ TEST_CASE(
   row[x2] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
@@ -186,7 +186,7 @@ TEST_CASE(
   row[x2] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
@@ -236,7 +236,7 @@ TEST_CASE(
   row[x2] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   // Initial solve with crossover (normal)
   auto res1 = li.initial_solve(SolverOptions {

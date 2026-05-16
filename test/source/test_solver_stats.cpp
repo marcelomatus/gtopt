@@ -350,7 +350,7 @@ TEST_CASE("SolverStats counts primal-infeasible solves")  // NOLINT
   row[x] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto r = li.initial_solve(SolverOptions {.log_level = 0});
   REQUIRE_FALSE(r.has_value());

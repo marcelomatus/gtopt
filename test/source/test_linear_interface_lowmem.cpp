@@ -45,7 +45,7 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
     row[x1] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
+    (void)li.add_row(row);  // NOLINT
 
     auto result = li.initial_solve(SolverOptions {
         .algorithm = algo,
@@ -79,7 +79,7 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
     row[x1] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
+    (void)li.add_row(row);  // NOLINT
 
     auto result = li.resolve(SolverOptions {
         .algorithm = algo,
@@ -120,7 +120,7 @@ TEST_CASE(
     row[x2] = 1.0;
     row.lowb = 4.0;
     row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
+    (void)li.add_row(row);  // NOLINT
 
     auto result = li.initial_solve(SolverOptions {
         .algorithm = algo,
@@ -150,7 +150,7 @@ TEST_CASE(
   row[x1] = 1.0;
   row.lowb = 1.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   // First solve: feasible
   auto r1 = li.initial_solve(SolverOptions {
@@ -388,7 +388,7 @@ TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   SUBCASE("initial_solve")
   {
@@ -431,7 +431,7 @@ TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto result = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
@@ -871,7 +871,7 @@ TEST_CASE(
   extra[x2] = 1.0;
   extra.lowb = 3.0;
   extra.uppb = LinearProblem::DblMax;
-  li.add_row(extra);
+  (void)li.add_row(extra);  // NOLINT
   li.record_dynamic_row(extra);
 
   CHECK(li.get_numrows() == base_nrows + 1);
@@ -934,7 +934,7 @@ TEST_CASE(
   row[sdn_col] = 1.0;
   row.lowb = 3.0;
   row.uppb = 3.0;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
   li.record_dynamic_row(row);
 
   CHECK(li.get_numcols() == base_ncols + 2);
@@ -1023,7 +1023,7 @@ TEST_CASE("LinearInterface — low_memory reconstruct with cuts")  // NOLINT
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 3.0;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
 
   CHECK(li.get_numrows() == base_nrows + 1);
@@ -1176,14 +1176,14 @@ TEST_CASE("LinearInterface — low_memory cut deletion tracking")  // NOLINT
   cut0[x2] = 1.0;
   cut0.lowb = 4.0;
   cut0.uppb = LinearProblem::DblMax;
-  li.add_row(cut0);
+  (void)li.add_row(cut0);  // NOLINT
   li.record_cut_row(cut0);
 
   SparseRow cut1;
   cut1[x1] = 1.0;
   cut1.lowb = -LinearProblem::DblMax;
   cut1.uppb = 2.0;
-  li.add_row(cut1);
+  (void)li.add_row(cut1);  // NOLINT
   li.record_cut_row(cut1);
 
   // Delete cut0 (absolute row index = base + 0)
@@ -1401,7 +1401,7 @@ TEST_CASE("LinearInterface — low_memory hot-start cut replay")  // NOLINT
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 3.0;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
 
   // Release and reconstruct — the recorded cut must be replayed.
@@ -1469,7 +1469,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
   cut1[x1] = 1.0;
   cut1.lowb = -LinearProblem::DblMax;
   cut1.uppb = 4.0;
-  li.add_row(cut1);
+  (void)li.add_row(cut1);  // NOLINT
   li.record_cut_row(cut1);
 
   li.release_backend();
@@ -1486,7 +1486,7 @@ TEST_CASE("LinearInterface — low_memory level 2 multiple cycles")  // NOLINT
   cut2[x2] = 1.0;
   cut2.lowb = 3.0;
   cut2.uppb = LinearProblem::DblMax;
-  li.add_row(cut2);
+  (void)li.add_row(cut2);  // NOLINT
   li.record_cut_row(cut2);
 
   li.release_backend();
@@ -1772,7 +1772,7 @@ TEST_CASE(
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 4.0;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
 
   auto r1 = li.resolve();
@@ -2118,7 +2118,7 @@ TEST_CASE(  // NOLINT
 
     // Duplicate detection survives: inserting the same (class, var, uid)
     // as x1 after a decompress cycle must still throw.
-    CHECK_THROWS(li.add_col(SparseCol {
+    CHECK_THROWS(li.add_col(SparseCol {  // NOLINT
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
@@ -2172,7 +2172,7 @@ TEST_CASE(  // NOLINT
   row.class_name = "Demand";
   row.constraint_name = "capacity";
   row.variable_uid = Uid {7};
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -2207,7 +2207,7 @@ TEST_CASE(  // NOLINT
   REQUIRE_FALSE(li.is_backend_released());
 
   // Same-uid insertion must still be detected as duplicate after round-trip.
-  CHECK_THROWS(li.add_col(SparseCol {
+  CHECK_THROWS(li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 20.0,
       .cost = 5.0,
@@ -2318,14 +2318,14 @@ TEST_CASE(  // NOLINT
   scaled_row.lowb = 20.0;
   scaled_row.uppb = SparseRow::DblMax;
   scaled_row.scale = 2.0;
-  li_scaled.add_row(scaled_row);
+  (void)li_scaled.add_row(scaled_row);  // NOLINT
 
   SparseRow plain_row;
   plain_row[xp] = 1.0;
   plain_row.lowb = 10.0;
   plain_row.uppb = SparseRow::DblMax;
   // scale defaults to 1.0 — no rescaling
-  li_plain.add_row(plain_row);
+  (void)li_plain.add_row(plain_row);  // NOLINT
 
   // Both must solve to the same objective: min x s.t. x >= 10 → obj = 10.
   const SolverOptions opts;
@@ -2460,7 +2460,7 @@ TEST_CASE(  // NOLINT
   row_stage.variable_uid = Uid {100};
   row_stage.context =
       make_stage_context(make_uid<Scenario>(3), make_uid<Stage>(7));
-  li.add_row(row_stage);
+  (void)li.add_row(row_stage);  // NOLINT
 
   SparseRow row_block;
   row_block[x_block] = 1.0;
@@ -2471,7 +2471,7 @@ TEST_CASE(  // NOLINT
   row_block.variable_uid = Uid {101};
   row_block.context = make_block_context(
       make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(11));
-  li.add_row(row_block);
+  (void)li.add_row(row_block);  // NOLINT
 
   // Capture canonical names BEFORE any compress/decompress cycle.
   const auto names_before = capture_labels(li);
@@ -2626,7 +2626,7 @@ TEST_CASE(  // NOLINT
   LinearInterface li;
 
   for (int k = 1; k <= 4; ++k) {
-    li.add_col(SparseCol {
+    (void)li.add_col(SparseCol {  // NOLINT
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = static_cast<double>(k),
@@ -2642,7 +2642,7 @@ TEST_CASE(  // NOLINT
   row.class_name = "Bus";
   row.constraint_name = "balance";
   row.variable_uid = Uid {99};
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   std::vector<std::string> cols_first;
   std::vector<std::string> rows_first;
@@ -2724,7 +2724,7 @@ TEST_CASE(  // NOLINT
     row[x] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
-    li.add_row(row);
+    (void)li.add_row(row);  // NOLINT
 
     const auto res = li.initial_solve(SolverOptions {
         .algorithm = start,
@@ -2922,7 +2922,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "BendersCut";
   cut.constraint_name = "fcut";
   cut.variable_uid = Uid {42};
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
 
   REQUIRE(li.get_numrows() == base_nrows + 1);
@@ -3006,7 +3006,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "BendersCut";
   cut.constraint_name = "fcut";
   cut.variable_uid = Uid {77};
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
   CHECK(li.get_numrows() == li.base_numrows() + 1);
 
@@ -3151,7 +3151,7 @@ TEST_CASE(  // NOLINT
     cut.class_name = "BendersCut";
     cut.constraint_name = "fcut";
     cut.variable_uid = Uid {99};
-    li.get().add_row(cut);
+    (void)li.get().add_row(cut);  // NOLINT
     li.get().record_cut_row(cut);
     li.get().release_backend();
     li.get().reconstruct_backend();
@@ -3260,7 +3260,7 @@ TEST_CASE(  // NOLINT
     cut.class_name = "BendersCut";
     cut.constraint_name = "fcut";
     cut.variable_uid = Uid {static_cast<int32_t>(100 + i)};
-    li.add_row(cut);
+    (void)li.add_row(cut);  // NOLINT
     li.record_cut_row(cut);
   }
   REQUIRE(li.get_numrows() == base_rows + 3);
@@ -3583,7 +3583,7 @@ TEST_CASE(  // NOLINT
     row.class_name = "Test";
     row.constraint_name = "cap";
     row.variable_uid = k;
-    li.add_row(row);
+    (void)li.add_row(row);  // NOLINT
     li.record_dynamic_row(row);
   }
 
@@ -3662,7 +3662,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "Sddp";
   cut.constraint_name = "optcut";
   cut.variable_uid = 99;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_dynamic_row(cut);
 
   // Post-flatten resolution: idx 2 (col), idx 1 (row) lands in the
@@ -3755,7 +3755,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "Sddp";
   cut.constraint_name = "optcut";
   cut.variable_uid = 7;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_dynamic_row(cut);
 
   REQUIRE(li.col_label_at(ColIndex {2}) != nullptr);
@@ -3827,7 +3827,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(li.flatten_col_count() == 1);
 
   // First post-flatten add with a NEW key: succeeds.
-  CHECK_NOTHROW(li.add_col(SparseCol {
+  CHECK_NOTHROW(li.add_col(SparseCol {  // NOLINT
       .uppb = 1.0,
       .class_name = "Sddp",
       .variable_name = "alpha",
@@ -3835,7 +3835,7 @@ TEST_CASE(  // NOLINT
   }));
 
   // Cross-layer collision: same metadata as the FROZEN entry → throw.
-  CHECK_THROWS_AS(li.add_col(SparseCol {
+  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
                       .uppb = 1.0,
                       .class_name = "Bus",
                       .variable_name = "theta",
@@ -3845,7 +3845,7 @@ TEST_CASE(  // NOLINT
 
   // Within-post-flatten collision: same metadata as the previous
   // post-flatten add → throw.
-  CHECK_THROWS_AS(li.add_col(SparseCol {
+  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
                       .uppb = 2.0,
                       .class_name = "Sddp",
                       .variable_name = "alpha",
@@ -4143,7 +4143,7 @@ TEST_CASE(  // NOLINT
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 4.0;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
   CHECK(li.get_numrows() == base_nrows + 1);
 
@@ -4271,7 +4271,7 @@ TEST_CASE(  // NOLINT
   cut[x1] = 1.0;
   cut.lowb = -LinearProblem::DblMax;
   cut.uppb = 4.0;
-  li.add_row(cut);
+  (void)li.add_row(cut);  // NOLINT
   li.record_cut_row(cut);
 
   li.release_backend();
@@ -4548,7 +4548,7 @@ TEST_CASE(  // NOLINT
   // API and verify cache drops.
   SparseRow cut_row {.lowb = 0.0, .uppb = SparseRow::DblMax};
   cut_row.cmap[x1] = 1.0;
-  li.add_row(cut_row);
+  (void)li.add_row(cut_row);  // NOLINT
 
   CHECK_FALSE(li.is_optimal());
   CHECK(li.cached_col_sol_size() == 0);
@@ -4567,7 +4567,7 @@ TEST_CASE(  // NOLINT
 
   li.reconstruct_backend();
   // Add a fresh column (alpha-style) and verify cache drops.
-  li.add_col(SparseCol {.lowb = 0.0, .uppb = 100.0, .cost = 1.0});
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 100.0, .cost = 1.0});  // NOLINT
 
   CHECK_FALSE(li.is_optimal());
   CHECK(li.cached_col_sol_size() == 0);

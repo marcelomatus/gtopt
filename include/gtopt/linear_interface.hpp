@@ -912,7 +912,7 @@ public:
    * @param col Sparse column with `scale == 1.0`.
    * @return The index of the newly added column.
    */
-  ColIndex add_col_raw(const SparseCol& col);
+  [[nodiscard]] ColIndex add_col_raw(const SparseCol& col);
 
   /**
    * @brief Bulk-add columns (much faster than repeated add_col calls).
@@ -941,7 +941,7 @@ public:
    * @param cols Sparse columns with physical-space cost / bounds.
    * @return Index of the first column added.
    */
-  ColIndex add_cols(std::span<const SparseCol> cols);
+  [[nodiscard]] ColIndex add_cols(std::span<const SparseCol> cols);
 
   /**
    * @brief Bulk-add columns WITHOUT extending `m_col_scales_`.
@@ -957,7 +957,7 @@ public:
    * @param cols Sparse column specifications with `scale == 1.0`.
    * @return Index of the first column added.
    */
-  ColIndex add_cols_raw(std::span<const SparseCol> cols);
+  [[nodiscard]] ColIndex add_cols_raw(std::span<const SparseCol> cols);
 
   /**
    * @brief Adds a new constraint row to the problem
@@ -1047,7 +1047,7 @@ public:
    * @param col SparseCol with `scale == 1.0`.
    * @return Index of the newly added column.
    */
-  ColIndex add_col_disposable(const SparseCol& col);
+  [[nodiscard]] ColIndex add_col_disposable(const SparseCol& col);
 
   /**
    * @brief Bulk-add disposable columns on a shallow clone.
@@ -2655,7 +2655,7 @@ private:
                                  double collb,
                                  double colub);
   [[nodiscard]] ColIndex add_free_col(const std::string& name);
-  RowIndex add_row(const std::string& name,
+  [[nodiscard]] RowIndex add_row(const std::string& name,
                    size_t numberElements,
                    const std::span<const int>& columns,
                    const std::span<const double>& elements,

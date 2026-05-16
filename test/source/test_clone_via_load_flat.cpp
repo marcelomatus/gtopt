@@ -664,7 +664,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "Sddp";
   cut.constraint_name = "optcut";
   cut.variable_uid = 7;
-  src.add_row(cut);
+  (void)src.add_row(cut);  // NOLINT
   src.record_dynamic_row(cut);  // simulate active_cuts replay path
   REQUIRE(src.get_numrows() == rows_after_freeze + 1);
 
@@ -757,7 +757,7 @@ TEST_CASE(  // NOLINT
   cut.class_name = "Sddp";
   cut.constraint_name = "optcut";
   cut.variable_uid = 7;
-  src.add_row(cut);
+  (void)src.add_row(cut);  // NOLINT
   src.record_dynamic_row(cut);
 
   // Forward-pass-style trial pin: ColIndex{1} pinned to 4.
@@ -810,7 +810,7 @@ TEST_CASE(  // NOLINT
     fix.class_name = "Slack";
     fix.constraint_name = "fix";
     fix.variable_uid = 1003;
-    clone.add_row(fix);
+    (void)clone.add_row(fix);  // NOLINT
   };
 
   apply_elastic(clone_native);
@@ -909,7 +909,7 @@ ModeFixture make_sddp_like_source(LowMemoryMode mode)
   cut.class_name = "Sddp";
   cut.constraint_name = "optcut";
   cut.variable_uid = 7;
-  out.src.add_row(cut);
+  (void)out.src.add_row(cut);  // NOLINT
   out.src.record_dynamic_row(cut);
 
   // Pin a dep_col bound (forward-pass-style trial).  Auto-records
@@ -1128,7 +1128,7 @@ TEST_CASE(  // NOLINT
     fix_row.class_name = "Slack";
     fix_row.constraint_name = "fix";
     fix_row.variable_uid = 1003;
-    clone.add_row(fix_row);
+    (void)clone.add_row(fix_row);  // NOLINT
   };
 
   auto cn = src.clone(LinearInterface::CloneKind::shallow);

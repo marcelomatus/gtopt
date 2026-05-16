@@ -359,7 +359,7 @@ TEST_CASE(  // NOLINT
   demand[x0] = 1.0;
   demand[x1] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
 
   auto r = li.resolve({});
   REQUIRE(r.has_value());
@@ -406,7 +406,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
 
   auto r0 = li.resolve({});
   REQUIRE(r0.has_value());
@@ -456,7 +456,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const std::vector<StateVarLink> links = {
@@ -492,7 +492,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const auto alpha_col = ColIndex {10};
@@ -541,7 +541,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const std::vector<StateVarLink> links = {
@@ -579,7 +579,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
 
   [[maybe_unused]] auto r0 = li.resolve({});
   CHECK_FALSE(li.is_optimal());
@@ -644,7 +644,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto resolve_ok = li.resolve({});
   REQUIRE(li.is_optimal());
 
@@ -700,7 +700,7 @@ TEST_CASE(  // NOLINT
       .uppb = LinearProblem::DblMax,
   };
   push_dep[dep] = 1.0;
-  li.add_row(push_dep);
+  (void)li.add_row(push_dep);  // NOLINT
 
   [[maybe_unused]] auto r0 = li.resolve({});
   CHECK_FALSE(li.is_optimal());
@@ -765,7 +765,7 @@ TEST_CASE(  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
 
   [[maybe_unused]] auto r0 = li.resolve({});
   REQUIRE(li.is_optimal());
@@ -824,7 +824,7 @@ TEST_CASE(  // NOLINT
       .uppb = LinearProblem::DblMax,
   };
   push_dep[dep] = 1.0;
-  li.add_row(push_dep);
+  (void)li.add_row(push_dep);  // NOLINT
 
   [[maybe_unused]] auto r0 = li.resolve({});
   CHECK_FALSE(li.is_optimal());
@@ -894,7 +894,7 @@ TEST_CASE(  // NOLINT
       .uppb = LinearProblem::DblMax,
   };
   constr0[x0] = 1.0;
-  phase0.add_row(constr0);
+  (void)phase0.add_row(constr0);  // NOLINT
 
   // Phase 1
   LinearInterface phase1;
@@ -914,7 +914,7 @@ TEST_CASE(  // NOLINT
   };
   constr1[x1] = 1.0;
   constr1[dep] = 1.0;
-  phase1.add_row(constr1);
+  (void)phase1.add_row(constr1);  // NOLINT
 
   // Forward pass iteration 1: solve phase 0
   auto r0 = phase0.resolve({});
@@ -944,7 +944,7 @@ TEST_CASE(  // NOLINT
   // Backward: build optimality cut and add to phase 0 (physical space).
   auto cut = build_benders_cut_physical(
       alpha_col, links, phase1, phase1.get_obj_value());
-  phase0.add_row(cut);
+  (void)phase0.add_row(cut);  // NOLINT
 
   // Re-solve phase 0 with cut
   auto r0b = phase0.resolve({});
@@ -988,7 +988,7 @@ TEST_CASE(
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto r0 = li.resolve({});
 
   const std::vector<StateVarLink> links = {
@@ -1047,7 +1047,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto r0 = li.resolve({});
 
   const std::vector<StateVarLink> links = {
@@ -1088,7 +1088,7 @@ TEST_CASE("BendersCut - elastic_filter_solve with work pool")  // NOLINT
   auto d2 = SparseRow {.lowb = 50.0, .uppb = LinearProblem::DblMax};
   d2[x1] = 1.0;
   d2[dep2] = 1.0;
-  li2.add_row(d2);
+  (void)li2.add_row(d2);  // NOLINT
   [[maybe_unused]] auto r2 = li2.resolve({});
 
   const std::vector<StateVarLink> links2 = {
@@ -1126,7 +1126,7 @@ TEST_CASE("BendersCut - build_feasibility_cut increments counter")  // NOLINT
   };
   demand[x0] = 1.0;
   demand[dep] = 1.0;
-  li.add_row(demand);
+  (void)li.add_row(demand);  // NOLINT
   [[maybe_unused]] auto resolve_ok = li.resolve({});
 
   const auto alpha_col = ColIndex {10};

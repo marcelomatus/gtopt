@@ -106,7 +106,7 @@ TEST_CASE("LinearInterface - LP solution")
   row1[x1] = 1.0;
   row1[x2] = 2.0;
   row1.uppb = 10.0;
-  interface.add_row(row1);
+  (void)interface.add_row(row1);  // NOLINT
 
   // Solve the problem
   const SolverOptions options;
@@ -182,14 +182,14 @@ TEST_CASE("LinearInterface - LP file output")
   // real labels at write_lp time.  SparseCols added without a
   // `class_name` deliberately throw under the on-demand labelling
   // contract (no generic `c<i>`/`r<i>` fallback).
-  interface.add_col(SparseCol {
+  (void)interface.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 10.0,
       .class_name = "V",
       .variable_name = "x",
       .variable_uid = Uid {0},
   });
-  interface.add_col(SparseCol {
+  (void)interface.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 10.0,
       .class_name = "V",
@@ -207,7 +207,7 @@ TEST_CASE("LinearInterface - LP file output")
   row.constraint_name = "1";
   row.variable_uid = Uid {0};
   row.context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   // Set problem name
   interface.set_prob_name("TestLP");
@@ -364,7 +364,7 @@ TEST_CASE("LinearInterface - write LP to empty filename (no-op)")
   using namespace gtopt;
 
   LinearInterface interface;
-  interface.add_col(SparseCol {
+  (void)interface.add_col(SparseCol {  // NOLINT
       .uppb = 10.0,
   });
 
@@ -391,7 +391,7 @@ TEST_CASE("LinearInterface - solve with solver options (dual algorithm)")
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.uppb = 12.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   SolverOptions opts;
   opts.algorithm = LPAlgo::dual;
@@ -416,7 +416,7 @@ TEST_CASE("LinearInterface - solve with primal algorithm")
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   SolverOptions opts;
   opts.algorithm = LPAlgo::primal;
@@ -440,7 +440,7 @@ TEST_CASE("LinearInterface - solver options with tolerances")
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   SolverOptions opts;
   opts.optimal_eps = 1e-8;
@@ -465,7 +465,7 @@ TEST_CASE("LinearInterface - get_status and status checks")
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   auto result = interface.resolve();
   REQUIRE(result.has_value());
@@ -514,21 +514,21 @@ TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
   r1[x2] = 1.0;
   r1[x3] = 1.0;
   r1.uppb = 5000.0;
-  interface.add_row(r1);
+  (void)interface.add_row(r1);  // NOLINT
 
   SparseRow r2;
   r2[x1] = 1.0;
   r2[x2] = 1000.0;
   r2[x3] = 1.0;
   r2.uppb = 5000.0;
-  interface.add_row(r2);
+  (void)interface.add_row(r2);  // NOLINT
 
   SparseRow r3;
   r3[x1] = 1.0;
   r3[x2] = 1.0;
   r3[x3] = 1000.0;
   r3.uppb = 5000.0;
-  interface.add_row(r3);
+  (void)interface.add_row(r3);  // NOLINT
 
   auto result = interface.initial_solve();
   REQUIRE(result.has_value());
@@ -578,21 +578,21 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
       r1[x2] = 1.0;
       r1[x3] = 1.0;
       r1.uppb = 5000.0;
-      interface.add_row(r1);
+      (void)interface.add_row(r1);  // NOLINT
 
       SparseRow r2;
       r2[x1] = 1.0;
       r2[x2] = 1000.0;
       r2[x3] = 1.0;
       r2.uppb = 5000.0;
-      interface.add_row(r2);
+      (void)interface.add_row(r2);  // NOLINT
 
       SparseRow r3;
       r3[x1] = 1.0;
       r3[x2] = 1.0;
       r3[x3] = 1000.0;
       r3.uppb = 5000.0;
-      interface.add_row(r3);
+      (void)interface.add_row(r3);  // NOLINT
 
       auto result = interface.initial_solve();
       REQUIRE(result.has_value());
@@ -640,7 +640,7 @@ TEST_CASE(  // NOLINT
       SparseRow row;
       row[x] = 1.0;
       row.uppb = 8.0;
-      interface.add_row(row);
+      (void)interface.add_row(row);  // NOLINT
 
       auto result = interface.initial_solve();
       REQUIRE(result.has_value());
@@ -691,7 +691,7 @@ TEST_CASE("LinearInterface - set_col_sol and set_row_dual")
   row[x1] = 1.0;
   row[x2] = 1.0;
   row.uppb = 8.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   // Set initial solution
   std::vector<double> sol = {3.0, 4.0};
@@ -710,7 +710,7 @@ TEST_CASE("LinearInterface - set_col_sol with null span (no-op)")
   using namespace gtopt;
 
   LinearInterface interface;
-  interface.add_col(SparseCol {
+  (void)interface.add_col(SparseCol {  // NOLINT
       .uppb = 10.0,
   });
 
@@ -754,7 +754,7 @@ TEST_CASE("LinearInterface - log file handling")
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  interface.add_row(row);
+  (void)interface.add_row(row);  // NOLINT
 
   SolverOptions opts;
   opts.log_level = 1;
@@ -827,7 +827,7 @@ TEST_CASE(
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // First column with labelled metadata is accepted.
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -839,7 +839,7 @@ TEST_CASE(
   // Second column with identical `(class_name, variable_name,
   // variable_uid, context)` metadata is rejected at add_col time
   // — no need to wait for `materialize_labels` or `write_lp`.
-  CHECK_THROWS_AS(li.add_col(SparseCol {
+  CHECK_THROWS_AS(li.add_col(SparseCol {  // NOLINT
                       .lowb = 0.0,
                       .uppb = 1.0,
                       .class_name = "X",
@@ -860,7 +860,7 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
   const auto ctx =
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -868,7 +868,7 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
       .variable_uid = Uid {1},
       .context = ctx,
   });
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -886,7 +886,7 @@ TEST_CASE("LinearInterface - unique metadata passes label synthesis")
   row1.constraint_name = "1";
   row1.variable_uid = Uid {0};
   row1.context = ctx;
-  li.add_row(row1);
+  (void)li.add_row(row1);  // NOLINT
   li.materialize_labels();
   CHECK(li.row_name_map().size() == 1);
 }
@@ -902,8 +902,8 @@ TEST_CASE(
   // uid / monostate context) must both succeed — the dup detector
   // intentionally skips empty labels so structural tests that build
   // anonymous cells don't trip it.
-  li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
-  li.add_col(SparseCol {.lowb = 0.0, .uppb = 2.0});
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});  // NOLINT
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 2.0});  // NOLINT
   CHECK(li.get_numcols() == 2);
 
   SparseRow r1;
@@ -912,8 +912,8 @@ TEST_CASE(
   SparseRow r2;
   r2[ColIndex {0}] = 1.0;
   r2.uppb = 10.0;
-  li.add_row(r1);
-  li.add_row(r2);
+  (void)li.add_row(r1);  // NOLINT
+  (void)li.add_row(r2);  // NOLINT
   CHECK(li.get_numrows() == 2);
 }
 
@@ -926,7 +926,7 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
       make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(0));
 
   // Column provides a live ColIndex for the SparseRow cmap.
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 1.0,
       .class_name = "X",
@@ -942,10 +942,10 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
   row.constraint_name = "1";
   row.variable_uid = Uid {0};
   row.context = ctx;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   // Second row with identical metadata is rejected at add_row time.
-  CHECK_THROWS_AS(li.add_row(row), std::runtime_error);
+  CHECK_THROWS_AS(li.add_row(row), std::runtime_error);  // NOLINT
 }
 
 // ─── Warm-start clone tests ────────────────────────────────────────────────
@@ -970,7 +970,7 @@ TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
   row[x2] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1008,7 +1008,7 @@ TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
   row[x2] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1054,7 +1054,7 @@ TEST_CASE(
   row[x2] = 1.0;
   row.lowb = 8.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   // Solve with barrier (the default algorithm)
   SolverOptions barrier_opts;
@@ -1170,7 +1170,7 @@ TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto result = li.initial_solve();
   REQUIRE_FALSE(result.has_value());
@@ -1201,7 +1201,7 @@ TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
   row[x1] = 1.0;
   row.lowb = 10.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto result = li.resolve();
   REQUIRE_FALSE(result.has_value());
@@ -1265,7 +1265,7 @@ TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   // Solve with logging enabled — exercises open/close log handler
   SolverOptions opts;
@@ -1293,7 +1293,7 @@ TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
   SparseRow row;
   row[x1] = 1.0;
   row.uppb = 5.0;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   SolverOptions opts;
   opts.time_limit = 60.0;
@@ -1390,9 +1390,9 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
     return r;
   };
 
-  li.add_row(make_row("a", Uid {0}, 5.0));
-  li.add_row(make_row("b", Uid {1}, 3.0));
-  li.add_row(make_row("c", Uid {2}, 7.0));
+  (void)li.add_row(make_row("a", Uid {0}, 5.0));  // NOLINT
+  (void)li.add_row(make_row("b", Uid {1}, 3.0));  // NOLINT
+  (void)li.add_row(make_row("c", Uid {2}, 7.0));  // NOLINT
 
   // Under Option B (lazy label synthesis), `row_index_to_name` is not
   // populated at `add_row` time — force materialisation first.
@@ -1440,7 +1440,7 @@ TEST_CASE(
   };
 
   for (int i = 0; i < 4; ++i) {
-    li.add_row(make_row(Uid {i}));
+    (void)li.add_row(make_row(Uid {i}));  // NOLINT
   }
   REQUIRE(li.get_numrows() == 4);
   // Under Option B, force label materialisation before any
@@ -1520,7 +1520,7 @@ TEST_CASE(
     r_new.constraint_name = "new";
     r_new.variable_uid = Uid {4};
     r_new.context = ctx;
-    li.add_row(r_new);
+    (void)li.add_row(r_new);  // NOLINT
     li.materialize_labels();
 
     REQUIRE(li.get_numrows() == 3);
@@ -1548,7 +1548,7 @@ TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
       .uppb = 5.0,
   };
   row[c1] = 1.0;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   CHECK(li.row_index_to_name().empty());
   CHECK(li.row_name_map().empty());

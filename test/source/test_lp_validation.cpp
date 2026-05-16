@@ -56,7 +56,7 @@ TEST_CASE("LP validation: huge coefficient triggers WARN")  // NOLINT
   SparseRow row;
   row[x] = 1e15;
   row.greater_equal(1.0);
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   CHECK(logs.contains("LP_VALIDATION huge coefficient"));
   CHECK((logs.contains("1.000e+15") || logs.contains("1e15")
@@ -85,7 +85,7 @@ TEST_CASE("LP validation: tiny coefficient triggers WARN")  // NOLINT
   row[x] = 1e-12;
   row[y] = 1.0;
   row.greater_equal(1.0);
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   CHECK(logs.contains("LP_VALIDATION tiny coefficient"));
   CHECK(li.lp_validation_stats().coeff_tiny_count == 1);
@@ -116,7 +116,7 @@ TEST_CASE("LP validation: filtered coefficient triggers filter-WARN")  // NOLINT
   // eps = 1e-8 ⇒ 1e-9 is below the threshold and is dropped, but its
   // magnitude is well above the 1e-30 noise floor → filter WARN must
   // fire.
-  li.add_row(row, 1e-8);
+  (void)li.add_row(row, 1e-8);  // NOLINT
 
   CHECK(logs.contains("LP_VALIDATION coefficient"));
   CHECK(logs.contains("filtered to 0"));
@@ -132,13 +132,13 @@ TEST_CASE("LP validation: solver-infinity bound is NOT noted")  // NOLINT
 
   // Free column: bounds at solver infinity.  Must not produce a
   // huge-bound warning regardless of how large the sentinel is.
-  li.add_col(SparseCol {}.free());
+  (void)li.add_col(SparseCol {}.free());  // NOLINT
 
   CHECK(!logs.contains("LP_VALIDATION huge bound"));
   CHECK(li.lp_validation_stats().bound_huge_count == 0);
 
   // 1e13 finite bound: must produce a huge-bound warning.
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .uppb = 1e13,
       .cost = 1.0,
   });
@@ -219,7 +219,7 @@ TEST_CASE("LP validation: clean LP produces zero warnings")  // NOLINT
   balance[g2] = 1.0;
   balance.lowb = 100.0;
   balance.uppb = 100.0;
-  li.add_row(balance);
+  (void)li.add_row(balance);  // NOLINT
 
   CHECK(li.lp_validation_stats().clean());
   CHECK(!logs.contains("LP_VALIDATION"));
@@ -321,7 +321,7 @@ TEST_CASE("LP validation: disabled options short-circuit hooks")  // NOLINT
   SparseRow row;
   row[x] = 1e20;  // would normally trigger huge_coeff
   row.lowb = 1e15;  // would normally trigger huge_rhs
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   CHECK(li.lp_validation_stats().clean());
   CHECK(!logs.contains("LP_VALIDATION"));
@@ -334,7 +334,7 @@ TEST_CASE("LP validation: huge objective triggers WARN")  // NOLINT
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
 
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .uppb = 1.0,
       .cost = 1e12,  // way above obj_warn_max=1e10
   });
@@ -365,7 +365,7 @@ TEST_CASE("LP validation: huge RHS triggers WARN")  // NOLINT
   SparseRow row;
   row[x] = 1.0;
   row.lowb = 1e15;  // huge RHS — exceeds rhs_warn_max
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   CHECK(logs.contains("LP_VALIDATION huge RHS"));
   CHECK(li.lp_validation_stats().rhs_huge_count >= 1);
@@ -382,7 +382,7 @@ TEST_CASE("LP validation: huge bound triggers WARN")  // NOLINT
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
 
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .lowb = 0.0,
       .uppb = 1e15,  // huge but finite — exceeds bound_warn_max
       .cost = 1.0,
@@ -408,7 +408,7 @@ TEST_CASE(
   // already covered by the "clean LP produces zero warnings" test).
   LinearInterface li;
   li.set_validation_options(make_validation_opts());
-  li.add_col(SparseCol {
+  (void)li.add_col(SparseCol {  // NOLINT
       .uppb = 1.0,
       .cost = 1e12,  // tickles obj_huge
   });

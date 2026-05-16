@@ -1178,7 +1178,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
   row[x1] = 1.0;
   row.lowb = 5.0;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1284,7 +1284,7 @@ TEST_CASE(  // NOLINT
   row[efin] = 1.0;
   row.lowb = 0.5;
   row.uppb = LinearProblem::DblMax;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -1584,13 +1584,13 @@ struct ChinneckFixture
     r1[x1] = 1.0;
     r1.uppb = ub1;
     r1.lowb = -LinearProblem::DblMax;
-    li.add_row(r1);
+    (void)li.add_row(r1);  // NOLINT
 
     SparseRow r2;
     r2[x2] = 1.0;
     r2.uppb = ub2;
     r2.lowb = -LinearProblem::DblMax;
-    li.add_row(r2);
+    (void)li.add_row(r2);  // NOLINT
 
     auto res = li.initial_solve();
     REQUIRE(res.has_value());
@@ -2186,7 +2186,7 @@ struct PushUpLP
     r[dep] = 1.0;
     r.lowb = lb_lp;
     r.uppb = LinearProblem::DblMax;
-    li.add_row(r);
+    (void)li.add_row(r);  // NOLINT
 
     auto res = li.initial_solve();
     REQUIRE(res.has_value());
@@ -2330,14 +2330,14 @@ TEST_CASE(  // NOLINT
   r1[dep1] = 1.0;
   r1.lowb = 5.0;
   r1.uppb = LinearProblem::DblMax;
-  li.add_row(r1);
+  (void)li.add_row(r1);  // NOLINT
 
   // dep2 >= 3 (LP)
   SparseRow r2;
   r2[dep2] = 1.0;
   r2.lowb = 3.0;
   r2.uppb = LinearProblem::DblMax;
-  li.add_row(r2);
+  (void)li.add_row(r2);  // NOLINT
 
   auto res = li.initial_solve();
   REQUIRE(res.has_value());
@@ -2431,14 +2431,14 @@ struct ChinneckLBFixture
     r1[x1] = 1.0;
     r1.lowb = lb1_lp;
     r1.uppb = LinearProblem::DblMax;
-    li.add_row(r1);
+    (void)li.add_row(r1);  // NOLINT
 
     // x2 >= lb2_lp (LP)
     SparseRow r2;
     r2[x2] = 1.0;
     r2.lowb = lb2_lp;
     r2.uppb = LinearProblem::DblMax;
-    li.add_row(r2);
+    (void)li.add_row(r2);  // NOLINT
 
     auto res = li.initial_solve();
     REQUIRE(res.has_value());
@@ -2841,7 +2841,7 @@ TEST_CASE(  // NOLINT
   push[dep] = 1.0;
   push.lowb = 1.0;
   push.uppb = LinearProblem::DblMax;
-  li.add_row(push);
+  (void)li.add_row(push);  // NOLINT
 
   auto solve_res = li.initial_solve();
   REQUIRE(solve_res.has_value());
@@ -2932,7 +2932,7 @@ TEST_CASE(  // NOLINT
   row[x] = 1.0;
   row.lowb = 75.0;
   row.uppb = 75.0;
-  li.add_row(row);
+  (void)li.add_row(row);  // NOLINT
 
   auto solve_res = li.initial_solve();
   REQUIRE(solve_res.has_value());

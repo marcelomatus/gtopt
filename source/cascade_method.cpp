@@ -363,7 +363,7 @@ void CascadePlanningMethod::add_elastic_targets(
       });
     }
     const auto first_slack_col = li.get_numcols();
-    li.add_cols(slack_cols);
+    (void)li.add_cols(slack_cols);  // NOLINT
 
     // Mirror the slacks into the persistent `m_dynamic_cols_` registry
     // so `apply_post_load_replay` re-adds them on every
