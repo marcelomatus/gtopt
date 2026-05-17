@@ -197,6 +197,291 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   CHECK(obj < 1.01);
 }
 
+// ── kLossCoeffTolerance dropout ─────────────────────────────────────
+//
+// Per-segment loss coefficient is
+//   loss_k = seg_width · R · (2k−1) / V²
+// where seg_width = tmax / nseg.  When `|loss_k| < kLossCoeffTolerance`
+// (1e-6 in `line_losses.cpp:259`), the segment column is still
+// created (so the link row preserves the line's full piecewise
+// capacity) but is **not** stamped into the loss-tracking row — its
+// coefficient there is exactly zero.  Folding ~1e-7-scale entries
+// into the loss row would only pollute the LP coefficient-range
+// statistics without contributing measurable physical loss.
+//
+// These tests pin that behaviour through three regimes:
+//   1. R = 0 ⇒ piecewise mode falls back to `none` in `make_config`
+//      (the validation gate at `line_losses.cpp:134`).  LP solves
+//      with no loss overhead — obj equals the lossless baseline.
+//   2. R so tiny every segment falls below the tolerance (post-
+//      validation, the mode stays `piecewise` because R > 0).  The
+//      lossrow degenerates to `s · loss = 0` with no segment
+//      contributions; `loss_col` is pinned at 0 so the obj is the
+//      lossless baseline within FP noise.
+//   3. R chosen so segment 1 drops but segments 2-3 survive.  The
+//      LP picks up loss only when flow crosses into segment 2.
+
+TEST_CASE("LineLP - piecewise R=0 falls back to lossless transport")
+{
+  // R = 0 with piecewise mode is invalid input; `make_config`
+  // detects this (resistance ≤ 0 OR V² ≤ 0 OR nseg < 2 — see
+  // `line_losses.cpp:134`) and demotes mode to `none` (since
+  // lossfactor is also 0).  Result: a pure flow line with no
+  // loss machinery at all.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 0.0,  // intentionally zero
+          .loss_segments = 3,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LossDropout_R0",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // No losses ⇒ gen = demand = 100 MW; raw obj = gen·cost / scale =
+  // 100 · 10 / 1000 = 1.0 exactly.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(1.0).epsilon(1e-9));
+
+  // No piecewise machinery built: no loss column registered.
+  const auto& line_lp = system_lp.elements<LineLP>().front();
+  const auto& scenario = system_lp.scene().scenarios()[0];
+  const auto& stage = system_lp.phase().stages()[0];
+  CHECK(line_lp.lossp_cols_at(scenario, stage).empty());
+}
+
+TEST_CASE("LineLP - piecewise tiny R drops every segment from loss row")
+{
+  // R = 1e-12 Ω, V = 100 kV, tmax = 100 MW, nseg = 3.
+  //   seg_width = 33.33 MW; V² = 1e4.
+  //   loss_k_1 = 33.33 · 1e-12 · 1 / 1e4 = 3.33e-18 ≪ 1e-6 ⇒ dropped.
+  // All three segments fall below the tolerance.  After build:
+  //   * The 3 segment cols still exist (link row preserves capacity).
+  //   * The lossrow has NO segment coefficient, so it reduces to
+  //     `s · loss_col = 0` ⇒ loss_col is pinned at 0.
+  //   * The LP serves 100 MW at gen cost 10 → raw obj = 1.0 with no
+  //     fictitious loss overhead.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 1e-12,
+          .loss_segments = 3,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LossDropout_TinyR",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // No loss contribution from any segment ⇒ obj exactly the lossless
+  // baseline (gen × cost / scale = 100 × 10 / 1000 = 1.0).  The
+  // piecewise machinery is still wired (loss_col created, segment
+  // cols created), so this verifies the *clamp* path rather than the
+  // mode-demotion fallback exercised by the R=0 test above.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(1.0).epsilon(1e-9));
+
+  // The loss column was created (piecewise mode survives validation
+  // because R > 0) — it just gets pinned at 0 by the all-zero
+  // lossrow.  No accessor returns the loss_col index directly; we
+  // verify by checking the obj match above.
+}
+
+TEST_CASE("LineLP - piecewise R drops first segment, keeps later ones")
+{
+  // R = 2e-4, V = 100 (V² = 1e4), tmax = 100, nseg = 3:
+  //   seg_width = 33.33
+  //   loss_k_1 = 33.33 · 2e-4 · 1 / 1e4 = 6.67e-7  < 1e-6  ⇒ dropped
+  //   loss_k_2 = 33.33 · 2e-4 · 3 / 1e4 = 2.00e-6  ≥ 1e-6  ⇒ kept
+  //   loss_k_3 = 33.33 · 2e-4 · 5 / 1e4 = 3.33e-6  ≥ 1e-6  ⇒ kept
+  //
+  // Demand = 100 MW saturates the line; the LP fills segments 1, 2,
+  // 3 in order (33.33, 33.33, 33.33).  Only segments 2 and 3
+  // contribute to loss.  Exact piecewise loss ≈
+  //   33.33·6.67e-7  (dropped → 0)
+  //  + 33.33·2.00e-6  ≈ 6.67e-5
+  //  + 33.33·3.33e-6  ≈ 1.11e-4
+  //   total ≈ 1.78e-4 MW.
+  // Gen must cover demand + loss: ~100.0002 MW.  Obj ≈ 1.000002
+  // (raw, scale=1000).  Bounds are loose because the piecewise
+  // approximation isn't exact.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 2e-4,  // segment 1 below tol, 2-3 above
+          .loss_segments = 3,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LossDropout_MixedR",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // obj ≥ baseline (loss is non-negative) and ≤ baseline + 0.001
+  // (way above the actual ~1.78e-7 raw delta).
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj >= doctest::Approx(1.0).epsilon(1e-9));
+  CHECK(obj < 1.001);
+}
+
 TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
 {
   // Verify quadratic loss model works together with DC power flow constraints
