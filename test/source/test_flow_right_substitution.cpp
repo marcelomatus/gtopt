@@ -286,3 +286,111 @@ TEST_CASE("FlowRight fail_sol_at — reconstructs deficit from flow primal")
   CHECK(fr_lp.excess_sol_at(s, t, block, col_sol)
         == doctest::Approx(0.0).epsilon(1e-6));
 }
+
+TEST_CASE("FlowRight excess_sol_at — reconstructs surplus from flow primal")
+{
+  // Mirror of the fail_sol_at deficit test, for the uvalue-only
+  // (soft-cap) substitution side.  target = 5, fmax = 10,
+  // uvalue = 80.  The substitution makes
+  //   flow.lowb = max(fmin, target) = 5
+  //   flow.cost = sp_cost_cf = -80 · dur=1  (negative bonus)
+  // so the LP picks flow at fmax = 10 to maximise the reward;
+  // `excess = max(0, flow − target) = 5`.
+  //
+  // Run without a junction so the flow col has no bus-balance
+  // constraint forcing it down — flow is then free to hit fmax.
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_full_surplus",
+          .direction = -1,
+          .fmax = 10.0,
+          .target = 5.0,
+          .uvalue = 80.0,
+      },
+  };
+  // Minimal system without a junction reference on the FlowRight.
+  const System system {
+      .name = "FlowRightUvalueOnlyFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .flow_right_array = frs,
+  };
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& block = t.blocks().front();
+  const auto col_sol = lp.get_col_sol();
+
+  // excess = flow − target = 10 − 5 = 5.
+  CHECK(fr_lp.excess_sol_at(s, t, block, col_sol)
+        == doctest::Approx(5.0).epsilon(1e-6));
+  // fail is on the other side of the substitution — reconstruct
+  // returns 0 because `fcost_only = false` for this block.
+  CHECK(fr_lp.fail_sol_at(s, t, block, col_sol)
+        == doctest::Approx(0.0).epsilon(1e-6));
+}
+
+// ── Invariant 5 — stage-scope (qeh) substitution ─────────────────────
+//
+// `use_average = true` / `flow_mode = "stage_average"` moves the
+// kink machinery from per-block to a single stage-level `qeh`
+// column.  The same one-sided substitution applies: under fcost-only
+// the qeh col absorbs the qeh_sn slack and the qkink row collapses
+// into qeh.uppb + obj_constant.
+
+TEST_CASE("FlowRight stage_average fcost-only — qeh col absorbs the kink")
+{
+  // stage-average mode, target=20, fcost=100, no uvalue.
+  // attach_flow at stage scope substitutes qeh_sn + qkink_row:
+  //   qeh.uppb shrinks to min(fmax, target) = 20
+  //   qeh.cost = -fcost · stage_dur=1 = -100
+  //   obj_constant += fcost · target = 2000
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_stage_fcost",
+          .direction = -1,
+          .fmax = 30.0,
+          .target = 20.0,
+          .flow_mode = "stage_average",
+          .fcost = 100.0,
+      },
+  };
+  // System without a junction reference — the qeh col stands alone
+  // and the LP picks its primal at the upper bound.
+  const System system {
+      .name = "FlowRightStageAvgFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .flow_right_array = frs,
+  };
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+
+  // Structural assertions: qeh exists; qeh_sn / qkink elided.
+  CHECK(fr_lp.has_qeh(s, t));
+  CHECK_FALSE(fr_lp.has_qeh_slacks(s, t));
+  CHECK_FALSE(fr_lp.has_qkink_row(s, t));
+
+  auto& lp = system_lp.linear_interface();
+  // qeh col cost should be -fcost · stage_duration=1 = -100.
+  const auto obj_coeff = lp.get_obj_coeff();
+  const auto qeh_col = fr_lp.qeh_col_at(s, t);
+  CHECK(obj_coeff[qeh_col] == doctest::Approx(-100.0));
+  // obj_constant = +fcost · target = 2000.
+  CHECK(lp.get_obj_constant() == doctest::Approx(2000.0));
+}

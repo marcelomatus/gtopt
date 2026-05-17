@@ -482,6 +482,86 @@ TEST_CASE("LineLP - piecewise R drops first segment, keeps later ones")
   CHECK(obj < 1.001);
 }
 
+TEST_CASE("LineLP - bidirectional tiny R drops every segment from loss rows")
+{
+  // Bidirectional mode separates the positive and negative direction
+  // into independent piecewise expansions (`add_direction` →
+  // `add_segments` is called twice per block).  The same
+  // `kLossCoeffTolerance` clamp applies inside both calls, so a
+  // tiny-R line should produce loss rows with zero segment
+  // coefficients in BOTH directions and obj = lossless baseline.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .voltage = 100.0,
+          .resistance = 1e-12,  // every segment far below tolerance
+          .line_losses_mode = "bidirectional",  // force the dual path
+          .loss_segments = 3,
+          .tmax_ba = 100.0,
+          .tmax_ab = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = true;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LossDropout_BidirTinyR",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Both directional loss rows collapse to `s · loss = 0`, pinning
+  // both `lossp_col` and `lossn_col` at zero.  obj = lossless
+  // baseline: 100 MW · $10 / 1000 = 1.0 exactly.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(1.0).epsilon(1e-9));
+}
+
 TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
 {
   // Verify quadratic loss model works together with DC power flow constraints
