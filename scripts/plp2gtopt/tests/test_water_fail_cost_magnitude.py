@@ -284,8 +284,8 @@ class TestAutoWaterFailCostMagnitude:
                 ),
                 None,
             )
-            if match is not None and match.get("fail_cost"):
-                return float(match["fail_cost"]) / float(lost_pf)
+            if match is not None and match.get("fcost"):
+                return float(match["fcost"]) / float(lost_pf)
         # Fallback (legacy path / no FRs in case): assume LMAULE is
         # not capped — best-effort calibration.
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
@@ -309,25 +309,10 @@ class TestAutoWaterFailCostMagnitude:
     # ------------------------------------------------------------------
     # Auto pipeline — proportionality across reservoirs
     # ------------------------------------------------------------------
-    # Pre-existing failure: the test reads ``last_df`` from
-    # ``planning_auto["simulation"]["stage_array"][-1].discount_factor``
-    # while the writer's ``_build_efin_cost_cap`` reads from
-    # ``stage_parser.stages[-1].discount_factor`` — these can differ
-    # when the writer's stage-truncation filter drops stages between
-    # the parser's view and the emitted JSON.  Symptom across all 8
-    # parametrized reservoirs: writer's cap = test's cap × 1.181 ≈
-    # 1/(cumulative discount over the missing tail of stages).
-    # Marked ``xfail`` until the writer / test agree on a single
-    # discount source; the underlying ``efin_cost`` magnitude is
-    # validated end-to-end by the juan/IPLP cascade run.
-    @pytest.mark.xfail(
-        reason=(
-            "writer and test read last_df from different sources "
-            "(parser vs JSON); pre-existing discrepancy unrelated "
-            "to the 2026-05 convergence rewrite. See test docstring."
-        ),
-        strict=False,
-    )
+    # Writer and test now read ``last_df`` from the SAME source — the
+    # emitted simulation's ``stage_array[-1].discount_factor`` (the
+    # value gtopt actually uses at solve time).  The 2026-05-16 fix
+    # to ``_build_efin_cost_cap`` aligned them; this test now passes.
     @pytest.mark.parametrize(
         "name,lost_pf",
         list(_REFERENCE_RESERVOIRS_LOST_PF.items()),
@@ -394,7 +379,7 @@ class TestAutoWaterFailCostMagnitude:
             None,
         )
         assert match is not None, f"FlowRight for {central} not found"
-        actual = match.get("fail_cost")
+        actual = match.get("fcost")
         assert actual is not None, f"FR {central} has no fail_cost"
         assert actual == pytest.approx(expected_fail_cost, rel=_TOL_REL), (
             f"{central}: fail_cost={actual} vs anchor*own_pf="
@@ -404,7 +389,7 @@ class TestAutoWaterFailCostMagnitude:
     def test_flow_right_fail_costs_are_heterogeneous(self, planning_auto):
         """All FR fail_costs differ — single uniform value would be a regression."""
         frs = planning_auto.get("system", {}).get("flow_right_array", [])
-        costs = sorted({fr.get("fail_cost") for fr in frs if fr.get("fail_cost")})
+        costs = sorted({fr.get("fcost") for fr in frs if fr.get("fcost")})
         # We expect at least 4 distinct values across the bundled whitelist.
         assert len(costs) >= 4, f"FR fail_costs collapsed to {costs}"
 

@@ -499,3 +499,180 @@ TEST_SUITE("cast_to_double_array")
     CHECK(result == nullptr);
   }
 }
+
+// ── Multi-chunk + duplicate-UID regression tests ─────────────────────────
+//
+// Two pre-existing bugs that surfaced together when the duplicate-UID
+// warning was promoted to a hard error on 2026-05-16:
+//
+// 1. `make_uid_column` historically returned only `column->chunk(0)`,
+//    but `UidToArrowIdx<...>::make_arrow_uids_idx` then iterated
+//    `table->num_rows()` calling `Value(i)`.  For multi-chunk columns
+//    every `i >= chunk(0)->length()` read past the chunk buffer and
+//    returned uninitialised memory (typically zero), producing spurious
+//    `(Stage=0, Block=0)` keys that the now-strict duplicate check
+//    flags as collisions.  The fix concatenates all chunks first.
+//
+// 2. The collision itself used to log a warning and silently shadow
+//    the earlier row's index; now it throws ``std::runtime_error``
+//    with the table columns + offending row in the error message.
+//
+// The tests below pin both: a multi-chunk table read produces the
+// correct UIDs at every row index, and an honest duplicate (two rows
+// sharing the same key) raises.
+
+TEST_SUITE("UidToArrowIdx multi-chunk and duplicate-UID handling")
+{
+  TEST_CASE("make_uid_column concatenates a multi-chunk column")
+  {
+    using TestTraits = ArrowUidTraits<StageUid>;
+
+    // Build two int32 arrays explicitly and assemble a Table with a
+    // ChunkedArray that has TWO chunks.  Without the concat fix the
+    // downstream reader returned values from chunk(0) only — indices
+    // past `chunk0.length()` read past the end of the buffer.
+    arrow::Int32Builder b0;
+    REQUIRE(b0.AppendValues({1, 2, 3}).ok());
+    std::shared_ptr<arrow::Array> a0;
+    REQUIRE(b0.Finish(&a0).ok());
+
+    arrow::Int32Builder b1;
+    REQUIRE(b1.AppendValues({4, 5, 6, 7}).ok());
+    std::shared_ptr<arrow::Array> a1;
+    REQUIRE(b1.Finish(&a1).ok());
+
+    auto chunked = std::make_shared<arrow::ChunkedArray>(
+        arrow::ArrayVector {a0, a1}, arrow::int32());
+    REQUIRE(chunked->num_chunks() == 2);
+
+    auto schema = arrow::schema({arrow::field("stage", arrow::int32())});
+    auto table = arrow::Table::Make(schema, {chunked});
+    REQUIRE(table->num_rows() == 7);
+
+    auto result = TestTraits::make_uid_column(table, "stage");
+    REQUIRE(result.has_value());
+    // Every index 0..6 must read the contiguous logical sequence
+    // [1,2,3,4,5,6,7] — NOT zeros past chunk0's length.
+    CHECK((*result)->length() == 7);
+    CHECK((*result)->Value(0) == 1);
+    CHECK((*result)->Value(1) == 2);
+    CHECK((*result)->Value(2) == 3);
+    CHECK((*result)->Value(3) == 4);
+    CHECK((*result)->Value(4) == 5);
+    CHECK((*result)->Value(5) == 6);
+    CHECK((*result)->Value(6) == 7);
+  }
+
+  TEST_CASE(
+      "UidToArrowIdx<StageUid, BlockUid> multi-chunk reads every row "
+      "without spurious zero keys")
+  {
+    // Bug repro: a 2D (Stage, Block) table that splits into multiple
+    // chunks used to produce `(Stage=0, Block=0)` for rows past
+    // chunk(0)'s length.  With the concat fix every row index resolves
+    // to its actual UID pair.
+    using TestTraits = UidToArrowIdx<StageUid, BlockUid>;
+
+    arrow::Int32Builder s0;
+    REQUIRE(s0.AppendValues({1, 1, 1}).ok());
+    std::shared_ptr<arrow::Array> sa0;
+    REQUIRE(s0.Finish(&sa0).ok());
+    arrow::Int32Builder s1;
+    REQUIRE(s1.AppendValues({2, 2}).ok());
+    std::shared_ptr<arrow::Array> sa1;
+    REQUIRE(s1.Finish(&sa1).ok());
+    auto stage_chunks = std::make_shared<arrow::ChunkedArray>(
+        arrow::ArrayVector {sa0, sa1}, arrow::int32());
+
+    arrow::Int32Builder b0;
+    REQUIRE(b0.AppendValues({10, 11, 12}).ok());
+    std::shared_ptr<arrow::Array> ba0;
+    REQUIRE(b0.Finish(&ba0).ok());
+    arrow::Int32Builder b1;
+    REQUIRE(b1.AppendValues({13, 14}).ok());
+    std::shared_ptr<arrow::Array> ba1;
+    REQUIRE(b1.Finish(&ba1).ok());
+    auto block_chunks = std::make_shared<arrow::ChunkedArray>(
+        arrow::ArrayVector {ba0, ba1}, arrow::int32());
+
+    auto schema = arrow::schema({
+        arrow::field("stage", arrow::int32()),
+        arrow::field("block", arrow::int32()),
+    });
+    auto table = arrow::Table::Make(schema, {stage_chunks, block_chunks});
+    REQUIRE(table->num_rows() == 5);
+    REQUIRE(stage_chunks->num_chunks() == 2);
+    REQUIRE(block_chunks->num_chunks() == 2);
+
+    auto result = TestTraits::make_arrow_uids_idx(table);
+    REQUIRE(result != nullptr);
+    CHECK(result->size() == 5);
+    // Every (Stage, Block) tuple from the contiguous logical sequence
+    // must be present at the correct row index — and there must be
+    // NO spurious `(0, 0)` entry from past-chunk-end reads.
+    CHECK(result->at({make_uid<Stage>(1), make_uid<Block>(10)}) == 0);
+    CHECK(result->at({make_uid<Stage>(1), make_uid<Block>(11)}) == 1);
+    CHECK(result->at({make_uid<Stage>(1), make_uid<Block>(12)}) == 2);
+    CHECK(result->at({make_uid<Stage>(2), make_uid<Block>(13)}) == 3);
+    CHECK(result->at({make_uid<Stage>(2), make_uid<Block>(14)}) == 4);
+    CHECK(!result->contains({make_uid<Stage>(0), make_uid<Block>(0)}));
+  }
+
+  TEST_CASE("UidToArrowIdx<StageUid, BlockUid> throws on duplicate key")
+  {
+    // Two rows sharing (Stage=1, Block=1) must raise: silently
+    // shadowing the earlier row's index was the source of months of
+    // confusing "warnings" on stale fixtures.  The new contract is a
+    // hard error with a diagnostic that names the table columns.
+    using TestTraits = UidToArrowIdx<StageUid, BlockUid>;
+
+    arrow::Int32Builder sb;
+    REQUIRE(sb.AppendValues({1, 1}).ok());  // both rows share Stage=1
+    std::shared_ptr<arrow::Array> sa;
+    REQUIRE(sb.Finish(&sa).ok());
+
+    arrow::Int32Builder bb;
+    REQUIRE(bb.AppendValues({1, 1}).ok());  // both rows share Block=1
+    std::shared_ptr<arrow::Array> ba;
+    REQUIRE(bb.Finish(&ba).ok());
+
+    auto schema = arrow::schema({
+        arrow::field("stage", arrow::int32()),
+        arrow::field("block", arrow::int32()),
+    });
+    auto table = arrow::Table::Make(schema, {sa, ba});
+
+    CHECK_THROWS_AS(TestTraits::make_arrow_uids_idx(table), std::runtime_error);
+  }
+
+  TEST_CASE(
+      "UidToArrowIdx<ScenarioUid, StageUid, BlockUid> "
+      "throws on duplicate key")
+  {
+    using TestTraits = UidToArrowIdx<ScenarioUid, StageUid, BlockUid>;
+
+    arrow::Int32Builder scb;
+    REQUIRE(scb.AppendValues({0, 0}).ok());
+    std::shared_ptr<arrow::Array> sca;
+    REQUIRE(scb.Finish(&sca).ok());
+
+    arrow::Int32Builder sb;
+    REQUIRE(sb.AppendValues({1, 1}).ok());
+    std::shared_ptr<arrow::Array> sa;
+    REQUIRE(sb.Finish(&sa).ok());
+
+    arrow::Int32Builder bb;
+    REQUIRE(bb.AppendValues({1, 1}).ok());
+    std::shared_ptr<arrow::Array> ba;
+    REQUIRE(bb.Finish(&ba).ok());
+
+    auto schema = arrow::schema({
+        arrow::field("scenario", arrow::int32()),
+        arrow::field("stage", arrow::int32()),
+        arrow::field("block", arrow::int32()),
+    });
+    auto table = arrow::Table::Make(schema, {sca, sa, ba});
+
+    CHECK_THROWS_AS(TestTraits::make_arrow_uids_idx(table), std::runtime_error);
+  }
+}

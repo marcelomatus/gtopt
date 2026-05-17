@@ -5,13 +5,13 @@ Primary source: ``results/logs/gtopt*.log`` (the gtopt run log).  Each SDDP
 iteration writes two lines:
 
     ─── iter N (async) ───  elapsed= XXs  [ETA= YYm] [CONVERGED]
-        iter N  obj    UB=...G  LB=...G  gap=±NN%  Δgap=±NN%  kappa=...
+        iter N  obj    ub=...G  lb=...G  gap=±NN%  Δgap=±NN%  kappa=...
 
 And each cascade level is bracketed by:
 
     Cascade [<name>]: new solver (max_iters=..., apertures=..., tol=...)
     ...
-    Cascade [<name>]: N iters, LB=..., UB=..., gap=..., new_cuts=K, T.Ts (converged)
+    Cascade [<name>]: N iters, lb=..., ub=..., gap=..., new_cuts=K, T.Ts (converged)
     [DIAG] Cascade [<name>]: transition decision: next_level.transition.has_value=true
 
 These lines persist for the lifetime of the log file, so the multi-level
@@ -307,9 +307,9 @@ def merge_history(rows: list[IterRow], solver_status: Path) -> dict:
 #
 #   [TS] [info] Cascade [<level>]: new solver (max_iters=N, apertures=K, tol=T)
 #   [TS] [info] ─── iter I (async) ───  elapsed= X.Xs  ETA= Y.Ym  [CONVERGED]
-#   [TS] [info]     iter I  obj    UB=...G  LB=...G  gap=±%  Δgap=±%  kappa=...
+#   [TS] [info]     iter I  obj    ub=...G  lb=...G  gap=±%  Δgap=±%  kappa=...
 #   ...
-#   [TS] [info] Cascade [<level>]: N iters, LB=..., UB=..., gap=..., new_cuts=K,
+#   [TS] [info] Cascade [<level>]: N iters, lb=..., ub=..., gap=..., new_cuts=K,
 #                                 T.Ts (converged|stalled|max_iters)
 #   [TS] [info] [DIAG] Cascade [<level>]: transition decision: ...
 #
@@ -331,10 +331,17 @@ LOG_ITER_HEAD_RE = re.compile(
 )
 LOG_ITER_VALS_RE = re.compile(
     r"iter\s+(?P<i>\d+)\s+obj\s+"
-    r"UB=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
-    r"LB=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
-    r"gap=\s*(?P<gap>[+\-]?[\d.]+)%\s+"
-    r"Δgap=\s*(?P<dgap>[+\-]?[\d.]+)%\s+"
+    # Accept BOTH casings of each letter:
+    # ``ub`` (current, lowercase = raw in-phase bound) and ``UB`` (legacy
+    # / alpha-corrected per the LB/UB casing convention).  Same for
+    # ``lb``/``LB`` and ``gap``/``Gap``.  Previously this regex hard-
+    # coded the second letter to upper-case, so the gtopt log lines
+    # emitted with lower-case both letters (``ub=…`` / ``lb=…``) failed
+    # the match and the table fell back to "—" for UB/LB.
+    r"[Uu][Bb]=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
+    r"[Ll][Bb]=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
+    r"[Gg]ap=\s*(?P<gap>[+\-]?[\d.]+)%\s+"
+    r"Δ[Gg]ap=\s*(?P<dgap>[+\-]?[\d.]+)%\s+"
     r"kappa=(?P<k>[\d.eE+\-]+)"
 )
 # ``SDDP Async [iN sS]: completed UB=... LB=... gap=±NN.NNNN%`` — emitted
@@ -348,9 +355,10 @@ LOG_ITER_VALS_RE = re.compile(
 # at that iter.
 LOG_ASYNC_COMPLETED_RE = re.compile(
     r"SDDP Async \[i(?P<i>\d+)\s+s(?P<s>\d+)\]:\s+completed\s+"
-    r"UB=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
-    r"LB=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
-    r"gap=\s*(?P<gap>[+\-]?[\d.]+)%"
+    # See LOG_ITER_VALS_RE comment for the dual-case rationale.
+    r"[Uu][Bb]=(?P<ub>[\d.eE+\-]+[KMG]?)\s+"
+    r"[Ll][Bb]=(?P<lb>[\d.eE+\-]+[KMG]?)\s+"
+    r"[Gg]ap=\s*(?P<gap>[+\-]?[\d.]+)%"
 )
 LOG_LEVEL_SUMMARY_RE = re.compile(
     r"Cascade \[(?P<level>[^\]]+)\]:\s+(?P<n>\d+)\s+iters.*?"
@@ -540,21 +548,28 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
                         async_ts[key] = ts
             continue
 
-    # Synthesize drain-iter PLACEHOLDER rows for (level, iter)
-    # buckets that have async-completed samples but no aggregate
-    # iter-vals row.  The async-completed UB / LB are PER-SCENE
-    # values (one scene's forward objective each), NOT comparable to
-    # the aggregate iter-vals UB (probability-weighted sum across
-    # scenes × discount factors × stage costs).  Averaging per-scene
-    # values would produce a misleading display value ~1/16× the
-    # real aggregate.  Instead we emit a placeholder row with iter
-    # number and `[drain]` note but NO UB / LB / gap / Δgap / kappa
-    # — the iter is acknowledged in the table sequence without
-    # implying a comparable aggregate measurement.  These iters are
-    # what the user calls "race-condition iters": post-convergence
-    # async drains whose cuts are typically dropped by the cascade
-    # (see ``sddp_iteration.cpp:2151`` ``save_simulation_cuts`` block).
+    # Synthesize drain-iter rows for (level, iter) buckets that have
+    # async-completed samples but no aggregate iter-vals row.
+    #
+    # Each ``SDDP Async [iN sS]: completed ub=… lb=…`` line carries the
+    # forward objective for one scenario s — already scaled by p_s and
+    # the discount/duration factors that produce the LP-level cost.  The
+    # iter-level aggregate UB / LB are simply the SUM of these per-scene
+    # values across all converged scenes (e.g. iter 6 aggregate ub =
+    # 13.631 G ≈ Σ_s 870 M ≈ 13.9 G for 16 scenes).  Summing the drain
+    # samples therefore gives a faithful aggregate estimate for the
+    # drain iter — the only caveat is that the sum may be PARTIAL when
+    # the run was sampled mid-iter and not all scenes have reported yet.
     drain_iters: set[tuple[str, int]] = set()
+    # Snapshot the previous full iter's UB (per level) so we can detect
+    # partial drains — when the run is sampled mid-iter, not every scene
+    # has emitted a `completed` line yet and the sum will be far below
+    # the aggregate.  Drop the UB / LB / gap to `—` in that case.
+    prev_full_ub: dict[str, float] = {}
+    for r in rows:
+        if r.upper_bound is not None:
+            prev_full_ub[r.level] = r.upper_bound
+
     for (lvl, i), samples in async_samples.items():
         if (lvl, i) in iters_with_vals_row:
             continue
@@ -562,14 +577,40 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
             continue
         drain_iters.add((lvl, i))
         ts = async_ts.get((lvl, i), 0.0)
+
+        # Sum across scenes — see comment above for the rationale.  Skip
+        # samples where either bound is None (rare; defensive).
+        ub_sum = sum(s[0] for s in samples if s[0] is not None)
+        lb_sum = sum(s[1] for s in samples if s[1] is not None)
+        ub_aggregate: float | None = ub_sum if ub_sum > 0 else None
+        lb_aggregate: float | None = lb_sum if lb_sum > 0 else None
+        # Partial-drain guard: if the sum is below ~75% of the previous
+        # full iter's UB, treat as still-in-progress and hide the
+        # numbers.  The cliff is intentionally wide (0.75 not 0.95) to
+        # tolerate small per-scene timing skew in fully-completed drains.
+        anchor_ub = prev_full_ub.get(lvl)
+        if (
+            anchor_ub is not None
+            and ub_aggregate is not None
+            and ub_aggregate < 0.75 * abs(anchor_ub)
+        ):
+            ub_aggregate = None
+            lb_aggregate = None
+        gap_aggregate: float | None = None
+        if ub_aggregate is not None and lb_aggregate is not None and ub_aggregate != 0:
+            # gtopt's convention is gap = (UB − LB) / |UB|, stored as
+            # a fraction.  ``fmt_pct`` formats it via ``{:+.4%}`` which
+            # multiplies by 100 at render time — don't pre-multiply here.
+            gap_aggregate = (ub_aggregate - lb_aggregate) / abs(ub_aggregate)
+
         rows.append(
             IterRow(
                 level=lvl,
                 iter=i,
                 mtime=ts,
-                upper_bound=None,
-                lower_bound=None,
-                gap=None,
+                upper_bound=ub_aggregate,
+                lower_bound=lb_aggregate,
+                gap=gap_aggregate,
                 delta_gap=None,
                 converged=False,
                 kappa=None,

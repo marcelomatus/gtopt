@@ -14,9 +14,7 @@
 
 namespace daw::json
 {
-using gtopt::Array;
 using gtopt::InertiaProvision;
-using gtopt::String;
 
 template<>
 struct json_data_contract<InertiaProvision>
@@ -29,7 +27,7 @@ struct json_data_contract<InertiaProvision>
       // Typed array of InertiaZone references (Uid or Name per
       // element); replaces the legacy colon-delimited string form.
       json_array_null<"inertia_zones",
-                      Array<SingleId>,
+                      gtopt::Array<SingleId>,
                       json_variant_no_name<SingleId, jvtl_SingleId>>,
       json_number_null<"inertia_constant", OptReal>,
       json_number_null<"rated_power", OptReal>,

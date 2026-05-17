@@ -13,6 +13,7 @@
 #pragma once
 
 #include <expected>
+#include <stdexcept>
 #include <tuple>
 
 #include <gtopt/arrow_types.hpp>
@@ -57,7 +58,30 @@ struct UidColumn
         return std::unexpected(std::move(msg));
       }
 
-      const auto chunk = column->chunk(0);
+      // Wide CSVs (e.g. Generator/pmax.csv with >1k UID columns)
+      // routinely produce multi-chunk Arrow tables.  The previous
+      // implementation returned only `chunk(0)`, and the downstream
+      // loop iterated `table->num_rows()` calling `Value(i)` past
+      // the chunk's length — reading uninitialized memory and
+      // producing spurious zero UIDs that look like duplicate keys.
+      // Concatenate all chunks into a single contiguous array so
+      // `Value(i)` is well-defined for every `i < num_rows()`.
+      std::shared_ptr<arrow::Array> chunk;
+      if (column->num_chunks() == 1) {
+        chunk = column->chunk(0);
+      } else {
+        auto concat = arrow::Concatenate(column->chunks());
+        if (!concat.ok()) {
+          auto msg =
+              std::format("Failed to concatenate {} chunks for column '{}': {}",
+                          column->num_chunks(),
+                          name,
+                          concat.status().ToString());
+          SPDLOG_ERROR(msg);
+          return std::unexpected(std::move(msg));
+        }
+        chunk = *concat;
+      }
       if (!chunk) {
         auto msg = std::format("Null chunk in column '{}'", name);
         SPDLOG_ERROR(msg);
@@ -152,7 +176,18 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
                                  make_uid<Block>((*blocks)->Value(i))};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
+        SPDLOG_ERROR(
+            "duplicate (Scenario, Stage, Block) key {} at row {} — "
+            "input table has more than one row per UID tuple, which "
+            "indicates either bad input data or a wrong reader axis "
+            "for this schedule (e.g. emitting a `scenario` column on "
+            "a 2D (Stage, Block) schedule).  Refusing to silently "
+            "shadow the earlier row.",
+            as_string(key),
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in input table — see preceding [error] "
+            "log line for details");
       }
     }
 
@@ -187,7 +222,26 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
       SPDLOG_DEBUG("uididx Processing key: {} and {}", as_string(key), i);
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN("using duplicated id values at element {}", as_string(key));
+        std::string columns;
+        for (const auto& n : table->ColumnNames()) {
+          if (!columns.empty()) {
+            columns += ", ";
+          }
+          columns += n;
+        }
+        SPDLOG_ERROR(
+            "duplicate (Stage, Block) key {} at row {} — the table has "
+            "more than one row per (stage, block) tuple.  Most common "
+            "cause: a `scenario` column on a schedule that is read as "
+            "2D (Stage, Block).  Either drop the redundant `scenario` "
+            "rows in the writer or read it through the 3D (Scenario, "
+            "Stage, Block) reader.  Table columns: [{}]",
+            as_string(key),
+            i,
+            columns);
+        throw std::runtime_error(
+            "duplicate UID key in input table — see preceding [error] "
+            "log line for details");
       }
     }
 
@@ -222,7 +276,14 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
                                  make_uid<Stage>((*stages)->Value(i))};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
+        SPDLOG_ERROR(
+            "duplicate (Scenario, Stage) key {} at row {} — input "
+            "table has more than one row per (scenario, stage) tuple.",
+            as_string(key),
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in input table — see preceding [error] "
+            "log line for details");
       }
     }
 
@@ -250,7 +311,14 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
       const auto key = key_type {make_uid<Stage>((*stages)->Value(i))};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
-        SPDLOG_WARN("using duplicate uid values at element {}", as_string(key));
+        SPDLOG_ERROR(
+            "duplicate Stage key {} at row {} — table has more than "
+            "one row per stage UID.",
+            as_string(key),
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in input table — see preceding [error] "
+            "log line for details");
       }
     }
 

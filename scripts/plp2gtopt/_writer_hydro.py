@@ -84,14 +84,26 @@ class HydroMixin:
             # mid-build.
             return {}
         # Un-discount the cut-derived caps to the auto's face-value
-        # frame using the last simulation stage's `discount_factor`
-        # from plpeta.dat.  When no stage parser is available
-        # (degenerate fixtures) leave the caps in their raw on-disk
-        # (already-discounted) frame.
-        stage_parser = self.parser.parsed_data.get("stage_parser")
-        if stage_parser is None:
-            return raw
-        stages = getattr(stage_parser, "stages", None) or []
+        # frame using the LAST stage's `discount_factor` from the
+        # emitted simulation — this is the discount factor the LP
+        # actually applies at solve time.  Previously we read from
+        # `stage_parser.stages[-1]` (the full PLP view); that diverged
+        # from the simulation's view whenever the writer truncated
+        # tail stages (e.g. `-t 1y` on a 2y PLP), leaving the caps
+        # off by exactly the missing-tail cumulative discount.  Read
+        # the planning JSON's stage_array — which IS what gtopt will
+        # see — so writer and LP agree.  Fall back to the parser when
+        # no simulation has been built yet (legacy / unit-test paths).
+        stages = (
+            self.planning.get("simulation", {}).get("stage_array", [])
+            if hasattr(self, "planning")
+            else []
+        )
+        if not stages:
+            stage_parser = self.parser.parsed_data.get("stage_parser")
+            if stage_parser is None:
+                return raw
+            stages = getattr(stage_parser, "stages", None) or []
         if not stages:
             return raw
         try:
@@ -664,10 +676,11 @@ class HydroMixin:
           ``Generator/pmin.parquet``).
         * Appends a FlowRight JSON entry to
           ``planning["system"]["flow_right_array"]`` with
-          ``discharge = "<central>_pmin_as_flow_right"``,
-          ``junction = junction_b`` and a ``fail_cost`` calibrated
-          from plpvrebemb (2× max rebalse_cost) or plpmat CVert
-          (2× CVert) — fallback $10 000/m³/s·h when neither is set.
+          ``discharge = "<central>_pmin_as_flow_right"`` (which the
+          gtopt JSON binding aliases to ``target``), ``junction =
+          junction_b`` and a ``fcost`` calibrated from plpvrebemb (2×
+          max rebalse_cost) or plpmat CVert (2× CVert) — fallback
+          $10 000/m³/s·h when neither is set.
         * Zeros the matching generator's ``pmin`` so the LP no longer
           enforces the must-run obligation directly.
         """
@@ -719,7 +732,6 @@ class HydroMixin:
             mance_parser=self.parser.parsed_data.get("mance_parser"),
             block_parser=self.parser.parsed_data.get("block_parser"),
             stage_parser=self.parser.parsed_data.get("stage_parser"),
-            scenarios=self.planning["simulation"].get("scenario_array", []),
             vrebemb_parser=self.parser.parsed_data.get("vrebemb_parser"),
             plpmat_parser=self.parser.parsed_data.get("plpmat_parser"),
             cenre_parser=self.parser.parsed_data.get("cenre_parser"),

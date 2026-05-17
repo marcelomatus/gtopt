@@ -6,9 +6,7 @@
 
 namespace daw::json
 {
-using gtopt::Array;
 using gtopt::ReserveProvision;
-using gtopt::String;
 
 template<>
 struct json_data_contract<ReserveProvision>
@@ -23,7 +21,7 @@ struct json_data_contract<ReserveProvision>
       // colon/comma-delimited string form: `"reserve_zones": [1,
       // "ZONE_A"]` rather than `"reserve_zones": "1:ZONE_A"`.
       json_array_null<"reserve_zones",
-                      Array<SingleId>,
+                      gtopt::Array<SingleId>,
                       json_variant_no_name<SingleId, jvtl_SingleId>>,
       json_variant_null<"urmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
