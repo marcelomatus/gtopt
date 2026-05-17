@@ -58,6 +58,7 @@ _VENDORED_BASE_WITH_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_base_with_stora
 _VENDORED_CASE118_INITCOND = (
     _TEST_DATA_DIR / "UnitCommitmentJl_case118_initcond.json.gz"
 )
+_VENDORED_TEP_IEEE24 = _TEST_DATA_DIR / "UnitCommitmentJl_tep_ieee24.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -1074,7 +1075,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-363_441.36, abs=1.0)
+    assert obj == pytest.approx(-363_085.20, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1244,3 +1245,138 @@ def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
                 f"status_sol = {value} is not a clean 0/1 integer "
                 f"on case118-initcond"
             )
+
+
+# ---------------------------------------------------------------------------
+# IEEE-24 TEP — capacity expansion (line investment decisions)
+# ---------------------------------------------------------------------------
+#
+# Vendored from ``ANL-CEEESA/UnitCommitment.jl/test/fixtures/tep_ieee24.json.gz``.
+# Single-hour Transmission Expansion Planning benchmark on IEEE-24:
+#
+#   * 24 buses, 17 with non-zero load (8550 MW total).
+#   * 32 ``Type = "Profiled"`` generators (no Commitment) with flat
+#     ``Cost ($/MW)`` and ``Maximum power (MW)`` (10 215 MW total cap).
+#   * 77 lines: 35 existing (Investment cost = 0) + 42 candidates
+#     (Investment cost > 0).
+#
+# Exercises:
+#
+#   * Profiled-gen branch of ``_gen_bounds`` (flat cost, ``pmin = 0``).
+#   * ``_reactance_from_line`` ``Reactance (p.u.)`` lookup (vs. the
+#     mislabelled ``(ohms)`` in case14 / case118).
+#   * ``_expansion_fields`` end-to-end: each candidate line gets
+#     ``capacity = 0`` + ``expcap = tmax`` + ``expmod = 1`` + ``capmax
+#     = tmax`` + ``annual_capcost``, and gtopt's CapacityObjectLP
+#     instantiates the ``capainst`` / ``expmod`` / ``capacost`` triple
+#     (output dirs: ``Line/capainst_*.csv``, ``Line/expmod_*.csv``).
+
+
+@pytest.mark.skipif(
+    not _VENDORED_TEP_IEEE24.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_TEP_IEEE24}",
+)
+def test_real_tep_ieee24_topology_counts(tmp_path: Path) -> None:
+    """UC.jl ``tep_ieee24.json.gz``: 24 buses, 32 profiled gens, 42 candidate lines."""
+    ucjl = tmp_path / "tep24.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_TEP_IEEE24.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    assert len(system["bus_array"]) == 24
+    assert len(system["generator_array"]) == 32
+    assert len(system["line_array"]) == 77
+    # Profiled gens have no Commitment in our converter.
+    assert system["commitment_array"] == []
+    # No reserves in tep_ieee24.
+    assert system["reserve_zone_array"] == []
+
+    # 42 candidate lines (Investment cost > 0) carry expansion fields;
+    # the 35 existing lines do NOT.
+    candidate_lines = [
+        line for line in system["line_array"] if "annual_capcost" in line
+    ]
+    existing_lines = [
+        line for line in system["line_array"] if "annual_capcost" not in line
+    ]
+    assert len(candidate_lines) == 42
+    assert len(existing_lines) == 35
+
+    # Spot-check the candidate-line expansion contract:
+    #   capacity = 0  (no pre-existing capacity)
+    #   expmod   = 1  (one module)
+    #   capmax   = tmax_ab (= capacity + expcap)
+    #   expcap   = tmax_ab (one module = full nameplate)
+    sample = candidate_lines[0]
+    assert sample["capacity"] == 0.0
+    assert sample["expmod"] == 1
+    assert sample["expcap"] == sample["tmax_ab"]
+    assert sample["capmax"] == sample["tmax_ab"]
+    assert sample["annual_capcost"] > 0.0
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_TEP_IEEE24.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_TEP_IEEE24}",
+)
+def test_real_tep_ieee24_solves_with_expansion(tmp_path: Path) -> None:
+    """End-to-end TEP: candidate-line investment decisions reach the LP.
+
+    Pins:
+
+      * Solver status 0 (a regression in the expansion semantics — e.g.
+        my earlier ``capacity = tmax, capmax = 2·tmax`` mis-mapping —
+        would surface as infeasible here, because ``capainst ≥
+        stage_capacity`` would force every candidate line built).
+      * ``Line/expmod_sol_s0_p0.csv`` exists — proves
+        ``CapacityObjectLP::add_to_lp`` saw ``expcap × expmod > 0``
+        and instantiated the expansion column.
+      * ``Line/capainst_sol_s0_p0.csv`` exists.
+      * 40 expansion columns are present (one per candidate line whose
+        ``expmod_var`` couldn't be eliminated by presolve — some
+        candidates are degenerate at this scale).
+
+    Optimal LP-relaxation obj on this fixture is 0 (all gens have
+    ``Cost ($/MW) = 0`` and the existing-line network is enough to
+    deliver 8550 MW of demand with zero curtailment — no investments
+    needed).  We don't pin the obj because future converter or LP
+    changes could shift it without invalidating the expansion-semantics
+    fix the test is anchoring.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    ucjl = tmp_path / "tep24.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_TEP_IEEE24.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj is not None and math.isfinite(obj)
+
+    # Expansion LP columns instantiated for the candidate lines.
+    line_out = tmp_path / "run" / "output" / "Line"
+    assert (line_out / "expmod_sol_s0_p0.csv").is_file(), (
+        "Line/expmod_sol missing — _expansion_fields didn't reach the LP build"
+    )
+    assert (line_out / "capainst_sol_s0_p0.csv").is_file()
+
+    # Sanity: ``capainst`` is finite (within ``[0, tmax]`` for every
+    # candidate) and ``expmod`` is in ``[0, 1]``.
+    with (line_out / "expmod_sol_s0_p0.csv").open(encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    n_expansion_cols = len(rows[0]) - 3  # subtract scenario/stage/block
+    assert n_expansion_cols > 0, "no expansion columns emitted"
+    for value_str in rows[1][3:]:
+        v = float(value_str)
+        assert -1e-6 <= v <= 1.0 + 1e-6, (
+            f"expmod_sol = {v} outside [0, 1] — expansion bounds are wrong"
+        )

@@ -28,17 +28,18 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
   backend (HiGHS / CLP / CPLEX).  Drop ``--relax`` from the CLI to emit
   MIP commitment (requires a MIP solver loaded at run time).
 
+* **Expansion / TEP** (``Investment cost ($)`` on generators or lines)
+  maps onto gtopt's expansion contract via ``_expansion_fields``:
+  ``capacity = 0`` (no pre-existing), ``expcap = nameplate``,
+  ``expmod = 1`` (one module per candidate), ``capmax = nameplate``,
+  ``annual_capcost = invest_cost``.  The LP build then constructs
+  ``capainst = capacity + expcap × expmod_var ∈ [0, expcap]`` and
+  ``dispatch ≤ capainst`` (see ``source/capacity_object_lp.cpp``).
+  Candidate generators also get ``pmin = 0`` so the LP is feasible
+  when ``expmod_var = 0`` (no commitment to gate the static floor).
+
 Not yet mapped (scoped out, will silently no-op when present):
 
-* TEP investment costs (``Investment cost ($)`` on generators / lines).
-  gtopt has the full expansion contract (``expcap`` / ``expmod`` /
-  ``capmax`` / ``annual_capcost``) on every relevant element; the
-  ``_expansion_fields`` helper and ``_gen_bounds`` profiled-gen branch
-  are in place, but ``System::expand_lines()`` and the line-expansion
-  LP build need more investigation before the wiring is enabled —
-  vendoring ``tep_ieee24.json`` reproducibly triggered an infeasible
-  LP on candidate-line expansion that copperplate sidesteps.  Hook
-  points are commented in the gen / line loops below.
 * Profiled / renewable generators with time-varying capacity
   (``generator_profile_array`` would be the gtopt-side target).
 * Non-spinning reserves (UC.jl ``Type != "Spinning"``).
@@ -170,41 +171,50 @@ def _reactance_from_line(ldata):
     return None
 
 
-def _expansion_fields(invest_cost, capacity, integer=False):
+def _expansion_fields(invest_cost, nameplate_mw, integer=False):
     """Translate UC.jl's ``Investment cost ($)`` into gtopt expansion fields.
 
     UC.jl TEP fixtures ship one ``Investment cost ($)`` figure per
-    candidate generator / line — the LP-side annualized cost of
-    activating that unit's capacity.  We map it onto gtopt's four-
-    field expansion contract:
+    *candidate* generator / line — the LP-side annualized cost of
+    activating that unit's nameplate capacity.  gtopt's LP-side
+    expansion contract (see ``source/capacity_object_lp.cpp:121–192``)
+    constructs::
 
-      * ``expcap``         = ``capacity`` — one module = full nameplate.
-      * ``expmod``         = 1 — at most one investment decision per
-                                 candidate (matches UC.jl's binary
-                                 ``Investment cost ($)`` decision).
-      * ``capmax``         = 2 × ``capacity`` — pre-existing capacity
-                                 + one expansion module (covers the
-                                 max physical state).
-      * ``annual_capcost`` = ``invest_cost`` — UC.jl's investment cost
-                                 is one-shot ($), gtopt's is $/MW-year;
-                                 in single-period TEP both are
-                                 numerically equivalent so we pass the
-                                 value through unchanged.
-      * ``integer_expmod`` = True iff ``integer`` is set — MIP TEP.
+        capainst_var ∈ [capacity, capmax]
+        capainst_var = capacity + expcap × expmod_var
+        expmod_var   ∈ [0, expmod]
+        dispatch ≤ capainst_var          (per-block, via capacity row)
 
-    Returns an empty dict when ``invest_cost`` is missing or zero so
-    that non-expandable elements skip the expansion machinery
+    so the candidate's *optional-build* semantics requires::
+
+        capacity = 0                     (no pre-existing capacity)
+        expcap   = nameplate_mw          (one module = full nameplate)
+        expmod   = 1                     (at most one module)
+        capmax   = nameplate_mw          (= capacity + expcap)
+
+    With ``expmod_var = 0`` the LP gets ``capainst = 0`` → dispatch is
+    forced to zero (line carries no flow / generator produces nothing).
+    With ``expmod_var = 1`` the LP pays ``annual_capcost`` and gets
+    ``capainst = nameplate_mw`` → full operational range.  Integrality
+    of the build decision is gated by ``integer_expmod`` (MIP TEP).
+
+    ``capacity = 0`` must be carried by the *element itself* — i.e. the
+    caller is responsible for emitting ``Generator.capacity = 0`` or
+    ``Line.capacity = 0`` on candidate elements; this helper only owns
+    the expansion-side fields.  Returns an empty dict when there is no
+    investment cost so that non-expandable elements skip the machinery
     entirely.
     """
     if invest_cost is None:
         return {}
     cost = float(invest_cost)
-    if cost <= 0.0 or capacity <= 0.0:
+    if cost <= 0.0 or nameplate_mw <= 0.0:
         return {}
     fields: dict = {
-        "expcap": float(capacity),
+        "capacity": 0.0,  # no pre-existing capacity for candidates
+        "expcap": float(nameplate_mw),
         "expmod": 1,
-        "capmax": float(2 * capacity),
+        "capmax": float(nameplate_mw),
         "annual_capcost": cost,
     }
     if integer:
@@ -228,14 +238,18 @@ def _gen_bounds(gdata):
             gdata.get("Production cost curve ($)", [0, 1000]),
         )
     # TEP / Profiled flat-cost schema.  ``Minimum power (MW)`` is
-    # forced to 0: for profiled / renewable gens it represents the
-    # operational floor WHEN BUILT (UC.jl's intent), and gtopt has no
-    # Commitment u-variable on profiled gens to gate that floor, so
-    # passing it through would force dispatch ≥ pmin every block
-    # regardless of whether the TEP investment decision is taken.
-    # Setting pmin=0 matches the standard renewable-curtailment
-    # interpretation and keeps the LP feasible across investment-on /
-    # investment-off branches.
+    # forced to 0: the gtopt invariant is "pmin lives on Commitment,
+    # not on Generator" — ``CommitmentLP::add_to_lp`` reads
+    # ``gen_pmin = lp.get_col_lowb(gcol)`` and then resets
+    # ``gcol.lowb = 0`` (source/commitment_lp.cpp:347-352), migrating
+    # the floor onto a C2 row gated by the binary status ``u`` so it
+    # only binds when the unit is committed.  Profiled / renewable
+    # generators have NO Commitment in our converter, so emitting
+    # ``Generator.pmin > 0`` would leave the static col lower bound
+    # in place and force dispatch ≥ pmin every block regardless of
+    # whether the unit is "running" — that's the wrong semantics for
+    # renewable curtailment (and breaks TEP candidate units where
+    # ``capainst = 0`` forces dispatch = 0 when not built).
     pmax = float(gdata.get("Maximum power (MW)", 0.0))
     gcost = float(gdata.get("Cost ($/MW)", 0.0))
     return 0.0, pmax, gcost, [], []
@@ -345,6 +359,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         gtype = str(gdata.get("Type", "Thermal")).lower()
 
         pmin, pmax, gcost, pmax_segs, hr_segs = _gen_bounds(gdata)
+        invest_cost = gdata.get("Investment cost ($)")
+        is_candidate = invest_cost is not None and float(invest_cost) > 0.0
+        # Candidate gens are FORCED to pmin=0: when expmod = 0 the LP
+        # gives capainst = 0 → dispatch ≤ 0; a positive pmin would then
+        # make the LP infeasible unless we install the gen.  The
+        # original Profiled-branch in `_gen_bounds` already does this
+        # unconditionally, but Thermal candidates can have piecewise
+        # pmin > 0 — clamp here for the candidate case.
+        if is_candidate:
+            pmin = 0.0
 
         gen_uid += 1
         gen_entry = {
@@ -362,10 +386,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # a free-form tag with no semantic effect on the LP build, so
         # leaving it unset avoids accidentally selecting a future gtopt
         # type-based code path.
-        # TEP investment cost mapping is deferred — see the module
-        # docstring "Not yet mapped" list.  When implemented, this
-        # is the hook point: emit ``expcap`` / ``expmod`` / ``capmax``
-        # / ``annual_capcost`` from ``Investment cost ($)`` here.
+        # TEP: ``Investment cost ($)`` activates the expansion fields
+        # (overrides ``capacity`` to 0 on candidate units — see
+        # ``_expansion_fields``).
+        gen_entry.update(
+            _expansion_fields(invest_cost, pmax, integer=not relax_commitment)
+        )
         generator_array.append(gen_entry)
 
         # Commitment is only meaningful for thermal generators.
@@ -565,7 +591,14 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "tmax_ab": round(tmax, 1),
             "tmax_ba": round(tmax, 1),
         }
-        # TEP expansion deferred — same hook as the generator branch above.
+        # TEP: ``Investment cost ($)`` activates the line-expansion fields
+        # (overrides ``capacity`` to 0 on candidate lines — see
+        # ``_expansion_fields``).
+        line_entry.update(
+            _expansion_fields(
+                ldata.get("Investment cost ($)"), tmax, integer=not relax_commitment
+            )
+        )
         line_array.append(line_entry)
 
     output = {
