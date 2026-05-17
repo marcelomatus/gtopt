@@ -30,7 +30,17 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 
 Not yet mapped (scoped out, will silently no-op when present):
 
-* Profiled / renewable generators with time-varying capacity.
+* TEP investment costs (``Investment cost ($)`` on generators / lines).
+  gtopt has the full expansion contract (``expcap`` / ``expmod`` /
+  ``capmax`` / ``annual_capcost``) on every relevant element; the
+  ``_expansion_fields`` helper and ``_gen_bounds`` profiled-gen branch
+  are in place, but ``System::expand_lines()`` and the line-expansion
+  LP build need more investigation before the wiring is enabled —
+  vendoring ``tep_ieee24.json`` reproducibly triggered an infeasible
+  LP on candidate-line expansion that copperplate sidesteps.  Hook
+  points are commented in the gen / line loops below.
+* Profiled / renewable generators with time-varying capacity
+  (``generator_profile_array`` would be the gtopt-side target).
 * Non-spinning reserves (UC.jl ``Type != "Spinning"``).
 * Price-sensitive loads, contingencies, AC fields (``Susceptance``,
   emergency limits).  UC.jl's per-line ``Flow limit penalty`` is not
@@ -140,6 +150,97 @@ def _initial_status_to_uc(initial_status_h):
     return (1.0 if initial_status_h > 0 else 0.0), float(abs(initial_status_h))
 
 
+def _reactance_from_line(ldata):
+    """Resolve a line's series reactance from any of UC.jl's three forms.
+
+    UC.jl ships ``Reactance (p.u.)`` (TEP fixtures), ``Reactance (ohms)``
+    (case14 / case118), or only ``Susceptance (S)``.  All three are
+    equivalent for DC OPF: gtopt's ``Line.reactance`` expects p.u. with
+    ``voltage`` left at the default 1.0, so we hand back whichever form
+    UC.jl gave us (or invert susceptance).  Returns ``None`` when no
+    impedance information is available — the caller drops the line.
+    """
+    for key in ("Reactance (p.u.)", "Reactance (ohms)", "Reactance"):
+        val = ldata.get(key)
+        if val is not None and float(val) > 0:
+            return float(val)
+    susceptance = ldata.get("Susceptance (S)")
+    if susceptance is not None and float(susceptance) > 0:
+        return 1.0 / float(susceptance)
+    return None
+
+
+def _expansion_fields(invest_cost, capacity, integer=False):
+    """Translate UC.jl's ``Investment cost ($)`` into gtopt expansion fields.
+
+    UC.jl TEP fixtures ship one ``Investment cost ($)`` figure per
+    candidate generator / line — the LP-side annualized cost of
+    activating that unit's capacity.  We map it onto gtopt's four-
+    field expansion contract:
+
+      * ``expcap``         = ``capacity`` — one module = full nameplate.
+      * ``expmod``         = 1 — at most one investment decision per
+                                 candidate (matches UC.jl's binary
+                                 ``Investment cost ($)`` decision).
+      * ``capmax``         = 2 × ``capacity`` — pre-existing capacity
+                                 + one expansion module (covers the
+                                 max physical state).
+      * ``annual_capcost`` = ``invest_cost`` — UC.jl's investment cost
+                                 is one-shot ($), gtopt's is $/MW-year;
+                                 in single-period TEP both are
+                                 numerically equivalent so we pass the
+                                 value through unchanged.
+      * ``integer_expmod`` = True iff ``integer`` is set — MIP TEP.
+
+    Returns an empty dict when ``invest_cost`` is missing or zero so
+    that non-expandable elements skip the expansion machinery
+    entirely.
+    """
+    if invest_cost is None:
+        return {}
+    cost = float(invest_cost)
+    if cost <= 0.0 or capacity <= 0.0:
+        return {}
+    fields: dict = {
+        "expcap": float(capacity),
+        "expmod": 1,
+        "capmax": float(2 * capacity),
+        "annual_capcost": cost,
+    }
+    if integer:
+        fields["integer_expmod"] = True
+    return fields
+
+
+def _gen_bounds(gdata):
+    """Pmin / Pmax / gcost / piecewise-segments for either Thermal or Profiled.
+
+    Thermal gens carry ``Production cost curve (MW)`` + ``...($)`` —
+    full piecewise (handled by ``_compute_pieces``).
+
+    Profiled / TEP gens (``Type = "Profiled"``) carry the simpler
+    ``Maximum power (MW)`` / ``Minimum power (MW)`` / ``Cost ($/MW)``
+    flat-cost schema with no piecewise segments and no Commitment.
+    """
+    if "Production cost curve (MW)" in gdata:
+        return _compute_pieces(
+            gdata.get("Production cost curve (MW)", [0, 100]),
+            gdata.get("Production cost curve ($)", [0, 1000]),
+        )
+    # TEP / Profiled flat-cost schema.  ``Minimum power (MW)`` is
+    # forced to 0: for profiled / renewable gens it represents the
+    # operational floor WHEN BUILT (UC.jl's intent), and gtopt has no
+    # Commitment u-variable on profiled gens to gate that floor, so
+    # passing it through would force dispatch ≥ pmin every block
+    # regardless of whether the TEP investment decision is taken.
+    # Setting pmin=0 matches the standard renewable-curtailment
+    # interpretation and keeps the LP feasible across investment-on /
+    # investment-off branches.
+    pmax = float(gdata.get("Maximum power (MW)", 0.0))
+    gcost = float(gdata.get("Cost ($/MW)", 0.0))
+    return 0.0, pmax, gcost, [], []
+
+
 # ---------------------------------------------------------------------------
 # Main conversion
 # ---------------------------------------------------------------------------
@@ -243,9 +344,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         bus_uid = name_to_uid[bus_name]
         gtype = str(gdata.get("Type", "Thermal")).lower()
 
-        curve_mw = gdata.get("Production cost curve (MW)", [0, 100])
-        curve_cost = gdata.get("Production cost curve ($)", [0, 1000])
-        pmin, pmax, gcost, pmax_segs, hr_segs = _compute_pieces(curve_mw, curve_cost)
+        pmin, pmax, gcost, pmax_segs, hr_segs = _gen_bounds(gdata)
 
         gen_uid += 1
         gen_entry = {
@@ -257,8 +356,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "gcost": round(gcost, 6),
             "capacity": round(pmax, 6),
         }
-        if gtype not in ("thermal", ""):
-            gen_entry["type"] = gtype
+        # Skip the ``type`` field: UC.jl's ``Type = "Profiled"`` /
+        # ``"Thermal"`` are JSON-level classifiers that determine which
+        # branch of *our* converter runs; gtopt's ``Generator.type`` is
+        # a free-form tag with no semantic effect on the LP build, so
+        # leaving it unset avoids accidentally selecting a future gtopt
+        # type-based code path.
+        # TEP investment cost mapping is deferred — see the module
+        # docstring "Not yet mapped" list.  When implemented, this
+        # is the hook point: emit ``expcap`` / ``expmod`` / ``capmax``
+        # / ``annual_capcost`` from ``Investment cost ($)`` here.
         generator_array.append(gen_entry)
 
         # Commitment is only meaningful for thermal generators.
@@ -432,8 +539,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         tgt = ldata.get("Target bus")
         if src not in name_to_uid or tgt not in name_to_uid:
             continue
-        x = ldata.get("Reactance (ohms)", 0.0)
-        if x is None or float(x) <= 0:
+        # Accept any of UC.jl's three reactance encodings (TEP fixtures
+        # ship ``Reactance (p.u.)``, case14 / case118 ship the
+        # mislabelled ``Reactance (ohms)`` which is also already-pu;
+        # case5 / TEP fall back to ``1 / Susceptance (S)``).
+        x = _reactance_from_line(ldata)
+        if x is None:
             continue
 
         tmax_raw = ldata.get("Normal flow limit (MW)")
@@ -445,17 +556,17 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             tmax = min(float(tmax_raw), 99999.0)
 
         line_uid += 1
-        line_array.append(
-            {
-                "uid": line_uid,
-                "name": lname,
-                "bus_a": name_to_uid[src],
-                "bus_b": name_to_uid[tgt],
-                "reactance": round(float(x), 6),
-                "tmax_ab": round(tmax, 1),
-                "tmax_ba": round(tmax, 1),
-            }
-        )
+        line_entry = {
+            "uid": line_uid,
+            "name": lname,
+            "bus_a": name_to_uid[src],
+            "bus_b": name_to_uid[tgt],
+            "reactance": round(float(x), 6),
+            "tmax_ab": round(tmax, 1),
+            "tmax_ba": round(tmax, 1),
+        }
+        # TEP expansion deferred — same hook as the generator branch above.
+        line_array.append(line_entry)
 
     output = {
         "options": {

@@ -973,8 +973,10 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
     system = json.loads(out.read_text())["system"]
     assert len(system["bus_array"]) == 15
     assert len(system["generator_array"]) == 12
-    # Topology: 22 lines in source; some reference unknown buses (filtered).
-    assert len(system["line_array"]) == 20
+    # All 22 lines round-trip: 20 use ``Reactance (ohms)``, 2 use only
+    # ``Susceptance (S)`` and are converted via X = 1/B in
+    # ``_reactance_from_line``.
+    assert len(system["line_array"]) == 22
     assert len(system["commitment_array"]) == 10
     assert len(system["reserve_zone_array"]) == 3
     assert len(system["battery_array"]) == 2
@@ -1072,7 +1074,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-376_357.36, abs=1.0)
+    assert obj == pytest.approx(-363_441.36, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
