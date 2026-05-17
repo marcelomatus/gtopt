@@ -81,8 +81,11 @@ _SYNTHETIC_UCJL: dict = {
         "g1": {
             "Bus": "b1",
             "Type": "Thermal",
-            "Production cost curve (MW)": [50, 100, 200],
-            "Production cost curve ($)": [1500, 3000, 6000],
+            # Two-breakpoint curve (single slope) — avoids gtopt's
+            # strictly-increasing-heat-rate convexity check on piecewise
+            # segments while keeping the analytical 15 350 optimum below.
+            "Production cost curve (MW)": [50, 200],
+            "Production cost curve ($)": [1500, 6000],
         },
         "g2": {
             "Bus": "b2",
@@ -238,6 +241,10 @@ def test_converter_topology_counts(tmp_path: Path) -> None:
     assert len(system["demand_array"]) == 2
     assert len(system["line_array"]) == 1
     assert len(system["commitment_array"]) == 2  # one per thermal
+    # The synthetic fixture has no ``Reserves`` block — reserve arrays
+    # must be empty (no spurious ReserveZone / ReserveProvision entries).
+    assert system["reserve_zone_array"] == []
+    assert system["reserve_provision_array"] == []
 
 
 def test_converter_emits_1x1xT_block_structure(tmp_path: Path) -> None:
@@ -377,6 +384,54 @@ def test_real_case14_base_topology_counts(tmp_path: Path) -> None:
     assert len(system["commitment_array"]) == 6
     # 3 buses (b1 / b7 / b8) have zero load and are excluded.
     assert len(system["demand_array"]) == 11
+    # One spinning zone (``r1``), five eligible thermals (g2..g6 — g1 has
+    # no ``Reserve eligibility`` field).
+    assert len(system["reserve_zone_array"]) == 1
+    assert len(system["reserve_provision_array"]) == 5
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_BASE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
+)
+def test_real_case14_base_reserve_field_mapping(tmp_path: Path) -> None:
+    """UC.jl ``Reserves`` and ``Reserve eligibility`` map onto gtopt elements.
+
+    Zone ``r1``: ``Amount (MW) = 100`` → ``urreq = [[100, 100, 100, 100]]``
+    (per-block schedule), ``Shortfall penalty ($/MW) = 1000`` → ``urcost``.
+    Each eligible generator gets a ``ReserveProvision`` with
+    ``ur_provision_factor = 1.0`` and ``urmax = gen.pmax`` — those two
+    fields are both required by gtopt's LP build path
+    (``ReserveProvisionLP::add_to_lp`` early-returns when either is
+    missing — see source/reserve_provision_lp.cpp:49,101).
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_BASE, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+
+    zones = {z["name"]: z for z in system["reserve_zone_array"]}
+    assert "r1" in zones
+    assert zones["r1"]["urreq"] == [[100.0, 100.0, 100.0, 100.0]]
+    assert zones["r1"]["urcost"] == 1000.0
+
+    provisions = {p["name"]: p for p in system["reserve_provision_array"]}
+    # g1 has no ``Reserve eligibility`` in UC.jl → no provision row.
+    assert "g1_rp" not in provisions
+    # g2..g6 all carry ``Reserve eligibility = ["r1"]``.
+    for gname, gpmax in (
+        ("g2", 140.0),
+        ("g3", 100.0),
+        ("g4", 100.0),
+        ("g5", 100.0),
+        ("g6", 100.0),
+    ):
+        rp = provisions[f"{gname}_rp"]
+        assert rp["generator"] == gname
+        assert rp["reserve_zones"] == ["r1"]
+        assert rp["ur_provision_factor"] == 1.0
+        assert rp["urmax"] == [[gpmax] * 4]
 
 
 @pytest.mark.skipif(
@@ -436,7 +491,15 @@ def test_real_case14_base_commitment_field_mapping(tmp_path: Path) -> None:
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
 def test_real_case14_base_lprelax_solves(tmp_path: Path) -> None:
-    """LP-relaxation on the full network: converter output is consumable by gtopt."""
+    """LP-relaxation on the full network: converter output is consumable by gtopt.
+
+    Note: ``obj_value`` may be negative — gtopt's reserve formulation
+    rewards provision (cost = ``-urcost`` on the requirement column at
+    source/reserve_zone_lp.cpp:47-52), so an LP that satisfies the
+    full 100 MW spinning-reserve requirement earns ``-100 × 1000 ×
+    blocks`` of "reserve credit" that can outweigh dispatch + startup.
+    We only assert the LP is feasible and the objective is finite.
+    """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
 
@@ -449,7 +512,7 @@ def test_real_case14_base_lprelax_solves(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj is not None and math.isfinite(obj) and obj > 0.0
+    assert obj is not None and math.isfinite(obj)
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -457,15 +520,26 @@ def test_real_case14_base_lprelax_solves(tmp_path: Path) -> None:
     not _VENDORED_CASE14_BASE.is_file(),
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
-def test_real_case14_base_copperplate_mip_matches_ucjl_g1(tmp_path: Path) -> None:
-    """MIP + copperplate: ``g1`` commitment status = ``[1, 1, 1, 1]`` per UC.jl.
+def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
+    """MIP + copperplate: ``g1`` and ``g2`` status = ``[1, 1, 1, 1]`` per UC.jl.
 
     ``test/src/usage_test.jl::usage_deterministic_test`` in
-    ANL-CEEESA/UnitCommitment.jl pins
-    ``sol["Thermal: Is on"]["g1"] == [1.0, 1.0, 1.0, 1.0]``.  gtopt's
-    MIP commit pattern matches in copperplate mode (transmission
-    disabled).  This is our cross-validation anchor against UC.jl's
-    own HiGHS-solved golden — no Julia subprocess required.
+    ANL-CEEESA/UnitCommitment.jl pins, for the same vendored
+    ``case14/base.json`` (with ``ShiftFactorsTransmissionExt`` for
+    transmission)::
+
+        sol["Thermal: Is on"]["g1"] == [1.0, 1.0, 1.0, 1.0]
+        sol["Thermal: Is on"]["g2"] == [1.0, 1.0, 1.0, 1.0]
+
+    With the converter mapping UC.jl's ``Reserves`` block onto
+    ``ReserveZone`` + ``ReserveProvision`` and the transmission network
+    flattened to copperplate, gtopt's MIP reproduces **both**
+    commitments — full match against UC.jl's HiGHS-solved golden,
+    without invoking Julia.
+
+    The flag combination ``--mip --copperplate`` exists exactly to
+    isolate the commitment + reserve modelling from the transmission-
+    formulation gap discussed in ``test_real_case14_full_network_solves``.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -484,13 +558,21 @@ def test_real_case14_base_copperplate_mip_matches_ucjl_g1(tmp_path: Path) -> Non
     status, _ = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
 
-    # g1 is uid=1 in the commitment_array (insertion order).
-    g1_status = _read_commitment_status(tmp_path / "run" / "output", gen_uid=1)
-    assert len(g1_status) == 4
-    # UC.jl pins exact integer 1.0; allow tiny MIP numerical tolerance.
-    assert all(v >= 0.99 for v in g1_status), (
-        f"g1 commitment status {g1_status} disagrees with UC.jl's [1,1,1,1] golden"
-    )
+    # g1 and g2 are commitment uids 1 and 2 (insertion order in the
+    # commitment_array — gens are emitted in source dict order so g1
+    # → uid 1, g2 → uid 2).  UC.jl pins integer 1.0 — allow tiny MIP
+    # numerical tolerance.
+    for gname, gen_uid in (("g1", 1), ("g2", 2)):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        assert len(status_per_block) == 4, (
+            f"{gname}: expected 4 status values, got {status_per_block}"
+        )
+        assert all(v >= 0.99 for v in status_per_block), (
+            f"{gname} commitment status {status_per_block} disagrees "
+            f"with UC.jl's pinned [1, 1, 1, 1] golden"
+        )
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -499,19 +581,23 @@ def test_real_case14_base_copperplate_mip_matches_ucjl_g1(tmp_path: Path) -> Non
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
 def test_real_case14_full_network_solves(tmp_path: Path) -> None:
-    """Full transmission solve completes (status=0); pattern divergence from UC.jl noted.
+    """Full transmission solve completes (status=0).
 
-    UC.jl's ``ShiftFactorsTransmissionExt`` uses a PTDF formulation
-    while gtopt uses Kirchhoff voltage-angle.  Both are DC OPF, but the
-    two formulations are only equivalent when reactances are normalised
-    to a consistent per-unit base — which the UC.jl JSON does not
-    document explicitly.  In the current converter mapping, gtopt's MIP
-    finds a different (commitment, dispatch) pair than UC.jl: gtopt
-    curtails ~40 MW in hour 1 while UC.jl commits ``g1`` and ``g2``.
+    Reserves are wired (see ``test_real_case14_base_copperplate_mip_matches_ucjl``
+    for the cross-validation against UC.jl's golden), and in copperplate
+    mode gtopt reproduces UC.jl's pinned commitment pattern.  With the
+    full transmission network re-enabled, gtopt currently curtails some
+    load in hour 1 instead of committing additional thermals to ship
+    extra generation through the constrained corridors.  The
+    investigation pointer is DC OPF formulation differences (gtopt's
+    Kirchhoff voltage-angle vs UC.jl's PTDF / ShiftFactors), not the
+    reserve mapping — both formulations are reactance-driven and
+    UC.jl's reactances ARE in per-unit (they match the IEEE-14
+    reference values shipped in ``cases/ieee_14b/ieee_14b.json``).
 
     Pinning only ``status == 0`` here documents that the converter
-    output remains schema-valid and the LP build succeeds; the
-    PTDF-vs-KVL alignment is a separate work item.
+    output stays schema-valid and the LP build succeeds; chasing the
+    Kirchhoff-vs-PTDF gap is a separate work item.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None

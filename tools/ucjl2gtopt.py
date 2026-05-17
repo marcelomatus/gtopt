@@ -11,6 +11,9 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
   min_up_time / min_down_time, ramp_up / ramp_down, startup_ramp /
   shutdown_ramp, initial_status / initial_hours, piecewise heat rates
   (pmax_segments + heat_rate_segments).
+* **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
+  block and per-generator ``Reserve eligibility``: spinning-reserve
+  ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
 * **relax: true** by default so the LP relaxation solves with any LP
   backend (HiGHS / CLP / CPLEX).  Drop ``--relax`` from the CLI to emit
   MIP commitment (requires a MIP solver loaded at run time).
@@ -18,10 +21,11 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 Not yet mapped (scoped out, will silently no-op when present):
 
 * Profiled / renewable generators with time-varying capacity.
-* Reserves (``r1``, etc.), price-sensitive loads.
-* Contingencies, AC fields (``Susceptance``, emergency limits),
-  flow-limit penalty (UC.jl uses ``demand_fail_cost`` via Power balance
-  penalty instead).
+* Non-spinning reserves (UC.jl ``Type != "Spinning"``).
+* Price-sensitive loads, contingencies, AC fields (``Susceptance``,
+  emergency limits).  UC.jl's per-line ``Flow limit penalty`` is not
+  mapped — gtopt uses ``demand_fail_cost`` via Power balance penalty
+  instead.
 """
 
 import argparse
@@ -179,12 +183,42 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 }
             )
 
-    # --- Generators + Commitments --------------------------------------------
+    # --- Reserve zones -------------------------------------------------------
+    # UC.jl: ``Reserves = {r1: {Type, Amount (MW), Shortfall penalty ($/MW)}}``.
+    # We map only ``Type == "Spinning"`` zones onto ReserveZone.urreq /
+    # ReserveZone.urcost.  Other types (Non-spinning, Flexiramp, ...) are
+    # silently dropped — extending the mapping is a follow-up scope.
+    uc_reserves = data.get("Reserves", {}) or {}
+    reserve_zone_array = []
+    reserve_zone_name_to_uid: dict[str, int] = {}
+    for zname, zdata in uc_reserves.items():
+        if str(zdata.get("Type", "Spinning")).lower() != "spinning":
+            continue
+        zuid = len(reserve_zone_array) + 1
+        reserve_zone_name_to_uid[zname] = zuid
+        urreq = float(zdata.get("Amount (MW)", 0.0))
+        # ``urreq`` is parsed as ``OptTBRealFieldSched`` — a 2-D
+        # ``[stage][block]`` schedule.  A bare scalar is NOT broadcast
+        # in ``ReserveZoneLP::add_requirement`` (source/reserve_zone_lp.cpp:40
+        # calls ``optval(stage_uid, block_uid)`` and skips blocks with no
+        # explicit value).  Emit the same shape as ``Demand.lmax``.
+        reserve_zone_array.append(
+            {
+                "uid": zuid,
+                "name": zname,
+                "urreq": [[urreq] * T],
+                "urcost": float(zdata.get("Shortfall penalty ($/MW)", 1000.0)),
+            }
+        )
+
+    # --- Generators + Commitments + ReserveProvisions ------------------------
     uc_gens = data.get("Generators", {})
     generator_array = []
     commitment_array = []
+    reserve_provision_array = []
     gen_uid = 0
     commitment_uid = 0
+    provision_uid = 0
 
     for gname, gdata in uc_gens.items():
         bus_name = gdata.get("Bus")
@@ -268,6 +302,40 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
 
         commitment_array.append(c_entry)
 
+        # ReserveProvision: one entry per generator listing the zones it
+        # is eligible to serve.  UC.jl's ``Reserve eligibility`` is a list
+        # of zone names; we resolve them against the spinning-zone map
+        # built above and silently drop unknown / non-spinning zones.
+        eligible = gdata.get("Reserve eligibility") or []
+        zones = [z for z in eligible if z in reserve_zone_name_to_uid]
+        if zones:
+            provision_uid += 1
+            # ``urmax`` + ``ur_provision_factor`` must both be set or the
+            # provision is silently skipped: ``ur_provision_factor``
+            # gates the whole add_to_lp branch
+            # (source/reserve_provision_lp.cpp:49); ``urmax`` (or an
+            # available capacity-expansion column) is required per-block
+            # at source/reserve_provision_lp.cpp:101-107.  Non-expandable
+            # thermals like UC.jl's case14 don't ship a capacity_col, so
+            # the fallback would silently ``continue``.  Setting
+            # ``urmax = pmax`` matches UC.jl's implicit cap of "all
+            # capacity is reservable" without needing a ``Reserve max``
+            # field that UC.jl's schema doesn't carry.
+            reserve_provision_array.append(
+                {
+                    "uid": provision_uid,
+                    "name": f"{gname}_rp",
+                    "generator": gname,
+                    "reserve_zones": zones,
+                    # ``urmax`` is ``OptTBRealFieldSched`` (2-D [stage][block]).
+                    # Match the explicit shape used for ``urreq`` and
+                    # ``Demand.lmax`` to avoid silent scalar-broadcast
+                    # variance across FieldSched call sites.
+                    "urmax": [[float(pmax)] * T],
+                    "ur_provision_factor": 1.0,
+                }
+            )
+
     # --- Lines ---------------------------------------------------------------
     uc_lines = data.get("Transmission lines", {})
     line_array = []
@@ -325,6 +393,8 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "demand_array": demand_array,
             "line_array": line_array,
             "commitment_array": commitment_array,
+            "reserve_zone_array": reserve_zone_array,
+            "reserve_provision_array": reserve_provision_array,
         },
     }
 
@@ -337,6 +407,8 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         print(f"  Generators: {len(generator_array)}")
         print(f"  Commitments: {len(commitment_array)}")
         print(f"  Lines: {len(line_array)}")
+        print(f"  Reserve zones: {len(reserve_zone_array)}")
+        print(f"  Reserve provisions: {len(reserve_provision_array)}")
         print(f"  Time horizon: {T} hours (1 scenario × 1 stage × {T} blocks)")
     return output
 
