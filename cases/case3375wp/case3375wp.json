@@ -43019,7 +43019,8 @@
         "bus_b": 201,
         "reactance": -0.04958,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 5,
@@ -43028,7 +43029,8 @@
         "bus_b": 202,
         "reactance": 0.08346,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 6,
@@ -43037,7 +43039,8 @@
         "bus_b": 360,
         "reactance": 0.25917,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 7,
@@ -43046,7 +43049,8 @@
         "bus_b": 215,
         "reactance": -0.04961,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 8,
@@ -43055,7 +43059,8 @@
         "bus_b": 216,
         "reactance": 0.08373,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 9,
@@ -43064,7 +43069,8 @@
         "bus_b": 361,
         "reactance": 0.26125,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 10,
@@ -46214,7 +46220,8 @@
         "bus_b": 89,
         "reactance": 0.02784,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 360,
@@ -46223,7 +46230,8 @@
         "bus_b": 299,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 361,
@@ -46232,7 +46240,8 @@
         "bus_b": 358,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 362,
@@ -46241,7 +46250,8 @@
         "bus_b": 231,
         "reactance": 0.04918,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.015
       },
       {
         "uid": 363,
@@ -46250,7 +46260,8 @@
         "bus_b": 230,
         "reactance": 0.04918,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 364,
@@ -46259,7 +46270,8 @@
         "bus_b": 231,
         "reactance": 0.05,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99491
       },
       {
         "uid": 365,
@@ -46268,7 +46280,8 @@
         "bus_b": 253,
         "reactance": 0.0245,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0035
       },
       {
         "uid": 366,
@@ -46277,7 +46290,8 @@
         "bus_b": 35,
         "reactance": 0.0206,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0131
       },
       {
         "uid": 367,
@@ -46286,7 +46300,8 @@
         "bus_b": 48,
         "reactance": 0.0204,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9871
       },
       {
         "uid": 368,
@@ -46295,7 +46310,8 @@
         "bus_b": 49,
         "reactance": 0.05279,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.013
       },
       {
         "uid": 369,
@@ -46304,7 +46320,8 @@
         "bus_b": 49,
         "reactance": 0.05279,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.013
       },
       {
         "uid": 370,
@@ -46313,7 +46330,8 @@
         "bus_b": 358,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 371,
@@ -46322,7 +46340,8 @@
         "bus_b": 246,
         "reactance": 0.06327,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95
       },
       {
         "uid": 372,
@@ -46331,7 +46350,8 @@
         "bus_b": 53,
         "reactance": 0.01371,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.032
       },
       {
         "uid": 373,
@@ -46340,7 +46360,8 @@
         "bus_b": 57,
         "reactance": 0.04057,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.032
       },
       {
         "uid": 374,
@@ -46349,7 +46370,8 @@
         "bus_b": 63,
         "reactance": 0.0117,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.09072
       },
       {
         "uid": 375,
@@ -46358,7 +46380,8 @@
         "bus_b": 245,
         "reactance": 0.05,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.98143
       },
       {
         "uid": 376,
@@ -46367,7 +46390,8 @@
         "bus_b": 64,
         "reactance": 0.0264,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0262
       },
       {
         "uid": 377,
@@ -46376,7 +46400,8 @@
         "bus_b": 249,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 378,
@@ -46385,7 +46410,8 @@
         "bus_b": 249,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 379,
@@ -46394,7 +46420,8 @@
         "bus_b": 250,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 380,
@@ -46403,7 +46430,8 @@
         "bus_b": 250,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 381,
@@ -46412,7 +46440,8 @@
         "bus_b": 251,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 382,
@@ -46421,7 +46450,8 @@
         "bus_b": 251,
         "reactance": 0.0543,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99875
       },
       {
         "uid": 383,
@@ -46430,7 +46460,8 @@
         "bus_b": 65,
         "reactance": 0.02674,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 384,
@@ -46439,7 +46470,8 @@
         "bus_b": 66,
         "reactance": 0.03843,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0165
       },
       {
         "uid": 385,
@@ -46448,7 +46480,8 @@
         "bus_b": 260,
         "reactance": 0.01072,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05
       },
       {
         "uid": 386,
@@ -46457,7 +46490,8 @@
         "bus_b": 261,
         "reactance": 0.01072,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05
       },
       {
         "uid": 387,
@@ -46466,7 +46500,8 @@
         "bus_b": 42,
         "reactance": 0.02619,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.01574
       },
       {
         "uid": 388,
@@ -46475,7 +46510,8 @@
         "bus_b": 71,
         "reactance": 0.03817,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0456
       },
       {
         "uid": 389,
@@ -46484,7 +46520,8 @@
         "bus_b": 255,
         "reactance": 0.02656,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 390,
@@ -46493,7 +46530,8 @@
         "bus_b": 256,
         "reactance": 0.02656,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 391,
@@ -46502,7 +46540,8 @@
         "bus_b": 77,
         "reactance": 0.05279,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.948
       },
       {
         "uid": 392,
@@ -46511,7 +46550,8 @@
         "bus_b": 228,
         "reactance": 0.06474,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 393,
@@ -46520,7 +46560,8 @@
         "bus_b": 236,
         "reactance": 0.03327,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 394,
@@ -46529,7 +46570,8 @@
         "bus_b": 252,
         "reactance": 0.08044,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.07143
       },
       {
         "uid": 395,
@@ -46538,7 +46580,8 @@
         "bus_b": 252,
         "reactance": 0.08044,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.07143
       },
       {
         "uid": 396,
@@ -46547,7 +46590,8 @@
         "bus_b": 252,
         "reactance": 0.08667,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.07143
       },
       {
         "uid": 397,
@@ -46556,7 +46600,8 @@
         "bus_b": 10,
         "reactance": 0.01746,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.02827
       },
       {
         "uid": 398,
@@ -46565,7 +46610,8 @@
         "bus_b": 38,
         "reactance": 0.0264,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 399,
@@ -46574,7 +46620,8 @@
         "bus_b": 268,
         "reactance": 0.03267,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 400,
@@ -46583,7 +46630,8 @@
         "bus_b": 270,
         "reactance": 0.02541,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 401,
@@ -46592,7 +46640,8 @@
         "bus_b": 271,
         "reactance": 0.05322,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 402,
@@ -46601,7 +46650,8 @@
         "bus_b": 254,
         "reactance": 0.05586,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.03533
       },
       {
         "uid": 403,
@@ -46610,7 +46660,8 @@
         "bus_b": 275,
         "reactance": 0.02571,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 404,
@@ -46619,7 +46670,8 @@
         "bus_b": 280,
         "reactance": 0.05081,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 405,
@@ -46628,7 +46680,8 @@
         "bus_b": 60,
         "reactance": 0.0264,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.999
       },
       {
         "uid": 406,
@@ -46637,7 +46690,8 @@
         "bus_b": 281,
         "reactance": 0.03267,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 407,
@@ -46646,7 +46700,8 @@
         "bus_b": 286,
         "reactance": 0.02541,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 408,
@@ -46655,7 +46710,8 @@
         "bus_b": 287,
         "reactance": 0.05869,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 409,
@@ -46664,7 +46720,8 @@
         "bus_b": 289,
         "reactance": 0.02691,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 410,
@@ -46673,7 +46730,8 @@
         "bus_b": 262,
         "reactance": 0.10051,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99857
       },
       {
         "uid": 411,
@@ -46682,7 +46740,8 @@
         "bus_b": 291,
         "reactance": 0.05081,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 412,
@@ -46691,7 +46750,8 @@
         "bus_b": 277,
         "reactance": 0.0625,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.98083
       },
       {
         "uid": 413,
@@ -46700,7 +46760,8 @@
         "bus_b": 278,
         "reactance": 0.0625,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.98083
       },
       {
         "uid": 414,
@@ -46709,7 +46770,8 @@
         "bus_b": 293,
         "reactance": 0.06714,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 415,
@@ -46718,7 +46780,8 @@
         "bus_b": 299,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 416,
@@ -46727,7 +46790,8 @@
         "bus_b": 300,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 417,
@@ -46736,7 +46800,8 @@
         "bus_b": 301,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 418,
@@ -46745,7 +46810,8 @@
         "bus_b": 302,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 419,
@@ -46754,7 +46820,8 @@
         "bus_b": 302,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 420,
@@ -46763,7 +46830,8 @@
         "bus_b": 303,
         "reactance": 0.06945,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.90552
       },
       {
         "uid": 421,
@@ -46772,7 +46840,8 @@
         "bus_b": 304,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 422,
@@ -46781,7 +46850,8 @@
         "bus_b": 305,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 423,
@@ -46790,7 +46860,8 @@
         "bus_b": 305,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 424,
@@ -46799,7 +46870,8 @@
         "bus_b": 90,
         "reactance": 0.02781,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 425,
@@ -46808,7 +46880,8 @@
         "bus_b": 115,
         "reactance": 0.03467,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.89962
       },
       {
         "uid": 426,
@@ -46817,7 +46890,8 @@
         "bus_b": 306,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 427,
@@ -46826,7 +46900,8 @@
         "bus_b": 306,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 428,
@@ -46835,7 +46910,8 @@
         "bus_b": 309,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 429,
@@ -46844,7 +46920,8 @@
         "bus_b": 309,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 430,
@@ -46853,7 +46930,8 @@
         "bus_b": 312,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 431,
@@ -46862,7 +46940,8 @@
         "bus_b": 313,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 432,
@@ -46871,7 +46950,8 @@
         "bus_b": 314,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.88636
       },
       {
         "uid": 433,
@@ -46880,7 +46960,8 @@
         "bus_b": 315,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.93786
       },
       {
         "uid": 434,
@@ -46889,7 +46970,8 @@
         "bus_b": 316,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95255
       },
       {
         "uid": 435,
@@ -46898,7 +46980,8 @@
         "bus_b": 295,
         "reactance": 0.06966,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 436,
@@ -46907,7 +46990,8 @@
         "bus_b": 317,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 437,
@@ -46916,7 +47000,8 @@
         "bus_b": 318,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 438,
@@ -46925,7 +47010,8 @@
         "bus_b": 318,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 439,
@@ -46934,7 +47020,8 @@
         "bus_b": 318,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 440,
@@ -46943,7 +47030,8 @@
         "bus_b": 319,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 441,
@@ -46952,7 +47040,8 @@
         "bus_b": 320,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 442,
@@ -46961,7 +47050,8 @@
         "bus_b": 321,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.91987
       },
       {
         "uid": 443,
@@ -46970,7 +47060,8 @@
         "bus_b": 321,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.91987
       },
       {
         "uid": 444,
@@ -46979,7 +47070,8 @@
         "bus_b": 322,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 445,
@@ -46988,7 +47080,8 @@
         "bus_b": 323,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 446,
@@ -46997,7 +47090,8 @@
         "bus_b": 295,
         "reactance": 0.06966,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 447,
@@ -47006,7 +47100,8 @@
         "bus_b": 323,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.88636
       },
       {
         "uid": 448,
@@ -47015,7 +47110,8 @@
         "bus_b": 325,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 449,
@@ -47024,7 +47120,8 @@
         "bus_b": 326,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 450,
@@ -47033,7 +47130,8 @@
         "bus_b": 294,
         "reactance": 0.07646,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94212
       },
       {
         "uid": 451,
@@ -47042,7 +47140,8 @@
         "bus_b": 294,
         "reactance": 0.07646,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94212
       },
       {
         "uid": 452,
@@ -47051,7 +47150,9 @@
         "bus_b": 135,
         "reactance": 0.01342,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99474,
+        "phase_shift_deg": 3.0
       },
       {
         "uid": 453,
@@ -47060,7 +47161,9 @@
         "bus_b": 135,
         "reactance": 0.01342,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99474,
+        "phase_shift_deg": 3.0
       },
       {
         "uid": 454,
@@ -47069,7 +47172,8 @@
         "bus_b": 329,
         "reactance": 0.07291,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99131
       },
       {
         "uid": 455,
@@ -47078,7 +47182,8 @@
         "bus_b": 329,
         "reactance": 0.07291,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99131
       },
       {
         "uid": 456,
@@ -47087,7 +47192,8 @@
         "bus_b": 329,
         "reactance": 0.09782,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0543
       },
       {
         "uid": 457,
@@ -47096,7 +47202,8 @@
         "bus_b": 295,
         "reactance": 0.06966,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.99999
       },
       {
         "uid": 458,
@@ -47105,7 +47212,8 @@
         "bus_b": 330,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 459,
@@ -47114,7 +47222,8 @@
         "bus_b": 330,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 460,
@@ -47123,7 +47232,8 @@
         "bus_b": 331,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0181
       },
       {
         "uid": 461,
@@ -47132,7 +47242,8 @@
         "bus_b": 331,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0181
       },
       {
         "uid": 462,
@@ -47141,7 +47252,8 @@
         "bus_b": 332,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 463,
@@ -47150,7 +47262,8 @@
         "bus_b": 333,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 464,
@@ -47159,7 +47272,8 @@
         "bus_b": 334,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.00992
       },
       {
         "uid": 465,
@@ -47168,7 +47282,8 @@
         "bus_b": 335,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.00992
       },
       {
         "uid": 466,
@@ -47177,7 +47292,8 @@
         "bus_b": 336,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 467,
@@ -47186,7 +47302,8 @@
         "bus_b": 337,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 468,
@@ -47195,7 +47312,8 @@
         "bus_b": 296,
         "reactance": 0.06842,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.92895
       },
       {
         "uid": 469,
@@ -47204,7 +47322,8 @@
         "bus_b": 337,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 470,
@@ -47213,7 +47332,8 @@
         "bus_b": 338,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 471,
@@ -47222,7 +47342,8 @@
         "bus_b": 339,
         "reactance": 0.05809,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.02217
       },
       {
         "uid": 472,
@@ -47231,7 +47352,8 @@
         "bus_b": 340,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 473,
@@ -47240,7 +47362,8 @@
         "bus_b": 340,
         "reactance": 0.09369,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 474,
@@ -47249,7 +47372,8 @@
         "bus_b": 146,
         "reactance": 0.02014,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05263
       },
       {
         "uid": 475,
@@ -47258,7 +47382,8 @@
         "bus_b": 146,
         "reactance": 0.02014,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05263
       },
       {
         "uid": 476,
@@ -47267,7 +47392,8 @@
         "bus_b": 341,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 477,
@@ -47276,7 +47402,8 @@
         "bus_b": 148,
         "reactance": 0.01402,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.04878
       },
       {
         "uid": 478,
@@ -47285,7 +47412,8 @@
         "bus_b": 341,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 479,
@@ -47294,7 +47422,8 @@
         "bus_b": 296,
         "reactance": 0.06842,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.92895
       },
       {
         "uid": 480,
@@ -47303,7 +47432,8 @@
         "bus_b": 148,
         "reactance": 0.01402,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.04878
       },
       {
         "uid": 481,
@@ -47312,7 +47442,8 @@
         "bus_b": 342,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 482,
@@ -47321,7 +47452,8 @@
         "bus_b": 345,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95843
       },
       {
         "uid": 483,
@@ -47330,7 +47462,8 @@
         "bus_b": 346,
         "reactance": 0.07549,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9688
       },
       {
         "uid": 484,
@@ -47339,7 +47472,8 @@
         "bus_b": 347,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 485,
@@ -47348,7 +47482,8 @@
         "bus_b": 347,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 486,
@@ -47357,7 +47492,8 @@
         "bus_b": 348,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 487,
@@ -47366,7 +47502,8 @@
         "bus_b": 348,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 488,
@@ -47375,7 +47512,8 @@
         "bus_b": 349,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 489,
@@ -47384,7 +47522,8 @@
         "bus_b": 350,
         "reactance": 0.07129,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9448
       },
       {
         "uid": 490,
@@ -47393,7 +47532,8 @@
         "bus_b": 298,
         "reactance": 0.0739,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94178
       },
       {
         "uid": 491,
@@ -47402,7 +47542,8 @@
         "bus_b": 351,
         "reactance": 0.07129,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9448
       },
       {
         "uid": 492,
@@ -47411,7 +47552,8 @@
         "bus_b": 352,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 493,
@@ -47420,7 +47562,8 @@
         "bus_b": 352,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 494,
@@ -47429,7 +47572,8 @@
         "bus_b": 157,
         "reactance": 0.02014,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05263
       },
       {
         "uid": 495,
@@ -47438,7 +47582,8 @@
         "bus_b": 159,
         "reactance": 0.01365,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.10526
       },
       {
         "uid": 496,
@@ -47447,7 +47592,8 @@
         "bus_b": 159,
         "reactance": 0.01365,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.10526
       },
       {
         "uid": 497,
@@ -47456,7 +47602,8 @@
         "bus_b": 353,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0181
       },
       {
         "uid": 498,
@@ -47465,7 +47612,8 @@
         "bus_b": 353,
         "reactance": 0.09437,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0181
       },
       {
         "uid": 499,
@@ -47474,7 +47622,8 @@
         "bus_b": 354,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 500,
@@ -47483,7 +47632,8 @@
         "bus_b": 354,
         "reactance": 0.07164,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95584
       },
       {
         "uid": 501,
@@ -47492,7 +47642,8 @@
         "bus_b": 298,
         "reactance": 0.07147,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94178
       },
       {
         "uid": 502,
@@ -47501,7 +47652,8 @@
         "bus_b": 355,
         "reactance": 0.09272,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9638
       },
       {
         "uid": 503,
@@ -47510,7 +47662,8 @@
         "bus_b": 355,
         "reactance": 0.09272,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9638
       },
       {
         "uid": 504,
@@ -47519,7 +47672,8 @@
         "bus_b": 355,
         "reactance": 0.09272,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9638
       },
       {
         "uid": 505,
@@ -47528,7 +47682,8 @@
         "bus_b": 355,
         "reactance": 0.09272,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9638
       },
       {
         "uid": 506,
@@ -47537,7 +47692,8 @@
         "bus_b": 356,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 507,
@@ -47546,7 +47702,8 @@
         "bus_b": 198,
         "reactance": 0.0245,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.04412
       },
       {
         "uid": 508,
@@ -47555,7 +47712,8 @@
         "bus_b": 356,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 509,
@@ -47564,7 +47722,8 @@
         "bus_b": 356,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 510,
@@ -47573,7 +47732,8 @@
         "bus_b": 357,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 511,
@@ -47582,7 +47742,8 @@
         "bus_b": 1,
         "reactance": 0.05038,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.015
       },
       {
         "uid": 512,
@@ -47591,7 +47752,8 @@
         "bus_b": 1,
         "reactance": 0.05038,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.015
       },
       {
         "uid": 513,
@@ -47600,7 +47762,8 @@
         "bus_b": 247,
         "reactance": 0.06327,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95
       },
       {
         "uid": 514,
@@ -47609,7 +47772,8 @@
         "bus_b": 2,
         "reactance": 0.0206,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0524
       },
       {
         "uid": 515,
@@ -47618,7 +47782,8 @@
         "bus_b": 4,
         "reactance": 0.04639,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0112
       },
       {
         "uid": 516,
@@ -47627,7 +47792,8 @@
         "bus_b": 357,
         "reactance": 0.06908,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.95238
       },
       {
         "uid": 517,
@@ -47636,7 +47802,8 @@
         "bus_b": 5,
         "reactance": 0.0206,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0131
       },
       {
         "uid": 518,
@@ -47645,7 +47812,8 @@
         "bus_b": 6,
         "reactance": 0.05279,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0262
       },
       {
         "uid": 519,
@@ -47654,7 +47822,8 @@
         "bus_b": 7,
         "reactance": 0.01909,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0456
       },
       {
         "uid": 520,
@@ -47663,7 +47832,8 @@
         "bus_b": 10,
         "reactance": 0.03857,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.96463
       },
       {
         "uid": 521,
@@ -47672,7 +47842,8 @@
         "bus_b": 11,
         "reactance": 0.0264,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.02433
       },
       {
         "uid": 522,
@@ -47681,7 +47852,8 @@
         "bus_b": 248,
         "reactance": 0.03554,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.03273
       },
       {
         "uid": 523,
@@ -47690,7 +47862,8 @@
         "bus_b": 263,
         "reactance": 0.05121,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.03125
       },
       {
         "uid": 524,
@@ -47699,7 +47872,8 @@
         "bus_b": 166,
         "reactance": 0.02014,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05263
       },
       {
         "uid": 525,
@@ -47708,7 +47882,8 @@
         "bus_b": 263,
         "reactance": 0.05121,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.03125
       },
       {
         "uid": 526,
@@ -47717,7 +47892,8 @@
         "bus_b": 258,
         "reactance": 0.04844,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05875
       },
       {
         "uid": 527,
@@ -47726,7 +47902,8 @@
         "bus_b": 258,
         "reactance": 0.04844,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.05875
       },
       {
         "uid": 528,
@@ -47735,7 +47912,8 @@
         "bus_b": 264,
         "reactance": 0.05781,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 529,
@@ -47744,7 +47922,8 @@
         "bus_b": 264,
         "reactance": 0.05781,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 530,
@@ -47753,7 +47932,8 @@
         "bus_b": 259,
         "reactance": 0.04844,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 531,
@@ -47762,7 +47942,8 @@
         "bus_b": 259,
         "reactance": 0.04844,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 532,
@@ -47771,7 +47952,8 @@
         "bus_b": 259,
         "reactance": 0.04844,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 533,
@@ -47780,7 +47962,8 @@
         "bus_b": 257,
         "reactance": 0.05469,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.9375
       },
       {
         "uid": 534,
@@ -47789,7 +47972,8 @@
         "bus_b": 41,
         "reactance": 0.0264,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 1.0393
       },
       {
         "uid": 535,
@@ -48293,7 +48477,8 @@
         "bus_b": 373,
         "reactance": 0.0305,
         "tmax_ab": 400.0,
-        "tmax_ba": 400.0
+        "tmax_ba": 400.0,
+        "tap_ratio": 1.10224
       },
       {
         "uid": 591,
@@ -48302,7 +48487,8 @@
         "bus_b": 374,
         "reactance": 0.03946,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 592,
@@ -48311,7 +48497,8 @@
         "bus_b": 381,
         "reactance": 0.05709,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 593,
@@ -48320,7 +48507,8 @@
         "bus_b": 397,
         "reactance": 0.03652,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 594,
@@ -48329,7 +48517,8 @@
         "bus_b": 402,
         "reactance": 0.02519,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.0686
       },
       {
         "uid": 595,
@@ -48338,7 +48527,8 @@
         "bus_b": 403,
         "reactance": 0.02519,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.08671
       },
       {
         "uid": 596,
@@ -48347,7 +48537,8 @@
         "bus_b": 418,
         "reactance": 0.02097,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.0755
       },
       {
         "uid": 597,
@@ -48356,7 +48547,8 @@
         "bus_b": 423,
         "reactance": 0.02097,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.05955
       },
       {
         "uid": 598,
@@ -48365,7 +48557,8 @@
         "bus_b": 434,
         "reactance": 0.03,
         "tmax_ab": 400.0,
-        "tmax_ba": 400.0
+        "tmax_ba": 400.0,
+        "tap_ratio": 1.0876
       },
       {
         "uid": 599,
@@ -48374,7 +48567,8 @@
         "bus_b": 471,
         "reactance": 0.02445,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.06467
       },
       {
         "uid": 600,
@@ -48383,7 +48577,8 @@
         "bus_b": 472,
         "reactance": 0.0253,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.07013
       },
       {
         "uid": 601,
@@ -48392,7 +48587,8 @@
         "bus_b": 509,
         "reactance": 0.02875,
         "tmax_ab": 400.0,
-        "tmax_ba": 400.0
+        "tmax_ba": 400.0,
+        "tap_ratio": 1.07702
       },
       {
         "uid": 602,
@@ -48401,7 +48597,8 @@
         "bus_b": 536,
         "reactance": 0.0305,
         "tmax_ab": 400.0,
-        "tmax_ba": 400.0
+        "tmax_ba": 400.0,
+        "tap_ratio": 1.06172
       },
       {
         "uid": 603,
@@ -48410,7 +48607,8 @@
         "bus_b": 545,
         "reactance": 0.023,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.07426
       },
       {
         "uid": 604,
@@ -48419,7 +48617,8 @@
         "bus_b": 546,
         "reactance": 0.023,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.07426
       },
       {
         "uid": 605,
@@ -48428,7 +48627,8 @@
         "bus_b": 549,
         "reactance": 0.04392,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 606,
@@ -48437,7 +48637,8 @@
         "bus_b": 555,
         "reactance": 0.02732,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.10871
       },
       {
         "uid": 607,
@@ -48446,7 +48647,8 @@
         "bus_b": 562,
         "reactance": 0.02375,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.07313
       },
       {
         "uid": 608,
@@ -48455,7 +48657,8 @@
         "bus_b": 575,
         "reactance": 0.0275,
         "tmax_ab": 400.0,
-        "tmax_ba": 400.0
+        "tmax_ba": 400.0,
+        "tap_ratio": 1.10394
       },
       {
         "uid": 609,
@@ -48464,7 +48667,8 @@
         "bus_b": 577,
         "reactance": 0.06858,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 610,
@@ -48473,7 +48677,8 @@
         "bus_b": 584,
         "reactance": 0.02711,
         "tmax_ab": 500.0,
-        "tmax_ba": 500.0
+        "tmax_ba": 500.0,
+        "tap_ratio": 1.08613
       },
       {
         "uid": 611,
@@ -48482,7 +48687,8 @@
         "bus_b": 584,
         "reactance": 0.0464,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 612,
@@ -48491,7 +48697,8 @@
         "bus_b": 591,
         "reactance": 0.05647,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 613,
@@ -48500,7 +48707,8 @@
         "bus_b": 592,
         "reactance": 0.02469,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.04544
       },
       {
         "uid": 614,
@@ -50201,7 +50409,8 @@
         "bus_b": 363,
         "reactance": 0.06612,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.99491
       },
       {
         "uid": 803,
@@ -50210,7 +50419,8 @@
         "bus_b": 364,
         "reactance": 0.06612,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9909
       },
       {
         "uid": 804,
@@ -50219,7 +50429,8 @@
         "bus_b": 670,
         "reactance": 0.04727,
         "tmax_ab": 300.0,
-        "tmax_ba": 300.0
+        "tmax_ba": 300.0,
+        "tap_ratio": 0.91667
       },
       {
         "uid": 805,
@@ -50228,7 +50439,8 @@
         "bus_b": 403,
         "reactance": 0.03678,
         "tmax_ab": 426.0,
-        "tmax_ba": 426.0
+        "tmax_ba": 426.0,
+        "tap_ratio": 0.91667
       },
       {
         "uid": 806,
@@ -50237,7 +50449,8 @@
         "bus_b": 366,
         "reactance": 0.06736,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04356
       },
       {
         "uid": 807,
@@ -50246,7 +50459,8 @@
         "bus_b": 365,
         "reactance": 0.08078,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 808,
@@ -50255,7 +50469,8 @@
         "bus_b": 367,
         "reactance": -0.01281,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02537
       },
       {
         "uid": 809,
@@ -50264,7 +50479,8 @@
         "bus_b": 367,
         "reactance": 0.1674,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94157
       },
       {
         "uid": 810,
@@ -50273,7 +50489,8 @@
         "bus_b": 368,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03315
       },
       {
         "uid": 811,
@@ -50282,7 +50499,8 @@
         "bus_b": 369,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03303
       },
       {
         "uid": 812,
@@ -50291,7 +50509,8 @@
         "bus_b": 370,
         "reactance": 0.07524,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 813,
@@ -50300,7 +50519,8 @@
         "bus_b": 372,
         "reactance": -0.00714,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00521
       },
       {
         "uid": 814,
@@ -50309,7 +50529,8 @@
         "bus_b": 372,
         "reactance": 0.15701,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94157
       },
       {
         "uid": 815,
@@ -50318,7 +50539,8 @@
         "bus_b": 370,
         "reactance": 0.0686,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02676
       },
       {
         "uid": 816,
@@ -50327,7 +50549,8 @@
         "bus_b": 375,
         "reactance": 0.0269,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.10119
       },
       {
         "uid": 817,
@@ -50336,7 +50559,8 @@
         "bus_b": 375,
         "reactance": 0.00942,
         "tmax_ab": 50.0,
-        "tmax_ba": 50.0
+        "tmax_ba": 50.0,
+        "tap_ratio": 0.98438
       },
       {
         "uid": 818,
@@ -50345,7 +50569,8 @@
         "bus_b": 376,
         "reactance": 0.07897,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 819,
@@ -50354,7 +50579,8 @@
         "bus_b": 379,
         "reactance": -0.01352,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.07516
       },
       {
         "uid": 820,
@@ -50363,7 +50589,8 @@
         "bus_b": 379,
         "reactance": 0.16067,
         "tmax_ab": 16.0,
-        "tmax_ba": 16.0
+        "tmax_ba": 16.0,
+        "tap_ratio": 0.94157
       },
       {
         "uid": 821,
@@ -50372,7 +50599,8 @@
         "bus_b": 377,
         "reactance": 0.08296,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 822,
@@ -50381,7 +50609,8 @@
         "bus_b": 380,
         "reactance": -0.01547,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.07516
       },
       {
         "uid": 823,
@@ -50390,7 +50619,8 @@
         "bus_b": 380,
         "reactance": 0.17867,
         "tmax_ab": 16.0,
-        "tmax_ba": 16.0
+        "tmax_ba": 16.0,
+        "tap_ratio": 0.94157
       },
       {
         "uid": 824,
@@ -50399,7 +50629,8 @@
         "bus_b": 378,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09622
       },
       {
         "uid": 825,
@@ -50408,7 +50639,8 @@
         "bus_b": 383,
         "reactance": -0.00462,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.09089
       },
       {
         "uid": 826,
@@ -50417,7 +50649,8 @@
         "bus_b": 383,
         "reactance": 0.07233,
         "tmax_ab": 63.0,
-        "tmax_ba": 63.0
+        "tmax_ba": 63.0,
+        "tap_ratio": 0.96037
       },
       {
         "uid": 827,
@@ -50426,7 +50659,8 @@
         "bus_b": 384,
         "reactance": 0.05244,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.1175
       },
       {
         "uid": 828,
@@ -50435,7 +50669,8 @@
         "bus_b": 386,
         "reactance": 0.06839,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02703
       },
       {
         "uid": 829,
@@ -50444,7 +50679,8 @@
         "bus_b": 387,
         "reactance": 0.06839,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01196
       },
       {
         "uid": 830,
@@ -50453,7 +50689,8 @@
         "bus_b": 388,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04795
       },
       {
         "uid": 831,
@@ -50462,7 +50699,8 @@
         "bus_b": 389,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02755
       },
       {
         "uid": 832,
@@ -50471,7 +50709,8 @@
         "bus_b": 390,
         "reactance": 0.06612,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08759
       },
       {
         "uid": 833,
@@ -50480,7 +50719,8 @@
         "bus_b": 391,
         "reactance": 0.06612,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09829
       },
       {
         "uid": 834,
@@ -50489,7 +50729,8 @@
         "bus_b": 392,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09028
       },
       {
         "uid": 835,
@@ -50498,7 +50739,8 @@
         "bus_b": 393,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09028
       },
       {
         "uid": 836,
@@ -50507,7 +50749,8 @@
         "bus_b": 394,
         "reactance": 0.06798,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01602
       },
       {
         "uid": 837,
@@ -50516,7 +50759,8 @@
         "bus_b": 395,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02703
       },
       {
         "uid": 838,
@@ -50525,7 +50769,8 @@
         "bus_b": 398,
         "reactance": 0.023,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.11802
       },
       {
         "uid": 839,
@@ -50534,7 +50779,8 @@
         "bus_b": 398,
         "reactance": 0.01252,
         "tmax_ab": 50.0,
-        "tmax_ba": 50.0
+        "tmax_ba": 50.0,
+        "tap_ratio": 0.98438
       },
       {
         "uid": 840,
@@ -50543,7 +50789,8 @@
         "bus_b": 405,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.13473
       },
       {
         "uid": 841,
@@ -50552,7 +50799,8 @@
         "bus_b": 406,
         "reactance": 0.06119,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 842,
@@ -50561,7 +50809,8 @@
         "bus_b": 407,
         "reactance": 0.06119,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 843,
@@ -50570,7 +50819,8 @@
         "bus_b": 408,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09851
       },
       {
         "uid": 844,
@@ -50579,7 +50829,8 @@
         "bus_b": 409,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08569
       },
       {
         "uid": 845,
@@ -50588,7 +50839,8 @@
         "bus_b": 410,
         "reactance": 0.06901,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08569
       },
       {
         "uid": 846,
@@ -50597,7 +50849,8 @@
         "bus_b": 411,
         "reactance": 0.0668,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0225
       },
       {
         "uid": 847,
@@ -50606,7 +50859,8 @@
         "bus_b": 412,
         "reactance": 0.06715,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01599
       },
       {
         "uid": 848,
@@ -50615,7 +50869,8 @@
         "bus_b": 414,
         "reactance": 0.07808,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00521
       },
       {
         "uid": 849,
@@ -50624,7 +50879,8 @@
         "bus_b": 415,
         "reactance": 0.06616,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02676
       },
       {
         "uid": 850,
@@ -50633,7 +50889,8 @@
         "bus_b": 419,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0225
       },
       {
         "uid": 851,
@@ -50642,7 +50899,8 @@
         "bus_b": 424,
         "reactance": 0.06946,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01196
       },
       {
         "uid": 852,
@@ -50651,7 +50909,8 @@
         "bus_b": 426,
         "reactance": 0.06052,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.04876
       },
       {
         "uid": 853,
@@ -50660,7 +50919,8 @@
         "bus_b": 427,
         "reactance": 0.06052,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.07213
       },
       {
         "uid": 854,
@@ -50669,7 +50929,8 @@
         "bus_b": 428,
         "reactance": 0.06558,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04115
       },
       {
         "uid": 855,
@@ -50678,7 +50939,8 @@
         "bus_b": 431,
         "reactance": 0.06235,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 856,
@@ -50687,7 +50949,8 @@
         "bus_b": 430,
         "reactance": 0.05984,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.06772
       },
       {
         "uid": 857,
@@ -50696,7 +50959,8 @@
         "bus_b": 433,
         "reactance": 0.06839,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0225
       },
       {
         "uid": 858,
@@ -50705,7 +50969,8 @@
         "bus_b": 438,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01039
       },
       {
         "uid": 859,
@@ -50714,7 +50979,8 @@
         "bus_b": 439,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00433
       },
       {
         "uid": 860,
@@ -50723,7 +50989,8 @@
         "bus_b": 440,
         "reactance": 0.06783,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00562
       },
       {
         "uid": 861,
@@ -50732,7 +50999,8 @@
         "bus_b": 441,
         "reactance": 0.06831,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00143
       },
       {
         "uid": 862,
@@ -50741,7 +51009,8 @@
         "bus_b": 442,
         "reactance": 0.0608,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 863,
@@ -50750,7 +51019,8 @@
         "bus_b": 443,
         "reactance": 0.06235,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 864,
@@ -50759,7 +51029,8 @@
         "bus_b": 444,
         "reactance": 0.06754,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01633
       },
       {
         "uid": 865,
@@ -50768,7 +51039,8 @@
         "bus_b": 446,
         "reactance": 0.06762,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02703
       },
       {
         "uid": 866,
@@ -50777,7 +51049,8 @@
         "bus_b": 447,
         "reactance": 0.06565,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02994
       },
       {
         "uid": 867,
@@ -50786,7 +51059,8 @@
         "bus_b": 450,
         "reactance": 0.07036,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01186
       },
       {
         "uid": 868,
@@ -50795,7 +51069,8 @@
         "bus_b": 452,
         "reactance": 0.10711,
         "tmax_ab": 100.0,
-        "tmax_ba": 100.0
+        "tmax_ba": 100.0,
+        "tap_ratio": 1.00972
       },
       {
         "uid": 869,
@@ -50804,7 +51079,8 @@
         "bus_b": 453,
         "reactance": 0.06927,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.99664
       },
       {
         "uid": 870,
@@ -50813,7 +51089,8 @@
         "bus_b": 460,
         "reactance": 0.06268,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.03418
       },
       {
         "uid": 871,
@@ -50822,7 +51099,8 @@
         "bus_b": 460,
         "reactance": 0.06288,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.03622
       },
       {
         "uid": 872,
@@ -50831,7 +51109,8 @@
         "bus_b": 462,
         "reactance": 0.06694,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06291
       },
       {
         "uid": 873,
@@ -50840,7 +51119,8 @@
         "bus_b": 462,
         "reactance": 0.0666,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.05385
       },
       {
         "uid": 874,
@@ -50849,7 +51129,8 @@
         "bus_b": 463,
         "reactance": 0.06756,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.99966
       },
       {
         "uid": 875,
@@ -50858,7 +51139,8 @@
         "bus_b": 464,
         "reactance": 0.06544,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01119
       },
       {
         "uid": 876,
@@ -50867,7 +51149,8 @@
         "bus_b": 467,
         "reactance": 0.06975,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01904
       },
       {
         "uid": 877,
@@ -50876,7 +51159,8 @@
         "bus_b": 468,
         "reactance": 0.0677,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04338
       },
       {
         "uid": 878,
@@ -50885,7 +51169,8 @@
         "bus_b": 473,
         "reactance": 0.06742,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02832
       },
       {
         "uid": 879,
@@ -50894,7 +51179,8 @@
         "bus_b": 474,
         "reactance": 0.06701,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01552
       },
       {
         "uid": 880,
@@ -50903,7 +51189,8 @@
         "bus_b": 475,
         "reactance": 0.06831,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04745
       },
       {
         "uid": 881,
@@ -50912,7 +51199,8 @@
         "bus_b": 479,
         "reactance": 0.06729,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00901
       },
       {
         "uid": 882,
@@ -50921,7 +51209,8 @@
         "bus_b": 480,
         "reactance": 0.06701,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00156
       },
       {
         "uid": 883,
@@ -50930,7 +51219,8 @@
         "bus_b": 481,
         "reactance": 0.06968,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.1232
       },
       {
         "uid": 884,
@@ -50939,7 +51229,8 @@
         "bus_b": 482,
         "reactance": 0.06763,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08347
       },
       {
         "uid": 885,
@@ -50948,7 +51239,8 @@
         "bus_b": 483,
         "reactance": 0.06688,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00622
       },
       {
         "uid": 886,
@@ -50957,7 +51249,8 @@
         "bus_b": 484,
         "reactance": 0.06851,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00562
       },
       {
         "uid": 887,
@@ -50966,7 +51259,8 @@
         "bus_b": 485,
         "reactance": 0.09356,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.98025
       },
       {
         "uid": 888,
@@ -50975,7 +51269,8 @@
         "bus_b": 486,
         "reactance": 0.09275,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.99243
       },
       {
         "uid": 889,
@@ -50984,7 +51279,8 @@
         "bus_b": 487,
         "reactance": 0.06708,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03706
       },
       {
         "uid": 890,
@@ -50993,7 +51289,8 @@
         "bus_b": 489,
         "reactance": 0.06578,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06211
       },
       {
         "uid": 891,
@@ -51002,7 +51299,8 @@
         "bus_b": 490,
         "reactance": 0.06749,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.05917
       },
       {
         "uid": 892,
@@ -51011,7 +51309,8 @@
         "bus_b": 492,
         "reactance": 0.06968,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04669
       },
       {
         "uid": 893,
@@ -51020,7 +51319,8 @@
         "bus_b": 494,
         "reactance": 0.06252,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.10237
       },
       {
         "uid": 894,
@@ -51029,7 +51329,8 @@
         "bus_b": 494,
         "reactance": 0.06292,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.06627
       },
       {
         "uid": 895,
@@ -51038,7 +51339,8 @@
         "bus_b": 496,
         "reactance": 0.06729,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00562
       },
       {
         "uid": 896,
@@ -51047,7 +51349,8 @@
         "bus_b": 499,
         "reactance": 0.06667,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03633
       },
       {
         "uid": 897,
@@ -51056,7 +51359,8 @@
         "bus_b": 500,
         "reactance": 0.05992,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.09851
       },
       {
         "uid": 898,
@@ -51065,7 +51369,8 @@
         "bus_b": 502,
         "reactance": 0.0612,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.04984
       },
       {
         "uid": 899,
@@ -51074,7 +51379,8 @@
         "bus_b": 503,
         "reactance": 0.06244,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.07415
       },
       {
         "uid": 900,
@@ -51083,7 +51389,8 @@
         "bus_b": 504,
         "reactance": 0.06701,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06519
       },
       {
         "uid": 901,
@@ -51092,7 +51399,8 @@
         "bus_b": 505,
         "reactance": 0.06831,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.05641
       },
       {
         "uid": 902,
@@ -51101,7 +51409,8 @@
         "bus_b": 506,
         "reactance": 0.06852,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00622
       },
       {
         "uid": 903,
@@ -51110,7 +51419,8 @@
         "bus_b": 507,
         "reactance": 0.06811,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00562
       },
       {
         "uid": 904,
@@ -51119,7 +51429,8 @@
         "bus_b": 510,
         "reactance": 0.06571,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03799
       },
       {
         "uid": 905,
@@ -51128,7 +51439,8 @@
         "bus_b": 511,
         "reactance": 0.06551,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01739
       },
       {
         "uid": 906,
@@ -51137,7 +51449,8 @@
         "bus_b": 516,
         "reactance": 0.0625,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03303
       },
       {
         "uid": 907,
@@ -51146,7 +51459,8 @@
         "bus_b": 519,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01601
       },
       {
         "uid": 908,
@@ -51155,7 +51469,8 @@
         "bus_b": 518,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02036
       },
       {
         "uid": 909,
@@ -51164,7 +51479,8 @@
         "bus_b": 520,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02586
       },
       {
         "uid": 910,
@@ -51173,7 +51489,8 @@
         "bus_b": 521,
         "reactance": 0.06688,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00666
       },
       {
         "uid": 911,
@@ -51182,7 +51499,8 @@
         "bus_b": 523,
         "reactance": 0.06206,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.08449
       },
       {
         "uid": 912,
@@ -51191,7 +51509,8 @@
         "bus_b": 524,
         "reactance": 0.06206,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.08449
       },
       {
         "uid": 913,
@@ -51200,7 +51519,8 @@
         "bus_b": 525,
         "reactance": 0.06517,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06463
       },
       {
         "uid": 914,
@@ -51209,7 +51529,8 @@
         "bus_b": 526,
         "reactance": 0.06688,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02678
       },
       {
         "uid": 915,
@@ -51218,7 +51539,8 @@
         "bus_b": 528,
         "reactance": 0.06653,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00125
       },
       {
         "uid": 916,
@@ -51227,7 +51549,8 @@
         "bus_b": 528,
         "reactance": 0.06653,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.00381
       },
       {
         "uid": 917,
@@ -51236,7 +51559,8 @@
         "bus_b": 530,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04795
       },
       {
         "uid": 918,
@@ -51245,7 +51569,8 @@
         "bus_b": 530,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02678
       },
       {
         "uid": 919,
@@ -51254,7 +51579,8 @@
         "bus_b": 531,
         "reactance": 0.06851,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0162
       },
       {
         "uid": 920,
@@ -51263,7 +51589,8 @@
         "bus_b": 532,
         "reactance": 0.06851,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03303
       },
       {
         "uid": 921,
@@ -51272,7 +51599,8 @@
         "bus_b": 533,
         "reactance": 0.16449,
         "tmax_ab": 70.0,
-        "tmax_ba": 70.0
+        "tmax_ba": 70.0,
+        "tap_ratio": 1.00832
       },
       {
         "uid": 922,
@@ -51281,7 +51609,8 @@
         "bus_b": 533,
         "reactance": 0.00254,
         "tmax_ab": 70.0,
-        "tmax_ba": 70.0
+        "tmax_ba": 70.0,
+        "tap_ratio": 0.98083
       },
       {
         "uid": 923,
@@ -51290,7 +51619,8 @@
         "bus_b": 535,
         "reactance": 0.06136,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01226
       },
       {
         "uid": 924,
@@ -51299,7 +51629,8 @@
         "bus_b": 538,
         "reactance": 0.0593,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.10087
       },
       {
         "uid": 925,
@@ -51308,7 +51639,8 @@
         "bus_b": 540,
         "reactance": 0.06517,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04356
       },
       {
         "uid": 926,
@@ -51317,7 +51649,8 @@
         "bus_b": 541,
         "reactance": 0.06619,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04583
       },
       {
         "uid": 927,
@@ -51326,7 +51659,8 @@
         "bus_b": 543,
         "reactance": 0.09277,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.01196
       },
       {
         "uid": 928,
@@ -51335,7 +51669,8 @@
         "bus_b": 544,
         "reactance": 0.06694,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0096
       },
       {
         "uid": 929,
@@ -51344,7 +51679,8 @@
         "bus_b": 547,
         "reactance": 0.06136,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0162
       },
       {
         "uid": 930,
@@ -51353,7 +51689,8 @@
         "bus_b": 547,
         "reactance": 0.0686,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0162
       },
       {
         "uid": 931,
@@ -51362,7 +51699,8 @@
         "bus_b": 550,
         "reactance": -0.00215,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.09976
       },
       {
         "uid": 932,
@@ -51371,7 +51709,8 @@
         "bus_b": 550,
         "reactance": 0.09951,
         "tmax_ab": 63.0,
-        "tmax_ba": 63.0
+        "tmax_ba": 63.0,
+        "tap_ratio": 0.96037
       },
       {
         "uid": 933,
@@ -51380,7 +51719,8 @@
         "bus_b": 552,
         "reactance": 0.06188,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.09976
       },
       {
         "uid": 934,
@@ -51389,7 +51729,8 @@
         "bus_b": 551,
         "reactance": 0.05931,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.08449
       },
       {
         "uid": 935,
@@ -51398,7 +51739,8 @@
         "bus_b": 553,
         "reactance": 0.07033,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04795
       },
       {
         "uid": 936,
@@ -51407,7 +51749,8 @@
         "bus_b": 556,
         "reactance": 0.0593,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.0797
       },
       {
         "uid": 937,
@@ -51416,7 +51759,8 @@
         "bus_b": 557,
         "reactance": 0.0593,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09028
       },
       {
         "uid": 938,
@@ -51425,7 +51769,8 @@
         "bus_b": 558,
         "reactance": 0.10601,
         "tmax_ab": 100.0,
-        "tmax_ba": 100.0
+        "tmax_ba": 100.0,
+        "tap_ratio": 0.98445
       },
       {
         "uid": 939,
@@ -51434,7 +51779,8 @@
         "bus_b": 559,
         "reactance": 0.10601,
         "tmax_ab": 100.0,
-        "tmax_ba": 100.0
+        "tmax_ba": 100.0,
+        "tap_ratio": 0.98445
       },
       {
         "uid": 940,
@@ -51443,7 +51789,8 @@
         "bus_b": 561,
         "reactance": 0.0593,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06463
       },
       {
         "uid": 941,
@@ -51452,7 +51799,8 @@
         "bus_b": 562,
         "reactance": 0.06188,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.11518
       },
       {
         "uid": 942,
@@ -51461,7 +51809,8 @@
         "bus_b": 562,
         "reactance": 0.06206,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.11803
       },
       {
         "uid": 943,
@@ -51470,7 +51819,8 @@
         "bus_b": 564,
         "reactance": 0.06653,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.05108
       },
       {
         "uid": 944,
@@ -51479,7 +51829,8 @@
         "bus_b": 565,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06912
       },
       {
         "uid": 945,
@@ -51488,7 +51839,8 @@
         "bus_b": 566,
         "reactance": 0.06763,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.10675
       },
       {
         "uid": 946,
@@ -51497,7 +51849,8 @@
         "bus_b": 567,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02196
       },
       {
         "uid": 947,
@@ -51506,7 +51859,8 @@
         "bus_b": 568,
         "reactance": 0.06818,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03016
       },
       {
         "uid": 948,
@@ -51515,7 +51869,8 @@
         "bus_b": 569,
         "reactance": 0.06632,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03871
       },
       {
         "uid": 949,
@@ -51524,7 +51879,8 @@
         "bus_b": 571,
         "reactance": 0.06632,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09028
       },
       {
         "uid": 950,
@@ -51533,7 +51889,8 @@
         "bus_b": 572,
         "reactance": 0.06632,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09028
       },
       {
         "uid": 951,
@@ -51542,7 +51899,8 @@
         "bus_b": 573,
         "reactance": 0.06585,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09491
       },
       {
         "uid": 952,
@@ -51551,7 +51909,8 @@
         "bus_b": 576,
         "reactance": 0.05968,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05095
       },
       {
         "uid": 953,
@@ -51560,7 +51919,8 @@
         "bus_b": 579,
         "reactance": -0.00422,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.06773
       },
       {
         "uid": 954,
@@ -51569,7 +51929,8 @@
         "bus_b": 579,
         "reactance": 0.06982,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.98438
       },
       {
         "uid": 955,
@@ -51578,7 +51939,8 @@
         "bus_b": 578,
         "reactance": 0.06437,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.08448
       },
       {
         "uid": 956,
@@ -51587,7 +51949,8 @@
         "bus_b": 580,
         "reactance": 0.06524,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08282
       },
       {
         "uid": 957,
@@ -51596,7 +51959,8 @@
         "bus_b": 581,
         "reactance": 0.06715,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.10197
       },
       {
         "uid": 958,
@@ -51605,7 +51969,8 @@
         "bus_b": 582,
         "reactance": 0.06671,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.08006
       },
       {
         "uid": 959,
@@ -51614,7 +51979,8 @@
         "bus_b": 583,
         "reactance": 0.06671,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.07319
       },
       {
         "uid": 960,
@@ -51623,7 +51989,8 @@
         "bus_b": 586,
         "reactance": -0.00435,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.08434
       },
       {
         "uid": 961,
@@ -51632,7 +51999,8 @@
         "bus_b": 586,
         "reactance": 0.1019,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.96037
       },
       {
         "uid": 962,
@@ -51641,7 +52009,8 @@
         "bus_b": 587,
         "reactance": 0.0789,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 0.9999
       },
       {
         "uid": 963,
@@ -51650,7 +52019,8 @@
         "bus_b": 589,
         "reactance": -0.01223,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.04452
       },
       {
         "uid": 964,
@@ -51659,7 +52029,8 @@
         "bus_b": 589,
         "reactance": 0.16709,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.94157
       },
       {
         "uid": 965,
@@ -51668,7 +52039,8 @@
         "bus_b": 588,
         "reactance": 0.06736,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06986
       },
       {
         "uid": 966,
@@ -51677,7 +52049,8 @@
         "bus_b": 593,
         "reactance": -0.00407,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.04345
       },
       {
         "uid": 967,
@@ -51686,7 +52059,8 @@
         "bus_b": 593,
         "reactance": 0.07177,
         "tmax_ab": 99999,
-        "tmax_ba": 99999
+        "tmax_ba": 99999,
+        "tap_ratio": 0.96037
       },
       {
         "uid": 968,
@@ -51695,7 +52069,8 @@
         "bus_b": 594,
         "reactance": 0.06756,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06367
       },
       {
         "uid": 969,
@@ -51704,7 +52079,8 @@
         "bus_b": 595,
         "reactance": 0.06756,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.06986
       },
       {
         "uid": 970,
@@ -51713,7 +52089,8 @@
         "bus_b": 596,
         "reactance": 0.04206,
         "tmax_ab": 330.0,
-        "tmax_ba": 330.0
+        "tmax_ba": 330.0,
+        "tap_ratio": 1.04858
       },
       {
         "uid": 971,
@@ -51722,7 +52099,8 @@
         "bus_b": 599,
         "reactance": 0.06565,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09622
       },
       {
         "uid": 972,
@@ -51731,7 +52109,8 @@
         "bus_b": 598,
         "reactance": 0.06633,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.1017
       },
       {
         "uid": 973,
@@ -51740,7 +52119,8 @@
         "bus_b": 600,
         "reactance": 0.06736,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09825
       },
       {
         "uid": 974,
@@ -51749,7 +52129,8 @@
         "bus_b": 601,
         "reactance": 0.06671,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.09825
       },
       {
         "uid": 975,
@@ -51758,7 +52139,8 @@
         "bus_b": 602,
         "reactance": 0.05969,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05449
       },
       {
         "uid": 976,
@@ -51767,7 +52149,8 @@
         "bus_b": 602,
         "reactance": 0.05969,
         "tmax_ab": 250.0,
-        "tmax_ba": 250.0
+        "tmax_ba": 250.0,
+        "tap_ratio": 1.05312
       },
       {
         "uid": 977,
@@ -51776,7 +52159,8 @@
         "bus_b": 604,
         "reactance": 0.06798,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.02947
       },
       {
         "uid": 978,
@@ -51785,7 +52169,8 @@
         "bus_b": 605,
         "reactance": 0.06775,
         "tmax_ab": 160.0,
-        "tmax_ba": 160.0
+        "tmax_ba": 160.0,
+        "tap_ratio": 1.03303
       },
       {
         "uid": 979,

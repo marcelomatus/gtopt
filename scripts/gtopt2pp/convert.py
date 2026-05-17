@@ -583,6 +583,19 @@ def convert(
         )
         x_pu = x_pu_val if x_pu_val is not None else 0.01
 
+        # Off-nominal tap ratio scales the effective reactance: gtopt's
+        # Kirchhoff row encodes  -θ_a + θ_b + τ·x · (f_p − f_n) = −φ_rad,
+        # so for the pandapower DC OPF we fold the tap into x.
+        tap_val = _rfs(line.get("tap_ratio"), "Line", line_uid, line_name)
+        tap_ratio = tap_val if (tap_val is not None and tap_val > 0.0) else 1.0
+        x_pu_eff = tap_ratio * x_pu
+
+        # Phase shift (degrees), zero when absent.  Non-zero phase shift
+        # forces the pandapower mapping to be a transformer because the
+        # `pp.create_line_from_parameters` API has no `shift_degree`.
+        shift_deg_val = _rfs(line.get("phase_shift_deg"), "Line", line_uid, line_name)
+        phase_shift_deg = shift_deg_val if shift_deg_val is not None else 0.0
+
         line_type = line.get("type", "line")
 
         # Auto-detect transformer: a line connecting buses at significantly
@@ -598,6 +611,10 @@ def convert(
             _kv_max = max(_kv_a, _kv_b)
             if _kv_max > 0 and abs(_kv_a - _kv_b) / _kv_max > _VOLTAGE_THRESHOLD:
                 line_type = "transformer"
+        # Non-zero phase shift can only be modelled on a pandapower
+        # transformer (the `pp.line` element has no shift_degree field).
+        if phase_shift_deg != 0.0:
+            line_type = "transformer"
 
         tmax_ab_val = _rfs(
             line.get("tmax_ab"),
@@ -622,12 +639,13 @@ def convert(
         if line_type == "transformer":
             # Model as transformer.
             # Use the system base MVA as the transformer rating so that
-            # vk_percent = x_pu * 100 stays on the same per-unit base as
-            # the gtopt reactance.  Using tmax (MW transfer limit) as
-            # sn_mva caused huge vk_percent values and divide-by-zero
-            # when tmax was 0.
+            # vk_percent = x_pu_eff * 100 stays on the same per-unit base
+            # as the gtopt reactance.  `x_pu_eff` already folds in the
+            # off-nominal tap ratio (`tap_ratio · X`) so the DC OPF row
+            # ``-θ_a + θ_b + τ·X·(f_p−f_n) = −φ_rad`` is preserved
+            # bit-for-bit in the pandapower transformer model.
             sn_mva = base_mva
-            vk_percent = x_pu * 100.0
+            vk_percent = x_pu_eff * 100.0
 
             kv_a = float(net.bus.at[idx_a, "vn_kv"])
             kv_b = float(net.bus.at[idx_b, "vn_kv"])
@@ -650,12 +668,15 @@ def convert(
                 vk_percent=max(vk_percent, 0.01),
                 pfe_kw=0.0,
                 i0_percent=0.0,
+                shift_degree=phase_shift_deg,
                 name=display_name,
             )
         else:
-            # Model as standard line
+            # Model as standard line.  pp.line has no phase_shift_deg
+            # field, but tap_ratio is captured by scaling the effective
+            # reactance — already folded into `x_pu_eff` above.
             from_kv = float(net.bus.at[idx_a, "vn_kv"])
-            x_ohm = _pu_to_ohm(x_pu, from_kv, base_mva)
+            x_ohm = _pu_to_ohm(x_pu_eff, from_kv, base_mva)
 
             # pandapower needs max_i_ka for thermal limit (must be > 0)
             if 0.0 < tmax < _TMAX_UNLIMITED and from_kv > 0.0:
