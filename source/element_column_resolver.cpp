@@ -20,6 +20,7 @@
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
+#include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
@@ -352,6 +353,40 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       }
       if (ref.attribute == "lossfactor") {
         return gen.param_lossfactor(suid);
+      }
+      // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
+      //   * heat_rate       — scalar <fuel_unit>/MWh (PLEXOS "Heat Rate")
+      //   * emission_factor — direct CO₂ rate tCO₂/MWh; non-combustion
+      //                       adder when combined with fuel.combustion_ef
+      // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
+      // are arrays without a meaningful scalar PAMPL projection — not
+      // exposed; reference via the Fuel side instead.
+      if (ref.attribute == "heat_rate") {
+        return gen.param_heat_rate(suid);
+      }
+      if (ref.attribute == "emission_factor") {
+        return gen.param_emission_factor(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── fuel (passive parameter carrier, no LP cols) ────────────────────
+    // PLEXOS-named schedules referenced by Generator.fuel /
+    // Commitment.fuel.  Resolves only through `resolve_single_param`
+    // (no LP column path) since `FuelLP::add_to_lp` is a no-op.
+    if (ref.element_type == "fuel") {
+      const auto& fuel = sc.get_element(ObjectSingleId<FuelLP> {single_id});
+      if (ref.attribute == "price") {
+        return fuel.param_price(suid);
+      }
+      if (ref.attribute == "heat_content") {
+        return fuel.param_heat_content(suid);
+      }
+      if (ref.attribute == "combustion_emission_factor") {
+        return fuel.param_combustion_emission_factor(suid);
+      }
+      if (ref.attribute == "upstream_emission_factor") {
+        return fuel.param_upstream_emission_factor(suid);
       }
       return std::nullopt;
     }

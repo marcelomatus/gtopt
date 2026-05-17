@@ -24,6 +24,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint.hpp>
 #include <gtopt/validate_planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -575,4 +576,149 @@ TEST_CASE(  // NOLINT
                                                && e.contains("Fuel");
                                          });
   CHECK(found);
+}
+
+// ── PAMPL parameter mappings (2026-05-17) ────────────────────────────
+//
+// Fuel and the new Generator heat_rate / emission_factor fields are
+// exposed as `resolve_single_param` constants so user constraints
+// can reference them directly.  These tests build a small fixture
+// with a user constraint that uses the parameter on the LHS as a
+// scalar coefficient and verifies the constraint binds at the
+// expected algebraic threshold.
+
+TEST_CASE("PAMPL — fuel('gas').price resolves as scalar parameter")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Fuel.price = 5; demand load capped via
+  //   `fuel('gas').price * demand('d1').load <= 250`
+  // ⇒ 5 · load ≤ 250 ⇒ load ≤ 50.  With cheap g1 ($1/MWh) and
+  // demand 100 MW the LP serves 50 MW (cost 50) and pays fail on
+  // 50 MW @ fail_cost = 100 (cost 5000).  obj = 5050 (raw,
+  // scale_objective=1).
+  const Array<Fuel> fuel_array = {
+      {.uid = Uid {1}, .name = "gas", .price = 5.0},
+  };
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "fuel_price_load_cap",
+          // Use the param as an additive term — `resolve_single_param`
+          // moves it to the RHS via `param_shift`, so this resolves to
+          // `load <= 50` (= 55 − 5).  Mirrors the
+          // `options.scale_objective` pattern used elsewhere in the
+          // user-constraint suite.
+          .expression = "demand('d1').load + fuel('gas').price <= 55",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 100.0;
+
+  const System system {
+      .name = "PamplFuelPriceFixture",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .fuel_array = fuel_array,
+      .user_constraint_array = user_constraint_array,
+  };
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  // 50 MW served · $1/MWh + 50 MW unserved · $100/MWh = 50 + 5000 = 5050.
+  CHECK(lp.get_obj_value() == doctest::Approx(5050.0).epsilon(1e-6));
+}
+
+TEST_CASE(
+    "PAMPL — generator('g1').heat_rate resolves as scalar parameter")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Generator.heat_rate = 4; demand cap via
+  //   `generator('g1').heat_rate * demand('d1').load <= 200`
+  // ⇒ 4 · load ≤ 200 ⇒ load ≤ 50.  Same algebra as the fuel-price
+  // case (load capped by a scalar parameter times the load
+  // variable), just exercising the new generator.heat_rate mapping.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .heat_rate = 4.0,  // PLEXOS Heat Rate
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "heat_rate_load_cap",
+          // Param-as-additive form (`param + var <= rhs` ⇒ `var <= rhs −
+          // param`): load + heat_rate (= 4) <= 54 ⇒ load <= 50.
+          .expression = "demand('d1').load + generator('g1').heat_rate <= 54",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 100.0;
+
+  const System system {
+      .name = "PamplGenHeatRateFixture",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .user_constraint_array = user_constraint_array,
+  };
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  // 50 MW served · $1/MWh + 50 MW unserved · $100/MWh = 5050.
+  CHECK(lp.get_obj_value() == doctest::Approx(5050.0).epsilon(1e-6));
 }
