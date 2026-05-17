@@ -344,6 +344,14 @@ public:
         default_strict_storage_emin);
   }
 
+  /// Experimental Option C demand-fail substitution flag.
+  /// Default false (Option A: obj_constant baseline).  See
+  /// `ModelOptions::demand_option_c` for the full rationale.
+  [[nodiscard]] constexpr bool demand_option_c() const
+  {
+    return m_options_.model_options.demand_option_c.value_or(false);
+  }
+
   /// @brief Gets the objective function scaling factor.
   ///
   /// Default depends on planning method:

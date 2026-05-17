@@ -115,6 +115,15 @@ private:
   /// substitution removed the `fail` LP column.  One entry per
   /// (scenario, stage, block) that participates in the load path.
   STBIndexHolder<double> block_lmax_values_;
+
+  /// Cached AMPL offset values for Option C blocks.  Only populated
+  /// for (scenario, stage, block) cells where the column represents
+  /// `neg_fail = load − lmax` (i.e. `fail_substituted == true` in
+  /// `add_to_lp`).  Used by `add_to_output` to distinguish Option C
+  /// reconstruction (`load = col_primal + offset`,
+  /// `fail = −col_primal`) from the forced/non-substituted path where
+  /// the column already represents `load` directly.
+  STBIndexHolder<double> block_offset_values_;
 };
 
 using DemandLPId = ObjectId<DemandLP>;

@@ -107,6 +107,32 @@ struct ModelOptions
   /// the element's `mean_production_factor`.
   OptReal state_fail_cost {};
 
+  /// Experimental Option C demand-fail substitution.
+  ///
+  /// When false (default): demand_lp emits the column as
+  /// `load ∈ [0, lmax]` with cost = `−fail_cost × ecost` and folds
+  /// the `+fail_cost × ecost × lmax` baseline into
+  /// `lp.add_obj_constant(...)` (Option A — current behaviour).
+  ///
+  /// When true: column is `neg_fail = load − lmax ∈ [−lmax, 0]`,
+  /// `obj_constant` stays at 0, and the baseline is absorbed by RHS
+  /// shifts on the bus-balance row (`+(1+loss)·lmax`) and capacity
+  /// row (`+lmax`).  The AMPL resolver receives a per-block offset
+  /// so user constraints referencing `demand.load` keep their
+  /// physical meaning (resolved as `col + lmax`).
+  ///
+  /// Option C eliminates the ~$105 B obj_constant baseline visible
+  /// on juan-scale runs — `get_obj_value()` matches
+  /// `get_obj_value_raw() × scale_objective` exactly with no
+  /// large-magnitude cancellation noise.  Currently opt-in because
+  /// LP-side consumers that reference the demand column directly
+  /// (Converter, Battery interactions, etc.) are not yet
+  /// Option-C-aware — they assume the column carries `load`, not
+  /// `neg_fail`, so enabling this with a converter-tied demand
+  /// produces a mathematically wrong row.  See
+  /// `source/demand_lp.cpp` and the related deferred-follow-up note.
+  OptBool demand_option_c {};
+
   /// System-wide CO2 emission cost [$/tCO2].
   /// When set, generators with a non-zero `emission_factor` incur an
   /// additional objective cost of emission_cost × emission_factor per MWh.
@@ -165,6 +191,7 @@ struct ModelOptions
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(state_fail_cost, opts.state_fail_cost);
+    merge_opt(demand_option_c, opts.demand_option_c);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
@@ -182,9 +209,9 @@ struct ModelOptions
         || scale_loss_link.has_value() || theta_max.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value()
-        || strict_storage_emin.has_value();
+        || state_fail_cost.has_value() || demand_option_c.has_value()
+        || emission_cost.has_value() || emission_cap.has_value()
+        || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -212,6 +239,7 @@ struct ModelOptions
         && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
         && covers_opt(state_fail_cost, other.state_fail_cost)
+        && covers_opt(demand_option_c, other.demand_option_c)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)
         && covers_opt(continuous_phases, other.continuous_phases)
