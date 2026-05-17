@@ -51,6 +51,8 @@ _REPO_ROOT = _TOOLS_DIR.parent
 _CONVERTER = _TOOLS_DIR / "ucjl2gtopt.py"
 _TEST_DATA_DIR = _TOOLS_DIR / "test_data"
 _VENDORED_CASE14_BASE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_base.json"
+_VENDORED_CASE14_CONGESTED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_congested.json"
+_VENDORED_CASE14_FLEX = _TEST_DATA_DIR / "UnitCommitmentJl_case14_flex.json"
 
 
 # ---------------------------------------------------------------------------
@@ -795,3 +797,132 @@ def test_real_case14_full_network_solves(tmp_path: Path) -> None:
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
     assert obj is not None and math.isfinite(obj)
+
+
+# ---------------------------------------------------------------------------
+# Additional UC.jl literature fixtures
+# ---------------------------------------------------------------------------
+#
+# Vendored from ``ANL-CEEESA/UnitCommitment.jl/test/fixtures/case14/``,
+# same upstream provenance as ``case14/base.json`` but with parameter
+# changes that exercise different commit dynamics on the IEEE-14 topology:
+#
+#   * ``congested.json`` — tighter line limits + g3's cost curve raised
+#     to match the expensive thermals; the optimal MIP cannot avoid
+#     ~250 MW of curtailment in every hour and produces a +29 M obj.
+#   * ``flex.json``      — high-precision loads + ``flexiramp`` reserve
+#     zones (which the converter intentionally drops since gtopt's
+#     ``ReserveZone`` only models spinning reserves today).  Optimal
+#     MIP commits g1+g2+g4+g5, leaves g3 off, +36 459 obj.
+#
+# Both pin gtopt's MIP optimum as the regression anchor.  This proves
+# the converter shape + the integer-column-scaling fix hold across more
+# than one literature case, not just ``case14/base.json``.
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_CONGESTED.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_CONGESTED}",
+)
+def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
+    """UC.jl ``case14/congested.json``: tighter lines force curtailment.
+
+    Pins:
+
+      * Solver status 0 (feasible / optimal).
+      * Every ``status_sol`` value is a clean 0/1 integer (guards the
+        column-scaling fix on a different load / cost profile from
+        ``case14/base``).
+      * gtopt MIP obj = ``+29 126 081.23`` — the high positive value
+        reflects ``demand_fail`` curtailment that the tightened line
+        limits make unavoidable in single-scenario mode.  UC.jl's
+        stochastic test pairs this case with ``base.json`` and pins
+        per-scenario production patterns; we don't model the stochastic
+        coupling, so the single-scenario optimum is independent.
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_CONGESTED, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0, f"MIP exit status = {status}"
+    assert obj == pytest.approx(29_126_081.23, rel=1e-5)
+
+    # Clean-binary invariant (column-scaling-fix regression anchor).
+    for gen_uid in range(1, 7):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"g{gen_uid} block {block_idx + 1}: status_sol = {value} "
+                f"is not a clean 0/1 integer on case14/congested"
+            )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_FLEX.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_FLEX}",
+)
+def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
+    """UC.jl ``case14/flex.json``: flexiramp reserves dropped, distinct optimum.
+
+    The fixture's two ``Reserves`` zones are both ``Type = flexiramp``,
+    which the converter intentionally drops (gtopt's ``ReserveZone``
+    models spinning reserves only).  The result is a substantially
+    different commit pattern from ``case14/base`` — g3 stays off, g1
+    is committed every hour, and the MIP optimum lands at a small
+    positive obj.
+
+    Pins:
+
+      * Solver status 0.
+      * Every ``status_sol`` is clean 0/1.
+      * gtopt MIP obj = ``+36 459.08``.
+      * g1 status = ``[1, 1, 1, 1]`` (consistent across base / flex —
+        g1 is always the cheapest base-load commit on this topology).
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_FLEX, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(36_459.08, rel=1e-5)
+
+    for gen_uid in range(1, 7):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"g{gen_uid} block {block_idx + 1}: status_sol = {value} "
+                f"is not a clean 0/1 integer on case14/flex"
+            )
+
+    g1_status = _read_commitment_status(tmp_path / "run" / "output", gen_uid=1)
+    assert g1_status == [1.0, 1.0, 1.0, 1.0], (
+        f"g1 flex MIP status = {g1_status}, expected [1, 1, 1, 1]"
+    )
