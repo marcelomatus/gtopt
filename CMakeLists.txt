@@ -209,6 +209,25 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
+# ---- Naming registry: generate compiled-in fallback + path constants ----
+# The runtime registry tries an external file first
+# (`$GTOPT_NAMES_FILE`, then the install location, then the in-tree
+# source copy); if all of those fail it falls back to the JSON content
+# baked at configure time below.  This guarantees the registry always
+# works for tests / standalone runs / library consumers that skip the
+# install step.
+include(GNUInstallDirs)
+set(GTOPT_NAMES_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/names.json")
+set(GTOPT_NAMES_INSTALL_PATH "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/names.json")
+file(READ "${GTOPT_NAMES_SOURCE_PATH}" GTOPT_NAMES_JSON_CONTENT)
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/names_builtin.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/names_builtin.hpp"
+  @ONLY
+)
+list(APPEND headers
+     "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/names_builtin.hpp")
+
 # Move gtopt_main.cpp to the front of the source list so that Ninja
 # schedules its compilation before the unity batches.  It is the slowest
 # file (~209s) and compiles standalone (SKIP_UNITY_BUILD_INCLUSION ON),
@@ -260,7 +279,15 @@ endif()
 
 target_include_directories(
   ${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+                         $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>
 )
+
+# Install the editable naming dictionary alongside the library.  The
+# runtime loader probes `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/names.json`
+# (baked at configure time into names_builtin.hpp) before falling back
+# to the compiled-in copy.
+install(FILES "${GTOPT_NAMES_SOURCE_PATH}"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/gtopt")
 
 target_include_directories(
   ${PROJECT_NAME} SYSTEM PUBLIC ${Boost_INCLUDE_DIRS}
