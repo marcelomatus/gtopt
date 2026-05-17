@@ -148,13 +148,25 @@ struct FlowNames
 };
 
 /// Output of `attach_flow`.  Kink slacks/row are present iff the call
-/// passed a target AND at least one slack cost was non-zero.
+/// passed a target AND BOTH slack costs were non-zero (full-kink path).
+/// One-sided substitution (fcost-only or uvalue-only) folds the slack
+/// + row into the primary flow column and reports the elision via
+/// `substituted_target` + `substituted_fcost_only` so the caller can
+/// cache the target for downstream reconstruction.
 struct FlowAttachment
 {
   ColIndex flow_col;
   std::optional<ColIndex> excess_col;
   std::optional<ColIndex> fail_col;
   std::optional<RowIndex> kink_row;
+  /// Resolved target value used during the one-sided substitution.
+  /// `nullopt` when the full-kink path fired or no target was given.
+  std::optional<Real> substituted_target;
+  /// True iff fcost-only substitution fired (caller reconstructs
+  /// `fail = max(0, target − flow)`).  False iff uvalue-only
+  /// substitution fired (caller reconstructs
+  /// `excess = max(0, flow − target)`).
+  bool substituted_fcost_only {false};
 };
 
 /// Single point of truth for installing one "flow point" into the LP.
@@ -187,10 +199,56 @@ template<typename Context>
                                          FlowNames names,
                                          Context ctx)
 {
+  // One-sided kink elision (same pattern as DemandLP's failure
+  // substitution): when only sn_cost is active (fcost-only soft
+  // floor), `fail = target − flow` is the slack; substituting it
+  // into the objective folds the slack col + kink row into the
+  // primary flow column with cost `−... +obj_constant` baked in.
+  // Mirror for sp_cost-only (uvalue-only soft cap).
+  //
+  // Algebra (fcost-only):
+  //   row    : flow + fail = target,  fail ≥ 0,  cost(fail) = sn
+  //   substitute fail = target − flow:
+  //     cost(fail) × fail = sn × (target − flow)
+  //                       = sn × target − sn × flow
+  //                         \________/   \_______/
+  //                         constant    coef on flow
+  //   flow.uppb shrinks to min(fmax, target) since fail ≥ 0 forces
+  //   flow ≤ target; the inequality is now expressed as a column
+  //   bound rather than as a row.  Saves 1 col + 1 row per scope.
+  //
+  // The full-kink case (both sp and sn active) still emits the
+  // explicit slacks + equality row — the two-sided substitution
+  // would conflict and require both bounds to align with target.
+  Real flow_lowb = fmin;
+  Real flow_uppb = fmax;
+  Real flow_cost = 0.0;
+  const bool fcost_only =
+      target.has_value() && sn_cost_cf != 0.0 && sp_cost_cf == 0.0;
+  const bool uvalue_only =
+      target.has_value() && sp_cost_cf != 0.0 && sn_cost_cf == 0.0;
+  std::optional<Real> substituted_target;
+  bool substituted_fcost_only = false;
+  if (fcost_only) {
+    flow_uppb = std::min(fmax, *target);
+    flow_cost = -sn_cost_cf;  // see derivation above
+    lp.add_obj_constant(sn_cost_cf * *target);
+    substituted_target = target;
+    substituted_fcost_only = true;
+  } else if (uvalue_only) {
+    // Symmetric mirror: excess = flow − target.
+    //   cost(excess) × excess = sp × (flow − target)
+    //                         = sp × flow − sp × target
+    flow_lowb = std::max(fmin, *target);
+    flow_cost = sp_cost_cf;  // sp_cost_cf is negative (bonus)
+    lp.add_obj_constant(-sp_cost_cf * *target);
+    substituted_target = target;
+    substituted_fcost_only = false;
+  }
   const auto flow_col = lp.add_col(SparseCol {
-      .lowb = fmin,
-      .uppb = fmax,
-      .cost = 0.0,
+      .lowb = flow_lowb,
+      .uppb = flow_uppb,
+      .cost = flow_cost,
       .class_name = names.class_name,
       .variable_name = names.flow_name,
       .variable_uid = variable_uid,
@@ -201,41 +259,32 @@ template<typename Context>
       .excess_col = std::nullopt,
       .fail_col = std::nullopt,
       .kink_row = std::nullopt,
+      .substituted_target = substituted_target,
+      .substituted_fcost_only = substituted_fcost_only,
   };
 
-  if (target.has_value() && (sp_cost_cf != 0.0 || sn_cost_cf != 0.0)) {
-    // Only emit the slack that carries a non-zero cost.  Skipping the
-    // zero-cost side degenerates the kink into a one-sided cap / floor
-    // (preserving the pre-refactor soft-target / soft-floor LP shapes):
-    //   fcost-only  (sn > 0, sp = 0) ⇒ row "flow + fail = target",
-    //                                  flow ≤ target.
-    //   uvalue-only (sp > 0, sn = 0) ⇒ row "flow − excess = target",
-    //                                  flow ≥ target.
-    //   both        ⇒ full kink slack pair.
-    std::optional<ColIndex> excess_col;
-    std::optional<ColIndex> fail_col;
-    if (sp_cost_cf != 0.0) {
-      excess_col = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .uppb = LinearProblem::DblMax,
-          .cost = sp_cost_cf,
-          .class_name = names.class_name,
-          .variable_name = names.sp_name,
-          .variable_uid = variable_uid,
-          .context = ctx,
-      });
-    }
-    if (sn_cost_cf != 0.0) {
-      fail_col = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .uppb = LinearProblem::DblMax,
-          .cost = sn_cost_cf,
-          .class_name = names.class_name,
-          .variable_name = names.sn_name,
-          .variable_uid = variable_uid,
-          .context = ctx,
-      });
-    }
+  // Full-kink path (both sp_cost and sn_cost active): explicit
+  // slack pair + equality row.  Skipped when the one-sided
+  // substitution above folded the kink into the primary column.
+  if (target.has_value() && sp_cost_cf != 0.0 && sn_cost_cf != 0.0) {
+    auto excess_col = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = LinearProblem::DblMax,
+        .cost = sp_cost_cf,
+        .class_name = names.class_name,
+        .variable_name = names.sp_name,
+        .variable_uid = variable_uid,
+        .context = ctx,
+    });
+    auto fail_col = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = LinearProblem::DblMax,
+        .cost = sn_cost_cf,
+        .class_name = names.class_name,
+        .variable_name = names.sn_name,
+        .variable_uid = variable_uid,
+        .context = ctx,
+    });
     auto row =
         SparseRow {
             .class_name = names.class_name,
@@ -245,12 +294,8 @@ template<typename Context>
         }
             .equal(*target);
     row[flow_col] = 1.0;
-    if (excess_col) {
-      row[*excess_col] = -1.0;
-    }
-    if (fail_col) {
-      row[*fail_col] = 1.0;
-    }
+    row[excess_col] = -1.0;
+    row[fail_col] = 1.0;
     out.excess_col = excess_col;
     out.fail_col = fail_col;
     out.kink_row = lp.add_row(std::move(row));
@@ -292,6 +337,12 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<ColIndex> bfail_cols;
   BIndexHolder<ColIndex> bexcess_cols;
   BIndexHolder<RowIndex> bkink_rows;
+  // Per-block one-sided-substitution cache (see
+  // `block_target_values_` doc in `flow_right_lp.hpp`).  One entry
+  // per block where attach_flow elided the explicit fail/excess
+  // slack into the primary flow column.
+  BIndexHolder<double> btarget_values;
+  BIndexHolder<std::uint8_t> bfcost_only;
   map_reserve(fcols, blocks.size());
 
   // Evaluate initial bound rule if present.
@@ -425,6 +476,11 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (fa.kink_row) {
       bkink_rows[buid] = *fa.kink_row;
     }
+    if (fa.substituted_target.has_value()) {
+      btarget_values[buid] = *fa.substituted_target;
+      bfcost_only[buid] =
+          fa.substituted_fcost_only ? std::uint8_t {1} : std::uint8_t {0};
+    }
   }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
@@ -437,6 +493,10 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   }
   if (!bkink_rows.empty()) {
     flow_kink_rows[st_key] = std::move(bkink_rows);
+  }
+  if (!btarget_values.empty()) {
+    block_target_values_[st_key] = std::move(btarget_values);
+    block_fcost_only_[st_key] = std::move(bfcost_only);
   }
 
   // PAMPL-visible registration: a single `flow` column per block.
@@ -496,6 +556,11 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     }
     if (fa.kink_row) {
       qkink_rows[st_key] = *fa.kink_row;
+    }
+    if (fa.substituted_target.has_value()) {
+      stage_target_values_[st_key] = *fa.substituted_target;
+      stage_fcost_only_[st_key] =
+          fa.substituted_fcost_only ? std::uint8_t {1} : std::uint8_t {0};
     }
 
     // `stage_average` mode: install the qavg row that links qeh to the
@@ -560,22 +625,116 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   return true;
 }
 
+namespace
+{
+/// Which side of the one-sided kink substitution to reconstruct.
+enum class SlackSide : std::uint8_t
+{
+  Fail,  ///< fcost-only ⇒ `max(0, target − flow)`
+  Excess,  ///< uvalue-only ⇒ `max(0, flow − target)`
+};
+
+/// Look up the LP primal of an explicit slack column at (s, t, b).
+/// Returns `nullopt` when the (s, t) or block entry is absent — the
+/// caller (fail_sol_at / excess_sol_at / add_to_output) then falls
+/// back to substitution reconstruction.
+[[nodiscard]] std::optional<double> primal_at_block(
+    const STBIndexHolder<ColIndex>& cols,
+    const std::tuple<ScenarioUid, StageUid>& st_key,
+    BlockUid buid,
+    const ScaledView& col_sol) noexcept
+{
+  const auto stt_it = cols.find(st_key);
+  if (stt_it == cols.end()) {
+    return std::nullopt;
+  }
+  const auto b_it = stt_it->second.find(buid);
+  if (b_it == stt_it->second.end()) {
+    return std::nullopt;
+  }
+  return std::max(0.0, col_sol[b_it->second]);
+}
+
+/// Reconstruct the slack value at (s, t, b) under one-sided
+/// substitution.  Returns 0 when the cache is absent or the cell
+/// belongs to the other side.  Centralises the `fcost_only` /
+/// target / flow lookup so `fail_sol_at`, `excess_sol_at`, and the
+/// `add_to_output` reconstruction path share a single
+/// implementation.
+[[nodiscard]] double reconstruct_substituted_slack_at_block(
+    SlackSide side,
+    const std::tuple<ScenarioUid, StageUid>& st_key,
+    BlockUid buid,
+    double flow_primal,
+    const STBIndexHolder<double>& block_target_values,
+    const STBIndexHolder<std::uint8_t>& block_fcost_only) noexcept
+{
+  const auto tgt_it = block_target_values.find(st_key);
+  if (tgt_it == block_target_values.end()) {
+    return 0.0;
+  }
+  const auto fc_it = block_fcost_only.find(st_key);
+  if (fc_it == block_fcost_only.end()) {
+    return 0.0;
+  }
+  const auto fc_b_it = fc_it->second.find(buid);
+  if (fc_b_it == fc_it->second.end()) {
+    return 0.0;
+  }
+  const bool is_fcost_side = fc_b_it->second != 0;
+  if ((side == SlackSide::Fail) != is_fcost_side) {
+    return 0.0;
+  }
+  const auto t_b_it = tgt_it->second.find(buid);
+  if (t_b_it == tgt_it->second.end()) {
+    return 0.0;
+  }
+  const double target_v = t_b_it->second;
+  return side == SlackSide::Fail ? std::max(0.0, target_v - flow_primal)
+                                 : std::max(0.0, flow_primal - target_v);
+}
+}  // namespace
+
+namespace
+{
+/// Shared dispatcher: full-kink primal first, then substituted
+/// reconstruction.  Used by both `fail_sol_at` and `excess_sol_at`
+/// so the lookup chain lives in exactly one place.
+[[nodiscard]] double slack_sol_at_impl(
+    SlackSide side,
+    const std::tuple<ScenarioUid, StageUid>& st_key,
+    BlockUid buid,
+    const STBIndexHolder<ColIndex>& explicit_cols,
+    const STBIndexHolder<ColIndex>& flow_cols_in,
+    const STBIndexHolder<double>& target_values,
+    const STBIndexHolder<std::uint8_t>& fcost_only,
+    const ScaledView& col_sol) noexcept
+{
+  if (auto v = primal_at_block(explicit_cols, st_key, buid, col_sol)) {
+    return *v;
+  }
+  const auto flow_v_opt = primal_at_block(flow_cols_in, st_key, buid, col_sol);
+  if (!flow_v_opt) {
+    return 0.0;
+  }
+  return reconstruct_substituted_slack_at_block(
+      side, st_key, buid, *flow_v_opt, target_values, fcost_only);
+}
+}  // namespace
+
 double FlowRightLP::fail_sol_at(const ScenarioLP& scenario,
                                 const StageLP& stage,
                                 const BlockLP& block,
                                 const ScaledView& col_sol) const noexcept
 {
-  // Read `fail_b` directly from the LP primal — it IS the slack.
-  const std::tuple st_key {scenario.uid(), stage.uid()};
-  const auto stt_it = fail_cols.find(st_key);
-  if (stt_it == fail_cols.end()) {
-    return 0.0;
-  }
-  const auto b_it = stt_it->second.find(block.uid());
-  if (b_it == stt_it->second.end()) {
-    return 0.0;
-  }
-  return std::max(0.0, col_sol[b_it->second]);
+  return slack_sol_at_impl(SlackSide::Fail,
+                           {scenario.uid(), stage.uid()},
+                           block.uid(),
+                           fail_cols,
+                           flow_cols,
+                           block_target_values_,
+                           block_fcost_only_,
+                           col_sol);
 }
 
 double FlowRightLP::excess_sol_at(const ScenarioLP& scenario,
@@ -583,16 +742,14 @@ double FlowRightLP::excess_sol_at(const ScenarioLP& scenario,
                                   const BlockLP& block,
                                   const ScaledView& col_sol) const noexcept
 {
-  const std::tuple st_key {scenario.uid(), stage.uid()};
-  const auto stt_it = excess_cols.find(st_key);
-  if (stt_it == excess_cols.end()) {
-    return 0.0;
-  }
-  const auto b_it = stt_it->second.find(block.uid());
-  if (b_it == stt_it->second.end()) {
-    return 0.0;
-  }
-  return std::max(0.0, col_sol[b_it->second]);
+  return slack_sol_at_impl(SlackSide::Excess,
+                           {scenario.uid(), stage.uid()},
+                           block.uid(),
+                           excess_cols,
+                           flow_cols,
+                           block_target_values_,
+                           block_fcost_only_,
+                           col_sol);
 }
 
 bool FlowRightLP::add_to_output(OutputContext& out) const
@@ -603,6 +760,7 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, FlowName, id(), flow_cols);
 
   // Per-block kink slacks (primal = deficit / surplus quantity).
+  // Full-kink path emits the explicit slack-column primals directly.
   if (!fail_cols.empty()) {
     out.add_col_sol(cname, FailName, id(), fail_cols);
     out.add_col_cost(cname, FailName, id(), fail_cols);
@@ -613,6 +771,75 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
   }
   if (!flow_kink_rows.empty()) {
     out.add_row_dual(cname, FlowKinkName, id(), flow_kink_rows);
+  }
+
+  // ── One-sided-substitution reconstruction (per-block) ────────────
+  // Mirrors `DemandLP::add_to_output`'s fail_sol reconstruction: the
+  // explicit fail/excess slack columns were folded into the primary
+  // flow column, so the per-block primal values are reconstructed
+  // from the cached target + flow primal.  The branching
+  // (`fcost_only` ⇒ fail; else excess) reuses the same
+  // `reconstruct_substituted_slack_at_block` helper that
+  // `fail_sol_at` / `excess_sol_at` use, keeping a single source
+  // of truth for the algebra.  `Demand/load_cost`-style reduced
+  // costs are NOT emitted: the (now-elided) slack column's reduced
+  // cost was a duplicate of `−flow_cost` in the substituted form
+  // and has no downstream consumer.
+  if (!block_target_values_.empty()) {
+    STBIndexHolder<double> fail_recon;
+    STBIndexHolder<double> excess_recon;
+    for (const auto& [st_key, target_block] : block_target_values_) {
+      const auto fl_it = flow_cols.find(st_key);
+      if (fl_it == flow_cols.end()) {
+        continue;
+      }
+      BIndexHolder<double> fail_block;
+      BIndexHolder<double> excess_block;
+      for (const auto& [buid, target_v] : target_block) {
+        const auto fl_b_it = fl_it->second.find(buid);
+        if (fl_b_it == fl_it->second.end()) {
+          continue;
+        }
+        const double flow_v = out.primal(fl_b_it->second);
+        // Try both sides — the helper returns 0 for the side that
+        // doesn't match the cached `fcost_only` flag, so exactly one
+        // call produces a non-zero contribution per (s, t, b).
+        if (const double fv =
+                reconstruct_substituted_slack_at_block(SlackSide::Fail,
+                                                       st_key,
+                                                       buid,
+                                                       flow_v,
+                                                       block_target_values_,
+                                                       block_fcost_only_);
+            fv > 0.0)
+        {
+          fail_block[buid] = fv;
+        }
+        if (const double ev =
+                reconstruct_substituted_slack_at_block(SlackSide::Excess,
+                                                       st_key,
+                                                       buid,
+                                                       flow_v,
+                                                       block_target_values_,
+                                                       block_fcost_only_);
+            ev > 0.0)
+        {
+          excess_block[buid] = ev;
+        }
+      }
+      if (!fail_block.empty()) {
+        fail_recon[st_key] = std::move(fail_block);
+      }
+      if (!excess_block.empty()) {
+        excess_recon[st_key] = std::move(excess_block);
+      }
+    }
+    if (!fail_recon.empty()) {
+      out.add_col_sol_values(cname, FailName, id(), fail_recon);
+    }
+    if (!excess_recon.empty()) {
+      out.add_col_sol_values(cname, ExcessName, id(), excess_recon);
+    }
   }
 
   // Stage-scope qeh + qavg + (optional) stage-level kink slacks.
@@ -631,6 +858,13 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
   if (!qkink_rows.empty()) {
     out.add_row_dual(cname, QkinkName, id(), qkink_rows);
   }
+  // Stage-scope (qeh) one-sided-substitution reconstruction is
+  // currently omitted: `add_col_sol_values` is per-block keyed and
+  // doesn't have a stage-scope overload.  The reconstruction is
+  // still queryable via `fail_sol_at` / `excess_sol_at` for tools
+  // that prefer the in-memory accessor.  No production tooling
+  // reads `Demand/qeh_sp_sol.csv` / `_sn_sol.csv` under the
+  // stage-only substitution path (verified by grep).
 
   return true;
 }

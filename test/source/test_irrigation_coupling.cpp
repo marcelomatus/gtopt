@@ -609,7 +609,10 @@ TEST_CASE(  // NOLINT
   const auto& t = system_lp.phase().stages()[0];
   CHECK(fr_lp.has_qeh(s, t));
   CHECK(fr_lp.has_qavg_row(s, t));
-  CHECK(fr_lp.has_qkink_row(s, t));
+  // One-sided fcost-only substitution: qeh col absorbs the fail
+  // slack + kink row.  The qeh upper bound is clamped at target,
+  // so the LP still drives qeh up to target — same physical answer.
+  CHECK_FALSE(fr_lp.has_qkink_row(s, t));
   // qeh column primal should be at target (LP drove it up via fcost).
   const auto col_sol = lp.get_col_sol();
   const auto qeh_col = fr_lp.qeh_col_at(s, t);

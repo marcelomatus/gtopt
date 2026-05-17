@@ -211,15 +211,14 @@ TEST_CASE(  // NOLINT
 
   const auto obj = lp.get_obj_coeff();
   // discount_factor() defaults to 1.0 when no annual_discount_rate set.
-  // The fail-slack coefficient carries the cost; flow_col coefficient
-  // is zero (kink moved out of the primary column).
-  const double expected_fail = +fcost_val * prob * 1.0 * dur;
+  // Under the one-sided fcost-only substitution, the fail-slack
+  // coefficient `+fcost·prob·dur·discount` flips sign and rides on
+  // the primary flow column.  The fail_col itself is elided.
+  const double expected_flow_cost = -fcost_val * prob * 1.0 * dur;
   for (const auto& block : stages[0].blocks()) {
     const auto buid = block.uid();
-    CHECK(obj[flow_cols.at(buid)] == doctest::Approx(0.0));
-    const auto fail = fr_lp.fail_col_at(scenarios[0], stages[0], block);
-    REQUIRE(fail.has_value());
-    CHECK(obj[*fail] == doctest::Approx(expected_fail));
+    CHECK(obj[flow_cols.at(buid)] == doctest::Approx(expected_flow_cost));
+    CHECK_FALSE(fr_lp.fail_col_at(scenarios[0], stages[0], block).has_value());
   }
 }
 
@@ -835,22 +834,24 @@ TEST_CASE(  // NOLINT
   const auto& scenarios = system_lp.scene().scenarios();
   const auto& stages = system_lp.phase().stages();
 
-  // Per-scenario: assert flow_col cost == 0 and collect fail-slack
-  // coefficients (one per scenario).
-  std::vector<double> fail_coeffs;
+  // Per-scenario: under the one-sided fcost-only substitution the
+  // fail slack is folded into the primary flow col with sign flipped.
+  // Expected flow_col coefficient: `−fcost·prob·dur·discount`.
+  std::vector<double> flow_coeffs;
   for (const auto& sc : scenarios) {
     const auto& fc = fr_lp.flow_cols_at(sc, stages[0]);
     for (const auto& [buid, col] : fc) {
-      CHECK(obj[col] == doctest::Approx(0.0));
+      flow_coeffs.push_back(obj[col]);
     }
+    // The explicit fail slack must be gone under the substitution.
     for (const auto& block : stages[0].blocks()) {
-      const auto fail = fr_lp.fail_col_at(sc, stages[0], block);
-      REQUIRE(fail.has_value());
-      fail_coeffs.push_back(obj[*fail]);
+      CHECK_FALSE(fr_lp.fail_col_at(sc, stages[0], block).has_value());
     }
   }
-  REQUIRE(fail_coeffs.size() == 2);
-  std::ranges::sort(fail_coeffs);  // [0] = prob 0.3, [1] = prob 0.7
-  CHECK(fail_coeffs[0] == doctest::Approx(+100.0 * 0.3));
-  CHECK(fail_coeffs[1] == doctest::Approx(+100.0 * 0.7));
+  REQUIRE(flow_coeffs.size() == 2);
+  std::ranges::sort(flow_coeffs);  // ascending: most-negative first
+  // dur = 1.0 (default), discount = 1.0, fcost = 100, probs = {0.3, 0.7}
+  // Sorted ascending: [-70.0 (prob 0.7), -30.0 (prob 0.3)].
+  CHECK(flow_coeffs[0] == doctest::Approx(-100.0 * 0.7));
+  CHECK(flow_coeffs[1] == doctest::Approx(-100.0 * 0.3));
 }

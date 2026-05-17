@@ -555,18 +555,22 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
     const auto obj = lp.get_obj_coeff();
     const auto& fcols = fr_lp.flow_cols_at(s, t);
     REQUIRE(fcols.size() == 2);
+    // Under the one-sided fcost-only substitution (`fail = target − flow`)
+    // the explicit fail slack column is folded into the primary flow
+    // column: flow cost becomes `−fcost·dur` (was 0), the fail_col is
+    // not created, and an obj_constant `+fcost·dur·target` rides on
+    // `lp.add_obj_constant`.  Same algebraic objective.
     for (const auto& [buid, fcol] : fcols) {
-      CHECK(obj[fcol] == doctest::Approx(0.0));
+      // Find the matching block duration.
+      const auto& block = *std::ranges::find_if(
+          t.blocks(), [&](const auto& blk) { return blk.uid() == buid; });
+      const auto expected_flow_cost = -100.0 * block.duration();
+      CHECK(obj[fcol] == doctest::Approx(expected_flow_cost));
     }
-    // Slack columns must exist (target + non-zero fcost).
-    CHECK(fr_lp.has_block_slacks(s, t));
-    // Verify obj coeff on each fail slack matches fcost * duration.
+    // No explicit slack columns under the substitution.
+    CHECK_FALSE(fr_lp.has_block_slacks(s, t));
     for (const auto& block : t.blocks()) {
-      const auto fail_col = fr_lp.fail_col_at(s, t, block);
-      REQUIRE(fail_col.has_value());
-      const auto expected = 100.0 * block.duration();  // prob=1, disc=1
-      CHECK(obj[*fail_col] == doctest::Approx(expected));
-      // No excess slack (uvalue not set).
+      CHECK_FALSE(fr_lp.fail_col_at(s, t, block).has_value());
       CHECK_FALSE(fr_lp.excess_col_at(s, t, block).has_value());
     }
   }
@@ -788,8 +792,11 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
     const auto& s = system_lp.scene().scenarios()[0];
     const auto& t = system_lp.phase().stages()[0];
     CHECK(fr_lp.has_qeh(s, t));
-    CHECK(fr_lp.has_qeh_slacks(s, t));
-    CHECK(fr_lp.has_qkink_row(s, t));
+    // Under the one-sided fcost-only substitution the stage-level kink
+    // slack + row are folded into the qeh column (cost = `−fcost·dur`,
+    // upper bound clamped at target).  Algebraically equivalent.
+    CHECK_FALSE(fr_lp.has_qeh_slacks(s, t));
+    CHECK_FALSE(fr_lp.has_qkink_row(s, t));
     // Per-block slacks are NOT installed in stage_average (target=nullopt
     // at the block call to attach_flow).
     CHECK_FALSE(fr_lp.has_block_slacks(s, t));
@@ -996,8 +1003,11 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
     const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
     const auto& s = system_lp.scene().scenarios()[0];
     const auto& t = system_lp.phase().stages()[0];
-    CHECK(fr_lp.has_qeh_slacks(s, t));
-    CHECK(fr_lp.has_qkink_row(s, t));
+    // One-sided fcost-only substitution: qeh col carries cost
+    // `−fcost·dur` and an upper bound clamped at target; explicit
+    // slacks + row are elided.
+    CHECK_FALSE(fr_lp.has_qeh_slacks(s, t));
+    CHECK_FALSE(fr_lp.has_qkink_row(s, t));
     // No per-block flow cols, hence no per-block slacks either.
     CHECK(fr_lp.flow_cols_at(s, t).empty());
     CHECK_FALSE(fr_lp.has_block_slacks(s, t));

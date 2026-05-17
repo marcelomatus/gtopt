@@ -281,6 +281,30 @@ private:
   /// Stage-level kink rows `qeh − qeh_sp + qeh_sn = target_e`.
   STIndexHolder<RowIndex> qkink_rows;
 
+  /// Cached resolved `target_b` per (scenario, stage, block) for the
+  /// **one-sided-kink-substituted** blocks (fcost-only or uvalue-only)
+  /// where the explicit fail / excess slack column and the kink row
+  /// were folded into the primary flow column.  Used by
+  /// `fail_sol_at` / `excess_sol_at` and `add_to_output` to
+  /// reconstruct the deficit / surplus quantity from the flow primal
+  /// without re-walking the schedule.  Empty for full-kink blocks
+  /// (both costs active — explicit fail_cols/excess_cols are
+  /// populated) and for blocks with no target.
+  STBIndexHolder<double> block_target_values_;
+
+  /// Stage-level twin of `block_target_values_` for the qeh stage-
+  /// aggregate substitution path.  One entry per (scenario, stage)
+  /// where the stage-scope one-sided kink was elided.
+  STIndexHolder<double> stage_target_values_;
+
+  /// Per-block sign bit recording which side of the elided kink was
+  /// active: `1` ⇒ fcost-only (fail reconstruction),
+  /// `0` ⇒ uvalue-only (excess reconstruction).  Stored as
+  /// `std::uint8_t` rather than `bool` because flat_map's
+  /// reference proxy chokes on `bool`-valued maps.
+  STBIndexHolder<std::uint8_t> block_fcost_only_;
+  STIndexHolder<std::uint8_t> stage_fcost_only_;
+
   /// Cached bound rule evaluation per (scenario, stage).
   /// Only populated when flow_right().bound_rule is set.
   using BoundState = RuleBoundState;
