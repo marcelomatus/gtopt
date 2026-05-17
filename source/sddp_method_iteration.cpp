@@ -1758,7 +1758,7 @@ void SDDPMethod::finalize_iteration_result(
   if (ir.gap < -neg_gap_warn_threshold) {
     SPDLOG_WARN(
         "SDDP Iter [i{}]: SIGNIFICANT negative gap = {:.6f} "
-        "(ub={}, lb={}) — lb > ub by more than {:.4f} of ub; "
+        "(UB={}, LB={}) — LB > UB by more than {:.4f} of UB; "
         "cuts likely overshoot the optimum. Refusing to declare "
         "[CONVERGED] until the bound asymmetry resolves.",
         gtopt::uid_of(iteration_index),

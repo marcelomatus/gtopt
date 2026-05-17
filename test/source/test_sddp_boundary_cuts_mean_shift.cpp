@@ -205,16 +205,16 @@ TEST_CASE(  // NOLINT
   //  implementation computes `cut.lowb − cmap[s_rsv1] × midpoint =
   //  1000 − (−2.0) × 250 = 1500`.)
   //
-  // `scene_alpha_offset()` stores the **cf-weighted** c̄ so the four
-  // UB / LB display sites can add it back without re-fetching the
-  // cost factor.  cf = prob × discount × duration at the last stage.
-  // For this 3-phase hydro fixture: single scene (prob=1), no
-  // discount (1.0), last-stage duration = 24 h → cf = 24.
-  //   stored offset = c̄ × cf = 1500 × 24 = 36 000.
-  const double expected_c_bar_pv = 36000.0;
+  // `scene_alpha_offset()` stores the raw c̄ unchanged.  α is
+  // registered with `cost = 1.0` (physical $), so the obj_value
+  // drop from the substitution α' = α − c̄ is exactly `−c̄` per
+  // scene — no `cost_factor` multiplier is needed at the four
+  // UB/LB display sites.  See the explanatory comment block in
+  // `source/sddp_boundary_cuts.cpp` near `scene_c_bar[si] = c_bar`.
+  const double expected_c_bar = 1500.0;
 
   CHECK(sddp.scene_alpha_offset(SceneIndex {0})
-        == doctest::Approx(expected_c_bar_pv).epsilon(1e-6));
+        == doctest::Approx(expected_c_bar).epsilon(1e-6));
 
   std::filesystem::remove(cuts_file);
 }

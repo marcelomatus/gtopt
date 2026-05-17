@@ -725,31 +725,23 @@ using namespace gtopt::detail;
         }
         if (n_finite > 0) {
           const double c_bar = sum_at_mid / static_cast<double>(n_finite);
-          // Pre-multiply by `cost_factor(scenario, last_stage)`
-          // (= probability × discount × duration) before storing.
-          // Per-scene `get_obj_value()` is in PROBABILITY-WEIGHTED
-          // physical-$ space (each LP cost coefficient is scaled by
-          // `CostHelper::block_ecost` = cost × p × disc × dur).
-          // When the LP picks α' = α − c̄, the contribution of the
-          // α variable to obj_value drops by exactly `cf × c̄`
-          // (the α coefficient is `cf`, not 1.0).  Storing the
-          // cf-weighted offset makes the four UB/LB display sites
-          // (`scene_alpha_offset`) restore the algebraically-original
-          // physical objective with unit-consistent arithmetic.
+          // α' = α − c̄ is a clean change of variable.  α is
+          // registered (`sddp_method_alpha.cpp:107`) with
+          // `cost = 1.0` (physical $), so the obj_value drop from
+          // the substitution is exactly `−c̄` per scene — no
+          // `cost_factor` (= prob × disc × dur) multiplier.  Restore
+          // the algebraically-original objective at display by
+          // adding back the raw `c̄` via `scene_alpha_offset(scene)`
+          // at the four UB/LB display sites.
           //
-          // Storing raw c̄ over-corrects by `(N_scenes − 1) × c̄`:
-          // 16 scenes × $18.5M = +$296M added to aggregate UB/LB vs
-          // the ~$18.5M drop the shift actually induces in the
-          // probability-weighted forward sum (since each scene's
-          // contribution is already `1/N_scenes × c̄` after baked
-          // probability weighting).
-          auto& sys = planning_lp.system(si, last_phase);
-          const auto& scenario = sim.scenarios()[static_cast<std::size_t>(
-              sys.scene().first_scenario())];
-          const auto& last_phase_lp = sim.phases()[last_phase];
-          const auto& last_stage = last_phase_lp.stages().back();
-          const double cf = CostHelper::cost_factor(scenario, last_stage);
-          scene_c_bar[si] = c_bar * cf;
+          // History: commit `ccd2833c` (2026-05-16) pre-multiplied
+          // by `cf` claiming "α's coefficient is `cf`, not 1.0".
+          // That misread the α column registration — α's obj
+          // coefficient really is 1.0 (per-period costs are baked
+          // into other cols' coefficients via `block_ecost`, not
+          // into α's).  Reverted 2026-05-17 to the initial
+          // (`f9181432`) form.
+          scene_c_bar[si] = c_bar;
           if (c_bar != 0.0) {
             for (auto& cut : cuts) {
               cut.lowb -= c_bar;

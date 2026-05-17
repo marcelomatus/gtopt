@@ -939,7 +939,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .cuts_added = total_cuts,
     });
     SPDLOG_INFO(
-        "Cascade [{}]: {} iters, lb={}, ub={}, "
+        "Cascade [{}]: {} iters, LB={}, UB={}, "
         "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
         level_name,
         iterations_reported,
@@ -1229,7 +1229,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   SPDLOG_INFO("Cascade: ═══ Summary ═══");
   for (const auto& ls : m_level_stats_) {
     SPDLOG_INFO(
-        "  [{}]: {} iters, lb={}, ub={}, gap={:.4g}{}, "
+        "  [{}]: {} iters, LB={}, UB={}, gap={:.4g}{}, "
         "cuts={}, {:.3f}s{}",
         ls.name,
         ls.iterations,
