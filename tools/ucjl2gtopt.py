@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
 """Convert UnitCommitment.jl benchmark JSON to gtopt system JSON.
 
-Current scope: single-period flatten of the UC.jl horizon. Time-series
-fields (``Load (MW)``, ``Normal flow limit (MW)``, and the v0.3
-list-of-lists ``Production cost curve``) are reduced to their first
-hour. UC commitment fields (startup costs, ramps, min up/down,
-reserves, contingencies) are intentionally ignored — see
-``tools/test_ucjl2gtopt.py`` for the regression tests pinning this
-contract.
+UC.jl problems map onto gtopt's native unit-commitment formulation:
+
+* **1 scenario × 1 chronological stage × T consecutive blocks of 1 h** —
+  every UC.jl horizon is hourly, deterministic, and single-stage.
+* **Demand.lmax** carries the per-block load time series.
+* **Commitment** mirrors UC.jl's thermal generator parameters one-for-one:
+  startup_cost / shutdown_cost (hot/warm/cold tiers when present),
+  min_up_time / min_down_time, ramp_up / ramp_down, startup_ramp /
+  shutdown_ramp, initial_status / initial_hours, piecewise heat rates
+  (pmax_segments + heat_rate_segments).
+* **relax: true** by default so the LP relaxation solves with any LP
+  backend (HiGHS / CLP / CPLEX).  Drop ``--relax`` from the CLI to emit
+  MIP commitment (requires a MIP solver loaded at run time).
+
+Not yet mapped (scoped out, will silently no-op when present):
+
+* Profiled / renewable generators with time-varying capacity.
+* Reserves (``r1``, etc.), price-sensitive loads.
+* Contingencies, AC fields (``Susceptance``, emergency limits),
+  flow-limit penalty (UC.jl uses ``demand_fail_cost`` via Power balance
+  penalty instead).
 """
 
 import argparse
@@ -15,103 +29,246 @@ import json
 import os
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def _first_hour(value):
     """Reduce a UC.jl piecewise breakpoint to a scalar.
 
-    UC.jl v0.2 emits ``[mw0, mw1, ...]`` (scalar breakpoints) but v0.3
-    wraps each breakpoint as a per-hour time series ``[[ts0, ts1, ...]]``
-    for profiled (renewable) generators.  This helper collapses either
-    shape to the first hour's value so ``compute_gen_cost`` and the
-    pmin/pmax extraction work uniformly.
+    UC.jl v0.2/v0.4 emits ``[mw0, mw1, ...]`` (scalar breakpoints) but
+    v0.3 wraps each breakpoint as a per-hour time series
+    ``[[ts0, ts1, ...]]`` for profiled generators.  This helper
+    collapses either shape to the first hour's value.
     """
     if isinstance(value, list):
         return _first_hour(value[0]) if value else 0.0
     return value
 
 
-def compute_gen_cost(curve_mw, curve_cost):
-    mw_lo = _first_hour(curve_mw[0])
-    mw_hi = _first_hour(curve_mw[-1])
-    c_lo = _first_hour(curve_cost[0])
-    c_hi = _first_hour(curve_cost[-1])
-    total_power_increase = mw_hi - mw_lo
-    if total_power_increase <= 0:
-        return 0.0
-    return (c_hi - c_lo) / total_power_increase
+def _time_series(value, T):
+    """Return a length-T list, broadcasting a scalar if needed."""
+    if isinstance(value, list):
+        if not value:
+            return [0.0] * T
+        # First-hour list → use as-is if length matches, else broadcast.
+        if isinstance(value[0], list):
+            # Already 2D — flatten one level (UC.jl profiled per-segment).
+            value = value[0]
+        if len(value) == T:
+            return [float(v) for v in value]
+        if len(value) == 1:
+            return [float(value[0])] * T
+        # Length mismatch: best effort — truncate or pad with last value.
+        if len(value) >= T:
+            return [float(v) for v in value[:T]]
+        return [float(v) for v in value] + [float(value[-1])] * (T - len(value))
+    return [float(value)] * T
 
 
-def convert(ucjl_path, output_path=None):
+def _compute_pieces(curve_mw, curve_cost):
+    """Compute ``pmin, pmax, gcost, (pmax_segments, heat_rate_segments)``.
+
+    UC.jl piecewise breakpoints are scalar lists; v0.3 profiled gens wrap
+    each breakpoint in a time series.  We collapse to hour 0 for the
+    static fields, then build a heat-rate-style segmentation that gtopt
+    consumes via ``Commitment.pmax_segments`` + ``heat_rate_segments``
+    when the curve has >=3 breakpoints (else fall back to single slope).
+
+    Returned ``gcost`` is the cost slope between the first and second
+    breakpoint — gtopt's per-unit gcost is overridden by the per-segment
+    heat-rate cost when both segment arrays are present.
+    """
+    mw = [_first_hour(p) for p in curve_mw] if curve_mw else [0.0, 100.0]
+    cost = [_first_hour(p) for p in curve_cost] if curve_cost else [0.0, 1000.0]
+    pmin = float(mw[0])
+    pmax = float(mw[-1])
+    if pmax > pmin and len(mw) >= 2:
+        # Slope of the first segment.
+        slope0 = (cost[1] - cost[0]) / (mw[1] - mw[0])
+    elif len(mw) == 1 and mw[0] > 0:
+        # Single breakpoint (e.g. ``pmax=pmin=100``, cost=$10 000):
+        # treat ``cost[0] / mw[0]`` as the marginal cost at that point.
+        slope0 = cost[0] / mw[0]
+    else:
+        slope0 = 0.0
+
+    pmax_segments = []
+    heat_rate_segments = []
+    if len(mw) >= 3 and pmax > pmin:
+        # Piecewise: cumulative power breakpoints (excluding pmin) and
+        # per-segment marginal cost.  ``heat_rate_segments`` is treated
+        # by gtopt as $/MWh when no fuel_cost is set, so we feed
+        # marginal costs directly and leave fuel_cost unset.
+        for k in range(1, len(mw)):
+            dp = mw[k] - mw[k - 1]
+            if dp <= 0:
+                continue
+            pmax_segments.append(round(float(mw[k]), 6))
+            heat_rate_segments.append(round((cost[k] - cost[k - 1]) / dp, 6))
+
+    return pmin, pmax, slope0, pmax_segments, heat_rate_segments
+
+
+def _initial_status_to_uc(initial_status_h):
+    """UC.jl ``Initial status (h)``: +N = online for N h, -N = offline for N h.
+
+    gtopt's ``Commitment``: ``initial_status`` ∈ {0, 1}, ``initial_hours``
+    is the magnitude.
+    """
+    if initial_status_h is None:
+        return None, None
+    return (1.0 if initial_status_h > 0 else 0.0), float(abs(initial_status_h))
+
+
+# ---------------------------------------------------------------------------
+# Main conversion
+# ---------------------------------------------------------------------------
+
+
+def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-branches
+    ucjl_path, output_path=None, relax_commitment=True, copperplate=False
+):
     with open(ucjl_path, encoding="utf-8") as f:
         data = json.load(f)
 
     params = data.get("Parameters", {})
-    # UC.jl v0.2 uses "Time horizon (h)"; v0.3 renamed it to "Time (h)".
+    # UC.jl v0.2 / v0.4 uses "Time horizon (h)"; v0.3 renamed to "Time (h)".
     t_h = params.get("Time horizon (h)", params.get("Time (h)", 24))
     t_min = params.get("Time horizon (min)", params.get("Time (min)"))
     if t_min is not None:
         t_h = t_min / 60
     T = int(t_h)
+    power_balance_penalty = float(params.get("Power balance penalty ($/MW)", 1000.0))
 
+    # 1 scenario × 1 chronological stage × T 1-hour blocks.
+    scenario_array = [{"uid": 1, "probability_factor": 1.0}]
+    stage_array = [
+        {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": T,
+            "active": 1,
+            "chronological": True,
+        }
+    ]
+    block_array = [{"uid": t + 1, "duration": 1} for t in range(T)]
+
+    # --- Buses + Demands -----------------------------------------------------
     uc_buses = data.get("Buses", {})
     name_to_uid = {}
     bus_array = []
-    bus_has_load = {}
-
+    demand_array = []
+    demand_uid = 0
     for i, (bname, bdata) in enumerate(uc_buses.items()):
         uid = i + 1
         name_to_uid[bname] = uid
-        load_mw = bdata.get("Load (MW)", 0.0)
-        if isinstance(load_mw, list):
-            load_mw = load_mw[0] if load_mw else 0.0
-        entry = {"uid": uid, "name": f"b{uid}"}
-        bus_array.append(entry)
-        bus_has_load[bname] = float(load_mw) if load_mw and float(load_mw) > 0 else 0.0
+        bus_array.append({"uid": uid, "name": f"b{uid}"})
 
-    demand_array = []
-    demand_uid = 0
-    for bname, load_mw in bus_has_load.items():
-        if load_mw > 0:
+        load = bdata.get("Load (MW)", 0.0)
+        load_ts = _time_series(load, T)
+        if any(v > 0.0 for v in load_ts):
             demand_uid += 1
-            bus_uid = name_to_uid[bname]
             demand_array.append(
                 {
                     "uid": demand_uid,
                     "name": f"d{demand_uid}",
-                    "bus": bus_uid,
-                    "lmax": [[load_mw]],
+                    "bus": uid,
+                    "lmax": [load_ts],  # outer = 1 stage, inner = T blocks
                 }
             )
 
+    # --- Generators + Commitments --------------------------------------------
     uc_gens = data.get("Generators", {})
     generator_array = []
+    commitment_array = []
     gen_uid = 0
+    commitment_uid = 0
+
     for gname, gdata in uc_gens.items():
-        gtype = gdata.get("Type", "thermal")
         bus_name = gdata.get("Bus")
         if bus_name not in name_to_uid:
             continue
         bus_uid = name_to_uid[bus_name]
+        gtype = str(gdata.get("Type", "Thermal")).lower()
+
         curve_mw = gdata.get("Production cost curve (MW)", [0, 100])
         curve_cost = gdata.get("Production cost curve ($)", [0, 1000])
-        pmin = _first_hour(curve_mw[0])
-        pmax = _first_hour(curve_mw[-1])
-        capacity = pmax
-        gcost = compute_gen_cost(curve_mw, curve_cost)
+        pmin, pmax, gcost, pmax_segs, hr_segs = _compute_pieces(curve_mw, curve_cost)
 
         gen_uid += 1
-        entry = {
+        gen_entry = {
             "uid": gen_uid,
             "name": gname,
             "bus": bus_uid,
             "pmin": round(pmin, 6),
             "pmax": round(pmax, 6),
             "gcost": round(gcost, 6),
-            "capacity": round(capacity, 6),
+            "capacity": round(pmax, 6),
         }
-        if gtype.lower() != "thermal":
-            entry["type"] = gtype.lower()
-        generator_array.append(entry)
+        if gtype not in ("thermal", ""):
+            gen_entry["type"] = gtype
+        generator_array.append(gen_entry)
 
+        # Commitment is only meaningful for thermal generators.
+        if gtype != "thermal":
+            continue
+
+        commitment_uid += 1
+        c_entry = {
+            "uid": commitment_uid,
+            "name": f"{gname}_uc",
+            "generator": gname,
+            "relax": bool(relax_commitment),
+        }
+
+        # Map optional UC.jl fields → Commitment fields.
+        for ucjl_key, gtopt_key in (
+            ("Minimum uptime (h)", "min_up_time"),
+            ("Minimum downtime (h)", "min_down_time"),
+            ("Ramp up limit (MW)", "ramp_up"),
+            ("Ramp down limit (MW)", "ramp_down"),
+            ("Startup limit (MW)", "startup_ramp"),
+            ("Shutdown limit (MW)", "shutdown_ramp"),
+            ("Must run?", "must_run"),
+        ):
+            val = gdata.get(ucjl_key)
+            if val is not None:
+                c_entry[gtopt_key] = val
+
+        # Initial status (h): +N online, -N offline.
+        init_u, init_h = _initial_status_to_uc(gdata.get("Initial status (h)"))
+        if init_u is not None:
+            c_entry["initial_status"] = init_u
+            c_entry["initial_hours"] = init_h
+
+        # Startup costs: scalar single tier or tiered hot/warm/cold.
+        startup_costs = gdata.get("Startup costs ($)") or []
+        startup_delays = gdata.get("Startup delays (h)") or []
+        if len(startup_costs) >= 3 and len(startup_delays) >= 2:
+            c_entry["hot_start_cost"] = float(startup_costs[0])
+            c_entry["warm_start_cost"] = float(startup_costs[1])
+            c_entry["cold_start_cost"] = float(startup_costs[2])
+            c_entry["hot_start_time"] = float(startup_delays[0])
+            c_entry["cold_start_time"] = float(startup_delays[-1])
+        elif len(startup_costs) >= 2 and len(startup_delays) >= 1:
+            # 2-tier: hot vs cold (use last delay as cold threshold).
+            c_entry["hot_start_cost"] = float(startup_costs[0])
+            c_entry["cold_start_cost"] = float(startup_costs[-1])
+            c_entry["hot_start_time"] = float(startup_delays[0])
+            c_entry["cold_start_time"] = float(startup_delays[-1])
+        elif startup_costs:
+            c_entry["startup_cost"] = float(startup_costs[0])
+
+        # Piecewise heat-rate segmentation (when >=3 breakpoints).
+        if pmax_segs and hr_segs:
+            c_entry["pmax_segments"] = pmax_segs
+            c_entry["heat_rate_segments"] = hr_segs
+
+        commitment_array.append(c_entry)
+
+    # --- Lines ---------------------------------------------------------------
     uc_lines = data.get("Transmission lines", {})
     line_array = []
     line_uid = 0
@@ -123,28 +280,27 @@ def convert(ucjl_path, output_path=None):
         x = ldata.get("Reactance (ohms)", 0.0)
         if x is None or float(x) <= 0:
             continue
-        x = float(x)
 
-        tmax = ldata.get("Normal flow limit (MW)")
-        if tmax is not None:
-            if isinstance(tmax, list):
-                tmax = tmax[0]
-            tmax = min(float(tmax), 99999.0)
-        else:
+        tmax_raw = ldata.get("Normal flow limit (MW)")
+        if tmax_raw is None:
             tmax = 99999.0
+        elif isinstance(tmax_raw, list):
+            tmax = min(float(_first_hour(tmax_raw)), 99999.0)
+        else:
+            tmax = min(float(tmax_raw), 99999.0)
 
         line_uid += 1
-        entry = {
-            "uid": line_uid,
-            "name": lname,
-            "bus_a": name_to_uid[src],
-            "bus_b": name_to_uid[tgt],
-            "reactance": round(x, 6),
-            "voltage": 10,
-            "tmax_ab": round(tmax, 1),
-            "tmax_ba": round(tmax, 1),
-        }
-        line_array.append(entry)
+        line_array.append(
+            {
+                "uid": line_uid,
+                "name": lname,
+                "bus_a": name_to_uid[src],
+                "bus_b": name_to_uid[tgt],
+                "reactance": round(float(x), 6),
+                "tmax_ab": round(tmax, 1),
+                "tmax_ba": round(tmax, 1),
+            }
+        )
 
     output = {
         "options": {
@@ -152,22 +308,15 @@ def convert(ucjl_path, output_path=None):
             "annual_discount_rate": 0.0,
             "output_format": "csv",
             "output_compression": "uncompressed",
-            "use_single_bus": False,
-            "use_kirchhoff": True,
-            "demand_fail_cost": 1000.0,
-            "scale_objective": 1000.0,
+            "use_single_bus": bool(copperplate),
+            "use_kirchhoff": not bool(copperplate),
+            "demand_fail_cost": power_balance_penalty,
+            "scale_objective": 1.0,  # Match UC.jl absolute $ values.
         },
         "simulation": {
-            "block_array": [{"uid": 1, "duration": T}],
-            "stage_array": [
-                {
-                    "uid": 1,
-                    "first_block": 0,
-                    "count_block": 1,
-                    "active": 1,
-                }
-            ],
-            "scenario_array": [{"uid": 1, "probability_factor": 1.0}],
+            "block_array": block_array,
+            "stage_array": stage_array,
+            "scenario_array": scenario_array,
         },
         "system": {
             "name": os.path.splitext(os.path.basename(ucjl_path))[0],
@@ -175,6 +324,7 @@ def convert(ucjl_path, output_path=None):
             "generator_array": generator_array,
             "demand_array": demand_array,
             "line_array": line_array,
+            "commitment_array": commitment_array,
         },
     }
 
@@ -185,8 +335,9 @@ def convert(ucjl_path, output_path=None):
         print(f"  Buses: {len(bus_array)}")
         print(f"  Demands: {len(demand_array)}")
         print(f"  Generators: {len(generator_array)}")
+        print(f"  Commitments: {len(commitment_array)}")
         print(f"  Lines: {len(line_array)}")
-        print(f"  Time horizon: {T} hours")
+        print(f"  Time horizon: {T} hours (1 scenario × 1 stage × {T} blocks)")
     return output
 
 
@@ -196,9 +347,24 @@ def main():
     )
     parser.add_argument("input", help="UC.jl JSON file path")
     parser.add_argument("-o", "--output", help="Output gtopt JSON path")
+    parser.add_argument(
+        "--mip",
+        action="store_true",
+        help="Emit MIP commitment (relax=false). Default: LP relaxation.",
+    )
+    parser.add_argument(
+        "--copperplate",
+        action="store_true",
+        help="Drop the transmission network (use_single_bus=true).",
+    )
     args = parser.parse_args()
 
-    convert(args.input, args.output)
+    convert(
+        args.input,
+        args.output,
+        relax_commitment=not args.mip,
+        copperplate=args.copperplate,
+    )
 
 
 if __name__ == "__main__":
