@@ -89,6 +89,19 @@ struct Commitment
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]
   OptBool must_run {};  ///< Force committed: u = 1 always
 
+  /// Per-(stage, block) forced commitment status — pins the ``u`` variable
+  /// to a specific value at each (stage, block) where it is set.  Values
+  /// are interpreted as ``1.0 → committed``, ``0.0 → not committed``;
+  /// blocks where the schedule has no entry leave ``u`` free.  Generalises
+  /// the all-or-nothing ``must_run`` flag to schedules like UC.jl's
+  /// per-block ``Commitment status: [true, false, true, ...]`` field
+  /// (case14/fixed.json), and is also useful for hot-start / scenario-
+  /// tracing replay where a previous solve's commitment is pinned.
+  /// Overrides ``must_run`` per block — if both are set, the per-block
+  /// ``fixed_status`` value wins for the blocks it covers and
+  /// ``must_run`` covers the remainder.
+  OptTBRealFieldSched fixed_status {};
+
   /// Binary variable period [hours].  When set, u/v/w variables are created
   /// at a coarser time resolution than the generation blocks.  For example,
   /// `commitment_period = 2.0` with 15-minute blocks yields one binary

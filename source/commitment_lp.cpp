@@ -33,6 +33,8 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
                             Element::class_name,
                             id(),
                             std::move(object().fuel_emission_factor))
+    , fixed_status_(
+          ic, Element::class_name, id(), std::move(object().fixed_status))
 {
 }
 
@@ -220,9 +222,32 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto u_cost =
         CostHelper::block_ecost(scenario, stage, rep_block, noload)
         * (period_duration / rep_block.duration());
+
+    // Resolve commitment bounds.  Precedence (highest → lowest):
+    //   1. ``fixed_status`` schedule entry for this (stage, block) — if
+    //      set to a value in ``[0, 1]``, pins ``u`` to that value
+    //      (rounded at 0.5 to 0 or 1).  Values *outside* ``[0, 1]``
+    //      are reserved as the "no-pin" sentinel so the schedule can
+    //      pin some blocks and leave others free without juggling a
+    //      proper nullable cell type (UC.jl's ``Commitment status``
+    //      arrays can contain ``null`` for un-pinned blocks; the
+    //      converter emits ``-1.0`` there).
+    //   2. ``must_run`` flag — forces ``u >= 1`` for the whole stage.
+    //   3. Default — ``u`` in ``[0, 1]``.
+    auto u_lowb = is_must_run ? 1.0 : 0.0;
+    auto u_uppb = 1.0;
+    if (const auto pin = fixed_status_.optval(stage.uid(), rep_buid)) {
+      const auto val = pin.value();
+      if (val >= 0.0 && val <= 1.0) {
+        const auto pinned = (val >= 0.5) ? 1.0 : 0.0;
+        u_lowb = pinned;
+        u_uppb = pinned;
+      }
+    }
+
     auto ucol = lp.add_col({
-        .lowb = is_must_run ? 1.0 : 0.0,
-        .uppb = 1.0,
+        .lowb = u_lowb,
+        .uppb = u_uppb,
         .cost = u_cost,
         .is_integer = !is_relax,
         .class_name = cname,

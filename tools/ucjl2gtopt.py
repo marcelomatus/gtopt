@@ -272,7 +272,14 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     t_min = params.get("Time horizon (min)", params.get("Time (min)"))
     if t_min is not None:
         t_h = t_min / 60
-    T = int(t_h)
+    # ``Time step (min)`` controls the block resolution.  Default 60 min
+    # (hourly) — but sub-hourly fixtures (case14-sub-hourly.json) ship
+    # ``"Time step (min)": 30`` to indicate 30-minute blocks.  The total
+    # block count is ``T_h × 60 / step_min``; each block carries
+    # ``duration = step_min / 60`` hours.
+    step_min = float(params.get("Time step (min)", 60))
+    block_duration_h = step_min / 60.0
+    T = int(round(float(t_h) * 60.0 / step_min))
     power_balance_penalty = float(params.get("Power balance penalty ($/MW)", 1000.0))
 
     # 1 scenario × 1 chronological stage × T 1-hour blocks.
@@ -286,7 +293,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "chronological": True,
         }
     ]
-    block_array = [{"uid": t + 1, "duration": 1} for t in range(T)]
+    block_array = [{"uid": t + 1, "duration": block_duration_h} for t in range(T)]
 
     # --- Buses + Demands -----------------------------------------------------
     uc_buses = data.get("Buses", {})
@@ -420,6 +427,29 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if val is not None:
                 c_entry[gtopt_key] = val
 
+        # ``Commitment status`` (UC.jl ``case14/fixed.json``): per-block
+        # forced commitment.  Each element is a tri-state ``true`` /
+        # ``false`` / ``null`` — ``null`` leaves the block free.
+        # gtopt's ``Commitment.fixed_status`` is a 2-D
+        # ``OptTBRealFieldSched`` ``[[v_1, v_2, ..., v_T]]`` with the
+        # convention ``-1.0 = no pin`` (any value outside ``[0, 1]``).
+        fixed_status_raw = gdata.get("Commitment status")
+        if fixed_status_raw is not None:
+            mapped = []
+            for v in fixed_status_raw:
+                if v is True:
+                    mapped.append(1.0)
+                elif v is False:
+                    mapped.append(0.0)
+                else:
+                    mapped.append(-1.0)  # null / unset → no pin sentinel
+            # Broadcast to T blocks if the list is shorter; truncate if longer.
+            if len(mapped) < T:
+                mapped += [-1.0] * (T - len(mapped))
+            elif len(mapped) > T:
+                mapped = mapped[:T]
+            c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
+
         # Initial status (h): +N online, -N offline.
         init_u, init_h = _initial_status_to_uc(gdata.get("Initial status (h)"))
         if init_u is not None:
@@ -543,9 +573,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # discharging separately, gtopt's unified Battery only exposes
         # ``gcost`` (discharge).  Use it for the discharge side; the
         # charge side is implicit in the energy-balance constraint.
+        # ``Discharge cost ($/MW)`` may be a per-hour list (case14-storage)
+        # — collapse to the first hour since ``Battery.gcost`` is
+        # ``OptTRealFieldSched`` (per-stage, NOT per-block).
         d_cost = sdata.get("Discharge cost ($/MW)")
         if d_cost is not None:
-            b_entry["gcost"] = float(d_cost)
+            b_entry["gcost"] = float(_first_hour(d_cost))
         # Track installed capacity = max SoC so expansion / capacity-fail
         # bounds line up.
         emax_val = sdata.get("Maximum level (MWh)")
