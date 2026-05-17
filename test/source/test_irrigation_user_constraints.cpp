@@ -213,8 +213,8 @@ TEST_CASE(  // NOLINT
           .name = "fr1",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 30.0,
-          .fail_cost = 5000.0,
+          .target = 30.0,
+          .fcost = 5000.0,
       },
   };
   const Array<UserConstraint> ucs = {
@@ -330,13 +330,16 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "Tier 7.5 - flow_right.fail deficit attribute resolves when registered")
+    "Tier 7.5 - flow_right.flow attribute resolves when registered")
 {
-  // FlowRight with discharge>0 and fail_cost>0 registers the `fail`
-  // deficit variable.  A user constraint capping the deficit at 0
-  // forces the solver to fully serve the right (or report
-  // infeasibility — feasibility is not the contract here, the
-  // contract is that the resolver finds the column).
+  // Post-P0: the `fail` LP column for FlowRight is substituted away
+  // (`fail = discharge − flow`) and the AMPL registry no longer
+  // carries a `fail` entry.  The surviving variable is `flow`; user
+  // constraints expressing a deficit cap must be rewritten in terms
+  // of `flow` (e.g.  `discharge − flow_right.flow ≤ X`).  This test
+  // exercises resolver binding for `flow_right.flow` — feasibility is
+  // not the contract here, the contract is that the resolver finds
+  // the column.  Mirrors the Demand-side removal of `demand.fail`.
   const UCFixture fx;
   const Array<FlowRight> frs = {
       {
@@ -344,21 +347,21 @@ TEST_CASE(  // NOLINT
           .name = "fr_fail",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 1.0,
-          .fail_cost = 5000.0,
+          .target = 1.0,
+          .fcost = 5000.0,
       },
   };
   const Array<UserConstraint> ucs = {
       {
           .uid = Uid {1},
           .name = "no_deficit",
-          .expression = R"(flow_right("fr_fail").fail <= 1000)",
+          .expression = R"(flow_right("fr_fail").flow >= 0)",
           .constraint_type = "raw",
       },
   };
 
   const auto system =
-      make_uc_system(fx, {}, frs, ucs, "Tier7_5_FlowRight_fail");
+      make_uc_system(fx, {}, frs, ucs, "Tier7_5_FlowRight_flow");
   const PlanningOptionsLP options;
   const auto sim = make_uc_simulation();
   SimulationLP simulation_lp(sim, options);
@@ -575,8 +578,8 @@ TEST_CASE(  // NOLINT
           .name = "fr_mix",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 5.0,
-          .fail_cost = 1000.0,
+          .target = 5.0,
+          .fcost = 1000.0,
       },
   };
   const Array<UserConstraint> ucs = {
@@ -613,40 +616,40 @@ TEST_CASE(  // NOLINT
           .name = "iqgt",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 100.0,
-          .fail_cost = 1000.0,
+          .target = 100.0,
+          .fcost = 1000.0,
       },
       {
           .uid = Uid {2},
           .name = "iqdr",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 25.0,
-          .fail_cost = 1000.0,
+          .target = 25.0,
+          .fcost = 1000.0,
       },
       {
           .uid = Uid {3},
           .name = "iqde",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 25.0,
-          .fail_cost = 1000.0,
+          .target = 25.0,
+          .fcost = 1000.0,
       },
       {
           .uid = Uid {4},
           .name = "iqdm",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 25.0,
-          .fail_cost = 1000.0,
+          .target = 25.0,
+          .fcost = 1000.0,
       },
       {
           .uid = Uid {5},
           .name = "iqga",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 25.0,
-          .fail_cost = 1000.0,
+          .target = 25.0,
+          .fcost = 1000.0,
       },
   };
   const Array<UserConstraint> ucs = {
@@ -702,36 +705,36 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "inv_deficit",
           .direction = 1,
-          .discharge = 0.0,
           .fmax = kQmax,
+          .target = 0.0,
       },
       {
           .uid = Uid {2},
           .name = "inv_sin_deficit",
           .direction = 1,
-          .discharge = 0.0,
           .fmax = kQmax,
+          .target = 0.0,
       },
       {
           .uid = Uid {3},
           .name = "inv_caudal_natural",
           .direction = 1,
-          .discharge = 0.0,
           .fmax = kQmax,
+          .target = 0.0,
       },
       {
           .uid = Uid {4},
           .name = "inv_embalsar",
           .direction = -1,
-          .discharge = 0.0,
           .fmax = kQmax,
+          .target = 0.0,
       },
       {
           .uid = Uid {5},
           .name = "inv_no_embalsar",
           .direction = -1,
-          .discharge = 0.0,
           .fmax = kQmax,
+          .target = 0.0,
       },
   };
   const Array<UserConstraint> ucs = {

@@ -232,32 +232,32 @@ struct MauleFixture
           .name = "fr_irr_a",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 8.0,
-          .fail_cost = 4000.0,
+          .target = 8.0,
+          .fcost = 4000.0,
       },
       {
           .uid = Uid {11},
           .name = "fr_irr_b",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 6.0,
-          .fail_cost = 3000.0,
+          .target = 6.0,
+          .fcost = 3000.0,
       },
       {
           .uid = Uid {12},
           .name = "fr_eco",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 4.0,
-          .fail_cost = 8000.0,  // ecological flow priority
+          .target = 4.0,
+          .fcost = 8000.0,  // ecological flow priority
       },
       {
           .uid = Uid {13},
           .name = "fr_dom",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 2.0,
-          .fail_cost = 6000.0,
+          .target = 2.0,
+          .fcost = 6000.0,
       },
   };
 }

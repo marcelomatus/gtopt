@@ -232,16 +232,16 @@ struct CrosstalkFixture
           .name = "fr_m_irr",
           .junction = Uid {11},
           .direction = -1,
-          .discharge = 8.0,
-          .fail_cost = 4000.0,
+          .target = 8.0,
+          .fcost = 4000.0,
       },
       {
           .uid = Uid {21},
           .name = "fr_m_eco",
           .junction = Uid {11},
           .direction = -1,
-          .discharge = 4.0,
-          .fail_cost = 8000.0,
+          .target = 4.0,
+          .fcost = 8000.0,
       },
   };
 }
@@ -282,16 +282,16 @@ struct CrosstalkFixture
           .name = "fr_l_canal",
           .junction = Uid {51},
           .direction = -1,
-          .discharge = 8.0,
-          .fail_cost = 4000.0,
+          .target = 8.0,
+          .fcost = 4000.0,
       },
       {
           .uid = Uid {71},
           .name = "fr_l_eco",
           .junction = Uid {51},
           .direction = -1,
-          .discharge = 4.0,
-          .fail_cost = 8000.0,
+          .target = 4.0,
+          .fcost = 8000.0,
       },
   };
 }

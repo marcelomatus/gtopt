@@ -209,36 +209,41 @@ struct BoundaryUCFixture
           .uid = Uid {1},
           .name = "inv_deficit",
           .direction = 1,
-          .discharge = discharge,
           .fmax = kQmax,
+
+          .target = discharge,
       },
       {
           .uid = Uid {2},
           .name = "inv_sin_deficit",
           .direction = 1,
-          .discharge = discharge,
           .fmax = kQmax,
+
+          .target = discharge,
       },
       {
           .uid = Uid {3},
           .name = "inv_caudal_natural",
           .direction = 1,
-          .discharge = discharge,
           .fmax = kQmax,
+
+          .target = discharge,
       },
       {
           .uid = Uid {4},
           .name = "inv_embalsar",
           .direction = -1,
-          .discharge = discharge,
           .fmax = kQmax,
+
+          .target = discharge,
       },
       {
           .uid = Uid {5},
           .name = "inv_no_embalsar",
           .direction = -1,
-          .discharge = discharge,
           .fmax = kQmax,
+
+          .target = discharge,
       },
   };
 }
@@ -358,8 +363,8 @@ TEST_CASE(  // NOLINT
   // Cheaper to activate embalsar (larger benefit → larger negative
   // objective coefficient).  use_value is a $/m³/s·h benefit per
   // flow_right.hpp:112-117.
-  frs[3].use_value = 100.0;  // inv_embalsar
-  frs[4].use_value = 1.0;  // inv_no_embalsar
+  frs[3].uvalue = 100.0;  // inv_embalsar
+  frs[4].uvalue = 1.0;  // inv_no_embalsar
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
   const auto system = make_boundary_uc_system(
@@ -388,8 +393,8 @@ TEST_CASE(  // NOLINT
   const BoundaryUCFixture fx;
   constexpr Real kQmax = 200.0;
   auto frs = make_invernada_rights(kQmax, /*discharge=*/0.0);
-  frs[3].use_value = 1.0;  // inv_embalsar
-  frs[4].use_value = 100.0;  // inv_no_embalsar
+  frs[3].uvalue = 1.0;  // inv_embalsar
+  frs[4].uvalue = 100.0;  // inv_no_embalsar
   const Array<UserConstraint> ucs = {make_invernada_balance_uc()};
 
   const auto system = make_boundary_uc_system(
@@ -493,36 +498,41 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "inv_deficit",
           .direction = 1,
-          .discharge = kLhs,
           .fmax = kLhs,
+
+          .target = kLhs,
       },
       {
           .uid = Uid {2},
           .name = "inv_sin_deficit",
           .direction = 1,
-          .discharge = kLhs,
           .fmax = kLhs,
+
+          .target = kLhs,
       },
       {
           .uid = Uid {3},
           .name = "inv_caudal_natural",
           .direction = 1,
-          .discharge = kLhs,
           .fmax = kLhs,
+
+          .target = kLhs,
       },
       {
           .uid = Uid {4},
           .name = "inv_embalsar",
           .direction = -1,
-          .discharge = 0.0,
           .fmax = 0.0,
+
+          .target = 0.0,
       },
       {
           .uid = Uid {5},
           .name = "inv_no_embalsar",
           .direction = -1,
-          .discharge = 0.0,
           .fmax = 0.0,
+
+          .target = 0.0,
       },
   };
   const Array<UserConstraint> ucs = {

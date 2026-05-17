@@ -390,10 +390,10 @@ TEST_CASE(  // NOLINT
           .name = "fright1",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 20.0,
           .fmax = 40.0,
-          .fail_cost = 5000.0,
-          .use_value = 10.0,
+          .target = 20.0,
+          .fcost = 5000.0,
+          .uvalue = 10.0,
       },
   };
 
@@ -476,17 +476,19 @@ TEST_CASE(  // NOLINT
     CHECK(fr_lp.flow_right().name == "fright1");
 
     const auto& flow_cols = fr_lp.flow_cols_at(scenario, stage);
-    const auto& fail_cols = fr_lp.fail_cols_at(scenario, stage);
     CHECK(!flow_cols.empty());
-    CHECK(flow_cols.size() == fail_cols.size());
+    // P0: `fail_cols_at` removed (fail substituted away via
+    // `fail = discharge − flow`).  Reconstructed `fail_sol` is reachable
+    // through `fr_lp.fail_sol_at(scenario, stage, block, col_sol)` —
+    // see `SystemLP::accumulate_convergence_indicators` and the
+    // `FlowRight/fail_sol.parquet` emit site in
+    // `FlowRightLP::add_to_output`.
 
     CHECK(fr_lp.param_fmax(suid, buid).value_or(-1.0) == doctest::Approx(40.0));
-    CHECK(fr_lp.param_discharge(scenario.uid(), suid, buid)
+    CHECK(fr_lp.param_target(suid, buid).value_or(-1.0)
           == doctest::Approx(20.0));
-    CHECK(fr_lp.param_fail_cost(suid, buid).value_or(-1.0)
-          == doctest::Approx(5000.0));
-    CHECK(fr_lp.param_use_value(suid, buid).value_or(-1.0)
-          == doctest::Approx(10.0));
+    CHECK(fr_lp.param_fcost(suid).value_or(-1.0) == doctest::Approx(5000.0));
+    CHECK(fr_lp.param_uvalue(suid).value_or(-1.0) == doctest::Approx(10.0));
   }
 
   SUBCASE("VolumeRightLP accessors")

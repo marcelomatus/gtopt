@@ -24,7 +24,7 @@ TEST_CASE("FlowRight construction and default values")
   CHECK_FALSE(fr.purpose.has_value());
   CHECK_FALSE(fr.junction.has_value());
   CHECK_FALSE(fr.direction.has_value());
-  CHECK_FALSE(fr.fail_cost.has_value());
+  CHECK_FALSE(fr.fcost.has_value());
   CHECK_FALSE(fr.priority.has_value());
 }
 
@@ -39,8 +39,8 @@ TEST_CASE("FlowRight attribute assignment")
   fr.active = true;
   fr.purpose = "irrigation";
   fr.junction = Name {"laja_downstream"};
-  fr.discharge = 65.0;
-  fr.fail_cost = 5000.0;
+  fr.target = 65.0;
+  fr.fcost = 5000.0;
   fr.priority = 1.0;
 
   CHECK(fr.uid == 100);
@@ -50,13 +50,13 @@ TEST_CASE("FlowRight attribute assignment")
   CHECK(*fr.purpose == "irrigation");
   REQUIRE(fr.junction.has_value());
   CHECK(std::get<Name>(*fr.junction) == "laja_downstream");
-  REQUIRE(fr.fail_cost.has_value());
-  CHECK(std::get<Real>(*fr.fail_cost) == doctest::Approx(5000.0));
-  CHECK_FALSE(fr.use_value.has_value());
+  REQUIRE(fr.fcost.has_value());
+  CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(5000.0));
+  CHECK_FALSE(fr.uvalue.has_value());
   CHECK(fr.priority.value_or(0.0) == doctest::Approx(1.0));
 }
 
-TEST_CASE("FlowRight with seasonal discharge schedule")
+TEST_CASE("FlowRight with seasonal target schedule")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -64,31 +64,32 @@ TEST_CASE("FlowRight with seasonal discharge schedule")
   fr.uid = 101;
   fr.name = "seasonal_right";
 
-  // Discharge schedule [scenario][stage][block] — 3D vector
-  std::vector<std::vector<std::vector<Real>>> seasonal = {
-      {
-          {0},
-          {0},
-          {0},
-          {0},
-          {19.5},
-          {42.25},
-          {55.25},
-          {65},
-          {65},
-          {52},
-          {32.5},
-          {13},
-      },
+  // Target schedule — the field is `OptTBRealFieldSched` so the C++
+  // literal uses a 2-D shape (one inner element per block of each
+  // stage).  Scalar / 1-D JSON shapes still parse through the variant
+  // fallback at JSON-decode time and broadcast across blocks.
+  const std::vector<std::vector<Real>> seasonal = {
+      {0.0},
+      {0.0},
+      {0.0},
+      {19.5},
+      {42.25},
+      {55.25},
+      {65.0},
+      {65.0},
+      {52.0},
+      {32.5},
+      {13.0},
+      {0.0},
   };
-  fr.discharge = seasonal;
+  fr.target = seasonal;
 
-  auto* vec3_ptr =
-      std::get_if<std::vector<std::vector<std::vector<Real>>>>(&fr.discharge);
-  REQUIRE(vec3_ptr != nullptr);
-  CHECK(vec3_ptr->size() == 1);
-  CHECK((*vec3_ptr)[0].size() == 12);
-  CHECK((*vec3_ptr)[0][7][0] == doctest::Approx(65.0));
+  REQUIRE(fr.target.has_value());
+  auto* vec_ptr = std::get_if<std::vector<std::vector<Real>>>(&*fr.target);
+  REQUIRE(vec_ptr != nullptr);
+  CHECK(vec_ptr->size() == 12);
+  REQUIRE((*vec_ptr)[7].size() == 1);
+  CHECK((*vec_ptr)[7][0] == doctest::Approx(65.0));
 }
 
 TEST_CASE("VolumeRight construction and default values")
@@ -193,7 +194,7 @@ TEST_CASE("FlowRight with direction")
   fr.uid = 102;
   fr.name = "supply_flow";
   fr.direction = 1;
-  fr.discharge = 50.0;
+  fr.target = 50.0;
 
   REQUIRE(fr.direction.has_value());
   CHECK(fr.direction.value_or(0) == 1);
@@ -213,49 +214,49 @@ TEST_CASE("FlowRight with fmax for variable mode")
   REQUIRE(val != nullptr);
   CHECK(*val == doctest::Approx(500.0));
 
-  // discharge defaults to 0 → variable mode [0, fmax]
-  CHECK(std::holds_alternative<Real>(fr.discharge));
-  CHECK(std::get<Real>(fr.discharge) == doctest::Approx(0.0));
+  // target is unset → variable mode [0, fmax] (mode "Variable allocation"
+  // in the unified-mode table — would need a uvalue to actually push the
+  // column up).
+  CHECK_FALSE(fr.target.has_value());
 }
 
-TEST_CASE("FlowRight use_value field")
+TEST_CASE("FlowRight uvalue field")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   FlowRight fr;
   fr.uid = 110;
   fr.name = "benefit_right";
-  fr.use_value = -500.0;  // negative = delivery benefit
+  fr.uvalue = -500.0;  // negative = penalty for over-delivery
 
-  REQUIRE(fr.use_value.has_value());
-  CHECK(std::get<Real>(*fr.use_value) == doctest::Approx(-500.0));
+  REQUIRE(fr.uvalue.has_value());
+  CHECK(std::get<Real>(*fr.uvalue) == doctest::Approx(-500.0));
 
   SUBCASE("default is nullopt")
   {
     const FlowRight fr2;
-    CHECK_FALSE(fr2.use_value.has_value());
+    CHECK_FALSE(fr2.uvalue.has_value());
   }
 
-  SUBCASE("schedule use_value")
+  SUBCASE("schedule uvalue")
   {
     FlowRight fr3;
     fr3.uid = 111;
     fr3.name = "scheduled_cost";
-    // 2D schedule: per-stage-block
-    std::vector<std::vector<Real>> sched = {{100.0}, {200.0}};
-    fr3.use_value = sched;
+    // 1D schedule: per-stage (post-narrowing).
+    const std::vector<Real> sched = {100.0, 200.0};
+    fr3.uvalue = sched;
 
-    REQUIRE(fr3.use_value.has_value());
-    auto* vec2_ptr =
-        std::get_if<std::vector<std::vector<Real>>>(&*fr3.use_value);
-    REQUIRE(vec2_ptr != nullptr);
-    CHECK(vec2_ptr->size() == 2);
-    CHECK((*vec2_ptr)[0][0] == doctest::Approx(100.0));
-    CHECK((*vec2_ptr)[1][0] == doctest::Approx(200.0));
+    REQUIRE(fr3.uvalue.has_value());
+    auto* vec_ptr = std::get_if<std::vector<Real>>(&*fr3.uvalue);
+    REQUIRE(vec_ptr != nullptr);
+    CHECK(vec_ptr->size() == 2);
+    CHECK((*vec_ptr)[0] == doctest::Approx(100.0));
+    CHECK((*vec_ptr)[1] == doctest::Approx(200.0));
   }
 }
 
-TEST_CASE("FlowRight fail_cost as schedule")
+TEST_CASE("FlowRight fcost as schedule")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -263,27 +264,23 @@ TEST_CASE("FlowRight fail_cost as schedule")
   fr.uid = 112;
   fr.name = "scheduled_fail";
 
-  SUBCASE("scalar fail_cost (backward compatible)")
+  SUBCASE("scalar fcost (backward compatible)")
   {
-    fr.fail_cost = 5000.0;
-    REQUIRE(fr.fail_cost.has_value());
-    CHECK(std::get<Real>(*fr.fail_cost) == doctest::Approx(5000.0));
+    fr.fcost = 5000.0;
+    REQUIRE(fr.fcost.has_value());
+    CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(5000.0));
   }
 
-  SUBCASE("per-stage-block fail_cost schedule")
+  SUBCASE("per-stage fcost schedule")
   {
-    std::vector<std::vector<Real>> sched = {
-        {1000.0},
-        {2000.0},
-        {3000.0},
-    };
-    fr.fail_cost = sched;
-    REQUIRE(fr.fail_cost.has_value());
-    auto* vec2_ptr =
-        std::get_if<std::vector<std::vector<Real>>>(&*fr.fail_cost);
-    REQUIRE(vec2_ptr != nullptr);
-    CHECK(vec2_ptr->size() == 3);
-    CHECK((*vec2_ptr)[1][0] == doctest::Approx(2000.0));
+    // OptTRealFieldSched: per-stage (1D), matching Demand::fcost.
+    std::vector<Real> sched = {1000.0, 2000.0, 3000.0};
+    fr.fcost = sched;
+    REQUIRE(fr.fcost.has_value());
+    auto* vec_ptr = std::get_if<std::vector<Real>>(&*fr.fcost);
+    REQUIRE(vec_ptr != nullptr);
+    CHECK(vec_ptr->size() == 3);
+    CHECK((*vec_ptr)[1] == doctest::Approx(2000.0));
   }
 }
 
@@ -482,7 +479,7 @@ TEST_CASE("FlowRight bound_rule field")
   FlowRight fr;
   fr.uid = 110;
   fr.name = "bounded_flow";
-  fr.discharge = 50.0;
+  fr.target = 50.0;
 
   CHECK_FALSE(fr.bound_rule.has_value());
 

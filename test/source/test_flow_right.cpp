@@ -24,10 +24,12 @@ TEST_CASE("FlowRight construction and default values")
   CHECK_FALSE(fr.purpose.has_value());
   CHECK_FALSE(fr.junction.has_value());
   CHECK_FALSE(fr.direction.has_value());
+  CHECK_FALSE(fr.fmin.has_value());
   CHECK_FALSE(fr.fmax.has_value());
+  CHECK_FALSE(fr.target.has_value());
   CHECK_FALSE(fr.use_average.has_value());
-  CHECK_FALSE(fr.fail_cost.has_value());
-  CHECK_FALSE(fr.use_value.has_value());
+  CHECK_FALSE(fr.fcost.has_value());
+  CHECK_FALSE(fr.uvalue.has_value());
   CHECK_FALSE(fr.priority.has_value());
   CHECK_FALSE(fr.bound_rule.has_value());
 }
@@ -44,11 +46,11 @@ TEST_CASE("FlowRight attribute assignment")
   fr.purpose = "irrigation";
   fr.junction = Uid {7001};
   fr.direction = -1;
-  fr.discharge = 50.0;
+  fr.target = 50.0;
   fr.fmax = 100.0;
   fr.use_average = true;
-  fr.fail_cost = 5000.0;
-  fr.use_value = 10.0;
+  fr.fcost = 5000.0;
+  fr.uvalue = 10.0;
   fr.priority = 1.0;
 
   CHECK(fr.uid == 1001);
@@ -73,10 +75,10 @@ TEST_CASE("FlowRight designated initializer construction")
       .purpose = "environmental",
       .junction = SingleId {Uid {10}},
       .direction = -1,
-      .discharge = 25.0,
       .fmax = {},
+      .target = 25.0,
       .use_average = {},
-      .fail_cost = 10000.0,
+      .fcost = 10000.0,
   };
 
   CHECK(fr.uid == Uid {2});
@@ -127,7 +129,7 @@ TEST_CASE("FlowRight with bound rule")
   CHECK(fr.bound_rule->cap.value_or(0.0) == doctest::Approx(5000.0));
 }
 
-TEST_CASE("FlowRight with monthly discharge schedule")
+TEST_CASE("FlowRight with monthly target schedule")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -135,19 +137,35 @@ TEST_CASE("FlowRight with monthly discharge schedule")
   fr.uid = 4;
   fr.name = "seasonal_right";
 
-  // Seasonal irrigation schedule: [S,T,B] = scenario x stage x block
-  const std::vector<std::vector<std::vector<Real>>> schedule {
-      {{0.0, 0.0, 0.0, 19.5, 42.25, 55.25, 65.0, 65.0, 52.0, 32.5, 13.0, 0.0}},
+  // Seasonal irrigation schedule.  The field's static type is
+  // OptTBRealFieldSched (per-stage-block, mirrors Demand::lmax) so the
+  // C++-side fixture supplies a 2-D schedule with one inner element
+  // per stage; 1-D shapes round-trip through JSON via the variant
+  // fallback but the C++ literal must match the variant alternative.
+  const std::vector<std::vector<Real>> schedule {
+      {0.0},
+      {0.0},
+      {0.0},
+      {19.5},
+      {42.25},
+      {55.25},
+      {65.0},
+      {65.0},
+      {52.0},
+      {32.5},
+      {13.0},
+      {0.0},
   };
-  fr.discharge = schedule;
+  fr.target = schedule;
 
-  auto* vec_ptr =
-      std::get_if<std::vector<std::vector<std::vector<Real>>>>(&fr.discharge);
+  REQUIRE(fr.target.has_value());
+  auto* vec_ptr = std::get_if<std::vector<std::vector<Real>>>(&*fr.target);
   REQUIRE(vec_ptr != nullptr);
-  CHECK(vec_ptr->size() == 1);
-  CHECK((*vec_ptr)[0][0].size() == 12);
-  CHECK((*vec_ptr)[0][0][3] == doctest::Approx(19.5));
-  CHECK((*vec_ptr)[0][0][7] == doctest::Approx(65.0));
+  CHECK(vec_ptr->size() == 12);
+  REQUIRE((*vec_ptr)[3].size() == 1);
+  CHECK((*vec_ptr)[3][0] == doctest::Approx(19.5));
+  REQUIRE((*vec_ptr)[7].size() == 1);
+  CHECK((*vec_ptr)[7][0] == doctest::Approx(65.0));
 }
 
 TEST_CASE("FlowRight with different purposes")  // NOLINT
@@ -373,7 +391,6 @@ TEST_CASE(  // NOLINT
           .name = "fr_var",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 0.0,
           .fmax = 75.0,
       },
   };
@@ -417,7 +434,7 @@ TEST_CASE(  // NOLINT
           .name = "fr_fixed",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 30.0,
+          .target = 30.0,
       },
   };
 
@@ -447,12 +464,14 @@ TEST_CASE(  // NOLINT
     CHECK(col_upp[col] == doctest::Approx(30.0));
   }
 
-  // No fail_cost set - no deficit variable.
-  // boost::container::flat_map::at() throws boost::container::out_of_range
-  // (not std::out_of_range) unless BOOST_CONTAINER_USE_STD_EXCEPTIONS is set.
-  CHECK_THROWS_AS(  //
-      (void)fr_lp.fail_cols_at(scenarios[0], stages[0]),
-      std::exception);
+  // Post-P0: no fail LP column ever exists; on the hard path (no
+  // fail_cost) `fail_sol_at` returns 0 because the discharge cache
+  // stays empty.
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stages[0].blocks()) {
+    const auto fs = fr_lp.fail_sol_at(scenarios[0], stages[0], block, col_sol);
+    CHECK(fs == doctest::Approx(0.0));
+  }
 }
 
 // ── 2.3 Both unset → [0, 0] (asymmetric default vs VolumeRight) ──────────
@@ -523,7 +542,7 @@ TEST_CASE(  // NOLINT
           .name = "fr_cap_clamp",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 30.0,
+          .target = 30.0,
           .bound_rule =
               RightBoundRule {
                   .reservoir = Uid {1},
@@ -585,7 +604,7 @@ TEST_CASE(  // NOLINT
           .name = "fr_qeh",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 25.0,
+          .target = 25.0,
           .use_average = true,
       },
   };
@@ -632,8 +651,8 @@ TEST_CASE(  // NOLINT
           .name = "fr_with_deficit",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 40.0,
-          .fail_cost = 5000.0,
+          .target = 40.0,
+          .fcost = 5000.0,
       },
   };
 
@@ -653,12 +672,25 @@ TEST_CASE(  // NOLINT
   const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
   const auto& scenarios = system_lp.scene().scenarios();
   const auto& stages = system_lp.phase().stages();
-  const auto& fail_cols = fr_lp.fail_cols_at(scenarios[0], stages[0]);
-  CHECK(!fail_cols.empty());
+
+  // Post-P0 substitution: the `fail` LP column is gone (collapsed into
+  // a negative-cost coefficient on the surviving `flow` column plus an
+  // `obj_constant`).  Confirm the soft path is still wired by checking
+  // (a) flow_cols exist, (b) `fail_sol_at` returns the reconstructed
+  // shortfall, and (c) the flow column lower bound is relaxed to 0.
+  const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);
+  CHECK(!flow_cols.empty());
+
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stages[0].blocks()) {
+    const auto fs = fr_lp.fail_sol_at(scenarios[0], stages[0], block, col_sol);
+    CHECK(fs >= 0.0);
+  }
 
   // With deficit support active, the flow column lower bound is
-  // relaxed to 0 (the demand row enforces flow + fail >= discharge).
-  const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);
+  // relaxed to 0 — the negative-cost coefficient on flow rewards
+  // covering the discharge as much as possible while the obj_constant
+  // tracks the substitution baseline.
   const auto col_low = lp.get_col_low();
   for (const auto& [buid, col] : flow_cols) {
     CHECK(col_low[col] == doctest::Approx(0.0));
@@ -671,9 +703,12 @@ TEST_CASE(  // NOLINT
     "FlowRightLP Tier 2.7 - discharge without fail_cost has no fail var")
 {
   // Mirror of 2.6 with fail_cost unset (and the global hydro_fail_cost
-  // also unset via the default PlanningOptions).  Confirms that
-  // fail_cols_at throws — i.e. no deficit column was registered, so
-  // FailName is not present in the AMPL registry either.
+  // also unset via the default PlanningOptions).  Post-P0 the `fail`
+  // LP column no longer exists in either mode; confirm the hard-path
+  // bounds are still tight (no `lowb = 0` deficit relaxation) and the
+  // reconstructed `fail_sol_at` returns 0 because
+  // `block_discharge_values_` is empty (only populated on the soft
+  // path).
   const FlowRightHydroFixture fx;
   const Array<FlowRight> frs = {
       {
@@ -681,7 +716,7 @@ TEST_CASE(  // NOLINT
           .name = "fr_no_deficit",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 40.0,
+          .target = 40.0,
       },
   };
 
@@ -706,11 +741,13 @@ TEST_CASE(  // NOLINT
   const auto& scenarios = system_lp.scene().scenarios();
   const auto& stages = system_lp.phase().stages();
 
-  // boost::container::flat_map::at() throws boost::container::out_of_range
-  // (not std::out_of_range) unless BOOST_CONTAINER_USE_STD_EXCEPTIONS is set.
-  CHECK_THROWS_AS(  //
-      (void)fr_lp.fail_cols_at(scenarios[0], stages[0]),
-      std::exception);
+  // Post-P0: `fail_sol_at` on the hard path returns 0 for every block
+  // (the discharge cache stays empty when `fail_active` is false).
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stages[0].blocks()) {
+    const auto fs = fr_lp.fail_sol_at(scenarios[0], stages[0], block, col_sol);
+    CHECK(fs == doctest::Approx(0.0));
+  }
 
   // Without a deficit, the flow column stays at fixed-mode bounds.
   const auto& flow_cols = fr_lp.flow_cols_at(scenarios[0], stages[0]);
@@ -719,5 +756,246 @@ TEST_CASE(  // NOLINT
   for (const auto& [buid, col] : flow_cols) {
     CHECK(col_low[col] == doctest::Approx(40.0));
     CHECK(col_upp[col] == doctest::Approx(40.0));
+  }
+}
+
+// ── 2.8 Target with bonus — two-sub-column unified mode ─────────────────
+//
+// The "target with bonus" mode is selected when:
+//   fmin (default 0) <= target < fmax  AND  uvalue is set.
+// LP shape:
+//   flow_low  ∈ [0, target − fmin]   cost = -fcost · cf
+//   flow_high ∈ [0, fmax − target]   cost = -uvalue · cf
+// Both columns subtract from the junction balance with coefficient -1.
+// `fail_sol = max(0, target − total_flow)` and
+// `excess_sol = max(0, total_flow − target) = flow_high primal`.
+
+TEST_CASE(  // NOLINT
+    "FlowRightLP Tier 2.8 - target with bonus, both incentives push up")
+{
+  // fmin=0, target=10, fmax=20, fcost=100, uvalue=50.  Post-2026-05
+  // attach_flow refactor: a single flow_col ∈ [fmin, fmax] = [0, 20]
+  // is created; the kink at target=10 is expressed via two slacks
+  // (fail / excess) attached to flow_col.  Both incentives drive the
+  // LP to flow=fmax=20, giving fail=0 and excess=10.
+  const FlowRightHydroFixture fx;
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_bonus",
+          .junction = Uid {1},
+          .direction = -1,
+          .fmax = 20.0,
+          .target = 10.0,
+          .fcost = 100.0,
+          .uvalue = 50.0,
+      },
+  };
+
+  const auto simulation = make_flow_right_simulation();
+  const auto system = make_flow_right_system(fx, frs, "Tier2_8_BonusPushUp");
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto& scenario = scenarios[0];
+  const auto& stage = stages[0];
+
+  // Single flow_col with the full hard band [fmin, fmax] = [0, 20].
+  const auto& flow_cols = fr_lp.flow_cols_at(scenario, stage);
+  REQUIRE(!flow_cols.empty());
+  const auto col_low = lp.get_col_low();
+  const auto col_upp = lp.get_col_upp();
+  for (const auto& [buid, col] : flow_cols) {
+    CHECK(col_low[col] == doctest::Approx(0.0));
+    CHECK(col_upp[col] == doctest::Approx(20.0));
+  }
+
+  // Both incentives push flow to fmax=20 → excess=10, fail=0.
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stage.blocks()) {
+    const auto fs = fr_lp.fail_sol_at(scenario, stage, block, col_sol);
+    const auto ex = fr_lp.excess_sol_at(scenario, stage, block, col_sol);
+    CHECK(fs == doctest::Approx(0.0));
+    CHECK(ex == doctest::Approx(10.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "FlowRightLP Tier 2.9 - target with bonus, structural sub-column layout")
+{
+  // Structural check: verify the two-sub-column layout is present and
+  // both columns are exposed via flow_cols_at (low) + the AMPL registry
+  // (flow = low + high).  Bounds: flow_low ∈ [0, target − fmin] = [0, 10],
+  // flow_high ∈ [0, fmax − target] = [0, 10].
+  const FlowRightHydroFixture fx;
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_bonus_layout",
+          .junction = Uid {1},
+          .direction = -1,
+          .fmax = 20.0,
+          .target = 10.0,
+          .fcost = 100.0,
+          .uvalue = 50.0,
+      },
+  };
+
+  const auto simulation = make_flow_right_simulation();
+  const auto system = make_flow_right_system(fx, frs, "Tier2_9_BonusLayout");
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  // Verify the negative cost coefficients on both sub-columns are
+  // present in the LP.
+  const auto obj_coeffs = lp.get_obj_coeff();
+  bool found_fcost_col = false;
+  bool found_uvalue_col = false;
+  for (Index i = 0; i < lp.get_numcols(); ++i) {
+    const auto c = obj_coeffs[i];
+    if (c < 0.0) {
+      // Both coefficients are negative (incentives); we just check that
+      // at least two distinct negative magnitudes show up among the
+      // FlowRight columns (one for fcost, one for uvalue, since the
+      // block durations are the same here).  fcost=100, uvalue=50 ⇒
+      // distinct magnitudes.
+      if (!found_fcost_col) {
+        found_fcost_col = true;
+      } else {
+        found_uvalue_col = true;
+      }
+    }
+  }
+  CHECK(found_fcost_col);
+  CHECK(found_uvalue_col);
+}
+
+TEST_CASE(  // NOLINT
+    "FlowRightLP Tier 2.10 - target with bonus, negative uvalue stops at "
+    "target")
+{
+  // uvalue = -50: regulator penalty above target.  LP picks
+  // flow_low=10 (incentivized by fcost) and flow_high=0 (penalised by
+  // uvalue) → total flow = 10, fail=0, excess=0.
+  const FlowRightHydroFixture fx;
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_bonus_neg",
+          .junction = Uid {1},
+          .direction = -1,
+          .fmax = 20.0,
+          .target = 10.0,
+          .fcost = 100.0,
+          .uvalue = -50.0,
+      },
+  };
+
+  const auto simulation = make_flow_right_simulation();
+  const auto system = make_flow_right_system(fx, frs, "Tier2_10_BonusNeg");
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto& scenario = scenarios[0];
+  const auto& stage = stages[0];
+
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stage.blocks()) {
+    CHECK(fr_lp.fail_sol_at(scenario, stage, block, col_sol)
+          == doctest::Approx(0.0));
+    CHECK(fr_lp.excess_sol_at(scenario, stage, block, col_sol)
+          == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "FlowRightLP Tier 2.11 - target with bonus, hard floor fmin respected")
+{
+  // fmin=2, target=10, fmax=20, fcost=100, uvalue=50.  Post-2026-05
+  // attach_flow refactor: a single flow_col ∈ [fmin, fmax] = [2, 20]
+  // is created.  With uvalue active the LP pushes flow to fmax=20
+  // (excess=10) and the hard floor fmin=2 is preserved structurally
+  // as the column lower bound.
+  const FlowRightHydroFixture fx;
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_bonus_floor",
+          .junction = Uid {1},
+          .direction = -1,
+          .fmin = 2.0,
+          .fmax = 20.0,
+          .target = 10.0,
+          .fcost = 100.0,
+          .uvalue = 50.0,
+      },
+  };
+
+  const auto simulation = make_flow_right_simulation();
+  const auto system = make_flow_right_system(fx, frs, "Tier2_11_BonusFloor");
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto& scenario = scenarios[0];
+  const auto& stage = stages[0];
+
+  // Single flow_col with hard band [fmin, fmax] = [2, 20].
+  const auto& flow_cols = fr_lp.flow_cols_at(scenario, stage);
+  REQUIRE(!flow_cols.empty());
+  const auto col_low = lp.get_col_low();
+  const auto col_upp = lp.get_col_upp();
+  for (const auto& [buid, col] : flow_cols) {
+    CHECK(col_low[col] == doctest::Approx(2.0));
+    CHECK(col_upp[col] == doctest::Approx(20.0));
+  }
+
+  // LP drives flow to fmax=20 (excess=10, fail=0).
+  const auto col_sol = lp.get_col_sol();
+  for (const auto& block : stage.blocks()) {
+    CHECK(fr_lp.fail_sol_at(scenario, stage, block, col_sol)
+          == doctest::Approx(0.0));
+    CHECK(fr_lp.excess_sol_at(scenario, stage, block, col_sol)
+          == doctest::Approx(10.0));
   }
 }

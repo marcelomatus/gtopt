@@ -160,26 +160,30 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 6.2 - FlowRightLP registers flow + conditional fail")
 {
-  // Two FlowRights:
-  //  - `fr_with_fail` has discharge>0 and fail_cost>0 → both `flow`
-  //    and `fail` must be registered.
-  //  - `fr_no_fail`   has discharge>0 but no fail_cost → only `flow`
-  //    is registered; `fail` lookup must return std::nullopt.
+  // Post-P0 substitution: only `flow` is registered for FlowRight.
+  // The `fail` LP column was substituted away (`fail = discharge −
+  // flow`); the reconstructed value is reachable via
+  // `FlowRightLP::fail_sol_at(...)`.  Mirrors DemandLP's behaviour
+  // after its earlier P0 rewrite.  Two FlowRights:
+  //  - `fr_with_fail` has discharge>0 and fail_cost>0 → `flow` is
+  //    registered; `fail` is NOT (post-P0).
+  //  - `fr_no_fail`   has discharge>0 but no fail_cost → `flow` is
+  //    registered; `fail` is NOT (always was absent).
   const Array<FlowRight> frs = {
       {
           .uid = Uid {7},
           .name = "fr_with_fail",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 10.0,
-          .fail_cost = 5000.0,
+          .target = 10.0,
+          .fcost = 5000.0,
       },
       {
           .uid = Uid {8},
           .name = "fr_no_fail",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 10.0,
+          .target = 10.0,
       },
   };
   const Array<Junction> junctions = {
@@ -214,14 +218,13 @@ TEST_CASE(  // NOLINT
   const auto bk_uid = blocks[0].uid();
   constexpr auto cls = std::string_view {"flow_right"};
 
-  // fr_with_fail: both attrs present.
+  // fr_with_fail: only `flow` present post-P0 (no fail LP column).
   const auto flow_yes =
       sc.find_ampl_col(cls, Uid {7}, "flow", sc_uid, st_uid, bk_uid);
   const auto fail_yes =
       sc.find_ampl_col(cls, Uid {7}, "fail", sc_uid, st_uid, bk_uid);
   REQUIRE(flow_yes.has_value());
-  REQUIRE(fail_yes.has_value());
-  CHECK(*flow_yes != *fail_yes);
+  CHECK_FALSE(fail_yes.has_value());
 
   // fr_no_fail: flow present, fail absent.
   const auto flow_no =
@@ -254,8 +257,8 @@ TEST_CASE(  // NOLINT
           .active = OptActive {IntBool {0}},
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 10.0,
-          .fail_cost = 5000.0,
+          .target = 10.0,
+          .fcost = 5000.0,
       },
   };
   const Array<Junction> junctions = {

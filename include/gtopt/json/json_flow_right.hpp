@@ -4,9 +4,26 @@
  * @date      Tue Apr  1 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
+ *
+ * The JSON binding accepts the legacy `"discharge"` key as an alias for
+ * the new `"target"` key.  Setting both is an error.  The legacy
+ * `"use_value"` key has been renamed to `"uvalue"` (no alias kept — the
+ * narrowing from `OptTBRealFieldSched` to `OptTRealFieldSched` is a
+ * compile-time visible change anyway).
+ *
+ * The bound triple (`fmin`, `fmax`, `target`, and the legacy
+ * `discharge` alias) are bound as `OptTBRealFieldSched` so that
+ * round-tripped parquet output (one row per (scenario, stage, block))
+ * parses without "duplicate uid" warnings.  Scalar / 1-D shapes still
+ * parse via the variant fallback and broadcast across blocks.  The
+ * cost fields (`fcost`, `uvalue`) remain per-stage `OptTRealFieldSched`
+ * — block-duration weighting is applied at LP-build time via
+ * `CostHelper::block_ecost`.
  */
 
 #pragma once
+
+#include <stdexcept>
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/flow_right.hpp>
@@ -21,6 +38,8 @@ using gtopt::RightBoundRule;
 
 /// Custom constructor so that json_class_null<"bound_rule"> maps
 /// absent/null JSON to std::nullopt rather than a default RightBoundRule.
+/// Also normalises the legacy `"discharge"` key into `target` for
+/// back-compat with existing fixtures.
 struct FlowRightConstructor
 {
   [[nodiscard]] FlowRight operator()(
@@ -30,14 +49,28 @@ struct FlowRightConstructor
       OptName purpose,
       OptSingleId junction,
       OptInt direction,
-      STBRealFieldSched discharge,
+      OptTBRealFieldSched fmin,
       OptTBRealFieldSched fmax,
+      OptTBRealFieldSched target,
+      OptTBRealFieldSched discharge,
+      OptName flow_mode,
       OptBool use_average,
-      OptTBRealFieldSched fail_cost,
-      OptTBRealFieldSched use_value,
+      OptTRealFieldSched fcost,
+      OptTRealFieldSched uvalue,
       OptReal priority,
       std::optional<RightBoundRule> bound_rule) const
   {
+    // Back-compat alias: `discharge` is the legacy name of `target`.
+    // Setting both is a JSON error — pick one.
+    if (target.has_value() && discharge.has_value()) {
+      throw std::invalid_argument(
+          "FlowRight: cannot set both 'target' and 'discharge' "
+          "(discharge is a legacy alias of target)");
+    }
+    if (!target.has_value() && discharge.has_value()) {
+      target = std::move(discharge);
+    }
+
     return FlowRight {
         .uid = uid,
         .name = std::move(name),
@@ -45,11 +78,13 @@ struct FlowRightConstructor
         .purpose = std::move(purpose),
         .junction = std::move(junction),
         .direction = direction,
-        .discharge = std::move(discharge),
+        .fmin = std::move(fmin),
         .fmax = std::move(fmax),
+        .target = std::move(target),
+        .flow_mode = std::move(flow_mode),
         .use_average = use_average,
-        .fail_cost = std::move(fail_cost),
-        .use_value = std::move(use_value),
+        .fcost = std::move(fcost),
+        .uvalue = std::move(uvalue),
         .priority = priority,
         .bound_rule = std::move(bound_rule),
     };
@@ -68,31 +103,39 @@ struct json_data_contract<FlowRight>
       json_string_null<"purpose", OptName>,
       json_variant_null<"junction", OptSingleId, jvtl_SingleId>,
       json_number_null<"direction", OptInt>,
-      json_variant<"discharge", STBRealFieldSched, jvtl_STBRealFieldSched>,
+      json_variant_null<"fmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"target", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"discharge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_string_null<"flow_mode", OptName>,
       json_bool_null<"use_average", OptBool>,
-      json_variant_null<"fail_cost",
-                        OptTBRealFieldSched,
-                        jvtl_TBRealFieldSched>,
-      json_variant_null<"use_value",
-                        OptTBRealFieldSched,
-                        jvtl_TBRealFieldSched>,
+      json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"uvalue", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_number_null<"priority", OptReal>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
   {
+    // Emit only the new keys; never re-emit the legacy `discharge`
+    // alias so round-tripped JSON uses the canonical name.  The
+    // discharge slot's static type widened with the other bound fields.
+    static const OptTBRealFieldSched empty_discharge {};
     return std::forward_as_tuple(fr.uid,
                                  fr.name,
                                  fr.active,
                                  fr.purpose,
                                  fr.junction,
                                  fr.direction,
-                                 fr.discharge,
+                                 fr.fmin,
                                  fr.fmax,
+                                 fr.target,
+                                 empty_discharge,
+                                 fr.flow_mode,
                                  fr.use_average,
-                                 fr.fail_cost,
-                                 fr.use_value,
+                                 fr.fcost,
+                                 fr.uvalue,
                                  fr.priority,
                                  fr.bound_rule);
   }

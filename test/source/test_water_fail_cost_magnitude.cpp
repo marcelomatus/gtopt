@@ -5,7 +5,7 @@
  * @date      2026-05-09
  *
  * Validates that the LP slack columns activate (or stay at zero) when the
- * `Reservoir.efin_cost` (storage-target slack) and `FlowRight.fail_cost`
+ * `Reservoir.efin_cost` (storage-target slack) and `FlowRight.fcost`
  * (flow-target slack) cross the demand-fail-equivalent threshold predicted
  * by the helper that backs the `--auto-water-fail-cost` Python CLI option.
  *
@@ -29,7 +29,7 @@
  *               efin_cost ≈ 567 × 10 × 277.78 = 1,575,000 (BELOW)
  *               LP drains the reservoir to serve demand, eos = emin.
  *
- * TEST_CASE B — FlowRight.fail_cost ($/(m³/s·h))
+ * TEST_CASE B — FlowRight.fcost ($/(m³/s·h))
  *   threshold_flow_fail_cost = demand_fail_cost × PF
  *   For demand_fail_cost=568 $/MWh, PF=10:  threshold = 5,680 $/(m³/s·h)
  *
@@ -332,7 +332,7 @@ TEST_CASE(  // NOLINT
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST_CASE B — FlowRight.fail_cost slack threshold
+// TEST_CASE B — FlowRight.fcost slack threshold
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Topology mirrors TEST_CASE A but adds a FlowRight at j_up that demands
@@ -350,7 +350,7 @@ TEST_CASE(  // NOLINT
 // Auto-derived value: 626.24 × 10 = 6,262 $/(m³/s · h) (above threshold).
 
 TEST_CASE(  // NOLINT
-    "FlowRight.fail_cost slack threshold (auto-water-fail-cost magnitude)")
+    "FlowRight.fcost slack threshold (auto-water-fail-cost magnitude)")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // NOLINTBEGIN(bugprone-unchecked-optional-access,
@@ -474,8 +474,8 @@ TEST_CASE(  // NOLINT
               .name = "fr1",
               .junction = Uid {1},
               .direction = OptInt {-1},  // consumptive withdrawal
-              .discharge = 5.0,
-              .fail_cost = fail_cost,
+              .target = 5.0,
+              .fcost = fail_cost,
           },
       };
 
@@ -509,16 +509,13 @@ TEST_CASE(  // NOLINT
       const auto& scenario_lp = sim_lp.scenarios().front();
       const auto& stage_lp = sim_lp.stages().front();
 
-      // Sum the per-block fail columns: total_fail = Σ_b fail[b].
-      // Per-block fail values represent the per-block shortfall of the
-      // 5 m³/s rights flow.
-      const auto& fail_cols = fr_lp.fail_cols_at(scenario_lp, stage_lp);
-      REQUIRE_FALSE(fail_cols.empty());
-
+      // Post-P0: the `fail` LP column was substituted away
+      // (`fail = discharge − flow`).  Reconstruct the per-block
+      // shortfall via `fail_sol_at` and sum across blocks.
       double total_fail = 0.0;
       const auto& col_sol = li.get_col_sol();
-      for (const auto& [buid, col] : fail_cols) {
-        total_fail += col_sol[col];
+      for (const auto& block : stage_lp.blocks()) {
+        total_fail += fr_lp.fail_sol_at(scenario_lp, stage_lp, block, col_sol);
       }
 
       MESSAGE("water_fail_cost=",

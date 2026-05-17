@@ -16,10 +16,25 @@
  * A `purpose` field indicates the right's use case (irrigation,
  * generation, environmental, etc.) — all share the same LP structure.
  *
+ * ### Unified bounds + cost model
+ * The bound triple (`fmin`, `target`, `fmax`) selects the LP shape:
+ *
+ *   - `fmin` is a hard lower bound on the served flow.  Default 0.
+ *   - `fmax` is a hard upper bound on the served flow.  Defaults to
+ *     `target` when `target` is set, else to `fmin` (i.e. a forced flow).
+ *   - `target` is the soft kink point.  Below the target, `fcost`
+ *     penalises shortfall; above the target, `uvalue` rewards excess.
+ *     When `target` is unset, no kink exists and the column is a plain
+ *     hard band `[fmin, fmax]`.
+ *
+ * The legacy `discharge` field is preserved as an alias of `target` for
+ * back-compat with existing fixture JSONs.  Setting both `discharge`
+ * and `target` is an error.
+ *
  * ### Unit conventions
- * - Flow fields (`discharge`, `fmax`): **m³/s**
- * - Cost fields (`fail_cost`): **$/m³/s·h** (penalty per unit of
- *   unmet flow demand per hour)
+ * - Flow fields (`fmin`, `target`, `fmax`): **m³/s**
+ * - Cost fields (`fcost`, `uvalue`): **$/m³/s·h** (penalty / reward
+ *   per unit of unmet / excess flow per hour)
  *
  * ### JSON Example
  * ```json
@@ -28,8 +43,8 @@
  *   "name": "laja_nuevo_riego",
  *   "purpose": "irrigation",
  *   "junction": "laja_downstream",
- *   "discharge": [0, 0, 0, 0, 19.5, 42.25, 55.25, 65, 65, 52, 32.5, 13],
- *   "fail_cost": 5000
+ *   "target": [0, 0, 0, 0, 19.5, 42.25, 55.25, 65, 65, 52, 32.5, 13],
+ *   "fcost": 5000
  * }
  * ```
  */
@@ -52,9 +67,8 @@ namespace gtopt
  * When a junction is referenced, the flow variable is subtracted
  * from the junction's physical balance row.
  *
- * A deficit variable with penalty cost allows soft-constraint
- * violation when water is scarce, analogous to demand_fail_cost
- * for unserved electrical load.
+ * The (fmin, target, fmax, fcost, uvalue) tuple selects one of the
+ * 7 unified-mode LP shapes documented in `flow_right_lp.cpp`.
  *
  * The `purpose` field indicates the use case: "irrigation",
  * "generation", "environmental", etc.
@@ -89,40 +103,68 @@ struct FlowRight
   ///  -1 = withdrawal (outflow / consumptive extraction)
   OptInt direction {};
 
-  /// Required extraction flow schedule [m³/s].
-  /// The demand that must be met — unmet demand incurs
-  /// the fail_cost penalty.  Indexed by [scenario][stage][block].
-  STBRealFieldSched discharge {};
+  /// Hard lower bound on the served flow [m³/s].
+  /// Default 0.  Below this no shortfall is admissible — the bound is
+  /// always enforced regardless of `fcost`.
+  /// Per-stage-block scheduling (mirrors `Demand::lmax`): the value can
+  /// vary hourly within a stage (e.g. PLP's hourly pmin obligations).
+  OptTBRealFieldSched fmin {};
 
-  /// Maximum flow for variable-mode rights [m³/s].
-  /// When set (and discharge is 0 or unset), the flow column becomes
-  /// variable [0, fmax] instead of fixed [discharge, discharge].
-  /// This enables partition constraints where the optimizer decides
-  /// how to split flow among rights categories.
+  /// Hard upper bound on the served flow [m³/s].
+  /// When unset, defaults to `target` when `target` is set, else to
+  /// `fmin` (yielding a forced exact flow).
+  /// Per-stage-block scheduling.
   OptTBRealFieldSched fmax {};
 
-  /// Whether to create a stage-average hourly flow variable (`qeh`).
-  /// When true, FlowRightLP creates a stage-level LP variable
-  /// equal to the duration-weighted average of the block-level flows:
-  ///   qeh = Σ_b [ flow(b) × dur(b) / dur_stage ]
-  /// This mirrors PLP's `IQDRH`, `IQDEH`, etc. — the "H"-suffix
-  /// stage-average variables used in volume accumulation constraints
-  /// and rights limit bounds.
-  /// Default: false (block-level only).
+  /// Soft kink point [m³/s].
+  /// Below `target`: `fcost` penalty applies (irrigation-style soft
+  ///   demand).  Above `target`: `uvalue` bonus / penalty applies
+  ///   (variable-allocation style).
+  /// When unset, the column reduces to a plain hard band [fmin, fmax]
+  /// with no slack-side costs.
+  /// Aliases legacy `discharge` for back-compat.
+  /// Per-stage-block scheduling so hourly irrigation/forced-flow
+  /// profiles round-trip through parquet without duplicate-uid warnings.
+  OptTBRealFieldSched target {};
+
+  /// Time-resolution mode for the flow LP variables and constraints.
+  /// One of:
+  ///  - `"per_block"`     (default): one LP `flow_b` per block; all
+  ///                      bounds and the kink (target / fcost / uvalue)
+  ///                      are applied per-block.
+  ///  - `"stage_average"`: one LP `flow_b` per block (hard
+  ///                      `[fmin_b, fmax_b]` bounds only), plus a
+  ///                      stage-level `qeh = Σ_b dur_ratio_b × flow_b`
+  ///                      column.  The kink and all costs are applied
+  ///                      to `qeh` at stage scope.  Mirrors PLP's `H`-
+  ///                      suffix stage-average variables (IQDRH, IQDEH).
+  ///  - `"stage_uniform"`: a single stage-level `qeh` column is created
+  ///                      and used in every block's junction balance —
+  ///                      no per-block `flow_b`.  All bounds and the
+  ///                      kink are applied to `qeh`.  Use when the
+  ///                      right's flow is required to be constant
+  ///                      across the stage (e.g. steady environmental
+  ///                      releases).
+  OptName flow_mode {};
+
+  /// **Deprecated** legacy boolean that maps to `flow_mode`:
+  ///  - `true`  → `flow_mode = "stage_average"`
+  ///  - `false` → `flow_mode = "per_block"`
+  /// Ignored when `flow_mode` is set explicitly.
   OptBool use_average {};
 
-  /// Penalty cost for unmet flow demand [$/m³/s·h].
-  /// Analogous to demand_fail_cost for electrical load curtailment.
+  /// Penalty cost for unmet flow below `target` [$/m³/s·h].
+  /// Analogous to Demand::fcost for electrical load curtailment.
   /// Higher values give this right higher priority in the LP.
-  /// Supports per-stage-block scheduling for monthly cost modulation.
-  OptTBRealFieldSched fail_cost {};
+  /// Per-stage scheduling (mirrors Demand::fcost structure exactly).
+  OptTRealFieldSched fcost {};
 
-  /// Value of exercising the right [$/m³/s·h].
-  /// Subtracted from the objective (benefit): positive = incentivizes use,
-  /// negative = penalizes use.  Added as −use_value to the flow variable's
-  /// objective coefficient.
-  /// Supports per-stage-block scheduling for monthly value modulation.
-  OptTBRealFieldSched use_value {};
+  /// Value of exercising the right above `target` [$/m³/s·h].
+  /// Subtracted from the objective (benefit): positive = incentivizes
+  /// flow above target, negative = penalizes flow above target.
+  /// Renamed from legacy `use_value` for naming parity with `fcost`.
+  /// Per-stage scheduling.
+  OptTRealFieldSched uvalue {};
 
   /// Priority level for allocation ordering [dimensionless].
   OptReal priority {};

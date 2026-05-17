@@ -54,17 +54,17 @@ TEST_CASE(  // NOLINT
           .uid = Uid {2},
           .name = "irr_share",
           .direction = -1,
-          .discharge = {},
           .fmax = 100.0,
-          .fail_cost = 1100.0,
+          .target = {},
+          .fcost = 1100.0,
       },
       {
           .uid = Uid {3},
           .name = "gen_share",
           .direction = -1,
-          .discharge = {},
           .fmax = 100.0,
-          .fail_cost = 1000.0,
+          .target = {},
+          .fcost = 1000.0,
       },
   };
 
@@ -205,8 +205,8 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "farmer_withdrawal",
           .junction = Uid {2},
-          .discharge = 10.0,
-          .fail_cost = 5000.0,
+          .target = 10.0,
+          .fcost = 5000.0,
       },
   };
 
@@ -539,9 +539,9 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "avg_flow",
-          .discharge = 30.0,
+          .target = 30.0,
           .use_average = true,
-          .fail_cost = 1000.0,
+          .fcost = 1000.0,
       },
   };
 
@@ -593,23 +593,35 @@ TEST_CASE(  // NOLINT
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
-
-  // With use_average=true, we should have extra cols and rows
-  // compared to use_average=false
-  const auto ncols_with_avg = lp.get_numcols();
-  const auto nrows_with_avg = lp.get_numrows();
-
   auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // Build the same system without use_average for comparison
+  // Post-2026-05 attach_flow refactor: with `use_average = true` and
+  // `target + fcost` active, the per-block kink is suppressed and a
+  // stage-scope qeh column + qavg aggregation row + (when target+
+  // cost) qkink row + qeh_sn slack are installed.  The number of
+  // extra cols/rows vs the per_block baseline depends on whether
+  // per-block kink slacks were installed there; check via the
+  // structural accessors instead of numcols/numrows arithmetic.
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  CHECK(fr_lp.has_qeh(s, t));
+  CHECK(fr_lp.has_qavg_row(s, t));
+  CHECK(fr_lp.has_qkink_row(s, t));
+  // qeh column primal should be at target (LP drove it up via fcost).
+  const auto col_sol = lp.get_col_sol();
+  const auto qeh_col = fr_lp.qeh_col_at(s, t);
+  CHECK(col_sol[qeh_col] == doctest::Approx(30.0).epsilon(0.01));
+
+  // The no-average baseline still resolves successfully.
   const Array<FlowRight> flow_right_no_avg = {
       {
           .uid = Uid {1},
           .name = "no_avg_flow",
-          .discharge = 30.0,
-          .fail_cost = 1000.0,
+          .target = 30.0,
+          .fcost = 1000.0,
       },
   };
 
@@ -624,14 +636,16 @@ TEST_CASE(  // NOLINT
   SimulationLP simulation_lp2(simulation, options);
   SystemLP system_lp2(system_no_avg, simulation_lp2);
   auto&& lp2 = system_lp2.linear_interface();
-
-  // use_average=true should add 1 extra column (qeh) and 1 extra row (qavg)
-  CHECK(ncols_with_avg == lp2.get_numcols() + 1);
-  CHECK(nrows_with_avg == lp2.get_numrows() + 1);
-
   auto result2 = lp2.resolve();
   REQUIRE(result2.has_value());
   CHECK(result2.value() == 0);
+
+  // Baseline has no qeh column or qavg row.
+  const auto& fr_lp2 = system_lp2.elements<FlowRightLP>().front();
+  const auto& s2 = system_lp2.scene().scenarios()[0];
+  const auto& t2 = system_lp2.phase().stages()[0];
+  CHECK_FALSE(fr_lp2.has_qeh(s2, t2));
+  CHECK_FALSE(fr_lp2.has_qavg_row(s2, t2));
 }
 
 TEST_CASE(  // NOLINT
@@ -673,26 +687,26 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "total_gen",
           .direction = 1,
-          .discharge = 100.0,
+          .target = 100.0,
           .use_average = true,
       },
       {
           .uid = Uid {2},
           .name = "irr_share",
           .direction = -1,
-          .discharge = {},
           .fmax = 100.0,
+          .target = {},
           .use_average = true,
-          .fail_cost = 1100.0,
+          .fcost = 1100.0,
       },
       {
           .uid = Uid {3},
           .name = "elec_share",
           .direction = -1,
-          .discharge = {},
           .fmax = 100.0,
+          .target = {},
           .use_average = true,
-          .fail_cost = 1000.0,
+          .fcost = 1000.0,
       },
   };
 
@@ -1027,8 +1041,8 @@ TEST_CASE(  // NOLINT
             .name = "fr_zone",
             .junction = Uid {2},
             .direction = -1,
-            .discharge = 60.0,
-            .fail_cost = 10.0,
+            .target = 60.0,
+            .fcost = 10.0,
             .bound_rule =
                 RightBoundRule {
                     .reservoir = Uid {1},
@@ -1545,8 +1559,8 @@ TEST_CASE(  // NOLINT
             .name = "upstream_withdrawal",
             .junction = Uid {1},
             .direction = -1,
-            .discharge = withdrawal_discharge,
-            .fail_cost = 200000.0,
+            .target = withdrawal_discharge,
+            .fcost = 200000.0,
         },
     };
 
@@ -1701,8 +1715,8 @@ TEST_CASE(  // NOLINT
             .name = "fr_a",
             .junction = Uid {2},
             .direction = -1,
-            .discharge = 100.0,
-            .fail_cost = 5000.0,
+            .target = 100.0,
+            .fcost = 5000.0,
         },
     };
     if (num_rights == 2) {
@@ -1711,8 +1725,8 @@ TEST_CASE(  // NOLINT
           .name = "fr_b",
           .junction = Uid {2},
           .direction = -1,
-          .discharge = 100.0,
-          .fail_cost = 5000.0,
+          .target = 100.0,
+          .fcost = 5000.0,
       });
     }
 
@@ -1854,8 +1868,8 @@ TEST_CASE(  // NOLINT
             .name = "fr_infeasible",
             .junction = Uid {2},
             .direction = -1,
-            .discharge = 100.0,
-            .fail_cost = fail_cost,
+            .target = 100.0,
+            .fcost = fail_cost,
         },
     };
 

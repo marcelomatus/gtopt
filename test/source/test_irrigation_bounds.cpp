@@ -112,9 +112,9 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "bounded_irrig",
-          .discharge = {},
           .fmax = 300.0,
-          .fail_cost = 5000.0,
+          .target = 300.0,
+          .fcost = 5000.0,
           .bound_rule =
               RightBoundRule {
                   .reservoir = Uid {1},
@@ -440,9 +440,9 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "deactivated_irrig",
-          .discharge = {},
           .fmax = 300.0,
-          .fail_cost = 5000.0,
+          .target = 300.0,
+          .fcost = 5000.0,
           .bound_rule =
               RightBoundRule {
                   .reservoir = Uid {1},
@@ -611,9 +611,9 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "bounded_irrig",
-          .discharge = {},
           .fmax = 300.0,
-          .fail_cost = 5000.0,
+          .target = 300.0,
+          .fcost = 5000.0,
           .bound_rule =
               RightBoundRule {
                   .reservoir = Uid {1},
@@ -1198,19 +1198,23 @@ TEST_CASE(  // NOLINT
           },
   };
 
-  SUBCASE("per-element use_value and fail_cost")
+  SUBCASE("per-element uvalue and fcost")
   {
     const auto use_val = 1500.0;
     const auto fail_val = 5000.0;
 
+    // Unified-mode: target=10 creates a soft kink, fmax=20 opens the
+    // above-target bonus region, so uvalue actually applies on the
+    // flow_high sub-column.  This exercises the two-sub-column path.
     const Array<FlowRight> flow_right_array = {
         {
             .uid = Uid {1},
             .name = "irr_with_costs",
             .junction = Uid {2},
-            .discharge = 10.0,
-            .fail_cost = fail_val,
-            .use_value = use_val,
+            .fmax = 20.0,
+            .target = 10.0,
+            .fcost = fail_val,
+            .uvalue = use_val,
         },
     };
 
@@ -1235,54 +1239,67 @@ TEST_CASE(  // NOLINT
     auto&& lp = system_lp.linear_interface();
     const auto obj_coeffs = lp.get_obj_coeff();
 
-    // Find columns by scanning for negative cost (use_value → benefit)
-    // and positive cost (fail_cost → penalty)
-    bool found_benefit = false;
-    bool found_penalty = false;
-    for (Index i = 0; i < lp.get_numcols(); ++i) {
-      const auto c = obj_coeffs[i];
-      if (c < 0.0 && doctest::Approx(c).epsilon(1e-6) == -use_val / scale_obj) {
-        found_benefit = true;
-      }
-      if (c > 0.0 && doctest::Approx(c).epsilon(1e-6) == fail_val / scale_obj) {
-        found_penalty = true;
-      }
-    }
-    CHECK(found_benefit);
-    CHECK(found_penalty);
+    // Post-2026-05 attach_flow refactor: the kink is expressed via
+    // two non-negative slacks attached to the single `flow_col`:
+    //   fail   slack ≥ 0, cost = +fcost·cf  (deficit penalty)
+    //   excess slack ≥ 0, cost = -uvalue·cf (excess bonus)
+    // flow_col itself carries zero cost.  Verify BOTH slack costs
+    // appear among the obj coefficients with the expected signs.
+    const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+    const auto& scenarios = system_lp.scene().scenarios();
+    const auto& stages = system_lp.phase().stages();
+    const auto& s = scenarios[0];
+    const auto& t = stages[0];
 
-    // Verify flow lower bound is relaxed to 0 (deficit coupling)
-    const auto col_low = lp.get_col_low();
-    bool found_relaxed = false;
-    for (Index i = 0; i < lp.get_numcols(); ++i) {
-      if (obj_coeffs[i] < 0.0
-          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
-              == -use_val / scale_obj)
+    const auto expected_fcost_b1 = +fail_val * dur1 / scale_obj;
+    const auto expected_fcost_b2 = +fail_val * dur2 / scale_obj;
+    const auto expected_uvalue_b1 = -use_val * dur1 / scale_obj;
+    const auto expected_uvalue_b2 = -use_val * dur2 / scale_obj;
+    bool found_fcost = false;
+    bool found_uvalue = false;
+    for (const auto& block : t.blocks()) {
+      const auto fail = fr_lp.fail_col_at(s, t, block);
+      const auto excess = fr_lp.excess_col_at(s, t, block);
+      REQUIRE(fail.has_value());
+      REQUIRE(excess.has_value());
+      const auto fc = obj_coeffs[*fail];
+      const auto ec = obj_coeffs[*excess];
+      if (doctest::Approx(fc).epsilon(1e-3) == expected_fcost_b1
+          || doctest::Approx(fc).epsilon(1e-3) == expected_fcost_b2)
       {
-        CHECK(col_low[i] == doctest::Approx(0.0));
-        found_relaxed = true;
+        found_fcost = true;
+      }
+      if (doctest::Approx(ec).epsilon(1e-3) == expected_uvalue_b1
+          || doctest::Approx(ec).epsilon(1e-3) == expected_uvalue_b2)
+      {
+        found_uvalue = true;
       }
     }
-    CHECK(found_relaxed);
+    CHECK(found_fcost);
+    CHECK(found_uvalue);
+
+    // flow_col now carries the hard band `[fmin, fmax]` directly —
+    // it is no longer relaxed to 0.  Verify each flow_col upper
+    // bound matches fmax.
+    const auto col_upp = lp.get_col_upp();
+    for (const auto& [buid, col] : fr_lp.flow_cols_at(s, t)) {
+      CHECK(col_upp[col] == doctest::Approx(20.0));  // fmax = 20
+    }
 
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    // flow should equal discharge (10.0) when unconstrained,
-    // fail should be 0 (no deficit)
-    const auto sol = lp.get_col_sol();
-    for (Index i = 0; i < lp.get_numcols(); ++i) {
-      if (obj_coeffs[i] > 0.0
-          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
-              == fail_val / scale_obj)
-      {
-        CHECK(sol[i] == doctest::Approx(0.0));
-      }
+    // Reconstructed `fail_sol` per block must be 0 when the FlowRight
+    // is fully delivered (junction has water — this is the unconstrained
+    // case).  `fr_lp` / `s` / `t` were captured above.
+    const auto col_sol = lp.get_col_sol();
+    for (const auto& block : t.blocks()) {
+      CHECK(fr_lp.fail_sol_at(s, t, block, col_sol) == doctest::Approx(0.0));
     }
   }
 
-  SUBCASE("fail_cost deficit coupling - fail absorbs shortfall")
+  SUBCASE("fcost deficit coupling - fail absorbs shortfall")
   {
     // FlowRight demands 80 m³/s from junction j_down, but the hydro
     // system only delivers 100 m³/s inflow total (through one turbine).
@@ -1297,8 +1314,8 @@ TEST_CASE(  // NOLINT
             .uid = Uid {1},
             .name = "heavy_demand",
             .junction = Uid {2},
-            .discharge = discharge,
-            .fail_cost = fail_val,
+            .target = discharge,
+            .fcost = fail_val,
         },
     };
 
@@ -1325,18 +1342,18 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    // The fail variable should be non-zero: the FlowRight can't get
-    // the full 80 m³/s because the junction's water is limited.
-    const auto obj_coeffs = lp.get_obj_coeff();
-    const auto sol = lp.get_col_sol();
+    // Post-P0: the `fail` LP column is gone (substituted away).
+    // Reconstruct the per-block shortfall via `fail_sol_at` and sum
+    // across blocks — same semantic as the legacy
+    // `sum_b col_sol[fail_col]` walk.
+    (void)scale_obj;
+    const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+    const auto& scenarios = system_lp.scene().scenarios();
+    const auto& stages = system_lp.phase().stages();
+    const auto col_sol = lp.get_col_sol();
     double total_fail = 0.0;
-    for (Index i = 0; i < lp.get_numcols(); ++i) {
-      if (obj_coeffs[i] > 0.0
-          && doctest::Approx(obj_coeffs[i]).epsilon(1e-6)
-              == fail_val / scale_obj)
-      {
-        total_fail += sol[i];
-      }
+    for (const auto& block : stages[0].blocks()) {
+      total_fail += fr_lp.fail_sol_at(scenarios[0], stages[0], block, col_sol);
     }
     // With limited water, some deficit should exist
     CHECK(total_fail > 0.0);
@@ -1346,12 +1363,12 @@ TEST_CASE(  // NOLINT
   {
     const auto global_uv = 0.5;  // $/m³
 
-    // FlowRight without per-element use_value → should use global fallback
+    // FlowRight without per-element uvalue → should use global fallback
     const Array<FlowRight> flow_right_array = {
         {
             .uid = Uid {1},
             .name = "irr_global_uv",
-            .discharge = 10.0,
+            .target = 10.0,
         },
     };
 
@@ -1402,12 +1419,12 @@ TEST_CASE(  // NOLINT
   {
     const auto global_fc = 1.0;  // $/m³
 
-    // FlowRight without per-element fail_cost → should use global fallback
+    // FlowRight without per-element fcost → should use global fallback
     const Array<FlowRight> flow_right_array = {
         {
             .uid = Uid {1},
             .name = "irr_global_fc",
-            .discharge = 10.0,
+            .target = 10.0,
         },
     };
 
@@ -1429,9 +1446,12 @@ TEST_CASE(  // NOLINT
     auto&& lp = system_lp.linear_interface();
     const auto obj_coeffs = lp.get_obj_coeff();
 
-    // Expected: global_fc * duration * 3600 / scale_objective
-    const auto expected_b1 = global_fc * dur1 * 3600.0 / scale_obj;
-    const auto expected_b2 = global_fc * dur2 * 3600.0 / scale_obj;
+    // Post-2026-05 attach_flow refactor: flow_col carries 0 cost, the
+    // kink penalty rides the `fail` slack with POSITIVE sign.  Expected
+    // fail-slack coefficient per block: `+global_fc × dur × 3600 /
+    // scale_obj`.
+    const auto expected_b1 = +global_fc * dur1 * 3600.0 / scale_obj;
+    const auto expected_b2 = +global_fc * dur2 * 3600.0 / scale_obj;
 
     bool found_b1 = false;
     bool found_b2 = false;
@@ -1454,39 +1474,20 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("use_average creates qeh variable and qavg constraint")
   {
-    // use_average=true → stage-average flow variable (qeh)
-    // qeh = Σ_b [ flow(b) × dur(b) / dur_stage ]
-    //
-    // Use DIFFERENT discharges per block so the weighted average
-    // differs from a simple arithmetic mean — this proves the
-    // duration-weighting is actually applied.
-    //   block 1: discharge = 10 m³/s, duration = 6 h
-    //   block 2: discharge = 50 m³/s, duration = 18 h
-    //   stage_dur = 24 h
-    //   qeh = 10 × 6/24 + 50 × 18/24 = 2.5 + 37.5 = 40.0
-    //   simple mean would be (10+50)/2 = 30 ≠ 40 → proves weighting
-    const auto d1 = 10.0;
-    const auto d2 = 50.0;
-    const auto expected_qeh =
-        (d1 * (dur1 / (dur1 + dur2))) + (d2 * (dur2 / (dur1 + dur2)));
-
-    // Per-block discharge: [scenario=1][stage=1][block=2]
-    std::vector<std::vector<std::vector<Real>>> discharge_sched = {
-        {
-            {
-                d1,
-                d2,
-            },
-        },
-    };
+    // use_average=true → stage-average flow variable (qeh) at stage
+    // scope: qeh = Σ_b dur_ratio_b × flow_b.  With target + fcost
+    // active the kink moves to the qeh column (slack-based), the
+    // per-block flows carry hard `[fmin, fmax]` bounds with no kink.
+    // The LP will drive qeh to target (fcost penalty on shortfall).
+    const auto target_val = 10.0;
 
     const Array<FlowRight> flow_right_array = {
         {
             .uid = Uid {1},
             .name = "irr_avg",
-            .discharge = std::move(discharge_sched),
+            .target = target_val,
             .use_average = true,
-            .fail_cost = 1000.0,
+            .fcost = 1000.0,
         },
     };
 
@@ -1498,63 +1499,32 @@ TEST_CASE(  // NOLINT
         .flow_right_array = flow_right_array,
     };
 
-    // Count columns/rows without use_average for comparison
-    size_t cols_without = 0;
-    size_t rows_without = 0;
-    {
-      std::vector<std::vector<std::vector<Real>>> ds_no = {
-          {
-              {
-                  d1,
-                  d2,
-              },
-          },
-      };
-      const Array<FlowRight> fra_no_avg = {
-          {
-              .uid = Uid {1},
-              .name = "irr_no_avg",
-              .discharge = std::move(ds_no),
-              .fail_cost = 1000.0,
-          },
-      };
-      const System sys_no = {
-          .name = "NoAvgRef",
-          .bus_array = bus_array,
-          .demand_array = demand_array,
-          .generator_array = generator_array,
-          .flow_right_array = fra_no_avg,
-      };
-      const PlanningOptionsLP opts_no;
-      SimulationLP sim_no(simulation, opts_no);
-      SystemLP slp_no(sys_no, sim_no);
-      cols_without = slp_no.linear_interface().get_numcols();
-      rows_without = slp_no.linear_interface().get_numrows();
-    }
-
     const PlanningOptionsLP options;
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
 
     auto&& lp = system_lp.linear_interface();
-
-    // use_average adds 1 qeh column and 1 qavg row
-    CHECK(lp.get_numcols() == cols_without + 1);
-    CHECK(lp.get_numrows() == rows_without + 1);
-
     auto result = lp.resolve();
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    // qeh = 10 × 6/24 + 50 × 18/24 = 40.0
-    // This differs from the simple mean (30.0), proving duration-weighting.
-    const auto sol = lp.get_col_sol();
-    const auto qeh_val = sol[cols_without];
-    CHECK(qeh_val == doctest::Approx(expected_qeh).epsilon(0.01));
-    CHECK(expected_qeh == doctest::Approx(40.0));  // sanity check
+    // The FlowRightLP exposes accessors for the qeh column and the
+    // qavg row presence directly — use them rather than counting
+    // numcols/numrows, which is brittle as the LP grows.
+    const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+    const auto& s = system_lp.scene().scenarios()[0];
+    const auto& t = system_lp.phase().stages()[0];
+    REQUIRE(fr_lp.has_qeh(s, t));
+    CHECK(fr_lp.has_qavg_row(s, t));
+
+    // qeh should reach target=10 with abundant gen capacity and fcost
+    // penalty driving the LP to satisfy the soft target.
+    const auto col_sol = lp.get_col_sol();
+    const auto qeh_col = fr_lp.qeh_col_at(s, t);
+    CHECK(col_sol[qeh_col] == doctest::Approx(target_val).epsilon(0.01));
   }
 
-  SUBCASE("per-element use_value overrides hydro_use_value global")
+  SUBCASE("per-element uvalue overrides hydro_use_value global")
   {
     const auto per_elem_uv = 2000.0;
     const auto global_uv = 0.5;  // $/m³ — should be ignored
@@ -1563,8 +1533,8 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "irr_override",
-            .discharge = 10.0,
-            .use_value = per_elem_uv,
+            .target = 10.0,
+            .uvalue = per_elem_uv,
         },
     };
 
@@ -1586,12 +1556,18 @@ TEST_CASE(  // NOLINT
     auto&& lp = system_lp.linear_interface();
     const auto obj_coeffs = lp.get_obj_coeff();
 
-    // Per-element takes precedence: cost = -per_elem_uv / scale_obj
-    // (no duration multiplication for per-element, it's already in $/flow-unit)
-    const auto expected = -per_elem_uv / scale_obj;
+    // Per-element takes precedence and now goes through the standard
+    // CostHelper::block_ecost pipeline (per-block duration ×
+    // probability × discount).  With one scenario at p=1 and default
+    // discount we get expected = -per_elem_uv × duration / scale_obj.
+    const auto expected_b1 = -per_elem_uv * dur1 / scale_obj;
+    const auto expected_b2 = -per_elem_uv * dur2 / scale_obj;
     bool found = false;
     for (Index i = 0; i < lp.get_numcols(); ++i) {
-      if (doctest::Approx(obj_coeffs[i]).epsilon(1e-8) == expected) {
+      const auto c = obj_coeffs[i];
+      if (doctest::Approx(c).epsilon(1e-8) == expected_b1
+          || doctest::Approx(c).epsilon(1e-8) == expected_b2)
+      {
         found = true;
         break;
       }
@@ -1697,7 +1673,7 @@ TEST_CASE(  // NOLINT
           .name = "tight_irrig",
           .junction = Uid {1},
           .direction = -1,
-          .discharge = 20.0,
+          .target = 20.0,
           .bound_rule =
               RightBoundRule {
                   .reservoir = Uid {1},

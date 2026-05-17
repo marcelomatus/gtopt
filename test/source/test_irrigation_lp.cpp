@@ -47,8 +47,8 @@ TEST_CASE("SystemLP with FlowRight - basic LP construction")
       {
           .uid = Uid {1},
           .name = "irrig_flow_1",
-          .discharge = 20.0,
-          .fail_cost = 5000.0,
+          .target = 20.0,
+          .fcost = 5000.0,
       },
   };
 
@@ -120,8 +120,8 @@ TEST_CASE(  // NOLINT
           {
               .uid = Uid {1},
               .name = "irrig_flow_1",
-              .discharge = 20.0,
-              .fail_cost = 5000.0,
+              .target = 20.0,
+              .fcost = 5000.0,
           },
       };
     }
@@ -181,7 +181,7 @@ TEST_CASE("SystemLP with FlowRight - zero fail_cost produces no deficit")
       {
           .uid = Uid {1},
           .name = "irrig_no_fail",
-          .discharge = 10.0,
+          .target = 10.0,
       },
   };
 
@@ -444,14 +444,14 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "flow_right_1",
-          .discharge = 15.0,
-          .fail_cost = 5000.0,
+          .target = 15.0,
+          .fcost = 5000.0,
       },
       {
           .uid = Uid {2},
           .name = "flow_right_2",
-          .discharge = 25.0,
-          .fail_cost = 3000.0,
+          .target = 25.0,
+          .fcost = 3000.0,
       },
   };
 
@@ -576,8 +576,8 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "irrig_downstream",
           .junction = Uid {2},
-          .discharge = 10.0,
-          .fail_cost = 5000.0,
+          .target = 10.0,
+          .fcost = 5000.0,
       },
   };
 
@@ -639,8 +639,8 @@ TEST_CASE("FlowRightLP - add_to_output via write_out")  // NOLINT
       {
           .uid = Uid {1},
           .name = "irrig_flow_1",
-          .discharge = 20.0,
-          .fail_cost = 5000.0,
+          .target = 20.0,
+          .fcost = 5000.0,
       },
   };
 
