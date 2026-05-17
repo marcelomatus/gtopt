@@ -276,11 +276,11 @@ def test_laja_with_resolver_active_overrides_costs():
     expected = resolver.fail_cost(resolver.cascade_lost_pf(10))  # 1100 * 0.7
     fr_riego = _flow_right(agreement, "laja_der_riego")
     fr_electrico = _flow_right(agreement, "laja_der_electrico")
-    assert _scalar_from_sched(fr_riego["fail_cost"]) == expected
-    assert _scalar_from_sched(fr_electrico["fail_cost"]) == expected
+    assert _scalar_from_sched(fr_riego["fcost"]) == expected
+    assert _scalar_from_sched(fr_electrico["fcost"]) == expected
     # Anticipated FlowRight is also anchored to cost_irr_ns
     fr_antic = _flow_right(agreement, "laja_gasto_anticipado")
-    assert _scalar_from_sched(fr_antic["fail_cost"]) == 0.0  # monthly factor 0
+    assert _scalar_from_sched(fr_antic["fcost"]) == 0.0  # monthly factor 0
 
 
 def test_laja_without_resolver_preserves_legacy_costs():
@@ -290,8 +290,8 @@ def test_laja_without_resolver_preserves_legacy_costs():
 
     fr_riego = _flow_right(agreement, "laja_der_riego")
     fr_electrico = _flow_right(agreement, "laja_der_electrico")
-    assert _scalar_from_sched(fr_riego["fail_cost"]) == cfg["cost_irr_ns"]
-    assert _scalar_from_sched(fr_electrico["fail_cost"]) == cfg["cost_elec_ns"]
+    assert _scalar_from_sched(fr_riego["fcost"]) == cfg["cost_irr_ns"]
+    assert _scalar_from_sched(fr_electrico["fcost"]) == cfg["cost_elec_ns"]
 
 
 def test_laja_resolver_inactive_preserves_legacy_costs():
@@ -304,7 +304,7 @@ def test_laja_resolver_inactive_preserves_legacy_costs():
     )
     agreement = LajaAgreement(cfg, water_value_resolver=resolver)
     fr_riego = _flow_right(agreement, "laja_der_riego")
-    assert _scalar_from_sched(fr_riego["fail_cost"]) == cfg["cost_irr_ns"]
+    assert _scalar_from_sched(fr_riego["fcost"]) == cfg["cost_irr_ns"]
 
 
 def test_laja_district_per_central_cascade():
@@ -325,12 +325,12 @@ def test_laja_district_per_central_cascade():
     # (which itself was auto-derived from TEST_CENTRAL).
     fr_d1 = _flow_right(agreement, "D1_1o_reg")
     laja_main_cost = resolver.fail_cost(resolver.cascade_lost_pf(10))
-    assert fr_d1["fail_cost"] == laja_main_cost * 1.0  # cost_factor=1
+    assert fr_d1["fcost"] == laja_main_cost * 1.0  # cost_factor=1
 
     # D2 has injection='INJECTION_CENTRAL' → uses its own cascade.
     fr_d2 = _flow_right(agreement, "D2_1o_reg")
     expected_d2 = resolver.fail_cost(resolver.cascade_lost_pf(20))  # 1100 * 0.3
-    assert fr_d2["fail_cost"] == expected_d2
+    assert fr_d2["fcost"] == expected_d2
 
 
 def test_laja_district_unknown_injection_falls_back():
@@ -347,7 +347,7 @@ def test_laja_district_unknown_injection_falls_back():
     agreement = LajaAgreement(cfg, water_value_resolver=resolver)
     fr_d2 = _flow_right(agreement, "D2_1o_reg")
     laja_main_cost = resolver.fail_cost(resolver.cascade_lost_pf(10))
-    assert fr_d2["fail_cost"] == laja_main_cost * 0.5  # D2 cost_factor=0.5
+    assert fr_d2["fcost"] == laja_main_cost * 0.5  # D2 cost_factor=0.5
 
 
 def test_laja_use_values_unchanged():
@@ -375,18 +375,18 @@ def test_laja_use_values_unchanged():
     # in both modes.
     fr_riego_off = _flow_right(a_off, "laja_der_riego")
     fr_riego_on = _flow_right(a_on, "laja_der_riego")
-    assert _scalar_from_sched(fr_riego_off["use_value"]) == cfg["cost_irr_uso"]
-    assert _scalar_from_sched(fr_riego_on["use_value"]) == cfg["cost_irr_uso"]
+    assert _scalar_from_sched(fr_riego_off["uvalue"]) == cfg["cost_irr_uso"]
+    assert _scalar_from_sched(fr_riego_on["uvalue"]) == cfg["cost_irr_uso"]
 
     fr_elec_off = _flow_right(a_off, "laja_der_electrico")
     fr_elec_on = _flow_right(a_on, "laja_der_electrico")
-    assert _scalar_from_sched(fr_elec_off["use_value"]) == cfg["cost_elec_uso"]
-    assert _scalar_from_sched(fr_elec_on["use_value"]) == cfg["cost_elec_uso"]
+    assert _scalar_from_sched(fr_elec_off["uvalue"]) == cfg["cost_elec_uso"]
+    assert _scalar_from_sched(fr_elec_on["uvalue"]) == cfg["cost_elec_uso"]
 
     fr_mixed_off = _flow_right(a_off, "laja_der_mixto")
     fr_mixed_on = _flow_right(a_on, "laja_der_mixto")
-    assert _scalar_from_sched(fr_mixed_off["use_value"]) == cfg["cost_mixed"]
-    assert _scalar_from_sched(fr_mixed_on["use_value"]) == cfg["cost_mixed"]
+    assert _scalar_from_sched(fr_mixed_off["uvalue"]) == cfg["cost_mixed"]
+    assert _scalar_from_sched(fr_mixed_on["uvalue"]) == cfg["cost_mixed"]
 
 
 # ---------------------------------------------------------------------------
@@ -484,4 +484,4 @@ def test_from_json_threads_resolver(tmp_path):
 
     fr_riego = _flow_right(agreement, "laja_der_riego")
     expected = resolver.fail_cost(resolver.cascade_lost_pf(10))
-    assert _scalar_from_sched(fr_riego["fail_cost"]) == expected
+    assert _scalar_from_sched(fr_riego["fcost"]) == expected

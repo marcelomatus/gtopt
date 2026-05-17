@@ -520,7 +520,7 @@ class TestLajaWriter:
         )
         assert zaco_1o is not None
         # fail_cost = cost_irr_ns * cost_factor = 1100 * 1.5 = 1650
-        assert zaco_1o["fail_cost"] == pytest.approx(1650)
+        assert zaco_1o["fcost"] == pytest.approx(1650)
 
     def test_to_json_dict_keys(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -589,7 +589,7 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"].startswith("RieSaltos_")
         ]
         for fr in saltos_frs:
-            assert fr["fail_cost"] == pytest.approx(220)
+            assert fr["fcost"] == pytest.approx(220)
 
     def test_district_zero_pct_zero_demand_skipped(self):
         """Categories with pct<=0 AND demand<=0 should not generate FlowRights."""
@@ -684,14 +684,14 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
         # use_value is now cost_elec_uso × monthly_cost_elec (per-stage schedule)
-        assert "use_value" in elec
+        assert "uvalue" in elec
 
     def test_usage_cost_mixed(self, laja_config):
         """Mixed rights have use_value modulated by monthly_cost_mixed."""
         writer = LajaWriter(laja_config)
         mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
         # use_value is now cost_mixed × monthly_cost_mixed (per-stage schedule)
-        assert "use_value" in mixed
+        assert "uvalue" in mixed
 
     def test_usage_cost_zero_omitted(self):
         """When usage cost is 0, use_value should not be emitted."""
@@ -703,8 +703,8 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
         mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
-        assert "use_value" not in elec
-        assert "use_value" not in mixed
+        assert "uvalue" not in elec
+        assert "uvalue" not in mixed
 
     def test_user_constraints_partition(self, laja_config):
         """Laja writer emits 1 user constraint for the partition balance."""

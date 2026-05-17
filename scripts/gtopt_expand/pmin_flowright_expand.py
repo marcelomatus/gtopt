@@ -308,7 +308,10 @@ def ensure_drain_for_flowrights(system: dict[str, Any]) -> int:
         return 0
     created = 0
     for fr in flow_rights:
-        if "fail_cost" not in fr:
+        # Post-2026-05 the soft-FlowRight key is `fcost`; accept the
+        # legacy `fail_cost` for read-only checks against fixtures
+        # written by older versions of plp2gtopt.
+        if "fcost" not in fr and "fail_cost" not in fr:
             continue
         j = fr.get("junction")
         if not isinstance(j, str) or not j:

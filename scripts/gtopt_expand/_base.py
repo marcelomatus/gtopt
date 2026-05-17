@@ -184,6 +184,26 @@ class _RightsAgreementBase:
         counts = self._stage_block_counts(len(values))
         return [[[v] * nb for v, nb in zip(values, counts)]]
 
+    def _to_t_sched(
+        self,
+        values: list[float],
+    ) -> float | list[float]:
+        """Convert per-stage values to TRealFieldSched (1D) or scalar.
+
+        Returns scalar 0.0 on empty input, the single value if all
+        stages match, otherwise a 1D ``[v1, v2, ...]`` list compatible
+        with ``FieldSched<Real, vector<Real>>``.  Used by FlowRight's
+        ``fcost`` and ``uvalue`` post-2026-05 — those are stage-scoped
+        (the per-block block-duration weighting is applied uniformly
+        at LP build via ``CostHelper::block_ecost``, so the raw
+        schedule does not need a per-block dimension).
+        """
+        if not values:
+            return 0.0
+        if len(set(values)) == 1:
+            return values[0]
+        return list(values)
+
     def _to_tb_sched(
         self,
         values: list[float],

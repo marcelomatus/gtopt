@@ -619,7 +619,7 @@ class TestMauleInvernadaBalance:
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
-        assert storage["use_value"] == pytest.approx(1500.0)
+        assert storage["uvalue"] == pytest.approx(1500.0)
 
     def test_invernada_bypass_use_value(self):
         """Bypass FlowRight should have use_value from costo_no_embalsar."""
@@ -628,7 +628,7 @@ class TestMauleInvernadaBalance:
         bypass = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_no_embalsar"
         )
-        assert bypass["use_value"] == pytest.approx(1000.0)
+        assert bypass["uvalue"] == pytest.approx(1000.0)
 
     def test_invernada_storage_zero_cost_omitted(self):
         """When costo_embalsar is 0, use_value should not be emitted."""
@@ -638,7 +638,7 @@ class TestMauleInvernadaBalance:
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
-        assert "use_value" not in storage
+        assert "uvalue" not in storage
 
 
 class TestMauleBocatomaCanelon:
@@ -652,7 +652,7 @@ class TestMauleBocatomaCanelon:
             None,
         )
         assert canelon is not None
-        assert canelon["use_value"] == pytest.approx(10.0)
+        assert canelon["uvalue"] == pytest.approx(10.0)
         assert canelon["purpose"] == "irrigation"
 
     def test_bocatoma_zero_cost_omitted(self):

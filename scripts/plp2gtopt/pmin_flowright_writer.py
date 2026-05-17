@@ -158,7 +158,6 @@ class PminFlowRightWriter(BaseWriter):
         mance_parser: Any,
         block_parser: Any,
         stage_parser: Any,
-        scenarios: Optional[List[Dict[str, Any]]] = None,
         vrebemb_parser: Optional[Any] = None,
         plpmat_parser: Optional[Any] = None,
         cenre_parser: Optional[Any] = None,
@@ -171,7 +170,6 @@ class PminFlowRightWriter(BaseWriter):
         self.mance_parser = mance_parser
         self.block_parser = block_parser
         self.stage_parser = stage_parser
-        self.scenarios = list(scenarios) if scenarios else []
         self.vrebemb_parser = vrebemb_parser
         self.plpmat_parser = plpmat_parser
         self.cenre_parser = cenre_parser
@@ -201,20 +199,6 @@ class PminFlowRightWriter(BaseWriter):
         # not silently re-enforce a hard pmin alongside the new soft
         # FlowRight.
         self._converted_generator_uids: set[int] = set()
-
-    def _scenario_uids(self) -> List[int]:
-        """Return the list of scenario UIDs used for the parquet rows.
-
-        Falls back to ``[1]`` if no scenarios are configured.  The
-        FlowRight discharge is currently scenario-independent (=
-        ``pmin / Rendi``), so we replicate the same row-set across
-        every scenario; gtopt's ``STBRealFieldSched`` reader expects a
-        ``scenario`` column whose values match the case's scenario UIDs
-        (set in ``simulation.scenario_array``).
-        """
-        if not self.scenarios:
-            return [1]
-        return [int(s["uid"]) for s in self.scenarios if "uid" in s]
 
     # ------------------------------------------------------------------
     # Public API
@@ -564,6 +548,12 @@ class PminFlowRightWriter(BaseWriter):
                 break
 
         column_name = f"{central_name}{_FLOW_RIGHT_SUFFIX}"
+        # The gtopt C++ JSON binding uses `target` (with `discharge`
+        # accepted as legacy alias) and `fcost` (no legacy alias —
+        # `fail_cost` is the pre-2026-05 name and no longer parses).
+        # Keep `discharge` here for compatibility with older gtopt
+        # builds that haven't picked up the unified-mode refactor;
+        # the alias resolves to `target` at parse time.
         entry: Dict[str, Any] = {
             "uid": uid,
             "name": column_name,
@@ -571,7 +561,7 @@ class PminFlowRightWriter(BaseWriter):
             "junction": junction_b,
             "direction": _FLOW_RIGHT_DIRECTION,
             "discharge": column_name,
-            "fail_cost": fail_cost,
+            "fcost": fail_cost,
         }
         return entry, flow_values
 
@@ -810,7 +800,7 @@ class PminFlowRightWriter(BaseWriter):
                 "junction": junction_b,
                 "direction": _FLOW_RIGHT_DIRECTION,
                 "discharge": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
-                "fail_cost": fail_cost,
+                "fcost": fail_cost,
             }
             flow_rights.append(entry)
             rows_by_uid[next_uid] = flow_values
@@ -889,28 +879,17 @@ class PminFlowRightWriter(BaseWriter):
             values = rows_by_uid.get(uid)
             if values is None or values.size == 0:
                 continue
-            # FlowRight.discharge is STBRealFieldSched (Scenario ×
-            # sTage × Block), so the parquet MUST carry a `scenario`
-            # column populated with the actual scenario UID(s) the case
-            # uses (NOT a hardcoded 1).  Mirror the convention of
-            # `Flow/discharge.parquet`: one row per (scenario, stage,
-            # block).  When more than one scenario is in the case, the
-            # frame is replicated per scenario (the discharge value is
-            # currently scenario-independent for pmin-as-flowright).
-            scen_uids = self._scenario_uids()
-            frames: list[pd.DataFrame] = []
-            for s_uid in scen_uids:
-                frames.append(
-                    pd.DataFrame(
-                        {
-                            "scenario": np.full(
-                                block_index.size, s_uid, dtype=np.int32
-                            ),
-                            "block": block_index,
-                            f"uid:{uid}": values,
-                            "stage": stage_index,
-                        }
-                    )
-                )
-            df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+            # FlowRight.{fmin,fmax,target,discharge} are now
+            # OptTBRealFieldSched (Stage × Block — scenario-independent).
+            # Emit one row per (stage, block); do NOT replicate per
+            # scenario.  Replicating would create duplicate (stage,
+            # block) keys for the 2D reader and the C++ side now
+            # throws on duplicate UID keys.
+            df = pd.DataFrame(
+                {
+                    "block": block_index,
+                    f"uid:{uid}": values,
+                    "stage": stage_index,
+                }
+            )
             self.write_dataframe(df, output_dir, stem)

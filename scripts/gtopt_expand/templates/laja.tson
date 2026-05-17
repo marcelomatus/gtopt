@@ -202,9 +202,9 @@
       "discharge": 0,
       "fmax": {{ fmax_irr }},
       "use_average": true,
-      "fail_cost": {{ fail_cost_irr }}
+      "fcost": {{ fail_cost_irr }}
       {% if use_value_irr is not none %}
-      ,"use_value": {{ use_value_irr }}
+      ,"uvalue": {{ use_value_irr }}
       {% endif %}
     },
 
@@ -227,9 +227,9 @@
       "discharge": 0,
       "fmax": {{ fmax_elec }},
       "use_average": true,
-      "fail_cost": {{ fail_cost_elec }}
+      "fcost": {{ fail_cost_elec }}
       {% if use_value_elec is not none %}
-      ,"use_value": {{ use_value_elec }}
+      ,"uvalue": {{ use_value_elec }}
       {% endif %}
     },
 
@@ -252,7 +252,7 @@
       "fmax": {{ fmax_mixed }},
       "use_average": true
       {% if use_value_mixed is not none %}
-      ,"use_value": {{ use_value_mixed }}
+      ,"uvalue": {{ use_value_mixed }}
       {% endif %}
     },
 
@@ -274,7 +274,7 @@
       "discharge": 0,
       "fmax": {{ fmax_antic }},
       "use_average": true,
-      "fail_cost": {{ fail_cost_antic }}
+      "fcost": {{ fail_cost_antic }}
     }
 
     {# ============================================================= #}

@@ -216,7 +216,7 @@
       "discharge": 0,
       "fmax": {{ elec_day_max }},
       "use_average": true,
-      "fail_cost": {{ penalizador_1 }},
+      "fcost": {{ penalizador_1 }},
       "bound_rule": {
         "reservoir": {{ res_colbun }},
         "segments": [
@@ -255,7 +255,7 @@
       "discharge": 0,
       "fmax": {{ irr_fmax_schedule }},
       "use_average": true,
-      "fail_cost": {{ costo_riego_ns_maule }},
+      "fcost": {{ costo_riego_ns_maule }},
       "bound_rule": {
         "reservoir": {{ res_colbun }},
         "segments": [
@@ -264,7 +264,7 @@
         ]
       }
       {% if valor_riego > 0 %}
-      ,"use_value": {{ valor_riego }}
+      ,"uvalue": {{ valor_riego }}
       {% endif %}
     },
 
@@ -330,7 +330,7 @@
         ]
       }
       {% if valor_riego > 0 %}
-      ,"use_value": {{ valor_riego }}
+      ,"uvalue": {{ valor_riego }}
       {% endif %}
     },
 
@@ -379,9 +379,9 @@
       "purpose": "environmental",
       "direction": -1,
       "discharge": {{ res105_discharge }},
-      "fail_cost": {{ costo_riego_ns_res105 }}
+      "fcost": {{ costo_riego_ns_res105 }}
       {% if valor_riego_res105 > 0 %}
-      ,"use_value": {{ valor_riego_res105 }}
+      ,"uvalue": {{ valor_riego_res105 }}
       {% endif %}
     },
 
@@ -456,7 +456,7 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
-      ,"use_value": {{ costo_embalsar }}
+      ,"uvalue": {{ costo_embalsar }}
       {% endif %}
     },
 
@@ -470,7 +470,7 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
-      ,"use_value": {{ costo_no_embalsar }}
+      ,"uvalue": {{ costo_no_embalsar }}
       {% endif %}
     }
 
@@ -489,7 +489,7 @@
       "purpose": "irrigation",
       "direction": -1,
       "discharge": 0,
-      "use_value": {{ costo_canelon }}
+      "uvalue": {{ costo_canelon }}
     }
     {% endif %}
 

@@ -678,3 +678,67 @@ class TestBackwardCompatibilityShims:
         from gtopt_expand._template_engine import render_tson as new_render_tson
 
         assert shim_render_tson is new_render_tson
+
+
+# ---------------------------------------------------------------------------
+# Schedule-shape regression tests (added 2026-05-16)
+# ---------------------------------------------------------------------------
+#
+# `FlowRight.{fmin,fmax,target,discharge}` was widened back from
+# OptTRealFieldSched (1D) to OptTBRealFieldSched (2D scalar / 2D-list /
+# FileSched) after the per-stage-block round-trip warnings on parquet
+# inputs.  The C++ JSON variant only accepts scalar + 2D + FileSched —
+# a 1D `list[float]` emission would FAIL the daw::json parse.  These
+# tests pin the writer outputs to either scalar or 2D so a regression
+# back to `_to_t_sched` for these specific fields fails fast.
+
+
+def _is_2d_or_scalar(value):
+    """True iff value is scalar (float/int) or 2D ``list[list[float]]``."""
+    if isinstance(value, (int, float)):
+        return True
+    if not isinstance(value, list):
+        return False
+    return all(isinstance(row, list) for row in value)
+
+
+class TestFlowRightFieldShapes:
+    """`FlowRight.fmax` / `discharge` must be scalar or 2D (never 1D)."""
+
+    def test_laja_district_discharge_is_2d_or_scalar(self):
+        # Laja agreement emits per-district FlowRights with `discharge`
+        # = `_to_tb_sched(...)`.  Configure varying seasonal factors so
+        # the writer cannot collapse to scalar — it MUST emit 2D.
+        cfg = _minimal_laja_config()
+        cfg["seasonal_1o_reg"] = list(range(1, 13))  # 12 distinct values
+        cfg["demand_1o_reg"] = 100  # non-zero so the FR is emitted
+        agreement = LajaAgreement(cfg)
+        for fr in agreement.flow_rights:
+            for field in ("fmax", "discharge", "target"):
+                if field not in fr:
+                    continue
+                value = fr[field]
+                assert _is_2d_or_scalar(value), (
+                    f"Laja FlowRight {fr.get('name')!r}.{field} must be "
+                    f"scalar or 2D list[list[float]]; got "
+                    f"{type(value).__name__} = {value!r}"
+                )
+
+    def test_maule_fmax_target_is_2d_or_scalar(self):
+        # Maule agreement emits FlowRights with `fmax` /
+        # `discharge` = `_to_tb_sched(...)`.  `pct_riego_mensual`
+        # varies by month so `irr_fmax_schedule` cannot collapse to
+        # scalar — it MUST be 2D.
+        cfg = _minimal_maule_config()
+        cfg["pct_riego_mensual"] = [10 * (i + 1) for i in range(12)]  # vary
+        agreement = MauleAgreement(cfg)
+        for fr in agreement.flow_rights:
+            for field in ("fmax", "discharge", "target"):
+                if field not in fr:
+                    continue
+                value = fr[field]
+                assert _is_2d_or_scalar(value), (
+                    f"Maule FlowRight {fr.get('name')!r}.{field} must be "
+                    f"scalar or 2D list[list[float]]; got "
+                    f"{type(value).__name__} = {value!r}"
+                )

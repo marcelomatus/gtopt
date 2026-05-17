@@ -294,10 +294,13 @@ class MauleAgreement(_RightsAgreementBase):
         monthly_pcts: list[float],
         base_flow: float,
     ) -> float | list[list[float]]:
-        """Build per-stage fmax from monthly percentage × base flow.
+        """Build per-stage-block fmax from monthly percentage × base flow.
 
-        Returns a scalar if all stages have the same value, otherwise
-        a 2D array compatible with OptTBRealFieldSched (stage × block).
+        Returns a scalar if all stages have the same value, otherwise a
+        2D ``[[v]*nblocks for v in values]`` list compatible with
+        ``OptTBRealFieldSched`` (per-stage-block).  `FlowRight.fmax` is
+        a 2D field (re-widened from 1D in the 2026-05 type-widening
+        agent so per-stage-block parquet round-trips no longer warn).
         """
         monthly_flows = [pct / 100.0 * base_flow for pct in monthly_pcts]
         schedule = self._monthly_schedule(monthly_flows)
@@ -329,7 +332,9 @@ class MauleAgreement(_RightsAgreementBase):
 
         caudal_res105 = cfg["caudal_res105"]
         res105_values = self._monthly_schedule(caudal_res105)
-        res105_discharge = self._to_stb_sched(res105_values)
+        # `discharge` aliases `target` (OptTBRealFieldSched / 2D) —
+        # emit scalar or 2D so the C++ JSON parser variant matches.
+        res105_discharge = self._to_tb_sched(res105_values)
 
         valor_riego = cfg.get("valor_riego_maule", 0)
         valor_riego_res105 = cfg.get("valor_riego_res105", 0)

@@ -246,17 +246,29 @@ class LajaAgreement(_RightsAgreementBase):
         qmax: float,
         usage: list[float],
     ) -> float | list[list[float]]:
-        """Return a per-stage fmax schedule = ``qmax * usage[stage]``."""
+        """Return a per-stage-block fmax schedule = ``qmax * usage[stage]``.
+
+        Emits a TBRealFieldSched (scalar or 2D ``[[v]*nblocks for v in
+        values]``) — the post-2026-05 FlowRight `fmax` field type
+        (re-widened from 1D in the type-widening agent).
+        """
         return self._to_tb_sched([qmax * u for u in usage])
 
     def _monthly_cost_schedule(
         self,
         base_cost: float,
         monthly_factors: list[float],
-    ) -> float | list[list[float]]:
-        """Return a per-stage cost schedule modulated by a hydro-year factor."""
+    ) -> float | list[float]:
+        """Return a per-stage cost schedule modulated by a hydro-year factor.
+
+        Emits a TRealFieldSched (1D per-stage or scalar) — the post-
+        2026-05 FlowRight `fcost` / `uvalue` field type.  Pre-2026-05
+        this was a TBRealFieldSched (2D); the type narrowing made the
+        per-block dimension redundant since `CostHelper::block_ecost`
+        applies the block-duration weight uniformly at LP build time.
+        """
         modulated = self._hydro_to_stage_schedule(monthly_factors)
-        return self._to_tb_sched([base_cost * f for f in modulated])
+        return self._to_t_sched([base_cost * f for f in modulated])
 
     def _prepare_context(self) -> dict[str, Any]:
         """Prepare the template context with all pre-computed values.
@@ -453,7 +465,10 @@ class LajaAgreement(_RightsAgreementBase):
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
                 discharge_values = [demand_base * pct * s for s in seasonal]
-                discharge_sched = self._to_stb_sched(discharge_values)
+                # `discharge` aliases `target` (OptTBRealFieldSched / 2D)
+                # in the post-2026-05 FlowRight binding — emit scalar or
+                # 2D (matches the C++ jvtl_TBRealFieldSched variant).
+                discharge_sched = self._to_tb_sched(discharge_values)
 
                 fr_name = f"{district['name']}_{category}"
                 injection = district.get("injection")
@@ -464,12 +479,17 @@ class LajaAgreement(_RightsAgreementBase):
                     resolver_active=resolver_active,
                     fr_name=fr_name,
                 )
+                # NB: `discharge` is the legacy JSON-key alias of
+                # `target` in the gtopt FlowRight binding; both are
+                # accepted at parse time.  `fail_cost` (pre-2026-05
+                # name) has NO legacy alias — emit `fcost` directly so
+                # the gtopt C++ JSON binding parses it.
                 fr_district: dict[str, Any] = {
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
                     "discharge": discharge_sched,
-                    "fail_cost": fail_cost,
+                    "fcost": fail_cost,
                 }
                 if injection:
                     fr_district["junction"] = injection

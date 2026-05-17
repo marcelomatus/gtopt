@@ -154,7 +154,7 @@ class TestExpandPminFlowRight:
         assert fr["purpose"] == "environmental"
         assert fr["discharge"] == pytest.approx(50.0 / 0.8)  # 62.5
         assert "fmax" not in fr  # fixed-mode
-        assert "fail_cost" not in fr  # falls back to global hydro_fail_cost
+        assert "fcost" not in fr  # falls back to global hydro_fail_cost
 
     def test_2d_pmin_yields_3d_discharge(self, tmp_path: Path) -> None:
         csv_path = _write_csv(tmp_path)

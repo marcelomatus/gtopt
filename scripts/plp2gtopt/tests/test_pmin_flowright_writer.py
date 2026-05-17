@@ -257,7 +257,7 @@ def test_writer_emits_flow_right_and_parquet(tmp_path: Path) -> None:
     assert fr["junction"] == "j_down"
     assert fr["direction"] == -1
     assert fr["discharge"] == fr["name"]
-    assert fr["fail_cost"] == _DEFAULT_FAIL_COST
+    assert fr["fcost"] == _DEFAULT_FAIL_COST
 
     # Generator pmin zeroed
     assert planning["generator_array"][0]["pmin"] == 0.0
@@ -269,19 +269,18 @@ def test_writer_emits_flow_right_and_parquet(tmp_path: Path) -> None:
     table = pq.read_table(parquet_file)
     cols = table.column_names
     uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    # FlowRight.discharge is STBRealFieldSched (Scenario × sTage × Block);
-    # the writer mirrors Flow/discharge.parquet by emitting a ``scenario``
-    # column in addition to ``block`` / ``stage``.  When no scenarios are
-    # configured on the writer, it falls back to ``[1]``.
-    assert cols == ["scenario", "block", uid_col, "stage"]
+    # FlowRight.{fmin,fmax,target,discharge} are now OptTBRealFieldSched
+    # (Stage × Block, scenario-independent), so the parquet carries only
+    # `block` / `stage` UID columns.  Emitting a `scenario` column would
+    # produce duplicate (stage, block) keys on the 2D reader — gtopt
+    # treats that as a hard error.
+    assert cols == ["block", uid_col, "stage"]
     # flow_min = pmin / Rendi = [10/0.5, 20/0.5] = [20, 40]
     flows = table.column(uid_col).to_pylist()
     assert flows == [20.0, 40.0]
 
-    scenarios_out = table.column("scenario").to_pylist()
     blocks_out = table.column("block").to_pylist()
     stages_out = table.column("stage").to_pylist()
-    assert scenarios_out == [1, 1]
     assert blocks_out == [1, 2]
     assert stages_out == [1, 1]
 
@@ -624,7 +623,7 @@ def test_waterway_fmin_scalar_emits_flow_right(tmp_path: Path) -> None:
     assert fr["junction"] == "LOS_CONDORES"
     assert fr["direction"] == -1
     assert fr["discharge"] == fr["name"]
-    assert fr["fail_cost"] == _DEFAULT_FAIL_COST
+    assert fr["fcost"] == _DEFAULT_FAIL_COST
 
     # Waterway hard floor zeroed
     assert planning["waterway_array"][0]["fmin"] == 0.0
@@ -782,3 +781,38 @@ def test_waterway_fmin_skipped_when_disabled() -> None:
     }
     result = writer.process(planning)
     assert not result
+
+
+def test_parquet_emits_one_row_per_stage_block_pair(tmp_path: Path) -> None:
+    """Regression for the 2026-05-16 fix: the writer must NOT replicate
+    rows per scenario.
+
+    `FlowRight.{fmin,fmax,target,discharge}` are `OptTBRealFieldSched`
+    (2D Stage×Block, scenario-independent); emitting a `scenario`
+    column would produce duplicate (stage, block) keys for the 2D
+    Arrow reader and the C++ side now throws on duplicate UID keys.
+    """
+    central = _machicura_central(pmin=10.0, efficiency=0.5)
+    mance = {
+        "name": "MACHICURA",
+        "block": np.array([1, 2], dtype=np.int64),
+        "pmin": np.array([10.0, 20.0], dtype=np.float64),
+        "pmax": np.array([100.0, 100.0], dtype=np.float64),
+    }
+    writer = _make_writer(
+        whitelist=["MACHICURA"],
+        centrals=[central],
+        mances=[mance],
+        options={"output_dir": tmp_path, "output_format": "parquet"},
+    )
+    result = writer.process(_planning_with_machicura())
+    assert len(result) == 1
+
+    fr = result[0]
+    parquet_file = tmp_path / "FlowRight" / f"{fr['name']}.parquet"
+    table = pq.read_table(parquet_file)
+    assert table.column_names == ["block", f"uid:{_FLOW_RIGHT_UID_START}", "stage"]
+    # Exactly one row per (stage, block) pair — never replicated per scenario.
+    assert table.num_rows == 2  # 2 blocks × 1 stage = 2 rows
+    assert table.column("stage").to_pylist() == [1, 1]
+    assert table.column("block").to_pylist() == [1, 2]
