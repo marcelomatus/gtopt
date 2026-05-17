@@ -654,6 +654,62 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
+    "LinearProblem flatten: row_max equilibration also preserves integer cols")
+{
+  // ``row_max`` is the default equilibration mode for single-bus / no-KVL
+  // builds and scales rows only — it would NOT touch column scales even
+  // without the integer-column guard.  This test pins the invariant
+  // anyway, so a future refactor that adds column scaling to row_max
+  // (or replaces row_max with something Ruiz-like) keeps the integer
+  // column bounds clean.
+  LinearProblem lp("row_max_integer_guard");
+
+  const auto gcol = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 135.0,
+      .class_name = "Generator",
+      .variable_name = "generation",
+      .variable_uid = Uid {1},
+  });
+  const auto ucol = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .is_integer = true,
+      .class_name = "Commitment",
+      .variable_name = "status",
+      .variable_uid = Uid {1},
+  });
+
+  // Same gen_upper-style row as the Ruiz test below: -pmax on the
+  // integer status column, 1 on dispatch, ≤ 0.  row_max picks the
+  // largest |coeff| in the row (135 here) as the row-scale divisor.
+  SparseRow row;
+  row[gcol] = 1.0;
+  row[ucol] = -135.0;
+  row.uppb = 0.0;
+  row.class_name = "Commitment";
+  row.constraint_name = "gen_upper";
+  row.variable_uid = Uid {1};
+  std::ignore = lp.add_row(std::move(row));
+
+  const auto flat = lp.flatten({
+      .equilibration_method = LpEquilibrationMethod::row_max,
+  });
+  const auto u_idx = static_cast<size_t>(ucol.value_of());
+
+  // Both bounds and the recorded col_scale survive row_max untouched.
+  CHECK(flat.colub[u_idx] == doctest::Approx(1.0));
+  CHECK(flat.collb[u_idx] == doctest::Approx(0.0));
+  CHECK(flat.col_scales[u_idx] == doctest::Approx(1.0));
+
+  // And it lands in the integer-column index list.
+  const auto found =
+      std::ranges::find(flat.colint, static_cast<int>(ucol.value_of()))
+      != flat.colint.end();
+  CHECK(found);
+}
+
+TEST_CASE(  // NOLINT
     "LinearProblem flatten: Ruiz equilibration leaves integer columns alone")
 {
   // Build a tiny LP that triggers Ruiz to want to rescale an integer

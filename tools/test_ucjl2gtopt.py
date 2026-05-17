@@ -714,6 +714,65 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
     not _VENDORED_CASE14_BASE.is_file(),
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
+def test_real_case14_base_mip_full_network_row_max_equilibration(
+    tmp_path: Path,
+) -> None:
+    """MIP + full network + ``row_max`` equilibration: same fix invariants.
+
+    Companion to ``…_status_clean_binary`` above (which exercises the
+    default Ruiz path for multi-bus KVL) — verifies the integer-column
+    invariant holds equally under the ``row_max`` equilibration mode.
+    ``row_max`` is the default for single-bus / no-KVL builds and scales
+    rows only, so the integer columns naturally keep their physical
+    bounds.  Pinning this here guards against a future change that
+    layers column scaling on top of row_max (or swaps it for a
+    Ruiz-style replacement).
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_BASE, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    # Force row_max equilibration via the JSON ``lp_matrix_options`` knob.
+    data = json.loads(out.read_text())
+    options = data.setdefault("options", {})
+    options.setdefault("lp_matrix_options", {})["equilibration_method"] = "row_max"
+    out.write_text(json.dumps(data))
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0, f"MIP exit status = {status}, expected 0"
+    assert obj == pytest.approx(-377_608.40, abs=1.0)
+
+    for gen_uid in range(1, 7):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"g{gen_uid} block {block_idx + 1}: status_sol = {value} "
+                f"is not a clean 0/1 integer under row_max equilibration"
+            )
+
+    g1_status = _read_commitment_status(tmp_path / "run" / "output", gen_uid=1)
+    assert g1_status == [1.0, 1.0, 1.0, 1.0], (
+        f"g1 row_max MIP status = {g1_status}, expected [1, 1, 1, 1]"
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_BASE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
+)
 def test_real_case14_full_network_solves(tmp_path: Path) -> None:
     """Smoke check: full-network LP-relax produces a finite optimum.
 
