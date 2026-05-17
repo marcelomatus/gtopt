@@ -71,6 +71,18 @@ struct Commitment
 
   SingleId generator {unknown_uid};  ///< FK to the Generator
 
+  /// Optional FK to a `Fuel` element.  When set, the per-segment fuel
+  /// cost / emission factor are derived from
+  /// `Fuel.price × heat_rate_segment` and
+  /// `(Fuel.combustion_emission_factor + Fuel.upstream_emission_factor)
+  /// × heat_rate_segment`, replacing the legacy inline `fuel_cost` and
+  /// `fuel_emission_factor` schedules.  Aligns with PLEXOS's
+  /// `Generator.Fuel` and SDDP's `Combustível` reference patterns and
+  /// lets a single Fuel be shared across many committed generators.
+  /// When both `fuel` and `fuel_cost` are set, the Fuel ref wins and
+  /// CommitmentLP emits a build-time warning.
+  OptSingleId fuel {};
+
   OptTRealFieldSched startup_cost {};  ///< Startup cost [$/start]
   OptTRealFieldSched shutdown_cost {};  ///< Shutdown cost [$/stop]
   OptReal noload_cost {};  ///< No-load cost when committed [$/hr]
@@ -96,19 +108,32 @@ struct Commitment
   /// remain at 15-minute resolution.  Default (nullopt) = one per block.
   OptReal commitment_period {};
 
-  /// @name Piecewise heat rate curve
+  /// @name Piecewise heat rate curve (PLEXOS "Heat Rate Function")
   /// When both arrays are present, the generation range [Pmin, Pmax] is
   /// decomposed into K segments with individual heat rates.
   /// `pmax_segments` = [P̄₁, ..., P̄ₖ] cumulative power breakpoints [MW].
-  /// `heat_rate_segments` = [h₁, ..., hₖ] heat rate per segment [GJ/MWh].
+  /// `heat_rate_segments` = [h₁, ..., hₖ] heat rate per segment
+  /// [`<fuel_unit>`/MWh] — unit matches the referenced `Fuel`'s price /
+  /// emission-factor unit (see `Fuel` "Unit-flexibility contract").
   /// Segment k covers [P̄_{k-1}, P̄ₖ] where P̄₀ = Pmin.
-  /// The effective generation cost per segment is `fuel_cost × h_k`.
-  /// The effective emission per segment is `fuel_emission_factor × h_k`.
+  ///
+  /// Effective per-segment generation cost (`$/MWh`):
+  ///   - When `fuel` is set: `Fuel.price(stage) × h_k`
+  ///   - Else (legacy): `fuel_cost(stage) × h_k`
+  /// Effective per-segment emission (`tCO₂/MWh`):
+  ///   - When `fuel` is set: `(Fuel.combustion_ef + Fuel.upstream_ef) × h_k`
+  ///   - Else (legacy): `fuel_emission_factor(stage) × h_k`
+  ///
+  /// `fuel_cost` and `fuel_emission_factor` are kept for back-compat
+  /// with pre-Fuel-entity JSON.  Prefer setting `fuel` on new models;
+  /// the inline schedules will eventually be deprecated.
   /// @{
   Array<Real> pmax_segments {};
   Array<Real> heat_rate_segments {};
-  OptTRealFieldSched fuel_cost {};  ///< Fuel cost [$/GJ], stage-schedulable
-  OptTRealFieldSched fuel_emission_factor {};  ///< Emission factor [tCO2/GJ]
+  OptTRealFieldSched fuel_cost {};  ///< Legacy: fuel cost
+                                    ///< [$/`<fuel_unit>`], stage-schedulable
+  OptTRealFieldSched fuel_emission_factor {};  ///< Legacy: emission factor
+                                               ///< [tCO₂/`<fuel_unit>`]
   /// @}
 
   /// @name Startup cost tiers (hot/warm/cold)

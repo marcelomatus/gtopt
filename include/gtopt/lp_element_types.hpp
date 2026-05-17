@@ -36,6 +36,7 @@ class DemandProfileLP;
 class ReservoirDischargeLimitLP;
 class ReservoirSeepageLP;
 class FlowLP;
+class FuelLP;
 class GeneratorLP;
 class InertiaProvisionLP;
 class InertiaZoneLP;
@@ -80,6 +81,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       ConverterLP,
                                       ReserveZoneLP,
                                       ReserveProvisionLP,
+                                      FuelLP,
                                       CommitmentLP,
                                       SimpleCommitmentLP,
                                       InertiaZoneLP,

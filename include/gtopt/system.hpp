@@ -31,6 +31,7 @@
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
+#include <gtopt/fuel.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/inertia_provision.hpp>
@@ -93,6 +94,11 @@ struct System
       reserve_zone_array {};  ///< Spinning-reserve requirement zones
   Array<ReserveProvision>
       reserve_provision_array {};  ///< Generator → reserve zone links
+
+  // ── Fuels ──────────────────────────────────────────────────────────────
+  /// Time-schedulable fuel price + combustion / upstream emission
+  /// factors referenced by `Generator.fuel`.  See `fuel.hpp`.
+  Array<Fuel> fuel_array {};
 
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
