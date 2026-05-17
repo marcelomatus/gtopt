@@ -209,17 +209,20 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
 )
 
-# ---- Naming registry: generate compiled-in fallback + path constants ----
+# ---- Naming-dialects registry: compiled-in fallback + path constants ----
 # The runtime registry tries an external file first
-# (`$GTOPT_NAMES_FILE`, then the install location, then the in-tree
-# source copy); if all of those fail it falls back to the JSON content
-# baked at configure time below.  This guarantees the registry always
-# works for tests / standalone runs / library consumers that skip the
-# install step.
+# (`$GTOPT_NAMING_DIALECTS_FILE`, then the install location, then the
+# in-tree source copy); if all of those fail it falls back to the JSON
+# content baked at configure time below.  This guarantees the registry
+# always works for tests / standalone runs / library consumers that
+# skip the install step.
 include(GNUInstallDirs)
-set(GTOPT_NAMES_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/names.json")
-set(GTOPT_NAMES_INSTALL_PATH "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/names.json")
-file(READ "${GTOPT_NAMES_SOURCE_PATH}" GTOPT_NAMES_JSON_CONTENT)
+set(GTOPT_NAMING_DIALECTS_SOURCE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/naming_dialects.json")
+set(GTOPT_NAMING_DIALECTS_INSTALL_PATH
+    "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json")
+file(READ "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}"
+     GTOPT_NAMING_DIALECTS_JSON_CONTENT)
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/names_builtin.hpp.in"
   "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/names_builtin.hpp"
@@ -282,11 +285,12 @@ target_include_directories(
                          $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>
 )
 
-# Install the editable naming dictionary alongside the library.  The
-# runtime loader probes `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/names.json`
-# (baked at configure time into names_builtin.hpp) before falling back
-# to the compiled-in copy.
-install(FILES "${GTOPT_NAMES_SOURCE_PATH}"
+# Install the editable naming-dialects dictionary alongside the
+# library.  The runtime loader probes
+# `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json` (baked at
+# configure time into names_builtin.hpp) before falling back to the
+# compiled-in copy.
+install(FILES "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/gtopt")
 
 target_include_directories(

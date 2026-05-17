@@ -5,24 +5,26 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Loads `share/gtopt/names.json` (or an embedded fallback) and exposes
- * a flat `alias -> canonical` map used by `json_canonicalize.hpp` to
- * rewrite alternative JSON key names to the canonical gtopt names
- * accepted by `from_json<Planning>` under `StrictParsePolicy`.
+ * Loads `share/gtopt/naming_dialects.json` (or an embedded fallback)
+ * and exposes a flat `alias -> canonical` map used by
+ * `json_canonicalize.hpp` to rewrite alternative JSON key names to
+ * the canonical gtopt names accepted by `from_json<Planning>` under
+ * `StrictParsePolicy`.
  *
  * File search order:
  *
- *   1. `$GTOPT_NAMES_FILE` environment variable
- *   2. `<exe-dir>/../share/gtopt/names.json` (standard relative install)
- *   3. `<exe-dir>/share/gtopt/names.json`    (flat install)
- *   4. `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/names.json`
+ *   1. `$GTOPT_NAMING_DIALECTS_FILE` environment variable
+ *   2. `${CMAKE_INSTALL_FULL_DATADIR}/gtopt/naming_dialects.json`
  *      (absolute install path baked at configure time)
- *   5. `<source-tree>/share/gtopt/names.json`
+ *   3. `<source-tree>/share/gtopt/naming_dialects.json`
  *      (development workflow — when running from the build tree)
- *   6. Compiled-in fallback (an embedded copy of the shipped file)
+ *   4. Compiled-in fallback (an embedded copy of the shipped file)
+ *   5. Empty registry (graceful degradation)
  *
  * The registry is loaded once on first access (singleton); subsequent
- * lookups are O(log n) via `boost::container::flat_map`.
+ * lookups are O(log n) via `gtopt::flat_map` (vector-backed; the
+ * dictionary is small — ~50-200 entries — so cache-friendly linear
+ * memory wins over hash-table indirection).
  */
 
 #pragma once
@@ -33,7 +35,7 @@
 #include <string_view>
 #include <vector>
 
-#include <boost/container/flat_map.hpp>
+#include <gtopt/fmap.hpp>
 
 namespace gtopt
 {
@@ -68,8 +70,7 @@ public:
 
   /// Returns the (canonical -> {aliases}) inverse view for
   /// diagnostics (e.g. `--list-dialects`).
-  [[nodiscard]] const boost::container::flat_map<std::string,
-                                                 std::vector<std::string>>&
+  [[nodiscard]] const gtopt::flat_map<std::string, std::vector<std::string>>&
   canonical_to_aliases() const noexcept
   {
     return m_canonical_to_aliases_;
@@ -95,8 +96,8 @@ private:
   void check_alias_uniqueness(std::string_view alias,
                               std::string_view canonical) const;
 
-  boost::container::flat_map<std::string, std::string> m_alias_to_canonical_;
-  boost::container::flat_map<std::string, std::vector<std::string>>
+  gtopt::flat_map<std::string, std::string> m_alias_to_canonical_;
+  gtopt::flat_map<std::string, std::vector<std::string>>
       m_canonical_to_aliases_;
   std::optional<std::filesystem::path> m_source_path_;
 };

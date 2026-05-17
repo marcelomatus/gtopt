@@ -21,7 +21,7 @@
 namespace gtopt::names_registry_detail
 {
 
-/// One row of `share/gtopt/names.json` -> `aliases[]`.
+/// One row of `share/gtopt/naming_dialects.json` -> `aliases[]`.
 ///
 /// Lives at namespace scope (not anonymous) so the
 /// `daw::json::json_data_contract` specializations below can bind to
@@ -94,7 +94,7 @@ void NamesRegistry::check_alias_uniqueness(std::string_view alias,
   {
     if (it->second != canonical) {
       throw std::runtime_error(
-          std::format("names.json: alias '{}' is registered for two "
+          std::format("naming_dialects.json: alias '{}' is registered for two "
                       "different canonical names: '{}' and '{}'",
                       alias,
                       it->second,
@@ -113,12 +113,13 @@ void NamesRegistry::build_from_json(std::string_view json_content)
     file = daw::json::from_json<NamesFile>(json_content, StrictParsePolicy);
   } catch (const std::exception& ex) {
     throw std::runtime_error(
-        std::format("names.json: parse error: {}", ex.what()));
+        std::format("naming_dialects.json: parse error: {}", ex.what()));
   }
 
   if (file.version != 1) {
-    throw std::runtime_error(std::format(
-        "names.json: unsupported version {} (expected 1)", file.version));
+    throw std::runtime_error(
+        std::format("naming_dialects.json: unsupported version {} (expected 1)",
+                    file.version));
   }
 
   std::size_t skipped_dupes = 0;
@@ -153,8 +154,9 @@ NamesRegistry::NamesRegistry(const std::filesystem::path& json_path)
 {
   const auto result = daw::read_file(json_path.string());
   if (!result) {
-    throw std::runtime_error(std::format(
-        "names_registry: cannot read names file '{}'", json_path.string()));
+    throw std::runtime_error(
+        std::format("names_registry: cannot read naming-dialects file '{}'",
+                    json_path.string()));
   }
   build_from_json(result.value());
   m_source_path_ = json_path;
@@ -175,14 +177,16 @@ std::optional<std::filesystem::path> find_names_file()
   namespace fs = std::filesystem;
 
   // 1. Environment override.
-  if (const char* env = std::getenv("GTOPT_NAMES_FILE"); env != nullptr) {
+  if (const char* env = std::getenv("GTOPT_NAMING_DIALECTS_FILE");
+      env != nullptr)
+  {
     fs::path p {env};
     if (fs::exists(p)) {
       return p;
     }
     spdlog::warn(
-        "names_registry: $GTOPT_NAMES_FILE='{}' set but path does not "
-        "exist; falling back to default search",
+        "names_registry: $GTOPT_NAMING_DIALECTS_FILE='{}' set but path does "
+        "not exist; falling back to default search",
         env);
   }
 
