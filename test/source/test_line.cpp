@@ -9,6 +9,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -739,4 +740,221 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
   // Total cost = (10 + 5) * 100 / 1000 = 1.5
   const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(1.5));
+}
+
+// ── AMPL `line.flow` user-constraint resolution ──────────────────────
+//
+// `line.flow` is registered as a class-level compound attribute
+// (`+1·flowp − 1·flown`) by `system_lp.cpp::register_all_ampl_element_names`
+// so user constraints can reference net signed flow.  These tests
+// pin the AMPL-resolver path through the `register_if_present`
+// generic lambda consolidated in `line_lp.cpp` (the lambda dispatches
+// by `it->second`'s value type to single-col vs sum-of-cols paths).
+//
+// Aggregator-mode line (no piecewise_direct): the resolver sees
+//   line('l1').flow → +1·flowp_col − 1·flown_col
+// Each leg is a single registered LP column, looked up via
+// `AmplVariable::block_cols` (the single-col path).
+
+TEST_CASE("LineLP - AMPL line.flow user constraint enforces physical bound")
+{
+  // Two-bus system, g1 cheap ($10) at bus_a, g2 expensive ($20) at
+  // bus_b serving 100 MW demand at bus_b.  Without any constraint,
+  // optimal dispatch routes 100 MW through the line (g1 → b2).
+  // Adding `line('l1').flow <= 60` caps the line flow at 60 MW;
+  // g2 must cover the remaining 40 MW at higher cost.
+  //
+  // Algebraic obj:
+  //   pre-constraint:  100 · $10 = $1000 / scale = 1.0
+  //   post-constraint:  60 · $10 + 40 · $20 = $600 + $800 = $1400 / 1000 = 1.4
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {2},
+          .gcost = 20.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+  };
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "cap_line_flow",
+          .expression = "line('l1').flow <= 60",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = false;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LineFlowAmplTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+      .user_constraint_array = user_constraint_array,
+  };
+
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Verify the constraint binds: obj = 1.4 (raw, scale=1000).
+  // Bound it loosely (FP) — exact algebraic match modulo solver
+  // tolerance.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(1.4).epsilon(1e-6));
+}
+
+TEST_CASE("LineLP - AMPL sum(line(all).flow) aggregates across lines")
+{
+  // Three-bus system with two parallel-path lines.  User
+  // constraint `sum(line(all).flow) <= 80` caps the TOTAL signed
+  // flow across BOTH lines; verifies the resolver iterates the
+  // `line` collection and stamps each line's `flowp − flown`
+  // into the same row.
+  //
+  // Demand 100 MW on b3 is served from b1 (cheap g1).  The two
+  // lines b1→b2→b3 form a hypothetical 2-hop relay (only the b1→b2
+  // and b2→b3 lines exist).  With sum_flow ≤ 80, the LP must
+  // split: 80 MW through the path, 20 MW via the expensive local
+  // generator at b3.
+  //
+  // Cost = 80 · $10 + 20 · $30 = $800 + $600 = $1400.  Raw = 1.4.
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+      {.uid = Uid {3}, .name = "b3"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {3},
+          .name = "g3",
+          .bus = Uid {3},
+          .gcost = 30.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d3",
+          .bus = Uid {3},
+          .capacity = 100.0,
+      },
+  };
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l12",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l23",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+      },
+  };
+  // sum(line(all).flow) ≤ 80: caps the TOTAL flow across both
+  // lines; expects 80 each → constraint binds at flow_l12 + flow_l23 = 80.
+  // For a serial path the two are equal so each carries 40 MW.
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "cap_sum_flow",
+          .expression = "sum(line(all).flow) <= 80",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.use_line_losses = false;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "LineSumFlowAmplTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+      .user_constraint_array = user_constraint_array,
+  };
+
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // For a serial path l12 → l23, both carry the same flow x.
+  // sum_flow = 2x ≤ 80 ⇒ x ≤ 40.  Demand = 100, so 40 MW from g1
+  // via path, 60 MW from g3 locally.
+  // Cost = 40 · $10 + 60 · $30 = $400 + $1800 = $2200.  Raw = 2.2.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(2.2).epsilon(1e-6));
 }
