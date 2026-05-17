@@ -26,6 +26,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_common.hpp>  // gtopt::format_si
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/utils.hpp>
@@ -853,12 +854,33 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     m_all_results_.insert(m_all_results_.end(), result->begin(), result->end());
 
     // The SDDP solver returns N training iterations + (optionally) 1
-    // simulation pass.  Intermediate cascade levels skip the sim pass
-    // (level_opts.skip_simulation_pass=true), so `result->size()`
-    // equals exactly N there; only the final-active level still emits
-    // the extra sim-pass entry that needs subtracting.  Either way,
-    // `level_iterations` counts only the training iters that consume
-    // the global iteration budget.
+    // simulation pass entry — but ONLY the SYNCHRONOUS solve path
+    // appends a sim-pass `SDDPIterationResult` (see
+    // `sddp_iteration.cpp::iterate`'s `results.push_back(ir)` after
+    // the sim pass).  The ASYNC path
+    // (`SDDPMethod::solve_async`, dispatched when
+    // `cut_sharing == none && max_async_spread > 0 && num_scenes > 1`)
+    // runs the sim pass per-scene without pushing an aggregate
+    // `SDDPIterationResult`.  Intermediate cascade levels skip the sim
+    // pass entirely (`level_opts.skip_simulation_pass=true`), so
+    // `result->size()` equals exactly N there.
+    //
+    // Decision matrix for whether to subtract 1 (= "sim entry
+    // included in result vector"):
+    //   skip_simulation_pass=true          → no sim entry → no -1
+    //   skip_simulation_pass=false, sync   → sim entry    → -1
+    //   skip_simulation_pass=false, async  → no sim entry → no -1
+    //
+    // Mirror the async-dispatch condition from
+    // `sddp_iteration.cpp:290-292` exactly so the two stay in sync
+    // (num_scenes>1 is dropped here: if num_scenes==1 the level
+    // produced at most one training iter so the off-by-one matters
+    // little either way, and querying scene_count from the
+    // owned/released level LP would be brittle).  Without this
+    // adjustment the async final level on juan/IPLP reports
+    // `0 iters` even when training had been running for ~5 min
+    // before convergence fired.
+    //
     // `level_iterations` counts ONLY the iters that have not yet been
     // deducted from the global budget — phase-1's iters were already
     // subtracted inside the forget branch at line ~660, so we keep
@@ -866,9 +888,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // `iterations_reported` is the FULL level (phase-1 + phase-2) for
     // the per-level log + CascadeLevelStats so operators see the real
     // work done.
-    const auto level_iterations = level_opts.skip_simulation_pass
-        ? static_cast<int>(result->size())
-        : static_cast<int>(result->size()) - 1;  // exclude final fwd
+    const bool sim_entry_in_result = !level_opts.skip_simulation_pass
+        && !(level_opts.cut_sharing == CutSharingMode::none
+             && level_opts.max_async_spread > 0);
+    const auto level_iterations = sim_entry_in_result
+        ? static_cast<int>(result->size()) - 1  // exclude final fwd
+        : static_cast<int>(result->size());
     const auto iterations_reported =
         phase1_iter_count_for_stats + level_iterations;
 
@@ -890,17 +915,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
                         { return sum + r.cuts_added; });
     const int total_cuts = phase1_cuts_added + phase2_cuts;
 
-    m_level_stats_.push_back(CascadeLevelStats {
-        .name = level_name,
-        .iterations = iterations_reported,
-        .lower_bound = last.lower_bound,
-        .upper_bound = last.upper_bound,
-        .gap = last.gap,
-        .converged = last.converged,
-        .elapsed_s = level_elapsed,
-        .cuts_added = total_cuts,
-    });
-
     // `gap0` = first training iteration's gap (initial level gap).
     // `Δgap` = last - first (signed; negative = gap closed).  When the
     // level produced no training iterations (size <= 1), gap0 and Δ are
@@ -910,13 +924,27 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     const bool have_gap0 = result->size() >= 2;
     const double gap0 = have_gap0 ? result->front().gap : last.gap;
     const double dgap = last.gap - gap0;
+
+    m_level_stats_.push_back(CascadeLevelStats {
+        .name = level_name,
+        .iterations = iterations_reported,
+        .lower_bound = last.lower_bound,
+        .upper_bound = last.upper_bound,
+        .gap = last.gap,
+        .gap_initial = gap0,
+        .gap_delta = dgap,
+        .have_gap_delta = have_gap0,
+        .converged = last.converged,
+        .elapsed_s = level_elapsed,
+        .cuts_added = total_cuts,
+    });
     SPDLOG_INFO(
-        "Cascade [{}]: {} iters, LB={:.6g}, UB={:.6g}, "
+        "Cascade [{}]: {} iters, lb={}, ub={}, "
         "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
         level_name,
         iterations_reported,
-        last.lower_bound,
-        last.upper_bound,
+        format_si(last.lower_bound),
+        format_si(last.upper_bound),
         last.gap,
         have_gap0 ? std::format(" (gap0={:.4g}, Δ={:+.2e})", gap0, dgap)
                   : std::string {},
@@ -1201,13 +1229,17 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   SPDLOG_INFO("Cascade: ═══ Summary ═══");
   for (const auto& ls : m_level_stats_) {
     SPDLOG_INFO(
-        "  [{}]: {} iters, LB={:.6g}, UB={:.6g}, gap={:.4g}, "
+        "  [{}]: {} iters, lb={}, ub={}, gap={:.4g}{}, "
         "cuts={}, {:.3f}s{}",
         ls.name,
         ls.iterations,
-        ls.lower_bound,
-        ls.upper_bound,
+        format_si(ls.lower_bound),
+        format_si(ls.upper_bound),
         ls.gap,
+        ls.have_gap_delta
+            ? std::format(
+                  " (gap0={:.4g}, Δ={:+.2e})", ls.gap_initial, ls.gap_delta)
+            : std::string {},
         ls.cuts_added,
         ls.elapsed_s,
         ls.converged ? " (converged)" : "");

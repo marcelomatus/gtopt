@@ -26,6 +26,8 @@
 namespace gtopt
 {
 
+struct Planning;  ///< Forward declaration; full type in gtopt/planning.hpp.
+
 /**
  * @brief All command-line options consumed by gtopt_main().
  *
@@ -392,6 +394,20 @@ void switch_to_sync_default_logger();
  * call sites it's the last thing we do before tearing the process down.
  */
 void flush_default_logger_best_effort() noexcept;
+
+/**
+ * @brief Return true when the planning has no demand-shedding penalty.
+ *
+ * A shedding penalty can come from one of three places:
+ *   - the global `model_options.demand_fail_cost` option,
+ *   - a per-demand `fcost` field (curtailment cost, $/MWh), or
+ *   - a per-demand `ecost` field (energy-shortage cost, $/MWh).
+ *
+ * `gtopt_main` uses this to gate the "no demand-shedding penalty"
+ * warning so it does not fire on planning JSONs that set per-demand
+ * `fcost`/`ecost` but leave the global default at 0 (juan/IPLP-style).
+ */
+[[nodiscard]] bool has_no_shedding_penalty(const Planning& planning) noexcept;
 
 /**
  * @brief Classify an error string into an exit code.

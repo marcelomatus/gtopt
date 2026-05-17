@@ -71,6 +71,12 @@ struct CascadeLevelStats
   double lower_bound {};  ///< Final lower bound
   double upper_bound {};  ///< Final upper bound
   double gap {};  ///< Final relative gap
+  double gap_initial {};  ///< First training iter's gap (level entry gap)
+  double gap_delta {};  ///< `gap − gap_initial` (signed; negative = closed)
+  bool have_gap_delta {false};  ///< False when the level produced ≤1 iter
+                                ///< (then `gap_initial` / `gap_delta` are
+                                ///< undefined and the per-level / summary
+                                ///< logs must suppress them).
   bool converged {};  ///< Whether convergence tolerance was met
   double elapsed_s {};  ///< Wall-clock time for this level
   int cuts_added {};  ///< Total cuts added across all iterations

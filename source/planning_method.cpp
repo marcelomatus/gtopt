@@ -85,6 +85,7 @@ namespace
   // Cut sharing and files.  Place the cuts directory inside the output
   // directory so all solver output is self-contained.
   sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
+  sddp_opts.cut_drain_mode = options.sddp_cut_drain_mode();
   const auto output_dir_sv = options.output_directory();
   const auto cut_dir =
       (std::filesystem::path(output_dir_sv.empty() ? "output"

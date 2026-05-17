@@ -415,6 +415,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// runs with non-uniform hydrology / probability scenarios.
   CutSharingMode cut_sharing {CutSharingMode::none};
 
+  /// How to drain in-flight cuts after the aggregate-convergence stop
+  /// signal fires in `SDDPMethod::solve_async`.  See `CutDrainMode`
+  /// in `sddp_enums.hpp` for the full rationale.  Default `iteration`:
+  /// symmetric across scenes, run-to-run reproducible.
+  CutDrainMode cut_drain_mode {CutDrainMode::iteration};
+
   /// Elastic filter mode: how the FORWARD pass emits feasibility
   /// cuts when a phase LP is infeasible at the trial state.  Only
   /// the forward pass has an elastic branch; the backward pass

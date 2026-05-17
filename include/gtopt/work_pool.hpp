@@ -1036,25 +1036,46 @@ private:
           continue;  // spurious wakeup
         }
 
-        if (!can_dispatch_top()) {
-          // Gate blocked dispatch.  Wait on `cv_` with a timeout AND a
-          // predicate that includes shutdown so `shutdown()` can break
-          // us out immediately rather than waiting up to
-          // scheduler_interval_ for the timeout.  Plain `sleep_for` (or
-          // a `wait_for` without predicate) would also miss
-          // submit-side notifies during the back-off and starve the
-          // queue under sustained back-pressure.
+        // Bounded head-of-line peek: pick the highest-priority task in
+        // the first PEEK_DEPTH entries whose gates pass.  When the head
+        // is throttled but a runnable lower-priority task sits a few
+        // positions below, this picks the lower one instead of parking
+        // the whole pool.  See `find_dispatchable_index()` for the
+        // failure mode this prevents.
+        auto idx_opt = find_dispatchable_index();
+        if (!idx_opt) {
+          // Every candidate in the peek window is gated.  Wait on `cv_`
+          // with a timeout AND a predicate that includes shutdown so
+          // `shutdown()` can break us out immediately rather than
+          // waiting up to scheduler_interval_ for the timeout.  Plain
+          // `sleep_for` (or a `wait_for` without predicate) would also
+          // miss submit-side notifies during the back-off and starve
+          // the queue under sustained back-pressure.
           cv_.wait_for(lock,
                        scheduler_interval_,
                        [&]
                        { return stoken.stop_requested() || !running_.load(); });
           continue;
         }
+        const auto idx = *idx_opt;
 
-        // Pop the top task (max-heap pop pattern).
-        std::ranges::pop_heap(task_queue_, std::less<> {});
-        Task<void, Key, KeyCompare> task = std::move(task_queue_.back());
-        task_queue_.pop_back();
+        Task<void, Key, KeyCompare> task;
+        if (idx == 0) {
+          // Common-case fast path: head dispatches, standard max-heap pop.
+          std::ranges::pop_heap(task_queue_, std::less<> {});
+          task = std::move(task_queue_.back());
+          task_queue_.pop_back();
+        } else {
+          // Rare unhappy path: head is gated but a lower-priority task at
+          // index `idx` (1..PEEK_DEPTH-1) passes the gates.  Extract it
+          // and rebuild the heap — `make_heap` is O(N) but only runs on
+          // the rare gate-mismatch ticks, which by construction are
+          // dwarfed by the throughput we recover by not parking the pool.
+          task = std::move(task_queue_[idx]);
+          task_queue_.erase(task_queue_.begin()
+                            + static_cast<std::ptrdiff_t>(idx));
+          std::ranges::make_heap(task_queue_, std::less<> {});
+        }
 
         const auto threads_needed = task.requirements().estimated_threads;
         tasks_pending_.fetch_sub(1, std::memory_order_relaxed);
@@ -1120,17 +1141,17 @@ private:
     }
   }
 
-  /// Returns true iff the head of `task_queue_` may be dispatched right
-  /// now given current concurrency, CPU and memory pressure.  Caller
-  /// must hold `queue_mutex_`.  Increments throttle counters on each
-  /// failing gate so operators can see which gate held work back.
-  bool can_dispatch_top() const
+  /// Returns true iff @p next_task may be dispatched right now given
+  /// current concurrency, CPU and memory pressure.  Caller must hold
+  /// `queue_mutex_`.  Increments throttle counters on each failing
+  /// gate so operators can see which gate held work back.
+  ///
+  /// This is the gate-test factored out from the legacy
+  /// `can_dispatch_top()` so the bounded peek in
+  /// `find_dispatchable_index()` can test multiple candidates without
+  /// duplicating the gate logic.
+  bool can_dispatch_task(const Task<void, Key, KeyCompare>& next_task) const
   {
-    if (task_queue_.empty()) {
-      return false;
-    }
-
-    const auto& next_task = task_queue_.front();
     const auto threads_needed = next_task.requirements().estimated_threads;
     const auto current_threads =
         active_threads_.load(std::memory_order_relaxed);
@@ -1263,6 +1284,57 @@ private:
     // `cpuset`, `taskset`, `systemd-run --slice`).
 
     return true;
+  }
+
+  /// Bounded head-of-line scan: find the highest-priority task in
+  /// `task_queue_` (at index 0 .. PEEK_DEPTH-1) whose gates pass.
+  ///
+  /// Caller must hold `queue_mutex_`.  Returns the heap index of the
+  /// first dispatchable task, or `std::nullopt` if every candidate in
+  /// the peek window is gated.
+  ///
+  /// Why peek beyond the heap head?  The legacy `can_dispatch_top()`
+  /// checked only `task_queue_.front()` against the dispatch gates.
+  /// When the head task was throttled (e.g. CPU gate trips on a
+  /// `Medium`-priority master backward task), every worker parked on
+  /// `cv_.wait_for(scheduler_interval_)` even though lower-priority
+  /// tasks below in the heap could run.  This is a head-of-line
+  /// throttle deadlock: a single gated high-priority task at the head
+  /// can starve the entire pool for as long as the gate stays closed,
+  /// which on a busy host can be indefinite.
+  ///
+  /// The fix: scan up to `PEEK_DEPTH` (= 8) elements from the front of
+  /// the heap.  Eight is empirically deep enough to find a runnable
+  /// task on every juan/IPLP wedge witnessed to date while keeping
+  /// the per-tick scan O(1) (gates are O(1) calls).  If none of those
+  /// K is dispatchable the worker parks, exactly as before.
+  ///
+  /// See the 2026-05-16 concurrency audit for the failure mode this
+  /// prevents (juan/IPLP scene-12 wedge: master backward task at
+  /// priority (28,1,lp) gate-throttled, sim tasks at priority
+  /// (29,0,lp) underneath it that could run but never dispatched).
+  static constexpr std::size_t PEEK_DEPTH = 8;
+
+  [[nodiscard]] std::optional<std::size_t> find_dispatchable_index() const
+  {
+    if (task_queue_.empty()) {
+      return std::nullopt;
+    }
+    const auto limit = std::min<std::size_t>(task_queue_.size(), PEEK_DEPTH);
+    for (std::size_t k = 0; k < limit; ++k) {
+      if (can_dispatch_task(task_queue_[k])) {
+        return k;
+      }
+    }
+    return std::nullopt;
+  }
+
+  /// Legacy single-shot gate test.  Kept for callers (and unit tests)
+  /// that only ask "is anything in the queue dispatchable right now?"
+  /// — semantically `find_dispatchable_index().has_value()`.
+  [[nodiscard]] bool can_dispatch_top() const
+  {
+    return find_dispatchable_index().has_value();
   }
 
   /// Periodic stats printer + stall-recovery nudge.  Body is

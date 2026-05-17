@@ -19,6 +19,7 @@ namespace daw::json
 using gtopt::BoundaryCutsMode;
 using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
+using gtopt::CutDrainMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::HotStartMode;
@@ -34,6 +35,7 @@ struct SddpOptionsConstructor
 {
   [[nodiscard]] SddpOptions operator()(
       OptName cut_sharing_mode_str,
+      OptName cut_drain_mode_str,
       OptName cut_directory,
       OptBool api_enabled,
       OptInt update_lp_skip,
@@ -93,6 +95,10 @@ struct SddpOptionsConstructor
     if (cut_sharing_mode_str) {
       opts.cut_sharing_mode = gtopt::require_enum<CutSharingMode>(
           "cut_sharing_mode", *cut_sharing_mode_str);
+    }
+    if (cut_drain_mode_str) {
+      opts.cut_drain_mode = gtopt::require_enum<CutDrainMode>(
+          "cut_drain_mode", *cut_drain_mode_str);
     }
     opts.cut_directory = std::move(cut_directory);
     opts.api_enabled = api_enabled;
@@ -187,6 +193,7 @@ struct json_data_contract<SddpOptions>
 
   using type = json_member_list<
       json_string_null<"cut_sharing_mode", OptName>,
+      json_string_null<"cut_drain_mode", OptName>,
       json_string_null<"cut_directory", OptName>,
       json_bool_null<"api_enabled", OptBool>,
       json_number_null<"update_lp_skip", OptInt>,
@@ -248,6 +255,7 @@ struct json_data_contract<SddpOptions>
   {
     return std::make_tuple(
         detail::enum_to_opt_name(opt.cut_sharing_mode),
+        detail::enum_to_opt_name(opt.cut_drain_mode),
         opt.cut_directory,
         opt.api_enabled,
         opt.update_lp_skip,

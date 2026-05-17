@@ -26,6 +26,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/as_label.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
@@ -1424,4 +1425,75 @@ TEST_CASE(
   CHECK(*result == 0);
 
   fs::remove_all(base_dir);
+}
+
+/// Regression: `demand_fail_cost == 0` should NOT trigger the
+/// "no shedding penalty" warning when any demand carries `fcost`
+/// or `ecost`.  This pins the cross-check added in `gtopt_main.cpp`
+/// against the global-only check used previously.
+TEST_CASE("gtopt_main - has_no_shedding_penalty cross-checks demand_array")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // ── (a) global=0, no per-demand → warning should fire ──────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK(has_no_shedding_penalty(p));
+  }
+
+  // ── (b) global=0 BUT one demand has fcost=100 → no warning ─────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .fcost = 100.0,
+            .capacity = 10.0,
+        },
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
+
+  // ── (c) global=1000, no per-demand → no warning ────────────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {1000.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
+
+  // ── (d) demand_fail_cost unset (nullopt) → behaves like 0 ──────
+  {
+    Planning p;
+    // demand_fail_cost left default (nullopt) — value_or(0.0) → 0.
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK(has_no_shedding_penalty(p));
+  }
+
+  // ── (e) global=0 but a demand has only ecost ────────────────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .ecost = 50.0,
+            .capacity = 10.0,
+        },
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
 }

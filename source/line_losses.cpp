@@ -241,6 +241,23 @@ auto add_capacity_row(LinearProblem& lp,
   return lp.add_row(std::move(row));
 }
 
+/// Tolerance below which a segment's loss coefficient is treated as
+/// numerically negligible and the segment is skipped from the
+/// lossrow.  Mirrors the
+/// `PlanningOptionsLP::default_dc_line_reactance_threshold` pattern (1e-6 p.u.)
+/// used by `validate_line_reactance` — when the LP coefficient is this small,
+/// it adds no measurable physical effect and just pollutes the matrix
+/// coefficient-range statistics.
+///
+/// The minimum representative segment-1 loss coefficient on
+/// realistic transmission inputs is several orders of magnitude
+/// above this threshold (a 500 kV line with R=0.1 Ω and tmax≈1000 MW
+/// gives `loss_k_1 = (tmax/nseg)·R/V² ≈ 1.3e-6 · k_factor` — well
+/// above 1e-6 for any non-degenerate input).  Lines that fall below
+/// it are virtually-lossless transformers / busbar segments / data
+/// errors where the loss model contributes nothing.
+constexpr double kLossCoeffTolerance = 1e-6;
+
 /// Add piecewise-linear segment variables to linking and loss rows.
 ///
 /// Segment k (1-based) has:
@@ -254,6 +271,16 @@ auto add_capacity_row(LinearProblem& lp,
 /// seg variable is unaffected).  Caller must apply the same scale to
 /// `lossrow[loss_col]` so `s · loss − Σ s · loss_k · seg_k = 0` stays
 /// consistent.
+///
+/// Per-segment dropout: when `|loss_k| < kLossCoeffTolerance` the
+/// segment column is still created and stamped into the link row
+/// (preserving the line's full piecewise capacity) but is NOT
+/// stamped into the loss row.  Folding a `~1e-7`-scale coefficient
+/// into the LP matrix would just pollute the row coefficient-range
+/// statistics without contributing measurable physical loss.  See
+/// the `kLossCoeffTolerance` block above for the rationale and the
+/// matching `validate_line_reactance` clamp pattern in
+/// `planning_lp.cpp`.
 void add_segments(LinearProblem& lp,
                   const ScenarioLP& scenario,
                   const StageLP& stage,
@@ -283,6 +310,14 @@ void add_segments(LinearProblem& lp,
     });
 
     linkrow[seg_col] = -1.0;
+    if (std::abs(loss_k) < kLossCoeffTolerance) {
+      // Skip the lossrow stamp — segment still participates in the
+      // link row above (capacity preserved) but contributes zero
+      // loss approximation.  No log here: the validation-time
+      // `validate_line_reactance` warn covers the data-entry
+      // outlier case at the line level.
+      continue;
+    }
     lossrow[seg_col] = -loss_k * loss_row_scale;
   }
 }

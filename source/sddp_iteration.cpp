@@ -16,6 +16,7 @@
 #include <thread>
 #include <vector>
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/log_format.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -744,7 +745,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                   gtopt::log::dur(elapsed_s),
                   eta_clause,
                   conv_clause);
-      SPDLOG_INFO("    iter {}  obj   UB={}  LB={}  gap={}  Δgap={}{}{}",
+      SPDLOG_INFO("    iter {}  obj   ub={}  lb={}  gap={}  Δgap={}{}{}",
                   iter_id,
                   gtopt::log::money(ir.upper_bound),
                   gtopt::log::money(ir.lower_bound),
@@ -1075,7 +1076,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             : std::string {};
         SPDLOG_INFO(
             "{}: done in {:.3f}s — "
-            "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
+            "ub={} lb={} gap={:.2f}% Δgap={:.2f}%{}{}",
             sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
             ir.iteration_s,
             format_si(ir.upper_bound),
@@ -1464,14 +1465,32 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // run, and the per-cell parquet output would carry only
           // last-training-forward primal data (no row duals, since
           // training forward passes run with crossover=false).
+          //
+          // **Important**: we read `m_stop_requested_` DIRECTLY here
+          // rather than calling `should_stop()`.  `should_stop()` has
+          // an `if (m_in_simulation_) return false;` guard so the
+          // sync-iter loop ignores stops once its sim pass starts.
+          // In the async path, the FIRST scene to hit idle after
+          // aggregate convergence sets `m_in_simulation_ = true`
+          // when submitting its sim task — and from that moment on
+          // every other scene that returns to idle would see
+          // `should_stop()=false`, skip the scene_finished branch,
+          // and fall through to the forward-submit path (blocking
+          // forever at the spread gate behind whichever scene is
+          // slowest).  Reading the atomic directly side-steps the
+          // sim-guard so all 16 scenes correctly drain through the
+          // sim pass.
+          //
           // Cascade intermediate levels still funnel through this
           // branch but the `skip_simulation_pass` guard inside
           // transitions them to `done` immediately, so the drain
           // semantics carried by the stop-check below are
-          // preserved for them.
+          // preserved for them.  Sentinel / api-file stops still
+          // route to the `should_stop()` branch below (no sim pass,
+          // straight to done) — pre-existing behaviour.
           const bool scene_finished =
               sp.current_iteration_index > last_iteration_index
-              || sp.scene_converged || should_stop();
+              || sp.scene_converged || m_stop_requested_.load();
           if (scene_finished) {
             // Cascade intermediate levels skip the sim pass entirely:
             // jump straight to `done` so the orchestration loop reports
@@ -1494,21 +1513,27 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 m_cut_store_.at(scene).size();
             // Submit simulation forward pass for this scene.
             //
-            // Priority is `Medium`, the same tier as still-training
-            // forward/backward solves.  An earlier draft used `High`
-            // here, but that lets the simulation tasks of an
-            // early-converged scene preempt the training LP solves of
-            // peers that have not converged yet — a priority inversion
-            // since the converged-scene output is no more urgent than
-            // training progress for the rest of the cohort.  At
-            // `Medium`, the iteration_index in the `SDDPTaskKey` tuple
-            // still gives older iterations precedence (so a slow
-            // scene's iter-N forward still beats a fast scene's
-            // sim-at-iter-(N+k)), but without the tier preemption.
+            // Priority is `High`.  An earlier change demoted this to
+            // `Medium` thinking that would prevent sim tasks from
+            // preempting still-training peers — but the iteration_index
+            // in the `SDDPTaskKey` tuple already gives older iterations
+            // strict precedence under the lexicographic comparator, so
+            // a sim task at iter N+k is **never** scheduled ahead of a
+            // training task at iter N+1 (since k > 1 in the typical
+            // drain scenario).  The `Medium` setting just opened a
+            // CPU-gate head-of-line block: under sustained 100 % CPU
+            // the `Medium` sim task's queue head fails the gate check
+            // and parks every worker on `cv_.wait`, blocking dispatch
+            // of lower-priority chunk tasks underneath that *could*
+            // run.  Observed as the juan/IPLP scene-12 wedge on
+            // 2026-05-16 (gtopt_142.log: 6 min stall at 0 % CPU).
+            // Restoring `High` keeps the tuple-ordering invariant and
+            // gives the sim task gate-bypass at `max_cpu_threshold + 5
+            // %` (work_pool.hpp:1167), matching the chunk-task class.
             m_in_simulation_ = true;
             const auto sim_iteration_index = sp.current_iteration_index;
             const BasicTaskRequirements<SDDPTaskKey> sim_req {
-                .priority = TaskPriority::Medium,
+                .priority = TaskPriority::High,
                 .priority_key = make_sddp_task_key(sim_iteration_index,
                                                    SDDPPassDirection::forward,
                                                    SDDPTaskKind::lp),
@@ -1721,7 +1746,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           {
             const double scene_gap =
                 compute_convergence_gap(sp.upper_bound, sp.lower_bound);
-            SPDLOG_INFO("{}: completed  UB={}  LB={}  gap={}",
+            SPDLOG_INFO("{}: completed  ub={}  lb={}  gap={}",
                         sddp_log("Async",
                                  gtopt::uid_of(sp.current_iteration_index),
                                  uid_of(scene)),
@@ -1775,18 +1800,23 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 ++scenes_still_active;
               }
             }
-            SPDLOG_INFO(
-                "{}: scene done — converged={} iters={} sim_ub={:.4f}"
-                " active={}/{}",
-                sddp_log("Async",
-                         gtopt::uid_of(sp.current_iteration_index),
-                         uid_of(scene)),
-                sp.scene_converged,
-                iteration_relative(sp.current_iteration_index,
-                                   m_iteration_offset_),
-                sp.upper_bound,
-                scenes_still_active,
-                num_scenes);
+            // Note: ``ub``/``lb``/``gap`` are intentionally NOT repeated
+            // here — they are already emitted by the per-scene "completed"
+            // line above (state ``iteration_running -> done``).  This
+            // sim-done line fires from a different state transition
+            // (``simulation_running -> idle``) and only needs to carry
+            // the fields that are unique to the sim-pass context:
+            // per-scene convergence flag, relative iteration count, and
+            // the active-scene counter for pool sizing.
+            SPDLOG_INFO("{}: scene done — converged={} iters={} active={}/{}",
+                        sddp_log("Async",
+                                 gtopt::uid_of(sp.current_iteration_index),
+                                 uid_of(scene)),
+                        sp.scene_converged,
+                        iteration_relative(sp.current_iteration_index,
+                                           m_iteration_offset_),
+                        scenes_still_active,
+                        num_scenes);
           }
 
           // Mid-run snapshot drop — POST-sim-pass.  At this point
@@ -2029,7 +2059,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                     gtopt::log::dur(elapsed_async_s),
                     eta_clause_async,
                     conv_clause_async);
-        SPDLOG_INFO("    iter {}  obj     UB={}  LB={}  gap={}  Δgap={}{}",
+        SPDLOG_INFO("    iter {}  obj     ub={}  lb={}  gap={}  Δgap={}{}",
                     iter_id_async,
                     gtopt::log::money(ir.upper_bound),
                     gtopt::log::money(ir.lower_bound),
@@ -2230,41 +2260,75 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
     }
   }
 
-  // Discard RACE-CONDITION training cuts: any cuts added by scenes
-  // whose in-flight forward+backward pass completed AFTER
-  // `m_stop_requested_` fired (aggregate convergence at the master
-  // side) are non-deterministic — their presence depends on whether
-  // the pool's worker happened to be mid-backward-pass when the
-  // master picked up the converged result.  Re-running the same case
-  // would change the cut count.  Truncate every scene's cut store
-  // back to its snapshot at the stop boundary so the count handed off
-  // to the next cascade level is deterministic.
+  // Discard RACE-CONDITION training cuts under `cut_drain_mode`:
+  //   * `count`     — snapshot per-scene cut count at the stop boundary
+  //                   (legacy; asymmetric — faster scenes keep their
+  //                   iter-(N+1) head-start cuts; the asymmetry is
+  //                   bounded by `max_async_spread`).
+  //   * `iteration` — drop any cut whose `iteration_index` is greater
+  //                   than the aggregate-certified iter (the last
+  //                   iter for which `tracker.all_complete()` fired).
+  //                   Symmetric across scenes; bit-for-bit
+  //                   reproducible regardless of pool drain timing.
+  //                   Default.
+  //   * `all`       — no truncation; keep every cut currently in the
+  //                   store.  Trades determinism for maximum
+  //                   cut retention into the next cascade level.
   //
-  // Same sentinel as the sim discard: `size_t::max()` marks "stop
-  // never fired for this scene" (e.g. the level ran to max_iters
-  // without aggregate convergence) — no truncation in that case.
+  // Same sentinel under `count`: `size_t::max()` marks "stop never
+  // fired for this scene" (level ran to `max_iters` without aggregate
+  // convergence) — no truncation in that case.
   {
+    const auto mode = m_options_.cut_drain_mode;
     std::size_t dropped = 0;
     auto& scene_cuts = m_cut_store_.scene_cuts();
-    for (std::size_t si_sz = 0;
-         si_sz < scene_cuts.size() && si_sz < stop_before_scene_sizes.size();
-         ++si_sz)
-    {
-      const auto si = SceneIndex {static_cast<Index>(si_sz)};
-      const auto pre = stop_before_scene_sizes[si_sz];
-      if (pre == std::numeric_limits<std::size_t>::max()) {
-        continue;  // stop never fired — keep everything
+
+    if (mode == CutDrainMode::count) {
+      for (std::size_t si_sz = 0;
+           si_sz < scene_cuts.size() && si_sz < stop_before_scene_sizes.size();
+           ++si_sz)
+      {
+        const auto si = SceneIndex {static_cast<Index>(si_sz)};
+        const auto pre = stop_before_scene_sizes[si_sz];
+        if (pre == std::numeric_limits<std::size_t>::max()) {
+          continue;  // stop never fired — keep everything
+        }
+        if (scene_cuts[si].size() > pre) {
+          dropped += scene_cuts[si].size() - pre;
+          scene_cuts[si].resize(pre);
+        }
       }
-      if (scene_cuts[si].size() > pre) {
-        dropped += scene_cuts[si].size() - pre;
-        scene_cuts[si].resize(pre);
+    } else if (mode == CutDrainMode::iteration) {
+      // The aggregate-certified iter is the iter index of the last
+      // entry pushed to `results` while `!m_stop_requested_` (every
+      // `tracker.all_complete(...)`-finalized iter pushes one entry).
+      // Use `m_iteration_offset_` as a floor when results is empty
+      // (no training iters ran — e.g. the level was hot-started past
+      // its own max_iterations).
+      const auto certified_iter = results.empty()
+          ? m_iteration_offset_
+          : results.back().iteration_index;
+      for (std::size_t si_sz = 0; si_sz < scene_cuts.size(); ++si_sz) {
+        const auto si = SceneIndex {static_cast<Index>(si_sz)};
+        // `SceneCutStore::cuts()` exposes the underlying
+        // `std::vector<StoredCut>&` — use it directly so
+        // `std::erase_if` matches the vector overload.
+        auto& vec = scene_cuts[si].cuts();
+        const auto orig = vec.size();
+        std::erase_if(vec,
+                      [certified_iter](const auto& c)
+                      { return c.iteration_index > certified_iter; });
+        dropped += orig - vec.size();
       }
     }
+    // mode == all → no truncation, dropped stays at 0.
+
     if (dropped > 0) {
       SPDLOG_INFO(
           "SDDP: discarding {} race-condition training cut(s) "
-          "(post-aggregate-convergence drain)",
-          dropped);
+          "(post-aggregate-convergence drain, mode={})",
+          dropped,
+          enum_name(mode));
     }
   }
 

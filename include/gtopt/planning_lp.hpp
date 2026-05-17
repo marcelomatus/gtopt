@@ -327,6 +327,21 @@ public:
   void set_output_delegate(std::unique_ptr<PlanningLP> delegate) noexcept;
 
   /**
+   * @brief Accessor for an installed output delegate.
+   *
+   * Returns the raw pointer (non-owning) to the LP whose systems are
+   * forwarded to by `write_out()` and by the post-solve aggregation
+   * helpers in `gtopt_lp_runner.cpp` (the solver-stats summary needs
+   * to walk the delegate's grid when this instance was cleared by the
+   * cascade level transition).  Returns `nullptr` when no delegate
+   * has been installed (the common monolithic / non-cascade case).
+   */
+  [[nodiscard]] auto output_delegate() const noexcept -> const PlanningLP*
+  {
+    return m_output_delegate_.get();
+  }
+
+  /**
    * @brief Release the per-(scene, phase) LP cells and their solver
    *        backends, freeing the bulk of this object's memory.
    *

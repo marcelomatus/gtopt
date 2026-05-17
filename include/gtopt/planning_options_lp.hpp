@@ -847,6 +847,9 @@ public:
   /** @brief Default cut sharing mode for SDDP */
   static constexpr CutSharingMode default_sddp_cut_sharing_mode =
       CutSharingMode::none;
+  /** @brief Default async cut-drain mode (symmetric, deterministic) */
+  static constexpr CutDrainMode default_sddp_cut_drain_mode =
+      CutDrainMode::iteration;
   /** @brief Default directory for Benders cut files */
   static constexpr auto default_sddp_cut_directory = "cuts";
   /** @brief Default directory for log/trace files */
@@ -1048,6 +1051,20 @@ public:
   {
     return m_options_.sddp_options.cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
+  }
+
+  /**
+   * @brief Get the resolved cut-drain mode for the async SDDP path.
+   *
+   * Default is `CutDrainMode::iteration` (symmetric, run-to-run
+   * deterministic).  See `CutDrainMode` in `sddp_enums.hpp` for the
+   * full rationale and the comparison against `count` (legacy
+   * asymmetric) and `all` (no truncation).
+   */
+  [[nodiscard]] constexpr auto sddp_cut_drain_mode() const -> CutDrainMode
+  {
+    return m_options_.sddp_options.cut_drain_mode.value_or(
+        default_sddp_cut_drain_mode);
   }
 
   /**

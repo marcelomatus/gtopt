@@ -633,6 +633,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt max_async_spread {};
 
+  /** @brief How to drain in-flight cuts after the aggregate-convergence
+   *  stop signal fires in `SDDPMethod::solve_async`.
+   *
+   *  See `CutDrainMode` for the full rationale.  Summary:
+   *   - `count`     — per-scene count snapshot; legacy asymmetric.
+   *   - `iteration` — filter by `cut.iteration_index <= certified`;
+   *                   symmetric, deterministic.  Default.
+   *   - `all`       — keep every cut; maximises retention, gives up
+   *                   run-to-run determinism.
+   */
+  std::optional<CutDrainMode> cut_drain_mode {};
+
   /** @brief Optional LP solver configuration for SDDP forward pass.
    *
    * When set, these options are merged with the global
@@ -657,6 +669,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
+    merge_opt(cut_drain_mode, opts.cut_drain_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
     merge_opt(update_lp_skip, opts.update_lp_skip);

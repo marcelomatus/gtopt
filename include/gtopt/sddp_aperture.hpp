@@ -458,6 +458,20 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     double cut_coeff_eps = 0.0,
     LpDebugWriter* lp_debug_writer = nullptr,
     bool use_manual_clone = false,
-    int chunk_size = 1) -> std::optional<SparseRow>;
+    int chunk_size = 1,
+    /// Optional work-pool reference used to grab a `SlotReleaseGuard`
+    /// around the chunk-future gather loop.  When non-null AND the
+    /// caller is itself running on a worker thread of this pool, the
+    /// guard temporarily releases the calling task's slot for the
+    /// duration of the blocking wait, so the pool's CPU/thread gate
+    /// sees one fewer active task and can dispatch the chunk tasks
+    /// the caller is about to wait on.  Without this, the cell-task
+    /// block + CPU-gate combo wedges the pool — see the 2026-05-16
+    /// concurrency audit and `work_pool.hpp:732-797` for the
+    /// rationale.  Defaults to `nullptr` (no slot release) for the
+    /// in-tree unit-test callers that drive `solve_apertures_for_phase`
+    /// without a live pool.
+    class SDDPWorkPool* pool_for_slot_release = nullptr)
+    -> std::optional<SparseRow>;
 
 }  // namespace gtopt

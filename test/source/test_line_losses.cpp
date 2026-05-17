@@ -1823,6 +1823,112 @@ TEST_CASE("IEEE 9-bus losses modes - dynamic falls back to piecewise")
   CHECK(obj_dyn == doctest::Approx(obj_pw));
 }
 
+/// Regression guard: per-segment loss-coefficient dropout
+/// (`kLossCoeffTolerance = 1e-6`).  When `|loss_k| < 1e-6` the
+/// segment column is still created and stamped into the link row
+/// (preserving line capacity) but is NOT stamped into the loss row.
+/// Test invariant: with `R · w / V² << 1e-6` per segment the
+/// piecewise LP solves and the objective equals the lossless
+/// (`none`-mode) objective bit-for-bit — confirming both that the
+/// LP remains feasible AND that no spurious loss survives.
+TEST_CASE("line_losses - sub-tolerance segments drop out (regression)")
+{
+  // Build a tiny 2-bus LP exactly like solve_with_loss_mode but
+  // with R = 1e-10, V = 1 (V² = 1).  seg_width w = 200/3 → 66.67;
+  // loss_k_1 = w · R · 1 / V² ≈ 6.67e-9 < 1e-6 → skip fires for
+  // every segment.
+  constexpr int K = 3;
+  const Array<Bus> bus_array = {
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+  const auto build_line_array = [K](std::string_view mode_name)
+  {
+    return Array<Line> {
+        {
+            .uid = Uid {1},
+            .name = "l1",
+            .bus_a = Uid {1},
+            .bus_b = Uid {2},
+            .voltage = 1.0,  // V² = 1
+            .resistance = 1e-10,  // loss_k_1 = w · R = 6.67e-9 < 1e-6
+            .line_losses_mode = OptName {std::string(mode_name)},
+            .loss_segments = K,
+            .tmax_ba = 200.0,
+            .tmax_ab = 200.0,
+            .capacity = 200.0,
+        },
+    };
+  };
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions opts;
+  opts.use_single_bus = false;
+  opts.use_kirchhoff = false;
+  opts.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const auto solve_obj = [&](std::string_view mode_name)
+  {
+    const System system = {
+        .name = "LossDropoutTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .line_array = build_line_array(mode_name),
+    };
+    const PlanningOptionsLP options(opts);
+    SimulationLP sim_lp(simulation, options);
+    SystemLP sys_lp(system, sim_lp);
+    auto&& lp = sys_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value_raw();
+  };
+
+  // Lossless reference: obj = 100 MW · $10 / 1000 = 1.0.
+  const auto obj_none = solve_obj("none");
+  CHECK(obj_none == doctest::Approx(1.0).epsilon(1e-6));
+
+  // With every per-segment loss_k below 1e-6 the dropout fires:
+  // piecewise / bidirectional / piecewise_direct must all collapse
+  // to the lossless objective (no spurious loss accumulates in the
+  // loss row).  Use the LP solver's nominal feasibility tolerance
+  // (1e-6 relative) — well above the ~1e-9 noise floor that a
+  // leaked coefficient would generate, while below the obj shift
+  // the dropout disables.
+  for (const std::string_view mode :
+       {"piecewise", "bidirectional", "piecewise_direct"})
+  {
+    CAPTURE(mode);
+    const auto obj = solve_obj(mode);
+    CHECK(obj == doctest::Approx(obj_none).epsilon(1e-6));
+  }
+}
+
 TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 {
   auto planning = parse_planning_json(ieee9b_losses_json);

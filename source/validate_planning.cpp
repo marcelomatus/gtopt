@@ -320,14 +320,20 @@ void check_opt_field_positive(ValidationResult& result,
 /// Check positivity of flow-right / volume-right / line / waterway fields.
 void check_positivity(ValidationResult& result, const System& sys)
 {
-  // FlowRight: discharge and fmax must be >= 0 (consumptive flow).
+  // FlowRight: fmin, target, fmax must be >= 0 (consumptive flow).
   for (const auto& fr : sys.flow_right_array) {
-    check_field_positive(result,
-                         fr.discharge,
-                         Positivity::non_negative,
-                         "FlowRight",
-                         fr.name,
-                         "discharge");
+    check_opt_field_positive(result,
+                             fr.fmin,
+                             Positivity::non_negative,
+                             "FlowRight",
+                             fr.name,
+                             "fmin");
+    check_opt_field_positive(result,
+                             fr.target,
+                             Positivity::non_negative,
+                             "FlowRight",
+                             fr.name,
+                             "target");
     check_opt_field_positive(result,
                              fr.fmax,
                              Positivity::non_negative,

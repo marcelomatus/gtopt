@@ -1359,11 +1359,17 @@ void SystemLP::accumulate_convergence_indicators(SceneIndex scene_index,
     }
 
     // ── FlowRight.fail  →  unserved_flow [hm³] ─────────────────────────
+    //
+    // Post-P0 the `fail` LP variable is gone; `FlowRightLP::fail_sol_at`
+    // reconstructs the value from cached `block_discharge_values_` and
+    // `flow_cols`'s primal solution (`max(0, discharge − flow_sol)`).
+    // Same per-block scaling (probability × duration × m³/s·h → hm³) as
+    // the pre-substitution `weighted(fail_col, ...)` path.
     for (auto&& [f, blk] :
          std::views::cartesian_product(elements<FlowRightLP>(), stage.blocks()))
     {
-      stats.unserved_flow += weighted(f.fail_col_at(scenario, stage, blk),
-                                      pw * blk.duration() * m3s_h_to_hm3);
+      stats.unserved_flow += f.fail_sol_at(scenario, stage, blk, col_sol) * pw
+          * blk.duration() * m3s_h_to_hm3;
     }
 
     // ── Reservoir.soft_emin / efin_slack  →  hm³ ───────────────────────

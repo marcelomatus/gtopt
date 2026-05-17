@@ -227,7 +227,8 @@ auto solve_apertures_for_phase(
     double cut_coeff_eps,
     LpDebugWriter* lp_debug_writer,
     bool use_manual_clone,
-    int chunk_size) -> std::optional<SparseRow>
+    int chunk_size,
+    SDDPWorkPool* pool_for_slot_release) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -643,40 +644,52 @@ auto solve_apertures_for_phase(
 
   // Each future yields a chunk's worth of per-aperture results
   // (1..K elements depending on chunk_size).  Flatten as we collect.
-  for (auto& fut : futures) {
-    auto chunk_results = fut.get();
-    for (auto& result : chunk_results) {
-      if (!result.feasible) {
-        ++n_infeasible;
-        if (aperture_timeout > 0.0
-            && (result.status == 1 || result.status == 3))
-        {
-          spdlog::warn(
-              "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, "
-              "status {}), treating as infeasible",
-              gtopt::uid_of(iteration_index),
-              scene_uid_val,
-              phase_uid_val,
-              result.ap_uid,
-              aperture_timeout,
-              result.status);
-        } else if (spdlog::should_log(spdlog::level::trace)) {
-          spdlog::trace(
-              "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), "
-              "skipping",
-              gtopt::uid_of(iteration_index),
-              scene_uid_val,
-              phase_uid_val,
-              result.ap_uid,
-              result.status);
-        }
-        continue;
-      }
+  {
+    // Release this task's worker slot for the duration of the blocking
+    // chunk-future wait.  Without this, the master backward task holds
+    // a slot while parked on `fut.get()`, the pool's CPU/thread gate
+    // counts it as "active", and once the gate threshold trips the
+    // pool wedges (every cell task waiting on chunk futures, no chunk
+    // worker dispatched).  No-op when `pool_for_slot_release == nullptr`.
+    auto slot_guard = pool_for_slot_release
+        ? pool_for_slot_release->release_slot_while_blocking()
+        : SDDPWorkPool::SlotReleaseGuard {nullptr};
 
-      if (result.cut.has_value()) {
-        aperture_cuts.push_back(std::move(*result.cut));
-        aperture_weights.push_back(result.weight);
-        total_weight += result.weight;
+    for (auto& fut : futures) {
+      auto chunk_results = fut.get();
+      for (auto& result : chunk_results) {
+        if (!result.feasible) {
+          ++n_infeasible;
+          if (aperture_timeout > 0.0
+              && (result.status == 1 || result.status == 3))
+          {
+            spdlog::warn(
+                "SDDP Aperture [i{} s{} p{} a{}]: timed out ({:.1f}s, "
+                "status {}), treating as infeasible",
+                gtopt::uid_of(iteration_index),
+                scene_uid_val,
+                phase_uid_val,
+                result.ap_uid,
+                aperture_timeout,
+                result.status);
+          } else if (spdlog::should_log(spdlog::level::trace)) {
+            spdlog::trace(
+                "SDDP Aperture [i{} s{} p{} a{}]: infeasible (status {}), "
+                "skipping",
+                gtopt::uid_of(iteration_index),
+                scene_uid_val,
+                phase_uid_val,
+                result.ap_uid,
+                result.status);
+          }
+          continue;
+        }
+
+        if (result.cut.has_value()) {
+          aperture_cuts.push_back(std::move(*result.cut));
+          aperture_weights.push_back(result.weight);
+          total_weight += result.weight;
+        }
       }
     }
   }

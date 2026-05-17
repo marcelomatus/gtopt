@@ -542,7 +542,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.cut_coeff_eps,
       aperture_lp_debug,
       m_options_.aperture_use_manual_clone,
-      m_options_.aperture_chunk_size);
+      m_options_.aperture_chunk_size,
+      m_pool_);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -786,7 +787,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.cut_coeff_eps,
         aperture_lp_debug,
         m_options_.aperture_use_manual_clone,
-        m_options_.aperture_chunk_size);
+        m_options_.aperture_chunk_size,
+        m_pool_);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));

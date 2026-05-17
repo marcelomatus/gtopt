@@ -26,11 +26,13 @@
  * parallel compilation of these three translation units.
  */
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
+#include <ranges>
 #include <string>
 #include <utility>
 
@@ -296,15 +298,14 @@ void setup_trace_log(const MainOptions& opts)
     return std::unexpected(std::move(uc_result.error()));
   }
 
-  // Warn when demand_fail_cost is 0 or not set
-  {
-    const auto dfc =
-        planning.options.model_options.demand_fail_cost.value_or(0.0);
-    if (dfc == 0.0) {
-      spdlog::warn(
-          "demand_fail_cost is 0: unserved load has no penalty. "
-          "Set demand_fail_cost > 0 to penalize load shedding.");
-    }
+  // Warn when there is no demand-shedding penalty anywhere in the
+  // model.  See `has_no_shedding_penalty` for the full rule.
+  if (has_no_shedding_penalty(planning)) {
+    spdlog::warn(
+        "demand_fail_cost is 0 and no demand carries a `fcost` "
+        "or `ecost` field: unserved load has no penalty.  Set "
+        "the global `demand_fail_cost > 0` OR a per-demand "
+        "`fcost` to penalize load shedding.");
   }
 
   // Validate planning (referential integrity, ranges, completeness)
@@ -321,6 +322,22 @@ void setup_trace_log(const MainOptions& opts)
 }
 
 }  // namespace
+
+bool has_no_shedding_penalty(const Planning& planning) noexcept
+{
+  // Global shedding penalty?
+  const auto dfc =
+      planning.options.model_options.demand_fail_cost.value_or(0.0);
+  if (dfc != 0.0) {
+    return false;
+  }
+  // Any per-demand fcost / ecost?
+  const auto& demands = planning.system.demand_array;
+  const bool any_per_demand_penalty = std::ranges::any_of(
+      demands,
+      [](const auto& d) { return d.fcost.has_value() || d.ecost.has_value(); });
+  return !any_per_demand_penalty;
+}
 
 void install_async_default_logger()
 {

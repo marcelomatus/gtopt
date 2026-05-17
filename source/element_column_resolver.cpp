@@ -274,7 +274,7 @@ bool resolve_col_to_row(const SystemContext& sc,
 
 [[nodiscard]] std::optional<double> resolve_single_param(
     const SystemContext& sc,
-    const ScenarioLP& scenario,
+    [[maybe_unused]] const ScenarioLP& scenario,
     const StageLP& stage,
     const BlockLP& block,
     const ElementRef& ref)
@@ -410,17 +410,22 @@ bool resolve_col_to_row(const SystemContext& sc,
     // ── flow_right ───────────────────────────────────────────────────────
     if (ref.element_type == "flow_right") {
       const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
+      if (ref.attribute == "fmin") {
+        return frt.param_fmin(suid, buid);
+      }
       if (ref.attribute == "fmax") {
         return frt.param_fmax(suid, buid);
       }
-      if (ref.attribute == "discharge") {
-        return frt.param_discharge(scenario.uid(), suid, buid);
+      if (ref.attribute == "target" || ref.attribute == "discharge") {
+        // "discharge" is the legacy alias of "target".
+        return frt.param_target(suid, buid);
       }
-      if (ref.attribute == "fail_cost") {
-        return frt.param_fail_cost(suid, buid);
+      if (ref.attribute == "fcost") {
+        return frt.param_fcost(suid);
       }
-      if (ref.attribute == "use_value") {
-        return frt.param_use_value(suid, buid);
+      if (ref.attribute == "uvalue" || ref.attribute == "use_value") {
+        // "use_value" is the legacy alias of "uvalue".
+        return frt.param_uvalue(suid);
       }
       return std::nullopt;
     }

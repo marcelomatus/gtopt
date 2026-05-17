@@ -96,6 +96,70 @@ inline constexpr auto cut_sharing_mode_entries =
   return std::span {cut_sharing_mode_entries};
 }
 
+// ─── CutDrainMode ──────────────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP async path drains in-flight cuts after the
+ * aggregate-convergence signal fires.
+ *
+ * When `m_stop_requested_` flips in `SDDPMethod::solve_async` (because the
+ * aggregate tracker certified an iter as converged), some scenes can still
+ * have an in-flight forward+backward pass for the NEXT iter — under
+ * `max_async_spread > 0`, a fast scene may be up to `max_async_spread`
+ * iters ahead of the slowest one.  Cuts added by those still-running
+ * tasks AFTER the stop signal are non-deterministic (their inclusion
+ * depends on pool drain timing); we must drop them so the cut count
+ * handed off to the next cascade level is reproducible.
+ *
+ * Three drain strategies are available:
+ *
+ *  - `count` — snapshot each scene's cut count at the boundary
+ *    (per-scene, recorded the moment `m_stop_requested_` flips).
+ *    Any cuts pushed past that snapshot get truncated.  Cuts already in
+ *    the store at the boundary (including a fast scene's iter-(N+1)
+ *    head-start cuts) are kept.  Asymmetric across scenes: faster
+ *    scenes carry more cuts into the next level.
+ *
+ *  - `iteration` — drop every cut whose `iteration_index` is greater
+ *    than the last aggregate-certified iter (i.e.
+ *    `results.back().iteration_index`).  Symmetric: every scene retains
+ *    cuts up to the SAME iter; faster scenes lose their head-start cuts.
+ *    Bit-for-bit reproducible irrespective of pool timing.  Recommended
+ *    default.
+ *
+ *  - `all` — no truncation at all; every cut currently in the store
+ *    (including any race cuts that landed after the stop signal) is
+ *    kept.  Maximises learned-cut retention at the cost of run-to-run
+ *    determinism — the inherited cut count for the next cascade level
+ *    will vary depending on how many in-flight tasks happened to
+ *    finish before the orchestration loop exited.
+ *
+ * Default `iteration` (introduced 2026-05).  Switch to `count` to
+ * preserve the legacy asymmetric behaviour, or to `all` if convergence
+ * at the next cascade level is more important than reproducibility.
+ */
+enum class CutDrainMode : uint8_t
+{
+  count = 0,  ///< Snapshot per-scene cut count at the stop boundary.
+              ///< Legacy behaviour; asymmetric across scenes.
+  iteration = 1,  ///< Filter by `cut.iteration_index <= last_certified_iter`.
+                  ///< Default; symmetric and run-to-run deterministic.
+  all = 2,  ///< Keep every cut currently in the store — no truncation.
+            ///< Trades determinism for maximum cut retention.
+};
+
+inline constexpr auto cut_drain_mode_entries =
+    std::to_array<EnumEntry<CutDrainMode>>({
+        {.name = "count", .value = CutDrainMode::count},
+        {.name = "iteration", .value = CutDrainMode::iteration},
+        {.name = "all", .value = CutDrainMode::all},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(CutDrainMode /*tag*/) noexcept
+{
+  return std::span {cut_drain_mode_entries};
+}
+
 // ─── ElasticFilterMode ──────────────────────────────────────────────────────
 
 /**

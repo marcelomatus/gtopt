@@ -70,6 +70,8 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_enums.hpp>
+#include <gtopt/solver_stats.hpp>
+#include <gtopt/system_lp.hpp>
 #include <parquet/arrow/reader.h>
 
 #include "cascade_helpers.hpp"
@@ -183,6 +185,27 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return totals;
 }
 
+/// Sum `total_solve_calls()` across every (scene, phase) cell of the
+/// planning_lp's grid, following the cascade output delegate when
+/// the caller's own systems have been released.  Local replica of the
+/// `gtopt_lp_runner.cpp::aggregate_solver_stats` helper — kept inline
+/// so the test does not have to expose the runner-internal aggregator.
+[[nodiscard]] auto count_total_solve_calls(const PlanningLP& planning_lp)
+    -> std::size_t
+{
+  const PlanningLP* owner = &planning_lp;
+  if (owner->systems().empty() && owner->output_delegate() != nullptr) {
+    owner = owner->output_delegate();
+  }
+  std::size_t calls = 0;
+  for (const auto& phase_systems : owner->systems()) {
+    for (const auto& sys : phase_systems) {
+      calls += sys.solver_stats().total_solve_calls();
+    }
+  }
+  return calls;
+}
+
 // One end-to-end (build → solve → write_out → read-back) check at a
 // given low-memory mode + max_iterations.  Asserts on:
 //   * Σ generation == demand per active block (both sides of the
@@ -190,6 +213,13 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 //   * Σ served load (`load_sol`) == demand capacity per active block.
 //   * Bus balance duals are finite for ≥ half of active blocks
 //     (sim pass with crossover ran).
+//   * `level_stats().back().iterations` matches the cascade async
+//     iter-count fix (>0 when max_iters >= 1).
+//   * `total_solve_calls()` aggregated via the output delegate is > 0
+//     when training ran — regression guard for the
+//     `aggregate_solver_stats` delegate-follow fix.
+//   * `level_stats().back().have_gap_delta == true` when the level
+//     produced >= 2 training iterations.
 auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     -> void
 {
@@ -254,6 +284,39 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   const auto res = solver.solve(planning_lp, lp_opts);
   REQUIRE(res.has_value());
   REQUIRE(solver.level_stats().size() == 2);
+
+  // ── B. Cascade async iter-count regression ─────────────────────
+  // Without the `sim_entry_in_result` correction the final-level
+  // count underflows to `0` whenever the SDDP path goes through
+  // the async dispatch (cut_sharing=none && max_async_spread > 0),
+  // even when training ran for many iterations.  Here the small
+  // fixture uses the default solve path; the invariant we pin is
+  // `iters == 0` exactly when `max_iters == 0`, otherwise > 0.
+  const auto& last_level = solver.level_stats().back();
+  if (max_iters == 0) {
+    CHECK(last_level.iterations == 0);
+  } else {
+    CHECK(last_level.iterations > 0);
+  }
+
+  // ── C. Aggregated solver_stats follows the output delegate ─────
+  // In cascade mode `planning_lp.systems()` is empty after the
+  // level-0→1 transition; the active grid lives in
+  // `output_delegate()`.  Without the runner's
+  // `resolve_owning_lp(...)` fix the summary printed "solves: 0".
+  // Mirror that walk locally and assert > 0 when training ran.
+  const auto total_solves = count_total_solve_calls(planning_lp);
+  if (max_iters >= 1) {
+    CHECK(total_solves > 0);
+  }
+
+  // ── D. gap_delta storage ───────────────────────────────────────
+  // Populated when `result->size() >= 2` (i.e. at least two training
+  // iters fed the level summary).  With `max_iters >= 2` the level
+  // always trains at least twice on this fixture.
+  if (max_iters >= 2) {
+    CHECK(last_level.have_gap_delta);
+  }
 
   planning_lp.write_out();
 

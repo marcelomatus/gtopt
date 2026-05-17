@@ -249,6 +249,25 @@ void log_pre_solve_stats(
              : std::string {"(default)"});
 }
 
+/// Resolve a `PlanningLP&` to whichever instance actually owns the
+/// populated `(scene × phase)` grid.  In cascade mode, the caller's
+/// `planning_lp` is cleared at the level-0→1 transition and the
+/// final-level LP is re-attached via `set_output_delegate(...)`; the
+/// caller has no cells of its own so any post-solve stats / size
+/// walk would see an empty grid.  Follow the delegate chain (depth
+/// = 1 by construction; the cascade only installs delegates on LPs
+/// that have no delegate of their own) so the summary numbers
+/// reflect the level that actually solved.
+[[nodiscard]] const PlanningLP& resolve_owning_lp(
+    const PlanningLP& planning_lp) noexcept
+{
+  if (planning_lp.systems().empty() && planning_lp.output_delegate() != nullptr)
+  {
+    return *planning_lp.output_delegate();
+  }
+  return planning_lp;
+}
+
 /// Aggregate solver activity counters across every (scene, phase) LP.
 ///
 /// Walks the whole grid so the summary covers monolithic runs
@@ -257,7 +276,8 @@ void log_pre_solve_stats(
 [[nodiscard]] SolverStats aggregate_solver_stats(const PlanningLP& planning_lp)
 {
   SolverStats agg;
-  for (const auto& phase_systems : planning_lp.systems()) {
+  const auto& owner = resolve_owning_lp(planning_lp);
+  for (const auto& phase_systems : owner.systems()) {
     for (const auto& sys : phase_systems) {
       agg += sys.solver_stats();
     }
@@ -274,7 +294,8 @@ void log_per_cell_solver_stats(const PlanningLP& planning_lp)
     return;
   }
   SPDLOG_DEBUG("  per-cell solver stats:");
-  for (const auto& phase_systems : planning_lp.systems()) {
+  const auto& owner = resolve_owning_lp(planning_lp);
+  for (const auto& phase_systems : owner.systems()) {
     for (const auto& sys : phase_systems) {
       [[maybe_unused]] const auto& s = sys.solver_stats();
       SPDLOG_DEBUG(
@@ -317,8 +338,9 @@ void validate_low_memory_usage(const PlanningLP& planning_lp,
                                const SolverStats& agg)
 {
   const auto mode = planning_lp.options().sddp_low_memory();
+  const auto& owner = resolve_owning_lp(planning_lp);
   std::size_t num_cells = 0;
-  for (const auto& phase_systems : planning_lp.systems()) {
+  for (const auto& phase_systems : owner.systems()) {
     num_cells += phase_systems.size();
   }
   if (num_cells == 0) {
@@ -375,11 +397,14 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   spdlog::info("=== Solution statistics ===");
   spdlog::info("  Status          : {}", optimal ? "optimal" : "non-optimal");
 
-  if (optimal && !planning_lp.systems().empty()
-      && !planning_lp.systems().front().empty())
-  {
-    const auto& lp_if =
-        planning_lp.systems().front().front().linear_interface();
+  // Resolve once: in cascade mode `planning_lp.systems()` is empty
+  // (caller cells released at the level-0→1 transition); the
+  // populated grid lives in the output-delegate LP.  All downstream
+  // size / obj / stats reads must use the resolved owner.
+  const auto& owner = resolve_owning_lp(planning_lp);
+
+  if (optimal && !owner.systems().empty() && !owner.systems().front().empty()) {
+    const auto& lp_if = owner.systems().front().front().linear_interface();
     const double obj_scaled = lp_if.get_obj_value_raw();
     const double obj_unscaled = lp_if.get_obj_value();
     spdlog::info("  LP variables    : {}", lp_if.get_numcols());
@@ -457,6 +482,13 @@ void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
   validate_low_memory_usage(planning_lp, agg);
 
   log_per_cell_solver_stats(planning_lp);
+
+  // Per-codec memory-compression stats land at the end of the
+  // Solution statistics block — silent when no codec was used,
+  // one INFO line per codec otherwise.  Emitted here (instead of
+  // mid-`run_solver`) so the operator sees a single contiguous
+  // Solution-statistics block.
+  log_compression_stats();
 }
 
 /// Log LP coefficient statistics for all scene x phase LPs.
@@ -560,10 +592,14 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       std::chrono::duration<double>(solve_sw.elapsed()).count();
   spdlog::info("  Optimization time {:.3f}s", solve_elapsed);
 
-  // Per-codec compression stats (silent during the run; one INFO line
-  // per codec used).  Lets the operator compare lz4 vs zstd ratio /
-  // throughput trade-offs across runs without enabling per-op TRACE logs.
-  log_compression_stats();
+  // NOTE: per-codec `log_compression_stats()` used to fire here but
+  // that printed an un-indented `compression[lz4]: …` line right
+  // between the `Status` and `solves` rows of the
+  // `log_post_solve_stats` block (everything got the same wall
+  // timestamp from spdlog so the order looked random).  Moved to
+  // `log_post_solve_stats` itself, after the per-cell solver / size
+  // / kappa rows, so the operator sees a single coherent
+  // Solution-statistics block.
 
   if (result.has_value()) {
     return true;
