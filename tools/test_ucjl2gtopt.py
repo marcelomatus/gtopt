@@ -16,18 +16,16 @@ Three layers:
 
 * **End-to-end** — only when a ``gtopt`` binary is reachable:
 
-    - LP-relaxation on the converted ``case14/base`` solves cleanly.
-    - **MIP + copperplate** on the same case reproduces UC.jl's pinned
-      commitment status ``[1, 1, 1, 1]`` for generator ``g1``
-      (asserted by ``usage_deterministic_test`` in UC.jl's own test
-      suite).  Pinning requires a MIP solver — skipped otherwise.
-
-The full-network MIP run currently *diverges* from UC.jl's pinned
-``[1,1,1,1]`` for ``g2`` (and curtails load instead of committing
-expensive thermals).  The root cause is a DC OPF formulation
-difference between gtopt (Kirchhoff voltage-angle) and UC.jl's
-``ShiftFactorsTransmissionExt`` (PTDF) — under investigation.  See
-the ``test_real_case14_full_network_solves`` docstring.
+    - **LP-relax + full network** reproduces UC.jl's pinned commitment
+      ``g1 = g2 = [1, 1, 1, 1]`` on the **full transmission network**
+      (no copperplate flattening, no MIP solver required).  The
+      reserve credit on the spinning-reserve constraint pushes both
+      commitments to integer 1.0 spontaneously.  This is our headline
+      cross-validation against UC.jl's HiGHS-solved golden.
+    - **MIP + copperplate** reproduces the same pattern; pinning
+      requires a MIP solver (CPLEX / Gurobi / MindOpt).
+    - ``--mip`` on the full network currently reports infeasible — a
+      separate gtopt MIP branch-and-cut issue we do not block on here.
 
 Run:  ``cd tools && python -m pytest test_ucjl2gtopt.py -q``
 """
@@ -520,8 +518,8 @@ def test_real_case14_base_lprelax_solves(tmp_path: Path) -> None:
     not _VENDORED_CASE14_BASE.is_file(),
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
-def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
-    """MIP + copperplate: ``g1`` and ``g2`` status = ``[1, 1, 1, 1]`` per UC.jl.
+def test_real_case14_base_lprelax_matches_ucjl_full_network(tmp_path: Path) -> None:
+    """LP-relax + full network: ``g1`` and ``g2`` status = ``[1, 1, 1, 1]`` per UC.jl.
 
     ``test/src/usage_test.jl::usage_deterministic_test`` in
     ANL-CEEESA/UnitCommitment.jl pins, for the same vendored
@@ -532,14 +530,60 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
         sol["Thermal: Is on"]["g2"] == [1.0, 1.0, 1.0, 1.0]
 
     With the converter mapping UC.jl's ``Reserves`` block onto
-    ``ReserveZone`` + ``ReserveProvision`` and the transmission network
-    flattened to copperplate, gtopt's MIP reproduces **both**
-    commitments — full match against UC.jl's HiGHS-solved golden,
-    without invoking Julia.
+    ``ReserveZone`` + ``ReserveProvision`` — and with gtopt's
+    ``Commitment.relax = true`` (LP relaxation) — gtopt reproduces
+    **both** commitments on the **full transmission network**, no
+    copperplate flattening required.  The reserve credit
+    (``-urcost × provision_sum``) makes the optimal LP-relax
+    solution commit g1 and g2 to integer 1.0 spontaneously.
 
-    The flag combination ``--mip --copperplate`` exists exactly to
-    isolate the commitment + reserve modelling from the transmission-
-    formulation gap discussed in ``test_real_case14_full_network_solves``.
+    Cross-validates against UC.jl's HiGHS-solved golden without
+    invoking Julia.  Note: ``--mip`` on the same input currently
+    reports infeasible — a separate gtopt MIP branch-and-cut issue
+    that does not affect the LP-relax cross-check.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_BASE, out)  # LP-relax default
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, _ = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+
+    # g1 and g2 are commitment uids 1 and 2 (insertion order in the
+    # commitment_array — gens are emitted in source dict order so
+    # g1 → uid 1, g2 → uid 2).  UC.jl pins integer 1.0 — allow a tiny
+    # LP numerical tolerance.
+    for gname, gen_uid in (("g1", 1), ("g2", 2)):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        assert len(status_per_block) == 4, (
+            f"{gname}: expected 4 status values, got {status_per_block}"
+        )
+        assert all(v >= 0.99 for v in status_per_block), (
+            f"{gname} commitment status {status_per_block} disagrees "
+            f"with UC.jl's pinned [1, 1, 1, 1] golden"
+        )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_BASE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
+)
+def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
+    """MIP + copperplate: ``g1`` and ``g2`` status = ``[1, 1, 1, 1]`` per UC.jl.
+
+    Companion to the LP-relax test above.  Verifies that gtopt's MIP
+    (with ``--copperplate`` so the transmission network is flattened)
+    also matches UC.jl's pinned values.  ``--mip`` on the full network
+    currently reports infeasible — see the LP-relax test docstring.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -558,10 +602,6 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
     status, _ = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
 
-    # g1 and g2 are commitment uids 1 and 2 (insertion order in the
-    # commitment_array — gens are emitted in source dict order so g1
-    # → uid 1, g2 → uid 2).  UC.jl pins integer 1.0 — allow tiny MIP
-    # numerical tolerance.
     for gname, gen_uid in (("g1", 1), ("g2", 2)):
         status_per_block = _read_commitment_status(
             tmp_path / "run" / "output", gen_uid=gen_uid
@@ -581,23 +621,13 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
 def test_real_case14_full_network_solves(tmp_path: Path) -> None:
-    """Full transmission solve completes (status=0).
+    """Smoke check: full-network LP-relax produces a finite optimum.
 
-    Reserves are wired (see ``test_real_case14_base_copperplate_mip_matches_ucjl``
-    for the cross-validation against UC.jl's golden), and in copperplate
-    mode gtopt reproduces UC.jl's pinned commitment pattern.  With the
-    full transmission network re-enabled, gtopt currently curtails some
-    load in hour 1 instead of committing additional thermals to ship
-    extra generation through the constrained corridors.  The
-    investigation pointer is DC OPF formulation differences (gtopt's
-    Kirchhoff voltage-angle vs UC.jl's PTDF / ShiftFactors), not the
-    reserve mapping — both formulations are reactance-driven and
-    UC.jl's reactances ARE in per-unit (they match the IEEE-14
-    reference values shipped in ``cases/ieee_14b/ieee_14b.json``).
-
-    Pinning only ``status == 0`` here documents that the converter
-    output stays schema-valid and the LP build succeeds; chasing the
-    Kirchhoff-vs-PTDF gap is a separate work item.
+    Companion to ``test_real_case14_base_lprelax_matches_ucjl_full_network``
+    (which pins the commit pattern).  This test only guards the
+    objective-value path — a regression that broke LP feasibility or
+    the obj sign would fire here even if the commit-pattern assertions
+    were softened.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
