@@ -320,12 +320,27 @@ public:
     normalize_bound(col.lowb);
     normalize_bound(col.uppb);
 
-    // Auto-resolve scale from VariableScaleMap when the caller provided
-    // class_name metadata.  The map entry overrides any pre-computed scale
-    // (including auto_scale) — only per-element fields that avoid setting
-    // class_name metadata are immune.  When the map has no entry for this
-    // (class, variable, uid), the pre-set scale (or default 1.0) is kept.
-    if (!col.class_name.empty() && !m_vsm_.empty()) {
+    // Integer / binary columns must never be rescaled by the auto-scaling
+    // machinery: a non-unit column scale turns the physical bound 1 into a
+    // non-integer LP upper bound (e.g. 1 / 0.0861 = 11.6189), and the
+    // backend's integer enforcement then has no LP value that maps back to
+    // physical 1.  Concretely: Commitment.status declared with bounds
+    // [0, 1] and is_integer=true would get its LP bound rescaled to a
+    // non-integer when KVL rows pull the column-scale away from 1, leaving
+    // the MIP unable to represent physical u = 1 (only u ∈ {0, 0.086, …,
+    // 0.947}).  Pinning scale = 1.0 here is the single source of truth for
+    // that invariant and intentionally overrides any VariableScaleMap
+    // entry — there is no legitimate use case for scaling a discrete
+    // variable.
+    if (col.is_integer) [[unlikely]] {
+      col.scale = 1.0;
+    } else if (!col.class_name.empty() && !m_vsm_.empty()) {
+      // Auto-resolve scale from VariableScaleMap when the caller provided
+      // class_name metadata.  The map entry overrides any pre-computed
+      // scale (including auto_scale) — only per-element fields that
+      // avoid setting class_name metadata are immune.  When the map has
+      // no entry for this (class, variable, uid), the pre-set scale (or
+      // default 1.0) is kept.
       const auto resolved =
           m_vsm_.lookup(col.class_name, col.variable_name, col.variable_uid);
       if (resolved != 1.0) {

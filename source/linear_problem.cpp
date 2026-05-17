@@ -193,6 +193,7 @@ struct RuizScalingResult
     std::span<double> colub,
     std::span<double> objval,
     std::span<double> col_scales,
+    std::span<const FlatLinearProblem::index_t> colint,
     double infinity,
     FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
     int max_iterations = 10,
@@ -200,6 +201,21 @@ struct RuizScalingResult
 {
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();
+
+  // Integer / binary columns must keep ``col_scale = 1`` so that their
+  // physical [0, 1] bound stays at LP-side [0, 1] — otherwise the
+  // backend's integer enforcement (CPLEX ``General`` section) restricts
+  // the LP variable to integer values within a non-integer interval
+  // (e.g. 11.6189) and physical ``u = 1`` becomes unreachable.  Build a
+  // dense bitmap so the inner loops can branch O(1) without a
+  // linear-scan of ``colint`` per iteration.
+  std::vector<bool> is_integer_col(ncols, false);
+  for (const auto idx : colint) {
+    const auto j = static_cast<size_t>(idx);
+    if (j < ncols) {
+      is_integer_col[j] = true;
+    }
+  }
 
   // Cumulative row scales (product of per-iteration sqrt factors).
   std::vector<double> cum_row_scales(nrows, 1.0);
@@ -239,7 +255,13 @@ struct RuizScalingResult
     }
 
     // 3. Compute column reciprocal factors and track convergence.
+    //    Integer columns are pinned at col_factor = 1.0 — see the
+    //    ``is_integer_col`` rationale at the top of this function.
     for (size_t j = 0; j < ncols; ++j) {
+      if (is_integer_col[j]) [[unlikely]] {
+        col_factor[j] = 1.0;
+        continue;
+      }
       const double n = col_inf_norm[j];
       if (n > 0.0) {
         max_deviation = std::max(max_deviation, std::abs(n - 1.0));
@@ -719,6 +741,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         colub,
                                         objval,
                                         col_scales,
+                                        colint,
                                         m_infinity_,
                                         sqrt_method);
   }

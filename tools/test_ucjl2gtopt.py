@@ -24,8 +24,10 @@ Three layers:
       cross-validation against UC.jl's HiGHS-solved golden.
     - **MIP + copperplate** reproduces the same pattern; pinning
       requires a MIP solver (CPLEX / Gurobi / MindOpt).
-    - ``--mip`` on the full network currently reports infeasible — a
-      separate gtopt MIP branch-and-cut issue we do not block on here.
+    - **MIP + full network** also solves cleanly after the
+      ``add_col`` fix that pins ``col.scale = 1`` for integer columns
+      (``test_real_case14_base_mip_full_network_status_clean_binary``
+      is the regression anchor for that fix).
 
 Run:  ``cd tools && python -m pytest test_ucjl2gtopt.py -q``
 """
@@ -540,23 +542,12 @@ def test_real_case14_base_lprelax_matches_ucjl_full_network(tmp_path: Path) -> N
     Cross-validates against UC.jl's HiGHS-solved golden without
     invoking Julia.
 
-    ``--mip`` on the same input currently reports infeasible — the
-    diagnosis is the Ruiz row-equilibration in
-    ``source/linear_problem.cpp:apply_ruiz_scaling`` rescaling integer
-    commitment-status columns.  In full-network LP builds the
-    Kirchhoff rows mix the status column with high-magnitude theta
-    coefficients, so the auto-scaler picks ``col_factor ≠ 1``.  The
-    post-scale LP-side bound on a ``[0, 1]`` integer column then
-    becomes ``1 / col_factor`` (e.g. ``11.6189`` for g1), and the LP
-    is declared with the column in ``Generals``.  CPLEX can only pick
-    integer LP values in ``[0, 11]``, mapping to physical
-    ``u ∈ {0, 0.086, …, 0.947}`` — physical ``u = 1.0`` is
-    unreachable.  Copperplate works because dropping the KVL rows
-    collapses ``col_factor`` to 1 for the status column.
-
-    Suggested fix (gtopt-side, not in this converter's scope): pin
-    ``col_factor[j] = 1.0`` for integer columns inside
-    ``apply_ruiz_scaling`` so the LP-side bound stays a clean integer.
+    ``--mip`` on the same input is also feasible (see
+    ``test_real_case14_base_mip_full_network_status_clean_binary``
+    below) since the integer-column-scaling bug in
+    ``include/gtopt/linear_problem.hpp::add_col`` was fixed — integer
+    columns now bypass the auto-scaling layer so the LP-side bound
+    stays at a clean ``[0, 1]`` and CPLEX can hit physical ``u = 1.0``.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
@@ -598,8 +589,7 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
 
     Companion to the LP-relax test above.  Verifies that gtopt's MIP
     (with ``--copperplate`` so the transmission network is flattened)
-    also matches UC.jl's pinned values.  ``--mip`` on the full network
-    currently reports infeasible — see the LP-relax test docstring.
+    also matches UC.jl's pinned values.
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -629,6 +619,94 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
             f"{gname} commitment status {status_per_block} disagrees "
             f"with UC.jl's pinned [1, 1, 1, 1] golden"
         )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_BASE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
+)
+def test_real_case14_base_mip_full_network_status_clean_binary(
+    tmp_path: Path,
+) -> None:
+    """MIP + full network: integer-column-scaling bug fix anchor.
+
+    Pre-fix, ``commitment_status`` columns came out with non-integer
+    LP-side upper bounds (``11.6189`` for g1, ``11.8321`` for g2) because
+    Ruiz / row-equilibration scaling rescaled the column based on KVL row
+    coefficients.  CPLEX, treating the column as ``General`` integer, was
+    then restricted to integer values in ``[0, 11]`` mapping to physical
+    ``u ∈ {0, 0.086, …, 0.947}`` — physical ``u = 1`` was unreachable, so
+    the MIP either silently capped commitment at 94.7 % or (with
+    ``must_run``) reported infeasible.
+
+    The fix in ``include/gtopt/linear_problem.hpp::add_col`` pins
+    ``col.scale = 1.0`` for any column with ``is_integer = true``, so
+    binary ``[0, 1]`` bounds round-trip through the LP build untouched
+    and the MIP can reach ``u = 1`` for every generator.
+
+    This test pins three invariants:
+
+      1. The MIP solves (no infeasible exit).
+      2. Every ``status_sol`` value is a clean integer (within 1e-6 of 0
+         or 1) — the smoking-gun pre-fix value was 0.947 caps.
+      3. The MIP objective matches the LP-relaxation objective for the
+         same case (both equal -377 608.40).  A non-matching obj would
+         indicate the MIP found a worse integer corner than the LP
+         bound, which would re-open the regression.
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_BASE, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0, f"MIP exit status = {status}, expected 0 (feasible/optimal)"
+
+    # Invariant: every commitment_status value is integer (0 or 1).
+    # Pre-fix the LP allowed CPLEX to pick fractional physical u like
+    # 11/11.6189 ≈ 0.947 — those values would land in (0, 1) here.
+    for gen_uid in range(1, 7):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"g{gen_uid} block {block_idx + 1}: status_sol = {value} "
+                f"is not a clean 0/1 integer — the integer-column-scaling "
+                f"bug in apply_ruiz_scaling has regressed"
+            )
+
+    # Invariant: MIP optimum reaches the LP-relax bound (no integer gap).
+    # Pre-fix the MIP couldn't reach physical u = 1 on g1/g2 so the optimal
+    # MIP was a strictly worse integer corner with obj ≈ +4 079 092 (curtail
+    # 40 MW × $100 K/MW).  Post-fix the MIP attains the LP-relax obj.
+    assert obj == pytest.approx(-377_608.40, abs=1.0), (
+        f"MIP obj = {obj}, expected ≈ -377 608.40 (matches LP-relax) — "
+        f"a positive obj near +4 M would indicate the integer-scaling "
+        f"regression where MIP can't commit g1/g2 and curtails instead"
+    )
+
+    # Invariant: g1 is committed in every block (matches UC.jl's pinned
+    # golden in the deterministic test).  g2's per-block pattern is
+    # degenerate at the optimum (multiple integer corners with the same
+    # obj differ on which block g2 is on), so we don't pin it here — see
+    # test_real_case14_base_lprelax_matches_ucjl_full_network for the
+    # exact pattern on the LP-relax side.
+    g1_status = _read_commitment_status(tmp_path / "run" / "output", gen_uid=1)
+    assert g1_status == [1.0, 1.0, 1.0, 1.0], (
+        f"g1 MIP status = {g1_status}, expected [1, 1, 1, 1] per "
+        f"UC.jl's usage_deterministic_test pin"
+    )
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

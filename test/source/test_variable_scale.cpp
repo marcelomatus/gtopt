@@ -12,11 +12,14 @@
  * - VariableScale struct and VariableScaleMap lookup
  */
 
+#include <algorithm>
 #include <numbers>
+#include <tuple>
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_col.hpp>
+#include <gtopt/sparse_row.hpp>
 #include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -541,6 +544,174 @@ TEST_CASE("add_col map entry overrides auto_scale pre-set value")  // NOLINT
     });
     CHECK(lp.get_col_scale(c) == doctest::Approx(42.0));
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Integer-column scaling invariant
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Regression anchor: integer columns must NEVER be rescaled.  A non-unit
+// scale on a [0, 1] binary variable turns the LP-side upper bound into
+// 1 / scale (e.g. 11.6189 for a status column rescaled to 0.0861), and
+// the solver's integer enforcement then has no LP value that maps back
+// to physical 1 (only u ∈ {0, 0.086, …, 0.947}).  Surfaced on UC.jl's
+// case14/base.json full-network MIP: status columns came out with bound
+// [0, 11.6189] and the MIP either silently capped commitment at 94.7 %
+// or reported infeasible when ``must_run`` fixed status at 11.6189.
+//
+// The fix in `LinearProblem::add_col` pins ``col.scale = 1.0`` for any
+// column with ``is_integer = true``.  The four sub-cases below pin all
+// the entry points that could otherwise leak a non-unit scale onto an
+// integer column.
+
+TEST_CASE(  // NOLINT
+    "LinearProblem add_col: integer columns are never rescaled")
+{
+  const std::vector<VariableScale> scales {
+      {
+          .class_name = "Commitment",
+          .variable = "status",
+          .scale = 0.0861,  // pre-fix bogus value from Ruiz row-eq
+      },
+      {
+          .class_name = "Generator",
+          .variable = "generation",
+          .scale = 0.1,  // would scale dispatch in [0, pmax]
+      },
+  };
+  const VariableScaleMap map(scales);
+  LinearProblem lp("integer_scale_guard");
+  lp.set_variable_scale_map(map);
+
+  SUBCASE("VariableScaleMap entry is ignored for is_integer = true")
+  {
+    const auto c = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+        .is_integer = true,
+        .class_name = "Commitment",
+        .variable_name = "status",
+        .variable_uid = Uid {1},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1.0));
+  }
+
+  SUBCASE("Pre-set explicit scale is also overridden for is_integer = true")
+  {
+    // Simulates a caller that explicitly tried to set .scale on an
+    // integer column — the invariant still holds.
+    const auto c = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+        .is_integer = true,
+        .scale = 0.5,
+        .class_name = "Commitment",
+        .variable_name = "status",
+        .variable_uid = Uid {2},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(1.0));
+  }
+
+  SUBCASE("Continuous companion column is still scaled by the map")
+  {
+    // Sanity: the scale fix is targeted — non-integer columns still
+    // pick up their VariableScaleMap entry as before.
+    const auto c = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 100.0,
+        .class_name = "Generator",
+        .variable_name = "generation",
+        .variable_uid = Uid {1},
+    });
+    CHECK(lp.get_col_scale(c) == doctest::Approx(0.1));
+  }
+
+  SUBCASE("Flattened LP upper bound stays at the physical 1.0")
+  {
+    // End-to-end: a binary [0, 1] integer column with a registered
+    // (but ignored) scale of 0.0861 must still flatten to colub = 1,
+    // not 1 / 0.0861 = 11.6189.  This is the precise invariant CPLEX
+    // needs to be able to pick physical u = 1 in MIP mode.
+    const auto c = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 1.0,
+        .is_integer = true,
+        .class_name = "Commitment",
+        .variable_name = "status",
+        .variable_uid = Uid {3},
+    });
+    const auto flat = lp.flatten({});
+    const auto i = static_cast<size_t>(c.value_of());
+    CHECK(flat.colub[i] == doctest::Approx(1.0));
+    CHECK(flat.collb[i] == doctest::Approx(0.0));
+    CHECK(flat.col_scales[i] == doctest::Approx(1.0));
+    // And the integer column index list contains it.
+    const auto found =
+        std::ranges::find(flat.colint, static_cast<int>(c.value_of()))
+        != flat.colint.end();
+    CHECK(found);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "LinearProblem flatten: Ruiz equilibration leaves integer columns alone")
+{
+  // Build a tiny LP that triggers Ruiz to want to rescale an integer
+  // column.  The mixed-magnitude row coefficients (1 on the integer
+  // status column, 100 on the continuous dispatch column, sharing a
+  // KVL-style equality row) is exactly the pattern that produced the
+  // ``11.6189`` LP bound in production.  Post-fix, the Ruiz pass must
+  // leave the integer column's bounds and col_scales[] entry untouched.
+  LinearProblem lp("ruiz_integer_guard");
+
+  // Continuous dispatch column [0, 135] — analogue of generator_generation.
+  const auto gcol = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 135.0,
+      .class_name = "Generator",
+      .variable_name = "generation",
+      .variable_uid = Uid {1},
+  });
+
+  // Binary status column [0, 1], is_integer — analogue of commitment_status.
+  const auto ucol = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .is_integer = true,
+      .class_name = "Commitment",
+      .variable_name = "status",
+      .variable_uid = Uid {1},
+  });
+
+  // Constraint dispatch − pmax · u ≤ 0 (the gen_upper row).  Coefficient
+  // -135 on u forces Ruiz to want col_factor ≠ 1 on u for row balancing.
+  SparseRow row;
+  row[gcol] = 1.0;
+  row[ucol] = -135.0;
+  row.uppb = 0.0;
+  row.class_name = "Commitment";
+  row.constraint_name = "gen_upper";
+  row.variable_uid = Uid {1};
+  std::ignore = lp.add_row(std::move(row));
+
+  const auto flat = lp.flatten({
+      .equilibration_method = LpEquilibrationMethod::ruiz,
+  });
+  const auto u_idx = static_cast<size_t>(ucol.value_of());
+  const auto g_idx = static_cast<size_t>(gcol.value_of());
+
+  // Post-fix: integer column survives Ruiz with its physical bounds
+  // intact.  Pre-fix (no is_integer guard in apply_ruiz_scaling) the
+  // upper bound would land somewhere near 11.6.
+  CHECK(flat.colub[u_idx] == doctest::Approx(1.0));
+  CHECK(flat.collb[u_idx] == doctest::Approx(0.0));
+  CHECK(flat.col_scales[u_idx] == doctest::Approx(1.0));
+
+  // The continuous companion can still be rescaled — the fix is
+  // surgically scoped to integer columns.  We assert NOT-equal to its
+  // physical bound to prove Ruiz actually ran (i.e. the test exercises
+  // the scaling path, not a degenerate no-op).
+  CHECK(flat.colub[g_idx] != doctest::Approx(135.0));
 }
 
 }  // namespace
