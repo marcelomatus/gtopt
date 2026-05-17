@@ -745,7 +745,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                   gtopt::log::dur(elapsed_s),
                   eta_clause,
                   conv_clause);
-      SPDLOG_INFO("    iter {}  obj   UB={}  LB={}  gap={}  Δgap={}{}{}",
+      SPDLOG_INFO("    iter {}  obj   ub={}  lb={}  gap={}  Δgap={}{}{}",
                   iter_id,
                   gtopt::log::money(ir.upper_bound),
                   gtopt::log::money(ir.lower_bound),
@@ -1076,7 +1076,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             : std::string {};
         SPDLOG_INFO(
             "{}: done in {:.3f}s — "
-            "UB={} LB={} gap={:.2f}% Δgap={:.2f}%{}{}",
+            "ub={} lb={} gap={:.2f}% Δgap={:.2f}%{}{}",
             sddp_log("Sim", gtopt::uid_of(final_iteration_index)),
             ir.iteration_s,
             format_si(ir.upper_bound),
@@ -1746,7 +1746,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           {
             const double scene_gap =
                 compute_convergence_gap(sp.upper_bound, sp.lower_bound);
-            SPDLOG_INFO("{}: completed  UB={}  LB={}  gap={}",
+            SPDLOG_INFO("{}: completed  ub={}  lb={}  gap={}",
                         sddp_log("Async",
                                  gtopt::uid_of(sp.current_iteration_index),
                                  uid_of(scene)),
@@ -2059,7 +2059,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                     gtopt::log::dur(elapsed_async_s),
                     eta_clause_async,
                     conv_clause_async);
-        SPDLOG_INFO("    iter {}  obj     UB={}  LB={}  gap={}  Δgap={}{}",
+        SPDLOG_INFO("    iter {}  obj     ub={}  lb={}  gap={}  Δgap={}{}",
                     iter_id_async,
                     gtopt::log::money(ir.upper_bound),
                     gtopt::log::money(ir.lower_bound),

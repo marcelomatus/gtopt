@@ -252,6 +252,23 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         // to downstream consumers (SDDP bounds, standalone reporting,
         // pre-substitution test assertions) matches the un-rewritten
         // formulation exactly.
+        //
+        // KNOWN NUMERICAL HAZARD (deferred, 2026-05-17): on juan-
+        // scale runs this accumulator reaches ~$105 B prob-weighted
+        // across 51 phases × 16 scenes — about 7× the displayed UB
+        // of ~$14 B.  `get_obj_value() = raw + obj_constant` cancels
+        // two large numbers, costing ~1 decimal digit of UB
+        // precision (sub-tolerance for current 0.5% gap targets but
+        // worth fixing).  "Option C" (offset = lmax: column
+        // represents `neg_fail = load − lmax` ∈ [-lmax, 0],
+        // obj_constant = 0, bus_brow / capacity row RHS absorb the
+        // baseline) eliminates the cancellation entirely with no
+        // LP-conditioning penalty.  Blocked on AMPL-resolver work:
+        // user constraints `demand('d1').load <= X` (16+ test
+        // cases) map `demand.load` to the LP column directly; with
+        // Option C the column means `neg_fail`, not `load`, so the
+        // resolver needs to compose `col + lmax(s,t,b)` per element/
+        // scenario/stage/block.  Filed as deferred follow-up.
         lp.add_obj_constant(block_ecost * block_lmax);
       }
       const auto lcol = lp.add_col({
