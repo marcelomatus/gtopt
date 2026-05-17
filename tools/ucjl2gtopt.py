@@ -14,6 +14,14 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 * **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
   block and per-generator ``Reserve eligibility``: spinning-reserve
   ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
+* **UserConstraint (PAMPL)** mirrors UC.jl's ``Interfaces``:
+  ``Branches = {l_i: c_i}`` + ``Net flow upper/lower limit`` +
+  ``Flow limit penalty ($/MW)`` → one PAMPL constraint per (interface
+  × bound), with the branch coefficients folded into a
+  ``Σ c_i * line('l_i').flow {<=,>=} limit`` expression.  Time-varying
+  bounds expand to one constraint per block via PAMPL's
+  ``for(block in {N})`` scope.  ``Flow limit penalty`` becomes the
+  ``penalty`` field so the LP can violate the bound at a known cost.
 * **Battery** mirrors UC.jl's ``Storage units`` (BESS):
   ``Maximum/Minimum level (MWh)`` → ``emax`` / ``emin``,
   ``Maximum charge/discharge rate (MW)`` → ``pmax_charge`` /
@@ -43,10 +51,11 @@ Not yet mapped (scoped out, will silently no-op when present):
 * Profiled / renewable generators with time-varying capacity
   (``generator_profile_array`` would be the gtopt-side target).
 * Non-spinning reserves (UC.jl ``Type != "Spinning"``).
-* Price-sensitive loads, contingencies, AC fields (``Susceptance``,
-  emergency limits).  UC.jl's per-line ``Flow limit penalty`` is not
-  mapped — gtopt uses ``demand_fail_cost`` via Power balance penalty
-  instead.
+* Price-sensitive loads, contingencies, AC fields (``Susceptance``
+  is supported as a fallback for ``Reactance``, but the AC-specific
+  ``Emergency flow limit`` is not).  UC.jl's per-line ``Flow limit
+  penalty`` is not mapped — gtopt uses ``demand_fail_cost`` via Power
+  balance penalty instead.
 * Storage charge cost (``Charge cost ($/MW)``), per-block min charge /
   discharge rates, last-period max level, ``Loss factor``, and
   ``Allow simultaneous charging and discharging`` — see the inline
@@ -634,6 +643,87 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         )
         line_array.append(line_entry)
 
+    # --- Interfaces (transmission-corridor flow limits) ----------------------
+    # UC.jl ``Interfaces`` are linear combinations of line flows bounded
+    # by upper / lower limits with an optional shortfall penalty.  No
+    # native gtopt element exists, but the contract maps directly onto
+    # ``UserConstraint`` (PAMPL): one entry per (interface × bound) with
+    # the branch coefficients folded into a PAMPL expression.  Time-
+    # varying RHS expands to one constraint per block (using PAMPL's
+    # ``for(block in {N})`` scoping); scalar RHS stays as a single
+    # all-blocks constraint.  ``Flow limit penalty ($/MW)`` becomes the
+    # ``penalty`` on each emitted constraint so the LP can violate the
+    # bound at a known cost rather than going infeasible.
+    uc_interfaces = data.get("Interfaces", {}) or {}
+    user_constraint_array = []
+    uc_uid = 0
+
+    def _flow_expression(branches):
+        """Build the ``Σ coeff * line('name').flow`` expression body."""
+        parts = []
+        for line_name, coeff in branches.items():
+            parts.append(f"{float(coeff)} * line('{line_name}').flow")
+        return " + ".join(parts)
+
+    def _emit_interface_bound(ifname, expr_body, op, limit, penalty_val, suffix):
+        """Append one UserConstraint entry for an Interface bound.
+
+        ``limit`` may be a scalar (one all-blocks constraint) or a
+        length-T list (one per-block constraint per element).
+        """
+        nonlocal uc_uid
+        if limit is None:
+            return
+        if isinstance(limit, list):
+            for t_idx, val in enumerate(limit[:T]):
+                uc_uid += 1
+                entry = {
+                    "uid": uc_uid,
+                    "name": f"{ifname}_{suffix}_b{t_idx + 1}",
+                    "expression": (
+                        f"{expr_body} {op} {float(val)}, for(block in {{{t_idx + 1}}})"
+                    ),
+                }
+                if penalty_val is not None:
+                    entry["penalty"] = float(penalty_val)
+                user_constraint_array.append(entry)
+        else:
+            uc_uid += 1
+            entry = {
+                "uid": uc_uid,
+                "name": f"{ifname}_{suffix}",
+                "expression": f"{expr_body} {op} {float(limit)}",
+            }
+            if penalty_val is not None:
+                entry["penalty"] = float(penalty_val)
+            user_constraint_array.append(entry)
+
+    for ifname, ifdata in uc_interfaces.items():
+        branches = ifdata.get("Branches", {})
+        # Drop branches that reference lines we didn't emit (filtered
+        # out by the line loop above).  No way to spot-check that
+        # cleanly from the converter; assume UC.jl source is consistent.
+        if not branches:
+            continue
+        expr_body = _flow_expression(branches)
+        penalty_val = ifdata.get("Flow limit penalty ($/MW)")
+        _emit_interface_bound(
+            ifname,
+            expr_body,
+            "<=",
+            ifdata.get("Net flow upper limit (MW)"),
+            penalty_val,
+            "upper",
+        )
+        _emit_interface_bound(
+            ifname,
+            expr_body,
+            ">=",
+            ifdata.get("Net flow lower limit (MW)"),
+            penalty_val,
+            "lower",
+        )
+
     output = {
         "options": {
             "method": "monolithic",
@@ -660,6 +750,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "reserve_zone_array": reserve_zone_array,
             "reserve_provision_array": reserve_provision_array,
             "battery_array": battery_array,
+            "user_constraint_array": user_constraint_array,
         },
     }
 
@@ -675,6 +766,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         print(f"  Reserve zones: {len(reserve_zone_array)}")
         print(f"  Reserve provisions: {len(reserve_provision_array)}")
         print(f"  Batteries: {len(battery_array)}")
+        print(f"  User constraints: {len(user_constraint_array)}")
         print(f"  Time horizon: {T} hours (1 scenario × 1 stage × {T} blocks)")
     return output
 

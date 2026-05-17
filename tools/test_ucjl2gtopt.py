@@ -65,6 +65,7 @@ _VENDORED_CASE14_SUB_HOURLY = (
     _TEST_DATA_DIR / "UnitCommitmentJl_case14_sub_hourly.json.gz"
 )
 _VENDORED_CASE14_PROFILED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_profiled.json.gz"
+_VENDORED_CASE14_INTERFACE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_interface.json"
 
 
 # ---------------------------------------------------------------------------
@@ -1586,3 +1587,139 @@ def test_real_case14_profiled_mixed_types(tmp_path: Path) -> None:
     assert rc == 0, log
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0 and obj is not None and math.isfinite(obj)
+
+
+# ---------------------------------------------------------------------------
+# UC.jl case14/interface.json — transmission-corridor Interface constraints
+# ---------------------------------------------------------------------------
+#
+# UC.jl ``Interfaces`` are linear combinations of line flows bounded by
+# upper / lower limits with a per-MW shortfall penalty.  No native gtopt
+# element exists for them, but the contract maps directly onto
+# ``UserConstraint`` (PAMPL): one entry per (interface × bound) with the
+# Branch coefficients folded into the PAMPL expression.  Time-varying
+# bounds expand to one entry per block via the ``for(block in {N})``
+# scope.  ``Flow limit penalty ($/MW)`` becomes the ``penalty`` field on
+# each entry so the LP can violate the bound at a known cost rather
+# than going infeasible.
+#
+# This fixture exercises both:
+#   * ``ifc1`` — scalar upper/lower bounds (l1 + l2 ∈ [-120, 120]).
+#   * ``ifc2`` — time-varying upper [55, 60, 60, 60] with scalar lower
+#     -100 (l3 − l7 ∈ [-100, ...]) — 4-block scoping.
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_INTERFACE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_INTERFACE}",
+)
+def test_real_case14_interface_translates_to_user_constraints(
+    tmp_path: Path,
+) -> None:
+    """UC.jl ``Interfaces`` → ``user_constraint_array`` (PAMPL).
+
+    Verifies the converter emits exactly the constraints expected by
+    UC.jl's two-interface fixture:
+
+      * ifc1: 2 entries (upper + lower, both scalar).
+      * ifc2: 5 entries (4 per-block upper + 1 scalar lower).
+
+    Spot-checks the PAMPL expression syntax for one constraint to pin
+    the line.flow reference + coefficient format.
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_INTERFACE, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    ucs = system["user_constraint_array"]
+    # 2 (ifc1 scalar) + 5 (ifc2 = 4 per-block upper + 1 lower) = 7.
+    assert len(ucs) == 7
+
+    by_name = {uc["name"]: uc for uc in ucs}
+    assert "ifc1_upper" in by_name and "ifc1_lower" in by_name
+    assert "ifc2_lower" in by_name
+    for t in range(1, 5):
+        assert f"ifc2_upper_b{t}" in by_name
+
+    # PAMPL expression spot-check — coefficient + line.flow reference.
+    expr = by_name["ifc1_upper"]["expression"]
+    assert "1.0 * line('l1').flow" in expr
+    assert "1.0 * line('l2').flow" in expr
+    assert "<= 120" in expr
+
+    expr2 = by_name["ifc2_upper_b1"]["expression"]
+    assert "-1.0 * line('l7').flow" in expr2
+    assert "<= 55" in expr2
+    assert "for(block in {1})" in expr2
+
+    # All emitted constraints carry the soft-violation penalty.
+    for uc in ucs:
+        assert uc["penalty"] == 5000.0
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_INTERFACE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_INTERFACE}",
+)
+def test_real_case14_interface_constraints_active_in_lp(tmp_path: Path) -> None:
+    """End-to-end: UC.jl Interface constraints actually bind the LP solve.
+
+    The case14/interface.json fixture is engineered to make ifc1 and
+    ifc2's upper limits binding (the network would otherwise want to
+    push more flow through l1+l2 and l3-l7 to serve cheap generation
+    on remote buses).  This test verifies:
+
+      * gtopt solves the converted JSON (the PAMPL expressions parse
+        and the constraints are admitted into the LP).
+      * The ``UserConstraint/`` output directory exists with
+        ``slack_sol`` / ``constraint_dual`` files — proves PAMPL
+        wired the constraints in.
+      * Slack values are non-negative (≥ 0 — soft constraints can
+        violate at penalty cost but never have negative slack).
+      * At least one constraint has a non-zero dual (the LP is
+        actively constrained by an Interface — confirms the
+        constraint isn't a no-op stamp).
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_INTERFACE, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0 and obj is not None and math.isfinite(obj)
+
+    uc_dir = tmp_path / "run" / "output" / "UserConstraint"
+    assert uc_dir.is_dir(), (
+        "UserConstraint/ output dir missing — PAMPL didn't register the "
+        "Interface constraints into the LP"
+    )
+
+    # Slacks must be ≥ 0 (soft constraints can be violated but not negatively).
+    with (uc_dir / "slack_sol_s0_p0.csv").open(encoding="utf-8") as fh:
+        slack_rows = list(csv.reader(fh))
+    for row in slack_rows[1:]:
+        for value_str in row[3:]:
+            if value_str == "":
+                continue  # per-block constraint, doesn't apply to other blocks
+            assert float(value_str) >= -1e-6, (
+                f"negative slack {value_str} — PAMPL slack column has wrong sign"
+            )
+
+    # At least one constraint must have a non-zero dual (Interface is binding).
+    with (uc_dir / "constraint_dual_s0_p0.csv").open(encoding="utf-8") as fh:
+        dual_rows = list(csv.reader(fh))
+    any_binding = False
+    for row in dual_rows[1:]:
+        for value_str in row[3:]:
+            if value_str and abs(float(value_str)) > 1e-3:
+                any_binding = True
+                break
+    assert any_binding, (
+        "no Interface constraint was binding — the fixture should bite l1+l2"
+    )
