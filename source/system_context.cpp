@@ -105,6 +105,29 @@ void SystemContext::add_ampl_variable(
                                         block_cols);
 }
 
+void SystemContext::add_ampl_variable(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BIndexHolder<ColIndex>& block_cols,
+    const BIndexHolder<double>& block_offsets) const
+{
+  if (m_silent_flatten_pass_) {
+    return;  // registry already holds entries from the initial pass
+  }
+  m_simulation_.get().add_ampl_variable(system().scene().index(),
+                                        system().phase().index(),
+                                        class_name,
+                                        element_uid,
+                                        attribute,
+                                        scenario.uid(),
+                                        stage.uid(),
+                                        block_cols,
+                                        block_offsets);
+}
+
 void SystemContext::add_ampl_variable(std::string_view class_name,
                                       Uid element_uid,
                                       std::string_view attribute,
@@ -162,6 +185,23 @@ std::optional<ColIndex> SystemContext::find_ampl_col(
                                     scenario_uid,
                                     stage_uid,
                                     block_uid);
+}
+
+double SystemContext::find_ampl_offset(std::string_view class_name,
+                                       Uid element_uid,
+                                       std::string_view attribute,
+                                       ScenarioUid scenario_uid,
+                                       StageUid stage_uid,
+                                       BlockUid block_uid) const
+{
+  return simulation().find_ampl_offset(system().scene().index(),
+                                       system().phase().index(),
+                                       class_name,
+                                       element_uid,
+                                       attribute,
+                                       scenario_uid,
+                                       stage_uid,
+                                       block_uid);
 }
 
 std::span<const ColIndex> SystemContext::find_ampl_cols(

@@ -446,6 +446,19 @@ public:
                          const StageLP& stage,
                          const BIndexHolder<ColIndex>& block_cols) const;
 
+  /// Same as above but with per-block additive offsets.  Used by
+  /// shifted-variable encodings (e.g., demand's Option C
+  /// `neg_fail = load − lmax`).  The offsets feed into the user-
+  /// constraint resolver's `param_shift` accumulator so references to
+  /// `demand.load` resolve to (col + offset) physically.
+  void add_ampl_variable(std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage,
+                         const BIndexHolder<ColIndex>& block_cols,
+                         const BIndexHolder<double>& block_offsets) const;
+
   /// Register a stage-level scalar column (e.g., eini, efin, capainst).
   void add_ampl_variable(std::string_view class_name,
                          Uid element_uid,
@@ -480,6 +493,16 @@ public:
       ScenarioUid scenario_uid,
       StageUid stage_uid,
       BlockUid block_uid) const;
+
+  /// Look up the per-block additive offset registered alongside a
+  /// shifted variable (e.g., demand's Option C col).  Returns `0.0`
+  /// when the variable has no offsets — the common case.
+  [[nodiscard]] double find_ampl_offset(std::string_view class_name,
+                                        Uid element_uid,
+                                        std::string_view attribute,
+                                        ScenarioUid scenario_uid,
+                                        StageUid stage_uid,
+                                        BlockUid block_uid) const;
 
   /// Look up a registered **sum-of-cols** attribute (virtual
   /// aggregator).  Returns an empty span when the attribute is not

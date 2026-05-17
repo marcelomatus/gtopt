@@ -142,9 +142,19 @@ namespace
                                         stage.uid(),
                                         buid))
   {
+    // Optional additive offset: physical = LP * scale + offset.
+    // Returns 0.0 for every element that didn't register offsets —
+    // the common case.  Demand's Option C registration is the only
+    // current user; see `demand_lp.cpp`.
     return ResolvedCol {
         .col = *col,
         .scale = lp.get_col_scale(*col),
+        .offset = sc.find_ampl_offset(ref.element_type,
+                                      *uid_opt,
+                                      ref.attribute,
+                                      scenario.uid(),
+                                      stage.uid(),
+                                      buid),
     };
   }
 
@@ -185,15 +195,18 @@ namespace
 /// stamp `coef` on every segment col).  See
 /// `AmplVariable::block_cols_sum` for the sum-of-cols data layout.
 ///
-/// Returns true if at least one column was stamped.
-[[nodiscard]] bool stamp_ref(const SystemContext& sc,
-                             const ScenarioLP& scenario,
-                             const StageLP& stage,
-                             const BlockLP& block,
-                             const ElementRef& ref,
-                             double coef,
-                             SparseRow& row,
-                             const LinearProblem& lp)
+/// Returns `{emitted, offset_shift}`.  `offset_shift` is `coef × offset`
+/// when the resolved column carries a non-zero AMPL offset (e.g.
+/// demand's Option C `neg_fail = load − lmax`); the caller folds the
+/// shift onto the row's RHS via the existing `param_shift` accumulator.
+[[nodiscard]] ResolveColResult stamp_ref(const SystemContext& sc,
+                                         const ScenarioLP& scenario,
+                                         const StageLP& stage,
+                                         const BlockLP& block,
+                                         const ElementRef& ref,
+                                         double coef,
+                                         SparseRow& row,
+                                         const LinearProblem& lp)
 {
   // Resolve element_id (uid|name) once; multi-col path needs the uid.
   const auto single_id = parse_element_id(ref.element_id);
@@ -212,7 +225,9 @@ namespace
   if (uid_opt) {
     // Try multi-col (sum-of-cols) first.  When registered, the
     // aggregator is virtual and the attribute expands to a sum of LP
-    // cols — stamp each with the leg coefficient.
+    // cols — stamp each with the leg coefficient.  Sum-of-cols
+    // registrations never carry offsets in current code; if they ever
+    // do, they'd be a per-leg shift summed here.
     const auto cols = sc.find_ampl_cols(ref.element_type,
                                         *uid_opt,
                                         ref.attribute,
@@ -223,47 +238,53 @@ namespace
       for (const auto& col : cols) {
         row[col] += coef;
       }
-      return true;
+      return {.emitted = true, .offset_shift = 0.0};
     }
   }
 
-  // Fall back to the single-col path (uses the lp scale).
+  // Fall back to the single-col path (uses the lp scale + optional
+  // offset).  When the column has a non-zero offset, the caller folds
+  // `coef × offset` onto the row's RHS (existing param_shift machinery).
   if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
     row[resolved->col] += coef;
-    return true;
+    return {
+        .emitted = true,
+        .offset_shift = coef * resolved->offset,
+    };
   }
-  return false;
+  return {.emitted = false, .offset_shift = 0.0};
 }
 
-bool resolve_col_to_row(const SystemContext& sc,
-                        const ScenarioLP& scenario,
-                        const StageLP& stage,
-                        const BlockLP& block,
-                        const ElementRef& ref,
-                        double base_coeff,
-                        SparseRow& row,
-                        const LinearProblem& lp)
+ResolveColResult resolve_col_to_row(const SystemContext& sc,
+                                    const ScenarioLP& scenario,
+                                    const StageLP& stage,
+                                    const BlockLP& block,
+                                    const ElementRef& ref,
+                                    double base_coeff,
+                                    SparseRow& row,
+                                    const LinearProblem& lp)
 {
   // 1. Compound path: class-level recipe of (coefficient, source_attribute).
   if (const auto* legs = sc.find_ampl_compound(ref.element_type, ref.attribute))
   {
-    bool emitted = false;
+    ResolveColResult out;
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
-      if (stamp_ref(sc,
-                    scenario,
-                    stage,
-                    block,
-                    leg_ref,
-                    base_coeff * leg.coefficient,
-                    row,
-                    lp))
-      {
-        emitted = true;
+      const auto leg_res = stamp_ref(sc,
+                                     scenario,
+                                     stage,
+                                     block,
+                                     leg_ref,
+                                     base_coeff * leg.coefficient,
+                                     row,
+                                     lp);
+      if (leg_res.emitted) {
+        out.emitted = true;
+        out.offset_shift += leg_res.offset_shift;
       }
     }
-    return emitted;
+    return out;
   }
 
   // 2. Single attribute path (handles both single-col and multi-col).
@@ -577,18 +598,21 @@ namespace
 
 // ── Sum-reference resolution ─────────────────────────────────────────────────
 
-void collect_sum_cols(const SystemContext& sc,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      const BlockLP& block,
-                      const SumElementRef& sum_ref,
-                      double base_coeff,
-                      SparseRow& row,
-                      const LinearProblem& lp)
+double collect_sum_cols(const SystemContext& sc,
+                        const ScenarioLP& scenario,
+                        const StageLP& stage,
+                        const BlockLP& block,
+                        const SumElementRef& sum_ref,
+                        double base_coeff,
+                        SparseRow& row,
+                        const LinearProblem& lp)
 {
+  double offset_shift = 0.0;
   // Helper lambda: add one ElementRef to the row.  Uses the compound-aware
   // `resolve_col_to_row` so sums over a compound attribute (e.g.
-  // `sum(line(all).flow)`) correctly expand each leg.
+  // `sum(line(all).flow)`) correctly expand each leg.  The per-leg
+  // offset shift (Option C demand etc.) is accumulated into the
+  // outer `offset_shift` so the caller can fold it onto the row RHS.
   auto add_one = [&](const std::string& eid)
   {
     ElementRef ref;
@@ -596,8 +620,9 @@ void collect_sum_cols(const SystemContext& sc,
     ref.element_id = eid;
     ref.attribute = sum_ref.attribute;
 
-    (void)resolve_col_to_row(
+    const auto res = resolve_col_to_row(
         sc, scenario, stage, block, ref, base_coeff, row, lp);
+    offset_shift += res.offset_shift;
   };
 
   if (sum_ref.all_elements) {
@@ -657,6 +682,7 @@ void collect_sum_cols(const SystemContext& sc,
       add_one(eid);
     }
   }
+  return offset_shift;
 }
 
 }  // namespace gtopt

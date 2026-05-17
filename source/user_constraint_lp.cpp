@@ -330,26 +330,32 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
 
     if (term.element) {
       const std::size_t before_col = row.size();
-      if (resolve_col_to_row(ctx.sc,
-                             ctx.scenario,
-                             ctx.stage,
-                             ctx.block,
-                             *term.element,
-                             coef,
-                             row,
-                             ctx.lp))
-      {
+      const auto res = resolve_col_to_row(ctx.sc,
+                                          ctx.scenario,
+                                          ctx.stage,
+                                          ctx.block,
+                                          *term.element,
+                                          coef,
+                                          row,
+                                          ctx.lp);
+      if (res.emitted) {
         out.has_vars = true;
+        // Fold any AMPL offset (Option C demand: load = col + lmax)
+        // onto the RHS via the existing `param_shift` accumulator —
+        // `apply_constraint_bounds` later subtracts param_shift from
+        // the RHS, which is exactly what offset_shift needs too.
+        out.param_shift += res.offset_shift;
         if (ctx.is_debug) {
           spdlog::info(
               "  user_constraint '{}' block {}: "
-              "element '{}.{}' added {} col(s), coeff={}",
+              "element '{}.{}' added {} col(s), coeff={}, offset_shift={}",
               ctx.uc.name,
               ctx.block.uid(),
               term.element->element_type,
               term.element->attribute,
               row.size() - before_col,
-              coef);
+              coef,
+              res.offset_shift);
         }
       } else if (auto pval = resolve_single_param(
                      ctx.sc, ctx.scenario, ctx.stage, ctx.block, *term.element))
@@ -414,23 +420,27 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
 
     if (term.sum_ref) {
       const std::size_t before = row.size();
-      collect_sum_cols(ctx.sc,
-                       ctx.scenario,
-                       ctx.stage,
-                       ctx.block,
-                       *term.sum_ref,
-                       coef,
-                       row,
-                       ctx.lp);
+      const double sum_offset_shift = collect_sum_cols(ctx.sc,
+                                                       ctx.scenario,
+                                                       ctx.stage,
+                                                       ctx.block,
+                                                       *term.sum_ref,
+                                                       coef,
+                                                       row,
+                                                       ctx.lp);
       if (row.size() > before) {
         out.has_vars = true;
+        // Fold the per-element offset sum (Option C demand etc.)
+        // onto the RHS via the existing param_shift mechanism.
+        out.param_shift += sum_offset_shift;
         if (ctx.is_debug) {
           spdlog::info(
               "  user_constraint '{}' block {}: "
-              "sum resolved {} columns",
+              "sum resolved {} columns (offset_shift={})",
               ctx.uc.name,
               ctx.block.uid(),
-              row.size() - before);
+              row.size() - before,
+              sum_offset_shift);
         }
       }
       continue;
