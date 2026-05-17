@@ -538,9 +538,25 @@ def test_real_case14_base_lprelax_matches_ucjl_full_network(tmp_path: Path) -> N
     solution commit g1 and g2 to integer 1.0 spontaneously.
 
     Cross-validates against UC.jl's HiGHS-solved golden without
-    invoking Julia.  Note: ``--mip`` on the same input currently
-    reports infeasible — a separate gtopt MIP branch-and-cut issue
-    that does not affect the LP-relax cross-check.
+    invoking Julia.
+
+    ``--mip`` on the same input currently reports infeasible — the
+    diagnosis is the Ruiz row-equilibration in
+    ``source/linear_problem.cpp:apply_ruiz_scaling`` rescaling integer
+    commitment-status columns.  In full-network LP builds the
+    Kirchhoff rows mix the status column with high-magnitude theta
+    coefficients, so the auto-scaler picks ``col_factor ≠ 1``.  The
+    post-scale LP-side bound on a ``[0, 1]`` integer column then
+    becomes ``1 / col_factor`` (e.g. ``11.6189`` for g1), and the LP
+    is declared with the column in ``Generals``.  CPLEX can only pick
+    integer LP values in ``[0, 11]``, mapping to physical
+    ``u ∈ {0, 0.086, …, 0.947}`` — physical ``u = 1.0`` is
+    unreachable.  Copperplate works because dropping the KVL rows
+    collapses ``col_factor`` to 1 for the status column.
+
+    Suggested fix (gtopt-side, not in this converter's scope): pin
+    ``col_factor[j] = 1.0`` for integer columns inside
+    ``apply_ruiz_scaling`` so the LP-side bound stays a clean integer.
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
