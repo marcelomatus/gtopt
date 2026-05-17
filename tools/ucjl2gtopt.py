@@ -1,27 +1,53 @@
 #!/usr/bin/env python3
-"""Convert UnitCommitment.jl benchmark JSON to gtopt system JSON."""
+"""Convert UnitCommitment.jl benchmark JSON to gtopt system JSON.
+
+Current scope: single-period flatten of the UC.jl horizon. Time-series
+fields (``Load (MW)``, ``Normal flow limit (MW)``, and the v0.3
+list-of-lists ``Production cost curve``) are reduced to their first
+hour. UC commitment fields (startup costs, ramps, min up/down,
+reserves, contingencies) are intentionally ignored — see
+``tools/test_ucjl2gtopt.py`` for the regression tests pinning this
+contract.
+"""
 
 import argparse
 import json
 import os
-import sys
+
+
+def _first_hour(value):
+    """Reduce a UC.jl piecewise breakpoint to a scalar.
+
+    UC.jl v0.2 emits ``[mw0, mw1, ...]`` (scalar breakpoints) but v0.3
+    wraps each breakpoint as a per-hour time series ``[[ts0, ts1, ...]]``
+    for profiled (renewable) generators.  This helper collapses either
+    shape to the first hour's value so ``compute_gen_cost`` and the
+    pmin/pmax extraction work uniformly.
+    """
+    if isinstance(value, list):
+        return _first_hour(value[0]) if value else 0.0
+    return value
 
 
 def compute_gen_cost(curve_mw, curve_cost):
-    total_cost_increase = curve_cost[-1] - curve_cost[0]
-    total_power_increase = curve_mw[-1] - curve_mw[0]
+    mw_lo = _first_hour(curve_mw[0])
+    mw_hi = _first_hour(curve_mw[-1])
+    c_lo = _first_hour(curve_cost[0])
+    c_hi = _first_hour(curve_cost[-1])
+    total_power_increase = mw_hi - mw_lo
     if total_power_increase <= 0:
         return 0.0
-    return total_cost_increase / total_power_increase
+    return (c_hi - c_lo) / total_power_increase
 
 
 def convert(ucjl_path, output_path=None):
-    with open(ucjl_path) as f:
+    with open(ucjl_path, encoding="utf-8") as f:
         data = json.load(f)
 
     params = data.get("Parameters", {})
-    t_h = params.get("Time horizon (h)", 24)
-    t_min = params.get("Time horizon (min)")
+    # UC.jl v0.2 uses "Time horizon (h)"; v0.3 renamed it to "Time (h)".
+    t_h = params.get("Time horizon (h)", params.get("Time (h)", 24))
+    t_min = params.get("Time horizon (min)", params.get("Time (min)"))
     if t_min is not None:
         t_h = t_min / 60
     T = int(t_h)
@@ -67,8 +93,8 @@ def convert(ucjl_path, output_path=None):
         bus_uid = name_to_uid[bus_name]
         curve_mw = gdata.get("Production cost curve (MW)", [0, 100])
         curve_cost = gdata.get("Production cost curve ($)", [0, 1000])
-        pmin = curve_mw[0]
-        pmax = curve_mw[-1]
+        pmin = _first_hour(curve_mw[0])
+        pmax = _first_hour(curve_mw[-1])
         capacity = pmax
         gcost = compute_gen_cost(curve_mw, curve_cost)
 
@@ -141,9 +167,7 @@ def convert(ucjl_path, output_path=None):
                     "active": 1,
                 }
             ],
-            "scenario_array": [
-                {"uid": 1, "probability_factor": 1.0}
-            ],
+            "scenario_array": [{"uid": 1, "probability_factor": 1.0}],
         },
         "system": {
             "name": os.path.splitext(os.path.basename(ucjl_path))[0],
@@ -155,7 +179,7 @@ def convert(ucjl_path, output_path=None):
     }
 
     if output_path:
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2)
         print(f"Wrote {output_path}")
         print(f"  Buses: {len(bus_array)}")
@@ -163,8 +187,7 @@ def convert(ucjl_path, output_path=None):
         print(f"  Generators: {len(generator_array)}")
         print(f"  Lines: {len(line_array)}")
         print(f"  Time horizon: {T} hours")
-    else:
-        return output
+    return output
 
 
 def main():

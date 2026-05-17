@@ -21,6 +21,7 @@ Run:  ``cd tools && python -m pytest test_ucjl2gtopt.py -q``
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import math
 import os
@@ -35,6 +36,8 @@ import pytest
 _TOOLS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _TOOLS_DIR.parent
 _CONVERTER = _TOOLS_DIR / "ucjl2gtopt.py"
+_TEST_DATA_DIR = _TOOLS_DIR / "test_data"
+_VENDORED_CASE14 = _TEST_DATA_DIR / "matpower_case14_2017-01-01.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +247,144 @@ def test_converter_rejects_missing_input(tmp_path: Path) -> None:
     """A non-existent input path must surface a non-zero exit code."""
     proc = _run_converter(tmp_path / "no_such_file.json", tmp_path / "out.json")
     assert proc.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# UC.jl v0.3 schema variants
+# ---------------------------------------------------------------------------
+
+
+def test_converter_accepts_time_h_alias(tmp_path: Path) -> None:
+    """v0.3 renamed ``Time horizon (h)`` to ``Time (h)``.
+
+    The converter must accept both — silently falling back to the
+    default 24 was the pre-fix behavior and would have masked a wrong
+    horizon for every v0.3 instance whose horizon isn't 24.
+    """
+    payload = json.loads(json.dumps(_SYNTHETIC_UCJL))
+    payload["Parameters"] = {"Time (h)": 7}  # drop legacy key, use v0.3 alias
+    ucjl = _write_ucjl(tmp_path, payload)
+    out = tmp_path / "uc_smoke_gtopt.json"
+
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    sim = json.loads(out.read_text())["simulation"]
+    assert sim["block_array"][0]["duration"] == 7
+
+
+def test_converter_handles_listoflist_cost_curve(tmp_path: Path) -> None:
+    """v0.3 profiled gens wrap each piecewise breakpoint as a time series.
+
+    Shape: ``Production cost curve (MW) = [[ts_low], [ts_high]]`` and
+    ``Production cost curve ($) = [c_low, c_high]``.  The converter
+    must collapse the inner time series to hour 0 (matching how Load
+    and Normal flow limit are flattened) so the pmin/pmax/gcost
+    extraction stays consistent.  Before the fix this raised
+    ``TypeError: unsupported operand type(s) for -: 'list' and 'list'``
+    on ``pglib-uc/rts_gmlc``.
+    """
+    payload = json.loads(json.dumps(_SYNTHETIC_UCJL))
+    # Replace g1's flat scalar curve with a 2-segment time-varying curve.
+    payload["Generators"]["g1"]["Production cost curve (MW)"] = [
+        [10, 11, 12, 10],
+        [80, 82, 85, 80],
+    ]
+    payload["Generators"]["g1"]["Production cost curve ($)"] = [200, 2600]
+    ucjl = _write_ucjl(tmp_path, payload)
+    out = tmp_path / "uc_smoke_gtopt.json"
+
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    gens = {
+        g["name"]: g for g in json.loads(out.read_text())["system"]["generator_array"]
+    }
+    # Hour-0 flatten: pmin=10, pmax=80, slope=(2600-200)/(80-10)=34.2857…
+    assert gens["g1"]["pmin"] == 10.0
+    assert gens["g1"]["pmax"] == 80.0
+    assert gens["g1"]["gcost"] == pytest.approx(2400.0 / 70.0, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Real-benchmark anchor: vendored MATPOWER case14 from axavier.org
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE14.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14}",
+)
+def test_converter_handles_real_matpower_case14(tmp_path: Path) -> None:
+    """Converter survives the real UC.jl ``matpower/case14/2017-01-01`` schema.
+
+    Pure shape check — no gtopt involved — so this leg runs even when
+    the binary isn't available.  Pins counts (14 buses / 5 gens / 20
+    lines / 36-h horizon) so any future converter change that silently
+    drops elements lights up here.
+    """
+    ucjl = tmp_path / "uc_case14.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE14.read_bytes()))
+    out = tmp_path / "g_case14.json"
+
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    data = json.loads(out.read_text())
+    system = data["system"]
+    assert len(system["bus_array"]) == 14
+    assert len(system["generator_array"]) == 5
+    assert len(system["line_array"]) == 20
+    # 11 buses have non-zero hour-0 load in this case (b1 / b7 / b8 are dry).
+    assert len(system["demand_array"]) == 11
+    assert data["simulation"]["block_array"][0]["duration"] == 36
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14}",
+)
+def test_real_case14_solves_with_gtopt(tmp_path: Path) -> None:
+    """Real-benchmark anchor: case14 → gtopt → obj_value = 350 275.71.
+
+    Complements the analytical 2-bus synthetic case with a real UC.jl
+    instance (14 buses, 5 thermal gens, 20 lines, 36-h horizon, real
+    piecewise cost curves and time-series loads collapsed to hour 0).
+    The golden was computed once by solving the converted JSON with
+    the in-tree gtopt binary; any drift > 1e-4 (relative) indicates
+    either a converter regression or a gtopt LP-build change.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    ucjl = tmp_path / "uc_case14.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE14.read_bytes()))
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    case_json = run_dir / "g_case14.json"
+    proc = _run_converter(ucjl, case_json)
+    assert proc.returncode == 0, proc.stderr
+
+    solve = subprocess.run(
+        [gtopt_bin, case_json.name],
+        cwd=str(run_dir),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert solve.returncode == 0, (
+        f"gtopt failed (rc={solve.returncode})\n"
+        f"--- stdout ---\n{solve.stdout}\n"
+        f"--- stderr ---\n{solve.stderr}\n"
+    )
+
+    status, obj = _read_solution_status(run_dir / "output")
+    assert status == 0, f"solver status={status}, expected 0"
+    assert obj is not None and not math.isnan(obj)
+    assert obj == pytest.approx(350_275.71373979026, rel=1e-4)
 
 
 # ---------------------------------------------------------------------------
