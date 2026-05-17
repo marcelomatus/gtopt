@@ -35,6 +35,7 @@ Run:  ``cd tools && python -m pytest test_ucjl2gtopt.py -q``
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import math
 import os
@@ -54,6 +55,9 @@ _VENDORED_CASE14_BASE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_base.json"
 _VENDORED_CASE14_CONGESTED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_congested.json"
 _VENDORED_CASE14_FLEX = _TEST_DATA_DIR / "UnitCommitmentJl_case14_flex.json"
 _VENDORED_BASE_WITH_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_base_with_storage.json"
+_VENDORED_CASE118_INITCOND = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_case118_initcond.json.gz"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1080,4 +1084,161 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
                 f"commitment uid={gen_uid} block {block_idx + 1}: "
                 f"status_sol = {value} is not a clean 0/1 integer "
                 f"on base_with_storage"
+            )
+
+
+# ---------------------------------------------------------------------------
+# IEEE-118 UC benchmark (case118-initcond)
+# ---------------------------------------------------------------------------
+#
+# Vendored from ``ANL-CEEESA/UnitCommitment.jl/test/fixtures/case118-initcond.json.gz``
+# (24 KB gzipped, 200 KB uncompressed).  Standard IEEE-118 topology
+# extended by UC.jl with realistic data-driven UC parameters:
+#
+#   * 118 buses (99 with non-zero load after the unknown-bus filter).
+#   * 54 thermal generators — every one has the full UC field set
+#     (5-breakpoint piecewise costs, 3-tier startup costs/delays,
+#     ramps, min up/down, reserve eligibility).
+#   * 186 transmission lines.
+#   * 1 spinning-reserve zone with a per-hour time-varying
+#     requirement (length-36 list — exercises the
+#     ``Amount (MW)`` time-series path).
+#   * 36-hour horizon.
+#
+# Resulting LP shape (LP-relax): ~25 800 vars × ~28 700 rows.  MIP
+# (with the integer-column-scaling fix in place) closes the integer
+# gap to ~0.86 % (LP obj 2 082 551, MIP obj 2 100 504) in well under
+# the 180-s timeout.
+#
+# This is the largest UC.jl fixture in the test suite — significantly
+# bigger than the case14 / 15-bus fixtures and a meaningful workload
+# for the column-scaling fix at scale (CPLEX MIP has to assign
+# integer values to 54 × 36 = 1944 commitment status variables plus
+# their startup tiers).
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE118_INITCOND.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE118_INITCOND}",
+)
+def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
+    """UC.jl ``case118-initcond.json.gz`` shape — 118-bus IEEE benchmark.
+
+    Pins the converter output counts so a future converter regression
+    that silently drops generators, lines, or reserve provisions
+    surfaces here.  Also exercises:
+
+      * Gzipped fixture round-trip (vendored as ``.json.gz`` to save
+        repo space — ~24 KB vs ~200 KB uncompressed).
+      * v0.3 ``Type = "spinning"`` (lowercase) handled identically
+        to ``"Spinning"``.
+      * Reserve ``Amount (MW)`` as a 36-element time series rather
+        than a scalar.
+    """
+    ucjl = tmp_path / "case118.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    assert len(system["bus_array"]) == 118
+    assert len(system["generator_array"]) == 54
+    assert len(system["line_array"]) == 186
+    assert len(system["commitment_array"]) == 54  # one per thermal
+    assert len(system["reserve_zone_array"]) == 1
+    assert len(system["reserve_provision_array"]) == 54  # every gen is eligible
+    # 99 buses have non-zero load after the unknown-bus filter.
+    assert len(system["demand_array"]) == 99
+
+    # Reserve requirement is a 36-hour time series, not a scalar.
+    zone = system["reserve_zone_array"][0]
+    assert isinstance(zone["urreq"], list)
+    assert len(zone["urreq"]) == 1  # one stage
+    assert len(zone["urreq"][0]) == 36  # T = 36 hours
+    # First hour of the UC.jl source = 61.19 MW.
+    assert zone["urreq"][0][0] == pytest.approx(61.19, abs=1e-6)
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE118_INITCOND.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE118_INITCOND}",
+)
+def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
+    """LP-relax solve on the 118-bus benchmark (~26 K cols × ~29 K rows).
+
+    Pins ``obj = 2 082 550.73``.  A regression that drops generators
+    or mis-builds the piecewise cost matrix would shift this obj
+    materially; a regression in the reserve time-series path would
+    drop the reserve-credit term and push obj higher.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    ucjl = tmp_path / "case118.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(2_082_550.73, rel=1e-5)
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE118_INITCOND.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE118_INITCOND}",
+)
+def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
+    """MIP on the 118-bus benchmark: integer-scaling fix at scale.
+
+    Pins three invariants on the largest UC.jl fixture in the suite:
+
+      * Solver status 0.
+      * gtopt MIP obj = ``2 100 504.38`` (~0.86 % integer gap over LP).
+      * Every one of the **1944 commitment status values** (54 gens
+        × 36 hours) is a clean 0/1 integer — the column-scaling-fix
+        invariant on a workload large enough that any residual
+        non-unit col_scale on the integer columns would corrupt the
+        MIP across many variables, not just g1/g2.
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    ucjl = tmp_path / "case118.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(2_100_504.38, abs=10.0)
+
+    # Clean-binary invariant across all 1944 (54 gens × 36 hours) values.
+    for gen_uid in range(1, 55):
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        assert len(status_per_block) == 36, (
+            f"uid={gen_uid}: expected 36 status values, got {len(status_per_block)}"
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"commitment uid={gen_uid} block {block_idx + 1}: "
+                f"status_sol = {value} is not a clean 0/1 integer "
+                f"on case118-initcond"
             )

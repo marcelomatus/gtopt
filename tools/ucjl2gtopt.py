@@ -210,17 +210,19 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             continue
         zuid = len(reserve_zone_array) + 1
         reserve_zone_name_to_uid[zname] = zuid
-        urreq = float(zdata.get("Amount (MW)", 0.0))
-        # ``urreq`` is parsed as ``OptTBRealFieldSched`` — a 2-D
-        # ``[stage][block]`` schedule.  A bare scalar is NOT broadcast
-        # in ``ReserveZoneLP::add_requirement`` (source/reserve_zone_lp.cpp:40
-        # calls ``optval(stage_uid, block_uid)`` and skips blocks with no
-        # explicit value).  Emit the same shape as ``Demand.lmax``.
+        # ``Amount (MW)`` may be a scalar OR a per-hour list (UC.jl v0.3
+        # case118-initcond ships a length-T time series).  Always emit
+        # the 2-D ``[stage][block]`` shape that ``OptTBRealFieldSched``
+        # broadcasts cleanly across the LP build (the per-block lookup
+        # at source/reserve_zone_lp.cpp:40 would otherwise skip blocks
+        # with no explicit value).
+        amount = zdata.get("Amount (MW)", 0.0)
+        urreq_ts = _time_series(amount, T)
         reserve_zone_array.append(
             {
                 "uid": zuid,
                 "name": zname,
-                "urreq": [[urreq] * T],
+                "urreq": [urreq_ts],
                 "urcost": float(zdata.get("Shortfall penalty ($/MW)", 1000.0)),
             }
         )
