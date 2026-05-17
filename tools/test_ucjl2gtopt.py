@@ -53,6 +53,7 @@ _TEST_DATA_DIR = _TOOLS_DIR / "test_data"
 _VENDORED_CASE14_BASE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_base.json"
 _VENDORED_CASE14_CONGESTED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_congested.json"
 _VENDORED_CASE14_FLEX = _TEST_DATA_DIR / "UnitCommitmentJl_case14_flex.json"
+_VENDORED_BASE_WITH_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_base_with_storage.json"
 
 
 # ---------------------------------------------------------------------------
@@ -926,3 +927,157 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
     assert g1_status == [1.0, 1.0, 1.0, 1.0], (
         f"g1 flex MIP status = {g1_status}, expected [1, 1, 1, 1]"
     )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl base.json (top-level) — extends coverage to Storage units / BESS
+# ---------------------------------------------------------------------------
+#
+# Vendored from ``ANL-CEEESA/UnitCommitment.jl/test/fixtures/base.json``
+# (distinct from ``case14/base.json``).  Larger system: 15 buses, 12
+# thermal gens, 22 lines, 3 spinning-reserve zones, **2 Storage units**
+# (BESS — su1 at b4, su2 at b5).  This is our regression anchor that
+# the converter's Storage units → ``Battery`` mapping survives end-to-
+# end (LP build via System::expand_batteries() auto-generates the
+# discharge Generator + charge Demand + linking Converter) and that
+# the resulting LP solves with sensible obj.
+
+
+@pytest.mark.skipif(
+    not _VENDORED_BASE_WITH_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_BASE_WITH_STORAGE}",
+)
+def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
+    """UC.jl top-level ``base.json`` storage-aware shape check.
+
+    Pins the converter output:
+
+      * 15 buses, 12 thermal generators, 20 lines that survive the
+        unknown-bus filter (out of 22 in the UC.jl source — 2 lines
+        reference buses we don't emit because they have no load).
+      * 10 ``Commitment`` entries (only thermal gens; the 2 profiled
+        gens skip Commitment).
+      * 3 ``ReserveZone`` + 7 ``ReserveProvision`` entries.
+      * 2 ``Battery`` entries mapping UC.jl's ``Storage units``
+        ``su1`` / ``su2``.  Spot-check the field mapping on ``su1``
+        (scalar emax/emin) and ``su2`` (per-block emax list).
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    assert len(system["bus_array"]) == 15
+    assert len(system["generator_array"]) == 12
+    # Topology: 22 lines in source; some reference unknown buses (filtered).
+    assert len(system["line_array"]) == 20
+    assert len(system["commitment_array"]) == 10
+    assert len(system["reserve_zone_array"]) == 3
+    assert len(system["battery_array"]) == 2
+
+    bats = {b["name"]: b for b in system["battery_array"]}
+
+    # su1: scalar Maximum/Minimum level — round-trips as scalar.
+    assert bats["su1"]["emax"] == 100.0
+    assert bats["su1"]["emin"] == 10.0
+    assert bats["su1"]["pmax_charge"] == 50.0
+    assert bats["su1"]["pmax_discharge"] == 40.0
+    assert bats["su1"]["input_efficiency"] == 0.9
+    assert bats["su1"]["output_efficiency"] == 0.95
+    assert bats["su1"]["eini"] == 50.0
+    assert bats["su1"]["efin"] == 20.0
+    assert bats["su1"]["gcost"] == 1.5
+
+    # su2: per-block list — round-trips as list (gtopt's
+    # OptTRealFieldSched accepts scalar or list).
+    assert bats["su2"]["emax"] == [200.0, 200.0, 200.0, 200.0]
+    assert bats["su2"]["emin"] == [20.0, 20.0, 20.0, 20.0]
+    assert bats["su2"]["pmax_charge"] == 80.0
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_BASE_WITH_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_BASE_WITH_STORAGE}",
+)
+def test_real_base_with_storage_solves_lprelax(tmp_path: Path) -> None:
+    """LP-relax with 2 BESS units: solver completes and Battery output exists.
+
+    Catches regressions in the Storage → Battery mapping at the LP build
+    level — if gtopt's ``expand_batteries()`` fails to instantiate the
+    auto-generated Generator / Demand / Converter trio, the solve
+    surfaces here.  Also asserts the ``Battery/`` output directory was
+    populated (proves the LP built and solved with the battery cols /
+    rows).
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj is not None and math.isfinite(obj)
+
+    # Battery output dir confirms the LP build instantiated the BESS
+    # variables (efin / efmax / charge / discharge cols + balance rows).
+    battery_dir = tmp_path / "run" / "output" / "Battery"
+    assert battery_dir.is_dir(), (
+        "Battery/ output dir missing — Storage → Battery mapping didn't "
+        "create LP variables for the BESS units"
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_BASE_WITH_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_BASE_WITH_STORAGE}",
+)
+def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
+    """MIP with 2 BESS units: integer-column-scaling fix still holds.
+
+    Larger LP than ``case14/base`` (15 buses, 12 gens, 22 lines + 2
+    batteries that expand into auto-generated Generator / Demand /
+    Converter sub-elements) — more rows and more column-scale
+    candidates for the Ruiz equilibrator to play with.  This case
+    independently verifies the integer-column scaling fix
+    (``status_sol`` must stay clean 0/1) on a system where the
+    auto-expanded battery sub-elements add their own coefficients to
+    the bus-balance rows that ``Commitment`` columns also feed.
+
+    Pins gtopt MIP obj = ``-376 357.36``.
+
+    Skipped when no MIP solver plugin is loaded.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out, "--mip")
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj == pytest.approx(-376_357.36, abs=1.0)
+
+    # Integer-column scaling-fix invariant on every commitment.
+    for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
+        status_per_block = _read_commitment_status(
+            tmp_path / "run" / "output", gen_uid=gen_uid
+        )
+        for block_idx, value in enumerate(status_per_block):
+            assert abs(value) <= 1e-6 or abs(value - 1.0) <= 1e-6, (
+                f"commitment uid={gen_uid} block {block_idx + 1}: "
+                f"status_sol = {value} is not a clean 0/1 integer "
+                f"on base_with_storage"
+            )

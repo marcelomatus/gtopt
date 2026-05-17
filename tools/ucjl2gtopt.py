@@ -14,6 +14,16 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 * **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
   block and per-generator ``Reserve eligibility``: spinning-reserve
   ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
+* **Battery** mirrors UC.jl's ``Storage units`` (BESS):
+  ``Maximum/Minimum level (MWh)`` → ``emax`` / ``emin``,
+  ``Maximum charge/discharge rate (MW)`` → ``pmax_charge`` /
+  ``pmax_discharge``, ``Charge/Discharge efficiency`` →
+  ``input_efficiency`` / ``output_efficiency``,
+  ``Initial level (MWh)`` → ``eini``,
+  ``Last period minimum level (MWh)`` → ``efin``,
+  ``Discharge cost ($/MW)`` → ``gcost``.  gtopt's
+  ``System::expand_batteries()`` auto-instantiates the discharge
+  Generator / charge Demand / linking Converter at LP-build time.
 * **relax: true** by default so the LP relaxation solves with any LP
   backend (HiGHS / CLP / CPLEX).  Drop ``--relax`` from the CLI to emit
   MIP commitment (requires a MIP solver loaded at run time).
@@ -26,6 +36,10 @@ Not yet mapped (scoped out, will silently no-op when present):
   emergency limits).  UC.jl's per-line ``Flow limit penalty`` is not
   mapped — gtopt uses ``demand_fail_cost`` via Power balance penalty
   instead.
+* Storage charge cost (``Charge cost ($/MW)``), per-block min charge /
+  discharge rates, last-period max level, ``Loss factor``, and
+  ``Allow simultaneous charging and discharging`` — see the inline
+  comment at the Storage block for the dropped fields.
 """
 
 import argparse
@@ -336,6 +350,77 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 }
             )
 
+    # --- Storage units (BESS) ------------------------------------------------
+    # UC.jl ``Storage units`` map onto gtopt's unified ``Battery`` element:
+    # System::expand_batteries() auto-generates the discharge Generator,
+    # charge Demand, and linking Converter from a single ``Battery`` entry.
+    # Per-block time-series fields (``Maximum level (MWh)`` as a list of T
+    # values) round-trip naturally — gtopt's ``OptTRealFieldSched`` /
+    # ``OptTBRealFieldSched`` accept both scalar and list shapes.
+    #
+    # Dropped (silently) — no native gtopt mapping:
+    #   * ``Minimum charge rate (MW)`` / ``Minimum discharge rate (MW)`` —
+    #     gtopt's pmax_charge / pmax_discharge are upper bounds only.
+    #   * ``Charge cost ($/MW)`` — gtopt charges via the auto-generated
+    #     Demand's load cost, which the unified Battery doesn't expose
+    #     as a direct field; rolled into the round-trip ``gcost``
+    #     (discharge cost) approximation below.
+    #   * ``Last period maximum level`` — gtopt has efin (min) but not efmax.
+    #   * ``Allow simultaneous charging and discharging`` — gtopt's
+    #     formulation disallows simultaneous flows by construction.
+    #   * ``Loss factor`` — gtopt's ``annual_loss`` is in different units
+    #     (annual %/year vs UC.jl's per-block factor); deferred.
+    uc_storage = data.get("Storage units", {}) or {}
+    battery_array = []
+    bat_uid = 0
+    for sname, sdata in uc_storage.items():
+        bus_name = sdata.get("Bus")
+        if bus_name not in name_to_uid:
+            continue
+        bat_uid += 1
+        b_entry: dict = {
+            "uid": bat_uid,
+            "name": sname,
+            "bus": name_to_uid[bus_name],
+        }
+        # Field mappings — all are TRealFieldSched (scalar or 1-D list);
+        # passing the raw UC.jl value works for both shapes.
+        for ucjl_key, gtopt_key in (
+            ("Maximum level (MWh)", "emax"),
+            ("Minimum level (MWh)", "emin"),
+            ("Maximum charge rate (MW)", "pmax_charge"),
+            ("Maximum discharge rate (MW)", "pmax_discharge"),
+            ("Charge efficiency", "input_efficiency"),
+            ("Discharge efficiency", "output_efficiency"),
+        ):
+            value = sdata.get(ucjl_key)
+            if value is not None:
+                b_entry[gtopt_key] = value
+        # Scalars (not field schedules).
+        for ucjl_key, gtopt_key in (
+            ("Initial level (MWh)", "eini"),
+            ("Last period minimum level (MWh)", "efin"),
+        ):
+            value = sdata.get(ucjl_key)
+            if value is not None:
+                b_entry[gtopt_key] = float(value)
+        # Round-trip cost approximation: UC.jl bills charging and
+        # discharging separately, gtopt's unified Battery only exposes
+        # ``gcost`` (discharge).  Use it for the discharge side; the
+        # charge side is implicit in the energy-balance constraint.
+        d_cost = sdata.get("Discharge cost ($/MW)")
+        if d_cost is not None:
+            b_entry["gcost"] = float(d_cost)
+        # Track installed capacity = max SoC so expansion / capacity-fail
+        # bounds line up.
+        emax_val = sdata.get("Maximum level (MWh)")
+        if emax_val is not None:
+            scalar_emax = (
+                _first_hour(emax_val) if isinstance(emax_val, list) else emax_val
+            )
+            b_entry["capacity"] = float(scalar_emax)
+        battery_array.append(b_entry)
+
     # --- Lines ---------------------------------------------------------------
     uc_lines = data.get("Transmission lines", {})
     line_array = []
@@ -395,6 +480,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "commitment_array": commitment_array,
             "reserve_zone_array": reserve_zone_array,
             "reserve_provision_array": reserve_provision_array,
+            "battery_array": battery_array,
         },
     }
 
@@ -409,6 +495,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         print(f"  Lines: {len(line_array)}")
         print(f"  Reserve zones: {len(reserve_zone_array)}")
         print(f"  Reserve provisions: {len(reserve_provision_array)}")
+        print(f"  Batteries: {len(battery_array)}")
         print(f"  Time horizon: {T} hours (1 scenario × 1 stage × {T} blocks)")
     return output
 
