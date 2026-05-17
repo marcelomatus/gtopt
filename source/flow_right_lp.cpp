@@ -86,9 +86,9 @@ enum class FlowMode : std::uint8_t
 
 struct ResolvedBounds
 {
-  Real fmin;
-  std::optional<Real> target;
-  Real fmax;
+  Real fmin {0.0};
+  std::optional<Real> target {};
+  Real fmax {0.0};
 };
 
 /// Resolve the `(fmin, target, fmax)` triple for one scope (a block or
@@ -557,11 +557,11 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (fa.kink_row) {
       qkink_rows[st_key] = *fa.kink_row;
     }
-    if (fa.substituted_target.has_value()) {
-      stage_target_values_[st_key] = *fa.substituted_target;
-      stage_fcost_only_[st_key] =
-          fa.substituted_fcost_only ? std::uint8_t {1} : std::uint8_t {0};
-    }
+    // (qeh-scope substitution: no cache stored — there is no
+    // stage-scope output reconstruction path, and no internal
+    // consumer reads `fail_sol`/`excess_sol` at stage scope.  The
+    // LP-side substitution itself is complete via the elided slack
+    // + row inside `attach_flow`.)
 
     // `stage_average` mode: install the qavg row that links qeh to the
     // per-block flow columns.  `stage_uniform` skips this — there are
@@ -859,12 +859,11 @@ bool FlowRightLP::add_to_output(OutputContext& out) const
     out.add_row_dual(cname, QkinkName, id(), qkink_rows);
   }
   // Stage-scope (qeh) one-sided-substitution reconstruction is
-  // currently omitted: `add_col_sol_values` is per-block keyed and
-  // doesn't have a stage-scope overload.  The reconstruction is
-  // still queryable via `fail_sol_at` / `excess_sol_at` for tools
-  // that prefer the in-memory accessor.  No production tooling
-  // reads `Demand/qeh_sp_sol.csv` / `_sn_sol.csv` under the
-  // stage-only substitution path (verified by grep).
+  // intentionally not emitted: no downstream consumer reads
+  // `FlowRight/qeh_sp_sol.csv` / `_sn_sol.csv` at stage scope, and
+  // `add_col_sol_values` has no stage-keyed overload.  The LP-side
+  // elision still happens inside `attach_flow` (col bounds + cost
+  // + obj_constant); the algebraic objective is preserved.
 
   return true;
 }

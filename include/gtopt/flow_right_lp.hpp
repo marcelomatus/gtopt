@@ -292,18 +292,12 @@ private:
   /// populated) and for blocks with no target.
   STBIndexHolder<double> block_target_values_;
 
-  /// Stage-level twin of `block_target_values_` for the qeh stage-
-  /// aggregate substitution path.  One entry per (scenario, stage)
-  /// where the stage-scope one-sided kink was elided.
-  STIndexHolder<double> stage_target_values_;
-
   /// Per-block sign bit recording which side of the elided kink was
   /// active: `1` ⇒ fcost-only (fail reconstruction),
   /// `0` ⇒ uvalue-only (excess reconstruction).  Stored as
   /// `std::uint8_t` rather than `bool` because flat_map's
   /// reference proxy chokes on `bool`-valued maps.
   STBIndexHolder<std::uint8_t> block_fcost_only_;
-  STIndexHolder<std::uint8_t> stage_fcost_only_;
 
   /// Cached bound rule evaluation per (scenario, stage).
   /// Only populated when flow_right().bound_rule is set.

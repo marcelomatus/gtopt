@@ -307,6 +307,16 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // would throw on the (s,t) keys we skipped.  Look up via
   // `.find()` and silently no-op when the outer key is absent —
   // semantically equivalent to "no LP cols for this (s,t)".
+  // Generic registration: picks the matching `add_ampl_variable`
+  // overload by ADL on `it->second`'s value type.
+  //   * `BIndexHolder<ColIndex>`               → single-col path
+  //     (`flowp_cols`, `flown_cols`, `lossp_cols`, `lossn_cols`).
+  //   * `BIndexHolder<std::vector<ColIndex>>`  → sum-of-cols path
+  //     used by `piecewise_direct`'s virtual aggregator.
+  // Aggregator-mode lines leave `flowp_seg_cols` / `flown_seg_cols`
+  // empty, and `piecewise_direct` lines leave the single-col
+  // `flowp_cols` / `flown_cols` empty — so each line registers
+  // exactly one shape, never both.
   const auto register_if_present =
       [&](std::string_view attribute, const auto& cols)
   {
@@ -321,24 +331,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   register_if_present(FlownName, flown_cols);
   register_if_present(LosspName, lossp_cols);
   register_if_present(LossnName, lossn_cols);
-
-  // `piecewise_direct` virtual aggregator: only fires when the
-  // direct-mode segment holders were populated this call (single-col
-  // `flowp_cols` / `flown_cols` are empty in that mode, so the
-  // ordinary single-col registrations above are no-ops).  Other modes
-  // leave `flowp_seg_cols` / `flown_seg_cols` empty so this is a no-op.
-  const auto register_seg_sum_if_present =
-      [&](std::string_view attribute, const auto& seg_cols)
-  {
-    const auto it = seg_cols.find(st_key);
-    if (it == seg_cols.end() || it->second.empty()) {
-      return;
-    }
-    sc.add_ampl_variable(
-        ampl_name, uid(), attribute, scenario, stage, it->second);
-  };
-  register_seg_sum_if_present(FlowpName, flowp_seg_cols);
-  register_seg_sum_if_present(FlownName, flown_seg_cols);
+  register_if_present(FlowpName, flowp_seg_cols);
+  register_if_present(FlownName, flown_seg_cols);
 
   return true;
 }
