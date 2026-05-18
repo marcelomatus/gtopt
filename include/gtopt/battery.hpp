@@ -177,8 +177,10 @@ struct Battery
   OptTBRealFieldSched emax {};  ///< Maximum state of charge (usable capacity)
                                 ///< [MWh] — per-(stage, block); see ``emin``
                                 ///< for the accepted JSON / C++ shapes.
-  OptTRealFieldSched
-      ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
+  OptTBRealFieldSched
+      ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh] —
+                 ///< per-(stage, block); accepts a scalar (broadcasts),
+                 ///< a 2-D nested array, or a file-backed schedule.
   OptReal eini {};  ///< Initial state of charge [MWh].  Sets an equality
                     ///< constraint SoC_start = eini in the first stage of the
                     ///< first phase only.
@@ -196,13 +198,15 @@ struct Battery
                          ///< like seasonal storage; daily-cycle BESS
                          ///< typically leave it unset.
 
-  OptTRealFieldSched
-      soft_emin {};  ///< Soft minimum SoC per stage [MWh].
-                     ///< Creates a penalized constraint: efin + slack >=
-                     ///< soft_emin.
+  OptTBRealFieldSched
+      soft_emin {};  ///< Soft minimum SoC [MWh] — per-(stage, block);
+                     ///< accepts a scalar (broadcasts), a 2-D nested
+                     ///< array, or a file-backed schedule.  Creates a
+                     ///< penalized constraint: efin + slack >= soft_emin.
                      ///< @see Reservoir::soft_emin for full documentation.
-  OptTRealFieldSched soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
-                                         ///< violation [$/MWh].
+  OptTBRealFieldSched
+      soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
+                          ///< violation [$/MWh] — per-(stage, block).
 
   OptTRealFieldSched
       pmax_charge {};  ///< Max charging power [MW] (unified definition)

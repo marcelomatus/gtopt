@@ -928,7 +928,7 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
     # MIP was a strictly worse integer corner with obj ≈ +4 079 092 (curtail
     # 40 MW × $100 K/MW).  Post-fix the MIP attains the LP-relax obj.
     assert obj == pytest.approx(-369_876.86, abs=1.0), (
-        f"MIP obj = {obj}, expected ≈ -377 608.40 (matches LP-relax) — "
+        f"MIP obj = {obj}, expected ≈ -369 876.86 (matches LP-relax) — "
         f"a positive obj near +4 M would indicate the integer-scaling "
         f"regression where MIP can't commit g1/g2 and curtails instead"
     )
@@ -2451,12 +2451,36 @@ def test_ucjl_golden_case14_base(tmp_path: Path) -> None:
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "Known divergence: converter's 3-tier startup-cost encoding makes "
-        "g1 uneconomic in gtopt's MIP, so gtopt curtails ~159 MW while UC.jl "
-        "commits g1 and serves the full 360 MW load.  Affects both LP-relax "
-        "and MIP — root cause is in the converter's startup-cost translation, "
-        "not in gtopt's solver.  Fixture's only diff from case14/base is g3's "
-        "cost curve (essentially-free → real cost ~$2K/MW)."
+        "Known divergence (investigated 2026-05-18): two converter encoding "
+        "issues compound to make g1 uneconomic in gtopt's MIP.\n"
+        "  (A) Line caps: 19 of 20 case14 lines have only `Normal flow "
+        "limit (MW) = 15` (no Emergency, no per-line penalty).  The "
+        "converter maps these to a HARD ``tmax = 15`` cap.  g1's "
+        "pmin=100 at b1 cannot exit (2 lines × 15 MW = 30 MW out), "
+        "so committing g1 is infeasible — LP forces u_g1=0 and "
+        "curtails ~150 MW.  UC.jl's golden objective ($27k pure "
+        "dispatch) confirms it does NOT enforce Normal=15 as a hard "
+        "cap on these lines.  Treating Normal-only lines as "
+        "unconstrained fixes this fixture but mis-prices flow on "
+        "other case14 / case118 fixtures that DO rely on Normal as a "
+        "soft target (5 regressions: case14_base mip status, "
+        "case14_storage, case14_base_copperplate, case14_base "
+        "row_max_equilibration, case118_initcond mip+lprelax).\n"
+        "  (B) Piecewise cost intercept: UC.jl's curve "
+        "``f(p) = c_pmin + Σ h_k δ_k`` carries a fixed intercept at "
+        "pmin (e.g. g1 = $1400 at p=100).  gtopt's commitment_lp "
+        "piecewise path needs ``fuel_cost > 0`` to fire (line "
+        "commitment_lp.cpp:500) and a ``noload_cost`` to encode the "
+        "intercept.  Without these the LP under-charges thermals at "
+        "high dispatch, making g4/g5 look artificially cheap vs g1.\n"
+        "Both encoding choices were locally-optimal for other "
+        "fixtures.  Closing this gap properly requires:\n"
+        "  - Smarter line-cap encoding (per-fixture or "
+        "global-penalty-aware soft cap), OR a flag.\n"
+        "  - Update pinned objective values across 5 sibling tests "
+        "after adding noload_cost.\n"
+        "Fixture's only diff from case14/base is g3's cost curve "
+        "(essentially-free → real cost ~$38/MW)."
     ),
 )
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

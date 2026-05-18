@@ -63,8 +63,8 @@ struct json_data_contract<Battery>
                                                  ///< — scalar or 2-D
                                                  ///< per-(stage, block)
       json_variant_null<"ecost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Voltage cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Storage usage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
       json_number_null<"efin", OptReal>,  ///< Final energy (optional)
       json_number_null<"efin_cost", OptReal>,  ///< Soft-efin slack cost
@@ -73,11 +73,11 @@ struct json_data_contract<Battery>
                                                ///< value, otherwise hard
                                                ///< efin row.
       json_variant_null<"soft_emin",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft minimum energy
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Soft minimum energy
       json_variant_null<"soft_emin_cost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft emin penalty cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Soft emin penalty cost
       json_variant_null<"pmax_charge",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Max charging power

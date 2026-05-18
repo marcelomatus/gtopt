@@ -102,7 +102,12 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
 
   const auto mpf = reservoir().mean_production_factor.value_or(
       Reservoir::default_mean_production_factor);
-  const auto stage_scost = sc.state_violation_cost(stage, scost);
+  // `scost` is per-(stage, block) since PR-D; the StateVariable
+  // penalty is fundamentally per-stage (one state column per stage),
+  // so we sample the first block — the same choice taken by other
+  // stage-scoped consumers (e.g. PR-A's `ecost` fallback in DemandLP).
+  const auto& first_block = stage.blocks().front();
+  const auto stage_scost = sc.state_violation_cost(stage, first_block, scost);
   const double rsv_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {

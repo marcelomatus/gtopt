@@ -448,13 +448,9 @@ public:
         stage.uid() == sc.simulation().stages().back().uid();
     const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
 
-    // Physical objective cost per energy unit.  flatten() applies col_scale
-    // so that cost_LP = cost_phys × col_scale / scale_objective.
-    const auto stage_ecost = sc.scenario_stage_ecost(  //
-                                 scenario,
-                                 stage,
-                                 ecost.at(stage.uid()).value_or(0.0))
-        / stage.duration();
+    // Physical objective cost per energy unit.  `ecost` is now
+    // per-(stage, block); we resolve it inside the block loop below.
+    // The legacy per-stage `stage_ecost` is no longer cached.
 
     const auto hour_loss =
         annual_loss.at(stage.uid()).value_or(0.0) / hours_per_year;
@@ -638,10 +634,18 @@ public:
       const auto [block_emax, block_emin] =
           sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
       const bool emin_block = (buid == blocks.back().uid());
+      // Per-(stage, block) ecost (since PR-D).  `scenario_stage_ecost`
+      // applies the scenario probability + discount; we divide by
+      // stage.duration() so the LP cost stays in $/(physical_unit)
+      // matching the legacy stage-scalar formulation.
+      const auto block_ecost_val =
+          sc.scenario_stage_ecost(
+              scenario, stage, ecost.at(stage.uid(), buid).value_or(0.0))
+          / stage.duration();
       const auto ec = lp.add_col({
           .lowb = emin_block ? efin_block_lowb : 0.0,
           .uppb = block_emax,
-          .cost = stage_ecost,
+          .cost = block_ecost_val,
           .scale = energy_scale,
           .class_name = opts.class_name,
           .variable_name = EnergyName,
@@ -785,9 +789,16 @@ public:
     // The slack variable has a penalty cost in the objective, allowing the
     // volume/SoC to drop below soft_emin at a cost.  One constraint per
     // stage, applied to the efin column (prev_vc = last block's energy col).
-    const auto stage_soft_emin = soft_emin.at(stage.uid()).value_or(0.0);
+    // `soft_emin` / `soft_emin_cost` are per-(stage, block) since PR-D;
+    // since the constraint itself is stage-scoped (applies to the efin
+    // column), we sample the last block — where the efin lives.  Block
+    // 0 would also be valid; the last-block choice keeps round-trip
+    // semantics with the legacy single-value-per-stage form.
+    const auto soft_emin_buid = blocks.back().uid();
+    const auto stage_soft_emin =
+        soft_emin.at(stage.uid(), soft_emin_buid).value_or(0.0);
     const auto stage_soft_emin_cost =
-        soft_emin_cost.at(stage.uid()).value_or(0.0);
+        soft_emin_cost.at(stage.uid(), soft_emin_buid).value_or(0.0);
     if (stage_soft_emin > 0.0 && stage_soft_emin_cost > 0.0) {
       const double lp_soft_emin = stage_soft_emin;
       // Penalty cost per LP unit of slack: physical cost.
@@ -962,7 +973,10 @@ public:
   {
     return emax.at(s, b);
   }
-  [[nodiscard]] auto param_ecost(StageUid s) const { return ecost.at(s); }
+  [[nodiscard]] auto param_ecost(StageUid s, BlockUid b) const
+  {
+    return ecost.at(s, b);
+  }
   /// @}
 
 private:
@@ -973,12 +987,13 @@ private:
                         ///< 2026-05-18).
   OptTBRealSched emax;  ///< Per-(stage, block) max SoC.  Same source
                         ///< contract as ``emin``.
-  OptTRealSched ecost;
+  OptTBRealSched ecost;  ///< Per-(stage, block) holding cost.
 
   OptTRealSched annual_loss;
 
-  OptTRealSched soft_emin;
-  OptTRealSched soft_emin_cost;
+  OptTBRealSched soft_emin;  ///< Per-(stage, block) soft-emin floor.
+  OptTBRealSched soft_emin_cost;  ///< Per-(stage, block) soft-emin
+                                  ///< penalty cost.
 
   STBIndexHolder<ColIndex> energy_cols;
   STBIndexHolder<ColIndex> drain_cols;

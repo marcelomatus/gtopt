@@ -98,7 +98,11 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
 
   const auto mpf = terminal().mean_production_factor.value_or(
       LngTerminal::default_mean_production_factor);
-  const auto stage_scost = sc.state_violation_cost(stage, scost);
+  // `scost` is per-(stage, block) since PR-D; sample the first block
+  // for the stage-scoped StateVariable penalty (same convention as
+  // `ReservoirLP::add_to_lp`).
+  const auto& first_block = stage.blocks().front();
+  const auto stage_scost = sc.state_violation_cost(stage, first_block, scost);
   const double lng_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {

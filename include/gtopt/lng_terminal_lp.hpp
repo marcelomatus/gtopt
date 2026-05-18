@@ -72,7 +72,7 @@ public:
 
 private:
   OptTRealSched delivery;
-  OptTRealSched scost;
+  OptTBRealSched scost;
   STBIndexHolder<ColIndex> delivery_cols;
 };
 

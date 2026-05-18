@@ -453,7 +453,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return bat.param_emax(suid, buid);
       }
       if (attr == "ecost") {
-        return bat.param_ecost(suid);
+        return bat.param_ecost(suid, buid);
       }
       if (attr == "input_efficiency") {
         return bat.param_input_efficiency(suid);
@@ -474,7 +474,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return res.param_emax(suid, buid);
       }
       if (attr == "ecost") {
-        return res.param_ecost(suid);
+        return res.param_ecost(suid, buid);
       }
       if (attr == "capacity") {
         return res.param_capacity(suid);
