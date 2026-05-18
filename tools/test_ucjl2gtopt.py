@@ -78,6 +78,24 @@ _VENDORED_LMP_SIMPLE_2 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_2.js
 _VENDORED_LMP_SIMPLE_3 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_3.json.gz"
 _VENDORED_LMP_SIMPLE_4 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_4.json.gz"
 _VENDORED_AELMP_SIMPLE = _TEST_DATA_DIR / "UnitCommitmentJl_aelmp_simple.json.gz"
+_VENDORED_MARKET_DA_SIMPLE = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_da_simple.json.gz"
+)
+_VENDORED_MARKET_DA_SCENARIO = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_da_scenario.json.gz"
+)
+_VENDORED_MARKET_RT1_SIMPLE = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_rt1_simple.json.gz"
+)
+_VENDORED_MARKET_RT2_SIMPLE = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_rt2_simple.json.gz"
+)
+_VENDORED_MARKET_RT3_SIMPLE = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_rt3_simple.json.gz"
+)
+_VENDORED_MARKET_RT4_SIMPLE = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_market_rt4_simple.json.gz"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -2838,5 +2856,109 @@ def test_ucjl_golden_aelmp_simple(tmp_path: Path) -> None:
         tmp_path,
         "aelmp_simple",
         _VENDORED_AELMP_SIMPLE,
+        block_mw_tol=0.1,
+    )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl market-clearing fixtures (DA + RT)
+# ---------------------------------------------------------------------------
+#
+# UC.jl ships ``market_da_*`` (day-ahead) and ``market_rt*`` (real-time)
+# fixtures testing its market_test.jl harness.  All are tiny (1 bus,
+# 4 gens, 1-2 blocks, schema v0.4) and gtopt matches UC.jl's CPLEX MIP
+# bit-for-bit on every per-gen MW.  These fixtures stress the
+# converter's handling of:
+#   - sub-hourly time steps (``Time step (min) = 30`` for rt*)
+#   - mixed ``Time horizon (h)`` / ``Time horizon (min)`` parameters
+#   - small networks with no transmission constraints
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_DA_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_DA_SIMPLE}",
+)
+def test_ucjl_golden_market_da_simple(tmp_path: Path) -> None:
+    """UC.jl ``market_da_simple``: 1 bus, 4 gens, 2-h horizon."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_da_simple",
+        _VENDORED_MARKET_DA_SIMPLE,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_DA_SCENARIO.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_DA_SCENARIO}",
+)
+def test_ucjl_golden_market_da_scenario(tmp_path: Path) -> None:
+    """UC.jl ``market_da_scenario``: scenario-style DA fixture."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_da_scenario",
+        _VENDORED_MARKET_DA_SCENARIO,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_RT1_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_RT1_SIMPLE}",
+)
+def test_ucjl_golden_market_rt1_simple(tmp_path: Path) -> None:
+    """UC.jl ``market_rt1_simple``: sub-hourly RT (30-min blocks)."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_rt1_simple",
+        _VENDORED_MARKET_RT1_SIMPLE,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_RT2_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_RT2_SIMPLE}",
+)
+def test_ucjl_golden_market_rt2_simple(tmp_path: Path) -> None:
+    """UC.jl ``market_rt2_simple``: sub-hourly RT (30-min blocks)."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_rt2_simple",
+        _VENDORED_MARKET_RT2_SIMPLE,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_RT3_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_RT3_SIMPLE}",
+)
+def test_ucjl_golden_market_rt3_simple(tmp_path: Path) -> None:
+    """UC.jl ``market_rt3_simple``: sub-hourly RT (30-min blocks)."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_rt3_simple",
+        _VENDORED_MARKET_RT3_SIMPLE,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_MARKET_RT4_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_MARKET_RT4_SIMPLE}",
+)
+def test_ucjl_golden_market_rt4_simple(tmp_path: Path) -> None:
+    """UC.jl ``market_rt4_simple``: sub-hourly RT (30-min single-block)."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "market_rt4_simple",
+        _VENDORED_MARKET_RT4_SIMPLE,
         block_mw_tol=0.1,
     )
