@@ -72,6 +72,12 @@ _VENDORED_CASE14_CONTINGENCY = (
     _TEST_DATA_DIR / "UnitCommitmentJl_case14_contingency.json"
 )
 _VENDORED_ISSUE_0057 = _TEST_DATA_DIR / "UnitCommitmentJl_issue_0057.json.gz"
+_VENDORED_UCJL_0_3 = _TEST_DATA_DIR / "UnitCommitmentJl_ucjl_0_3.json.gz"
+_VENDORED_LMP_SIMPLE_1 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_1.json.gz"
+_VENDORED_LMP_SIMPLE_2 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_2.json.gz"
+_VENDORED_LMP_SIMPLE_3 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_3.json.gz"
+_VENDORED_LMP_SIMPLE_4 = _TEST_DATA_DIR / "UnitCommitmentJl_lmp_simple_test_4.json.gz"
+_VENDORED_AELMP_SIMPLE = _TEST_DATA_DIR / "UnitCommitmentJl_aelmp_simple.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -2721,4 +2727,116 @@ def test_ucjl_golden_issue_0057(tmp_path: Path) -> None:
         _VENDORED_ISSUE_0057,
         block_mw_tol=0.1,
         pinned_gens=("gen_524d4c85",),
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_UCJL_0_3.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_UCJL_0_3}",
+)
+def test_ucjl_golden_ucjl_0_3(tmp_path: Path) -> None:
+    """UC.jl schema-version-0.3 fixture: 14-bus / 6-thermal / 4-h
+    horizon, no storage, no contingencies.  Exercises the converter's
+    handling of UC.jl's pre-modern schema (no Reserves block, no
+    ``Type`` field on gens, ``Initial status`` in plain h units).  gtopt
+    matches UC.jl's CPLEX MIP per-block thermal aggregate
+    bit-for-bit (objective $27,090 — same value reported by the
+    older test_real_case14_base_lprelax test docstring).
+    """
+    _run_ucjl_cross_check(
+        tmp_path,
+        "ucjl_0_3",
+        _VENDORED_UCJL_0_3,
+        block_mw_tol=0.5,
+    )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl LMP / AELMP simple test fixtures
+# ---------------------------------------------------------------------------
+#
+# UC.jl ships 4 ``lmp_simple_test_*`` and 1 ``aelmp_simple`` fixtures
+# in its own test suite to exercise its locational-marginal-pricing
+# code path.  Each is a tiny (1-3 buses, 1-3 gens, single block)
+# economic-dispatch scenario with known-good per-gen production.
+# gtopt's LP matches the UC.jl-pinned per-gen MW bit-for-bit on
+# every fixture — these are excellent regression anchors precisely
+# because the problem is small enough that any divergence points
+# at a specific converter or LP bug.
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_LMP_SIMPLE_1.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_LMP_SIMPLE_1}",
+)
+def test_ucjl_golden_lmp_simple_test_1(tmp_path: Path) -> None:
+    """UC.jl ``lmp_simple_test_1``: 2 buses, 2 gens, 1 line."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "lmp_simple_test_1",
+        _VENDORED_LMP_SIMPLE_1,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_LMP_SIMPLE_2.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_LMP_SIMPLE_2}",
+)
+def test_ucjl_golden_lmp_simple_test_2(tmp_path: Path) -> None:
+    """UC.jl ``lmp_simple_test_2``: 2 buses, 2 gens, 1 line."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "lmp_simple_test_2",
+        _VENDORED_LMP_SIMPLE_2,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_LMP_SIMPLE_3.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_LMP_SIMPLE_3}",
+)
+def test_ucjl_golden_lmp_simple_test_3(tmp_path: Path) -> None:
+    """UC.jl ``lmp_simple_test_3``: 3 buses, 3 gens, 3 lines."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "lmp_simple_test_3",
+        _VENDORED_LMP_SIMPLE_3,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_LMP_SIMPLE_4.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_LMP_SIMPLE_4}",
+)
+def test_ucjl_golden_lmp_simple_test_4(tmp_path: Path) -> None:
+    """UC.jl ``lmp_simple_test_4``: 3 buses, 3 gens, 3 lines."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "lmp_simple_test_4",
+        _VENDORED_LMP_SIMPLE_4,
+        block_mw_tol=0.1,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_AELMP_SIMPLE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_AELMP_SIMPLE}",
+)
+def test_ucjl_golden_aelmp_simple(tmp_path: Path) -> None:
+    """UC.jl ``aelmp_simple``: 1 bus, 3 gens, no transmission.  Tests
+    the converter's basic single-bus economic-dispatch path."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "aelmp_simple",
+        _VENDORED_AELMP_SIMPLE,
+        block_mw_tol=0.1,
     )
