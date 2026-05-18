@@ -387,7 +387,7 @@ def test_synthetic_solves_with_gtopt(tmp_path: Path) -> None:
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_BASE}",
 )
 def test_real_case14_base_topology_counts(tmp_path: Path) -> None:
-    """UC.jl ``case14/base.json`` shape: 14 buses / 11 demands / 6 thermals / 20 lines / 6 commitments."""
+    """UC.jl ``case14/base.json`` shape: 14 buses / 12 demands / 6 thermals / 20 lines / 6 commitments."""
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_BASE, out)
     assert proc.returncode == 0, proc.stderr
@@ -397,8 +397,13 @@ def test_real_case14_base_topology_counts(tmp_path: Path) -> None:
     assert len(system["generator_array"]) == 6
     assert len(system["line_array"]) == 20
     assert len(system["commitment_array"]) == 6
-    # 3 buses (b1 / b7 / b8) have zero load and are excluded.
-    assert len(system["demand_array"]) == 11
+    # 11 buses with non-zero load + 1 price-sensitive load (ps1 at b3).
+    assert len(system["demand_array"]) == 12
+    # Spot-check the price-sensitive Demand carries the Revenue → fcost.
+    psl = [d for d in system["demand_array"] if d["name"] == "ps1"]
+    assert len(psl) == 1
+    assert psl[0]["fcost"] == 100.0
+    assert psl[0]["lmax"] == [[50.0, 50.0, 50.0, 50.0]]
     # One spinning zone (``r1``), five eligible thermals (g2..g6 — g1 has
     # no ``Reserve eligibility`` field).
     assert len(system["reserve_zone_array"]) == 1
@@ -705,7 +710,7 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
     # Pre-fix the MIP couldn't reach physical u = 1 on g1/g2 so the optimal
     # MIP was a strictly worse integer corner with obj ≈ +4 079 092 (curtail
     # 40 MW × $100 K/MW).  Post-fix the MIP attains the LP-relax obj.
-    assert obj == pytest.approx(-377_608.40, abs=1.0), (
+    assert obj == pytest.approx(-369_876.86, abs=1.0), (
         f"MIP obj = {obj}, expected ≈ -377 608.40 (matches LP-relax) — "
         f"a positive obj near +4 M would indicate the integer-scaling "
         f"regression where MIP can't commit g1/g2 and curtails instead"
@@ -765,7 +770,7 @@ def test_real_case14_base_mip_full_network_row_max_equilibration(
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"MIP exit status = {status}, expected 0"
-    assert obj == pytest.approx(-377_608.40, abs=1.0)
+    assert obj == pytest.approx(-369_876.86, abs=1.0)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -870,7 +875,7 @@ def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"MIP exit status = {status}"
-    assert obj == pytest.approx(29_126_081.23, rel=1e-5)
+    assert obj == pytest.approx(29_146_081.23, rel=1e-5)
 
     # Clean-binary invariant (column-scaling-fix regression anchor).
     for gen_uid in range(1, 7):
@@ -923,7 +928,7 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(36_459.08, rel=1e-5)
+    assert obj == pytest.approx(44_684.27, rel=1e-5)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -1082,7 +1087,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-363_085.20, abs=1.0)
+    assert obj == pytest.approx(-350_845.65, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens

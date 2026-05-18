@@ -14,6 +14,14 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 * **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
   block and per-generator ``Reserve eligibility``: spinning-reserve
   ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
+* **Price-sensitive loads** (``Price-sensitive loads``):
+  ``{Bus, Revenue ($/MW), Demand (MW)}`` → extra ``Demand`` with
+  ``lmax = Demand (MW)`` and per-element ``fcost = Revenue``.
+  gtopt's ``demand_fail_cost`` resolution honors per-Demand ``fcost``
+  (source/demand_lp.cpp:100), so this entry's curtailment cost is the
+  marginal revenue earned by serving the load — the LP serves up to
+  ``Demand`` only when ``Revenue`` exceeds the marginal cost of
+  generation, matching UC.jl's elastic-demand semantics.
 * **UserConstraint (PAMPL)** mirrors UC.jl's ``Interfaces``:
   ``Branches = {l_i: c_i}`` + ``Net flow upper/lower limit`` +
   ``Flow limit penalty ($/MW)`` → one PAMPL constraint per (interface
@@ -51,11 +59,12 @@ Not yet mapped (scoped out, will silently no-op when present):
 * Profiled / renewable generators with time-varying capacity
   (``generator_profile_array`` would be the gtopt-side target).
 * Non-spinning reserves (UC.jl ``Type != "Spinning"``).
-* Price-sensitive loads, contingencies, AC fields (``Susceptance``
-  is supported as a fallback for ``Reactance``, but the AC-specific
-  ``Emergency flow limit`` is not).  UC.jl's per-line ``Flow limit
-  penalty`` is not mapped — gtopt uses ``demand_fail_cost`` via Power
-  balance penalty instead.
+* Contingencies (N-1 outage constraints, would need pre-computed
+  LODFs + one UserConstraint per (monitored line × outage)).
+* AC-specific fields: ``Emergency flow limit`` per line is not mapped
+  (gtopt is DC-only).  UC.jl's per-line ``Flow limit penalty`` is not
+  mapped — gtopt uses ``demand_fail_cost`` via Power balance penalty
+  instead.
 * Storage charge cost (``Charge cost ($/MW)``), per-block min charge /
   discharge rates, last-period max level, ``Loss factor``, and
   ``Allow simultaneous charging and discharging`` — see the inline
@@ -327,6 +336,58 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                     "lmax": [load_ts],  # outer = 1 stage, inner = T blocks
                 }
             )
+
+    # --- Price-sensitive loads -----------------------------------------------
+    # UC.jl: ``Price-sensitive loads = {ps1: {Bus, Revenue ($/MW),
+    # Demand (MW)}}``.  Models elastic demand: the LP serves up to
+    # ``Demand (MW)`` MW at this bus only when it's profitable
+    # (i.e. ``Revenue`` exceeds the marginal cost of generation).  Maps
+    # onto an extra gtopt ``Demand`` entry with the per-element ``fcost``
+    # override set to ``Revenue`` — gtopt's
+    # ``SystemContext::demand_fail_cost(stage, fcost)`` resolves to the
+    # per-element value when set (source/demand_lp.cpp:100), so this
+    # entry's curtailment cost overrides the global
+    # ``demand_fail_cost``.  ``Revenue ($/MW)`` is interpreted as
+    # $/MWh per hour-block: the LP gains ``Revenue`` per MW served
+    # (equivalent to "curtailment costs Revenue per MW").  ``forced``
+    # is left unset so the LP can choose any served amount in
+    # ``[0, Demand (MW)]``.
+    uc_psl = data.get("Price-sensitive loads", {}) or {}
+    for psname, psdata in uc_psl.items():
+        bus_name = psdata.get("Bus")
+        if bus_name not in name_to_uid:
+            continue
+        demand_mw = psdata.get("Demand (MW)", 0.0)
+        revenue = psdata.get("Revenue ($/MW)")
+        if revenue is None:
+            continue
+        # ``Revenue`` is collapsed to its first-hour value: gtopt's
+        # ``Demand.fcost`` is ``OptTRealFieldSched`` (per-stage, not
+        # per-block), so a UC.jl per-hour revenue list can't be
+        # honored cell-by-cell.  ``Demand (MW)`` itself can be
+        # time-varying (lmax accepts a per-block list).
+        revenue_scalar = _first_hour(revenue) if isinstance(revenue, list) else revenue
+        # Skip entries where both demand and revenue are zero — UC.jl
+        # base_with_storage ships a degenerate ps3 with {Revenue: 0,
+        # Demand: 0} that would add a no-op Demand otherwise.
+        demand_max = (
+            max(_time_series(demand_mw, T))
+            if isinstance(demand_mw, list)
+            else float(demand_mw)
+        )
+        if revenue_scalar == 0.0 and demand_max == 0.0:
+            continue
+        demand_uid += 1
+        ps_ts = _time_series(demand_mw, T)
+        demand_array.append(
+            {
+                "uid": demand_uid,
+                "name": psname,
+                "bus": name_to_uid[bus_name],
+                "lmax": [ps_ts],
+                "fcost": float(revenue_scalar),
+            }
+        )
 
     # --- Reserve zones -------------------------------------------------------
     # UC.jl: ``Reserves = {r1: {Type, Amount (MW), Shortfall penalty ($/MW)}}``.
