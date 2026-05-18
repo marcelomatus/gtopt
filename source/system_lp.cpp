@@ -630,6 +630,10 @@ void create_collections(const auto& system_context,
       make_collection<FuelLP>(ic, sys.fuel_array);
   std::get<Collection<EmissionLP>>(colls) =
       make_collection<EmissionLP>(ic, sys.emission_array);
+  std::get<Collection<EmissionZoneLP>>(colls) =
+      make_collection<EmissionZoneLP>(ic, sys.emission_zone_array);
+  std::get<Collection<EmissionSourceLP>>(colls) =
+      make_collection<EmissionSourceLP>(ic, sys.emission_source_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
   std::get<Collection<SimpleCommitmentLP>>(colls) =
@@ -716,6 +720,8 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<ConverterLP>(sim, sys.converter_array);
   register_element_names<DemandLP>(sim, sys.demand_array);
   register_element_names<EmissionLP>(sim, sys.emission_array);
+  register_element_names<EmissionZoneLP>(sim, sys.emission_zone_array);
+  register_element_names<EmissionSourceLP>(sim, sys.emission_source_array);
   register_element_names<FlowLP>(sim, sys.flow_array);
   register_element_names<FlowRightLP>(sim, sys.flow_right_array);
   register_element_names<FuelLP>(sim, sys.fuel_array);
