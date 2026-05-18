@@ -40,20 +40,12 @@ public:
     return self.object();
   }
 
-  /// No-op: Fuel carries parameters only.
-  [[nodiscard]] bool add_to_lp(const SystemContext& /*sc*/,
-                               const ScenarioLP& /*scenario*/,
-                               const StageLP& /*stage*/,
-                               LinearProblem& /*lp*/) noexcept
-  {
-    return true;
-  }
-
-  /// No-op: Fuel emits no per-(scene, stage) parquet outputs.
-  [[nodiscard]] bool add_to_output(OutputContext& /*out*/) const noexcept
-  {
-    return true;
-  }
+  // Intentionally no `add_to_lp` / `add_to_output`.  `Fuel` is a
+  // passive parameter carrier — it does not contribute LP variables,
+  // rows, or coefficients.  Downstream consumers (`GeneratorLP`,
+  // `EmissionLP`) resolve the per-stage schedules via the `param_*`
+  // accessors below.  The visitor in `system_lp.cpp` gates on
+  // `AddToLP<T>` and skips this type by construction.
 
   /// @name Parameter accessors (resolved schedules)
   /// @{

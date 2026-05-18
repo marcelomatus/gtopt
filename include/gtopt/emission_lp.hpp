@@ -49,20 +49,13 @@ public:
     return self.object();
   }
 
-  /// No-op: Emission carries parameters only in Commit 1.
-  [[nodiscard]] bool add_to_lp(const SystemContext& /*sc*/,
-                               const ScenarioLP& /*scenario*/,
-                               const StageLP& /*stage*/,
-                               LinearProblem& /*lp*/) noexcept
-  {
-    return true;
-  }
-
-  /// No-op: Emission emits no per-(scene, stage) parquet outputs yet.
-  [[nodiscard]] bool add_to_output(OutputContext& /*out*/) const noexcept
-  {
-    return true;
-  }
+  // Intentionally no `add_to_lp` / `add_to_output` in Commit 1.
+  // `Emission` is currently a passive parameter carrier — it does not
+  // yet contribute LP rows or columns.  Promotion to LP-active bridge
+  // element (owning the `Emission/production` column + `Emission/balance`
+  // row + optional `Emission/cap` row) lands in Commit 3 of the
+  // emissions ladder.  Until then the visitor in `system_lp.cpp` gates
+  // on `AddToLP<T>` and skips this type.
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
