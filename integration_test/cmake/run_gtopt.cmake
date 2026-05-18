@@ -31,10 +31,18 @@ message(STATUS "  Input:  ${INPUT_FILE}")
 message(STATUS "  Output: ${OUTPUT_DIR}")
 message(STATUS "  CWD:    ${WORKING_DIR}")
 
+# --write-out all keeps the golden-fixture contract intact across the
+# master change of the default `write_out` from `OutputFlags::all` to
+# `solution | dual` (commit a3b026a93).  The e2e cases under cases/<case>/
+# output/ ship `*_cost.csv` reduced-cost files that validate_solution.py
+# (file-existence check) and compare_csv.cmake both consume.  Forcing
+# `all` here is the minimal, integration-test-only change; the default
+# for end users and unit tests remains `solution | dual`.
 execute_process(
   COMMAND "${GTOPT_BINARY}"
     "${INPUT_FILE}"
     --output-directory "${OUTPUT_DIR}"
+    --write-out all
     --quiet
   WORKING_DIRECTORY "${WORKING_DIR}"
   RESULT_VARIABLE exit_code
