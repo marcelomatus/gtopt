@@ -25,6 +25,7 @@
 
 #include <gtopt/battery.hpp>
 #include <gtopt/bus.hpp>
+#include <gtopt/capacity_profile.hpp>
 #include <gtopt/commitment.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
@@ -80,6 +81,10 @@ struct System
       generator_profile_array {};  ///< Capacity-factor profiles for generators
   Array<DemandProfile>
       demand_profile_array {};  ///< Load-shape profiles for demands
+  /// Unified kind-tagged capacity-factor profiles (Commit 1 of the
+  /// legacy → unified migration).  Parses from `"capacity_profile_array"` in
+  /// JSON; per-owner-kind dispatch via `CapacityProfile::owner_kind`.
+  Array<CapacityProfile> capacity_profile_array {};
 
   // ── Energy storage ──────────────────────────────────────────────────────
   Array<Battery> battery_array {};  ///< Battery energy storage systems

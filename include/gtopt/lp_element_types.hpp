@@ -41,6 +41,7 @@ class GeneratorLP;
 class InertiaProvisionLP;
 class InertiaZoneLP;
 class GeneratorProfileLP;
+class CapacityProfileLP;
 class FlowRightLP;
 class VolumeRightLP;
 class JunctionLP;
@@ -77,6 +78,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       LineLP,
                                       GeneratorProfileLP,
                                       DemandProfileLP,
+                                      CapacityProfileLP,
                                       BatteryLP,
                                       ConverterLP,
                                       ReserveZoneLP,

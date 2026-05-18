@@ -274,6 +274,7 @@ void System::merge(System&& sys)
 
   gtopt::merge(generator_profile_array, std::move(sys.generator_profile_array));
   gtopt::merge(demand_profile_array, std::move(sys.demand_profile_array));
+  gtopt::merge(capacity_profile_array, std::move(sys.capacity_profile_array));
 
   gtopt::merge(battery_array, std::move(sys.battery_array));
   gtopt::merge(converter_array, std::move(sys.converter_array));

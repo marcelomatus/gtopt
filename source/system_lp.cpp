@@ -606,6 +606,8 @@ void create_collections(const auto& system_context,
       make_collection<GeneratorProfileLP>(ic, sys.generator_profile_array);
   std::get<Collection<DemandProfileLP>>(colls) =
       make_collection<DemandProfileLP>(ic, sys.demand_profile_array);
+  std::get<Collection<CapacityProfileLP>>(colls) =
+      make_collection<CapacityProfileLP>(ic, sys.capacity_profile_array);
   std::get<Collection<BatteryLP>>(colls) =
       make_collection<BatteryLP>(ic, sys.battery_array);
   std::get<Collection<ConverterLP>>(colls) =

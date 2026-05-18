@@ -14,6 +14,7 @@
 
 #include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_bus.hpp>
+#include <gtopt/json/json_capacity_profile.hpp>
 #include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
@@ -64,6 +65,9 @@ struct json_data_contract<System>
       json_array_null<"demand_profile_array",
                       Array<DemandProfile>,
                       DemandProfile>,
+      json_array_null<"capacity_profile_array",
+                      Array<CapacityProfile>,
+                      CapacityProfile>,
       json_array_null<"battery_array", Array<Battery>, Battery>,
       json_array_null<"converter_array", Array<Converter>, Converter>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
@@ -114,6 +118,7 @@ struct json_data_contract<System>
                                  system.line_array,
                                  system.generator_profile_array,
                                  system.demand_profile_array,
+                                 system.capacity_profile_array,
                                  system.battery_array,
                                  system.converter_array,
                                  system.lng_terminal_array,
