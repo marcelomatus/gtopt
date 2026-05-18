@@ -21,7 +21,7 @@
  * | battery            | energy, charge, discharge, spill (alias: drain),    |
  * |                    | eini, efin, soft_emin,                              |
  * |                    | capainst (alias: capacity)                          |
- * | converter          | charge, discharge                                   |
+ * | converter          | flow (= +discharge − charge), charge, discharge     |
  * | reservoir          | volume (alias: energy), extraction,                  |
  * |                    | spill (alias: drain),                               |
  * |                    | eini, efin, soft_emin                               |

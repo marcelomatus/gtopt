@@ -267,6 +267,87 @@ TEST_CASE("User constraint - converter discharge and charge attributes")
 
 // clang-format off
 
+/// Bidirectional `converter('X').flow` compound (= +discharge − charge),
+/// mirrors `line('L').flow` (= +flowp − flown).  Registered globally by
+/// `system_lp.cpp::register_all_ampl_element_names`.  The bound is wide
+/// (between −200 and +200) so the constraint is non-binding but exercises
+/// resolver expansion of the compound attribute on a converter element.
+static constexpr std::string_view uc_converter_flow_json = R"json({
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "use_single_bus": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000
+  },
+  "simulation": {
+    "block_array": [
+      {"uid": 1, "duration": 1},
+      {"uid": 2, "duration": 2}
+    ],
+    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "uc_converter_flow",
+    "bus_array": [{"uid": 1, "name": "b1"}],
+    "generator_array": [
+      {"uid": 1, "name": "gen_charge", "bus": 1, "gcost": 10, "capacity": 200},
+      {"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}
+    ],
+    "demand_array": [
+      {"uid": 1, "name": "dem_discharge", "bus": 1, "capacity": 100},
+      {"uid": 2, "name": "d_load", "bus": 1, "capacity": 50}
+    ],
+    "battery_array": [
+      {
+        "uid": 1, "name": "bat1",
+        "input_efficiency": 0.95, "output_efficiency": 0.95,
+        "emin": 0, "emax": 100, "eini": 50,
+        "pmax_charge": 100, "pmax_discharge": 100,
+        "gcost": 0, "capacity": 100
+      }
+    ],
+    "converter_array": [
+      {
+        "uid": 1, "name": "conv1",
+        "battery": 1, "generator": 1, "demand": 1,
+        "capacity": 200
+      }
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 1, "name": "uc_conv_flow_upper",
+        "expression": "converter('conv1').flow <= 200"
+      },
+      {
+        "uid": 2, "name": "uc_conv_flow_lower",
+        "expression": "converter('conv1').flow >= -200"
+      },
+      {
+        "uid": 3, "name": "uc_sum_conv_flow",
+        "expression": "sum(converter(all).flow) <= 200"
+      }
+    ]
+  }
+})json";
+
+// clang-format on
+
+TEST_CASE("User constraint - converter.flow compound (+discharge − charge)")
+{
+  using namespace gtopt;
+
+  auto planning = parse_planning_json(uc_converter_flow_json);
+  PlanningLP planning_lp(std::move(planning));
+  auto result = planning_lp.resolve();
+
+  REQUIRE(result.has_value());
+}
+
+// clang-format off
+
 /// System with seepage (waterway -> reservoir seepage) and user constraints
 /// referencing seepage flow attribute.  The hydro topology uses a single
 /// junction chain: j1 -> ww1 -> j_down, with a second waterway ww_filt from

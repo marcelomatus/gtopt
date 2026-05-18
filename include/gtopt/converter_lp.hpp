@@ -27,6 +27,12 @@ public:
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view DemandName {"demand"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// PAMPL bidirectional flow compound: `flow = +discharge − charge`.
+  /// Mirrors `line.flow = +flowp − flown`.  Resolves to the converter's
+  /// signed net flow (positive when discharging the battery to the
+  /// grid, negative when charging from the grid).  Registered as a
+  /// class-level compound in `system_lp.cpp::register_all_ampl_element_names`.
+  static constexpr std::string_view FlowName {"flow"};
 
   using CapacityBase = CapacityObjectLP<Converter>;
 
