@@ -66,6 +66,7 @@ _VENDORED_CASE14_SUB_HOURLY = (
 )
 _VENDORED_CASE14_PROFILED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_profiled.json.gz"
 _VENDORED_CASE14_INTERFACE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_interface.json"
+_VENDORED_CASE14_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_storage.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -1007,11 +1008,20 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
     assert bats["su1"]["efin"] == 20.0
     assert bats["su1"]["gcost"] == 1.5
 
-    # su2: per-block list — round-trips as list (gtopt's
-    # OptTRealFieldSched accepts scalar or list).
-    assert bats["su2"]["emax"] == [200.0, 200.0, 200.0, 200.0]
-    assert bats["su2"]["emin"] == [20.0, 20.0, 20.0, 20.0]
+    # su2 has per-block list emax/emin in UC.jl; the converter collapses
+    # to first-hour scalar since ``Battery.{emax,emin}`` are
+    # ``OptTRealFieldSched`` (per-stage, not per-block).
+    assert bats["su2"]["emax"] == 200.0
+    assert bats["su2"]["emin"] == 20.0
     assert bats["su2"]["pmax_charge"] == 80.0
+
+    # Both batteries get ``use_state_variable = true`` and
+    # ``daily_cycle = false`` so the gtopt-side ``storage_close`` row
+    # (which would equate ``efin = eini``) is bypassed — UC.jl
+    # batteries are not cyclic and their eini/efin are independent.
+    for sname in ("su1", "su2"):
+        assert bats[sname]["use_state_variable"] is True
+        assert bats[sname]["daily_cycle"] is False
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -1087,7 +1097,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-350_845.65, abs=1.0)
+    assert obj == pytest.approx(-354_782.10, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1728,3 +1738,102 @@ def test_real_case14_interface_constraints_active_in_lp(tmp_path: Path) -> None:
     assert any_binding, (
         "no Interface constraint was binding — the fixture should bite l1+l2"
     )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl case14-storage — Battery edge cases (eini ≠ efin, per-block lists)
+# ---------------------------------------------------------------------------
+#
+# Vendored from ANL-CEEESA/UnitCommitment.jl's
+# ``test/fixtures/case14-storage.json.gz``: 4 storage units exercising
+# all the awkward Battery edges that pre-fix produced an infeasible LP:
+#
+#   * su2: eini=70, efin=80, no daily-cycle → forces non-cyclic SoC.
+#   * su3: eini=20, efin=21 + per-hour list emin/emax/pmax_charge/
+#     pmax_discharge/efficiency.  Same non-cyclic issue, plus exercises
+#     the first-hour-collapse for per-block fields that gtopt's
+#     ``Battery.{emin,emax,pmax_charge,...}`` (``OptTRealFieldSched``,
+#     per-stage) can't carry as lists.
+#   * su1, su4: scalar-only, default eini path.
+#
+# Converter changes that unlock this fixture:
+#   * ``use_state_variable = true`` + ``daily_cycle = false`` on every
+#     emitted Battery.  Bypasses gtopt's ``storage_close`` row that
+#     equates final SoC with initial SoC (infeasible whenever eini ≠
+#     efin in UC.jl semantics).
+#   * Per-block ``OptTRealFieldSched`` fields collapsed via
+#     ``_first_hour`` since the field type is per-stage only.
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_STORAGE}",
+)
+def test_real_case14_storage_battery_shape(tmp_path: Path) -> None:
+    """case14-storage's 4 Battery entries emit the non-cyclic SoC fields.
+
+    Spot-checks that the converter:
+      * Emits 4 Battery entries (su1..su4).
+      * Sets ``use_state_variable = true`` + ``daily_cycle = false``
+        on each (the keystone fix that unlocks UC.jl's non-cyclic
+        eini / efin semantics).
+      * Collapses su3's per-block emin/emax to the first-hour scalar.
+      * Propagates eini=70 / efin=80 (su2) and eini=20 / efin=21
+        (su3) without an attempted cycle equality.
+    """
+    ucjl = tmp_path / "src.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE14_STORAGE.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    bats = {
+        b["name"]: b for b in json.loads(out.read_text())["system"]["battery_array"]
+    }
+    assert set(bats) == {"su1", "su2", "su3", "su4"}
+    for sname in ("su1", "su2", "su3", "su4"):
+        assert bats[sname]["use_state_variable"] is True, sname
+        assert bats[sname]["daily_cycle"] is False, sname
+
+    # su3's per-hour lists collapse to first-hour scalars.
+    assert bats["su3"]["emin"] == 10.0
+    assert bats["su3"]["emax"] == 100.0
+    assert bats["su3"]["pmax_charge"] == 10.0
+
+    # su2: eini ≠ efin (70 → 80) — independent SoC bounds.
+    assert bats["su2"]["eini"] == 70.0
+    assert bats["su2"]["efin"] == 80.0
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_STORAGE.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_STORAGE}",
+)
+def test_real_case14_storage_solves(tmp_path: Path) -> None:
+    """End-to-end: case14-storage solves cleanly after the non-cyclic fix.
+
+    Pre-fix this fixture was infeasible — su3's eini=20 / efin=21
+    conflicted with the auto-emitted ``storage_close`` row that
+    forces ``efin == eini``.  Setting ``use_state_variable = true``
+    + ``daily_cycle = false`` on every emitted Battery skips that
+    row, and the LP solves.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    ucjl = tmp_path / "src.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_CASE14_STORAGE.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj is not None and math.isfinite(obj)
+
+    # Battery output dir present — proves all 4 batteries instantiated.
+    bat_dir = tmp_path / "run" / "output" / "Battery"
+    assert bat_dir.is_dir()

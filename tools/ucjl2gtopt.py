@@ -613,13 +613,33 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         if bus_name not in name_to_uid:
             continue
         bat_uid += 1
+        # gtopt's ``Battery`` defaults add a ``storage_close`` row that
+        # equates final SoC with initial SoC when ``use_state_variable
+        # = false`` (the default for batteries — see
+        # include/gtopt/storage_lp.hpp:836-852).  UC.jl batteries with
+        # ``Initial level (MWh)`` + ``Last period minimum level
+        # (MWh)`` are NOT cyclic — they set INDEPENDENT start / end
+        # SoC bounds (e.g. case14-storage's ``su3`` has eini=20,
+        # efin=21 which is infeasible under the close row).  Setting
+        # ``use_state_variable = true`` swaps the close row for an
+        # SDDP-style state column publication — irrelevant in our
+        # single-stage / single-phase setup, but cleanly disables the
+        # cycle equality so eini and efin become independent bounds.
         b_entry: dict = {
             "uid": bat_uid,
             "name": sname,
             "bus": name_to_uid[bus_name],
+            "use_state_variable": True,
+            "daily_cycle": False,
         }
-        # Field mappings — all are TRealFieldSched (scalar or 1-D list);
-        # passing the raw UC.jl value works for both shapes.
+        # Field mappings — all are ``OptTRealFieldSched`` (per-stage,
+        # not per-block) on gtopt's Battery, so per-block UC.jl lists
+        # (e.g. ``case14-storage.json``'s ``su3`` ships per-hour lists
+        # for emin/emax/pmax_charge/.../efficiency) are collapsed to
+        # the first-hour scalar.  A clean per-block Battery LP would
+        # need ``OptTBRealFieldSched`` upgrades on the gtopt side
+        # (left as a follow-up — see the module docstring's
+        # "Not yet mapped" list).
         for ucjl_key, gtopt_key in (
             ("Maximum level (MWh)", "emax"),
             ("Minimum level (MWh)", "emin"),
@@ -629,8 +649,11 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             ("Discharge efficiency", "output_efficiency"),
         ):
             value = sdata.get(ucjl_key)
-            if value is not None:
-                b_entry[gtopt_key] = value
+            if value is None:
+                continue
+            b_entry[gtopt_key] = (
+                float(_first_hour(value)) if isinstance(value, list) else value
+            )
         # Scalars (not field schedules).
         for ucjl_key, gtopt_key in (
             ("Initial level (MWh)", "eini"),
