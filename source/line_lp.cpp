@@ -16,7 +16,13 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     : CapacityBase(pline, ic, Element::class_name)
     , tmax_ba(ic, Element::class_name, id(), std::move(line().tmax_ba))
     , tmax_ab(ic, Element::class_name, id(), std::move(line().tmax_ab))
+    , tmax_normal_ba(
+          ic, Element::class_name, id(), std::move(line().tmax_normal_ba))
+    , tmax_normal_ab(
+          ic, Element::class_name, id(), std::move(line().tmax_normal_ab))
     , tcost(ic, Element::class_name, id(), std::move(line().tcost))
+    , overload_penalty(
+          ic, Element::class_name, id(), std::move(line().overload_penalty))
     , lossfactor(ic, Element::class_name, id(), std::move(line().lossfactor))
     , reactance(ic, Element::class_name, id(), std::move(line().reactance))
     , voltage(ic, Element::class_name, id(), std::move(line().voltage))
@@ -139,7 +145,18 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
-  const auto stage_tcost = tcost.at(stage.uid()).value_or(0.0);
+  // ``tcost`` is per-(stage, block) since 2026-05-18 — read inside the
+  // block loop below.  Kept here only as the per-stage-availability
+  // sentinel (loss_config still wants a stage-scoped number; resolve
+  // at the first block for that path).
+  const auto stage_tcost =
+      tcost.at(stage.uid(), blocks.front().uid()).value_or(0.0);
+  // Soft-cap "feature enabled" gate: when the schedule is unset
+  // anywhere, the whole soft-cap path is skipped to preserve the
+  // pure hard-cap LP shape.  Per-block resolution happens inside
+  // the block loop below — ``overload_penalty`` is per-(stage,
+  // block) so time-varying penalties bind correctly.
+  const bool soft_cap_enabled = overload_penalty.has_value();
 
   const auto loss_config =
       resolve_loss_config(*this,
@@ -164,6 +181,15 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> lncols;
   BIndexHolder<std::vector<ColIndex>> fpsegcols;
   BIndexHolder<std::vector<ColIndex>> fnsegcols;
+  // Soft-cap (overload) slack columns + rows.  Only populated when
+  // the feature is enabled AND the per-block threshold is strictly
+  // below the per-block hard cap.  Kept empty otherwise — the
+  // `cond_assign` pattern below skips the outer (s,t) insert so
+  // `add_to_output` stays a no-op for hard-cap-only lines.
+  BIndexHolder<ColIndex> opcols;
+  BIndexHolder<ColIndex> oncols;
+  BIndexHolder<RowIndex> oprows;
+  BIndexHolder<RowIndex> onrows;
   // Reserve every per-block holder up-front to avoid rehash churn as
   // the block loop populates each map.  All eight grow at most to
   // `blocks.size()` (one entry per block) so a single reservation
@@ -180,6 +206,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   map_reserve(lncols, blocks.size());
   map_reserve(fpsegcols, blocks.size());
   map_reserve(fnsegcols, blocks.size());
+  if (soft_cap_enabled) {
+    map_reserve(opcols, blocks.size());
+    map_reserve(oncols, blocks.size());
+    map_reserve(oprows, blocks.size());
+    map_reserve(onrows, blocks.size());
+  }
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
@@ -188,8 +220,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
     const auto [block_tmax_ab, block_tmax_ba] = sc.block_maxmin_at(
         stage, block, tmax_ab, tmax_ba, stage_capacity, -stage_capacity);
+    // ``tcost`` is per-(stage, block); read its block-specific value
+    // and let CostHelper apply the per-block duration scaling.
+    const auto block_tcost_phys =
+        tcost.at(stage.uid(), block.uid()).value_or(stage_tcost);
     const auto block_tcost =
-        CostHelper::block_ecost(scenario, stage, block, stage_tcost);
+        CostHelper::block_ecost(scenario, stage, block, block_tcost_phys);
 
     auto result = line_losses::add_block(loss_config,
                                          scenario,
@@ -225,6 +261,93 @@ bool LineLP::add_to_lp(SystemContext& sc,
     store_opt(cnrows, result.capn_row);
     store_vec(fpsegcols, result.seg_p_cols);
     store_vec(fnsegcols, result.seg_n_cols);
+
+    // ── Soft cap / overload penalty ────────────────────────────────
+    // For each direction with a flow aggregator (fp_col / fn_col),
+    // when a per-block soft threshold `tmax_normal_*` is set strictly
+    // below the corresponding hard cap, emit a non-negative slack
+    // column `overload{p,n}` bounded by `(hard − soft)` and a row
+    //   `flow{p,n} − overload{p,n} ≤ tmax_normal_*`
+    // so the LP only pays the penalty for MW above the soft cap and
+    // can never exceed the hard cap (the existing flow-col upper
+    // bound still binds).  Disabled for `piecewise_direct` mode
+    // because there is no aggregator column to constrain.
+    if (soft_cap_enabled) {
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      // Per-(stage, block) penalty resolution.  When the schedule does
+      // not yield a value at this (s, b) — e.g. file-backed loader
+      // produced an empty cell — fall back to 0 and skip emission.
+      const auto block_overload_penalty =
+          overload_penalty.at(stage.uid(), block.uid()).value_or(0.0);
+      if (block_overload_penalty <= 0.0) {
+        continue;
+      }
+      const auto block_overload_cost = CostHelper::block_ecost(
+          scenario, stage, block, block_overload_penalty);
+
+      const auto add_soft_cap_direction =
+          [&](std::optional<ColIndex> flow_col,
+              const OptTBRealSched& tmax_normal_sched,
+              double block_tmax_hard,
+              std::string_view ov_name,
+              auto& ov_cols_dst,
+              auto& ov_rows_dst,
+              std::string_view row_constraint_name)
+      {
+        if (!flow_col) {
+          return;
+        }
+        const auto soft_at = tmax_normal_sched.at(stage.uid(), buid);
+        if (!soft_at) {
+          return;
+        }
+        const double block_tmax_soft = *soft_at;
+        // Skip when soft cap is not strict relative to hard cap —
+        // an equal or larger threshold makes the slack inert.
+        if (!(block_tmax_soft < block_tmax_hard)) {
+          return;
+        }
+        const double slack_uppb = block_tmax_hard - block_tmax_soft;
+
+        const auto ov_col = lp.add_col({
+            .lowb = 0.0,
+            .uppb = slack_uppb,
+            .cost = block_overload_cost,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = ov_name,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        ov_cols_dst[buid] = ov_col;
+
+        auto ov_row = SparseRow {
+            .class_name = Element::class_name.full_name(),
+            .constraint_name = row_constraint_name,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        };
+        ov_row[*flow_col] = 1.0;
+        ov_row[ov_col] = -1.0;
+        ov_rows_dst[buid] =
+            lp.add_row(std::move(ov_row.less_equal(block_tmax_soft)));
+      };
+
+      add_soft_cap_direction(result.fp_col,
+                             tmax_normal_ab,
+                             block_tmax_ab,
+                             OverloadpName,
+                             opcols,
+                             oprows,
+                             OverloadpName);
+      add_soft_cap_direction(result.fn_col,
+                             tmax_normal_ba,
+                             block_tmax_ba,
+                             OverloadnName,
+                             oncols,
+                             onrows,
+                             OverloadnName);
+    }
   }
 
   // Store all indices for this (scenario, stage) BEFORE emitting KVL
@@ -256,6 +379,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(lossn_cols, std::move(lncols));
   cond_assign(flowp_seg_cols, std::move(fpsegcols));
   cond_assign(flown_seg_cols, std::move(fnsegcols));
+  cond_assign(overloadp_cols, std::move(opcols));
+  cond_assign(overloadn_cols, std::move(oncols));
+  cond_assign(overloadp_rows, std::move(oprows));
+  cond_assign(overloadn_rows, std::move(onrows));
 
   // ── Kirchhoff KVL rows ────────────────────────────────────────────
   // Dispatch by `kirchhoff_mode`:
@@ -321,6 +448,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   register_if_present(FlownName, flown_cols);
   register_if_present(LosspName, lossp_cols);
   register_if_present(LossnName, lossn_cols);
+  register_if_present(OverloadpName, overloadp_cols);
+  register_if_present(OverloadnName, overloadn_cols);
 
   // `piecewise_direct` virtual aggregator: only fires when the
   // direct-mode segment holders were populated this call (single-col
@@ -393,6 +522,18 @@ bool LineLP::add_to_output(OutputContext& out) const
   // piecewise_direct don't create loss vars so these are no-ops.
   out.add_col_sol(cname, LosspName, pid, lossp_cols);
   out.add_col_sol(cname, LossnName, pid, lossn_cols);
+
+  // Overload-slack solutions and costs: only populated when the
+  // soft-cap feature is active for this line (see `add_to_lp`).
+  // No-op for lines without `tmax_normal_*` + `overload_penalty`.
+  if (!overloadp_cols.empty()) {
+    out.add_col_sol(cname, OverloadpName, pid, overloadp_cols);
+    out.add_col_cost(cname, OverloadpName, pid, overloadp_cols);
+  }
+  if (!overloadn_cols.empty()) {
+    out.add_col_sol(cname, OverloadnName, pid, overloadn_cols);
+    out.add_col_cost(cname, OverloadnName, pid, overloadn_cols);
+  }
 
   return CapacityBase::add_to_output(out);
 }

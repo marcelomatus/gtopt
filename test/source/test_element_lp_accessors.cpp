@@ -272,7 +272,8 @@ TEST_CASE(  // NOLINT
           == doctest::Approx(180.0));
     CHECK(line_lp.param_tmax_ba(suid, buid).value_or(-1.0)
           == doctest::Approx(180.0));
-    CHECK(line_lp.param_tcost(suid).value_or(-1.0) == doctest::Approx(0.25));
+    CHECK(line_lp.param_tcost(suid, buid).value_or(-1.0)
+          == doctest::Approx(0.25));
     CHECK(line_lp.param_reactance(suid).value_or(-1.0) == doctest::Approx(0.1));
   }
 }

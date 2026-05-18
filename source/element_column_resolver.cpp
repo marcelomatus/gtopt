@@ -360,7 +360,7 @@ bool resolve_col_to_row(const SystemContext& sc,
         return ln.param_tmax_ba(suid, buid);
       }
       if (ref.attribute == "tcost") {
-        return ln.param_tcost(suid);
+        return ln.param_tcost(suid, buid);
       }
       if (ref.attribute == "reactance") {
         return ln.param_reactance(suid);
@@ -372,10 +372,10 @@ bool resolve_col_to_row(const SystemContext& sc,
     if (ref.element_type == "battery") {
       const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
       if (ref.attribute == "emin") {
-        return bat.param_emin(suid);
+        return bat.param_emin(suid, buid);
       }
       if (ref.attribute == "emax") {
-        return bat.param_emax(suid);
+        return bat.param_emax(suid, buid);
       }
       if (ref.attribute == "ecost") {
         return bat.param_ecost(suid);
@@ -393,10 +393,10 @@ bool resolve_col_to_row(const SystemContext& sc,
     if (ref.element_type == "reservoir") {
       const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
       if (ref.attribute == "emin") {
-        return res.param_emin(suid);
+        return res.param_emin(suid, buid);
       }
       if (ref.attribute == "emax") {
-        return res.param_emax(suid);
+        return res.param_emax(suid, buid);
       }
       if (ref.attribute == "ecost") {
         return res.param_ecost(suid);
@@ -438,10 +438,10 @@ bool resolve_col_to_row(const SystemContext& sc,
         return vrt.param_fmax(suid, buid);
       }
       if (ref.attribute == "emin") {
-        return vrt.param_emin(suid);
+        return vrt.param_emin(suid, buid);
       }
       if (ref.attribute == "emax") {
-        return vrt.param_emax(suid);
+        return vrt.param_emax(suid, buid);
       }
       if (ref.attribute == "demand") {
         return vrt.param_demand(suid);

@@ -39,6 +39,12 @@ public:
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
   static constexpr std::string_view ThetaName {"theta"};
+  /// Overload-slack column emitted only when ``Line.tmax_normal_ab`` and
+  /// ``Line.overload_penalty`` are configured.  Equals ``max(0, flowp −
+  /// tmax_normal_ab)`` and is bounded by ``tmax_ab − tmax_normal_ab``.
+  static constexpr std::string_view OverloadpName {"overloadp"};
+  /// B→A counterpart of ``overloadp``.
+  static constexpr std::string_view OverloadnName {"overloadn"};
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -147,6 +153,24 @@ public:
     return find_or_empty_inner(capacityn_rows, scenario, stage);
   }
 
+  /// Overload-slack column accessors.  Return a reference to a static
+  /// empty BIndexHolder when the soft-cap feature is not active for
+  /// this `(scenario, stage)` (no `tmax_normal_*` + positive
+  /// `overload_penalty` resolved here).  Mirrors the missing-key
+  /// tolerance of the flow accessors above so tests / PAMPL consumers
+  /// can blindly query without branching.
+  [[nodiscard]] constexpr const auto& overloadp_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(overloadp_cols, scenario, stage);
+  }
+
+  [[nodiscard]] constexpr const auto& overloadn_cols_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return find_or_empty_inner(overloadn_cols, scenario, stage);
+  }
+
   /// Check if this line created Kirchhoff (theta) rows for a given
   /// (scenario, stage) pair.
   [[nodiscard]] constexpr bool has_theta_rows(
@@ -165,7 +189,10 @@ public:
   {
     return tmax_ba.at(s, b);
   }
-  [[nodiscard]] auto param_tcost(StageUid s) const { return tcost.at(s); }
+  [[nodiscard]] auto param_tcost(StageUid s, BlockUid b) const
+  {
+    return tcost.at(s, b);
+  }
   [[nodiscard]] auto param_reactance(StageUid s) const
   {
     return reactance.at(s);
@@ -192,7 +219,10 @@ public:
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;
-  OptTRealSched tcost;
+  OptTBRealSched tmax_normal_ba;
+  OptTBRealSched tmax_normal_ab;
+  OptTBRealSched tcost;
+  OptTBRealSched overload_penalty;
   OptTRealSched lossfactor;
   OptTRealSched reactance;
   OptTRealSched voltage;
@@ -206,8 +236,12 @@ private:
   STBIndexHolder<std::vector<ColIndex>> flown_seg_cols;
   STBIndexHolder<ColIndex> lossp_cols;
   STBIndexHolder<ColIndex> lossn_cols;
+  STBIndexHolder<ColIndex> overloadp_cols;
+  STBIndexHolder<ColIndex> overloadn_cols;
   STBIndexHolder<RowIndex> capacityp_rows;
   STBIndexHolder<RowIndex> capacityn_rows;
+  STBIndexHolder<RowIndex> overloadp_rows;
+  STBIndexHolder<RowIndex> overloadn_rows;
 
   STBIndexHolder<RowIndex> theta_rows;
 };

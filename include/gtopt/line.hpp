@@ -136,7 +136,29 @@ struct Line
 
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
-  OptTRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]
+  OptTBRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]
+                                 ///< — per-(stage, block).  Accepts a
+                                 ///< scalar (broadcasts), a 2-D nested
+                                 ///< array, or a file-backed schedule.
+
+  /// Soft (normal) flow threshold in the B→A direction [MW].  When set
+  /// and `overload_penalty > 0`, the LP allows `flown` up to `tmax_ba`
+  /// (the hard cap, unchanged) but adds a per-MWh cost
+  /// `overload_penalty × max(0, flown − tmax_normal_ba)` to the
+  /// objective.  Mirrors UC.jl's `Normal flow limit (MW)` and PLEXOS's
+  /// `Normal Rating` paired with an overload penalty.  When unset (or
+  /// `>= tmax_ba`) the LP falls back to the pure hard-cap behavior.
+  OptTBRealFieldSched tmax_normal_ba {};
+  /// Soft (normal) flow threshold in the A→B direction [MW].  Same
+  /// semantics as `tmax_normal_ba` for the A→B leg.
+  OptTBRealFieldSched tmax_normal_ab {};
+  /// Overload penalty above the soft thresholds [$/MWh] —
+  /// per-(stage, block).  Accepts a scalar (broadcasts), a 2-D nested
+  /// array ``[[block, …], …]``, or a file-backed schedule.  Per-block
+  /// duration is factored in by the LP build (matches the convention
+  /// of other cost coefficients).  When zero or unset, no slack
+  /// columns are emitted and ``tmax_normal_*`` are ignored.
+  OptTBRealFieldSched overload_penalty {};
 
   OptTRealFieldSched capacity {};  ///< Installed transfer capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
