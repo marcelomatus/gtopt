@@ -142,6 +142,7 @@ TEST_CASE("Commitment struct defaults")
   CHECK_FALSE(c.cold_start_cost.has_value());
   CHECK_FALSE(c.hot_start_time.has_value());
   CHECK_FALSE(c.cold_start_time.has_value());
+  CHECK_FALSE(c.commitment_period.has_value());
 }
 
 TEST_CASE("Commitment JSON round-trip")
@@ -1401,6 +1402,367 @@ TEST_CASE("Commitment JSON round-trip with fuel_emission_factor")
   REQUIRE(c2.fuel_emission_factor.has_value());
   CHECK(std::get<Real>(c2.fuel_emission_factor.value())
         == doctest::Approx(0.056));
+}
+
+TEST_CASE("Commitment JSON round-trip with commitment_period")
+{
+  // ``commitment_period`` coarsens the u/v/w binary grid relative to the
+  // generation/dispatch grid.  Example from the spec: 15-minute blocks
+  // with ``commitment_period: 2.0`` → one binary triple per 2-hour window
+  // (covering 8 blocks).
+  std::string_view json_str = R"({
+    "uid": 7,
+    "name": "slow_coal_uc",
+    "generator": 11,
+    "startup_cost": 50000,
+    "noload_cost": 500,
+    "min_up_time": 48,
+    "min_down_time": 48,
+    "initial_status": 1,
+    "commitment_period": 4.0
+  })";
+
+  const auto c = daw::json::from_json<Commitment>(json_str);
+  CHECK(c.uid == 7);
+  CHECK(c.name == "slow_coal_uc");
+  CHECK(c.min_up_time.value_or(-1.0) == doctest::Approx(48.0));
+  CHECK(c.min_down_time.value_or(-1.0) == doctest::Approx(48.0));
+  REQUIRE(c.commitment_period.has_value());
+  CHECK(c.commitment_period.value_or(-1.0) == doctest::Approx(4.0));
+
+  // Round-trip
+  const auto json_out = daw::json::to_json(c);
+  const auto c2 = daw::json::from_json<Commitment>(json_out);
+  REQUIRE(c2.commitment_period.has_value());
+  CHECK(c2.commitment_period.value_or(-1.0) == doctest::Approx(4.0));
+  CHECK(c2.min_up_time.value_or(-1.0) == doctest::Approx(48.0));
+}
+
+TEST_CASE("Commitment commitment_period default is nullopt")
+{
+  const Commitment c;
+  CHECK_FALSE(c.commitment_period.has_value());
+}
+
+TEST_CASE("CommitmentLP commitment_period groups blocks into one period")
+{
+  // Mirror the user's specification: 8 blocks of 15 minutes (0.25 h)
+  // with ``commitment_period = 2.0`` should produce exactly one u/v/w
+  // triple covering all 8 blocks, while generation columns remain at
+  // 15-minute resolution.
+  Simulation sim;
+  sim.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {3},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {4},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {5},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {6},
+          .duration = 0.25,
+      },
+      {
+          .uid = Uid {7},
+          .duration = 0.25,
+      },
+  };
+  sim.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 8,
+          .chronological = true,
+      },
+  };
+  sim.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  System system;
+  system.name = "uc_period_test";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  system.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+  };
+  system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .startup_cost = 100.0,
+          .noload_cost = 5.0,
+          .initial_status = 1.0,
+          .relax = true,
+          .commitment_period = 2.0,  // hours; 8 × 0.25 h = exactly 1 period
+      },
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  popts.lp_matrix_options.col_with_names = true;
+  popts.lp_matrix_options.col_with_name_map = true;
+  const PlanningOptionsLP options(popts);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+  auto&& lp = system_lp.linear_interface();
+
+  // Count distinct status/startup/shutdown columns.  With
+  // ``commitment_period = 2.0`` and 8 blocks of 0.25 h covering exactly
+  // 2 hours of cumulative duration, the period grouping fires after
+  // block 7 (cumulative 2.0 h), yielding a single period for all 8 blocks
+  // — i.e. exactly one u/v/w triple.
+  const auto& col_map = lp.col_name_map();
+  std::size_t n_status = 0;
+  std::size_t n_startup = 0;
+  std::size_t n_shutdown = 0;
+  for (const auto& [name, idx] : col_map) {
+    if (!name.starts_with("commitment_")) {
+      continue;
+    }
+    if (name.contains(std::string(CommitmentLP::StatusName) + "_")) {
+      ++n_status;
+    } else if (name.contains(std::string(CommitmentLP::StartupName) + "_")) {
+      ++n_startup;
+    } else if (name.contains(std::string(CommitmentLP::ShutdownName) + "_")) {
+      ++n_shutdown;
+    }
+  }
+  CHECK(n_status == 1);
+  CHECK(n_startup == 1);
+  CHECK(n_shutdown == 1);
+
+  // Solve should succeed.
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+TEST_CASE("CommitmentLP default (no commitment_period) creates per-block u/v/w")
+{
+  // Baseline / regression: with ``commitment_period`` unset, one u/v/w
+  // triple is created per block.  Pair with the
+  // "groups blocks into one period" test above so a regression that breaks
+  // either the grouped or per-block path is caught immediately.
+  auto tc = TestCase::make_basic(true);  // 4 blocks of 1 h each
+  tc.system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .startup_cost = 100.0,
+          .noload_cost = 5.0,
+          .initial_status = 1.0,
+          .relax = true,
+          // commitment_period intentionally left unset
+      },
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  popts.lp_matrix_options.col_with_names = true;
+  popts.lp_matrix_options.col_with_name_map = true;
+  const PlanningOptionsLP options(popts);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+
+  SimulationLP simulation_lp(tc.simulation, options);
+  SystemLP system_lp(tc.system, simulation_lp, flat_opts);
+  auto&& lp = system_lp.linear_interface();
+
+  const auto& col_map = lp.col_name_map();
+  std::size_t n_status = 0;
+  std::size_t n_startup = 0;
+  std::size_t n_shutdown = 0;
+  for (const auto& [name, idx] : col_map) {
+    if (!name.starts_with("commitment_")) {
+      continue;
+    }
+    if (name.contains(std::string(CommitmentLP::StatusName) + "_")) {
+      ++n_status;
+    } else if (name.contains(std::string(CommitmentLP::StartupName) + "_")) {
+      ++n_startup;
+    } else if (name.contains(std::string(CommitmentLP::ShutdownName) + "_")) {
+      ++n_shutdown;
+    }
+  }
+  CHECK(n_status == 4);
+  CHECK(n_startup == 4);
+  CHECK(n_shutdown == 4);
+}
+
+TEST_CASE("CommitmentLP commitment_period with partial last period")
+{
+  // 6 blocks of 1 h each, ``commitment_period = 2.0`` → 3 periods of 2 h.
+  // Covers the cumulative-duration grouping logic in commitment_lp.cpp
+  // (period closes when accumulated duration ≥ ``commitment_period``).
+  Simulation sim;
+  sim.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {1},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {2},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {3},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {4},
+          .duration = 1.0,
+      },
+      {
+          .uid = Uid {5},
+          .duration = 1.0,
+      },
+  };
+  sim.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 6,
+          .chronological = true,
+      },
+  };
+  sim.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  System system;
+  system.name = "uc_period_3";
+  system.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  system.demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  system.generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 20.0,
+          .pmax = 100.0,
+          .gcost = 10.0,
+          .capacity = 100.0,
+      },
+  };
+  system.commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1_uc",
+          .generator = Uid {1},
+          .startup_cost = 100.0,
+          .noload_cost = 5.0,
+          .initial_status = 1.0,
+          .relax = true,
+          .commitment_period = 2.0,
+      },
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  popts.lp_matrix_options.col_with_names = true;
+  popts.lp_matrix_options.col_with_name_map = true;
+  const PlanningOptionsLP options(popts);
+
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+  auto&& lp = system_lp.linear_interface();
+
+  const auto& col_map = lp.col_name_map();
+  std::size_t n_status = 0;
+  std::size_t n_startup = 0;
+  std::size_t n_shutdown = 0;
+  for (const auto& [name, idx] : col_map) {
+    if (!name.starts_with("commitment_")) {
+      continue;
+    }
+    if (name.contains(std::string(CommitmentLP::StatusName) + "_")) {
+      ++n_status;
+    } else if (name.contains(std::string(CommitmentLP::StartupName) + "_")) {
+      ++n_startup;
+    } else if (name.contains(std::string(CommitmentLP::ShutdownName) + "_")) {
+      ++n_shutdown;
+    }
+  }
+  // 6 blocks × 1 h ÷ 2 h period = 3 periods
+  CHECK(n_status == 3);
+  CHECK(n_startup == 3);
+  CHECK(n_shutdown == 3);
+
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
 }
 
 TEST_CASE("Stage chronological field JSON")
