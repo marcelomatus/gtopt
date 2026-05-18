@@ -194,6 +194,27 @@ def _compute_pieces(curve_mw, curve_cost):
             pmax_segments.append(round(float(mw[k]), 6))
             heat_rate_segments.append(round((cost[k] - cost[k - 1]) / dp, 6))
 
+        # gtopt requires *strictly* increasing heat rates so the LP cost
+        # is convex.  UC.jl case118 ships generators whose piecewise
+        # curves have two consecutive segments with the same slope
+        # (e.g. g5_uc: heat_rate_segments[2] == heat_rate_segments[3] ==
+        # 192.698545).  Adjacent segments with equal slopes are
+        # mathematically redundant — they describe a single longer
+        # linear interval.  Merge them by keeping the LATER breakpoint
+        # (and dropping the earlier duplicate-slope entry).
+        if len(heat_rate_segments) >= 2:
+            merged_p: list[float] = [pmax_segments[0]]
+            merged_h: list[float] = [heat_rate_segments[0]]
+            for p, h in zip(pmax_segments[1:], heat_rate_segments[1:]):
+                if h == merged_h[-1]:
+                    # Same slope — extend the previous segment to this
+                    # breakpoint.
+                    merged_p[-1] = p
+                else:
+                    merged_p.append(p)
+                    merged_h.append(h)
+            pmax_segments, heat_rate_segments = merged_p, merged_h
+
     return pmin, pmax, slope0, pmax_segments, heat_rate_segments
 
 
