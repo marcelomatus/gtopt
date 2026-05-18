@@ -107,7 +107,15 @@ constexpr auto add_to_lp(auto& collections,
   {
     using T = std::decay_t<decltype(e)>;
 
-    if constexpr (std::is_same_v<T, BusLP>) {
+    // Passive parameter-carrier elements (Fuel, Emission Commit-1, …)
+    // have no `add_to_lp` method by design — they exist in the
+    // collection only so `SystemContext::element<T>(...)` can resolve
+    // them.  Skip them at compile time.  The `AddToLP` concept is the
+    // single source of truth for "this element type contributes LP
+    // rows / cols / coefficients".
+    if constexpr (!AddToLP<T>) {
+      return true;
+    } else if constexpr (std::is_same_v<T, BusLP>) {
       return !use_single_bus || system_context.system().is_single_bus(e.id())
           ? e.add_to_lp(system_context, scenario, stage, lp)
           : true;
@@ -1303,8 +1311,20 @@ void SystemLP::write_out()
       system_context(), linear_interface(), scene().uid(), phase().uid());
   const auto t_oc = clock::now();
 
-  auto count = visit_elements(
-      collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
+  auto count = visit_elements(collections(),
+                              [&oc](const auto& e)
+                              {
+                                using T = std::decay_t<decltype(e)>;
+                                // Passive parameter carriers (e.g. `FuelLP`)
+                                // have no `add_to_output`; skip them at compile
+                                // time.  Matches the gating in `add_to_lp`
+                                // above.
+                                if constexpr (!AddToLP<T>) {
+                                  return true;
+                                } else {
+                                  return e.add_to_output(oc);
+                                }
+                              });
   const auto t_visit = clock::now();
 
   if (count <= 0) {
