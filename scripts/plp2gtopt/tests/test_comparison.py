@@ -201,9 +201,8 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 10,
         "generators": 24,
-        "generator_profiles": 5,
+        "capacity_profiles": 5,
         "demands": 8,
-        "demand_profiles": 0,
         "lines": 5,
         "batteries": 2,
         "converters": 0,
@@ -271,9 +270,8 @@ def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 13,  # 20 - 4 (falla) - 1 (bat) = 15 expected → delta -2
-        "generator_profiles": 4,
+        "capacity_profiles": 4,
         "demands": 5,
-        "demand_profiles": 0,
         "lines": 3,
         "batteries": 1,
         "converters": 0,
@@ -315,7 +313,7 @@ def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 8,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 5,
         "lines": 3,
         "batteries": 0,
@@ -361,7 +359,7 @@ def test_log_comparison_seepages_res_eff(
     gtopt = {
         "buses": 3,
         "generators": 5,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 3,
         "lines": 2,
         "batteries": 0,
@@ -404,7 +402,7 @@ def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 3,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 7,
         "lines": 2,
         "batteries": 0,
@@ -448,7 +446,7 @@ def test_log_comparison_with_indicators(
     gtopt = {
         "buses": 5,
         "generators": 5,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 5,
         "lines": 2,
         "batteries": 0,

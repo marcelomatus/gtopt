@@ -33,7 +33,12 @@ class GenerationMixin:
         aflces = self.parser.parsed_data.get("aflce_parser", [])
         scenarios = self.planning["simulation"]["scenario_array"]
 
-        self.planning["system"]["generator_profile_array"] = GeneratorProfileWriter(
+        # Emit unified `capacity_profile_array` (kind-tagged) consumed by
+        # the C++ CapacityProfileLP collection.  The legacy
+        # `generator_profile_array` key remains accepted by the C++ JSON
+        # parser via `System::fold_legacy_profiles`, but new outputs go
+        # straight to the unified shape.
+        self.planning["system"]["capacity_profile_array"] = GeneratorProfileWriter(
             centrals,
             blocks,
             buses,

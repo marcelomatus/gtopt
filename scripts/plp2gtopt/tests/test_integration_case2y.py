@@ -620,11 +620,11 @@ def _check_2y_global_indicators(
     # Pasada mode-specific assertions
     p_pasada = plp_counts.get("sub_pasada", 0)
     if pasada_mode == "profile":
-        # Profile mode: generator profiles == pasada count
-        assert gtopt_counts["generator_profiles"] == p_pasada
+        # Profile mode: capacity profiles == pasada count
+        assert gtopt_counts["capacity_profiles"] == p_pasada
     else:
-        # Hydro or flow-turbine mode: no generator profiles
-        assert gtopt_counts["generator_profiles"] == 0
+        # Hydro or flow-turbine mode: no capacity profiles
+        assert gtopt_counts["capacity_profiles"] == 0
         # Pasada centrals appear as flows (+ turbines)
         assert gtopt_counts["flows"] > 0
 

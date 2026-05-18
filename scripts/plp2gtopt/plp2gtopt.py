@@ -169,9 +169,13 @@ def _log_stats(planning: dict, elapsed: float, options: dict | None = None) -> N
     all_elems = [
         ("Buses", len(sys_data.get("bus_array", []))),
         ("Generators", len(sys_data.get("generator_array", []))),
-        ("Generator profiles", len(sys_data.get("generator_profile_array", []))),
+        (
+            "Capacity profiles",
+            len(sys_data.get("capacity_profile_array", []))
+            + len(sys_data.get("generator_profile_array", []))
+            + len(sys_data.get("demand_profile_array", [])),
+        ),
         ("Demands", len(sys_data.get("demand_array", []))),
-        ("Demand profiles", len(sys_data.get("demand_profile_array", []))),
         ("Lines", len(sys_data.get("line_array", []))),
         ("Batteries", len(sys_data.get("battery_array", []))),
         ("Converters", len(sys_data.get("converter_array", []))),
