@@ -147,7 +147,7 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         "--compression",
         dest="compression",
         metavar="ALG",
-        default=conf.get("compression", "snappy"),
+        default=conf.get("compression", "lz4"),
         help="compression codec for output files (default: %(default)s)",
     )
     parser.add_argument(
