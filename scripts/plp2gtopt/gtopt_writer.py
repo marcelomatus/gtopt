@@ -1116,19 +1116,30 @@ class GTOptWriter(
         src_model = options.get("model_options", {})
 
         # PLP parity: the curtailment cost is applied PER-DEMAND via each
-        # real demand's ``fcost`` field (set from falla_by_bus below), so
-        # the global ``model_options.demand_fail_cost`` is essentially a
-        # fallback for demands without an explicit fcost.  We default it
-        # to 0 to preserve historical behaviour; the user may safely raise
-        # it (``--demand-fail-cost N``) without distorting battery
-        # dispatch, because gtopt's C++ ``System::expand_batteries`` now
-        # pins fcost=0 explicitly on every synthetic battery-charge demand
-        # (see ``source/system.cpp`` — the synthetic demand is no longer
-        # sensitive to this global default).
+        # real demand's ``fcost`` field (set from falla_by_bus below).
+        # The global ``model_options.demand_fail_cost`` is the fallback
+        # for demands without an explicit fcost.  When the user has not
+        # supplied an explicit value, we derive it from the case's own
+        # PLP falla units: ``max(falla.gcost)`` — the highest fail price
+        # anywhere in the system.  Going lower than that risks the LP
+        # preferring wholesale curtailment via the global on a synthetic
+        # path over actual generation that costs less than the most
+        # expensive falla but more than the global.
+        #
+        # Synthetic battery-charge demands (created by C++
+        # ``System::expand_batteries``) pin fcost=0 explicitly in C++ so
+        # they are NOT sensitive to this global default — raising the
+        # global never distorts battery dispatch.
         user_demand_fail = src_model.get("demand_fail_cost")
-        effective_demand_fail = (
-            user_demand_fail if user_demand_fail is not None else 0.0
-        )
+        if user_demand_fail is not None:
+            effective_demand_fail = user_demand_fail
+        else:
+            max_falla = 0.0
+            try:
+                max_falla = float(self.central_parser.max_falla_cost())
+            except (AttributeError, TypeError, ValueError):
+                max_falla = 0.0
+            effective_demand_fail = max_falla
 
         # Auto-promote to single-bus when the parsed PLP case has 0
         # transmission lines.  Multi-bus mode with 0 lines makes every bus an
@@ -1175,7 +1186,14 @@ class GTOptWriter(
             "use_single_bus": effective_single_bus,
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": effective_demand_fail,
-            "state_fail_cost": src_model.get("state_fail_cost", 1000),
+            # §11.10 rename: gtopt canonical is `state_violation_cost`;
+            # `state_fail_cost` JSON key still accepted via the
+            # naming-dialects registry for back-compat (so existing
+            # callers passing the legacy key in `src_model` keep working).
+            "state_violation_cost": src_model.get(
+                "state_violation_cost",
+                src_model.get("state_fail_cost", 1000),
+            ),
             "strict_storage_emin": src_model.get("strict_storage_emin", False),
             "auto_scale": src_model.get("auto_scale", True),
         }
@@ -1186,8 +1204,13 @@ class GTOptWriter(
         # computes the optimal value from median line reactance).
         if "scale_theta" in src_model:
             model_opts["scale_theta"] = src_model["scale_theta"]
-        if "reserve_fail_cost" in src_model:
-            model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
+        # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
+        # accept either spelling from `src_model` for back-compat,
+        # emit the new canonical.
+        if "reserve_shortage_cost" in src_model:
+            model_opts["reserve_shortage_cost"] = src_model["reserve_shortage_cost"]
+        elif "reserve_fail_cost" in src_model:
+            model_opts["reserve_shortage_cost"] = src_model["reserve_fail_cost"]
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
         if "line_losses_mode" in src_model:

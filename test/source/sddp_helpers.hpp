@@ -186,9 +186,9 @@ inline auto make_3phase_hydro_planning() -> Planning
 
   // ── PlanningOptions ──
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -270,7 +270,7 @@ inline auto make_single_phase_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
 
   return Planning {
       .options = std::move(options),
@@ -411,9 +411,9 @@ inline auto make_5phase_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 5000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 5000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -575,9 +575,9 @@ inline auto make_5phase_small_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 5000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 5000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -680,9 +680,9 @@ inline auto make_5phase_expansion_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 5000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 5000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -835,9 +835,9 @@ inline auto make_12phase_yearly_hydro_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 5000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 5000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1002,9 +1002,9 @@ inline auto make_2scene_3phase_hydro_planning(double prob1 = 0.7,
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1166,9 +1166,9 @@ inline auto make_2phase_linear_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1339,9 +1339,9 @@ inline auto make_nphase_simple_hydro_planning(int num_phases) -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1478,9 +1478,9 @@ inline auto make_tight_reservoir_3phase_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1645,9 +1645,9 @@ inline auto make_forced_infeasibility_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1875,9 +1875,9 @@ inline auto make_two_reservoir_forced_infeasibility_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -2079,9 +2079,9 @@ inline auto make_backtracking_recovery_planning() -> Planning
   // enough that the solver prefers hydro dispatch (and therefore
   // triggers the reservoir-emin infeasibility at phase 7 on the greedy
   // forward sweep).  Still finite so the problem is well-posed.
-  options.demand_fail_cost = 10'000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 10'000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -2385,9 +2385,9 @@ inline auto make_backtracking_recovery_two_reservoir_planning(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 10'000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 10'000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
   // Reservoir energy scale left at the default (1.0) — the earlier
@@ -2637,9 +2637,9 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 10'000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 10'000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 

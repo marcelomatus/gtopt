@@ -221,9 +221,9 @@ auto build_nphase_mscenario_planning(int n_phases,
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1000.0};  // juan default
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1000.0};  // juan default
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
   // Mimic juan's per-Reservoir variable_scales=10 (the col_scale=10 +

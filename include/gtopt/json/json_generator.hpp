@@ -1,5 +1,6 @@
 #pragma once
 
+#include <daw/json/daw_json_link.h>
 #include <gtopt/generator.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
@@ -17,6 +18,12 @@ struct json_data_contract<GeneratorAttrs>
       json_variant_null<"pmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"gcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"heat_rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_array_null<"pmax_segments", Array<Real>, json_number_no_name<Real>>,
+      json_array_null<"heat_rate_segments",
+                      Array<Real>,
+                      json_number_no_name<Real>>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"expcap", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"expmod", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -36,6 +43,10 @@ struct json_data_contract<GeneratorAttrs>
                                  attrs.pmax,
                                  attrs.lossfactor,
                                  attrs.gcost,
+                                 attrs.fuel,
+                                 attrs.heat_rate,
+                                 attrs.pmax_segments,
+                                 attrs.heat_rate_segments,
                                  attrs.capacity,
                                  attrs.expcap,
                                  attrs.expmod,
@@ -62,6 +73,12 @@ struct json_data_contract<Generator>
       json_variant_null<"pmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"gcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"heat_rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_array_null<"pmax_segments", Array<Real>, json_number_no_name<Real>>,
+      json_array_null<"heat_rate_segments",
+                      Array<Real>,
+                      json_number_no_name<Real>>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"expcap", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"expmod", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -89,6 +106,10 @@ struct json_data_contract<Generator>
                                  generator.pmax,
                                  generator.lossfactor,
                                  generator.gcost,
+                                 generator.fuel,
+                                 generator.heat_rate,
+                                 generator.pmax_segments,
+                                 generator.heat_rate_segments,
                                  generator.capacity,
                                  generator.expcap,
                                  generator.expmod,

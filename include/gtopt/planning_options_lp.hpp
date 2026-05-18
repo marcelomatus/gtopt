@@ -139,23 +139,22 @@ public:
   static constexpr DataFormat default_output_format = DataFormat::parquet;
   /** @brief Default compression codec for Parquet output files.
    *
-   *  `snappy` trades a few percent of compression ratio for ~3-5×
-   *  faster encode + decode vs `zstd` and is the de-facto Parquet
-   *  default in the broader Arrow / Spark / Athena ecosystem.  For
-   *  the per-(scene, phase) solution Parquet files gtopt emits, the
-   *  encode-time savings dominate any size difference because the
-   *  files are small, frequently re-read by downstream tooling, and
-   *  the user is typically on a local disk where the extra zstd
-   *  compute outweighs the I/O savings.  Set
+   *  `lz4` matches snappy's decode speed (within a few percent on the
+   *  small Arrow buffers gtopt emits) while delivering a noticeably
+   *  better ratio on the highly-redundant primal/dual columns produced
+   *  by the per-(scene, phase) solution files, so the default disk
+   *  footprint shrinks without measurable read-side cost.  Set
    *  `output_compression: zstd` in the JSON (or `--output-compression
-   *  zstd`) when archival ratio matters.
+   *  zstd`) when archival ratio matters more than encode time, or
+   *  `output_compression: snappy` for compatibility with downstream
+   *  Spark / Athena consumers that prefer Snappy.
    *
    *  `lp_compression` (LP debug files) keeps `zstd` as its default —
    *  those files are large textual dumps where the ratio matters and
    *  decode speed does not.
    */
   static constexpr CompressionCodec default_output_compression =
-      CompressionCodec::snappy;
+      CompressionCodec::lz4;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -181,8 +180,7 @@ public:
    * @param poptions The PlanningOptions object to wrap (defaults to empty)
    */
   explicit PlanningOptionsLP(PlanningOptions poptions = {})
-      : m_options_(
-            (poptions.migrate_flat_to_model_options(), std::move(poptions)))
+      : m_options_(std::move(poptions))
       , m_variable_scale_map_(populate_variable_scales(m_options_))
   {
   }
@@ -220,10 +218,13 @@ public:
     return m_options_.model_options.demand_fail_cost;
   }
 
-  /// @brief Gets the hydro failure cost from model_options.
-  [[nodiscard]] constexpr auto hydro_fail_cost() const
+  /// @brief Gets the hydro spill cost from model_options.
+  /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
+  /// still accepted as a JSON alias via the naming-dialects
+  /// registry.
+  [[nodiscard]] constexpr auto hydro_spill_cost() const
   {
-    return m_options_.model_options.hydro_fail_cost;
+    return m_options_.model_options.hydro_spill_cost;
   }
 
   /// @brief Gets the hydro use value (benefit per m³) from model_options.
@@ -232,16 +233,18 @@ public:
     return m_options_.model_options.hydro_use_value;
   }
 
-  /// @brief Gets the reserve failure cost from model_options.
-  [[nodiscard]] constexpr auto reserve_fail_cost() const
+  /// @brief Gets the reserve shortage cost from model_options.
+  /// Renamed from `reserve_fail_cost` per §11.10; legacy spelling
+  /// still accepted as a JSON alias via the naming-dialects registry.
+  [[nodiscard]] constexpr auto reserve_shortage_cost() const
   {
-    return m_options_.model_options.reserve_fail_cost;
+    return m_options_.model_options.reserve_shortage_cost;
   }
 
   /// @brief Gets the state failure cost from model_options [$/MWh].
-  [[nodiscard]] constexpr auto state_fail_cost() const
+  [[nodiscard]] constexpr auto state_violation_cost() const
   {
-    return m_options_.model_options.state_fail_cost;
+    return m_options_.model_options.state_violation_cost;
   }
 
   /// @brief Gets the system-wide emission cost [$/tCO2].
@@ -342,6 +345,16 @@ public:
   {
     return m_options_.model_options.strict_storage_emin.value_or(
         default_strict_storage_emin);
+  }
+
+  /// Demand-failure substitution with RHS shift (Option C — renamed
+  /// from `demand_option_c` per §11.10 of
+  /// `docs/analysis/naming-conventions.md`).  Default false
+  /// (Option A: obj_constant baseline).  See
+  /// `ModelOptions::demand_fail_rhs_shift` for the full rationale.
+  [[nodiscard]] constexpr bool demand_fail_rhs_shift() const
+  {
+    return m_options_.model_options.demand_fail_rhs_shift.value_or(false);
   }
 
   /// @brief Gets the objective function scaling factor.
@@ -645,11 +658,21 @@ public:
   }
 
   /// Which output fields `OutputContext` should emit.  Default is
-  /// `OutputFlags::all` — every field (solution, dual, reduced_cost).
+  /// `solution | dual` — primal solutions plus row duals.  Reduced
+  /// costs (`col_cost`) are NOT emitted by default: of the 18 element
+  /// types that wire them, only `Generator/generation_cost`,
+  /// `Demand/fail_cost`, `Line/flowp_cost`, and `Line/flown_cost` have
+  /// any downstream consumer (the `gtopt_check_output` cost breakdown
+  /// plus `gtopt_marginal_units` congestion-rent proxy).  Users who
+  /// want those still get them via `--write-out sol,dual,reduced_cost`
+  /// or `--write-out all`.  Matches the default-output posture of
+  /// PSR SDDP / SDDP.jl / PyPSA / GenX / PLEXOS.
+  ///
   /// Bound to CLI `--write-out` and JSON `write_out`.
   [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
   {
-    return m_options_.write_out.value_or(OutputFlags::all);
+    return m_options_.write_out.value_or(OutputFlags::solution
+                                         | OutputFlags::dual);
   }
 
   /**
@@ -1661,10 +1684,11 @@ private:
                                  });
     };
 
-    // Inject Bus.theta — scale_theta already follows physical = LP × scale
+    // Inject Bus.theta — scale_theta already follows physical = LP × scale.
+    // Post-§11 (2026-05-17): legacy top-level `opts.scale_theta` removed;
+    // single source is `opts.model_options.scale_theta`.
     if (!has_entry(Bus::class_name, "theta")) {
-      const auto st =
-          fallback_3(opts.scale_theta, opts.model_options.scale_theta, 1.0);
+      const auto st = opts.model_options.scale_theta.value_or(1.0);
       opts.variable_scales.push_back(VariableScale {
           .class_name = Bus::class_name,
           .variable = "theta",

@@ -325,9 +325,10 @@ template<typename T>
       ("write-out",
        po::value<std::string>(),
        "comma-separated list of output fields the solver should emit "
-       "(default: all).  Atoms: solution (alias: sol), dual, "
-       "reduced_cost (aliases: cost, rcost, rc), all, none.  "
-       "Example: --write-out sol,dual  or  --write-out all")  //
+       "(default: sol,dual — reduced costs are NOT emitted by default; "
+       "use 'all' or add 'reduced_cost' to opt in).  Atoms: solution "
+       "(alias: sol), dual, reduced_cost (aliases: cost, rcost, rc), "
+       "all, none.  Example: --write-out sol,dual  or  --write-out all")  //
       ("build-mode",
        po::value<std::string>(),
        "LP build parallelism: serial, scene-parallel, full-parallel, "
@@ -388,8 +389,8 @@ template<typename T>
        "shorthand for --set output_format=<fmt>")  //
       ("output-compression,C",
        po::value<std::string>(),
-       "Parquet output compression codec: snappy | zstd | gzip | none "
-       "(default: snappy); shorthand for --set output_compression=<codec>")  //
+       "Parquet output compression codec: lz4 | snappy | zstd | gzip | none "
+       "(default: lz4); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
        "copper-plate (single-bus) mode: ignore network topology and line "
@@ -498,12 +499,14 @@ inline void apply_cli_options(
     const std::optional<std::string>& lp_compression = {},
     const std::optional<double>& lp_coeff_ratio_threshold = {})
 {
+  // Post-§11 (2026-05-17): write into `model_options` since the
+  // legacy top-level mirrors on `PlanningOptions` were removed.
   if (use_single_bus) {
-    planning.options.use_single_bus = use_single_bus;
+    planning.options.model_options.use_single_bus = use_single_bus;
   }
 
   if (use_kirchhoff) {
-    planning.options.use_kirchhoff = use_kirchhoff;
+    planning.options.model_options.use_kirchhoff = use_kirchhoff;
   }
 
   if (output_directory) {

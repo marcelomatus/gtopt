@@ -44,45 +44,154 @@ auto make_ieee4b_json(double scale_obj,
                       bool use_kirchhoff = true) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": {},
-    "scale_theta": {},
-    "use_kirchhoff": {}
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "ieee_4b_scale_test",
-    "bus_array": [
-      {{"uid": 1, "name": "b1"}}, {{"uid": 2, "name": "b2"}},
-      {{"uid": 3, "name": "b3"}}, {{"uid": 4, "name": "b4"}}
-    ],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20, "capacity": 300}},
-      {{"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 35, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d3", "bus": "b3", "lmax": [[150.0]]}},
-      {{"uid": 2, "name": "d4", "bus": "b4", "lmax": [[100.0]]}}
-    ],
-    "line_array": [
-      {{"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.03, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 4, "name": "l2_4", "bus_a": "b2", "bus_b": "b4", "reactance": 0.02, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 5, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.03, "tmax_ab": 150, "tmax_ba": 150}}
-    ]
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": {},
+        "scale_theta": {},
+        "use_kirchhoff": {}
+      }}
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "ieee_4b_scale_test",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }},
+        {{
+          "uid": 2,
+          "name": "b2"
+        }},
+        {{
+          "uid": 3,
+          "name": "b3"
+        }},
+        {{
+          "uid": 4,
+          "name": "b4"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20,
+          "capacity": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 35,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }},
+        {{
+          "uid": 2,
+          "name": "d4",
+          "bus": "b4",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }}
+      ],
+      "line_array": [
+        {{
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "l1_3",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 3,
+          "name": "l2_3",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.03,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 4,
+          "name": "l2_4",
+          "bus_a": "b2",
+          "bus_b": "b4",
+          "reactance": 0.02,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 5,
+          "name": "l3_4",
+          "bus_a": "b3",
+          "bus_b": "b4",
+          "reactance": 0.03,
+          "tmax_ab": 150,
+          "tmax_ba": 150
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       scale_obj,
       scale_theta_val,
       use_kirchhoff ? "true" : "false");
@@ -269,7 +378,7 @@ TEST_CASE(  // NOLINT
   // cost_factor = probability × discount × duration (no scale_obj).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
-    opt.scale_objective = scale;
+    opt.model_options.scale_objective = scale;
     const PlanningOptionsLP options {opt};
 
     Scenario scenario;
@@ -305,7 +414,7 @@ TEST_CASE(  // NOLINT
   // Inverse factors = 1 / (prob × discount × duration).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
-    opt.scale_objective = scale;
+    opt.model_options.scale_objective = scale;
     const PlanningOptionsLP options {opt};
 
     Scenario scenario;
@@ -361,7 +470,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("explicit scale_theta populates Bus.theta directly")
   {
     PlanningOptions opts;
-    opts.scale_theta = 0.0002;  // = 1/5000
+    opts.model_options.scale_theta = 0.0002;  // = 1/5000
     const PlanningOptionsLP lp_opts {opts};
 
     const auto vs = lp_opts.variable_scale_map().lookup("Bus", "theta");
@@ -371,7 +480,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("user-provided Bus.theta entry is NOT overwritten")
   {
     PlanningOptions opts;
-    opts.scale_theta = 0.0002;
+    opts.model_options.scale_theta = 0.0002;
     opts.variable_scales = {
         VariableScale {
             .class_name = "Bus",

@@ -305,6 +305,39 @@ void System::expand_reservoir_constraints()
   }
 }
 
+void System::fold_legacy_profiles()
+{
+  capacity_profile_array.reserve(capacity_profile_array.size()
+                                 + generator_profile_array.size()
+                                 + demand_profile_array.size());
+
+  for (auto& gp : generator_profile_array) {
+    capacity_profile_array.push_back(CapacityProfile {
+        .uid = gp.uid,
+        .name = std::move(gp.name),
+        .active = std::move(gp.active),
+        .owner_kind = ProfileOwnerKind::Generator,
+        .owner = std::move(gp.generator),
+        .profile = std::move(gp.profile),
+        .scost = std::move(gp.scost),
+    });
+  }
+  generator_profile_array.clear();
+
+  for (auto& dp : demand_profile_array) {
+    capacity_profile_array.push_back(CapacityProfile {
+        .uid = dp.uid,
+        .name = std::move(dp.name),
+        .active = std::move(dp.active),
+        .owner_kind = ProfileOwnerKind::Demand,
+        .owner = std::move(dp.demand),
+        .profile = std::move(dp.profile),
+        .scost = std::move(dp.scost),
+    });
+  }
+  demand_profile_array.clear();
+}
+
 // `sys` is consumed member-by-member via std::move on each field — the
 // check only sees ``std::move(sys.foo)``, not ``std::move(sys)``.
 // NOLINTNEXTLINE(cppcoreguidelines-rvalue-reference-param-not-moved)
@@ -325,6 +358,7 @@ void System::merge(System&& sys)
 
   gtopt::merge(generator_profile_array, std::move(sys.generator_profile_array));
   gtopt::merge(demand_profile_array, std::move(sys.demand_profile_array));
+  gtopt::merge(capacity_profile_array, std::move(sys.capacity_profile_array));
 
   gtopt::merge(battery_array, std::move(sys.battery_array));
   gtopt::merge(converter_array, std::move(sys.converter_array));

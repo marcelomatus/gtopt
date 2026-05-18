@@ -3,25 +3,41 @@
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
   },
   "simulation": {
     "block_array": [
-      {"uid": 1, "duration": 1}
+      {
+        "uid": 1,
+        "duration": 1
+      }
     ],
     "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 1,
+        "active": 1
+      }
     ],
     "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
     ]
   },
   "system": {
     "name": "s1b",
     "bus_array": [
-      {"uid": 1, "name": "b1"}
+      {
+        "uid": 1,
+        "name": "b1"
+      }
     ],
     "generator_array": [
       {
@@ -48,7 +64,11 @@
         "uid": 1,
         "name": "d1",
         "bus": "b1",
-        "lmax": [[250.0]]
+        "lmax": [
+          [
+            250.0
+          ]
+        ]
       }
     ]
   }

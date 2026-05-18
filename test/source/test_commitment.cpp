@@ -2625,7 +2625,7 @@ TEST_CASE("continuous_phases via model_options relaxes UC binaries")  // NOLINT
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
   poptions.model_options.continuous_phases = "all";
-  poptions.use_single_bus = true;
+  poptions.model_options.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 
   Simulation simulation(tc.simulation);
@@ -2668,7 +2668,7 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
   poptions.model_options.continuous_phases = "none";
-  poptions.use_single_bus = true;
+  poptions.model_options.use_single_bus = true;
   PlanningOptionsLP options(std::move(poptions));
 
   Simulation simulation(tc.simulation);
@@ -2712,7 +2712,7 @@ TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
   poptions.model_options.continuous_phases = "all";  // relax to avoid MIP
-  poptions.use_single_bus = true;
+  poptions.model_options.use_single_bus = true;
   poptions.output_directory = tmpdir.string();
   PlanningOptionsLP options(std::move(poptions));
 
@@ -2845,7 +2845,7 @@ TEST_CASE(  // NOLINT
 
   PlanningOptions poptions;
   poptions.model_options.demand_fail_cost = 1000.0;
-  poptions.use_single_bus = true;
+  poptions.model_options.use_single_bus = true;
   poptions.lp_matrix_options.col_with_names = true;
   poptions.lp_matrix_options.col_with_name_map = true;
   PlanningOptionsLP options(std::move(poptions));

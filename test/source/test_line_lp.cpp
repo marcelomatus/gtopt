@@ -78,9 +78,9 @@ struct TwoBusFixture
 PlanningOptions make_opts()
 {
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.scale_objective = 1.0;  // 1:1 so obj checks are easy
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.scale_objective = 1.0;  // 1:1 so obj checks are easy
   opts.model_options.demand_fail_cost = 1e6;  // dominate any other cost
   return opts;
 }

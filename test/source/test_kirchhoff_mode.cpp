@@ -112,45 +112,111 @@ TEST_CASE("PlanningOptionsLP::kirchhoff_mode default + override")
 namespace
 {
 
-constexpr std::string_view triangle_3bus_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "tri3",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"},
-      {"uid": 3, "name": "b3"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300,
-       "gcost": 10, "capacity": 300}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d3", "bus": "b3", "lmax": [[150.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l12", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 2, "name": "l23", "bus_a": "b2", "bus_b": "b3",
-       "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 3, "name": "l13", "bus_a": "b1", "bus_b": "b3",
-       "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200}
-    ]
+constexpr std::string_view triangle_3bus_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "tri3",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        },
+        {
+          "uid": 3,
+          "name": "b3"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 10,
+          "capacity": 300
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l12",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        },
+        {
+          "uid": 2,
+          "name": "l23",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.05,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        },
+        {
+          "uid": 3,
+          "name": "l13",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.05,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 struct SolveResult
 {

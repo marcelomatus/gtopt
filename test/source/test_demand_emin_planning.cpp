@@ -17,43 +17,81 @@
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // clang-format off
-static constexpr std::string_view demand_emin_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 4},
-      {"uid": 2, "duration": 4}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "emin_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {
-        "uid": 1, "name": "d1", "bus": "b1",
-        "lmax": [[80.0, 80.0]],
-        "emin": 500,
-        "ecost": 500
+static constexpr std::string_view demand_emin_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 4
+        },
+        {
+          "uid": 2,
+          "duration": 4
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "emin_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0,
+              80.0
+            ]
+          ],
+          "emin": 500,
+          "ecost": 500
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Demand emin - minimum energy constraint exercised")
@@ -93,38 +131,85 @@ TEST_CASE("Demand emin - minimum energy constraint exercised")
 // This test exercises the path with prob = 0.5 so it would fail with
 // the buggy ``stage_ecost`` helper but pass with
 // ``scenario_stage_ecost``.
-static constexpr std::string_view demand_emin_2scene_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 4}, {"uid": 2, "duration": 4}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2, "active": 1}],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 0.5},
-      {"uid": 2, "probability_factor": 0.5}
-    ]
-  },
-  "system": {
-    "name": "emin_2scene",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1",
-       "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1",
-       "lmax": [[80.0, 80.0]],
-       "emin": 500,
-       "ecost": 500}
-    ]
+static constexpr std::string_view demand_emin_2scene_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 4
+        },
+        {
+          "uid": 2,
+          "duration": 4
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 0.5
+        },
+        {
+          "uid": 2,
+          "probability_factor": 0.5
+        }
+      ]
+    },
+    "system": {
+      "name": "emin_2scene",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0,
+              80.0
+            ]
+          ],
+          "emin": 500,
+          "ecost": 500
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE(  // NOLINT
@@ -171,37 +256,75 @@ TEST_CASE(  // NOLINT
 }
 
 // clang-format off
-static constexpr std::string_view demand_lossfactor_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "lossfactor_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {
-        "uid": 1, "name": "d1", "bus": "b1",
-        "lmax": [[100.0]],
-        "lossfactor": 0.05
+static constexpr std::string_view demand_lossfactor_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "lossfactor_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              100.0
+            ]
+          ],
+          "lossfactor": 0.05
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
@@ -229,44 +352,92 @@ TEST_CASE("Demand lossfactor - loss factor applied in bus balance")
 }
 
 // clang-format off
-static constexpr std::string_view line_losses_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "use_line_losses": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "line_losses_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b2", "lmax": [[100.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.02, "resistance": 0.01,
-       "tmax_ab": 300, "tmax_ba": 300}
-    ]
+static constexpr std::string_view line_losses_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "use_line_losses": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "line_losses_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b2",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "resistance": 0.01,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Line losses - resistive losses exercised in LP")
@@ -293,37 +464,85 @@ TEST_CASE("Line losses - resistive losses exercised in LP")
 }
 
 // clang-format off
-static constexpr std::string_view demand_capacity_expansion_json = R"({
-  "options": {
-    "annual_discount_rate": 0.1,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 10000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 8760}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
-      {"uid": 2, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "expansion_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100,
-       "gcost": 20, "capacity": 100,
-       "annual_capcost": 50000, "capmax": 200
+static constexpr std::string_view demand_capacity_expansion_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.1,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 10000
       }
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0], [140.0]]}
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 8760
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "expansion_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100,
+          "annual_capcost": 50000,
+          "capmax": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ],
+            [
+              140.0
+            ]
+          ]
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Capacity expansion - generator expansion modules exercised")
@@ -345,35 +564,85 @@ TEST_CASE("Capacity expansion - generator expansion modules exercised")
 }
 
 // clang-format off
-static constexpr std::string_view inactive_demand_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "inactive_demand_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[100.0]]},
-      {"uid": 2, "name": "d2", "bus": "b1", "lmax": [[50.0]], "active": 0}
-    ]
+static constexpr std::string_view inactive_demand_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "inactive_demand_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "d2",
+          "bus": "b1",
+          "lmax": [
+            [
+              50.0
+            ]
+          ],
+          "active": 0
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 // clang-format off
@@ -382,10 +651,12 @@ static constexpr std::string_view reserve_provision_json = R"({
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "reserve_fail_cost": 5000,
-    "scale_objective": 1000
+    "model_options": {
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "reserve_shortage_cost": 5000,
+      "scale_objective": 1000
+    }
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],
@@ -462,43 +733,103 @@ TEST_CASE("Inactive demand - inactive demand skipped in LP")
 // Test with generator profiles (solar profiles with capacity factor)
 // Covers generator_profile_lp and demand_profile_lp paths
 // clang-format off
-static constexpr std::string_view generator_profile_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 12},
-      {"uid": 2, "duration": 12}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "profile_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g_thermal", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 50, "capacity": 200},
-      {"uid": 2, "name": "g_solar", "bus": "b1", "pmin": 0, "pmax": 100,
-       "gcost": 0, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0, 120.0]]}
-    ],
-    "generator_profile_array": [
-      {"uid": 1, "name": "solar_profile", "generator": 2,
-       "profile": [[[0.8, 0.0]]]}
-    ]
+static constexpr std::string_view generator_profile_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 12
+        },
+        {
+          "uid": 2,
+          "duration": 12
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "profile_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g_thermal",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 50,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "g_solar",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 0,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0,
+              120.0
+            ]
+          ]
+        }
+      ],
+      "generator_profile_array": [
+        {
+          "uid": 1,
+          "name": "solar_profile",
+          "generator": 2,
+          "profile": [
+            [
+              [
+                0.8,
+                0.0
+              ]
+            ]
+          ]
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Generator profile - solar profile applied to capacity")
@@ -527,37 +858,78 @@ TEST_CASE("Generator profile - solar profile applied to capacity")
 
 // Test with multi-stage planning and 2 scenarios
 // clang-format off
-static constexpr std::string_view multi_scenario_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 0.5},
-      {"uid": 2, "probability_factor": 0.5}
-    ]
-  },
-  "system": {
-    "name": "multi_scenario",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 30, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[100.0]]}
-    ]
+static constexpr std::string_view multi_scenario_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 0.5
+        },
+        {
+          "uid": 2,
+          "probability_factor": 0.5
+        }
+      ]
+    },
+    "system": {
+      "name": "multi_scenario",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 30,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Multi-scenario planning")
@@ -578,34 +950,82 @@ TEST_CASE("Multi-scenario planning")
 // ── Inactive generator test ─────────────────────────────────────────
 // Covers generator_lp.cpp inactive path (line 74)
 // clang-format off
-static constexpr std::string_view inactive_gen_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "inactive_gen_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 20, "capacity": 200},
-      {"uid": 2, "name": "g2_inactive", "bus": "b1", "pmin": 0, "pmax": 100,
-       "gcost": 5, "capacity": 100, "active": 0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ]
+static constexpr std::string_view inactive_gen_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "inactive_gen_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "g2_inactive",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 5,
+          "capacity": 100,
+          "active": 0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Inactive generator - skipped in LP")
@@ -633,43 +1053,92 @@ TEST_CASE("Inactive generator - skipped in LP")
 // ── Quadratic line loss model test ──────────────────────────────────
 // Covers line_lp.cpp add_quadratic_flow_direction (lines 82-182)
 // clang-format off
-static constexpr std::string_view quadratic_loss_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "use_line_losses": true,
-    "loss_segments": 3,
-    "demand_fail_cost": 10000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "quadratic_loss_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500,
-       "gcost": 20, "capacity": 500}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b2", "lmax": [[200.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.02, "resistance": 0.05, "voltage": 220,
-       "tmax_ab": 400, "tmax_ba": 400}
-    ]
+static constexpr std::string_view quadratic_loss_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "use_line_losses": true,
+        "loss_segments": 3,
+        "scale_objective": 1000,
+        "demand_fail_cost": 10000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "quadratic_loss_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 500,
+          "gcost": 20,
+          "capacity": 500
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b2",
+          "lmax": [
+            [
+              200.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "resistance": 0.05,
+          "voltage": 220,
+          "tmax_ab": 400,
+          "tmax_ba": 400
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Line quadratic loss model - piecewise-linear loss approximation")
@@ -697,45 +1166,100 @@ TEST_CASE("Line quadratic loss model - piecewise-linear loss approximation")
 // ── Line capacity expansion test ────────────────────────────────────
 // Covers line_lp.cpp capacity_col paths (lines 378-388, 403-413)
 // clang-format off
-static constexpr std::string_view line_expansion_json = R"({
-  "options": {
-    "annual_discount_rate": 0.1,
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "use_line_losses": false,
-    "demand_fail_cost": 10000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 8760}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
-      {"uid": 2, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "line_expansion_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500,
-       "gcost": 10, "capacity": 500}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b2",
-       "lmax": [[50.0], [200.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.05,
-       "tmax_ab": 100, "tmax_ba": 100,
-       "annual_capcost": 5000, "capmax": 300}
-    ]
+static constexpr std::string_view line_expansion_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.1,
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "use_line_losses": false,
+        "scale_objective": 1000,
+        "demand_fail_cost": 10000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 8760
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "line_expansion_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 500,
+          "gcost": 10,
+          "capacity": 500
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b2",
+          "lmax": [
+            [
+              50.0
+            ],
+            [
+              200.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "tmax_ab": 100,
+          "tmax_ba": 100,
+          "annual_capcost": 5000,
+          "capmax": 300
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Line capacity expansion - expansion modules exercised")
@@ -758,45 +1282,102 @@ TEST_CASE("Line capacity expansion - expansion modules exercised")
 // ── Line with linear loss + capacity expansion ──────────────────────
 // Covers line_lp.cpp capacity constraint in linear loss model (lines 378-413)
 // clang-format off
-static constexpr std::string_view line_loss_expansion_json = R"({
-  "options": {
-    "annual_discount_rate": 0.1,
-    "use_single_bus": false,
-    "use_kirchhoff": true,
-    "use_line_losses": true,
-    "demand_fail_cost": 10000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 8760}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1, "active": 1},
-      {"uid": 2, "first_block": 0, "count_block": 1, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "line_loss_expansion_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500,
-       "gcost": 10, "capacity": 500}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b2",
-       "lmax": [[50.0], [200.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.05, "resistance": 0.01, "voltage": 220,
-       "tmax_ab": 100, "tmax_ba": 100,
-       "annual_capcost": 5000, "capmax": 300}
-    ]
+static constexpr std::string_view line_loss_expansion_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.1,
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "use_line_losses": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 10000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 8760
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "line_loss_expansion_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 500,
+          "gcost": 10,
+          "capacity": 500
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b2",
+          "lmax": [
+            [
+              50.0
+            ],
+            [
+              200.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "resistance": 0.01,
+          "voltage": 220,
+          "tmax_ab": 100,
+          "tmax_ba": 100,
+          "annual_capcost": 5000,
+          "capmax": 300
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Line linear loss + capacity expansion - capacity constraint paths")
@@ -819,45 +1400,103 @@ TEST_CASE("Line linear loss + capacity expansion - capacity constraint paths")
 // ── Battery with charge/discharge test ──────────────────────────────
 // Covers battery_lp.cpp main paths
 // clang-format off
-static constexpr std::string_view battery_planning_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 4},
-      {"uid": 2, "duration": 4}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2, "active": 1}
-    ],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "battery_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g_cheap", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 10, "capacity": 200},
-      {"uid": 2, "name": "g_expensive", "bus": "b1", "pmin": 0, "pmax": 200,
-       "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50.0, 150.0]]}
-    ],
-    "battery_array": [
-      {"uid": 1, "name": "batt1", "bus": 1,
-       "emax": 400, "emin": 0,
-       "pmax_charge": 100, "pmax_discharge": 100,
-       "input_efficiency": 0.95, "output_efficiency": 0.95,
-       "gcost": 0, "capacity": 400,
-       "use_state_variable": true, "daily_cycle": false}
-    ]
+static constexpr std::string_view battery_planning_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 4
+        },
+        {
+          "uid": 2,
+          "duration": 4
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "battery_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g_cheap",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 10,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "g_expensive",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 100,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              50.0,
+              150.0
+            ]
+          ]
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "batt1",
+          "bus": 1,
+          "emax": 400,
+          "emin": 0,
+          "pmax_charge": 100,
+          "pmax_discharge": 100,
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "gcost": 0,
+          "capacity": 400,
+          "use_state_variable": true,
+          "daily_cycle": false
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Battery - charge/discharge storage exercised")

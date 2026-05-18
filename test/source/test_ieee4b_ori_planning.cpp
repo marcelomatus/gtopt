@@ -37,44 +37,153 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 using gtopt::test_helpers::read_uid_values;
 
 // clang-format off
-static constexpr std::string_view ieee4b_ori_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "ieee_4b_ori",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"},
-      {"uid": 3, "name": "b3"}, {"uid": 4, "name": "b4"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20, "capacity": 300},
-      {"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 35, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d3", "bus": "b3", "lmax": [[150.0]]},
-      {"uid": 2, "name": "d4", "bus": "b4", "lmax": [[100.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300},
-      {"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300},
-      {"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.03, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 4, "name": "l2_4", "bus_a": "b2", "bus_b": "b4", "reactance": 0.02, "tmax_ab": 200, "tmax_ba": 200},
-      {"uid": 5, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.03, "tmax_ab": 150, "tmax_ba": 150}
-    ]
+static constexpr std::string_view ieee4b_ori_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "ieee_4b_ori",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        },
+        {
+          "uid": 3,
+          "name": "b3"
+        },
+        {
+          "uid": 4,
+          "name": "b4"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20,
+          "capacity": 300
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 35,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "d4",
+          "bus": "b4",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        },
+        {
+          "uid": 2,
+          "name": "l1_3",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        },
+        {
+          "uid": 3,
+          "name": "l2_3",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.03,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        },
+        {
+          "uid": 4,
+          "name": "l2_4",
+          "bus_a": "b2",
+          "bus_b": "b4",
+          "reactance": 0.02,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        },
+        {
+          "uid": 5,
+          "name": "l3_4",
+          "bus_a": "b3",
+          "bus_b": "b4",
+          "reactance": 0.03,
+          "tmax_ab": 150,
+          "tmax_ba": 150
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("IEEE 4-bus original - JSON parse and structure check")

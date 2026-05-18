@@ -200,22 +200,19 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   if (!opts.model_options.auto_scale.value_or(true)) {
     return;
   }
-  if (opts.scale_theta.has_value()
-      || opts.model_options.scale_theta.has_value())
-  {
+  // Post-§11 (2026-05-17): the legacy top-level mirrors on
+  // `PlanningOptions` were removed.  Single source is
+  // `opts.model_options.*`.
+  const auto& mo = opts.model_options;
+  if (mo.scale_theta.has_value()) {
     return;
   }
 
   // Don't auto-scale when Kirchhoff is disabled or single-bus mode.
-  const auto& mo = opts.model_options;
-  if ((opts.use_kirchhoff.has_value() && !*opts.use_kirchhoff)
-      || (mo.use_kirchhoff.has_value() && !*mo.use_kirchhoff))
-  {
+  if (mo.use_kirchhoff.has_value() && !*mo.use_kirchhoff) {
     return;
   }
-  if ((opts.use_single_bus.has_value() && *opts.use_single_bus)
-      || (mo.use_single_bus.has_value() && *mo.use_single_bus))
-  {
+  if (mo.use_single_bus.has_value() && *mo.use_single_bus) {
     return;
   }
 
@@ -545,10 +542,9 @@ void PlanningLP::auto_scale_loss_link(Planning& planning)
     return;
   }
 
-  // Skip when single-bus or losses globally disabled.
-  if (opts.use_single_bus.value_or(false)
-      || opts.model_options.use_single_bus.value_or(false))
-  {
+  // Skip when single-bus mode.  Post-§11: legacy top-level mirror
+  // removed; single source is model_options.
+  if (opts.model_options.use_single_bus.value_or(false)) {
     return;
   }
 
@@ -902,6 +898,7 @@ auto PlanningLP::create_systems(System& system,
 {
   system.expand_batteries();
   system.expand_reservoir_constraints();
+  system.fold_legacy_profiles();
   system.setup_reference_bus(options);
 
   // Enable per-cell AMPL variable registration when user constraints

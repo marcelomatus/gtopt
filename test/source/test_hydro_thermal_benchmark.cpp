@@ -257,7 +257,7 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "HydroValley2Reservoir",
@@ -433,7 +433,7 @@ TEST_CASE("Hydro thermal benchmark — SDDP.jl FAST single-reservoir worst-case"
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "FASTHydroThermal",
@@ -480,73 +480,188 @@ namespace
 // SDDP.jl Hydro Valley — same 2-reservoir cascade as the struct fixture
 // above, expressed as a JSON Planning literal.  Single-bus, single-
 // scenario, single-stage / 3-block to keep this an LP-only fixture.
-constexpr std::string_view hydro_valley_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "use_single_bus": true
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1.0},
-      {"uid": 2, "duration": 1.0},
-      {"uid": 3, "duration": 1.0}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 3}
-    ],
-    "scenario_array": [{"uid": 0, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "HydroValleyJson",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "junction_array": [
-      {"uid": 1, "name": "j_top"},
-      {"uid": 2, "name": "j_mid"},
-      {"uid": 3, "name": "j_bot", "drain": true}
-    ],
-    "waterway_array": [
-      {"uid": 1, "name": "ww_turb1", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 70.0},
-      {"uid": 2, "name": "ww_spill1", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 10000.0},
-      {"uid": 3, "name": "ww_turb2", "junction_a": 2, "junction_b": 3,
-       "fmin": 0.0, "fmax": 70.0},
-      {"uid": 4, "name": "ww_spill2", "junction_a": 2, "junction_b": 3,
-       "fmin": 0.0, "fmax": 10000.0}
-    ],
-    "reservoir_array": [
-      {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 200.0,
-       "emin": 0.0, "emax": 200.0, "eini": 200.0},
-      {"uid": 2, "name": "rsv2", "junction": 2, "capacity": 200.0,
-       "emin": 0.0, "emax": 200.0, "eini": 200.0}
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow1", "direction": 1, "junction": 1,
-       "discharge": 20.0},
-      {"uid": 2, "name": "inflow2", "direction": 1, "junction": 2,
-       "discharge": 10.0}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g_hydro1", "bus": 1, "gcost": 0.0,
-       "capacity": 300.0},
-      {"uid": 2, "name": "g_hydro2", "bus": 1, "gcost": 0.0,
-       "capacity": 300.0},
-      {"uid": 3, "name": "g_thermal", "bus": 1, "gcost": 100.0,
-       "capacity": 500.0}
-    ],
-    "turbine_array": [
-      {"uid": 1, "name": "t1", "waterway": 1, "generator": 1,
-       "production_factor": 1.1},
-      {"uid": 2, "name": "t2", "waterway": 3, "generator": 2,
-       "production_factor": 1.1}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 100.0}
-    ]
+constexpr std::string_view hydro_valley_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1.0
+        },
+        {
+          "uid": 2,
+          "duration": 1.0
+        },
+        {
+          "uid": 3,
+          "duration": 1.0
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 3
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 0,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "HydroValleyJson",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "junction_array": [
+        {
+          "uid": 1,
+          "name": "j_top"
+        },
+        {
+          "uid": 2,
+          "name": "j_mid"
+        },
+        {
+          "uid": 3,
+          "name": "j_bot",
+          "drain": true
+        }
+      ],
+      "waterway_array": [
+        {
+          "uid": 1,
+          "name": "ww_turb1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 70.0
+        },
+        {
+          "uid": 2,
+          "name": "ww_spill1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 10000.0
+        },
+        {
+          "uid": 3,
+          "name": "ww_turb2",
+          "junction_a": 2,
+          "junction_b": 3,
+          "fmin": 0.0,
+          "fmax": 70.0
+        },
+        {
+          "uid": 4,
+          "name": "ww_spill2",
+          "junction_a": 2,
+          "junction_b": 3,
+          "fmin": 0.0,
+          "fmax": 10000.0
+        }
+      ],
+      "reservoir_array": [
+        {
+          "uid": 1,
+          "name": "rsv1",
+          "junction": 1,
+          "capacity": 200.0,
+          "emin": 0.0,
+          "emax": 200.0,
+          "eini": 200.0
+        },
+        {
+          "uid": 2,
+          "name": "rsv2",
+          "junction": 2,
+          "capacity": 200.0,
+          "emin": 0.0,
+          "emax": 200.0,
+          "eini": 200.0
+        }
+      ],
+      "flow_array": [
+        {
+          "uid": 1,
+          "name": "inflow1",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 20.0
+        },
+        {
+          "uid": 2,
+          "name": "inflow2",
+          "direction": 1,
+          "junction": 2,
+          "discharge": 10.0
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g_hydro1",
+          "bus": 1,
+          "gcost": 0.0,
+          "capacity": 300.0
+        },
+        {
+          "uid": 2,
+          "name": "g_hydro2",
+          "bus": 1,
+          "gcost": 0.0,
+          "capacity": 300.0
+        },
+        {
+          "uid": 3,
+          "name": "g_thermal",
+          "bus": 1,
+          "gcost": 100.0,
+          "capacity": 500.0
+        }
+      ],
+      "turbine_array": [
+        {
+          "uid": 1,
+          "name": "t1",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.1
+        },
+        {
+          "uid": 2,
+          "name": "t2",
+          "waterway": 3,
+          "generator": 2,
+          "production_factor": 1.1
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 100.0
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // SDDP.jl FAST hydro-thermal — minimal 2-block reservoir + thermal
 // fixture from leopoldcambier/FAST.  Reservoir state x ∈ [0, 8],
@@ -554,59 +669,134 @@ constexpr std::string_view hydro_valley_json = R"json({
 // reservoir balance x_out ≤ x_in − y + ξ (inflow).  Deterministic
 // inflows ξ = (6, 2) — block 1 plenty of water, block 2 drought so
 // the LP must hoard water across blocks.  Thermal cost = 5 $/MWh.
-constexpr std::string_view fast_hydro_thermal_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "use_single_bus": true
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1.0},
-      {"uid": 2, "duration": 1.0}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [{"uid": 0, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "FASTHydroThermalJson",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "junction_array": [
-      {"uid": 1, "name": "j_top"},
-      {"uid": 2, "name": "j_bot", "drain": true}
-    ],
-    "waterway_array": [
-      {"uid": 1, "name": "ww_turb", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 100.0},
-      {"uid": 2, "name": "ww_spill", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 10000.0}
-    ],
-    "reservoir_array": [
-      {"uid": 1, "name": "rsv", "junction": 1, "capacity": 8.0,
-       "emin": 0.0, "emax": 8.0, "eini": 0.0}
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "rainfall", "direction": 1, "junction": 1,
-       "discharge": 4.0}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g_hydro", "bus": 1, "gcost": 0.0,
-       "capacity": 100.0},
-      {"uid": 2, "name": "g_thermal", "bus": 1, "gcost": 5.0,
-       "capacity": 100.0}
-    ],
-    "turbine_array": [
-      {"uid": 1, "name": "t", "waterway": 1, "generator": 1,
-       "production_factor": 1.0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d", "bus": 1, "capacity": 6.0}
-    ]
+constexpr std::string_view fast_hydro_thermal_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1.0
+        },
+        {
+          "uid": 2,
+          "duration": 1.0
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 0,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "FASTHydroThermalJson",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "junction_array": [
+        {
+          "uid": 1,
+          "name": "j_top"
+        },
+        {
+          "uid": 2,
+          "name": "j_bot",
+          "drain": true
+        }
+      ],
+      "waterway_array": [
+        {
+          "uid": 1,
+          "name": "ww_turb",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 100.0
+        },
+        {
+          "uid": 2,
+          "name": "ww_spill",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 10000.0
+        }
+      ],
+      "reservoir_array": [
+        {
+          "uid": 1,
+          "name": "rsv",
+          "junction": 1,
+          "capacity": 8.0,
+          "emin": 0.0,
+          "emax": 8.0,
+          "eini": 0.0
+        }
+      ],
+      "flow_array": [
+        {
+          "uid": 1,
+          "name": "rainfall",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 4.0
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g_hydro",
+          "bus": 1,
+          "gcost": 0.0,
+          "capacity": 100.0
+        },
+        {
+          "uid": 2,
+          "name": "g_thermal",
+          "bus": 1,
+          "gcost": 5.0,
+          "capacity": 100.0
+        }
+      ],
+      "turbine_array": [
+        {
+          "uid": 1,
+          "name": "t",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d",
+          "bus": 1,
+          "capacity": 6.0
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 }  // namespace
 
@@ -724,56 +914,138 @@ TEST_CASE(
 
 namespace
 {
-constexpr std::string_view hydro_thermal_sddpjl_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "use_single_bus": true
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1.0},
-      {"uid": 2, "duration": 1.0},
-      {"uid": 3, "duration": 1.0}
-    ],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 3}],
-    "scenario_array": [{"uid": 0, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "HydroThermalSDDPjlJson",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "junction_array": [
-      {"uid": 1, "name": "j_top"},
-      {"uid": 2, "name": "j_bot", "drain": true}
-    ],
-    "waterway_array": [
-      {"uid": 1, "name": "ww_turb", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 50.0},
-      {"uid": 2, "name": "ww_spill", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 10000.0}
-    ],
-    "reservoir_array": [
-      {"uid": 1, "name": "rsv", "junction": 1, "capacity": 15.0,
-       "emin": 5.0, "emax": 15.0, "eini": 10.0}
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow", "direction": 1, "junction": 1,
-       "discharge": 0.0}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g_hydro", "bus": 1, "gcost": 0.0,
-       "capacity": 50.0},
-      {"uid": 2, "name": "g_thermal", "bus": 1, "gcost": 1.0,
-       "capacity": 100.0}
-    ],
-    "turbine_array": [
-      {"uid": 1, "name": "t", "waterway": 1, "generator": 1,
-       "production_factor": 1.0}
-    ],
-    "demand_array": [{"uid": 1, "name": "d", "bus": 1, "capacity": 7.5}]
+constexpr std::string_view hydro_thermal_sddpjl_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1.0
+        },
+        {
+          "uid": 2,
+          "duration": 1.0
+        },
+        {
+          "uid": 3,
+          "duration": 1.0
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 3
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 0,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "HydroThermalSDDPjlJson",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "junction_array": [
+        {
+          "uid": 1,
+          "name": "j_top"
+        },
+        {
+          "uid": 2,
+          "name": "j_bot",
+          "drain": true
+        }
+      ],
+      "waterway_array": [
+        {
+          "uid": 1,
+          "name": "ww_turb",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 50.0
+        },
+        {
+          "uid": 2,
+          "name": "ww_spill",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0.0,
+          "fmax": 10000.0
+        }
+      ],
+      "reservoir_array": [
+        {
+          "uid": 1,
+          "name": "rsv",
+          "junction": 1,
+          "capacity": 15.0,
+          "emin": 5.0,
+          "emax": 15.0,
+          "eini": 10.0
+        }
+      ],
+      "flow_array": [
+        {
+          "uid": 1,
+          "name": "inflow",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 0.0
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g_hydro",
+          "bus": 1,
+          "gcost": 0.0,
+          "capacity": 50.0
+        },
+        {
+          "uid": 2,
+          "name": "g_thermal",
+          "bus": 1,
+          "gcost": 1.0,
+          "capacity": 100.0
+        }
+      ],
+      "turbine_array": [
+        {
+          "uid": 1,
+          "name": "t",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d",
+          "bus": 1,
+          "capacity": 7.5
+        }
+      ]
+    }
   }
-})json";
+)json";
 }  // namespace
 
 TEST_CASE("Hydro thermal benchmark — Hydro_thermal loaded from JSON literal")

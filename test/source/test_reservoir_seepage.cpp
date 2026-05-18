@@ -1159,7 +1159,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with piecewise segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1334,7 +1334,7 @@ TEST_CASE("ReservoirSeepageLP - update_lp with different eini segment")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1563,7 +1563,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   // Compress mode from construction so the snapshot is populated and
@@ -1781,7 +1781,7 @@ TEST_CASE("ReservoirSeepageLP - zero-slope segment edge case")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);

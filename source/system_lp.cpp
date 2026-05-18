@@ -606,6 +606,8 @@ void create_collections(const auto& system_context,
       make_collection<GeneratorProfileLP>(ic, sys.generator_profile_array);
   std::get<Collection<DemandProfileLP>>(colls) =
       make_collection<DemandProfileLP>(ic, sys.demand_profile_array);
+  std::get<Collection<CapacityProfileLP>>(colls) =
+      make_collection<CapacityProfileLP>(ic, sys.capacity_profile_array);
   std::get<Collection<BatteryLP>>(colls) =
       make_collection<BatteryLP>(ic, sys.battery_array);
   std::get<Collection<ConverterLP>>(colls) =
@@ -614,6 +616,8 @@ void create_collections(const auto& system_context,
       make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(colls) =
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
+  std::get<Collection<FuelLP>>(colls) =
+      make_collection<FuelLP>(ic, sys.fuel_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
   std::get<Collection<SimpleCommitmentLP>>(colls) =
@@ -701,6 +705,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<DemandLP>(sim, sys.demand_array);
   register_element_names<FlowLP>(sim, sys.flow_array);
   register_element_names<FlowRightLP>(sim, sys.flow_right_array);
+  register_element_names<FuelLP>(sim, sys.fuel_array);
   register_element_names<GeneratorLP>(sim, sys.generator_array);
   register_element_names<JunctionLP>(sim, sys.junction_array);
   register_element_names<LineLP>(sim, sys.line_array);

@@ -16,12 +16,19 @@ from .aflce_writer import AflceWriter
 from .block_parser import BlockParser
 
 
-class GeneratorProfile(TypedDict):
-    """Represents a generator profile."""
+class CapacityProfile(TypedDict):
+    """Represents a kind-tagged capacity-factor profile.
+
+    Wire format matches the C++ `CapacityProfile` struct introduced by
+    the legacy →  unified migration:
+        {"uid": ..., "name": ..., "owner_kind": "generator"|"demand",
+         "owner": <uid-or-name>, "profile": ...}
+    """
 
     uid: int
     name: str
-    generator: int
+    owner_kind: str
+    owner: int | str
     profile: str | float
 
 
@@ -83,7 +90,7 @@ class GeneratorProfileWriter(BaseWriter):
         if profile_names is not None:
             self._write_profile_parquet(profile_names)
 
-        json_profiles: List[GeneratorProfile] = []
+        json_profiles: List[CapacityProfile] = []
         for central in items:
             central_name = central["name"]
             # When profile_names is set, only include listed centrals
@@ -119,10 +126,11 @@ class GeneratorProfileWriter(BaseWriter):
             if isinstance(afluent, float) and afluent <= 0.0:
                 continue
 
-            profile: GeneratorProfile = {
+            profile: CapacityProfile = {
                 "uid": central_number,
                 "name": central_name,
-                "generator": central_name,
+                "owner_kind": "generator",
+                "owner": central_name,
                 "profile": afluent,
             }
             json_profiles.append(profile)

@@ -25,12 +25,14 @@
 
 #include <gtopt/battery.hpp>
 #include <gtopt/bus.hpp>
+#include <gtopt/capacity_profile.hpp>
 #include <gtopt/commitment.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
+#include <gtopt/fuel.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/inertia_provision.hpp>
@@ -79,6 +81,10 @@ struct System
       generator_profile_array {};  ///< Capacity-factor profiles for generators
   Array<DemandProfile>
       demand_profile_array {};  ///< Load-shape profiles for demands
+  /// Unified kind-tagged capacity-factor profiles (Commit 1 of the
+  /// legacy → unified migration).  Parses from `"capacity_profile_array"` in
+  /// JSON; per-owner-kind dispatch via `CapacityProfile::owner_kind`.
+  Array<CapacityProfile> capacity_profile_array {};
 
   // ── Energy storage ──────────────────────────────────────────────────────
   Array<Battery> battery_array {};  ///< Battery energy storage systems
@@ -93,6 +99,11 @@ struct System
       reserve_zone_array {};  ///< Spinning-reserve requirement zones
   Array<ReserveProvision>
       reserve_provision_array {};  ///< Generator → reserve zone links
+
+  // ── Fuels ──────────────────────────────────────────────────────────────
+  /// Time-schedulable fuel price + combustion / upstream emission
+  /// factors referenced by `Generator.fuel`.  See `fuel.hpp`.
+  Array<Fuel> fuel_array {};
 
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
@@ -190,6 +201,21 @@ struct System
    * that re-expansion is idempotent.
    */
   void expand_reservoir_constraints();
+
+  /**
+   * @brief Fold legacy `generator_profile_array` / `demand_profile_array`
+   *        entries into the unified `capacity_profile_array`.
+   *
+   * Each legacy entry becomes a `CapacityProfile` with the matching
+   * `owner_kind` (Generator / Demand) and `owner = legacy.generator` /
+   * `legacy.demand`.  The legacy arrays are cleared after the move so
+   * the LP layer sees only `capacity_profile_array`, making the
+   * unified path the single source of truth for downstream code.
+   *
+   * Idempotent: calling twice is safe (second call is a no-op on
+   * already-cleared arrays).
+   */
+  void fold_legacy_profiles();
 
   void setup_reference_bus(const class PlanningOptionsLP& options);
 };

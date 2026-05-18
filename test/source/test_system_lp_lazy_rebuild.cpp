@@ -185,9 +185,9 @@ namespace
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
 
   System system = {
       .name = "single_phase_reservoir",

@@ -138,7 +138,10 @@ TEST_CASE("PlanningLP - auto_scale_loss_link picks median R/V² as power of 10")
   Planning planning {
       .options =
           {
-              .demand_fail_cost = 1000.0,
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = make_one_block_sim(),
       .system = system,
@@ -205,10 +208,10 @@ TEST_CASE("PlanningLP - auto_scale_loss_link respects explicit override")
 
   ModelOptions mo;
   mo.scale_loss_link = 7.0;
+  mo.demand_fail_cost = 1000.0;
   Planning planning {
       .options =
           {
-              .demand_fail_cost = 1000.0,
               .model_options = mo,
           },
       .simulation = make_one_block_sim(),
@@ -346,7 +349,7 @@ TEST_CASE("PlanningLP - auto_scale_loss_link skipped under single_bus")
   Planning planning {
       .options =
           {
-              .use_single_bus = true,
+              .model_options = {.use_single_bus = true},
           },
       .simulation = make_one_block_sim(),
       .system = system,

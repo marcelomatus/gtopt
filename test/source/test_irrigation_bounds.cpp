@@ -1437,7 +1437,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
-    popts.model_options.hydro_fail_cost = global_fc;
+    popts.model_options.hydro_spill_cost = global_fc;
     const PlanningOptionsLP options(std::move(popts));
     const auto scale_obj = options.scale_objective();
     SimulationLP simulation_lp(simulation, options);
@@ -1446,12 +1446,11 @@ TEST_CASE(  // NOLINT
     auto&& lp = system_lp.linear_interface();
     const auto obj_coeffs = lp.get_obj_coeff();
 
-    // Post-2026-05 attach_flow refactor: flow_col carries 0 cost, the
-    // kink penalty rides the `fail` slack with POSITIVE sign.  Expected
-    // fail-slack coefficient per block: `+global_fc × dur × 3600 /
-    // scale_obj`.
-    const auto expected_b1 = +global_fc * dur1 * 3600.0 / scale_obj;
-    const auto expected_b2 = +global_fc * dur2 * 3600.0 / scale_obj;
+    // Post-2026-05-17 attach_flow one-sided substitution: fcost-only
+    // case folds the fail slack into the primary flow column.  Cost
+    // sign flips to `−global_fc × dur × 3600 / scale_obj` per block.
+    const auto expected_b1 = -global_fc * dur1 * 3600.0 / scale_obj;
+    const auto expected_b2 = -global_fc * dur2 * 3600.0 / scale_obj;
 
     bool found_b1 = false;
     bool found_b2 = false;

@@ -81,7 +81,7 @@ void run_boundary_cut_round_trip(double scale_obj, double col_scale)
   CAPTURE(col_scale);
 
   auto planning = make_3phase_hydro_planning();
-  planning.options.scale_objective = OptReal {scale_obj};
+  planning.options.model_options.scale_objective = OptReal {scale_obj};
   // Force eager-resident backend so `get_row_low()` / `get_coeff()`
   // reads aren't shaped by a release/reload cycle.
   planning.options.sddp_options.low_memory_mode = LowMemoryMode::off;

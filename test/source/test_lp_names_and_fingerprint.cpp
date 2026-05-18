@@ -516,8 +516,8 @@ TEST_CASE(  // NOLINT
   // Build a 3-phase hydro planning (cascade-style multi-phase).
   // enforce_names_for_method auto-upgrades to minimal names for phases > 1.
   auto planning = make_3phase_hydro_planning();
-  planning.options.use_single_bus = OptBool {true};
-  planning.options.scale_objective = OptReal {1.0};
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
 
   const auto flat_opts =
       make_lp_matrix_options(false,  // enable_names → none (default)
@@ -615,8 +615,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE("write_lp succeeds with full names enabled")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
-  planning.options.use_single_bus = OptBool {true};
-  planning.options.scale_objective = OptReal {1.0};
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
 
   const auto flat_opts = make_lp_matrix_options(
       true, std::nullopt, false, std::nullopt, std::nullopt);
@@ -649,8 +649,8 @@ TEST_CASE(  // NOLINT
     "write_lp after compress/reconstruct preserves names")
 {
   auto planning = make_3phase_hydro_planning();
-  planning.options.use_single_bus = OptBool {true};
-  planning.options.scale_objective = OptReal {1.0};
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
 
   const auto flat_opts = make_lp_matrix_options(
       true, std::nullopt, false, std::nullopt, std::nullopt);
@@ -694,8 +694,8 @@ TEST_CASE(  // NOLINT
   // `r<index>` labels.  Real gtopt names still require names
   // enabled at flatten time.
   auto planning = make_single_phase_planning();
-  planning.options.use_single_bus = OptBool {true};
-  planning.options.scale_objective = OptReal {1.0};
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
 
   const auto no_names = make_lp_matrix_options(
       false, std::nullopt, false, std::nullopt, std::nullopt);
@@ -758,8 +758,8 @@ TEST_CASE(  // NOLINT
     "LP fingerprint with all low-memory modes on multi-phase planning")
 {
   auto planning = make_3phase_hydro_planning();
-  planning.options.use_single_bus = OptBool {true};
-  planning.options.scale_objective = OptReal {1.0};
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
 
   // Use all to get dense column names for fingerprint-relevant metadata
   const auto flat_opts = make_lp_matrix_options(

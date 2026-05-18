@@ -19,6 +19,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/json_canonicalize.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -27,7 +28,13 @@ namespace gtopt
 
 Planning parse_planning_json(std::string_view json_content)
 {
-  return daw::json::from_json<Planning>(json_content, StrictParsePolicy);
+  // Rewrite alternative key names (PyPSA / pandapower / PLEXOS /
+  // PSR SDDP / PLP / gtopt-modern) to their canonical gtopt form
+  // before the strict daw::json parser sees the document.  See
+  // include/gtopt/json_canonicalize.hpp and
+  // docs/analysis/naming-conventions.md §9 / §10.
+  const auto canonical = canonicalize_json_keys(json_content);
+  return daw::json::from_json<Planning>(canonical, StrictParsePolicy);
 }
 
 std::expected<Planning, std::string> parse_planning_files(
@@ -71,8 +78,9 @@ std::expected<Planning, std::string> parse_planning_files(
       spdlog::info("  Parsing input file {}", fpath.string());
 
       try {
-        auto plan = daw::json::from_json<Planning>(json_result.value(),
-                                                   StrictParsePolicy);
+        const auto canonical = canonicalize_json_keys(json_result.value());
+        auto plan =
+            daw::json::from_json<Planning>(canonical, StrictParsePolicy);
         my_planning.merge(std::move(plan));
       } catch (const daw::json::json_exception& jex) {
         return std::unexpected(

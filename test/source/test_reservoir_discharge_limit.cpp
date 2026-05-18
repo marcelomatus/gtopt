@@ -892,7 +892,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1057,7 +1057,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1222,7 +1222,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1519,7 +1519,7 @@ TEST_CASE(
 
   // Enable LP name maps so we can look up the flow column and dvol row.
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   opts.lp_matrix_options.col_with_names = true;
   opts.lp_matrix_options.row_with_names = true;
   opts.lp_matrix_options.col_with_name_map = true;

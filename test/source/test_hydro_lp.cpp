@@ -1036,7 +1036,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -1332,7 +1332,7 @@ TEST_CASE("JunctionLP drain col primal absorbs flow surplus")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -1508,7 +1508,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -1670,7 +1670,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);

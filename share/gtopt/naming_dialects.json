@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "doc": "gtopt naming registry. Each entry maps an alternative input key (`alt`) to the canonical gtopt JSON key (`canonical`). All listed alternates are accepted as input keys and rewritten to the canonical name before the strict daw::json parser sees them. `class` and `dialect` are informational tags consumed by `--list-dialects` diagnostics; the runtime alias->canonical lookup ignores them. The PLEXOS / SDDP entries are best-effort from memory — please correct as needed. The PyPSA / pandapower / PLP entries are higher-confidence (derived from those tools' code / documentation).",
+
+  "aliases": [
+    {"class": "generator", "canonical": "pmin", "alt": "min_power",        "dialect": "gtopt"},
+    {"class": "generator", "canonical": "pmin", "alt": "p_min_pu",         "dialect": "pypsa"},
+    {"class": "generator", "canonical": "pmin", "alt": "min_p_mw",         "dialect": "pandapower"},
+    {"class": "generator", "canonical": "pmin", "alt": "Min Stable Level", "dialect": "plexos"},
+    {"class": "generator", "canonical": "pmin", "alt": "GerMin",           "dialect": "sddp"},
+    {"class": "generator", "canonical": "pmin", "alt": "PotMin",           "dialect": "plp"},
+
+    {"class": "generator", "canonical": "pmax", "alt": "max_power",   "dialect": "gtopt"},
+    {"class": "generator", "canonical": "pmax", "alt": "p_max_pu",    "dialect": "pypsa"},
+    {"class": "generator", "canonical": "pmax", "alt": "max_p_mw",    "dialect": "pandapower"},
+    {"class": "generator", "canonical": "pmax", "alt": "Max Capacity","dialect": "plexos"},
+    {"class": "generator", "canonical": "pmax", "alt": "GerMax",      "dialect": "sddp"},
+    {"class": "generator", "canonical": "pmax", "alt": "PotMax",      "dialect": "plp"},
+
+    {"class": "generator", "canonical": "gcost", "alt": "marginal_cost", "dialect": "gtopt"},
+    {"class": "generator", "canonical": "gcost", "alt": "CVU",           "dialect": "sddp"},
+    {"class": "generator", "canonical": "gcost", "alt": "CVar",          "dialect": "plp"},
+
+    {"class": "demand", "canonical": "lmax", "alt": "max_demand", "dialect": "gtopt"},
+    {"class": "demand", "canonical": "lmax", "alt": "p_set",      "dialect": "pypsa"},
+    {"class": "demand", "canonical": "lmax", "alt": "p_mw",       "dialect": "pandapower"},
+    {"class": "demand", "canonical": "lmax", "alt": "Load",       "dialect": "plexos"},
+    {"class": "demand", "canonical": "lmax", "alt": "Demanda",    "dialect": "sddp"},
+
+    {"class": "demand", "canonical": "fcost", "alt": "curtailment_cost", "dialect": "gtopt"},
+    {"class": "demand", "canonical": "fcost", "alt": "CustoDeficit",     "dialect": "sddp"},
+
+    {"class": "line", "canonical": "tmax_ab", "alt": "max_flow_ab", "dialect": "gtopt"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "tmax",        "dialect": "gtopt-legacy"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "s_nom",       "dialect": "pypsa"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "max_i_ka",    "dialect": "pandapower"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "Max Flow",    "dialect": "plexos"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "Capac",       "dialect": "sddp"},
+
+    {"class": "line", "canonical": "tmax_ba", "alt": "max_flow_ba", "dialect": "gtopt"},
+    {"class": "line", "canonical": "tmax_ba", "alt": "CapacRev",    "dialect": "sddp"},
+
+    {"class": "line", "canonical": "tcost", "alt": "transfer_cost",  "dialect": "gtopt"},
+    {"class": "line", "canonical": "tcost", "alt": "Wheeling Charge","dialect": "plexos"},
+
+    {"class": "_capacity", "canonical": "expcap",         "alt": "expansion_capacity",       "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "expcap",         "alt": "Unit Size",                "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "expansion_modules",        "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "p_nom_extendable",         "dialect": "pypsa"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "Max Units Built",          "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "capmax",         "alt": "max_capacity",             "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "capmax",         "alt": "p_nom_max",                "dialect": "pypsa"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "capital_cost",             "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "Build Cost",               "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "CFix",                     "dialect": "sddp"},
+    {"class": "_capacity", "canonical": "annual_derating","alt": "derating_rate",            "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "integer_expmod", "alt": "integer_expansion_modules","dialect": "gtopt"},
+
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "value_of_lost_load", "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "voll_cost",          "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "lost_load_cost",     "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "VoLL",               "dialect": "plexos"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "CustoDeficitGlobal", "dialect": "sddp"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "load_shedding",      "dialect": "pypsa"},
+
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "reserve_fail_cost",  "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "VoRS",                "dialect": "plexos"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
+
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "CustoVertimento",      "dialect": "sddp"},
+
+    {"class": "model_options", "canonical": "state_violation_cost", "alt": "state_fail_cost",  "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},
+
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "copper_plate",   "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "Copper Plate",   "dialect": "plexos"},
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "Uninodal",       "dialect": "sddp"},
+
+    {"class": "options", "canonical": "use_uid_fname", "alt": "use_uid_filenames", "dialect": "gtopt"}
+  ],
+
+  "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",
+  "class_aliases": [
+    {"class": "flow_right", "canonical": "target", "alt": "discharge",  "dialect": "gtopt-legacy"},
+    {"class": "flow_right", "canonical": "uvalue", "alt": "use_value",  "dialect": "gtopt-legacy"}
+  ]
+}

@@ -94,10 +94,10 @@ struct ModelOptions
   /// Penalty cost for unserved demand [$/MWh].
   OptReal demand_fail_cost {};
   /// Penalty cost for unserved spinning-reserve [$/MWh].
-  OptReal reserve_fail_cost {};
+  OptReal reserve_shortage_cost {};
   /// Default penalty cost for unmet hydro rights [$/m3].
   /// Per-element `fail_cost` overrides this global default.
-  OptReal hydro_fail_cost {};
+  OptReal hydro_spill_cost {};
   /// Default value (benefit) of exercising hydro rights [$/m3].
   /// Per-element `use_value` overrides this global default.
   OptReal hydro_use_value {};
@@ -105,7 +105,41 @@ struct ModelOptions
   /// [$/MWh].  Used as fallback when a reservoir (or other storage element)
   /// does not define its own `scost`.  Converted to physical units using
   /// the element's `mean_production_factor`.
-  OptReal state_fail_cost {};
+  OptReal state_violation_cost {};
+
+  /// Demand-failure substitution with RHS shift (renamed from the
+  /// legacy `demand_option_c` per §11.10 of
+  /// `docs/analysis/naming-conventions.md`; both Options A and C
+  /// substitute `fail = lmax − load`, but Option C *additionally*
+  /// shifts the `+fail_cost·ecost·lmax` baseline off `obj_constant`
+  /// onto the bus-balance and capacity rows — the new name
+  /// describes that distinguishing behaviour rather than referencing
+  /// an internal code label).  The legacy `demand_option_c` JSON
+  /// key is accepted as an alias via the naming-dialects registry.
+  ///
+  /// When false (default): demand_lp emits the column as
+  /// `load ∈ [0, lmax]` with cost = `−fail_cost × ecost` and folds
+  /// the `+fail_cost × ecost × lmax` baseline into
+  /// `lp.add_obj_constant(...)` (Option A — current behaviour).
+  ///
+  /// When true: column is `neg_fail = load − lmax ∈ [−lmax, 0]`,
+  /// `obj_constant` stays at 0, and the baseline is absorbed by RHS
+  /// shifts on the bus-balance row (`+(1+loss)·lmax`) and capacity
+  /// row (`+lmax`).  The AMPL resolver receives a per-block offset
+  /// so user constraints referencing `demand.load` keep their
+  /// physical meaning (resolved as `col + lmax`).
+  ///
+  /// Option C eliminates the ~$105 B obj_constant baseline visible
+  /// on juan-scale runs — `get_obj_value()` matches
+  /// `get_obj_value_raw() × scale_objective` exactly with no
+  /// large-magnitude cancellation noise.  Currently opt-in because
+  /// LP-side consumers that reference the demand column directly
+  /// (Converter, Battery interactions, etc.) are not yet
+  /// Option-C-aware — they assume the column carries `load`, not
+  /// `neg_fail`, so enabling this with a converter-tied demand
+  /// produces a mathematically wrong row.  See
+  /// `source/demand_lp.cpp` and the related deferred-follow-up note.
+  OptBool demand_fail_rhs_shift {};
 
   /// System-wide CO2 emission cost [$/tCO2].
   /// When set, generators with a non-zero `emission_factor` incur an
@@ -161,10 +195,11 @@ struct ModelOptions
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
-    merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
-    merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
+    merge_opt(reserve_shortage_cost, opts.reserve_shortage_cost);
+    merge_opt(hydro_spill_cost, opts.hydro_spill_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
-    merge_opt(state_fail_cost, opts.state_fail_cost);
+    merge_opt(state_violation_cost, opts.state_violation_cost);
+    merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
@@ -180,11 +215,11 @@ struct ModelOptions
         || dc_line_reactance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || theta_max.has_value()
-        || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
-        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || emission_cost.has_value()
-        || emission_cap.has_value() || continuous_phases.has_value()
-        || strict_storage_emin.has_value();
+        || demand_fail_cost.has_value() || reserve_shortage_cost.has_value()
+        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
+        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
+        || emission_cost.has_value() || emission_cap.has_value()
+        || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -208,10 +243,11 @@ struct ModelOptions
         && covers_opt(scale_loss_link, other.scale_loss_link)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
-        && covers_opt(reserve_fail_cost, other.reserve_fail_cost)
-        && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
+        && covers_opt(reserve_shortage_cost, other.reserve_shortage_cost)
+        && covers_opt(hydro_spill_cost, other.hydro_spill_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
-        && covers_opt(state_fail_cost, other.state_fail_cost)
+        && covers_opt(state_violation_cost, other.state_violation_cost)
+        && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)
         && covers_opt(continuous_phases, other.continuous_phases)

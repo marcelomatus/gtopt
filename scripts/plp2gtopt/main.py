@@ -410,7 +410,13 @@ def build_options(args: argparse.Namespace) -> dict:
     # Model-specific options nested under model_options.
     model_opts: dict = {
         "demand_fail_cost": args.demand_fail_cost,
-        "state_fail_cost": args.state_fail_cost,
+        # Renamed per §11.10 (docs/analysis/naming-conventions.md): the
+        # gtopt canonical option is `state_violation_cost`; the legacy
+        # `state_fail_cost` JSON key is still accepted via the
+        # naming-dialects registry for back-compat. CLI arg keeps the
+        # legacy `--state-fail-cost` spelling for unchanged user
+        # invocation.
+        "state_violation_cost": args.state_fail_cost,
         "scale_objective": args.scale_objective,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
@@ -422,7 +428,10 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.scale_theta is not None:
         model_opts["scale_theta"] = args.scale_theta
     if args.reserve_fail_cost is not None:
-        model_opts["reserve_fail_cost"] = args.reserve_fail_cost
+        # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
+        # legacy `reserve_fail_cost` JSON key still accepted via the
+        # naming-dialects registry.  CLI arg keeps the legacy spelling.
+        model_opts["reserve_shortage_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         model_opts["use_line_losses"] = args.use_line_losses
     if args.line_losses_mode is not None:

@@ -280,7 +280,7 @@ TEST_CASE("ConverterLP - capainst column primal at lower bound")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "ConverterCapainstTest",

@@ -171,7 +171,7 @@ TEST_CASE("DemandLP - demand with expansion")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -278,7 +278,7 @@ TEST_CASE("DemandProfileLP - basic demand profile with capacity")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -345,7 +345,7 @@ TEST_CASE("DemandProfileLP - multi-stage demand profile")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -512,7 +512,7 @@ TEST_CASE("DemandLP - emin without ecost falls back to fcost")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -850,7 +850,7 @@ TEST_CASE("DemandLP - add_to_output with fail and emin variables")
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "DemandOutputTest",
@@ -954,7 +954,7 @@ TEST_CASE("DemandLP - emin with fcost and expansion across stages")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 2000.0;
+  opts.model_options.demand_fail_cost = 2000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -1035,7 +1035,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
@@ -1080,7 +1080,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
@@ -1111,7 +1111,7 @@ TEST_CASE("DemandLP - forced demand fixes load at lmax")
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(opts);
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
@@ -1337,7 +1337,7 @@ TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "DemandCapainstCapminTest",

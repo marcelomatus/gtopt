@@ -844,39 +844,85 @@ TEST_CASE(
 {
   // Minimal multi-phase SDDP JSON: two phases so the SDDP solver accepts it.
   // lp_only should build the LP and return 0 without any solving.
-  constexpr auto sddp_lp_only_json = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "method": "sddp",
-      "use_single_bus": true
-    },
-    "simulation": {
-      "block_array": [
-        {"uid": 1, "duration": 1},
-        {"uid": 2, "duration": 1}
-      ],
-      "stage_array": [
-        {"uid": 1, "first_block": 0, "count_block": 1},
-        {"uid": 2, "first_block": 1, "count_block": 1}
-      ],
-      "scenario_array": [{"uid": 1}],
-      "phase_array": [
-        {"uid": 1, "first_stage": 0, "count_stage": 1},
-        {"uid": 2, "first_stage": 1, "count_stage": 1}
-      ]
-    },
-    "system": {
-      "name": "sddp_lp_only_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ]
+  constexpr auto sddp_lp_only_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "method": "sddp",
+        "model_options": {
+          "use_single_bus": true,
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          },
+          {
+            "uid": 2,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          },
+          {
+            "uid": 2,
+            "first_block": 1,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ],
+        "phase_array": [
+          {
+            "uid": 1,
+            "first_stage": 0,
+            "count_stage": 1
+          },
+          {
+            "uid": 2,
+            "first_stage": 1,
+            "count_stage": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "sddp_lp_only_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto tmp = std::filesystem::temp_directory_path() / "sddp_lp_only_test";
   {
@@ -3335,7 +3381,7 @@ TEST_CASE(  // NOLINT
                       const ScaleCfg& cfg) -> std::optional<CaseResult>
   {
     auto planning = make_backtracking_recovery_two_reservoir_planning();
-    planning.options.scale_objective = OptReal {cfg.scale_obj};
+    planning.options.model_options.scale_objective = OptReal {cfg.scale_obj};
     planning.options.lp_matrix_options.equilibration_method = cfg.equilibration;
     if (cfg.col_scale != 1.0) {
       planning.options.variable_scales.push_back(VariableScale {
@@ -6053,7 +6099,7 @@ namespace
     r.efin_cost = OptReal {efin_cost};
   }
   if (demand_fail_cost) {
-    planning.options.demand_fail_cost = *demand_fail_cost;
+    planning.options.model_options.demand_fail_cost = *demand_fail_cost;
   }
   if (thermal_gcost) {
     // The fixture's thermal generator is at index 1 (uid 2), see

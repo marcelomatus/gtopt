@@ -108,10 +108,10 @@ Simulation make_two_block_simulation()
 PlanningOptions make_magnitude_options()
 {
   PlanningOptions opts;
-  opts.demand_fail_cost = 568.0;
-  opts.use_single_bus = OptBool {true};
-  opts.use_kirchhoff = OptBool {false};
-  opts.scale_objective = OptReal {1.0};
+  opts.model_options.demand_fail_cost = 568.0;
+  opts.model_options.use_single_bus = OptBool {true};
+  opts.model_options.use_kirchhoff = OptBool {false};
+  opts.model_options.scale_objective = OptReal {1.0};
   return opts;
 }
 

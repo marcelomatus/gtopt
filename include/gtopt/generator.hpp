@@ -51,6 +51,45 @@ struct GeneratorAttrs
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
+                                ///< (non-fuel adder when `fuel`+`heat_rate`
+                                ///< are set; see `Generator` docstring)
+
+  /// Optional FK to a `Fuel` element.  When set together with
+  /// `heat_rate` (scalar) OR `heat_rate_segments` (piecewise), the
+  /// per-MWh fuel cost and combustion emissions are derived from the
+  /// Fuel:
+  ///
+  ///   effective_gcost   = fuel.price        × heat_rate + gcost
+  ///   effective_ef      = (fuel.combustion_ef + fuel.upstream_ef)
+  ///                       × heat_rate + emission_factor
+  ///
+  /// Both `gcost` and `emission_factor` are kept as additive offsets
+  /// (variable non-combustion O&M / process emissions respectively).
+  /// Mirrors PLEXOS `Generator.Fuel` / SDDP `Combustível`.
+  OptSingleId fuel {};
+
+  /// Constant (or per-stage) heat rate slope `[<fuel_unit>/MWh]`.
+  /// PLEXOS "Heat Rate" / "Heat Rate Incr" / SDDP "Consumo Específico".
+  /// MUTUALLY EXCLUSIVE with `heat_rate_segments` — setting both
+  /// raises a validation error.
+  OptTRealFieldSched heat_rate {};
+
+  /// Piecewise-linear convex heat-rate function.  When both arrays
+  /// are present, the generation range `[pmin, pmax]` is decomposed
+  /// into K segments with strictly INCREASING heat rates (convexity
+  /// is required so the LP picks the cheapest segment first by
+  /// construction — no binary / SOS-2).  Mirrors PLEXOS
+  /// `Generator.Heat Rate Function`.
+  ///
+  ///   `pmax_segments` = `[P̄₁, …, P̄ₖ]` cumulative MW breakpoints
+  ///   `heat_rate_segments` = `[h₁, …, hₖ]` `<fuel_unit>/MWh` slopes
+  ///
+  /// Segment k covers `[P̄_{k-1}, P̄ₖ]` where `P̄₀ = pmin` and
+  /// `P̄ₖ = pmax`.  MUTUALLY EXCLUSIVE with `heat_rate` (scalar).
+  /// @{
+  Array<Real> pmax_segments {};
+  Array<Real> heat_rate_segments {};
+  /// @}
 
   OptTRealFieldSched capacity {};  ///< Installed generation capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
@@ -100,6 +139,23 @@ struct Generator
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
   OptTRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
+                                ///< (non-fuel adder when `fuel`+`heat_rate`
+                                ///< are set; see field docstrings).
+
+  /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
+  OptSingleId fuel {};
+
+  /// Constant (or per-stage) heat rate slope [`<fuel_unit>`/MWh].
+  /// See `GeneratorAttrs::heat_rate`.
+  OptTRealFieldSched heat_rate {};
+
+  /// Piecewise-linear convex heat-rate function.  See
+  /// `GeneratorAttrs::heat_rate_segments`.  Mutually exclusive with
+  /// `heat_rate`.
+  /// @{
+  Array<Real> pmax_segments {};
+  Array<Real> heat_rate_segments {};
+  /// @}
 
   OptTRealFieldSched capacity {};  ///< Installed generation capacity [MW]
   OptTRealFieldSched expcap {};  ///< Capacity added per expansion module [MW]
@@ -113,7 +169,13 @@ struct Generator
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
-  OptTRealFieldSched emission_factor {};  ///< CO2 emission rate [tCO2/MWh]
+  OptTRealFieldSched emission_factor {};  ///< Direct CO₂ emission rate
+                                          ///< [tCO₂/MWh].  Additive with
+                                          ///< fuel-derived combustion+upstream
+                                          ///< when `fuel`+`heat_rate` are set
+                                          ///< (treats `emission_factor` as a
+                                          ///< non-combustion adder, e.g.
+                                          ///< process / venting / fugitive).
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object
@@ -141,6 +203,10 @@ struct Generator
     self.pmax = std::exchange(attrs.pmax, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.gcost = std::exchange(attrs.gcost, {});
+    self.fuel = std::exchange(attrs.fuel, {});
+    self.heat_rate = std::exchange(attrs.heat_rate, {});
+    self.pmax_segments = std::exchange(attrs.pmax_segments, {});
+    self.heat_rate_segments = std::exchange(attrs.heat_rate_segments, {});
 
     self.capacity = std::exchange(attrs.capacity, {});
     self.expcap = std::exchange(attrs.expcap, {});

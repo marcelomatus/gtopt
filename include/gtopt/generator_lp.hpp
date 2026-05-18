@@ -29,6 +29,13 @@ class GeneratorLP : public CapacityObjectLP<Generator>
 public:
   static constexpr std::string_view GenerationName {"generation"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// PAMPL-visible slack column name for the convex piecewise heat-rate
+  /// encoding.  Disambiguated by segment index via the outer vector
+  /// `heat_rate_slack_cols_` (one holder per segment k = 1..K-1).
+  static constexpr std::string_view HeatRateSlackName {"heat_rate_slack"};
+  /// PAMPL-visible row name for piecewise kink rows
+  /// `p − s_k ≤ pmax_segments[k-1]`.
+  static constexpr std::string_view HeatRateKinkName {"heat_rate_kink"};
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -108,6 +115,10 @@ public:
     return pmin.at(s, b);
   }
   [[nodiscard]] auto param_gcost(StageUid s) const { return gcost.at(s); }
+  [[nodiscard]] auto param_heat_rate(StageUid s) const
+  {
+    return heat_rate.at(s);
+  }
   [[nodiscard]] auto param_lossfactor(StageUid s) const
   {
     return lossfactor.at(s);
@@ -118,15 +129,43 @@ public:
   }
   /// @}
 
+  /// True iff this generator has piecewise-linear heat-rate segments
+  /// (both `pmax_segments` and `heat_rate_segments` non-empty + same
+  /// length).  When true, `add_to_lp` installs K−1 slack columns +
+  /// K−1 kink rows on top of the single primary generation column to
+  /// express the convex piecewise cost.
+  [[nodiscard]] bool has_heat_rate_segments() const noexcept
+  {
+    return !object().pmax_segments.empty()
+        && object().pmax_segments.size() == object().heat_rate_segments.size();
+  }
+
+  /// Resolved per-segment piecewise slack columns, ordered as
+  /// `[s_1, s_2, ..., s_{K-1}]` matching breakpoints
+  /// `[pmax_segments[0], ..., pmax_segments[K-2]]`.  Empty when
+  /// `has_heat_rate_segments()` is false.  Used by
+  /// `add_emission_cap` (in `system_lp.cpp`) to inject per-segment
+  /// emission coefficients alongside the primary `generation_cols`
+  /// entry.
+  [[nodiscard]] const auto& heat_rate_slack_cols() const noexcept
+  {
+    return heat_rate_slack_cols_;
+  }
+
 private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;
   OptTRealSched lossfactor;
   OptTRealSched gcost;
+  OptTRealSched heat_rate;
   OptTRealSched emission_factor;
 
   STBIndexHolder<ColIndex> generation_cols;
   STBIndexHolder<RowIndex> capacity_rows;
+  /// `[segment_index] -> STBIndexHolder<ColIndex>` of piecewise slack
+  /// columns.  Outer vector has size `K - 1` where `K` is the number
+  /// of heat-rate segments.  Empty when no segments are configured.
+  std::vector<STBIndexHolder<ColIndex>> heat_rate_slack_cols_;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;

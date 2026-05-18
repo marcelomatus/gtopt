@@ -60,9 +60,11 @@ inline auto make_planning_json(std::string_view scenario_array,
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 10000,
-    "scale_objective": 1
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 10000
+    }
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],

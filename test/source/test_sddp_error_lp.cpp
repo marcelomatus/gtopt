@@ -119,9 +119,10 @@ auto make_phase0_infeasible_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;  // ignored when demand is forced
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost =
+      1000.0;  // ignored when demand is forced
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 

@@ -3,10 +3,12 @@
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 500.0,
-    "scale_objective": 1000,
-    "use_kirchhoff": false
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": false,
+      "scale_objective": 1000,
+      "demand_fail_cost": 500.0
+    }
   },
   "simulation": {
     "block_array": [

@@ -124,6 +124,14 @@ struct AmplVariable
   /// time.  Empty in the common single-col case.
   BIndexHolder<std::vector<ColIndex>> block_cols_sum;
 
+  /// Optional per-block additive offset (Option C demand substitution
+  /// and similar shifted-variable encodings).  When set, the AMPL
+  /// resolver reports `physical_value = LP_value × scale + offset(b)`
+  /// — and the user-constraint row builder folds the offset into the
+  /// row's RHS via the existing `param_shift` accumulator.  Empty when
+  /// no shift is registered (the common case).
+  BIndexHolder<double> block_offsets;
+
   /// Regular LP column or state-backed column.  Default is Regular;
   /// state-backed entries will be set by the Phase 2
   /// `add_ampl_state_variable` API.
@@ -142,6 +150,23 @@ struct AmplVariable
       return stage_col;
     }
     return std::nullopt;
+  }
+
+  /// Look up the per-block additive offset.  Returns `0.0` when this
+  /// registration has no offset table or no entry for this block — the
+  /// expected case for every element except those using a shifted-
+  /// variable encoding (Option C demand-fail).
+  [[nodiscard]] double offset_at(BlockUid block_uid) const noexcept
+  {
+    if (block_offsets.empty()) {
+      return 0.0;
+    }
+    if (const auto it = block_offsets.find(block_uid);
+        it != block_offsets.end())
+    {
+      return it->second;
+    }
+    return 0.0;
   }
 
   /// Look up the per-block sum-of-cols list for this block.  Returns an

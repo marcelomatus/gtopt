@@ -23,7 +23,7 @@ TEST_CASE("ModelOptions - Default construction")
   CHECK_FALSE(opts.scale_objective.has_value());
   CHECK_FALSE(opts.scale_theta.has_value());
   CHECK_FALSE(opts.demand_fail_cost.has_value());
-  CHECK_FALSE(opts.reserve_fail_cost.has_value());
+  CHECK_FALSE(opts.reserve_shortage_cost.has_value());
 
   CHECK_FALSE(opts.has_any());
 }
@@ -39,7 +39,7 @@ TEST_CASE("ModelOptions - Construction with all values")
       .scale_objective = 500.0,
       .scale_theta = 2000.0,
       .demand_fail_cost = 5000.0,
-      .reserve_fail_cost = 3000.0,
+      .reserve_shortage_cost = 3000.0,
   };
 
   REQUIRE(opts.use_single_bus.has_value());
@@ -66,8 +66,8 @@ TEST_CASE("ModelOptions - Construction with all values")
   REQUIRE(opts.demand_fail_cost.has_value());
   CHECK(*opts.demand_fail_cost == doctest::Approx(5000.0));
 
-  REQUIRE(opts.reserve_fail_cost.has_value());
-  CHECK(*opts.reserve_fail_cost == doctest::Approx(3000.0));
+  REQUIRE(opts.reserve_shortage_cost.has_value());
+  CHECK(*opts.reserve_shortage_cost == doctest::Approx(3000.0));
 
   CHECK(opts.has_any());
 }
@@ -184,7 +184,7 @@ TEST_CASE("ModelOptions - Merge filled into empty copies all")
       .scale_objective = 500.0,
       .scale_theta = 2000.0,
       .demand_fail_cost = 5000.0,
-      .reserve_fail_cost = 3000.0,
+      .reserve_shortage_cost = 3000.0,
   };
 
   empty.merge(filled);

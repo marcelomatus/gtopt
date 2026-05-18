@@ -172,7 +172,7 @@ TEST_CASE("OutputContext - write output with reserve components")
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveOutputTest",
@@ -368,7 +368,7 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
 
   const System system = {
       .name = "ProfileOutputTest",
@@ -1308,7 +1308,8 @@ TEST_CASE(  // NOLINT
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.demand_fail_cost = 1000.0;  // make LP feasible without generators
+  opts.model_options.demand_fail_cost =
+      1000.0;  // make LP feasible without generators
 
   const System system = {
       .name = "EmptyTest",

@@ -204,8 +204,8 @@ TEST_CASE("Reserve benchmark — MATPOWER t_case30 multi-zone overlap (3-gen)")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 10000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -370,7 +370,7 @@ TEST_CASE("Inertia benchmark — RTS-GMLC (Coal_1 + Nuclear_1) inertia zone")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);

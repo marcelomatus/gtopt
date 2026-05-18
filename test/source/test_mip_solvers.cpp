@@ -256,7 +256,7 @@ TEST_CASE(  // NOLINT
 
       PlanningOptions poptions;
       poptions.model_options.demand_fail_cost = 1000.0;
-      poptions.use_single_bus = true;
+      poptions.model_options.use_single_bus = true;
       poptions.lp_matrix_options.col_with_names = true;
       poptions.lp_matrix_options.col_with_name_map = true;
       poptions.lp_matrix_options.solver_name = solver_name;
@@ -374,7 +374,7 @@ TEST_CASE(  // NOLINT
       };
 
       PlanningOptions opts;
-      opts.demand_fail_cost = 1000.0;
+      opts.model_options.demand_fail_cost = 1000.0;
       opts.lp_matrix_options.solver_name = solver_name;
 
       const System system = {

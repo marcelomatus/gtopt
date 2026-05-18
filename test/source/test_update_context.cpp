@@ -174,9 +174,9 @@ inline auto make_two_phase_reservoir_planning(double eini_value = 100.0)
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
 
   System system = {
       .name = "two_phase_reservoir",
@@ -695,9 +695,9 @@ inline auto make_two_phase_daily_cycle_planning(double eini_value = 100.0)
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
 
   System system = {
       .name = "two_phase_daily_cycle",
@@ -888,9 +888,9 @@ inline auto make_two_reservoir_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
 
   System system = {
       .name = "two_reservoir",

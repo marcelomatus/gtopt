@@ -210,6 +210,145 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "junction",
               "Junction");
   }
+
+  // Generator.fuel -> Fuel (optional FK)
+  for (const auto& gen : sys.generator_array) {
+    if (gen.fuel.has_value()) {
+      check_ref(result,
+                gen.fuel.value(),
+                sys.fuel_array,
+                "Generator",
+                gen.name,
+                "fuel",
+                "Fuel");
+    }
+  }
+
+  // Commitment.fuel -> Fuel (optional FK)
+  for (const auto& cmt : sys.commitment_array) {
+    if (cmt.fuel.has_value()) {
+      check_ref(result,
+                cmt.fuel.value(),
+                sys.fuel_array,
+                "Commitment",
+                cmt.name,
+                "fuel",
+                "Fuel");
+    }
+  }
+}
+
+/// Validate fuel/heat-rate schema rules: mutual exclusion (scalar vs
+/// piecewise), shape consistency (pmax_segments and heat_rate_segments
+/// must have equal length), and strict-increasing convexity on the
+/// piecewise slopes (so the LP picks the cheapest segment first by
+/// construction — see `GeneratorAttrs::heat_rate_segments` docstring).
+void check_heat_rate(ValidationResult& result, const System& sys)
+{
+  for (const auto& gen : sys.generator_array) {
+    const bool has_scalar = gen.heat_rate.has_value();
+    const bool has_pieces =
+        !gen.heat_rate_segments.empty() || !gen.pmax_segments.empty();
+
+    if (has_scalar && has_pieces) {
+      result.errors.push_back(std::format(
+          "Generator '{}': `heat_rate` (scalar) and `heat_rate_segments` / "
+          "`pmax_segments` (piecewise) are mutually exclusive — set exactly "
+          "one.",
+          gen.name));
+    }
+
+    if (has_pieces) {
+      if (gen.pmax_segments.size() != gen.heat_rate_segments.size()) {
+        result.errors.push_back(
+            std::format("Generator '{}': `pmax_segments` (size {}) and "
+                        "`heat_rate_segments` "
+                        "(size {}) must have equal length.",
+                        gen.name,
+                        gen.pmax_segments.size(),
+                        gen.heat_rate_segments.size()));
+      }
+
+      // Strictly increasing pmax breakpoints — required for the
+      // piecewise [P̄_{k-1}, P̄ₖ] decomposition to be well-defined.
+      for (std::size_t k = 1; k < gen.pmax_segments.size(); ++k) {
+        if (!(gen.pmax_segments[k] > gen.pmax_segments[k - 1])) {
+          result.errors.push_back(std::format(
+              "Generator '{}': pmax_segments must be strictly increasing — "
+              "pmax_segments[{}] = {} is not > pmax_segments[{}] = {}.",
+              gen.name,
+              k,
+              gen.pmax_segments[k],
+              k - 1,
+              gen.pmax_segments[k - 1]));
+          break;
+        }
+      }
+
+      // Strictly increasing heat-rate slopes — convexity precondition.
+      for (std::size_t k = 1; k < gen.heat_rate_segments.size(); ++k) {
+        if (!(gen.heat_rate_segments[k] > gen.heat_rate_segments[k - 1])) {
+          result.errors.push_back(std::format(
+              "Generator '{}': heat_rate_segments must be strictly increasing "
+              "for the piecewise cost to be convex — heat_rate_segments[{}] = "
+              "{} is not > heat_rate_segments[{}] = {}.",
+              gen.name,
+              k,
+              gen.heat_rate_segments[k],
+              k - 1,
+              gen.heat_rate_segments[k - 1]));
+          break;
+        }
+      }
+    }
+  }
+
+  // Commitment uses the same pmax_segments / heat_rate_segments shape.
+  for (const auto& cmt : sys.commitment_array) {
+    const bool has_pieces =
+        !cmt.heat_rate_segments.empty() || !cmt.pmax_segments.empty();
+    if (!has_pieces) {
+      continue;
+    }
+
+    if (cmt.pmax_segments.size() != cmt.heat_rate_segments.size()) {
+      result.errors.push_back(
+          std::format("Commitment '{}': `pmax_segments` (size {}) and "
+                      "`heat_rate_segments` (size {}) must have equal length.",
+                      cmt.name,
+                      cmt.pmax_segments.size(),
+                      cmt.heat_rate_segments.size()));
+    }
+
+    for (std::size_t k = 1; k < cmt.pmax_segments.size(); ++k) {
+      if (!(cmt.pmax_segments[k] > cmt.pmax_segments[k - 1])) {
+        result.errors.push_back(std::format(
+            "Commitment '{}': pmax_segments must be strictly increasing — "
+            "pmax_segments[{}] = {} is not > pmax_segments[{}] = {}.",
+            cmt.name,
+            k,
+            cmt.pmax_segments[k],
+            k - 1,
+            cmt.pmax_segments[k - 1]));
+        break;
+      }
+    }
+
+    for (std::size_t k = 1; k < cmt.heat_rate_segments.size(); ++k) {
+      if (!(cmt.heat_rate_segments[k] > cmt.heat_rate_segments[k - 1])) {
+        result.errors.push_back(std::format(
+            "Commitment '{}': heat_rate_segments must be strictly increasing "
+            "for the piecewise cost to be convex — heat_rate_segments[{}] = "
+            "{} is not > heat_rate_segments[{}] = {}.",
+            cmt.name,
+            k,
+            cmt.heat_rate_segments[k],
+            k - 1,
+            cmt.heat_rate_segments[k - 1]));
+        break;
+      }
+    }
+  }
 }
 
 // ── Positivity helpers ────────────────────────────────────────────────
@@ -1244,6 +1383,7 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_referential_integrity(result, planning.system);
   check_ranges(result, planning);
   check_positivity(result, planning.system);
+  check_heat_rate(result, planning.system);
   check_piecewise_feasibility(result, planning);
   check_aperture_references(result, planning);
   check_completeness(result, planning);

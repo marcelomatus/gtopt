@@ -27,54 +27,92 @@
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // clang-format off
-static constexpr std::string_view unified_battery_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 1}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "unified_battery_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[100, 100]]}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bess1",
-        "bus": 1,
-        "input_efficiency": 0.95,
-        "output_efficiency": 0.95,
-        "emin": 0, "emax": 200,
-        "pmax_charge": 60,
-        "pmax_discharge": 60,
-        "gcost": 0,
-        "capacity": 200,
-        "use_state_variable": true,
-        "daily_cycle": true
+static constexpr std::string_view unified_battery_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "unified_battery_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              100,
+              100
+            ]
+          ]
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bess1",
+          "bus": 1,
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "emin": 0,
+          "emax": 200,
+          "pmax_charge": 60,
+          "pmax_discharge": 60,
+          "gcost": 0,
+          "capacity": 200,
+          "use_state_variable": true,
+          "daily_cycle": true
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Unified battery JSON parse")  // NOLINT
@@ -141,61 +179,112 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
 // clang-format off
 /// Traditional definition: separate Generator (discharge), Demand (charge),
 /// Converter, plus a bare Battery without `bus`.
-static constexpr std::string_view traditional_battery_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 1}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "traditional_battery_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200},
-      {"uid": 2, "name": "bess1_gen", "bus": 1, "gcost": 0, "capacity": 60}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[100, 100]]},
-      {"uid": 2, "name": "bess1_dem", "bus": 1, "capacity": 60, "fcost": 0}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bess1",
-        "input_efficiency": 0.95,
-        "output_efficiency": 0.95,
-        "emin": 0, "emax": 200,
-        "capacity": 200,
-        "use_state_variable": true,
-        "daily_cycle": true
+static constexpr std::string_view traditional_battery_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "converter_array": [
-      {
-        "uid": 1, "name": "bess1_conv",
-        "battery": 1,
-        "generator": 2,
-        "demand": 2,
-        "capacity": 200
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "traditional_battery_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "bess1_gen",
+          "bus": 1,
+          "gcost": 0,
+          "capacity": 60
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              100,
+              100
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "bess1_dem",
+          "bus": 1,
+          "capacity": 60,
+          "fcost": 0
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bess1",
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "emin": 0,
+          "emax": 200,
+          "capacity": 200,
+          "use_state_variable": true,
+          "daily_cycle": true
+        }
+      ],
+      "converter_array": [
+        {
+          "uid": 1,
+          "name": "bess1_conv",
+          "battery": 1,
+          "generator": 2,
+          "demand": 2,
+          "capacity": 200
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE(

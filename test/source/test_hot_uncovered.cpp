@@ -149,8 +149,8 @@ TEST_CASE("LineLP inactive bus early return")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = false;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_single_bus = false;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -176,8 +176,11 @@ TEST_CASE("LineLP loop line exercises add_to_output early return")  // NOLINT
   Planning planning = {
       .options =
           {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                  },
           },
       .simulation =
           {
@@ -263,9 +266,12 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation =
           {
@@ -368,9 +374,12 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation =
           {
@@ -559,9 +568,12 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
       .options =
           {
               .input_directory = input_dir.string(),
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = true,
+              .model_options =
+                  {
+                      .use_single_bus = true,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = sim,
       .system =

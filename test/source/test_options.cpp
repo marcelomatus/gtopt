@@ -24,14 +24,14 @@ TEST_CASE("Options - Default construction")
   // Check that all optional fields are empty
   CHECK_FALSE(options.input_directory.has_value());
   CHECK_FALSE(options.input_format.has_value());
-  CHECK_FALSE(options.demand_fail_cost.has_value());
-  CHECK_FALSE(options.reserve_fail_cost.has_value());
-  CHECK_FALSE(options.use_line_losses.has_value());
-  CHECK_FALSE(options.use_kirchhoff.has_value());
-  CHECK_FALSE(options.use_single_bus.has_value());
-  CHECK_FALSE(options.kirchhoff_threshold.has_value());
-  CHECK_FALSE(options.scale_objective.has_value());
-  CHECK_FALSE(options.scale_theta.has_value());
+  CHECK_FALSE(options.model_options.demand_fail_cost.has_value());
+  CHECK_FALSE(options.model_options.reserve_shortage_cost.has_value());
+  CHECK_FALSE(options.model_options.use_line_losses.has_value());
+  CHECK_FALSE(options.model_options.use_kirchhoff.has_value());
+  CHECK_FALSE(options.model_options.use_single_bus.has_value());
+  CHECK_FALSE(options.model_options.kirchhoff_threshold.has_value());
+  CHECK_FALSE(options.model_options.scale_objective.has_value());
+  CHECK_FALSE(options.model_options.scale_theta.has_value());
   CHECK_FALSE(options.output_directory.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
@@ -50,19 +50,22 @@ TEST_CASE("Options - Construction with values")
   PlanningOptions options {
       .input_directory = "input_dir",
       .input_format = DataFormat::csv,
-      .demand_fail_cost = 1000.0,
-      .reserve_fail_cost = 500.0,
-      .use_line_losses = true,
-      .use_kirchhoff = false,
-      .use_single_bus = true,
-      .kirchhoff_threshold = 0.01,
-      .scale_objective = 1.0,
-      .scale_theta = 10.0,
       .annual_discount_rate = 0.05,
       .output_directory = "output_dir",
       .output_format = DataFormat::csv,
       .output_compression = CompressionCodec::gzip,
       .use_uid_fname = false,
+      .model_options =
+          {
+              .use_single_bus = true,
+              .use_kirchhoff = false,
+              .use_line_losses = true,
+              .kirchhoff_threshold = 0.01,
+              .scale_objective = 1.0,
+              .scale_theta = 10.0,
+              .demand_fail_cost = 1000.0,
+              .reserve_shortage_cost = 500.0,
+          },
       .lp_matrix_options {
           .col_with_names = true,
           .row_with_names = true,
@@ -77,29 +80,29 @@ TEST_CASE("Options - Construction with values")
   REQUIRE(options.input_format.has_value());
   CHECK(*options.input_format == DataFormat::csv);
 
-  REQUIRE(options.demand_fail_cost.has_value());
-  CHECK(*options.demand_fail_cost == doctest::Approx(1000.0));
+  REQUIRE(options.model_options.demand_fail_cost.has_value());
+  CHECK(*options.model_options.demand_fail_cost == doctest::Approx(1000.0));
 
-  REQUIRE(options.reserve_fail_cost.has_value());
-  CHECK(*options.reserve_fail_cost == doctest::Approx(500.0));
+  REQUIRE(options.model_options.reserve_shortage_cost.has_value());
+  CHECK(*options.model_options.reserve_shortage_cost == doctest::Approx(500.0));
 
-  REQUIRE(options.use_line_losses.has_value());
-  CHECK(*options.use_line_losses == true);
+  REQUIRE(options.model_options.use_line_losses.has_value());
+  CHECK(*options.model_options.use_line_losses == true);
 
-  REQUIRE(options.use_kirchhoff.has_value());
-  CHECK(*options.use_kirchhoff == false);
+  REQUIRE(options.model_options.use_kirchhoff.has_value());
+  CHECK(*options.model_options.use_kirchhoff == false);
 
-  REQUIRE(options.use_single_bus.has_value());
-  CHECK(*options.use_single_bus == true);
+  REQUIRE(options.model_options.use_single_bus.has_value());
+  CHECK(*options.model_options.use_single_bus == true);
 
-  REQUIRE(options.kirchhoff_threshold.has_value());
-  CHECK(*options.kirchhoff_threshold == doctest::Approx(0.01));
+  REQUIRE(options.model_options.kirchhoff_threshold.has_value());
+  CHECK(*options.model_options.kirchhoff_threshold == doctest::Approx(0.01));
 
-  REQUIRE(options.scale_objective.has_value());
-  CHECK(*options.scale_objective == doctest::Approx(1.0));
+  REQUIRE(options.model_options.scale_objective.has_value());
+  CHECK(*options.model_options.scale_objective == doctest::Approx(1.0));
 
-  REQUIRE(options.scale_theta.has_value());
-  CHECK(*options.scale_theta == doctest::Approx(10.0));
+  REQUIRE(options.model_options.scale_theta.has_value());
+  CHECK(*options.model_options.scale_theta == doctest::Approx(10.0));
 
   REQUIRE(options.output_directory.has_value());
   CHECK(*options.output_directory == "output_dir");
@@ -124,17 +127,23 @@ TEST_CASE("Options - Merge operation")
   // Create a base options object with some values
   PlanningOptions base {
       .input_directory = "base_input",
-      .use_kirchhoff = true,
-      .scale_objective = 1.0,
       .output_directory = "base_output",
+      .model_options =
+          {
+              .use_kirchhoff = true,
+              .scale_objective = 1.0,
+          },
   };
 
   // Create options to merge with some overlapping and some new values
   PlanningOptions overlay {
       .input_directory = "overlay_input",
-      .demand_fail_cost = 2000.0,
-      .use_kirchhoff = false,
       .output_format = DataFormat::parquet,
+      .model_options =
+          {
+              .use_kirchhoff = false,
+              .demand_fail_cost = 2000.0,
+          },
   };
 
   // Merge overlay into base
@@ -148,8 +157,8 @@ TEST_CASE("Options - Merge operation")
     FAIL("input_directory should have been set");
   }
 
-  if (base.use_kirchhoff.has_value()) {
-    CHECK(*base.use_kirchhoff == false);
+  if (base.model_options.use_kirchhoff.has_value()) {
+    CHECK(*base.model_options.use_kirchhoff == false);
   } else {
     FAIL("use_kirchhoff should have been set");
   }
@@ -166,21 +175,15 @@ TEST_CASE("Options - Merge operation")
     FAIL("output_directory should have been set");
   }
 
-  if (base.demand_fail_cost.has_value()) {
-    CHECK(*base.demand_fail_cost == doctest::Approx(2000.0));
+  if (base.model_options.demand_fail_cost.has_value()) {
+    CHECK(*base.model_options.demand_fail_cost == doctest::Approx(2000.0));
   } else {
     FAIL("demand_fail_cost should have been set");
   }
 
-  if (base.use_kirchhoff.has_value()) {
-    CHECK(*base.use_kirchhoff == false);
-  } else {
-    FAIL("use_kirchhoff should have been set");
-  }
-
   // Non-overlapping values should remain unchanged in base
-  if (base.scale_objective.has_value()) {
-    CHECK(*base.scale_objective == doctest::Approx(1.0));
+  if (base.model_options.scale_objective.has_value()) {
+    CHECK(*base.model_options.scale_objective == doctest::Approx(1.0));
   } else {
     FAIL("scale_objective should not have been set");
   }
@@ -206,8 +209,11 @@ TEST_CASE("Options - Merging with empty options")
   // Create options with values
   PlanningOptions filled {
       .input_directory = "input_dir",
-      .demand_fail_cost = 1000.0,
-      .use_kirchhoff = true,
+      .model_options =
+          {
+              .use_kirchhoff = true,
+              .demand_fail_cost = 1000.0,
+          },
   };
 
   // Create empty options
@@ -223,14 +229,15 @@ TEST_CASE("Options - Merging with empty options")
     FAIL("input_directory should not have been removed");
   }
 
-  if (filled_copy.demand_fail_cost.has_value()) {
-    CHECK(*filled_copy.demand_fail_cost == doctest::Approx(1000.0));
+  if (filled_copy.model_options.demand_fail_cost.has_value()) {
+    CHECK(*filled_copy.model_options.demand_fail_cost
+          == doctest::Approx(1000.0));
   } else {
     FAIL("demand_fail_cost should not have been removed");
   }
 
-  if (filled_copy.use_kirchhoff.has_value()) {
-    CHECK(*filled_copy.use_kirchhoff == true);
+  if (filled_copy.model_options.use_kirchhoff.has_value()) {
+    CHECK(*filled_copy.model_options.use_kirchhoff == true);
   } else {
     FAIL("use_kirchhoff should not have been removed");
   }
@@ -245,15 +252,15 @@ TEST_CASE("Options - Merging with empty options")
     FAIL("input_directory should have been set");
   }
 
-  if (empty.demand_fail_cost.has_value()) {
-    CHECK(*empty.demand_fail_cost == doctest::Approx(1000.0));
+  if (empty.model_options.demand_fail_cost.has_value()) {
+    CHECK(*empty.model_options.demand_fail_cost == doctest::Approx(1000.0));
   } else {
     FAIL("demand_fail_cost should have been set");
   }
 
-  REQUIRE(empty.use_kirchhoff.has_value());
-  if (empty.use_kirchhoff.has_value()) {
-    CHECK(*empty.use_kirchhoff == true);
+  REQUIRE(empty.model_options.use_kirchhoff.has_value());
+  if (empty.model_options.use_kirchhoff.has_value()) {
+    CHECK(*empty.model_options.use_kirchhoff == true);
   } else {
     FAIL("use_kirchhoff should have been set");
   }
@@ -272,7 +279,7 @@ TEST_CASE("PlanningOptionsLP - Default construction")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -308,7 +315,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 2")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -343,7 +350,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 3")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -373,10 +380,13 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
   const PlanningOptions options {
       .input_directory = "custom_input",
       .input_format = DataFormat::csv,
-      .demand_fail_cost = 1000.0,
-      .use_kirchhoff = false,
-      .scale_objective = 2000.0,
       .output_directory = "custom_output",
+      .model_options =
+          {
+              .use_kirchhoff = false,
+              .scale_objective = 2000.0,
+              .demand_fail_cost = 1000.0,
+          },
       // Leaving some values unset to test defaults
   };
 
@@ -395,7 +405,7 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
   CHECK(options_lp.output_directory() == "custom_output");
 
   // Check defaults for unset values
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_single_bus()
@@ -420,19 +430,22 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
   const PlanningOptions options {
       .input_directory = "test_input",
       .input_format = DataFormat::csv,
-      .demand_fail_cost = 1500.0,
-      .reserve_fail_cost = 750.0,
-      .use_line_losses = false,
-      .use_kirchhoff = true,
-      .use_single_bus = true,
-      .kirchhoff_threshold = 0.05,
-      .scale_objective = 500.0,
-      .scale_theta = 20.0,
       .annual_discount_rate = 0.07,
       .output_directory = "test_output",
       .output_format = DataFormat::parquet,
       .output_compression = CompressionCodec::bzip2,
       .use_uid_fname = true,
+      .model_options =
+          {
+              .use_single_bus = true,
+              .use_kirchhoff = true,
+              .use_line_losses = false,
+              .kirchhoff_threshold = 0.05,
+              .scale_objective = 500.0,
+              .scale_theta = 20.0,
+              .demand_fail_cost = 1500.0,
+              .reserve_shortage_cost = 750.0,
+          },
       .lp_matrix_options {
           .col_with_names = true,
           .row_with_names = true,
@@ -450,10 +463,10 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
   if (options_lp.demand_fail_cost()) {
     CHECK(*options_lp.demand_fail_cost() == doctest::Approx(1500.0));
   }
-  REQUIRE(options_lp.reserve_fail_cost().has_value());
+  REQUIRE(options_lp.reserve_shortage_cost().has_value());
 
-  if (options_lp.reserve_fail_cost()) {
-    CHECK(*options_lp.reserve_fail_cost() == doctest::Approx(750.0));
+  if (options_lp.reserve_shortage_cost()) {
+    CHECK(*options_lp.reserve_shortage_cost() == doctest::Approx(750.0));
   }
 
   CHECK(options_lp.use_line_losses() == false);

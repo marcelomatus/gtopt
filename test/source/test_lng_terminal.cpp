@@ -159,7 +159,7 @@ TEST_CASE("LngTerminal feasible LP with generator coupling")  // NOLINT
   LngTestFixture f;
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -178,7 +178,7 @@ TEST_CASE("LngTerminal tank volume decreases with generation")  // NOLINT
   LngTestFixture f;
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -221,7 +221,7 @@ TEST_CASE("LngTerminal with no delivery — generation drains tank")  // NOLINT
   f.system.lng_terminal_array.front().delivery = 0.0;
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -260,7 +260,7 @@ TEST_CASE("LngTerminal with BOG (annual_loss)")  // NOLINT
   f.system.demand_array.front().lmax = 0.0;
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -292,7 +292,7 @@ TEST_CASE("LngTerminal SDDP state variable registration")  // NOLINT
   f.system.lng_terminal_array.front().use_state_variable = true;
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -321,7 +321,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -363,7 +363,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(f.simulation, options);
   SystemLP system_lp(f.system, simulation_lp);
@@ -399,7 +399,7 @@ TEST_CASE("LngTerminalLP - add_to_output via write_out")  // NOLINT
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
 
   const PlanningOptionsLP options {opts};

@@ -15,10 +15,12 @@
  * - Output planning results for generation variables
  */
 
+#include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -37,9 +39,19 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , pmax(ic, Element::class_name, id(), std::move(object().pmax))
     , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
     , gcost(ic, Element::class_name, id(), std::move(object().gcost))
+    , heat_rate(ic, Element::class_name, id(), std::move(object().heat_rate))
     , emission_factor(
           ic, Element::class_name, id(), std::move(object().emission_factor))
 {
+  // Pre-size the per-segment slack-column vector so add_to_lp can
+  // index into it by segment index `k = 1..K-1` (the cheapest
+  // segment k=0 rides on the primary `generation_cols` entry).
+  if (has_heat_rate_segments()) {
+    const auto n_segments = object().heat_rate_segments.size();
+    if (n_segments > 1) {
+      heat_rate_slack_cols_.resize(n_segments - 1);
+    }
+  }
   SPDLOG_DEBUG("GeneratorLP created for generator with uid {}", uid());
 }
 
@@ -103,6 +115,53 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
+  // ── Resolve fuel parameters (PLEXOS-style FK + heat-rate model) ─────
+  // When `Generator.fuel` is set together with either `heat_rate`
+  // (scalar) or `heat_rate_segments` (piecewise), the per-MWh fuel
+  // cost is derived as `fuel.price × heat_rate_slope` and added to
+  // the existing `gcost` (treated as a non-combustion variable
+  // adder).  When `fuel` is unset, the fuel-derived cost is zero and
+  // the column carries `gcost` alone (legacy behaviour).
+  const FuelLP* fuel_lp = nullptr;
+  if (const auto& fuel_ref = generator().fuel; fuel_ref.has_value()) {
+    fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
+  }
+  const double stage_fuel_price = (fuel_lp != nullptr)
+      ? fuel_lp->param_price(stage.uid()).value_or(0.0)
+      : 0.0;
+  const double stage_heat_rate = heat_rate.optval(stage.uid()).value_or(0.0);
+  const auto& hr_segs = generator().heat_rate_segments;
+  const auto& pmax_segs_arr = generator().pmax_segments;
+  const bool has_pw = has_heat_rate_segments();
+
+  // Validation: scalar `heat_rate` and `heat_rate_segments` are
+  // mutually exclusive — earlier validate_planning has already
+  // emitted the user-facing error; defensively short-circuit here.
+  if (has_pw && stage_heat_rate > 0.0) [[unlikely]] {
+    SPDLOG_WARN(
+        "GeneratorLP uid={}: both `heat_rate` and `heat_rate_segments` "
+        "are set — using segments, ignoring scalar heat_rate.",
+        uid());
+  }
+
+  // Per-MWh cost of segment k (cheapest first, k = 0).
+  const auto slope_cost_per_mwh = [&](double hr_slope)
+  { return (stage_fuel_price * hr_slope) + stage_gcost; };
+
+  // Effective slope for the primary `generation` column.  When
+  // piecewise: slope of the cheapest segment; otherwise scalar heat
+  // rate (or 0 when no fuel/heat_rate is configured).
+  const double primary_slope_cost = [&]
+  {
+    if (has_pw) {
+      return slope_cost_per_mwh(hr_segs.front());
+    }
+    if (fuel_lp != nullptr) {
+      return slope_cost_per_mwh(stage_heat_rate);
+    }
+    return stage_gcost;
+  }();
+
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
 
@@ -118,6 +177,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   }
 
   const auto guid = uid();
+  // Pre-compute st_key here (used both by the block loop's heat-rate
+  // slack stash AND by the post-loop AMPL registration / output
+  // bookkeeping).
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -144,15 +207,21 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         block_pmax,
         stage_capacity);
 
-    // Create generation variable for this time block
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
+
+    // Create generation variable for this time block.  Cost on the
+    // primary column carries the cheapest-segment slope (or scalar
+    // heat rate, or plain gcost when no fuel is set).
     const auto gcol = lp.add_col({
         .lowb = block_pmin,
         .uppb = block_pmax,
-        .cost = CostHelper::block_ecost(scenario, stage, block, stage_gcost),
+        .cost =
+            CostHelper::block_ecost(scenario, stage, block, primary_slope_cost),
         .class_name = Element::class_name.full_name(),
         .variable_name = GenerationName,
         .variable_uid = guid,
-        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        .context = block_ctx,
     });
     gcols[buid] = gcol;
 
@@ -169,8 +238,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
               .class_name = Element::class_name.full_name(),
               .constraint_name = CapacityName,
               .variable_uid = guid,
-              .context =
-                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+              .context = block_ctx,
           }
               .greater_equal(0);
       crow[*capacity_col] = 1;
@@ -178,10 +246,61 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
 
       crows[buid] = lp.add_row(std::move(crow));
     }
+
+    // ── Piecewise heat-rate slacks ────────────────────────────────────
+    // For each higher segment k = 1..K-1 add a slack `s_k ≥ 0` with
+    // marginal cost `(h_k − h_{k-1}) × fuel.price` ($/MWh) and a kink
+    // row `p − s_k ≤ pmax_segments[k-1]`.  Convexity (strictly
+    // increasing heat rates) lets the LP pick segments in order
+    // without any binary or SOS-2; convexity is enforced separately
+    // in validate_planning.
+    if (has_pw && hr_segs.size() > 1) {
+      const auto K = hr_segs.size();
+      for (std::size_t k = 1; k < K; ++k) {
+        const double marginal_slope = hr_segs[k] - hr_segs[k - 1];
+        const double slack_cost_per_mwh = stage_fuel_price * marginal_slope;
+        // Disambiguate the per-segment slack/kink (same class+var+uid)
+        // by stamping the segment index into the BlockExContext —
+        // mirrors how commitment_lp.cpp segments its piecewise rows.
+        const auto seg_ctx = make_block_context(
+            scenario.uid(), stage.uid(), buid, static_cast<int>(k));
+        const auto s_col = lp.add_col({
+            .lowb = 0.0,
+            .uppb = LinearProblem::DblMax,
+            .cost = CostHelper::block_ecost(
+                scenario, stage, block, slack_cost_per_mwh),
+            .class_name = Element::class_name.full_name(),
+            .variable_name = HeatRateSlackName,
+            .variable_uid = guid,
+            .context = seg_ctx,
+        });
+
+        // Kink row: gcol − s_col ≤ pmax_segments[k-1].
+        // The breakpoint pmax_segments[k-1] is the cumulative MW at
+        // the END of segment (k-1) (= start of segment k).  When p
+        // exceeds the breakpoint, s_col ≥ p − breakpoint and the
+        // marginal cost above kicks in.
+        auto kink_row =
+            SparseRow {
+                .class_name = Element::class_name.full_name(),
+                .constraint_name = HeatRateKinkName,
+                .variable_uid = guid,
+                .context = seg_ctx,
+            }
+                .less_equal(pmax_segs_arr[k - 1]);
+        kink_row[gcol] = 1.0;
+        kink_row[s_col] = -1.0;
+        std::ignore = lp.add_row(std::move(kink_row));
+
+        // Stash the slack col per segment index for output / cap
+        // refactoring later.
+        heat_rate_slack_cols_[k - 1][st_key][buid] = s_col;
+      }
+    }
   }
 
-  // Store generation and capacity rows for output
-  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  // Store generation and capacity rows for output (st_key was
+  // pre-computed before the block loop).
   if (!gcols.empty()) {
     generation_cols[st_key] = std::move(gcols);
     // Register PAMPL-visible columns with the variable registry.
@@ -219,6 +338,14 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   out.add_col_sol(cname, GenerationName, pid, generation_cols);
   out.add_col_cost(cname, GenerationName, pid, generation_cols);
   out.add_row_dual(cname, CapacityName, pid, capacity_rows);
+
+  // Heat-rate piecewise slack primals + reduced costs.  One emission
+  // per segment; downstream tools can reconstruct per-segment
+  // dispatch from these.
+  for (const auto& scols : heat_rate_slack_cols_) {
+    out.add_col_sol(cname, HeatRateSlackName, pid, scols);
+    out.add_col_cost(cname, HeatRateSlackName, pid, scols);
+  }
 
   return CapacityBase::add_to_output(out);
 }

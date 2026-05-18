@@ -20,10 +20,12 @@
 #include <gtopt/element_column_resolver.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
+#include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
+#include <gtopt/names_registry.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -142,9 +144,19 @@ namespace
                                         stage.uid(),
                                         buid))
   {
+    // Optional additive offset: physical = LP * scale + offset.
+    // Returns 0.0 for every element that didn't register offsets —
+    // the common case.  Demand's Option C registration is the only
+    // current user; see `demand_lp.cpp`.
     return ResolvedCol {
         .col = *col,
         .scale = lp.get_col_scale(*col),
+        .offset = sc.find_ampl_offset(ref.element_type,
+                                      *uid_opt,
+                                      ref.attribute,
+                                      scenario.uid(),
+                                      stage.uid(),
+                                      buid),
     };
   }
 
@@ -185,15 +197,18 @@ namespace
 /// stamp `coef` on every segment col).  See
 /// `AmplVariable::block_cols_sum` for the sum-of-cols data layout.
 ///
-/// Returns true if at least one column was stamped.
-[[nodiscard]] bool stamp_ref(const SystemContext& sc,
-                             const ScenarioLP& scenario,
-                             const StageLP& stage,
-                             const BlockLP& block,
-                             const ElementRef& ref,
-                             double coef,
-                             SparseRow& row,
-                             const LinearProblem& lp)
+/// Returns `{emitted, offset_shift}`.  `offset_shift` is `coef × offset`
+/// when the resolved column carries a non-zero AMPL offset (e.g.
+/// demand's Option C `neg_fail = load − lmax`); the caller folds the
+/// shift onto the row's RHS via the existing `param_shift` accumulator.
+[[nodiscard]] ResolveColResult stamp_ref(const SystemContext& sc,
+                                         const ScenarioLP& scenario,
+                                         const StageLP& stage,
+                                         const BlockLP& block,
+                                         const ElementRef& ref,
+                                         double coef,
+                                         SparseRow& row,
+                                         const LinearProblem& lp)
 {
   // Resolve element_id (uid|name) once; multi-col path needs the uid.
   const auto single_id = parse_element_id(ref.element_id);
@@ -212,7 +227,9 @@ namespace
   if (uid_opt) {
     // Try multi-col (sum-of-cols) first.  When registered, the
     // aggregator is virtual and the attribute expands to a sum of LP
-    // cols — stamp each with the leg coefficient.
+    // cols — stamp each with the leg coefficient.  Sum-of-cols
+    // registrations never carry offsets in current code; if they ever
+    // do, they'd be a per-leg shift summed here.
     const auto cols = sc.find_ampl_cols(ref.element_type,
                                         *uid_opt,
                                         ref.attribute,
@@ -223,47 +240,53 @@ namespace
       for (const auto& col : cols) {
         row[col] += coef;
       }
-      return true;
+      return {.emitted = true, .offset_shift = 0.0};
     }
   }
 
-  // Fall back to the single-col path (uses the lp scale).
+  // Fall back to the single-col path (uses the lp scale + optional
+  // offset).  When the column has a non-zero offset, the caller folds
+  // `coef × offset` onto the row's RHS (existing param_shift machinery).
   if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
     row[resolved->col] += coef;
-    return true;
+    return {
+        .emitted = true,
+        .offset_shift = coef * resolved->offset,
+    };
   }
-  return false;
+  return {.emitted = false, .offset_shift = 0.0};
 }
 
-bool resolve_col_to_row(const SystemContext& sc,
-                        const ScenarioLP& scenario,
-                        const StageLP& stage,
-                        const BlockLP& block,
-                        const ElementRef& ref,
-                        double base_coeff,
-                        SparseRow& row,
-                        const LinearProblem& lp)
+ResolveColResult resolve_col_to_row(const SystemContext& sc,
+                                    const ScenarioLP& scenario,
+                                    const StageLP& stage,
+                                    const BlockLP& block,
+                                    const ElementRef& ref,
+                                    double base_coeff,
+                                    SparseRow& row,
+                                    const LinearProblem& lp)
 {
   // 1. Compound path: class-level recipe of (coefficient, source_attribute).
   if (const auto* legs = sc.find_ampl_compound(ref.element_type, ref.attribute))
   {
-    bool emitted = false;
+    ResolveColResult out;
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
-      if (stamp_ref(sc,
-                    scenario,
-                    stage,
-                    block,
-                    leg_ref,
-                    base_coeff * leg.coefficient,
-                    row,
-                    lp))
-      {
-        emitted = true;
+      const auto leg_res = stamp_ref(sc,
+                                     scenario,
+                                     stage,
+                                     block,
+                                     leg_ref,
+                                     base_coeff * leg.coefficient,
+                                     row,
+                                     lp);
+      if (leg_res.emitted) {
+        out.emitted = true;
+        out.offset_shift += leg_res.offset_shift;
       }
     }
-    return emitted;
+    return out;
   }
 
   // 2. Single attribute path (handles both single-col and multi-col).
@@ -316,21 +339,71 @@ bool resolve_col_to_row(const SystemContext& sc,
   const auto suid = stage.uid();
   const auto buid = block.uid();
 
+  // Normalise the attribute name via the runtime naming-dialects
+  // registry.  Class-scoped lookup first (entries under
+  // `class_aliases[]` — e.g. `flow_right.discharge → target`,
+  // `flow_right.use_value → uvalue` — both legacy gtopt aliases
+  // that collide with canonicals on other classes); falls back to
+  // the global table for class-blind aliases like `marginal_cost
+  // → gcost`, `tmax → tmax_ab`, etc.  See
+  // docs/analysis/naming-conventions.md §10.4.
+  auto attr = std::string_view {ref.attribute};
+  if (const auto canonical =
+          NamesRegistry::instance().canonical_for(ref.element_type, attr);
+      canonical.has_value())
+  {
+    attr = *canonical;
+  }
+
   try {
     // ── generator ────────────────────────────────────────────────────────
     if (ref.element_type == "generator") {
       const auto& gen = sc.get_element(ObjectSingleId<GeneratorLP> {single_id});
-      if (ref.attribute == "pmax") {
+      if (attr == "pmax") {
         return gen.param_pmax(suid, buid);
       }
-      if (ref.attribute == "pmin") {
+      if (attr == "pmin") {
         return gen.param_pmin(suid, buid);
       }
-      if (ref.attribute == "gcost") {
+      if (attr == "gcost") {
         return gen.param_gcost(suid);
       }
-      if (ref.attribute == "lossfactor") {
+      if (attr == "lossfactor") {
         return gen.param_lossfactor(suid);
+      }
+      // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
+      //   * heat_rate       — scalar <fuel_unit>/MWh (PLEXOS "Heat Rate")
+      //   * emission_factor — direct CO₂ rate tCO₂/MWh; non-combustion
+      //                       adder when combined with fuel.combustion_ef
+      // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
+      // are arrays without a meaningful scalar PAMPL projection — not
+      // exposed; reference via the Fuel side instead.
+      if (attr == "heat_rate") {
+        return gen.param_heat_rate(suid);
+      }
+      if (attr == "emission_factor") {
+        return gen.param_emission_factor(suid);
+      }
+      return std::nullopt;
+    }
+
+    // ── fuel (passive parameter carrier, no LP cols) ────────────────────
+    // PLEXOS-named schedules referenced by Generator.fuel /
+    // Commitment.fuel.  Resolves only through `resolve_single_param`
+    // (no LP column path) since `FuelLP::add_to_lp` is a no-op.
+    if (ref.element_type == "fuel") {
+      const auto& fuel = sc.get_element(ObjectSingleId<FuelLP> {single_id});
+      if (attr == "price") {
+        return fuel.param_price(suid);
+      }
+      if (attr == "heat_content") {
+        return fuel.param_heat_content(suid);
+      }
+      if (attr == "combustion_emission_factor") {
+        return fuel.param_combustion_emission_factor(suid);
+      }
+      if (attr == "upstream_emission_factor") {
+        return fuel.param_upstream_emission_factor(suid);
       }
       return std::nullopt;
     }
@@ -338,13 +411,13 @@ bool resolve_col_to_row(const SystemContext& sc,
     // ── demand ───────────────────────────────────────────────────────────
     if (ref.element_type == "demand") {
       const auto& dem = sc.get_element(ObjectSingleId<DemandLP> {single_id});
-      if (ref.attribute == "lmax") {
+      if (attr == "lmax") {
         return dem.param_lmax(suid, buid);
       }
-      if (ref.attribute == "fcost") {
+      if (attr == "fcost") {
         return dem.param_fcost(suid);
       }
-      if (ref.attribute == "lossfactor") {
+      if (attr == "lossfactor") {
         return dem.param_lossfactor(suid);
       }
       return std::nullopt;
@@ -353,16 +426,19 @@ bool resolve_col_to_row(const SystemContext& sc,
     // ── line ─────────────────────────────────────────────────────────────
     if (ref.element_type == "line") {
       const auto& ln = sc.get_element(ObjectSingleId<LineLP> {single_id});
-      if (ref.attribute == "tmax" || ref.attribute == "tmax_ab") {
+      // `tmax` (legacy) is now an alias for `tmax_ab` via the registry —
+      // canonicalisation above turns `tmax` into `tmax_ab`, so a single
+      // compare suffices here.
+      if (attr == "tmax_ab") {
         return ln.param_tmax_ab(suid, buid);
       }
-      if (ref.attribute == "tmax_ba") {
+      if (attr == "tmax_ba") {
         return ln.param_tmax_ba(suid, buid);
       }
-      if (ref.attribute == "tcost") {
+      if (attr == "tcost") {
         return ln.param_tcost(suid, buid);
       }
-      if (ref.attribute == "reactance") {
+      if (attr == "reactance") {
         return ln.param_reactance(suid);
       }
       return std::nullopt;
@@ -371,19 +447,19 @@ bool resolve_col_to_row(const SystemContext& sc,
     // ── battery ──────────────────────────────────────────────────────────
     if (ref.element_type == "battery") {
       const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return bat.param_emin(suid, buid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return bat.param_emax(suid, buid);
       }
-      if (ref.attribute == "ecost") {
+      if (attr == "ecost") {
         return bat.param_ecost(suid);
       }
-      if (ref.attribute == "input_efficiency") {
+      if (attr == "input_efficiency") {
         return bat.param_input_efficiency(suid);
       }
-      if (ref.attribute == "output_efficiency") {
+      if (attr == "output_efficiency") {
         return bat.param_output_efficiency(suid);
       }
       return std::nullopt;
@@ -392,39 +468,43 @@ bool resolve_col_to_row(const SystemContext& sc,
     // ── reservoir ────────────────────────────────────────────────────────
     if (ref.element_type == "reservoir") {
       const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return res.param_emin(suid, buid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return res.param_emax(suid, buid);
       }
-      if (ref.attribute == "ecost") {
+      if (attr == "ecost") {
         return res.param_ecost(suid);
       }
-      if (ref.attribute == "capacity") {
+      if (attr == "capacity") {
         return res.param_capacity(suid);
       }
       return std::nullopt;
     }
 
     // ── flow_right ───────────────────────────────────────────────────────
+    // Legacy aliases `discharge → target` and `use_value → uvalue`
+    // are registered under `class_aliases[]` in
+    // share/gtopt/naming_dialects.json (class-scoped because
+    // `discharge` is *canonical* on `flow`).  The class-aware
+    // canonicalize step above turns either legacy form into the
+    // canonical name, so a single compare per attribute suffices.
     if (ref.element_type == "flow_right") {
       const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
-      if (ref.attribute == "fmin") {
+      if (attr == "fmin") {
         return frt.param_fmin(suid, buid);
       }
-      if (ref.attribute == "fmax") {
+      if (attr == "fmax") {
         return frt.param_fmax(suid, buid);
       }
-      if (ref.attribute == "target" || ref.attribute == "discharge") {
-        // "discharge" is the legacy alias of "target".
+      if (attr == "target") {
         return frt.param_target(suid, buid);
       }
-      if (ref.attribute == "fcost") {
+      if (attr == "fcost") {
         return frt.param_fcost(suid);
       }
-      if (ref.attribute == "uvalue" || ref.attribute == "use_value") {
-        // "use_value" is the legacy alias of "uvalue".
+      if (attr == "uvalue") {
         return frt.param_uvalue(suid);
       }
       return std::nullopt;
@@ -434,22 +514,22 @@ bool resolve_col_to_row(const SystemContext& sc,
     if (ref.element_type == "volume_right") {
       const auto& vrt =
           sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
-      if (ref.attribute == "fmax") {
+      if (attr == "fmax") {
         return vrt.param_fmax(suid, buid);
       }
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return vrt.param_emin(suid, buid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return vrt.param_emax(suid, buid);
       }
-      if (ref.attribute == "demand") {
+      if (attr == "demand") {
         return vrt.param_demand(suid);
       }
-      if (ref.attribute == "saving_rate") {
+      if (attr == "saving_rate") {
         return vrt.param_saving_rate(suid, buid);
       }
-      if (ref.attribute == "fail_cost") {
+      if (attr == "fail_cost") {
         return vrt.param_fail_cost();
       }
       return std::nullopt;
@@ -577,18 +657,21 @@ namespace
 
 // ── Sum-reference resolution ─────────────────────────────────────────────────
 
-void collect_sum_cols(const SystemContext& sc,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      const BlockLP& block,
-                      const SumElementRef& sum_ref,
-                      double base_coeff,
-                      SparseRow& row,
-                      const LinearProblem& lp)
+double collect_sum_cols(const SystemContext& sc,
+                        const ScenarioLP& scenario,
+                        const StageLP& stage,
+                        const BlockLP& block,
+                        const SumElementRef& sum_ref,
+                        double base_coeff,
+                        SparseRow& row,
+                        const LinearProblem& lp)
 {
+  double offset_shift = 0.0;
   // Helper lambda: add one ElementRef to the row.  Uses the compound-aware
   // `resolve_col_to_row` so sums over a compound attribute (e.g.
-  // `sum(line(all).flow)`) correctly expand each leg.
+  // `sum(line(all).flow)`) correctly expand each leg.  The per-leg
+  // offset shift (Option C demand etc.) is accumulated into the
+  // outer `offset_shift` so the caller can fold it onto the row RHS.
   auto add_one = [&](const std::string& eid)
   {
     ElementRef ref;
@@ -596,8 +679,9 @@ void collect_sum_cols(const SystemContext& sc,
     ref.element_id = eid;
     ref.attribute = sum_ref.attribute;
 
-    (void)resolve_col_to_row(
+    const auto res = resolve_col_to_row(
         sc, scenario, stage, block, ref, base_coeff, row, lp);
+    offset_shift += res.offset_shift;
   };
 
   if (sum_ref.all_elements) {
@@ -657,6 +741,7 @@ void collect_sum_cols(const SystemContext& sc,
       add_one(eid);
     }
   }
+  return offset_shift;
 }
 
 }  // namespace gtopt

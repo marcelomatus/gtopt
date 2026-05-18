@@ -464,6 +464,42 @@ public:
             .block_cols = block_cols,
             .stage_col = ColIndex {unknown_index},
             .block_cols_sum = {},
+            .block_offsets = {},
+        });
+  }
+
+  /// Register a per-block variable map together with per-block additive
+  /// offsets.  Used by shifted-variable encodings (e.g., demand's
+  /// Option C neg_fail = load − lmax substitution) so user constraints
+  /// referencing `demand.load` resolve to (col + offset) physically,
+  /// with the offset shifted onto the row's RHS by the resolver.
+  /// No-op when `need_ampl_variables()` is false.
+  void add_ampl_variable(SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         std::string_view class_name,
+                         Uid element_uid,
+                         std::string_view attribute,
+                         ScenarioUid scenario_uid,
+                         StageUid stage_uid,
+                         const BIndexHolder<ColIndex>& block_cols,
+                         const BIndexHolder<double>& block_offsets)
+  {
+    if (!m_need_ampl_variables_) {
+      return;
+    }
+    m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
+        AmplVariableKey {
+            .class_name = class_name,
+            .element_uid = element_uid,
+            .attribute = attribute,
+            .scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+        },
+        AmplVariable {
+            .block_cols = block_cols,
+            .stage_col = ColIndex {unknown_index},
+            .block_cols_sum = {},
+            .block_offsets = block_offsets,
         });
   }
 
@@ -493,6 +529,7 @@ public:
             .block_cols = {},
             .stage_col = stage_col,
             .block_cols_sum = {},
+            .block_offsets = {},
         });
   }
 
@@ -533,6 +570,7 @@ public:
             .block_cols = {},
             .stage_col = ColIndex {unknown_index},
             .block_cols_sum = block_cols_sum,
+            .block_offsets = {},
         });
   }
 
@@ -562,6 +600,34 @@ public:
       return std::nullopt;
     }
     return it->second.col_at(block_uid);
+  }
+
+  /// Look up the per-block additive offset for a registered variable.
+  /// Returns `0.0` when the variable was not registered with offsets
+  /// (the common case) or when no offset is recorded for this block.
+  /// Used by the user-constraint resolver to fold shifted-variable
+  /// offsets into the row RHS via the existing param_shift mechanism.
+  [[nodiscard]] double find_ampl_offset(SceneIndex scene_index,
+                                        PhaseIndex phase_index,
+                                        std::string_view class_name,
+                                        Uid element_uid,
+                                        std::string_view attribute,
+                                        ScenarioUid scenario_uid,
+                                        StageUid stage_uid,
+                                        BlockUid block_uid) const
+  {
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.variables.find(AmplVariableKey {
+        .class_name = class_name,
+        .element_uid = element_uid,
+        .attribute = attribute,
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+    });
+    if (it == cell.variables.end()) {
+      return 0.0;
+    }
+    return it->second.offset_at(block_uid);
   }
 
   /// Look up a registered **sum-of-cols** attribute.  Returns an empty

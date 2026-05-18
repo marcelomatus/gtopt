@@ -460,9 +460,15 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
     counts: dict[str, Any] = {
         "buses": len(psys.get("bus_array", [])),
         "generators": len(generators),
-        "generator_profiles": len(psys.get("generator_profile_array", [])),
+        # Accept both legacy and unified profile shapes — C++ folds them
+        # together at parse time, so for comparison purposes the totals
+        # are what matters.  Counted as a single bucket.
+        "capacity_profiles": (
+            len(psys.get("capacity_profile_array", []))
+            + len(psys.get("generator_profile_array", []))
+            + len(psys.get("demand_profile_array", []))
+        ),
         "demands": len(psys.get("demand_array", [])),
-        "demand_profiles": len(psys.get("demand_profile_array", [])),
         "lines": len(psys.get("line_array", [])),
         "batteries": len(psys.get("battery_array", [])),
         "converters": len(psys.get("converter_array", [])),
@@ -518,10 +524,17 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
         if r.get("use_state_variable") is False or r.get("daily_cycle") is True
     )
 
-    # Flow + generator profile names for comparison with PLP affluents
-    # (embalse/serie → Flow objects; pasada → GeneratorProfile objects)
+    # Flow + capacity-profile names for comparison with PLP affluents
+    # (embalse/serie → Flow objects; pasada → CapacityProfile objects).
+    # Accept both the unified `capacity_profile_array` and the legacy
+    # `generator_profile_array` for backward compatibility with older
+    # planning.json files.
     flow_names = [f.get("name", "") for f in psys.get("flow_array", [])]
-    profile_names = [p.get("name", "") for p in psys.get("generator_profile_array", [])]
+    profile_names = [
+        p.get("name", "")
+        for p in psys.get("capacity_profile_array", [])
+        + psys.get("generator_profile_array", [])
+    ]
     counts["_flow_names"] = sorted(flow_names + profile_names)
 
     return counts

@@ -142,8 +142,10 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "scale_objective",
         "scale_theta",
         "demand_fail_cost",
-        "reserve_fail_cost",
-        "hydro_fail_cost",
+        "reserve_shortage_cost",  # renamed from reserve_fail_cost per §11.10
+        "reserve_fail_cost",  # legacy alias (gtopt-legacy dialect)
+        "hydro_spill_cost",  # renamed from hydro_fail_cost per §11.10
+        "hydro_fail_cost",  # legacy alias (gtopt-legacy dialect)
         "hydro_use_value",
     }
 )

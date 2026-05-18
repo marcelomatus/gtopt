@@ -115,8 +115,8 @@ struct TriangleFixture
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
   opts.model_options.kirchhoff_mode = OptName {std::string {mode_name}};
   opts.model_options.demand_fail_cost = 1000.0;
 
@@ -248,8 +248,8 @@ TEST_CASE(
   auto solve = [&](std::string_view mode_name) -> double
   {
     PlanningOptions opts;
-    opts.use_kirchhoff = true;
-    opts.use_single_bus = false;
+    opts.model_options.use_kirchhoff = true;
+    opts.model_options.use_single_bus = false;
     opts.model_options.kirchhoff_mode = OptName {std::string {mode_name}};
     opts.model_options.demand_fail_cost = 1000.0;
     const System system = {
@@ -330,8 +330,8 @@ TEST_CASE("cycle_basis - radial network (no cycles) still solves")
   auto solve = [&](std::string_view mode_name) -> double
   {
     PlanningOptions opts;
-    opts.use_kirchhoff = true;
-    opts.use_single_bus = false;
+    opts.model_options.use_kirchhoff = true;
+    opts.model_options.use_single_bus = false;
     opts.model_options.kirchhoff_mode = OptName {std::string {mode_name}};
     opts.model_options.demand_fail_cost = 1000.0;
     const System system = {

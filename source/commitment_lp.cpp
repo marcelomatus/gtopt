@@ -11,6 +11,7 @@
  */
 
 #include <gtopt/commitment_lp.hpp>
+#include <gtopt/fuel_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
@@ -88,17 +89,40 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto& hr_segs = commitment().heat_rate_segments;
   const auto has_segments = !pmax_segs.empty() && !hr_segs.empty()
       && pmax_segs.size() == hr_segs.size();
-  const auto stage_fuel_cost =
-      has_segments ? fuel_cost_.optval(stage.uid()).value_or(0.0) : 0.0;
+
+  // Resolve fuel-related parameters.  When `Commitment.fuel` is set
+  // (PLEXOS-style FK), the price + emission factors come from the
+  // referenced Fuel element; the inline legacy schedules
+  // (`fuel_cost`, `fuel_emission_factor`) are ignored with a warning
+  // when both are present.  When `fuel` is unset, fall back to the
+  // legacy inline schedules (pre-2026-05 behaviour).
+  double stage_fuel_cost = 0.0;
+  double stage_fuel_ef = 0.0;
+  if (commitment().fuel.has_value()) {
+    const auto& fuel_lp = sc.element<FuelLP>(FuelLPSId {*commitment().fuel});
+    stage_fuel_cost = fuel_lp.param_price(stage.uid()).value_or(0.0);
+    stage_fuel_ef =
+        fuel_lp.param_combustion_emission_factor(stage.uid()).value_or(0.0)
+        + fuel_lp.param_upstream_emission_factor(stage.uid()).value_or(0.0);
+    if (commitment().fuel_cost.has_value()
+        || commitment().fuel_emission_factor.has_value())
+    {
+      SPDLOG_WARN(
+          "Commitment uid={} has both `fuel` reference and legacy "
+          "`fuel_cost`/`fuel_emission_factor` schedules set — the "
+          "Fuel reference wins.  Remove the legacy schedules to "
+          "silence this warning.",
+          cuid);
+    }
+  } else if (has_segments) {
+    stage_fuel_cost = fuel_cost_.optval(stage.uid()).value_or(0.0);
+    stage_fuel_ef = fuel_emission_factor_.optval(stage.uid()).value_or(0.0);
+  }
 
   // Pre-size per-segment column holders
   if (has_segments && segment_cols_.empty()) {
     segment_cols_.resize(pmax_segs.size());
   }
-
-  // Resolve fuel_emission_factor [tCO2/GJ] from commitment (like fuel_cost)
-  const auto stage_fuel_ef =
-      fuel_emission_factor_.optval(stage.uid()).value_or(0.0);
 
   // Resolve emission parameters from system options
   const auto& emission_cost_field = sc.options().emission_cost();

@@ -61,7 +61,7 @@ TEST_CASE(  // NOLINT
   // by environment defaults) and apply non-trivial scaling so the
   // round-trip invariant has work to do.
   auto planning = make_3phase_hydro_planning();
-  planning.options.scale_objective = OptReal {1000.0};
+  planning.options.model_options.scale_objective = OptReal {1000.0};
   planning.options.variable_scales.push_back(VariableScale {
       .class_name = "Reservoir",
       .variable = "efin",
