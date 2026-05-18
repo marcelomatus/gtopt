@@ -14,6 +14,15 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 * **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
   block and per-generator ``Reserve eligibility``: spinning-reserve
   ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
+* **GeneratorProfile** — UC.jl v0.3 ships time-varying renewable
+  availability as a list-of-lists inside ``Production cost curve
+  (MW)`` (outer length 1 = single capacity segment, inner is the
+  per-hour available MW).  When detected by
+  ``_detect_time_varying_capacity``, the converter emits a
+  ``Generator`` with ``pmax = max(ts)`` plus a ``GeneratorProfile``
+  carrying ``ts / pmax`` as the per-block availability factor in
+  gtopt's ``STBRealFieldSched`` 3-D shape.  Such gens skip
+  Commitment (renewables have no on/off semantics).
 * **Price-sensitive loads** (``Price-sensitive loads``):
   ``{Bus, Revenue ($/MW), Demand (MW)}`` → extra ``Demand`` with
   ``lmax = Demand (MW)`` and per-element ``fcost = Revenue``.
@@ -56,8 +65,6 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 
 Not yet mapped (scoped out, will silently no-op when present):
 
-* Profiled / renewable generators with time-varying capacity
-  (``generator_profile_array`` would be the gtopt-side target).
 * Non-spinning reserves (UC.jl ``Type != "Spinning"``).
 * Contingencies (N-1 outage constraints, would need pre-computed
   LODFs + one UserConstraint per (monitored line × outage)).
@@ -238,6 +245,51 @@ def _expansion_fields(invest_cost, nameplate_mw, integer=False):
     if integer:
         fields["integer_expmod"] = True
     return fields
+
+
+def _detect_time_varying_capacity(curve_mw, T):
+    """Extract a renewable / profiled gen's time-varying availability.
+
+    UC.jl v0.3 ships profiled-generator capacity as a *list-of-lists*
+    inside ``Production cost curve (MW)``: the outer list is the
+    piecewise segments (typically length 1 for renewables — a single
+    "all-or-nothing" production segment) and the inner list is the
+    per-hour available MW (e.g. an RTPV rooftop-solar profile is
+    mostly 0 at night and peaks midday).  We collapse to a single
+    capacity-factor schedule by:
+
+      * ``nameplate = max(inner)`` — the peak MW across the horizon.
+      * ``profile[t] = inner[t] / nameplate`` — per-block availability
+        in ``[0, 1]``.
+      * Returning ``(profile, nameplate)`` for downstream emission as
+        a ``GeneratorProfile`` entry alongside a Generator with the
+        ``nameplate`` as its ``pmax``.
+
+    Returns ``(None, None)`` for flat / scalar-breakpoint cost curves
+    where there is no time variation to model.
+    """
+    if not curve_mw or not isinstance(curve_mw[0], list):
+        return None, None
+    # Use the OUTERMOST segment's inner time series — for 2-segment
+    # profiled gens (RTS-GMLC has some with shape [[ts_low], [ts_high]])
+    # the last segment carries the cumulative capacity ceiling.
+    inner = curve_mw[-1]
+    if not isinstance(inner, list) or not inner:
+        return None, None
+    ts = [float(v) for v in inner]
+    nameplate = max(ts)
+    if nameplate <= 0.0:
+        return None, None
+    if len(ts) < T:
+        ts = ts + [ts[-1]] * (T - len(ts))
+    elif len(ts) > T:
+        ts = ts[:T]
+    profile = [v / nameplate for v in ts]
+    # Skip degenerate flat-1.0 profiles — they add LP rows without
+    # changing the dispatch envelope.
+    if all(abs(p - 1.0) <= 1e-9 for p in profile):
+        return None, None
+    return profile, nameplate
 
 
 def _gen_bounds(gdata):
@@ -424,9 +476,11 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     generator_array = []
     commitment_array = []
     reserve_provision_array = []
+    generator_profile_array = []
     gen_uid = 0
     commitment_uid = 0
     provision_uid = 0
+    profile_uid = 0
 
     for gname, gdata in uc_gens.items():
         bus_name = gdata.get("Bus")
@@ -446,6 +500,28 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # pmin > 0 — clamp here for the candidate case.
         if is_candidate:
             pmin = 0.0
+
+        # Detect a UC.jl v0.3 time-varying renewable profile inside
+        # ``Production cost curve (MW)``.  When present, override pmax
+        # with the nameplate (peak across the horizon) and queue a
+        # ``GeneratorProfile`` entry carrying the per-block availability
+        # factor.  Profiled gens with NO Commitment (renewables) accept
+        # this naturally; thermal gens with the same shape would also
+        # work (effective profile gates dispatch upper bound).
+        profile_ts = None
+        curve_mw_raw = gdata.get("Production cost curve (MW)")
+        if curve_mw_raw is not None:
+            profile_ts, profile_nameplate = _detect_time_varying_capacity(
+                curve_mw_raw, T
+            )
+            if profile_ts is not None:
+                pmax = float(profile_nameplate)
+                pmin = 0.0  # renewable: dispatch ≤ pmax × profile, no floor
+                # The piecewise segments derived from the (cumulative)
+                # MW breakpoints are meaningless on a time-varying
+                # profile — drop them so gtopt's Commitment doesn't
+                # try to enforce a stale heat-rate decomposition.
+                pmax_segs, hr_segs = [], []
 
         gen_uid += 1
         gen_entry = {
@@ -471,8 +547,38 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         )
         generator_array.append(gen_entry)
 
-        # Commitment is only meaningful for thermal generators.
-        if gtype != "thermal":
+        # GeneratorProfile entry for time-varying renewable capacity
+        # (emitted only when ``_detect_time_varying_capacity`` returned
+        # a non-flat profile above).  The profile is wrapped to
+        # gtopt's ``STBRealFieldSched`` 3-D shape
+        # ``[scenario][stage][block]`` — we have 1 scenario × 1 stage
+        # × T blocks, so the outer two dims collapse to a single list.
+        if profile_ts is not None:
+            profile_uid += 1
+            generator_profile_array.append(
+                {
+                    "uid": profile_uid,
+                    "name": f"{gname}_profile",
+                    "generator": gname,
+                    "profile": [[[round(float(v), 6) for v in profile_ts]]],
+                }
+            )
+
+        # Commitment is only meaningful for thermal generators with a
+        # static capacity envelope.  Time-varying / renewable gens
+        # dispatch within ``[0, pmax × profile(t)]`` and have no
+        # on/off semantics — skip Commitment for them even when
+        # UC.jl's ``Type`` field defaults to Thermal (RTS-GMLC v0.3
+        # ships every gen without a Type field, so the profile-
+        # detection signal is what tells us "this is renewable").
+        #
+        # Also skip when ``pmax == 0`` — gtopt's ``GeneratorLP`` early-
+        # outs the per-block column at ``source/generator_lp.cpp:131``
+        # when ``block_pmax == block_pmin == 0``, leaving no column
+        # for a Commitment to reference.  Degenerate ``pmax = 0`` gens
+        # turn up in RTS-GMLC v0.3 (e.g. ``212_CSP_1`` ships an all-
+        # zero CSP profile) and tripped ``flat_map::at`` pre-fix.
+        if gtype != "thermal" or profile_ts is not None or pmax <= 0.0:
             continue
 
         commitment_uid += 1
@@ -835,6 +941,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "reserve_provision_array": reserve_provision_array,
             "battery_array": battery_array,
             "user_constraint_array": user_constraint_array,
+            "generator_profile_array": generator_profile_array,
         },
     }
 
@@ -850,6 +957,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         print(f"  Reserve zones: {len(reserve_zone_array)}")
         print(f"  Reserve provisions: {len(reserve_provision_array)}")
         print(f"  Batteries: {len(battery_array)}")
+        print(f"  Generator profiles: {len(generator_profile_array)}")
         print(f"  User constraints: {len(user_constraint_array)}")
         print(f"  Time horizon: {T} hours (1 scenario × 1 stage × {T} blocks)")
     return output

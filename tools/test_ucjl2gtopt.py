@@ -67,6 +67,7 @@ _VENDORED_CASE14_SUB_HOURLY = (
 _VENDORED_CASE14_PROFILED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_profiled.json.gz"
 _VENDORED_CASE14_INTERFACE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_interface.json"
 _VENDORED_CASE14_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_storage.json.gz"
+_VENDORED_RTS_GMLC = _TEST_DATA_DIR / "UnitCommitmentJl_rts_gmlc.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +314,18 @@ def test_converter_emits_commitment_per_thermal(tmp_path: Path) -> None:
 
 
 def test_converter_handles_listoflist_cost_curve(tmp_path: Path) -> None:
-    """v0.3 profiled gens wrap each piecewise breakpoint as a time series."""
+    """v0.3 list-of-list cost curve → time-varying renewable profile.
+
+    UC.jl v0.3 profiled gens wrap each piecewise breakpoint as a
+    per-hour time series.  The converter recognises this shape via
+    ``_detect_time_varying_capacity`` and emits:
+
+      * Generator with ``pmax = max(outer-segment time-series)`` and
+        ``pmin = 0`` (renewable curtailment semantics).
+      * ``GeneratorProfile`` with ``profile = ts / pmax`` — the
+        per-block availability factor.
+      * No Commitment entry — renewables have no on/off dynamics.
+    """
     payload = json.loads(json.dumps(_SYNTHETIC_UCJL))
     payload["Generators"]["g1"]["Production cost curve (MW)"] = [
         [10, 11, 12, 10],
@@ -325,13 +337,27 @@ def test_converter_handles_listoflist_cost_curve(tmp_path: Path) -> None:
     proc = _run_converter(ucjl, out)
     assert proc.returncode == 0, proc.stderr
 
-    gens = {
-        g["name"]: g for g in json.loads(out.read_text())["system"]["generator_array"]
-    }
-    # Hour-0 collapse: pmin = 10, pmax = 80, slope = (2600-200)/(80-10) ≈ 34.286.
-    assert gens["g1"]["pmin"] == 10.0
-    assert gens["g1"]["pmax"] == 80.0
-    assert gens["g1"]["gcost"] == pytest.approx(2400.0 / 70.0, rel=1e-6)
+    system = json.loads(out.read_text())["system"]
+    gens = {g["name"]: g for g in system["generator_array"]}
+
+    # Outer-segment max [80, 82, 85, 80] → nameplate = 85, pmin = 0
+    # (renewable: dispatch ≤ pmax × profile, no static floor).
+    assert gens["g1"]["pmax"] == 85.0
+    assert gens["g1"]["pmin"] == 0.0
+
+    # GeneratorProfile carries the per-block availability ts/85.
+    profiles = {p["name"]: p for p in system["generator_profile_array"]}
+    assert "g1_profile" in profiles
+    prof = profiles["g1_profile"]["profile"]  # 3-D: [scen][stage][block]
+    assert len(prof) == 1 and len(prof[0]) == 1 and len(prof[0][0]) == 4
+    for actual, expected in zip(
+        prof[0][0], [80 / 85, 82 / 85, 85 / 85, 80 / 85], strict=True
+    ):
+        assert actual == pytest.approx(expected, abs=1e-6)
+
+    # No Commitment on a time-varying gen (skipped).
+    commit_names = {c["name"] for c in system["commitment_array"]}
+    assert "g1_uc" not in commit_names
 
 
 def test_converter_accepts_time_h_alias(tmp_path: Path) -> None:
@@ -1837,3 +1863,113 @@ def test_real_case14_storage_solves(tmp_path: Path) -> None:
     # Battery output dir present — proves all 4 batteries instantiated.
     bat_dir = tmp_path / "run" / "output" / "Battery"
     assert bat_dir.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# RTS-GMLC — renewable time-varying capacity (GeneratorProfile)
+# ---------------------------------------------------------------------------
+#
+# Vendored from
+# ``ANL-CEEESA/UnitCommitment.jl/test/fixtures/rts_gmlc.json.gz``: a
+# v0.3 fixture without any explicit ``Type`` field on its 154 gens.
+# 80 of them are renewables — UC.jl encodes their time-varying
+# availability as a list-of-lists inside ``Production cost curve
+# (MW)`` (outer length 1 = single capacity segment, inner is the
+# per-hour available-MW time series).  Examples in the fixture
+# include ``118_RTPV_9`` (rooftop PV, peaks at 7.8 MW midday and
+# drops to 0 overnight) and ``212_CSP_1`` (a degenerate CSP unit
+# whose time series is all-zero).
+#
+# Converter features that unlock this fixture:
+#
+#   * ``_detect_time_varying_capacity`` recognises the list-of-lists
+#     shape, extracts ``nameplate = max(ts)`` and emits
+#     ``profile = ts / nameplate`` as a per-block availability factor.
+#   * Emits one ``GeneratorProfile`` per renewable gen, wrapped in
+#     gtopt's ``STBRealFieldSched`` 3-D ``[scenario][stage][block]``
+#     shape that ``GeneratorProfileLP`` consumes.
+#   * Skips ``Commitment`` for renewables (no on/off semantics) AND
+#     for degenerate ``pmax = 0`` gens (gtopt's ``GeneratorLP`` early-
+#     outs the column at source/generator_lp.cpp:131, so a Commitment
+#     referencing it would crash with ``flat_map::at``).
+
+
+@pytest.mark.skipif(
+    not _VENDORED_RTS_GMLC.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_RTS_GMLC}",
+)
+def test_real_rts_gmlc_profile_shape(tmp_path: Path) -> None:
+    """RTS-GMLC: 80 renewables → GeneratorProfile entries, 73 thermals → Commitments.
+
+    Spot-checks:
+      * Total counts: 154 gens, 80 profiles, 73 commitments (154 = 80
+        profiled + 73 thermal-with-pmax>0 + 1 degenerate pmax=0).
+      * ``118_RTPV_9`` has a profile peaking at 1.0 (the normalised
+        nameplate value) and reaching 0.0 at night.
+      * Degenerate ``212_CSP_1`` (all-zero CSP time series) is emitted
+        as a gen with ``pmax = 0`` and NO Commitment / NO Profile —
+        gtopt would otherwise crash on the empty column lookup.
+    """
+    ucjl = tmp_path / "src.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_RTS_GMLC.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    assert len(system["generator_array"]) == 154
+    assert len(system["generator_profile_array"]) == 80
+    assert len(system["commitment_array"]) == 73  # 154 − 80 renewables − 1 degenerate
+
+    profiles = {p["name"]: p for p in system["generator_profile_array"]}
+
+    # 118_RTPV_9: solar profile peaks at 1.0 midday and is 0 at night.
+    rtpv = profiles["118_RTPV_9_profile"]
+    series = rtpv["profile"][0][0]
+    assert len(series) == 48
+    assert max(series) == pytest.approx(1.0, abs=1e-6)
+    assert min(series) == pytest.approx(0.0, abs=1e-6)
+
+    # 212_CSP_1 has an all-zero capacity time series — neither a
+    # profile (since nameplate = 0 means no time variation to model)
+    # nor a Commitment (gtopt would crash on the empty column).
+    assert "212_CSP_1_profile" not in profiles
+    commit_names = {c["name"] for c in system["commitment_array"]}
+    assert "212_CSP_1_uc" not in commit_names
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_RTS_GMLC.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_RTS_GMLC}",
+)
+def test_real_rts_gmlc_solves_with_profiles(tmp_path: Path) -> None:
+    """End-to-end: gtopt LP-relax on RTS-GMLC with 80 renewable profiles.
+
+    Pre-fix this fixture crashed at LP build time (``flat_map::at`` on
+    the degenerate ``212_CSP_1`` gen).  Post-fix it solves cleanly and
+    the ``GeneratorProfile/`` output directory is created with
+    per-block profile-bound dual / sol columns.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    ucjl = tmp_path / "src.json"
+    ucjl.write_bytes(gzip.decompress(_VENDORED_RTS_GMLC.read_bytes()))
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl, out)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+    status, obj = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0
+    assert obj is not None and math.isfinite(obj)
+
+    # GeneratorProfile output dir confirms gtopt's
+    # GeneratorProfileLP::add_to_lp ran for the 80 renewable profiles.
+    prof_dir = tmp_path / "run" / "output" / "GeneratorProfile"
+    assert prof_dir.is_dir(), (
+        "GeneratorProfile/ output dir missing — profile entries didn't "
+        "instantiate LP constraints"
+    )
