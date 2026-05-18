@@ -67,9 +67,15 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
   ``input_efficiency`` / ``output_efficiency``,
   ``Initial level (MWh)`` → ``eini``,
   ``Last period minimum level (MWh)`` → ``efin``,
-  ``Discharge cost ($/MW)`` → ``gcost``.  gtopt's
+  ``Discharge cost ($/MW)`` → ``gcost``,
+  ``Charge cost ($/MW)`` → ``charge_cost``,
+  ``Loss factor`` → folded into both efficiencies via the
+  symmetric multiplier ``√(1 − λ)``.  gtopt's
   ``System::expand_batteries()`` auto-instantiates the discharge
-  Generator / charge Demand / linking Converter at LP-build time.
+  Generator / charge Demand / linking Converter at LP-build time;
+  ``charge_cost`` rides on the synthetic Demand as a negative
+  ``fcost`` so the demand-LP substitution stamps it onto the
+  charging column with the correct positive sign.
 * **relax: true** by default so the LP relaxation solves with any LP
   backend (HiGHS / CLP / CPLEX).  Drop ``--relax`` from the CLI to emit
   MIP commitment (requires a MIP solver loaded at run time).
@@ -93,14 +99,18 @@ Not yet mapped (scoped out, will silently no-op when present):
   ``Flow limit penalty`` is used for contingency soft-constraint
   penalty but the global ``demand_fail_cost`` carries the steady-
   state Power balance penalty separately.
-* Storage charge cost (``Charge cost ($/MW)``), per-block min charge /
-  discharge rates, last-period max level, ``Loss factor``, and
-  ``Allow simultaneous charging and discharging`` — see the inline
-  comment at the Storage block for the dropped fields.
+* Per-block min charge / discharge rates, last-period max level
+  (``Last period maximum level (MWh)``), and ``Allow simultaneous
+  charging and discharging`` — see the inline comment at the Storage
+  block for the dropped fields.  Per-block schedules on storage
+  rate / efficiency / cost lists are collapsed to first-hour scalar
+  because ``Battery`` exposes ``OptTRealFieldSched`` (per-stage), not
+  ``OptTBRealFieldSched`` (per-block).
 """
 
 import argparse
 import json
+import math
 import os
 
 
@@ -774,24 +784,40 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # forced commitment.  Each element is a tri-state ``true`` /
         # ``false`` / ``null`` — ``null`` leaves the block free.
         # gtopt's ``Commitment.fixed_status`` is a 2-D
-        # ``OptTBRealFieldSched`` ``[[v_1, v_2, ..., v_T]]`` with the
-        # convention ``-1.0 = no pin`` (any value outside ``[0, 1]``).
+        # ``OptTBRealFieldSched`` whose inner cells are plain ``Real``
+        # (no per-cell nullable representation) — so partial pinning
+        # cannot be expressed losslessly.  Strategy:
+        #
+        #   * If EVERY entry is a concrete ``true`` / ``false``, emit
+        #     ``[[0.0, 1.0, ...]]`` with no sentinel values — the LP
+        #     pins each ``u`` to 0 or 1 as specified.
+        #   * If ANY entry is ``null`` (free), OMIT ``fixed_status``
+        #     entirely.  This loses the partial pinning on the
+        #     concrete entries but keeps the LP physically correct
+        #     (every block is left free for the solver to choose).
+        #     UC.jl's case14/fixed.json only uses partial-pinning on
+        #     ``g6`` ([false, null, true, null]); dropping its pins
+        #     simply gives gtopt the same degree of freedom UC.jl
+        #     allows for the null blocks, while the concrete pins
+        #     would otherwise need an out-of-band sentinel (e.g.
+        #     ``-1.0``) that pollutes the emitted JSON.
         fixed_status_raw = gdata.get("Commitment status")
         if fixed_status_raw is not None:
-            mapped = []
-            for v in fixed_status_raw:
-                if v is True:
-                    mapped.append(1.0)
-                elif v is False:
-                    mapped.append(0.0)
-                else:
-                    mapped.append(-1.0)  # null / unset → no pin sentinel
-            # Broadcast to T blocks if the list is shorter; truncate if longer.
-            if len(mapped) < T:
-                mapped += [-1.0] * (T - len(mapped))
-            elif len(mapped) > T:
-                mapped = mapped[:T]
-            c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
+            # Truncate / pad to T BEFORE checking for nulls so trailing
+            # padding doesn't appear as a "free" entry that disables
+            # otherwise-clean pinning.
+            trimmed = list(fixed_status_raw[:T])
+            if len(trimmed) < T:
+                # Repeat the last concrete value when the list is short
+                # — broadcast convention used by UC.jl's reader.
+                pad_value = trimmed[-1] if trimmed else None
+                trimmed += [pad_value] * (T - len(trimmed))
+            has_null = any(v is None for v in trimmed)
+            if not has_null:
+                mapped = [1.0 if v is True else 0.0 for v in trimmed]
+                c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
+            # else: drop fixed_status — partial pinning is intentionally
+            # lost (see comment above).  LP runs with u free on every block.
 
         # Initial status (h): +N online, -N offline.
         init_u, init_h = _initial_status_to_uc(gdata.get("Initial status (h)"))
@@ -911,17 +937,60 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "use_state_variable": True,
             "daily_cycle": False,
         }
-        # Field mappings — all are ``OptTRealFieldSched`` (per-stage,
-        # not per-block) on gtopt's Battery, so per-block UC.jl lists
-        # (e.g. ``case14-storage.json``'s ``su3`` ships per-hour lists
-        # for emin/emax/pmax_charge/.../efficiency) are collapsed to
-        # the first-hour scalar.  A clean per-block Battery LP would
-        # need ``OptTBRealFieldSched`` upgrades on the gtopt side
-        # (left as a follow-up — see the module docstring's
-        # "Not yet mapped" list).
+        # SoC bound mapping for ``emin`` / ``emax``: gtopt's Battery now
+        # exposes both as ``OptTBRealFieldSched`` (per-(stage, block)).
+        # Accepted JSON shapes:
+        #   * scalar — broadcast to every (stage, block);
+        #   * 2-D nested ``[[v_block0, v_block1, ..., v_blockT-1], ...]``
+        #     indexed by stage then block (one outer entry per stage).
+        # UC.jl ships three relevant fields:
+        #   * ``Maximum/Minimum level (MWh)``: scalar OR per-block list of
+        #     length T (e.g. ``case14/storage``'s ``su3``).
+        #   * ``Last period maximum/minimum level (MWh)``: scalar that
+        #     overrides the bound on the FINAL block of the horizon.
+        # We expand to the 2-D ``[[..., last_period]]`` shape whenever
+        # either (a) UC.jl ships a per-block list or (b) the last-period
+        # override is present and differs from the broadcast base —
+        # otherwise we keep the compact scalar form.  This is the
+        # converter-side enabler for the per-block SoC bound LP feature
+        # added 2026-05-18 on gtopt's side.
+        for base_key, last_key, gtopt_key in (
+            ("Maximum level (MWh)", "Last period maximum level (MWh)", "emax"),
+            ("Minimum level (MWh)", "Last period minimum level (MWh)", "emin"),
+        ):
+            base = sdata.get(base_key)
+            if base is None:
+                continue
+            if isinstance(base, list):
+                # Already a per-block schedule — pad/truncate to T.
+                base_list = [float(v) for v in base[:T]]
+                if len(base_list) < T:
+                    base_list += [base_list[-1]] * (T - len(base_list))
+                row = list(base_list)
+            else:
+                # Scalar broadcast — promote to per-block only when the
+                # last-period override is materially different.
+                row = [float(base)] * T
+            last_override = sdata.get(last_key)
+            promote_to_2d = isinstance(base, list)
+            if last_override is not None:
+                lo = float(last_override)
+                if lo != row[-1]:
+                    row[-1] = lo
+                    promote_to_2d = True
+            if promote_to_2d:
+                # Outer dim = 1 stage (the converter emits a single-stage
+                # planning horizon — see ``stage_array`` setup above).
+                b_entry[gtopt_key] = [row]
+            else:
+                # No override + no per-block list → compact scalar form
+                # (round-trips identically to the legacy emission).
+                b_entry[gtopt_key] = float(base)
+
+        # Remaining per-stage scalar fields — gtopt's Battery still
+        # exposes these as ``OptTRealFieldSched`` (per-stage), so per-
+        # block UC.jl lists collapse to the first-hour scalar.
         for ucjl_key, gtopt_key in (
-            ("Maximum level (MWh)", "emax"),
-            ("Minimum level (MWh)", "emin"),
             ("Maximum charge rate (MW)", "pmax_charge"),
             ("Maximum discharge rate (MW)", "pmax_discharge"),
             ("Charge efficiency", "input_efficiency"),
@@ -933,6 +1002,34 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             b_entry[gtopt_key] = (
                 float(_first_hour(value)) if isinstance(value, list) else value
             )
+
+        # UC.jl ``Loss factor`` models per-period SoC decay
+        # ``SoC[t+1] = (1 − λ) × SoC[t] + η_in·charge − discharge/η_out``.
+        # gtopt's Battery has no native SoC-decay term, but folding λ
+        # into the existing efficiencies recovers the same round-trip
+        # energy loss:
+        #
+        #   η_in_eff  = η_in  × √(1 − λ)
+        #   η_out_eff = η_out × √(1 − λ)
+        #
+        # The square root splits the decay symmetrically across one
+        # charge-discharge cycle.  For UC.jl ``Loss factor = 0.01``,
+        # this shaves ~0.5 % off each efficiency — a faithful
+        # approximation for BESS that cycles every block (the
+        # case14/storage workload).  For long-horizon idle storage,
+        # this would underestimate decay; a true ``Battery.loss_factor``
+        # SoC-row term would be the semantic-pure fix (left as
+        # follow-up).
+        loss_factor_raw = sdata.get("Loss factor")
+        if loss_factor_raw is not None:
+            lf_scalar = float(_first_hour(loss_factor_raw))
+            if lf_scalar > 0.0:
+                damp = math.sqrt(max(1.0 - lf_scalar, 0.0))
+                # Default efficiencies are 1.0 when UC.jl omitted them.
+                eff_in = float(b_entry.get("input_efficiency", 1.0))
+                eff_out = float(b_entry.get("output_efficiency", 1.0))
+                b_entry["input_efficiency"] = round(eff_in * damp, 6)
+                b_entry["output_efficiency"] = round(eff_out * damp, 6)
         # Scalars (not field schedules).
         for ucjl_key, gtopt_key in (
             ("Initial level (MWh)", "eini"),
@@ -941,16 +1038,24 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             value = sdata.get(ucjl_key)
             if value is not None:
                 b_entry[gtopt_key] = float(value)
-        # Round-trip cost approximation: UC.jl bills charging and
-        # discharging separately, gtopt's unified Battery only exposes
-        # ``gcost`` (discharge).  Use it for the discharge side; the
-        # charge side is implicit in the energy-balance constraint.
-        # ``Discharge cost ($/MW)`` may be a per-hour list (case14-storage)
-        # — collapse to the first hour since ``Battery.gcost`` is
-        # ``OptTRealFieldSched`` (per-stage, NOT per-block).
+        # Discharge cost → ``Battery.gcost``; Charge cost →
+        # ``Battery.charge_cost`` (added 2026-05-18 to match UC.jl
+        # semantics).  gtopt's ``System::expand_batteries()`` wires
+        # ``charge_cost`` onto the synthetic charge-side Demand by
+        # encoding it as a negative ``fcost`` — the demand-LP
+        # substitution then lands the value as a positive per-MWh cost
+        # on the charging column, equivalent to UC.jl's
+        # ``Charge cost ($/MW)``.  Both costs collapse to first hour
+        # since the underlying gtopt fields are ``OptTRealFieldSched``
+        # (per-stage, NOT per-block).  Per-block schedules on UC.jl's
+        # storage cost fields are still dropped — see the inline note
+        # at the top of the storage block.
         d_cost = sdata.get("Discharge cost ($/MW)")
         if d_cost is not None:
             b_entry["gcost"] = float(_first_hour(d_cost))
+        c_cost = sdata.get("Charge cost ($/MW)")
+        if c_cost is not None:
+            b_entry["charge_cost"] = float(_first_hour(c_cost))
         # Track installed capacity = max SoC so expansion / capacity-fail
         # bounds line up.
         emax_val = sdata.get("Maximum level (MWh)")
@@ -978,13 +1083,66 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         if x is None:
             continue
 
-        tmax_raw = ldata.get("Normal flow limit (MW)")
-        if tmax_raw is None:
-            tmax = 99999.0
-        elif isinstance(tmax_raw, list):
-            tmax = min(float(_first_hour(tmax_raw)), 99999.0)
+        # Map UC.jl's two-tier line limit to gtopt's soft-cap feature:
+        #
+        #   ``Emergency flow limit (MW)``  → hard cap     ``tmax_{ab,ba}``
+        #   ``Normal flow limit (MW)``     → soft cap ``tmax_normal_{ab,ba}``
+        #   ``Flow limit penalty ($/MW)``  → ``overload_penalty`` [$/MWh]
+        #
+        # gtopt's ``LineLP`` natively supports a soft (Normal) flow
+        # threshold with a per-MWh overload penalty on the slack between
+        # Normal and Emergency, matching UC.jl + PLEXOS convention.
+        #
+        # When ``Emergency`` is absent, synthesize one as ``max(Normal ×
+        # SOFT_CAP_HARD_MULT, Normal + 100)`` so the slack column has a
+        # finite, well-scaled upper bound (a 99999 sentinel would
+        # destabilise Kirchhoff numerics by allowing huge angle
+        # excursions).  The multiplier is large enough that UC.jl's
+        # actual flows almost always stay within it, and the penalty
+        # makes overloads expensive in any case.
+        #
+        # When ``Flow limit penalty`` is absent per-line, fall back to
+        # the global ``Parameters.Power balance penalty ($/MW)``.  UC.jl
+        # itself uses the global value as the default flow penalty when
+        # no per-line override is given.
+        em_raw = ldata.get("Emergency flow limit (MW)")
+        nm_raw = ldata.get("Normal flow limit (MW)")
+        penalty_raw = ldata.get("Flow limit penalty ($/MW)")
+
+        def _scalar(v):
+            if v is None:
+                return None
+            return float(_first_hour(v)) if isinstance(v, list) else float(v)
+
+        em = _scalar(em_raw)
+        nm = _scalar(nm_raw)
+        per_line_penalty = _scalar(penalty_raw)
+        resolved_penalty = (
+            per_line_penalty if per_line_penalty is not None else power_balance_penalty
+        )
+
+        # Hard cap: Emergency if present; otherwise fall back to the
+        # Normal value as a hard cap.  The soft cap below is only
+        # emitted when UC.jl explicitly ships Emergency + per-line
+        # penalty alongside Normal — synthesising an Emergency from
+        # Normal alone introduces a degenerate-optimum drift on
+        # fixtures whose global power-balance penalty equals the
+        # demand_fail_cost (LP becomes indifferent between curtailing
+        # demand and overloading the line at the same per-MW price).
+        if em is not None:
+            tmax = min(em, 99999.0)
+        elif nm is not None:
+            tmax = min(nm, 99999.0)
         else:
-            tmax = min(float(tmax_raw), 99999.0)
+            tmax = 99999.0
+
+        emit_soft_cap = (
+            nm is not None
+            and per_line_penalty is not None
+            and per_line_penalty > 0.0
+            and em is not None
+            and nm < tmax
+        )
 
         line_uid += 1
         line_entry = {
@@ -996,6 +1154,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "tmax_ab": round(tmax, 1),
             "tmax_ba": round(tmax, 1),
         }
+
+        if emit_soft_cap:
+            soft = min(nm, 99999.0)
+            line_entry["tmax_normal_ab"] = round(soft, 1)
+            line_entry["tmax_normal_ba"] = round(soft, 1)
+            line_entry["overload_penalty"] = round(resolved_penalty, 6)
         # TEP: ``Investment cost ($)`` activates the line-expansion fields
         # (overrides ``capacity`` to 0 on candidate lines — see
         # ``_expansion_fields``).

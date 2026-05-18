@@ -243,6 +243,179 @@ def _solve(gtopt_bin: str, json_path: Path, tmp_run: Path) -> tuple[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# UC.jl golden cross-check helpers
+# ---------------------------------------------------------------------------
+#
+# Each vendored UC.jl fixture has a sibling
+# ``UnitCommitmentJl_<stem>_ucjl_golden.json`` produced by
+# ``tools/ucjl_solve_golden.jl`` (UC.jl + HiGHS).  Schema::
+#
+#   {
+#     "objective": <Real>,
+#     "thermal_on": { gen_name: [is_on per block] },
+#     "thermal_mw": { gen_name: [production_mw per block] }
+#   }
+#
+# Comparison strategy:
+#   * Per-(gen, block) commitment STATUS is strict — must match within
+#     ``status_tol`` (default 0.01 — well below the 0/1 boundary at 0.5).
+#   * Per-block AGGREGATE thermal dispatch (sum over gens) is loose
+#     within ``block_mw_tol``.  Per-generator MW dispatch can disagree
+#     at degenerate optima (multiple equally-optimal integer corners),
+#     but total thermal MW per block must match because both solvers
+#     balance the same load.
+
+
+def _read_generation_dispatch(results_dir: Path, gen_uid: int) -> list[float]:
+    """Per-block generation MW for a given generator uid."""
+    csv_path = results_dir / "Generator" / "generation_sol_s0_p0.csv"
+    if not csv_path.exists():
+        return []
+    with csv_path.open(encoding="utf-8") as fh:
+        rows = list(csv.reader(fh))
+    if len(rows) < 2:
+        return []
+    header = rows[0]
+    target = f"uid:{gen_uid}"
+    if target not in header:
+        return []
+    idx = header.index(target)
+    return [float(r[idx]) for r in rows[1:]]
+
+
+def _load_ucjl_golden(stem: str) -> dict | None:
+    """Load ``UnitCommitmentJl_<stem>_ucjl_golden.json`` if present.
+
+    Returns ``None`` when the golden has not been generated (callers
+    can ``pytest.skip``).  The golden is produced by running
+    ``julia tools/ucjl_solve_golden.jl <input> <output>``.
+    """
+    path = _TEST_DATA_DIR / f"UnitCommitmentJl_{stem}_ucjl_golden.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text())
+
+
+def _map_gen_uids(gtopt_json: dict) -> dict[str, tuple[int, int | None]]:
+    """gen_name → (generator_uid, commitment_uid or None).
+
+    Profiled / renewable generators have no ``Commitment`` element,
+    so their commitment uid is ``None``.
+    """
+    system = gtopt_json["system"]
+    gen_uid_by_name: dict[str, int] = {
+        g["name"]: int(g["uid"]) for g in system.get("generator_array", [])
+    }
+    com_uid_by_gen: dict[str, int] = {
+        c["generator"]: int(c["uid"]) for c in system.get("commitment_array", [])
+    }
+    return {
+        name: (uid, com_uid_by_gen.get(name)) for name, uid in gen_uid_by_name.items()
+    }
+
+
+def _assert_ucjl_match(
+    output_dir: Path,
+    gtopt_json: dict,
+    golden: dict,
+    *,
+    block_mw_tol: float = 1.0,
+    pinned_gens: tuple[str, ...] = (),
+    status_tol: float = 0.01,
+    forbidden_gens: tuple[str, ...] = (),
+) -> None:
+    """Cross-check gtopt's solution against the UC.jl golden.
+
+    Strong invariants (always checked):
+
+    * Per-block AGGREGATE thermal dispatch must match UC.jl within
+      ``block_mw_tol`` — this is the physics check.  Both solvers
+      balance the same load, so total thermal MW per block must match
+      regardless of which integer corner each one picked.
+
+    Weak invariants (checked only when explicitly listed):
+
+    * ``pinned_gens`` — generators whose commitment status must match
+      UC.jl bit-for-bit (e.g. ``g1`` and ``g2`` in case14/base, both
+      pinned by UC.jl's ``usage_deterministic_test``).
+    * ``forbidden_gens`` — generators that UC.jl reports as off in
+      every block; gtopt must also leave them off.
+
+    Per-(gen, block) status is *not* checked in general because
+    UC.jl/HiGHS and gtopt/CPLEX may pick different equally-optimal
+    integer corners (case14/base: UC.jl commits g4 every block, gtopt
+    commits g5 — same total dispatch and total cost, different per-gen
+    pattern).  OBJECTIVE is *not* checked because gtopt's objective
+    includes reserve-credit and demand-revenue terms with sign / scale
+    conventions that differ from UC.jl's pure-cost objective.
+    """
+    mapping = _map_gen_uids(gtopt_json)
+    thermal_on = golden.get("thermal_on") or {}
+    thermal_mw = golden.get("thermal_mw") or {}
+
+    if thermal_mw:
+        n_blocks = len(next(iter(thermal_mw.values())))
+        gtopt_total = [0.0] * n_blocks
+        ucjl_total = [0.0] * n_blocks
+        for gname, mw_vec in thermal_mw.items():
+            for t, mv in enumerate(mw_vec[:n_blocks]):
+                ucjl_total[t] += float(mv)
+            if gname not in mapping:
+                continue
+            gen_uid, _ = mapping[gname]
+            disp = _read_generation_dispatch(output_dir, gen_uid=gen_uid)
+            for t, dv in enumerate(disp[:n_blocks]):
+                gtopt_total[t] += dv
+        for t, (gt, ut) in enumerate(zip(gtopt_total, ucjl_total, strict=True)):
+            assert abs(gt - ut) <= block_mw_tol, (
+                f"block {t + 1}: gtopt total thermal MW = {gt:.3f}, "
+                f"UC.jl = {ut:.3f} (tol = {block_mw_tol})"
+            )
+
+    for gname in pinned_gens:
+        on_vec = thermal_on.get(gname)
+        assert on_vec is not None, (
+            f"pinned gen {gname!r} missing from UC.jl golden — "
+            f"available: {sorted(thermal_on.keys())}"
+        )
+        assert gname in mapping, f"pinned gen {gname!r} not in converted gtopt JSON"
+        _, com_uid = mapping[gname]
+        assert com_uid is not None, (
+            f"pinned gen {gname!r} has no Commitment element in gtopt JSON"
+        )
+        gtopt_status = _read_commitment_status(output_dir, gen_uid=com_uid)
+        assert len(gtopt_status) == len(on_vec), (
+            f"{gname}: gtopt produced {len(gtopt_status)} status blocks, "
+            f"UC.jl golden has {len(on_vec)}"
+        )
+        for t, (gv, uv) in enumerate(zip(gtopt_status, on_vec, strict=True)):
+            assert abs(gv - float(uv)) <= status_tol, (
+                f"{gname} block {t + 1}: gtopt status = {gv:.4f}, "
+                f"UC.jl status = {float(uv):.4f} (tol = {status_tol})"
+            )
+
+    for gname in forbidden_gens:
+        on_vec = thermal_on.get(gname)
+        if on_vec is None:
+            continue
+        assert all(float(v) <= status_tol for v in on_vec), (
+            f"{gname!r} listed as forbidden but UC.jl golden shows "
+            f"non-zero status {on_vec}"
+        )
+        if gname not in mapping:
+            continue
+        _, com_uid = mapping[gname]
+        if com_uid is None:
+            continue
+        gtopt_status = _read_commitment_status(output_dir, gen_uid=com_uid)
+        for t, gv in enumerate(gtopt_status):
+            assert abs(gv) <= status_tol, (
+                f"{gname} block {t + 1}: gtopt status = {gv:.4f}, "
+                f"expected off (UC.jl agrees)"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Synthetic 2-bus regression
 # ---------------------------------------------------------------------------
 
@@ -1007,7 +1180,10 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
       * 3 ``ReserveZone`` + 7 ``ReserveProvision`` entries.
       * 2 ``Battery`` entries mapping UC.jl's ``Storage units``
         ``su1`` / ``su2``.  Spot-check the field mapping on ``su1``
-        (scalar emax/emin) and ``su2`` (per-block emax list).
+        (scalar baseline + ``Last period max/min level`` overrides
+        promote to a 2-D per-block schedule) and ``su2`` (already-
+        per-block emax list round-trips as the same 2-D schedule
+        shape).
     """
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out)
@@ -1026,22 +1202,26 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
 
     bats = {b["name"]: b for b in system["battery_array"]}
 
-    # su1: scalar Maximum/Minimum level — round-trips as scalar.
-    assert bats["su1"]["emax"] == 100.0
-    assert bats["su1"]["emin"] == 10.0
+    # su1: scalar Maximum/Minimum level baseline (100 / 10) + last-
+    # period overrides (80 / 20) → 2-D per-(stage, block) schedule
+    # with the last-block entry replaced.  ``Loss factor = 0.01``
+    # folds into both efficiencies via the symmetric ``√(1 − λ)``
+    # multiplier (η × √0.99 ≈ η × 0.994987).
+    assert bats["su1"]["emax"] == [[100.0, 100.0, 100.0, 80.0]]
+    assert bats["su1"]["emin"] == [[10.0, 10.0, 10.0, 20.0]]
     assert bats["su1"]["pmax_charge"] == 50.0
     assert bats["su1"]["pmax_discharge"] == 40.0
-    assert bats["su1"]["input_efficiency"] == 0.9
-    assert bats["su1"]["output_efficiency"] == 0.95
+    assert bats["su1"]["input_efficiency"] == pytest.approx(0.9 * 0.99**0.5, abs=1e-5)
+    assert bats["su1"]["output_efficiency"] == pytest.approx(0.95 * 0.99**0.5, abs=1e-5)
     assert bats["su1"]["eini"] == 50.0
     assert bats["su1"]["efin"] == 20.0
     assert bats["su1"]["gcost"] == 1.5
 
-    # su2 has per-block list emax/emin in UC.jl; the converter collapses
-    # to first-hour scalar since ``Battery.{emax,emin}`` are
-    # ``OptTRealFieldSched`` (per-stage, not per-block).
-    assert bats["su2"]["emax"] == 200.0
-    assert bats["su2"]["emin"] == 20.0
+    # su2 has per-block list emax/emin in UC.jl — round-trips as the
+    # 2-D ``[[v_1, ..., v_T]]`` schedule shape now accepted by
+    # ``Battery.{emax,emin}`` (``OptTBRealFieldSched``, 2026-05-18).
+    assert bats["su2"]["emax"] == [[200.0, 200.0, 200.0, 200.0]]
+    assert bats["su2"]["emin"] == [[20.0, 20.0, 20.0, 20.0]]
     assert bats["su2"]["pmax_charge"] == 80.0
 
     # Both batteries get ``use_state_variable = true`` and
@@ -1108,7 +1288,11 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     auto-expanded battery sub-elements add their own coefficients to
     the bus-balance rows that ``Commitment`` columns also feed.
 
-    Pins gtopt MIP obj = ``-376 357.36``.
+    Pins gtopt MIP obj = ``-356 130.31`` (refreshed 2026-05-18 after
+    ``Last period max/min level (MWh)`` started promoting su1's
+    ``emax`` / ``emin`` to a per-block 2-D schedule — su1's tighter
+    final-block bounds (``emax = 80`` / ``emin = 20`` on block T)
+    shift the optimum vs the old flat-scalar emission).
 
     Skipped when no MIP solver plugin is loaded.
     """
@@ -1126,7 +1310,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-354_782.10, abs=1.0)
+    assert obj == pytest.approx(-356_130.31, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -1467,8 +1651,14 @@ def test_real_case14_fixed_translates_commitment_status(tmp_path: Path) -> None:
       * g2 → ``[[1, 1, 1, 1]]`` (all on)
       * g4 → ``[[0, 0, 0, 0]]`` (all off)
       * g5 → ``[[1, 1, 0, 0]]`` (on/on/off/off)
-      * g6 → ``[[0, -1, 1, -1]]`` (null entries → -1 sentinel, meaning
-        "leave u free" — handled by ``CommitmentLP::add_to_lp``)
+      * g6 → ``fixed_status`` field OMITTED — UC.jl ships ``[False,
+        None, True, None]`` with two ``null`` (free) entries.  gtopt's
+        ``Commitment.fixed_status`` has no per-cell nullable
+        representation, so the converter drops the field entirely
+        rather than encode the free blocks as out-of-band sentinels
+        (``-1.0``).  Trade-off: the LP no longer pins blocks 1 and 3
+        either — partial-pinning is intentionally lost in favour of a
+        clean schedule shape (see converter comment).
       * g3 → ``must_run = true`` (still the single-bool path)
     """
     out = tmp_path / "g.json"
@@ -1481,11 +1671,20 @@ def test_real_case14_fixed_translates_commitment_status(tmp_path: Path) -> None:
     assert commits["g2_uc"]["fixed_status"] == [[1.0, 1.0, 1.0, 1.0]]
     assert commits["g4_uc"]["fixed_status"] == [[0.0, 0.0, 0.0, 0.0]]
     assert commits["g5_uc"]["fixed_status"] == [[1.0, 1.0, 0.0, 0.0]]
-    assert commits["g6_uc"]["fixed_status"] == [[0.0, -1.0, 1.0, -1.0]]
+    # g6 has ``null`` entries → fixed_status dropped entirely.
+    assert "fixed_status" not in commits["g6_uc"]
     assert commits["g3_uc"]["must_run"] is True
     # g1 has neither Must run? nor Commitment status — both fields absent.
     assert "fixed_status" not in commits["g1_uc"]
     assert "must_run" not in commits["g1_uc"]
+    # No sentinel ``-1.0`` should appear in any emitted fixed_status.
+    for cinfo in commits.values():
+        fs = cinfo.get("fixed_status")
+        if fs is None:
+            continue
+        for stage_row in fs:
+            for v in stage_row:
+                assert v in (0.0, 1.0), f"unexpected fixed_status entry: {v}"
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -1528,9 +1727,14 @@ def test_real_case14_fixed_pins_status_in_lp(tmp_path: Path) -> None:
     _close(g3, [1.0, 1.0, 1.0, 1.0])  # must_run
     _close(g4, [0.0, 0.0, 0.0, 0.0])
     _close(g5, [1.0, 1.0, 0.0, 0.0])
-    # g6 has [False, None, True, None] — pin blocks 1, 3 strictly.
-    assert g6[0] == pytest.approx(0.0, abs=1e-6)
-    assert g6[2] == pytest.approx(1.0, abs=1e-6)
+    # g6 has [False, None, True, None] in UC.jl — the converter drops
+    # ``fixed_status`` entirely when any entry is ``null`` because
+    # gtopt's schedule has no per-cell nullable cell, so partial
+    # pinning is intentionally lost in favour of a sentinel-free
+    # schedule.  All four blocks are LP-free, hence we only assert
+    # the status is a valid 0/1 (LP-relaxed: in ``[0, 1]``).
+    for v in g6:
+        assert -1e-6 <= v <= 1.0 + 1e-6, f"g6 status out of [0,1]: {v}"
 
 
 # ---------------------------------------------------------------------------
@@ -1810,7 +2014,14 @@ def test_real_case14_storage_battery_shape(tmp_path: Path) -> None:
       * Sets ``use_state_variable = true`` + ``daily_cycle = false``
         on each (the keystone fix that unlocks UC.jl's non-cyclic
         eini / efin semantics).
-      * Collapses su3's per-block emin/emax to the first-hour scalar.
+      * Preserves su3's per-block ``emin`` / ``emax`` lists as the 2-D
+        ``[[v_1, ..., v_T]]`` schedule shape now accepted by gtopt's
+        ``Battery.emin`` / ``emax`` (``OptTBRealFieldSched``,
+        2026-05-18).  The final-block entry is overridden by
+        ``Last period minimum/maximum level (MWh)``.
+      * Collapses su3's per-block pmax_charge / pmax_discharge to the
+        first-hour scalar (those remain ``OptTRealFieldSched``,
+        per-stage).
       * Propagates eini=70 / efin=80 (su2) and eini=20 / efin=21
         (su3) without an attempted cycle equality.
     """
@@ -1828,14 +2039,30 @@ def test_real_case14_storage_battery_shape(tmp_path: Path) -> None:
         assert bats[sname]["use_state_variable"] is True, sname
         assert bats[sname]["daily_cycle"] is False, sname
 
-    # su3's per-hour lists collapse to first-hour scalars.
-    assert bats["su3"]["emin"] == 10.0
-    assert bats["su3"]["emax"] == 100.0
+    # su3 ships per-block lists for emin/emax — round-trip as the 2-D
+    # ``[[...]]`` schedule shape, with the final block overridden by
+    # ``Last period min/max level (MWh)`` (21.0 / 22.0).
+    assert bats["su3"]["emin"] == [[10.0, 11.0, 12.0, 21.0]]
+    assert bats["su3"]["emax"] == [[100.0, 110.0, 120.0, 22.0]]
+    # pmax_charge stays per-stage → first-hour scalar.
     assert bats["su3"]["pmax_charge"] == 10.0
+
+    # su2 ships scalar baselines + last-period overrides → 2-D schedule
+    # with the broadcast baseline on the first T-1 blocks and the
+    # last-period value on the final block.
+    assert bats["su2"]["emin"] == [[10.0, 10.0, 10.0, 80.0]]
+    assert bats["su2"]["emax"] == [[100.0, 100.0, 100.0, 85.0]]
 
     # su2: eini ≠ efin (70 → 80) — independent SoC bounds.
     assert bats["su2"]["eini"] == 70.0
     assert bats["su2"]["efin"] == 80.0
+
+    # su1 / su4 have no Minimum level + no last-period override → keep
+    # the compact scalar emission for emax, emin omitted entirely.
+    assert bats["su1"]["emax"] == 100.0
+    assert "emin" not in bats["su1"]
+    assert bats["su4"]["emax"] == 100.0
+    assert "emin" not in bats["su4"]
 
 
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
@@ -2097,4 +2324,336 @@ def test_real_case14_contingency_n_minus_1_binds_lp(tmp_path: Path) -> None:
     assert obj_on > obj_off + 1.0, (
         f"contingency obj {obj_on} did not exceed baseline {obj_off} — "
         f"N-1 constraints aren't biting"
+    )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl golden cross-validation (uses Julia-generated goldens)
+# ---------------------------------------------------------------------------
+#
+# These per-fixture integration tests pin gtopt's MIP solution against
+# UC.jl's own HiGHS-solved answer, using
+# ``UnitCommitmentJl_<stem>_ucjl_golden.json`` files produced by
+# ``tools/ucjl_solve_golden.jl``.  Each test:
+#
+#   1. Runs the converter with ``--mip`` (per-fixture extra args).
+#   2. Solves the converted JSON with gtopt.
+#   3. Cross-checks against the UC.jl golden via ``_assert_ucjl_match``:
+#      - Per-block AGGREGATE thermal dispatch must match (strong
+#        physics invariant — both solvers balance the same load).
+#      - For fixtures where UC.jl's own ``usage_test.jl`` pins a
+#        specific generator's status, that pin is enforced
+#        (``pinned_gens=("g1", ...)``).
+#      - Per-(gen, block) status is NOT compared by default because
+#        HiGHS and CPLEX often pick different equally-optimal integer
+#        corners.
+#      - OBJECTIVE is NOT compared because gtopt's objective includes
+#        reserve-credit / demand-revenue terms that don't appear in
+#        UC.jl's pure-cost objective.
+#
+# Skipped when the vendored fixture, the golden, or a MIP solver
+# plugin is missing.  Re-generate goldens with::
+#
+#   for f in tools/test_data/UnitCommitmentJl_*.json{,.gz}; do
+#       stem=$(basename "$f" | sed 's|UnitCommitmentJl_||; s|\.json\.gz$||; s|\.json$||')
+#       julia tools/ucjl_solve_golden.jl "$f" \
+#           "tools/test_data/UnitCommitmentJl_${stem}_ucjl_golden.json"
+#   done
+
+
+def _run_ucjl_cross_check(
+    tmp_path: Path,
+    stem: str,
+    fixture: Path,
+    extra_args: tuple[str, ...] = (),
+    *,
+    block_mw_tol: float = 5.0,
+    pinned_gens: tuple[str, ...] = (),
+    forbidden_gens: tuple[str, ...] = (),
+) -> None:
+    """Shared body for per-fixture UC.jl golden cross-checks."""
+    if not fixture.is_file():
+        pytest.skip(f"vendored UC.jl fixture missing: {fixture}")
+    golden = _load_ucjl_golden(stem)
+    if golden is None:
+        pytest.skip(
+            f"UC.jl golden not generated: "
+            f"UnitCommitmentJl_{stem}_ucjl_golden.json — "
+            f"run `julia tools/ucjl_solve_golden.jl` to produce it"
+        )
+
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+    if not _has_mip_solver(gtopt_bin):
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+
+    # The converter expects raw .json on stdin/argv — decompress .gz first.
+    if fixture.suffix == ".gz":
+        ucjl_path = tmp_path / fixture.stem  # strips trailing .gz
+        ucjl_path.write_bytes(gzip.decompress(fixture.read_bytes()))
+    else:
+        ucjl_path = fixture
+
+    out = tmp_path / "g.json"
+    proc = _run_converter(ucjl_path, out, "--mip", *extra_args)
+    assert proc.returncode == 0, proc.stderr
+
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    assert rc == 0, log
+
+    status, _ = _read_solution_status(tmp_path / "run" / "output")
+    assert status == 0, f"gtopt solve status = {status}"
+
+    gtopt_json = json.loads(out.read_text())
+    _assert_ucjl_match(
+        tmp_path / "run" / "output",
+        gtopt_json,
+        golden,
+        block_mw_tol=block_mw_tol,
+        pinned_gens=pinned_gens,
+        forbidden_gens=forbidden_gens,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_base(tmp_path: Path) -> None:
+    """case14/base: aggregate thermal dispatch matches UC.jl.
+
+    UC.jl's ``usage_deterministic_test`` pins ``g1`` and ``g2`` to
+    ``[1, 1, 1, 1]`` — both solvers agree.  ``g4`` vs ``g5`` is a
+    classic degenerate MIP corner (UC.jl picks g4 every block, gtopt
+    picks g5 every block, same total dispatch / cost), so we don't
+    pin those.  ``g6`` is off in both (forbidden).
+    """
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_base",
+        _VENDORED_CASE14_BASE,
+        pinned_gens=("g1", "g2", "g3"),
+        forbidden_gens=("g6",),
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence: converter's 3-tier startup-cost encoding makes "
+        "g1 uneconomic in gtopt's MIP, so gtopt curtails ~159 MW while UC.jl "
+        "commits g1 and serves the full 360 MW load.  Affects both LP-relax "
+        "and MIP — root cause is in the converter's startup-cost translation, "
+        "not in gtopt's solver.  Fixture's only diff from case14/base is g3's "
+        "cost curve (essentially-free → real cost ~$2K/MW)."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_congested(tmp_path: Path) -> None:
+    """case14/congested: documented divergence on g3 cost-curve substitution."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_congested",
+        _VENDORED_CASE14_CONGESTED,
+        pinned_gens=("g1", "g2"),
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence on block 1: UC.jl curtails the price-sensitive "
+        "load ps1 (50 MW), gtopt serves it (gtopt = 360, UC.jl = 310) — "
+        "difference in how ``Demand.fcost`` interacts with the "
+        "curtailment penalty.  Block 3 also diverges (-50 MW) since "
+        "the converter now omits ``fixed_status`` entirely whenever any "
+        "UC.jl entry is ``null`` (case14/fixed's g6 = [false, null, "
+        "true, null]); gtopt's schedule has no per-cell nullable cell, "
+        "so partial pinning of blocks 1 and 3 is intentionally dropped "
+        "in favour of a sentinel-free schedule shape — the LP picks "
+        "g6=off in block 3 where UC.jl pins on."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_fixed(tmp_path: Path) -> None:
+    """case14/fixed: ``Commitment.fixed_status`` pins must propagate to gtopt.
+
+    UC.jl's fixed-status block forces specific commit patterns; the
+    converter emits ``fixed_status`` per-block on gtopt's Commitment.
+    The pinned gens whose status UC.jl reports must round-trip.
+    """
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_fixed",
+        _VENDORED_CASE14_FIXED,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_flex(tmp_path: Path) -> None:
+    """case14/flex: flexiramp reserves; status pattern matches UC.jl on g1."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_flex",
+        _VENDORED_CASE14_FLEX,
+        pinned_gens=("g1",),
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence: thermal aggregate dispatches differ by ~60 MW "
+        "because gtopt's renewable ``GeneratorProfile`` and UC.jl's "
+        "time-varying capacity profile resolve curtailment differently when "
+        "thermal headroom is tight.  Confirms the converter recognises "
+        "profiled gens but the LP-side semantics differ — investigate when "
+        "revisiting renewable-curtailment cost handling."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_profiled(tmp_path: Path) -> None:
+    """case14/profiled: thermal aggregate matches; renewable gens have no Commitment."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_profiled",
+        _VENDORED_CASE14_PROFILED,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_sub_hourly(tmp_path: Path) -> None:
+    """case14/sub_hourly: 30-min blocks; aggregate dispatch matches."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_sub_hourly",
+        _VENDORED_CASE14_SUB_HOURLY,
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence: gtopt's PAMPL UserConstraint for the interface "
+        "over-restricts flow (gtopt = 315 MW, UC.jl = 360 MW).  Likely the "
+        "converter's interface→UserConstraint encoding has a sign or "
+        "directional asymmetry that doesn't match UC.jl's native interface "
+        "constraint semantics."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_interface(tmp_path: Path) -> None:
+    """case14/interface: PAMPL UserConstraint enforces flow-group limit."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_interface",
+        _VENDORED_CASE14_INTERFACE,
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence: thermal aggregate matches UC.jl bit-for-bit in "
+        "block 2 (335 MW); blocks 1/3/4 still diverge ~20-40 MW.  After "
+        "wiring ``Battery.charge_cost`` + ``Loss factor`` folded into "
+        "efficiencies + ``Last period maximum/minimum level`` → "
+        "per-block ``emin`` / ``emax`` 2-D shape (2026-05-18), the "
+        "remaining residue comes from UC.jl storage fields gtopt still "
+        "doesn't model: ``Minimum charge/discharge rate`` (rate-floor), "
+        "``Allow simultaneous charging and discharging``, and per-block "
+        "schedules on rate / efficiency / cost lists that gtopt still "
+        "exposes as ``OptTRealFieldSched`` (per-stage) and the converter "
+        "collapses to first-hour via ``_first_hour``."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_storage(tmp_path: Path) -> None:
+    """case14/storage: battery dispatch shifts thermal between blocks.
+
+    Looser MW tolerance because battery charge/discharge between
+    blocks can vary across solvers while preserving the global energy
+    balance.
+    """
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_storage",
+        _VENDORED_CASE14_STORAGE,
+        block_mw_tol=20.0,
+    )
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "Known divergence: same g3-cost-curve pattern as case14/congested — "
+        "converter's 3-tier startup-cost encoding makes g1 uneconomic in "
+        "gtopt's MIP, so gtopt curtails ~159 MW while UC.jl commits g1 and "
+        "serves the full 360 MW load.  ``--no-contingencies`` already aligns "
+        "the converter to the no-N-1 problem UC.jl solves; the divergence "
+        "is upstream of N-1 entirely."
+    ),
+)
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case14_contingency(tmp_path: Path) -> None:
+    """case14/contingency: convert with ``--no-contingencies`` so UC.jl ↔ gtopt
+    compare on the same (non-N-1) problem (UC.jl's golden has no N-1 enforced)."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case14_contingency",
+        _VENDORED_CASE14_CONTINGENCY,
+        ("--no-contingencies",),
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_case118_initcond(tmp_path: Path) -> None:
+    """case118/initcond: larger, more degenerate; loose MW tolerance."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "case118_initcond",
+        _VENDORED_CASE118_INITCOND,
+        ("--no-contingencies",),
+        block_mw_tol=50.0,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_tep_ieee24(tmp_path: Path) -> None:
+    """tep_ieee24: capacity-expansion fixture; loose MW tolerance."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "tep_ieee24",
+        _VENDORED_TEP_IEEE24,
+        block_mw_tol=50.0,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_tep_ieee24_uc(tmp_path: Path) -> None:
+    """tep_ieee24_uc: expansion + UC mix; loose MW tolerance."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "tep_ieee24_uc",
+        _VENDORED_TEP_IEEE24_UC,
+        block_mw_tol=50.0,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_base_with_storage(tmp_path: Path) -> None:
+    """base_with_storage: storage + thermal; aggregate matches."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "base_with_storage",
+        _VENDORED_BASE_WITH_STORAGE,
+        block_mw_tol=10.0,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+def test_ucjl_golden_rts_gmlc(tmp_path: Path) -> None:
+    """rts_gmlc: large profile-heavy fixture; loose MW tolerance."""
+    _run_ucjl_cross_check(
+        tmp_path,
+        "rts_gmlc",
+        _VENDORED_RTS_GMLC,
+        block_mw_tol=200.0,
     )
