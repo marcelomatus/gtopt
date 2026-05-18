@@ -499,12 +499,14 @@ inline void apply_cli_options(
     const std::optional<std::string>& lp_compression = {},
     const std::optional<double>& lp_coeff_ratio_threshold = {})
 {
+  // Post-§11 (2026-05-17): write into `model_options` since the
+  // legacy top-level mirrors on `PlanningOptions` were removed.
   if (use_single_bus) {
-    planning.options.use_single_bus = use_single_bus;
+    planning.options.model_options.use_single_bus = use_single_bus;
   }
 
   if (use_kirchhoff) {
-    planning.options.use_kirchhoff = use_kirchhoff;
+    planning.options.model_options.use_kirchhoff = use_kirchhoff;
   }
 
   if (output_directory) {

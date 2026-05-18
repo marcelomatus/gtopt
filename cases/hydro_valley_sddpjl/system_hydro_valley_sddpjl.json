@@ -3,71 +3,180 @@
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "demand_fail_cost": 1000,
-    "scale_objective": 1,
-    "use_single_bus": true
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 1000
+    }
   },
   "simulation": {
     "block_array": [
-      {"uid": 1, "duration": 1.0},
-      {"uid": 2, "duration": 1.0},
-      {"uid": 3, "duration": 1.0}
+      {
+        "uid": 1,
+        "duration": 1.0
+      },
+      {
+        "uid": 2,
+        "duration": 1.0
+      },
+      {
+        "uid": 3,
+        "duration": 1.0
+      }
     ],
     "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 3}
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 3
+      }
     ],
     "scenario_array": [
-      {"uid": 0, "probability_factor": 1}
+      {
+        "uid": 0,
+        "probability_factor": 1
+      }
     ]
   },
   "system": {
     "name": "HydroValleySDDPjl",
     "bus_array": [
-      {"uid": 1, "name": "b1"}
+      {
+        "uid": 1,
+        "name": "b1"
+      }
     ],
     "junction_array": [
-      {"uid": 1, "name": "j_top"},
-      {"uid": 2, "name": "j_mid"},
-      {"uid": 3, "name": "j_bot", "drain": true}
+      {
+        "uid": 1,
+        "name": "j_top"
+      },
+      {
+        "uid": 2,
+        "name": "j_mid"
+      },
+      {
+        "uid": 3,
+        "name": "j_bot",
+        "drain": true
+      }
     ],
     "waterway_array": [
-      {"uid": 1, "name": "ww_turb1", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 70.0},
-      {"uid": 2, "name": "ww_spill1", "junction_a": 1, "junction_b": 2,
-       "fmin": 0.0, "fmax": 10000.0},
-      {"uid": 3, "name": "ww_turb2", "junction_a": 2, "junction_b": 3,
-       "fmin": 0.0, "fmax": 70.0},
-      {"uid": 4, "name": "ww_spill2", "junction_a": 2, "junction_b": 3,
-       "fmin": 0.0, "fmax": 10000.0}
+      {
+        "uid": 1,
+        "name": "ww_turb1",
+        "junction_a": 1,
+        "junction_b": 2,
+        "fmin": 0.0,
+        "fmax": 70.0
+      },
+      {
+        "uid": 2,
+        "name": "ww_spill1",
+        "junction_a": 1,
+        "junction_b": 2,
+        "fmin": 0.0,
+        "fmax": 10000.0
+      },
+      {
+        "uid": 3,
+        "name": "ww_turb2",
+        "junction_a": 2,
+        "junction_b": 3,
+        "fmin": 0.0,
+        "fmax": 70.0
+      },
+      {
+        "uid": 4,
+        "name": "ww_spill2",
+        "junction_a": 2,
+        "junction_b": 3,
+        "fmin": 0.0,
+        "fmax": 10000.0
+      }
     ],
     "reservoir_array": [
-      {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 200.0,
-       "emin": 0.0, "emax": 200.0, "eini": 200.0},
-      {"uid": 2, "name": "rsv2", "junction": 2, "capacity": 200.0,
-       "emin": 0.0, "emax": 200.0, "eini": 200.0}
+      {
+        "uid": 1,
+        "name": "rsv1",
+        "junction": 1,
+        "capacity": 200.0,
+        "emin": 0.0,
+        "emax": 200.0,
+        "eini": 200.0
+      },
+      {
+        "uid": 2,
+        "name": "rsv2",
+        "junction": 2,
+        "capacity": 200.0,
+        "emin": 0.0,
+        "emax": 200.0,
+        "eini": 200.0
+      }
     ],
     "flow_array": [
-      {"uid": 1, "name": "inflow1", "direction": 1, "junction": 1,
-       "discharge": 20.0},
-      {"uid": 2, "name": "inflow2", "direction": 1, "junction": 2,
-       "discharge": 10.0}
+      {
+        "uid": 1,
+        "name": "inflow1",
+        "direction": 1,
+        "junction": 1,
+        "discharge": 20.0
+      },
+      {
+        "uid": 2,
+        "name": "inflow2",
+        "direction": 1,
+        "junction": 2,
+        "discharge": 10.0
+      }
     ],
     "generator_array": [
-      {"uid": 1, "name": "g_hydro1", "bus": 1, "gcost": 0.0,
-       "capacity": 300.0},
-      {"uid": 2, "name": "g_hydro2", "bus": 1, "gcost": 0.0,
-       "capacity": 300.0},
-      {"uid": 3, "name": "g_thermal", "bus": 1, "gcost": 100.0,
-       "capacity": 500.0}
+      {
+        "uid": 1,
+        "name": "g_hydro1",
+        "bus": 1,
+        "gcost": 0.0,
+        "capacity": 300.0
+      },
+      {
+        "uid": 2,
+        "name": "g_hydro2",
+        "bus": 1,
+        "gcost": 0.0,
+        "capacity": 300.0
+      },
+      {
+        "uid": 3,
+        "name": "g_thermal",
+        "bus": 1,
+        "gcost": 100.0,
+        "capacity": 500.0
+      }
     ],
     "turbine_array": [
-      {"uid": 1, "name": "t1", "waterway": 1, "generator": 1,
-       "production_factor": 1.1},
-      {"uid": 2, "name": "t2", "waterway": 3, "generator": 2,
-       "production_factor": 1.1}
+      {
+        "uid": 1,
+        "name": "t1",
+        "waterway": 1,
+        "generator": 1,
+        "production_factor": 1.1
+      },
+      {
+        "uid": 2,
+        "name": "t2",
+        "waterway": 3,
+        "generator": 2,
+        "production_factor": 1.1
+      }
     ],
     "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 100.0}
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": 1,
+        "capacity": 100.0
+      }
     ]
   }
 }

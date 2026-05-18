@@ -125,8 +125,8 @@ TEST_CASE("InertiaZoneLP - basic inertia requirement with provision")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaTest",
@@ -205,8 +205,8 @@ TEST_CASE("InertiaZoneLP - explicit provision_factor")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaExplicitFETest",
@@ -275,7 +275,7 @@ TEST_CASE("InertiaZoneLP - hard requirement (no cost)")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "InertiaHardTest",
@@ -342,8 +342,8 @@ TEST_CASE("InertiaProvisionLP with SimpleCommitment - unified model")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaCommitmentTest",
@@ -408,8 +408,8 @@ TEST_CASE("InertiaProvisionLP - multi-zone provision")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaMultiZoneTest",
@@ -474,8 +474,8 @@ TEST_CASE(
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
   opts.output_directory = tmpdir.string();
 
   const System system = {
@@ -567,7 +567,7 @@ TEST_CASE("InertiaProvisionLP — empty inertia_zones is a no-op (no LP rows)")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -664,8 +664,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaTwoZonePartitioned",
@@ -745,8 +745,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "InertiaOneProviderTwoZones",

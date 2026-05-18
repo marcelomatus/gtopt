@@ -827,7 +827,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
     PlanningOptions popts;
     popts.model_options.demand_fail_cost = 1000.0;
     popts.model_options.scale_objective = 1.0;
-    popts.hydro_fail_cost = 0.0;
+    popts.model_options.hydro_spill_cost = 0.0;
     const PlanningOptionsLP opts {popts};
     SimulationLP simulation_lp(sim, opts);
     SystemLP system_lp(sys, simulation_lp);
@@ -1071,7 +1071,7 @@ TEST_CASE("FlowRight attach_flow edge cases")  // NOLINT
     PlanningOptions popts;
     popts.model_options.demand_fail_cost = 1000.0;
     popts.model_options.scale_objective = 1.0;
-    popts.hydro_fail_cost = 0.0;
+    popts.model_options.hydro_spill_cost = 0.0;
     const PlanningOptionsLP opts {popts};
     SimulationLP simulation_lp(sim, opts);
     SystemLP system_lp(sys, simulation_lp);

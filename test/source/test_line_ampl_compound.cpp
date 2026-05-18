@@ -113,10 +113,10 @@ struct LineAmplFixture
                   std::optional<std::string> line_losses_mode,
                   Array<UserConstraint> user_constraint_array)
   {
-    opts.use_single_bus = use_single_bus;
-    opts.use_kirchhoff = use_kirchhoff;
-    opts.demand_fail_cost = 1000.0;
-    opts.scale_objective = 1.0;
+    opts.model_options.use_single_bus = use_single_bus;
+    opts.model_options.use_kirchhoff = use_kirchhoff;
+    opts.model_options.demand_fail_cost = 1000.0;
+    opts.model_options.scale_objective = 1.0;
 
     simulation = Simulation {
         .block_array = {{.uid = Uid {1}, .duration = 1}},
@@ -862,13 +862,13 @@ TEST_CASE(  // NOLINT
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
   // Pin cycle_basis explicitly so the test does not regress if the
   // default kirchhoff_mode shifts back to node_angle.
   opts.model_options.kirchhoff_mode = OptName {"cycle_basis"};
-  opts.demand_fail_cost = 1000.0;
-  opts.scale_objective = 1.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.scale_objective = 1.0;
   // Disable scale_theta so the cycle row's `row_scale = 1/scale_theta`
   // is 1.0 — coefficients land at their physical `x_τ` value, making
   // the assertion below a direct equality.

@@ -25,7 +25,7 @@ TEST_CASE("CostHelper construction and basic properties")
 TEST_CASE("block_cost calculation")
 {
   PlanningOptions opt;
-  opt.scale_objective = 1.0;
+  opt.model_options.scale_objective = 1.0;
   const PlanningOptionsLP options {opt};
 
   Scenario scenario;
@@ -58,7 +58,7 @@ TEST_CASE("block_cost calculation")
 TEST_CASE("stage_cost calculation")
 {
   PlanningOptions opt;
-  opt.scale_objective = 1.0;
+  opt.model_options.scale_objective = 1.0;
 
   const PlanningOptionsLP options {opt};
 
@@ -107,7 +107,7 @@ TEST_CASE("stage_cost calculation")
 TEST_CASE("scenario_stage_cost calculation")
 {
   PlanningOptions opt;
-  opt.scale_objective = 1.0;
+  opt.model_options.scale_objective = 1.0;
   const PlanningOptionsLP options {opt};
 
   std::vector<Scenario> scenarios(2);
@@ -157,7 +157,7 @@ TEST_CASE("scenario_stage_cost calculation")
 TEST_CASE("Factor matrix generation")
 {
   PlanningOptions opt;
-  opt.scale_objective = 1.0;
+  opt.model_options.scale_objective = 1.0;
   const PlanningOptionsLP options {opt};
 
   std::vector<Scenario> scenarios(2);
@@ -234,7 +234,7 @@ TEST_CASE("CostHelper lazy caching returns same reference")  // NOLINT
 {
   using namespace gtopt;
   PlanningOptions opt;
-  opt.scale_objective = 1.0;
+  opt.model_options.scale_objective = 1.0;
   const PlanningOptionsLP options {opt};
 
   std::vector<Scenario> scenarios(1);

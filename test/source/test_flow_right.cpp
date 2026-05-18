@@ -727,7 +727,7 @@ TEST_CASE(  // NOLINT
   opts.model_options.demand_fail_cost = 1000.0;
   // Belt-and-suspenders: zero out the global hydro_fail_cost so the
   // per-element fall-through cannot accidentally enable a deficit.
-  opts.hydro_fail_cost = 0.0;
+  opts.model_options.hydro_spill_cost = 0.0;
   const PlanningOptionsLP options(opts);
 
   SimulationLP simulation_lp(simulation, options);

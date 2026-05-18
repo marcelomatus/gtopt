@@ -211,9 +211,9 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = OptReal {1000.0};
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = OptReal {1000.0};
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
 
   System system = {
       .name = "bat_sv_test",

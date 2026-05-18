@@ -27,83 +27,179 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 /// Single-bus case with a tight generator capacity constraint to produce a
 /// non-zero dual on the user constraint row.
-static constexpr std::string_view single_bus_uc_dual_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_dual_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "gen_upper",
-        "expression": "generator('g1').generation <= 80",
-        "constraint_type": "power"
+static constexpr std::string_view single_bus_uc_dual_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_dual_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "gen_upper",
+          "expression": "generator('g1').generation <= 80",
+          "constraint_type": "power"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
 // clang-format off
 
 /// Sum with type filter: sum(generator(all, type="thermal").generation).
-static constexpr std::string_view uc_type_filter_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_type_filter",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20,
-       "capacity": 200, "type": "thermal"},
-      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10,
-       "capacity": 100, "type": "solar"}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_thermal_only",
-        "expression": "sum(generator(all, type='thermal').generation) <= 150"
-      },
-      {
-        "uid": 2, "name": "uc_solar_only",
-        "expression": "sum(generator(all, type='solar').generation) <= 80"
+static constexpr std::string_view uc_type_filter_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_type_filter",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200,
+          "type": "thermal"
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 10,
+          "capacity": 100,
+          "type": "solar"
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_thermal_only",
+          "expression": "sum(generator(all, type='thermal').generation) <= 150"
+        },
+        {
+          "uid": 2,
+          "name": "uc_solar_only",
+          "expression": "sum(generator(all, type='solar').generation) <= 80"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -122,40 +218,92 @@ TEST_CASE("User constraint - sum with type filter")
 
 /// F4: sum with new-style `sum(... : pred and pred)` multi-predicate filter.
 /// Only generators of type=thermal at bus=1 are summed — here just g1.
-static constexpr std::string_view uc_f4_multi_pred_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_f4_multi_pred",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20,
-       "capacity": 200, "type": "thermal"},
-      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10,
-       "capacity": 100, "type": "solar"}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_f4_thermal_at_b1",
-        "expression": "sum(generator(all : type='thermal' and bus=1).generation) <= 150"
+static constexpr std::string_view uc_f4_multi_pred_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_f4_multi_pred",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200,
+          "type": "thermal"
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 10,
+          "capacity": 100,
+          "type": "solar"
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_f4_thermal_at_b1",
+          "expression": "sum(generator(all : type='thermal' and bus=1).generation) <= 150"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -191,66 +339,125 @@ TEST_CASE("User constraint - F4 multi-predicate sum filter (new syntax)")
 
 /// System with a converter (battery + generator + demand) and user constraints
 /// referencing converter discharge and charge attributes.
-static constexpr std::string_view uc_converter_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_converter",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "gen_charge", "bus": 1, "gcost": 10, "capacity": 200},
-      {"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "dem_discharge", "bus": 1, "capacity": 100},
-      {"uid": 2, "name": "d_load", "bus": 1, "capacity": 50}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1",
-        "input_efficiency": 0.95, "output_efficiency": 0.95,
-        "emin": 0, "emax": 100, "eini": 50,
-        "pmax_charge": 100, "pmax_discharge": 100,
-        "gcost": 0, "capacity": 100
+static constexpr std::string_view uc_converter_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "converter_array": [
-      {
-        "uid": 1, "name": "conv1",
-        "battery": 1, "generator": 1, "demand": 1,
-        "capacity": 200
-      }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_conv_discharge",
-        "expression": "converter('conv1').discharge <= 150"
-      },
-      {
-        "uid": 2, "name": "uc_conv_charge",
-        "expression": "converter('conv1').charge <= 80"
-      },
-      {
-        "uid": 3, "name": "uc_sum_conv_all",
-        "expression": "sum(converter(all).discharge) <= 180"
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_converter",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "gen_charge",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "thermal",
+          "bus": 1,
+          "gcost": 100,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "dem_discharge",
+          "bus": 1,
+          "capacity": 100
+        },
+        {
+          "uid": 2,
+          "name": "d_load",
+          "bus": 1,
+          "capacity": 50
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bat1",
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "emin": 0,
+          "emax": 100,
+          "eini": 50,
+          "pmax_charge": 100,
+          "pmax_discharge": 100,
+          "gcost": 0,
+          "capacity": 100
+        }
+      ],
+      "converter_array": [
+        {
+          "uid": 1,
+          "name": "conv1",
+          "battery": 1,
+          "generator": 1,
+          "demand": 1,
+          "capacity": 200
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_conv_discharge",
+          "expression": "converter('conv1').discharge <= 150"
+        },
+        {
+          "uid": 2,
+          "name": "uc_conv_charge",
+          "expression": "converter('conv1').charge <= 80"
+        },
+        {
+          "uid": 3,
+          "name": "uc_sum_conv_all",
+          "expression": "sum(converter(all).discharge) <= 180"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -272,69 +479,157 @@ TEST_CASE("User constraint - converter discharge and charge attributes")
 /// junction chain: j1 -> ww1 -> j_down, with a second waterway ww_filt from
 /// j1 -> j_down carrying the seepage flow.  Both inflow and seepage feed
 /// junction j1, and j_down drains everything.
-static constexpr std::string_view uc_seepage_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_seepage",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "hg1", "bus": 1, "gcost": 5, "capacity": 200},
-      {"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-    ],
-    "junction_array": [
-      {"uid": 1, "name": "j1"},
-      {"uid": 2, "name": "j_down", "drain": true}
-    ],
-    "waterway_array": [
-      {"uid": 1, "name": "ww1", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 500},
-      {"uid": 2, "name": "ww_filt", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 100}
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow1", "direction": 1, "junction": 1, "discharge": 20}
-    ],
-    "reservoir_array": [
-      {"uid": 1, "name": "rsv1", "junction": 1, "capacity": 1000, "emin": 0, "emax": 1000, "eini": 500}
-    ],
-    "turbine_array": [
-      {"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}
-    ],
-    "reservoir_seepage_array": [
-      {
-        "uid": 1, "name": "filt1",
-        "waterway": 2, "reservoir": 1,
-        "slope": 0.02, "constant": 0.5
+static constexpr std::string_view uc_seepage_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_filt_flow",
-        "expression": "seepage('filt1').flow <= 80"
-      },
-      {
-        "uid": 3, "name": "uc_sum_filt_all",
-        "expression": "sum(seepage(all).flow) <= 100"
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_seepage",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "hg1",
+          "bus": 1,
+          "gcost": 5,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "thermal",
+          "bus": 1,
+          "gcost": 100,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50
+        }
+      ],
+      "junction_array": [
+        {
+          "uid": 1,
+          "name": "j1"
+        },
+        {
+          "uid": 2,
+          "name": "j_down",
+          "drain": true
+        }
+      ],
+      "waterway_array": [
+        {
+          "uid": 1,
+          "name": "ww1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0,
+          "fmax": 500
+        },
+        {
+          "uid": 2,
+          "name": "ww_filt",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0,
+          "fmax": 100
+        }
+      ],
+      "flow_array": [
+        {
+          "uid": 1,
+          "name": "inflow1",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 20
+        }
+      ],
+      "reservoir_array": [
+        {
+          "uid": 1,
+          "name": "rsv1",
+          "junction": 1,
+          "capacity": 1000,
+          "emin": 0,
+          "emax": 1000,
+          "eini": 500
+        }
+      ],
+      "turbine_array": [
+        {
+          "uid": 1,
+          "name": "tur1",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }
+      ],
+      "reservoir_seepage_array": [
+        {
+          "uid": 1,
+          "name": "filt1",
+          "waterway": 2,
+          "reservoir": 1,
+          "slope": 0.02,
+          "constant": 0.5
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_filt_flow",
+          "expression": "seepage('filt1').flow <= 80"
+        },
+        {
+          "uid": 3,
+          "name": "uc_sum_filt_all",
+          "expression": "sum(seepage(all).flow) <= 100"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -461,37 +756,79 @@ TEST_CASE(
 /// Syntax: "10 <= generator(...).generation <= 150" or equivalent.
 /// The ConstraintParser should produce ConstraintType::RANGE with
 /// lower_bound and upper_bound.
-static constexpr std::string_view uc_range_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_range",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_range_bound",
-        "expression": "10 <= generator('g1').generation <= 150"
+static constexpr std::string_view uc_range_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_range",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_range_bound",
+          "expression": "10 <= generator('g1').generation <= 150"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -512,86 +849,140 @@ TEST_CASE("User constraint - RANGE constraint type (double-sided bound)")
 /// The existing unknown_ref test uses "widget" which does not match any known
 /// type, triggering the catch-based path. This test ensures the warning path
 /// for truly unknown element types is reached.
-static constexpr std::string_view uc_demand_unknown_attr_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "constraint_mode": "normal"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_demand_unknown_attr",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_demand_bogus_attr",
-        "expression": "demand('d1').bogus_attr <= 100"
-      },
-      {
-        "uid": 2, "name": "uc_line_bogus_attr",
-        "expression": "line('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 3, "name": "uc_battery_bogus_attr",
-        "expression": "battery('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 4, "name": "uc_reservoir_bogus_attr",
-        "expression": "reservoir('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 5, "name": "uc_bus_bogus_attr",
-        "expression": "bus('nonexistent').power <= 100"
-      },
-      {
-        "uid": 6, "name": "uc_junction_bogus",
-        "expression": "junction('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 7, "name": "uc_flow_bogus",
-        "expression": "flow('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 8, "name": "uc_waterway_bogus",
-        "expression": "waterway('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 9, "name": "uc_turbine_bogus",
-        "expression": "turbine('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 10, "name": "uc_converter_bogus",
-        "expression": "converter('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 11, "name": "uc_seepage_bogus",
-        "expression": "seepage('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 12, "name": "uc_reserve_provision_bogus",
-        "expression": "reserve_provision('nonexistent').bogus <= 100"
-      },
-      {
-        "uid": 13, "name": "uc_reserve_zone_bogus",
-        "expression": "reserve_zone('nonexistent').bogus <= 100"
+static constexpr std::string_view uc_demand_unknown_attr_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "constraint_mode": "normal",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_demand_unknown_attr",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_demand_bogus_attr",
+          "expression": "demand('d1').bogus_attr <= 100"
+        },
+        {
+          "uid": 2,
+          "name": "uc_line_bogus_attr",
+          "expression": "line('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 3,
+          "name": "uc_battery_bogus_attr",
+          "expression": "battery('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 4,
+          "name": "uc_reservoir_bogus_attr",
+          "expression": "reservoir('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 5,
+          "name": "uc_bus_bogus_attr",
+          "expression": "bus('nonexistent').power <= 100"
+        },
+        {
+          "uid": 6,
+          "name": "uc_junction_bogus",
+          "expression": "junction('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 7,
+          "name": "uc_flow_bogus",
+          "expression": "flow('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 8,
+          "name": "uc_waterway_bogus",
+          "expression": "waterway('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 9,
+          "name": "uc_turbine_bogus",
+          "expression": "turbine('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 10,
+          "name": "uc_converter_bogus",
+          "expression": "converter('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 11,
+          "name": "uc_seepage_bogus",
+          "expression": "seepage('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 12,
+          "name": "uc_reserve_provision_bogus",
+          "expression": "reserve_provision('nonexistent').bogus <= 100"
+        },
+        {
+          "uid": 13,
+          "name": "uc_reserve_zone_bogus",
+          "expression": "reserve_zone('nonexistent').bogus <= 100"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -614,45 +1005,110 @@ TEST_CASE(
 /// Exercise the named-parameter (UserParamMap) resolution path in
 /// user_constraint_lp.cpp (resolve_param + param_shift accumulation for both
 /// scalar and monthly-indexed parameters).
-static constexpr std::string_view uc_named_param_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "active": 1, "first_block": 0, "count_block": 1, "month": "april"}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_named_param",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 20, "capacity": 500}
-    ],
-    "user_param_array": [
-      {"name": "pct_elec", "value": 35.0},
-      {"name": "irr_seasonal", "monthly": [0, 0, 0, 100, 100, 100, 100, 100, 100, 100, 0, 0]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_scalar_param",
-        "expression": "generator('g1').generation <= pct_elec + 200"
-      },
-      {
-        "uid": 2, "name": "uc_monthly_param",
-        "expression": "generator('g1').generation <= irr_seasonal + 150"
+static constexpr std::string_view uc_named_param_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "active": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "month": "april"
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_named_param",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 500,
+          "gcost": 20,
+          "capacity": 500
+        }
+      ],
+      "user_param_array": [
+        {
+          "name": "pct_elec",
+          "value": 35.0
+        },
+        {
+          "name": "irr_seasonal",
+          "monthly": [
+            0,
+            0,
+            0,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            0,
+            0
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_scalar_param",
+          "expression": "generator('g1').generation <= pct_elec + 200"
+        },
+        {
+          "uid": 2,
+          "name": "uc_monthly_param",
+          "expression": "generator('g1').generation <= irr_seasonal + 150"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -673,38 +1129,82 @@ TEST_CASE("User constraint - named parameter resolution (scalar + monthly)")
 
 /// Same case but with constraint_mode = "normal" → the unknown parameter
 /// emits a warning and the term is skipped (no throw).
-static constexpr std::string_view uc_normal_unknown_param_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "constraint_mode": "normal"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "uc_normal_unknown_param",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_missing_param_normal",
-        "expression": "generator('g1').generation <= nonexistent_param + 180"
+static constexpr std::string_view uc_normal_unknown_param_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "constraint_mode": "normal",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_normal_unknown_param",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_missing_param_normal",
+          "expression": "generator('g1').generation <= nonexistent_param + 180"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -724,36 +1224,77 @@ TEST_CASE(
 // ── F5: abs(x) lowering — end-to-end planning smoke tests ───────────────
 
 // clang-format off
-static constexpr std::string_view uc_abs_ok_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_abs_ok",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "abs_cap",
-        "expression": "abs(generator('g1').generation - 50) <= 50"
+static constexpr std::string_view uc_abs_ok_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_abs_ok",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              50.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "abs_cap",
+          "expression": "abs(generator('g1').generation - 50) <= 50"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE("User constraint - F5 abs(x) lowering (convex <=) solves")
@@ -769,36 +1310,77 @@ TEST_CASE("User constraint - F5 abs(x) lowering (convex <=) solves")
 }
 
 // clang-format off
-static constexpr std::string_view uc_abs_nonconvex_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "constraint_mode": "strict"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_abs_bad",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "abs_nonconvex",
-        "expression": "abs(generator('g1').generation) >= 10"
+static constexpr std::string_view uc_abs_nonconvex_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "constraint_mode": "strict",
+      "model_options": {
+        "use_single_bus": true,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_abs_bad",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              50.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "abs_nonconvex",
+          "expression": "abs(generator('g1').generation) >= 10"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE("User constraint - F5 non-convex abs(x) >= k is rejected")
@@ -817,37 +1399,86 @@ TEST_CASE("User constraint - F5 non-convex abs(x) >= k is rejected")
 // ── F7: min/max(arg1, arg2, ...) lowering ───────────────────────────────
 
 // clang-format off
-static constexpr std::string_view uc_max_ok_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_max_ok",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100},
-      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 10, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[120.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "max_cap",
-        "expression": "max(generator('g1').generation, generator('g2').generation) <= 80"
+static constexpr std::string_view uc_max_ok_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_max_ok",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 10,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              120.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "max_cap",
+          "expression": "max(generator('g1').generation, generator('g2').generation) <= 80"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE("User constraint - F7 max(a,b) <= k lowers and solves")
@@ -863,37 +1494,86 @@ TEST_CASE("User constraint - F7 max(a,b) <= k lowers and solves")
 }
 
 // clang-format off
-static constexpr std::string_view uc_min_ok_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_min_ok",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100},
-      {"uid": 2, "name": "g2", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 25, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "min_floor",
-        "expression": "min(generator('g1').generation, generator('g2').generation) >= 5"
+static constexpr std::string_view uc_min_ok_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_min_ok",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 25,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "min_floor",
+          "expression": "min(generator('g1').generation, generator('g2').generation) >= 5"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE("User constraint - F7 min(a,b) >= k lowers and solves")
@@ -911,39 +1591,85 @@ TEST_CASE("User constraint - F7 min(a,b) >= k lowers and solves")
 // ── F8: if-then-else data-only conditional ──────────────────────────────
 
 // clang-format off
-static constexpr std::string_view uc_if_stage_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1},
-      {"uid": 2, "first_block": 0, "count_block": 1}
-    ],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_if_stage",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[40.0], [40.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "if_by_stage",
-        "expression": "if stage = 1 then (generator('g1').generation) else (generator('g1').generation) <= 60"
+static constexpr std::string_view uc_if_stage_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_if_stage",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              40.0
+            ],
+            [
+              40.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "if_by_stage",
+          "expression": "if stage = 1 then (generator('g1').generation) else (generator('g1').generation) <= 60"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE(
@@ -987,43 +1713,91 @@ TEST_CASE(
 // ── F5: abs() over a line.flow pseudo-attribute expands cleanly ─────────
 
 // clang-format off
-static constexpr std::string_view uc_abs_line_flow_json = R"json({
-  "options": {
-    "output_compression": "uncompressed",
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "uc_abs_line_flow",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.1, "tmax_ab": 100, "tmax_ba": 100}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100,
-       "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b2", "lmax": [[50.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "cap_abs_flow",
-        "expression": "abs(line('l1').flow) <= 100"
+static constexpr std::string_view uc_abs_line_flow_json = R"json(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "uc_abs_line_flow",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.1,
+          "tmax_ab": 100,
+          "tmax_ba": 100
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b2",
+          "lmax": [
+            [
+              50.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "cap_abs_flow",
+          "expression": "abs(line('l1').flow) <= 100"
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 TEST_CASE("User constraint - F5 abs(line.flow) lowers via flowp - flown")
@@ -1052,79 +1826,165 @@ TEST_CASE("User constraint - F5 abs(line.flow) lowers via flowp - flown")
 /// the slack penalty over forgoing dispatch — slack > 0, problem still
 /// feasible.  Without the soft sugar this would either force load
 /// curtailment or refuse to relax the bound.
-static constexpr std::string_view soft_le_uc_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "soft_le_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "soft_cap",
-        "expression": "generator('g1').generation <= 50",
-        "constraint_type": "raw",
-        "penalty": 5
+static constexpr std::string_view soft_le_uc_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "soft_le_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "soft_cap",
+          "expression": "generator('g1').generation <= 50",
+          "constraint_type": "raw",
+          "penalty": 5
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 /// Soft `=` constraint: an equality with two slacks.  Demand of 90
 /// MW would normally be split between dispatch and demand failure,
 /// but the soft equality `gen = 70` introduces both slacks so the
 /// optimizer can deviate either way at penalty cost.
-static constexpr std::string_view soft_eq_uc_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "soft_eq_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "soft_target",
-        "expression": "generator('g1').generation = 70",
-        "constraint_type": "raw",
-        "penalty": 1
+static constexpr std::string_view soft_eq_uc_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "soft_eq_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "soft_target",
+          "expression": "generator('g1').generation = 70",
+          "constraint_type": "raw",
+          "penalty": 1
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 
@@ -1234,78 +2094,164 @@ TEST_CASE("User constraint - soft slack columns appear in CSV output")
 /// which is well above demand_fail_cost=1000 — so the LP should
 /// *refuse* to relax the cap and fall back on demand failure, instead
 /// of the raw-mode behavior that relaxes at a flat cost of 5.
-static constexpr std::string_view soft_le_hydro_flow_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "soft_le_hydro_flow_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "soft_cap",
-        "expression": "generator('g1').generation <= 50",
-        "constraint_type": "raw",
-        "penalty": 5,
-        "penalty_class": "hydro_flow"
+static constexpr std::string_view soft_le_hydro_flow_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "soft_le_hydro_flow_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "soft_cap",
+          "expression": "generator('g1').generation <= 50",
+          "constraint_type": "raw",
+          "penalty": 5,
+          "penalty_class": "hydro_flow"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 /// Invalid `penalty_class` string — the constructor must reject it
 /// hard rather than silently falling back to `raw`.
-static constexpr std::string_view soft_le_bad_class_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "soft_le_bad_class_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 100, "gcost": 20, "capacity": 100}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[90.0]]}
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1,
-        "name": "soft_cap",
-        "expression": "generator('g1').generation <= 50",
-        "penalty": 5,
-        "penalty_class": "not_a_real_class"
+static constexpr std::string_view soft_le_bad_class_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "soft_le_bad_class_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 100,
+          "gcost": 20,
+          "capacity": 100
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "soft_cap",
+          "expression": "generator('g1').generation <= 50",
+          "penalty": 5,
+          "penalty_class": "not_a_real_class"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 

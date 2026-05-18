@@ -41,7 +41,7 @@ TEST_CASE(  // NOLINT
   auto planning = make_3phase_hydro_planning();
   // Scale_objective != 1 so the dual round-trip's scale_obj factor
   // matters.  Without this the contract degenerates to identity.
-  planning.options.scale_objective = OptReal {1000.0};
+  planning.options.model_options.scale_objective = OptReal {1000.0};
   // Force eager backend so we can read get_row_dual without an
   // intermediate release/reload cycle masking the dual value.
   planning.options.sddp_options.low_memory_mode = LowMemoryMode::off;

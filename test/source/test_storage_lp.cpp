@@ -66,7 +66,7 @@ auto make_battery_system(const Array<Battery>& battery_array,
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = demand_fail_cost;
+  opts.model_options.demand_fail_cost = demand_fail_cost;
   opts.variable_scales = std::move(variable_scales);
 
   auto options = PlanningOptionsLP {opts};
@@ -705,7 +705,7 @@ TEST_CASE(  // NOLINT
   // Before the fix, both eini and soft_emin slack used variable_name
   // "energy" with stage context, producing identical names.
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   popts.lp_matrix_options.col_with_names = true;
   popts.lp_matrix_options.row_with_names = true;
   popts.lp_matrix_options.col_with_name_map = true;

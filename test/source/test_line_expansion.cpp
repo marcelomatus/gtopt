@@ -91,9 +91,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = false;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_line_losses = false;
   const PlanningOptionsLP options_lp(opts);
 
   // Nominal tap test
@@ -190,11 +190,11 @@ TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = false;
-  opts.scale_objective = 1000.0;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
 
   System system = {
@@ -301,11 +301,11 @@ TEST_CASE("LineLP - quadratic losses with capacity expansion")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "QuadLossExpansion",
@@ -411,10 +411,10 @@ TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.scale_objective = 1000.0;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LinLossExpansion",
@@ -528,9 +528,9 @@ TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
 
   const System system = {
       .name = "MultiStageQuadExpansion",
@@ -634,9 +634,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_line_losses = true;
 
   System system = {
       .name = "QuadKirchhoffExpansion",
@@ -740,10 +740,10 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = false;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LineCapainstLowerBound",
@@ -883,10 +883,10 @@ TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "LineCongestionRent",

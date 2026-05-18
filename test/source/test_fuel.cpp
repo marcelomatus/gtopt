@@ -625,8 +625,8 @@ TEST_CASE("PAMPL — fuel('gas').price resolves as scalar parameter")  // NOLINT
           // Use the param as an additive term — `resolve_single_param`
           // moves it to the RHS via `param_shift`, so this resolves to
           // `load <= 50` (= 55 − 5).  Mirrors the
-          // `options.scale_objective` pattern used elsewhere in the
-          // user-constraint suite.
+          // `options.model_options.scale_objective` pattern used elsewhere in
+          // the user-constraint suite.
           .expression = "demand('d1').load + fuel('gas').price <= 55",
       },
   };

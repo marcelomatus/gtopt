@@ -190,8 +190,8 @@ TEST_CASE("apply_cli_options - no options applied")
                     std::nullopt,
                     std::nullopt);
 
-  CHECK_FALSE(planning.options.use_single_bus.has_value());
-  CHECK_FALSE(planning.options.use_kirchhoff.has_value());
+  CHECK_FALSE(planning.options.model_options.use_single_bus.has_value());
+  CHECK_FALSE(planning.options.model_options.use_kirchhoff.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
@@ -210,13 +210,13 @@ TEST_CASE("apply_cli_options - all options applied")
                     std::optional<std::string>("csv"),
                     std::optional<std::string>("gzip"));
 
-  REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK((planning.options.use_single_bus
-         && *planning.options.use_single_bus == true));
+  REQUIRE(planning.options.model_options.use_single_bus.has_value());
+  CHECK((planning.options.model_options.use_single_bus
+         && *planning.options.model_options.use_single_bus == true));
 
-  REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK((planning.options.use_kirchhoff
-         && *planning.options.use_kirchhoff == false));
+  REQUIRE(planning.options.model_options.use_kirchhoff.has_value());
+  CHECK((planning.options.model_options.use_kirchhoff
+         && *planning.options.model_options.use_kirchhoff == false));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -251,11 +251,11 @@ TEST_CASE("apply_cli_options - partial options applied")
                     std::nullopt,
                     std::nullopt);
 
-  REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK((planning.options.use_single_bus
-         && *planning.options.use_single_bus == true));
+  REQUIRE(planning.options.model_options.use_single_bus.has_value());
+  CHECK((planning.options.model_options.use_single_bus
+         && *planning.options.model_options.use_single_bus == true));
 
-  CHECK_FALSE(planning.options.use_kirchhoff.has_value());
+  CHECK_FALSE(planning.options.model_options.use_kirchhoff.has_value());
 
   REQUIRE(planning.options.output_directory.has_value());
   CHECK((planning.options.output_directory
@@ -268,7 +268,7 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
 {
   Planning planning {};
   planning.options.output_directory = "original_dir";
-  planning.options.use_kirchhoff = true;
+  planning.options.model_options.use_kirchhoff = true;
 
   apply_cli_options(planning,
                     std::nullopt,
@@ -283,9 +283,9 @@ TEST_CASE("apply_cli_options - does not overwrite existing when nullopt")
   CHECK((planning.options.output_directory
          && *planning.options.output_directory == "original_dir"));
 
-  REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK((planning.options.use_kirchhoff
-         && *planning.options.use_kirchhoff == true));
+  REQUIRE(planning.options.model_options.use_kirchhoff.has_value());
+  CHECK((planning.options.model_options.use_kirchhoff
+         && *planning.options.model_options.use_kirchhoff == true));
 }
 
 TEST_CASE("apply_cli_options - overwrites existing when value provided")
@@ -314,8 +314,8 @@ TEST_CASE("apply_cli_options(MainOptions) - no options applied")
   Planning planning {};
   apply_cli_options(planning, MainOptions {});
 
-  CHECK_FALSE(planning.options.use_single_bus.has_value());
-  CHECK_FALSE(planning.options.use_kirchhoff.has_value());
+  CHECK_FALSE(planning.options.model_options.use_single_bus.has_value());
+  CHECK_FALSE(planning.options.model_options.use_kirchhoff.has_value());
   CHECK_FALSE(planning.options.input_directory.has_value());
   CHECK_FALSE(planning.options.output_directory.has_value());
   CHECK_FALSE(planning.options.output_format.has_value());
@@ -336,13 +336,13 @@ TEST_CASE("apply_cli_options(MainOptions) - all options applied")
                         .use_kirchhoff = false,
                     });
 
-  REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK((planning.options.use_single_bus
-         && *planning.options.use_single_bus == true));
+  REQUIRE(planning.options.model_options.use_single_bus.has_value());
+  CHECK((planning.options.model_options.use_single_bus
+         && *planning.options.model_options.use_single_bus == true));
 
-  REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK((planning.options.use_kirchhoff
-         && *planning.options.use_kirchhoff == false));
+  REQUIRE(planning.options.model_options.use_kirchhoff.has_value());
+  CHECK((planning.options.model_options.use_kirchhoff
+         && *planning.options.model_options.use_kirchhoff == false));
 
   REQUIRE(planning.options.input_directory.has_value());
   CHECK((planning.options.input_directory
@@ -365,7 +365,7 @@ TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
 {
   Planning planning {};
   planning.options.output_directory = "existing";
-  planning.options.use_kirchhoff = true;
+  planning.options.model_options.use_kirchhoff = true;
 
   apply_cli_options(planning, MainOptions {});
 
@@ -373,9 +373,9 @@ TEST_CASE("apply_cli_options(MainOptions) - does not overwrite when nullopt")
   CHECK((planning.options.output_directory
          && *planning.options.output_directory == "existing"));
 
-  REQUIRE(planning.options.use_kirchhoff.has_value());
-  CHECK((planning.options.use_kirchhoff
-         && *planning.options.use_kirchhoff == true));
+  REQUIRE(planning.options.model_options.use_kirchhoff.has_value());
+  CHECK((planning.options.model_options.use_kirchhoff
+         && *planning.options.model_options.use_kirchhoff == true));
 }
 
 TEST_CASE("apply_cli_options(MainOptions) - overwrites existing when provided")
@@ -495,10 +495,10 @@ TEST_CASE("Integration - parse and extract all option types")
                     output_format,
                     output_compression);
 
-  REQUIRE(planning.options.use_single_bus.has_value());
-  CHECK((planning.options.use_single_bus
-         && *planning.options.use_single_bus == true));
-  CHECK_FALSE(planning.options.use_kirchhoff.has_value());
+  REQUIRE(planning.options.model_options.use_single_bus.has_value());
+  CHECK((planning.options.model_options.use_single_bus
+         && *planning.options.model_options.use_single_bus == true));
+  CHECK_FALSE(planning.options.model_options.use_kirchhoff.has_value());
 
   // Build flat options (enable_names is internal-only, set directly)
   auto flat_opts = make_lp_matrix_options(true, matrix_eps);

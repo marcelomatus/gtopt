@@ -613,7 +613,7 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "BatteryCapainstLowerBound",

@@ -53,7 +53,7 @@ TEST_CASE("write_json_output: round-trips a minimal Planning")  // NOLINT
   PlanningOptions options {};
   options.input_directory = "input";
   options.output_directory = "output";
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
   Planning planning {
       .options = options,
       .simulation =
@@ -260,24 +260,50 @@ TEST_CASE("parse_planning_json: direct string_view entry point")  // NOLINT
   // `daw::json::from_json<Planning>` with StrictParsePolicy.  All the
   // file-based call sites delegate through `parse_planning_files`, so
   // this is the only direct coverage of the string-view overload.
-  constexpr std::string_view json = R"({
-    "options": {"demand_fail_cost": 1234.0},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1.0}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 0}]
-    },
-    "system": {
-      "name": "FROM_STRING",
-      "bus_array": [{"uid": 1, "name": "b1"}]
+  constexpr std::string_view json = R"(
+    {
+      "options": {
+        "model_options": {
+          "demand_fail_cost": 1234.0
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1.0
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 0
+          }
+        ]
+      },
+      "system": {
+        "name": "FROM_STRING",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const Planning planning = parse_planning_json(json);
   CHECK(planning.system.name == "FROM_STRING");
   REQUIRE(planning.system.bus_array.size() == 1);
   CHECK(planning.system.bus_array.front().name == "b1");
-  CHECK(planning.options.demand_fail_cost.value_or(0.0)
+  CHECK(planning.options.model_options.demand_fail_cost.value_or(0.0)
         == doctest::Approx(1234.0));
 }
 

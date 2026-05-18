@@ -45,51 +45,161 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 auto make_theta_uc_json(double scale_theta_val) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "scale_theta": {},
-    "use_kirchhoff": true
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "theta_scale_uc_test",
-    "bus_array": [
-      {{"uid": 1, "name": "b1"}}, {{"uid": 2, "name": "b2"}},
-      {{"uid": 3, "name": "b3"}}, {{"uid": 4, "name": "b4"}}
-    ],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20, "capacity": 300}},
-      {{"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 35, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d3", "bus": "b3", "lmax": [[150.0]]}},
-      {{"uid": 2, "name": "d4", "bus": "b4", "lmax": [[100.0]]}}
-    ],
-    "line_array": [
-      {{"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.03, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 4, "name": "l2_4", "bus_a": "b2", "bus_b": "b4", "reactance": 0.02, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 5, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.03, "tmax_ab": 150, "tmax_ba": 150}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_theta_limit",
-        "expression": "bus('b2').theta <= 1.0"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000,
+        "scale_theta": {},
+        "use_kirchhoff": true
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "theta_scale_uc_test",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }},
+        {{
+          "uid": 2,
+          "name": "b2"
+        }},
+        {{
+          "uid": 3,
+          "name": "b3"
+        }},
+        {{
+          "uid": 4,
+          "name": "b4"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20,
+          "capacity": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 35,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }},
+        {{
+          "uid": 2,
+          "name": "d4",
+          "bus": "b4",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }}
+      ],
+      "line_array": [
+        {{
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "l1_3",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 3,
+          "name": "l2_3",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.03,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 4,
+          "name": "l2_4",
+          "bus_a": "b2",
+          "bus_b": "b4",
+          "reactance": 0.02,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 5,
+          "name": "l3_4",
+          "bus_a": "b3",
+          "bus_b": "b4",
+          "reactance": 0.03,
+          "tmax_ab": 150,
+          "tmax_ba": 150
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_theta_limit",
+          "expression": "bus('b2').theta <= 1.0"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       scale_theta_val);
 }
 
@@ -131,52 +241,134 @@ TEST_CASE(  // NOLINT
   // With a very tight theta constraint (0.001 rad ≈ 0), bus angles are
   // essentially locked.  This should change the dispatch pattern.
   auto json_tight = std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "scale_theta": 0.0001,
-    "use_kirchhoff": true
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "theta_tight_uc",
-    "bus_array": [
-      {{"uid": 1, "name": "b1"}}, {{"uid": 2, "name": "b2"}},
-      {{"uid": 3, "name": "b3"}}
-    ],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20, "capacity": 300}},
-      {{"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 50, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d3", "bus": "b3", "lmax": [[200.0]]}}
-    ],
-    "line_array": [
-      {{"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.05, "tmax_ab": 100, "tmax_ba": 100}},
-      {{"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.05, "tmax_ab": 100, "tmax_ba": 100}},
-      {{"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.05, "tmax_ab": 100, "tmax_ba": 100}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_theta_b2_tight",
-        "expression": "bus('b2').theta <= 0.001"
-      }},
-      {{
-        "uid": 2, "name": "uc_theta_b2_lower",
-        "expression": "bus('b2').theta >= -0.001"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000,
+        "scale_theta": 0.0001,
+        "use_kirchhoff": true
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "theta_tight_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }},
+        {{
+          "uid": 2,
+          "name": "b2"
+        }},
+        {{
+          "uid": 3,
+          "name": "b3"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20,
+          "capacity": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 50,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              200.0
+            ]
+          ]
+        }}
+      ],
+      "line_array": [
+        {{
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "tmax_ab": 100,
+          "tmax_ba": 100
+        }},
+        {{
+          "uid": 2,
+          "name": "l1_3",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.05,
+          "tmax_ab": 100,
+          "tmax_ba": 100
+        }},
+        {{
+          "uid": 3,
+          "name": "l2_3",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.05,
+          "tmax_ab": 100,
+          "tmax_ba": 100
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_theta_b2_tight",
+          "expression": "bus('b2').theta <= 0.001"
+        }},
+        {{
+          "uid": 2,
+          "name": "uc_theta_b2_lower",
+          "expression": "bus('b2').theta >= -0.001"
+        }}
+      ]
+    }}
   }}
-}})");
+)");
 
   Planning base;
   base.merge(parse_planning_json(json_tight));
@@ -201,62 +393,147 @@ TEST_CASE(  // NOLINT
 auto make_reservoir_uc_json(double energy_scale_val) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "variable_scales": [
-      {{"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": {}}}
-    ]
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 2}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 2}}],
-    "scenario_array": [{{"uid": 1}}]
-  }},
-  "system": {{
-    "name": "rsv_scale_uc",
-    "bus_array": [{{"uid": 1, "name": "b1"}}],
-    "generator_array": [
-      {{"uid": 1, "name": "hg1", "bus": 1, "gcost": 5, "capacity": 200}},
-      {{"uid": 2, "name": "thermal", "bus": 1, "gcost": 100, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d1", "bus": 1, "capacity": 50}}
-    ],
-    "junction_array": [
-      {{"uid": 1, "name": "j1"}},
-      {{"uid": 2, "name": "j_down", "drain": true}}
-    ],
-    "waterway_array": [
-      {{"uid": 1, "name": "ww1", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 500}}
-    ],
-    "flow_array": [
-      {{"uid": 1, "name": "inflow1", "direction": 1, "junction": 1, "discharge": 20}}
-    ],
-    "reservoir_array": [
-      {{"uid": 1, "name": "rsv1", "junction": 1, "capacity": 1000,
-        "emin": 0, "emax": 1000, "eini": 500}}
-    ],
-    "turbine_array": [
-      {{"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_rsv_vol_upper",
-        "expression": "reservoir('rsv1').energy <= 800"
-      }},
-      {{
-        "uid": 2, "name": "uc_rsv_vol_lower",
-        "expression": "reservoir('rsv1').energy >= 100"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "variable_scales": [
+        {{
+          "class_name": "Reservoir",
+          "variable": "energy",
+          "uid": 1,
+          "scale": {}
+        }}
+      ],
+      "model_options": {{
+        "use_single_bus": true,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }},
+        {{
+          "uid": 2,
+          "duration": 2
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "rsv_scale_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "hg1",
+          "bus": 1,
+          "gcost": 5,
+          "capacity": 200
+        }},
+        {{
+          "uid": 2,
+          "name": "thermal",
+          "bus": 1,
+          "gcost": 100,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50
+        }}
+      ],
+      "junction_array": [
+        {{
+          "uid": 1,
+          "name": "j1"
+        }},
+        {{
+          "uid": 2,
+          "name": "j_down",
+          "drain": true
+        }}
+      ],
+      "waterway_array": [
+        {{
+          "uid": 1,
+          "name": "ww1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0,
+          "fmax": 500
+        }}
+      ],
+      "flow_array": [
+        {{
+          "uid": 1,
+          "name": "inflow1",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 20
+        }}
+      ],
+      "reservoir_array": [
+        {{
+          "uid": 1,
+          "name": "rsv1",
+          "junction": 1,
+          "capacity": 1000,
+          "emin": 0,
+          "emax": 1000,
+          "eini": 500
+        }}
+      ],
+      "turbine_array": [
+        {{
+          "uid": 1,
+          "name": "tur1",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_rsv_vol_upper",
+          "expression": "reservoir('rsv1').energy <= 800"
+        }},
+        {{
+          "uid": 2,
+          "name": "uc_rsv_vol_lower",
+          "expression": "reservoir('rsv1').energy >= 100"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       energy_scale_val);
 }
 
@@ -308,37 +585,81 @@ TEST_CASE(  // NOLINT
 auto make_scale_obj_uc_json(double scale_obj) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 500,
-    "scale_objective": {}
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "scale_obj_uc",
-    "bus_array": [{{"uid": 1, "name": "b1"}}],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d1", "bus": "b1", "lmax": [[100.0]]}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_gen_cap",
-        "expression": "generator('g1').generation <= 80"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": true,
+        "demand_fail_cost": 500,
+        "scale_objective": {}
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "scale_obj_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 20,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_gen_cap",
+          "expression": "generator('g1').generation <= 80"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       scale_obj);
 }
 
@@ -377,57 +698,120 @@ TEST_CASE(  // NOLINT
 auto make_battery_uc_json(double energy_scale_val) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "variable_scales": [
-      {{"class_name": "Battery", "variable": "energy", "uid": 1, "scale": {}}}
-    ]
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 2, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "bat_scale_uc",
-    "bus_array": [{{"uid": 1, "name": "b1"}}],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 30, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d1", "bus": "b1", "lmax": [[80.0, 80.0]]}}
-    ],
-    "battery_array": [
-      {{
-        "uid": 1, "name": "bat1", "bus": "b1",
-        "input_efficiency": 0.9, "output_efficiency": 0.9,
-        "emin": 0, "emax": 100, "eini": 50,
-        "pmax_charge": 50, "pmax_discharge": 50,
-        "gcost": 0, "capacity": 100
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "variable_scales": [
+        {{
+          "class_name": "Battery",
+          "variable": "energy",
+          "uid": 1,
+          "scale": {}
+        }}
+      ],
+      "model_options": {{
+        "use_single_bus": true,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000
       }}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_bat_energy_upper",
-        "expression": "battery('bat1').energy <= 80"
-      }},
-      {{
-        "uid": 2, "name": "uc_bat_charge_limit",
-        "expression": "battery('bat1').charge <= 30"
-      }},
-      {{
-        "uid": 3, "name": "uc_bat_discharge_limit",
-        "expression": "battery('bat1').discharge <= 30"
-      }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }},
+        {{
+          "uid": 2,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "bat_scale_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 30,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              80.0,
+              80.0
+            ]
+          ]
+        }}
+      ],
+      "battery_array": [
+        {{
+          "uid": 1,
+          "name": "bat1",
+          "bus": "b1",
+          "input_efficiency": 0.9,
+          "output_efficiency": 0.9,
+          "emin": 0,
+          "emax": 100,
+          "eini": 50,
+          "pmax_charge": 50,
+          "pmax_discharge": 50,
+          "gcost": 0,
+          "capacity": 100
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_bat_energy_upper",
+          "expression": "battery('bat1').energy <= 80"
+        }},
+        {{
+          "uid": 2,
+          "name": "uc_bat_charge_limit",
+          "expression": "battery('bat1').charge <= 30"
+        }},
+        {{
+          "uid": 3,
+          "name": "uc_bat_discharge_limit",
+          "expression": "battery('bat1').discharge <= 30"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       energy_scale_val);
 }
 
@@ -474,62 +858,147 @@ TEST_CASE(  // NOLINT
 auto make_mixed_scale_uc_json(double energy_scale_val) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "variable_scales": [
-      {{"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": {}}}
-    ]
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}, {{"uid": 2, "duration": 2}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 2}}],
-    "scenario_array": [{{"uid": 1}}]
-  }},
-  "system": {{
-    "name": "mixed_scale_uc",
-    "bus_array": [{{"uid": 1, "name": "b1"}}],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}},
-      {{"uid": 2, "name": "g2", "bus": 1, "gcost": 50, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d1", "bus": 1, "capacity": 100}}
-    ],
-    "junction_array": [
-      {{"uid": 1, "name": "j1"}},
-      {{"uid": 2, "name": "j_down", "drain": true}}
-    ],
-    "waterway_array": [
-      {{"uid": 1, "name": "ww1", "junction_a": 1, "junction_b": 2, "fmin": 0, "fmax": 500}}
-    ],
-    "flow_array": [
-      {{"uid": 1, "name": "inflow1", "direction": 1, "junction": 1, "discharge": 30}}
-    ],
-    "reservoir_array": [
-      {{"uid": 1, "name": "rsv1", "junction": 1, "capacity": 1000,
-        "emin": 0, "emax": 1000, "eini": 500}}
-    ],
-    "turbine_array": [
-      {{"uid": 1, "name": "tur1", "waterway": 1, "generator": 1, "production_factor": 1.0}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_sum_gen",
-        "expression": "sum(generator(all).generation) <= 180"
-      }},
-      {{
-        "uid": 2, "name": "uc_rsv_vol",
-        "expression": "reservoir('rsv1').energy <= 600"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "variable_scales": [
+        {{
+          "class_name": "Reservoir",
+          "variable": "energy",
+          "uid": 1,
+          "scale": {}
+        }}
+      ],
+      "model_options": {{
+        "use_single_bus": true,
+        "demand_fail_cost": 1000,
+        "scale_objective": 1000
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }},
+        {{
+          "uid": 2,
+          "duration": 2
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "mixed_scale_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": 1,
+          "gcost": 50,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 100
+        }}
+      ],
+      "junction_array": [
+        {{
+          "uid": 1,
+          "name": "j1"
+        }},
+        {{
+          "uid": 2,
+          "name": "j_down",
+          "drain": true
+        }}
+      ],
+      "waterway_array": [
+        {{
+          "uid": 1,
+          "name": "ww1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0,
+          "fmax": 500
+        }}
+      ],
+      "flow_array": [
+        {{
+          "uid": 1,
+          "name": "inflow1",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 30
+        }}
+      ],
+      "reservoir_array": [
+        {{
+          "uid": 1,
+          "name": "rsv1",
+          "junction": 1,
+          "capacity": 1000,
+          "emin": 0,
+          "emax": 1000,
+          "eini": 500
+        }}
+      ],
+      "turbine_array": [
+        {{
+          "uid": 1,
+          "name": "tur1",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_sum_gen",
+          "expression": "sum(generator(all).generation) <= 180"
+        }},
+        {{
+          "uid": 2,
+          "name": "uc_rsv_vol",
+          "expression": "reservoir('rsv1').energy <= 600"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       energy_scale_val);
 }
 
@@ -582,9 +1051,11 @@ auto make_ctype_scale_json(double scale_obj,
     "annual_discount_rate": 0.1,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 500,
-    "scale_objective": {}
+    "model_options": {{
+      "use_single_bus": true,
+      "scale_objective": {},
+      "demand_fail_cost": 500
+    }}
   }},
   "simulation": {{
     "block_array": [{{"uid": 1, "duration": 1}}],
@@ -650,47 +1121,107 @@ auto make_line_uc_json(double scale_theta_val,
                        double scale_obj) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": {},
-    "scale_theta": {},
-    "use_kirchhoff": true
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "line_flow_scale_uc",
-    "bus_array": [
-      {{"uid": 1, "name": "b1"}},
-      {{"uid": 2, "name": "b2"}}
-    ],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 10, "capacity": 300}},
-      {{"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 50, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d2", "bus": "b2", "lmax": [[150.0]]}}
-    ],
-    "line_array": [
-      {{"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-        "reactance": 0.05, "tmax_ab": 300, "tmax_ba": 300}}
-    ],
-    "user_constraint_array": [
-      {{
-        "uid": 1, "name": "uc_line_flow_limit",
-        "expression": "line('l1_2').flow <= 100"
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": {},
+        "scale_theta": {},
+        "use_kirchhoff": true
       }}
-    ]
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "line_flow_scale_uc",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }},
+        {{
+          "uid": 2,
+          "name": "b2"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 10,
+          "capacity": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 50,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d2",
+          "bus": "b2",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }}
+      ],
+      "line_array": [
+        {{
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }}
+      ],
+      "user_constraint_array": [
+        {{
+          "uid": 1,
+          "name": "uc_line_flow_limit",
+          "expression": "line('l1_2').flow <= 100"
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       scale_obj,
       scale_theta_val);
 }
@@ -737,76 +1268,165 @@ TEST_CASE(  // NOLINT
 
 // clang-format off
 
-constexpr std::string_view multi_scale_uc_json = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 10000,
-    "scale_theta": 0.0001,
-    "variable_scales": [
-      {"class_name": "Battery", "variable": "energy", "uid": 1, "scale": 1000}
-    ],
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 2}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 2}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "multi_scale_uc",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 10, "capacity": 300},
-      {"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 50, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b1", "lmax": [[50, 50]]},
-      {"uid": 2, "name": "d2", "bus": "b2", "lmax": [[80, 80]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1", "bus": "b1",
-        "input_efficiency": 0.9, "output_efficiency": 0.9,
-        "emin": 0, "emax": 100, "eini": 50,
-        "pmax_charge": 50, "pmax_discharge": 50,
-        "gcost": 0, "capacity": 100
+constexpr std::string_view multi_scale_uc_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "variable_scales": [
+        {
+          "class_name": "Battery",
+          "variable": "energy",
+          "uid": 1,
+          "scale": 1000
+        }
+      ],
+      "model_options": {
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": 10000,
+        "scale_theta": 0.0001,
+        "use_kirchhoff": true
       }
-    ],
-    "user_constraint_array": [
-      {
-        "uid": 1, "name": "uc_gen_total",
-        "expression": "generator('g1').generation + generator('g2').generation <= 250"
-      },
-      {
-        "uid": 2, "name": "uc_line_flow",
-        "expression": "line('l1_2').flow <= 120"
-      },
-      {
-        "uid": 3, "name": "uc_bat_energy",
-        "expression": "battery('bat1').energy <= 80"
-      },
-      {
-        "uid": 4, "name": "uc_theta_range",
-        "expression": "bus('b2').theta <= 0.5"
-      },
-      {
-        "uid": 5, "name": "uc_theta_lower",
-        "expression": "bus('b2').theta >= -0.5"
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "multi_scale_uc",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 10,
+          "capacity": 300
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 50,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b1",
+          "lmax": [
+            [
+              50,
+              50
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "d2",
+          "bus": "b2",
+          "lmax": [
+            [
+              80,
+              80
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.05,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bat1",
+          "bus": "b1",
+          "input_efficiency": 0.9,
+          "output_efficiency": 0.9,
+          "emin": 0,
+          "emax": 100,
+          "eini": 50,
+          "pmax_charge": 50,
+          "pmax_discharge": 50,
+          "gcost": 0,
+          "capacity": 100
+        }
+      ],
+      "user_constraint_array": [
+        {
+          "uid": 1,
+          "name": "uc_gen_total",
+          "expression": "generator('g1').generation + generator('g2').generation <= 250"
+        },
+        {
+          "uid": 2,
+          "name": "uc_line_flow",
+          "expression": "line('l1_2').flow <= 120"
+        },
+        {
+          "uid": 3,
+          "name": "uc_bat_energy",
+          "expression": "battery('bat1').energy <= 80"
+        },
+        {
+          "uid": 4,
+          "name": "uc_theta_range",
+          "expression": "bus('b2').theta <= 0.5"
+        },
+        {
+          "uid": 5,
+          "name": "uc_theta_lower",
+          "expression": "bus('b2').theta >= -0.5"
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // clang-format on
 

@@ -66,6 +66,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -157,6 +158,92 @@ class Edit(NamedTuple):
     legacy_keys_moved: list[str]
 
 
+# ── std::format / fmt escape handling ──────────────────────────────────────
+
+
+def _placeholder_token(idx: int) -> str:
+    return f"__GTOPT_FMT_PLACEHOLDER_{idx}__"
+
+
+def fmt_body_to_json(body: str) -> tuple[str, list[str]] | None:
+    """If `body` looks like a std::format/fmt raw-string (contains
+    `{{` or `}}` brace escapes), convert it to plain JSON by:
+
+      * `{{` → `{`
+      * `}}` → `}`
+      * single `{...}` format placeholders → quoted string token
+
+    Returns `(json_safe_body, placeholders_in_order)`.  When the body
+    contains no doubled braces, returns `None` so the caller falls
+    back to plain `json.loads(body)`.
+    """
+    if "{{" not in body and "}}" not in body:
+        return None
+
+    out: list[str] = []
+    placeholders: list[str] = []
+    i = 0
+    n = len(body)
+    while i < n:
+        c = body[i]
+        if c == "{" and i + 1 < n and body[i + 1] == "{":
+            out.append("{")
+            i += 2
+        elif c == "}" and i + 1 < n and body[i + 1] == "}":
+            out.append("}")
+            i += 2
+        elif c == "{":
+            j = body.find("}", i)
+            if j == -1:
+                return None  # malformed
+            placeholders.append(body[i : j + 1])
+            out.append(f'"{_placeholder_token(len(placeholders) - 1)}"')
+            i = j + 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out), placeholders
+
+
+def json_to_fmt_body(json_str: str, placeholders: list[str]) -> str:
+    """Inverse of `fmt_body_to_json`: walk `json_str`, escape literal
+    braces as `{{`/`}}`, and restore placeholder tokens to their
+    original `{...}` form."""
+    out: list[str] = []
+    i = 0
+    n = len(json_str)
+    while i < n:
+        ch = json_str[i]
+        if ch == '"':
+            # Detect a quoted placeholder: "__GTOPT_FMT_PLACEHOLDER_N__"
+            end = json_str.find('"', i + 1)
+            if end != -1:
+                token = json_str[i + 1 : end]
+                if token.startswith("__GTOPT_FMT_PLACEHOLDER_") and token.endswith(
+                    "__"
+                ):
+                    try:
+                        idx = int(token[len("__GTOPT_FMT_PLACEHOLDER_") : -2])
+                    except ValueError:
+                        idx = -1
+                    if 0 <= idx < len(placeholders):
+                        out.append(placeholders[idx])
+                        i = end + 1
+                        continue
+            out.append('"')
+            i += 1
+        elif ch == "{":
+            out.append("{{")
+            i += 1
+        elif ch == "}":
+            out.append("}}")
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 # ── Source scanning ────────────────────────────────────────────────────────
 
 
@@ -198,8 +285,6 @@ def migrate_planning_options(
 ) -> tuple[dict, list[str]]:
     """Return (migrated_obj, list_of_legacy_keys_moved).  Non-destructive;
     operates on a deep copy."""
-    import copy
-
     out = copy.deepcopy(obj)
     opts = out["options"]
     model_opts = opts.get("model_options")
@@ -212,8 +297,7 @@ def migrate_planning_options(
             continue
         value = opts.pop(legacy)
         canonical = KEY_RENAMES.get(legacy, legacy)
-        # Existing nested entry wins (matches `migrate_flat_to_model_options`
-        # semantics from the deleted helper).
+        # Existing nested entry wins.
         if canonical not in model_opts:
             model_opts[canonical] = value
         moved.append(legacy)
@@ -221,14 +305,12 @@ def migrate_planning_options(
     if not moved:
         return out, []
 
-    # Reorder model_opts by ModelOptions declaration order; unknown
-    # keys keep insertion order at the end.
-    ordered = {}
-    for key in MODEL_OPTIONS_DECL_ORDER:
-        if key in model_opts:
-            ordered[key] = model_opts.pop(key)
-    ordered.update(model_opts)  # any unknown trailing keys
-    opts["model_options"] = ordered
+    # Preserve insertion order: JSON has no field-order requirement and
+    # — critically — when the source is a std::format format string, the
+    # JSON keys carry positional `{}` placeholders that must match the
+    # original argument order.  Reordering keys would silently misalign
+    # those args.
+    opts["model_options"] = model_opts
     return out, moved
 
 
@@ -272,7 +354,9 @@ def detect_leading_indent(content: str) -> tuple[str, int]:
 # ── Driver ─────────────────────────────────────────────────────────────────
 
 
-def process_cpp_file(path: Path, *, dry_run: bool, verbose: bool) -> list[Edit]:
+def process_cpp_file(  # pylint: disable=too-many-locals,too-many-branches
+    path: Path, *, dry_run: bool, verbose: bool
+) -> list[Edit]:
     """Return the list of edits that would be applied to this file.
 
     When `dry_run` is False, writes the file in place atomically."""
@@ -280,8 +364,15 @@ def process_cpp_file(path: Path, *, dry_run: bool, verbose: bool) -> list[Edit]:
     edits: list[Edit] = []
 
     for start, end, delim, body in find_raw_literals(text):
+        fmt_result = fmt_body_to_json(body)
+        is_fmt_string = fmt_result is not None
+        if fmt_result is not None:
+            json_body, placeholders = fmt_result
+        else:
+            json_body, placeholders = body, []
+
         try:
-            obj = json.loads(body)
+            obj = json.loads(json_body)
         except (json.JSONDecodeError, ValueError):
             continue  # not JSON — could be SQL, LP, AMPL, etc.
 
@@ -293,19 +384,21 @@ def process_cpp_file(path: Path, *, dry_run: bool, verbose: bool) -> list[Edit]:
             continue
 
         leading, step = detect_leading_indent(body)
-        new_body = (
-            "\n"
-            + leading
-            + reserialize(migrated, indent_spaces=step, leading_indent=leading)
-            + "\n"
-            + leading[:-2]
-            if len(leading) >= 2
-            else (
-                "\n"
-                + reserialize(migrated, indent_spaces=step, leading_indent="")
-                + "\n"
-            )
-        )
+        if len(leading) >= 2:
+            inner = reserialize(migrated, indent_spaces=step, leading_indent=leading)
+            new_body_json = "\n" + leading + inner + "\n" + leading[:-2]
+        else:
+            inner = reserialize(migrated, indent_spaces=step, leading_indent="")
+            new_body_json = "\n" + inner + "\n"
+
+        # If the source was a std::format/fmt format string, the output
+        # MUST also keep all literal braces doubled — even when no
+        # `{...}` placeholders are present, since the braces in the
+        # JSON object syntax itself need escaping.
+        if is_fmt_string:
+            new_body = json_to_fmt_body(new_body_json, placeholders)
+        else:
+            new_body = new_body_json
 
         edits.append(
             Edit(
@@ -435,7 +528,7 @@ def main() -> int:
             n_files_modified += 1
             n_edits += len(edits)
 
-    print(f"\nmigrate-legacy-options summary:")
+    print("\nmigrate-legacy-options summary:")
     print(f"  scanned       : {n_files_scanned} files")
     print(f"  candidate     : {n_files_modified} files with legacy keys to move")
     print(f"  total edits   : {n_edits} JSON literals")

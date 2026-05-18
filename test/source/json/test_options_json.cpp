@@ -1,3 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// JSON deserialization tests for `PlanningOptions`.
+//
+// Post-§11 (2026-05-17): the 11 legacy top-level ModelOptions-mirror
+// keys (`demand_fail_cost`, `reserve_fail_cost`, `hydro_fail_cost`,
+// `hydro_use_value`, `use_line_losses`, `loss_segments`,
+// `use_kirchhoff`, `use_single_bus`, `kirchhoff_threshold`,
+// `scale_objective`, `scale_theta`) live ONLY inside the nested
+// `options.model_options.*` sub-object.  The legacy flat form is
+// rejected by StrictParsePolicy.
+
 #include <string>
 
 #include <doctest/doctest.h>
@@ -9,18 +21,19 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {
   using namespace gtopt;
-  // JSON string representing Options
   const std::string json_string = R"({
     "input_directory": "input_dir",
     "input_format": "parquet",
-    "demand_fail_cost": 1000.0,
-    "reserve_fail_cost": 500.0,
-    "use_line_losses": true,
-    "use_kirchhoff": false,
-    "use_single_bus": true,
-    "kirchhoff_threshold": 0.01,
-    "scale_objective": 100.0,
-    "scale_theta": 10.0,
+    "model_options": {
+      "demand_fail_cost": 1000.0,
+      "reserve_shortage_cost": 500.0,
+      "use_line_losses": true,
+      "use_kirchhoff": false,
+      "use_single_bus": true,
+      "kirchhoff_threshold": 0.01,
+      "scale_objective": 100.0,
+      "scale_theta": 10.0
+    },
     "output_directory": "output_dir",
     "output_format": "csv",
     "output_compression": "gzip",
@@ -28,85 +41,42 @@ TEST_CASE("json_options - Deserialization of Options from JSON")
     "annual_discount_rate": 0.05
   })";
 
-  // Deserialize from JSON
   const auto options =
       daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
-  // Check all fields are correctly deserialized
   REQUIRE(options.input_directory.has_value());
-  if (options.input_directory) {
-    CHECK(*options.input_directory == "input_dir");
-  }
-
+  CHECK(*options.input_directory == "input_dir");
   REQUIRE(options.input_format.has_value());
-  if (options.input_format) {
-    CHECK(*options.input_format == DataFormat::parquet);
-  }
+  CHECK(*options.input_format == DataFormat::parquet);
 
-  REQUIRE(options.demand_fail_cost.has_value());
-  if (options.demand_fail_cost) {
-    CHECK(*options.demand_fail_cost == doctest::Approx(1000.0));
-  }
-
-  REQUIRE(options.reserve_fail_cost.has_value());
-  if (options.reserve_fail_cost) {
-    CHECK(options.reserve_fail_cost.value() == doctest::Approx(500.0));
-  }
-
-  REQUIRE(options.use_line_losses.has_value());
-  if (options.use_line_losses) {
-    CHECK(*options.use_line_losses == true);
-  }
-
-  REQUIRE(options.use_kirchhoff.has_value());
-  if (options.use_kirchhoff) {
-    CHECK(*options.use_kirchhoff == false);
-  }
-
-  REQUIRE(options.use_single_bus.has_value());
-  if (options.use_single_bus) {
-    CHECK(*options.use_single_bus == true);
-  }
-
-  REQUIRE(options.kirchhoff_threshold.has_value());
-  if (options.kirchhoff_threshold) {
-    CHECK(*options.kirchhoff_threshold == doctest::Approx(0.01));
-  }
-
-  REQUIRE(options.scale_objective.has_value());
-  if (options.scale_objective) {
-    CHECK(*options.scale_objective == doctest::Approx(100.0));
-  }
-
-  REQUIRE(options.scale_theta.has_value());
-  if (options.scale_theta) {
-    CHECK(*options.scale_theta == doctest::Approx(10.0));
-  }
+  REQUIRE(options.model_options.demand_fail_cost.has_value());
+  CHECK(*options.model_options.demand_fail_cost == doctest::Approx(1000.0));
+  REQUIRE(options.model_options.reserve_shortage_cost.has_value());
+  CHECK(options.model_options.reserve_shortage_cost.value()
+        == doctest::Approx(500.0));
+  REQUIRE(options.model_options.use_line_losses.has_value());
+  CHECK(*options.model_options.use_line_losses == true);
+  REQUIRE(options.model_options.use_kirchhoff.has_value());
+  CHECK(*options.model_options.use_kirchhoff == false);
+  REQUIRE(options.model_options.use_single_bus.has_value());
+  CHECK(*options.model_options.use_single_bus == true);
+  REQUIRE(options.model_options.kirchhoff_threshold.has_value());
+  CHECK(*options.model_options.kirchhoff_threshold == doctest::Approx(0.01));
+  REQUIRE(options.model_options.scale_objective.has_value());
+  CHECK(*options.model_options.scale_objective == doctest::Approx(100.0));
+  REQUIRE(options.model_options.scale_theta.has_value());
+  CHECK(*options.model_options.scale_theta == doctest::Approx(10.0));
 
   REQUIRE(options.output_directory.has_value());
-  if (options.output_directory) {
-    CHECK(*options.output_directory == "output_dir");
-  }
-
+  CHECK(*options.output_directory == "output_dir");
   REQUIRE(options.output_format.has_value());
-  if (options.output_format) {
-    CHECK(*options.output_format == DataFormat::csv);
-  }
-
+  CHECK(*options.output_format == DataFormat::csv);
   REQUIRE(options.output_compression.has_value());
-  if (options.output_compression) {
-    CHECK(*options.output_compression == CompressionCodec::gzip);
-  }
-
+  CHECK(*options.output_compression == CompressionCodec::gzip);
   REQUIRE(options.use_uid_fname.has_value());
-  if (options.use_uid_fname) {
-    CHECK(*options.use_uid_fname == false);
-  }
-
+  CHECK(*options.use_uid_fname == false);
   REQUIRE(options.annual_discount_rate.has_value());
-  if (options.annual_discount_rate) {
-    CHECK(*options.annual_discount_rate == doctest::Approx(0.05));
-  }
+  CHECK(*options.annual_discount_rate == doctest::Approx(0.05));
 }
 
 TEST_CASE(
@@ -114,42 +84,32 @@ TEST_CASE(
 {
   using namespace gtopt;
 
-  // JSON string with only some fields
   const std::string json_string = R"({
     "input_directory": "input_dir",
-    "use_kirchhoff": true,
+    "model_options": {
+      "use_kirchhoff": true
+    },
     "output_directory": "output_dir"
   })";
 
-  // Deserialize from JSON
   const auto options =
       daw::json::from_json<PlanningOptions>(json_string, StrictParsePolicy);
 
-  // Check populated fields
   REQUIRE(options.input_directory.has_value());
-  if (options.input_directory) {
-    CHECK(*options.input_directory == "input_dir");
-  }
-
-  REQUIRE(options.use_kirchhoff.has_value());
-  if (options.use_kirchhoff) {
-    CHECK(*options.use_kirchhoff == true);
-  }
-
+  CHECK(*options.input_directory == "input_dir");
+  REQUIRE(options.model_options.use_kirchhoff.has_value());
+  CHECK(*options.model_options.use_kirchhoff == true);
   REQUIRE(options.output_directory.has_value());
-  if (options.output_directory) {
-    CHECK(*options.output_directory == "output_dir");
-  }
+  CHECK(*options.output_directory == "output_dir");
 
-  // Check unpopulated fields
   CHECK_FALSE(options.input_format.has_value());
-  CHECK_FALSE(options.demand_fail_cost.has_value());
-  CHECK_FALSE(options.reserve_fail_cost.has_value());
-  CHECK_FALSE(options.use_line_losses.has_value());
-  CHECK_FALSE(options.use_single_bus.has_value());
-  CHECK_FALSE(options.kirchhoff_threshold.has_value());
-  CHECK_FALSE(options.scale_objective.has_value());
-  CHECK_FALSE(options.scale_theta.has_value());
+  CHECK_FALSE(options.model_options.demand_fail_cost.has_value());
+  CHECK_FALSE(options.model_options.reserve_shortage_cost.has_value());
+  CHECK_FALSE(options.model_options.use_line_losses.has_value());
+  CHECK_FALSE(options.model_options.use_single_bus.has_value());
+  CHECK_FALSE(options.model_options.kirchhoff_threshold.has_value());
+  CHECK_FALSE(options.model_options.scale_objective.has_value());
+  CHECK_FALSE(options.model_options.scale_theta.has_value());
   CHECK_FALSE(options.output_format.has_value());
   CHECK_FALSE(options.output_compression.has_value());
   CHECK_FALSE(options.use_uid_fname.has_value());
@@ -160,37 +120,37 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
 {
   using namespace gtopt;
 
-  // Create original Options
   PlanningOptions original {
       .input_directory = "input_dir",
-      .demand_fail_cost = 1000.0,
-      .use_kirchhoff = true,
-      .scale_objective = 100.0,
       .output_directory = "output_dir",
+      .model_options =
+          {
+              .use_kirchhoff = true,
+              .scale_objective = 100.0,
+              .demand_fail_cost = 1000.0,
+          },
       .lp_matrix_options {},
   };
 
-  // Serialize to JSON
   const auto json_data = daw::json::to_json(original);
-
-  // Deserialize back to Options
   const auto deserialized =
       daw::json::from_json<PlanningOptions>(json_data, StrictParsePolicy);
 
-  // Check all fields match
   CHECK(deserialized.input_directory == original.input_directory);
-  CHECK(deserialized.demand_fail_cost == original.demand_fail_cost);
-  CHECK(deserialized.use_kirchhoff == original.use_kirchhoff);
-  CHECK(deserialized.scale_objective == original.scale_objective);
   CHECK(deserialized.output_directory == original.output_directory);
+  CHECK(deserialized.model_options.demand_fail_cost
+        == original.model_options.demand_fail_cost);
+  CHECK(deserialized.model_options.use_kirchhoff
+        == original.model_options.use_kirchhoff);
+  CHECK(deserialized.model_options.scale_objective
+        == original.model_options.scale_objective);
 
-  // Check that unpopulated fields remain empty
   CHECK_FALSE(deserialized.input_format.has_value());
-  CHECK_FALSE(deserialized.reserve_fail_cost.has_value());
-  CHECK_FALSE(deserialized.use_line_losses.has_value());
-  CHECK_FALSE(deserialized.use_single_bus.has_value());
-  CHECK_FALSE(deserialized.kirchhoff_threshold.has_value());
-  CHECK_FALSE(deserialized.scale_theta.has_value());
+  CHECK_FALSE(deserialized.model_options.reserve_shortage_cost.has_value());
+  CHECK_FALSE(deserialized.model_options.use_line_losses.has_value());
+  CHECK_FALSE(deserialized.model_options.use_single_bus.has_value());
+  CHECK_FALSE(deserialized.model_options.kirchhoff_threshold.has_value());
+  CHECK_FALSE(deserialized.model_options.scale_theta.has_value());
   CHECK_FALSE(deserialized.output_format.has_value());
   CHECK_FALSE(deserialized.output_compression.has_value());
   CHECK_FALSE(deserialized.use_uid_fname.has_value());
@@ -200,8 +160,6 @@ TEST_CASE("json_options - Round-trip serialization and deserialization")
 TEST_CASE("json_options - Solver options fields JSON round-trip")  // NOLINT
 {
   using namespace gtopt;
-  // Verify that solver_options.algorithm, .threads, and .presolve are
-  // serialized and deserialized correctly via the nested sub-object.
   const PlanningOptions original {
       .solver_options =
           SolverOptions {
@@ -225,7 +183,6 @@ TEST_CASE(
     "string")  // NOLINT
 {
   using namespace gtopt;
-  // NOLINTBEGIN(readability-trailing-comma)
   const std::string json_string = R"({
     "solver_options": {
       "algorithm": "primal",
@@ -242,9 +199,6 @@ TEST_CASE(
   CHECK(options.solver_options.threads == 2);
   CHECK(options.solver_options.presolve == true);
 
-  // Other fields should be null
-  CHECK_FALSE(options.use_single_bus.has_value());
-  CHECK_FALSE(options.demand_fail_cost.has_value());
+  CHECK_FALSE(options.model_options.use_single_bus.has_value());
+  CHECK_FALSE(options.model_options.demand_fail_cost.has_value());
 }
-
-// NOLINTEND(readability-trailing-comma)

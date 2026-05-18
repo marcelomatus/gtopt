@@ -33,23 +33,21 @@ using gtopt::MethodType;
 using gtopt::PlanningOptions;
 using gtopt::SolverOptions;
 
-/// Custom constructor: converts JSON strings → typed enums for PlanningOptions
+/// Custom constructor: converts JSON strings → typed enums for PlanningOptions.
+///
+/// The 11 legacy top-level mirror fields (`demand_fail_cost`,
+/// `reserve_fail_cost`, `hydro_fail_cost`, `hydro_use_value`,
+/// `use_line_losses`, `loss_segments`, `use_kirchhoff`, `use_single_bus`,
+/// `kirchhoff_threshold`, `scale_objective`, `scale_theta`) were removed
+/// 2026-05-17 per §11.  JSON files placing those keys at the top level
+/// are now rejected by `StrictParsePolicy`; place them inside
+/// `options.model_options.*` (test fixtures were migrated by
+/// `tools/migrate_legacy_options_to_model_options.py`).
 struct PlanningOptionsConstructor
 {
   [[nodiscard]] PlanningOptions operator()(
       OptName input_directory,
       OptName input_format_str,
-      OptReal demand_fail_cost,
-      OptReal reserve_fail_cost,
-      OptReal hydro_fail_cost,
-      OptReal hydro_use_value,
-      OptBool use_line_losses,
-      OptInt loss_segments,
-      OptBool use_kirchhoff,
-      OptBool use_single_bus,
-      OptReal kirchhoff_threshold,
-      OptReal scale_objective,
-      OptReal scale_theta,
       OptReal annual_discount_rate,
       OptName output_directory,
       OptName output_format_str,
@@ -83,44 +81,10 @@ struct PlanningOptionsConstructor
           gtopt::require_enum<DataFormat>("input_format", *input_format_str);
     }
 
-    // Migrate deprecated flat model fields → model_options.
-    // Flat JSON keys are kept for backward compat but model_options
-    // is now the canonical location for these fields.
-    auto migrate =
-        [&](auto& mo_field, const auto& flat_val, std::string_view name)
-    {
-      if (flat_val.has_value()) {
-        spdlog::warn("deprecated option '{}': use 'model_options.{}' instead",
-                     name,
-                     name);
-        if (!mo_field.has_value()) {
-          mo_field = flat_val;
-        }
-      }
-    };
-    migrate(model_options.use_single_bus, use_single_bus, "use_single_bus");
-    migrate(model_options.use_kirchhoff, use_kirchhoff, "use_kirchhoff");
-    migrate(model_options.use_line_losses, use_line_losses, "use_line_losses");
-    migrate(model_options.kirchhoff_threshold,
-            kirchhoff_threshold,
-            "kirchhoff_threshold");
-    migrate(model_options.loss_segments, loss_segments, "loss_segments");
-    migrate(model_options.scale_objective, scale_objective, "scale_objective");
-    migrate(model_options.scale_theta, scale_theta, "scale_theta");
-    migrate(
-        model_options.demand_fail_cost, demand_fail_cost, "demand_fail_cost");
-    // Top-level legacy `reserve_fail_cost` → ModelOptions canonical
-    // `reserve_shortage_cost` (§11.10 rename).
-    migrate(model_options.reserve_shortage_cost,
-            reserve_fail_cost,
-            "reserve_fail_cost");
-    // Top-level legacy `hydro_fail_cost` → ModelOptions canonical
-    // `hydro_spill_cost` (§11.10 rename).
-    migrate(model_options.hydro_spill_cost, hydro_fail_cost, "hydro_fail_cost");
-    migrate(model_options.hydro_use_value, hydro_use_value, "hydro_use_value");
-
-    // annual_discount_rate: canonical location is simulation, not
-    // model_options.
+    // annual_discount_rate: canonical location is `simulation`, not
+    // `options` — keep the deprecation warning even after the §11
+    // top-level deletion (the field still exists on PlanningOptions
+    // for back-compat).
     if (annual_discount_rate) {
       spdlog::warn(
           "deprecated option 'annual_discount_rate': "
@@ -128,18 +92,6 @@ struct PlanningOptionsConstructor
     }
     opts.annual_discount_rate = annual_discount_rate;
 
-    // Keep deprecated flat fields for programmatic backward compat
-    opts.demand_fail_cost = demand_fail_cost;
-    opts.reserve_fail_cost = reserve_fail_cost;
-    opts.hydro_fail_cost = hydro_fail_cost;
-    opts.hydro_use_value = hydro_use_value;
-    opts.use_line_losses = use_line_losses;
-    opts.loss_segments = loss_segments;
-    opts.use_kirchhoff = use_kirchhoff;
-    opts.use_single_bus = use_single_bus;
-    opts.kirchhoff_threshold = kirchhoff_threshold;
-    opts.scale_objective = scale_objective;
-    opts.scale_theta = scale_theta;
     opts.output_directory = std::move(output_directory);
     if (output_format_str) {
       opts.output_format =
@@ -192,20 +144,15 @@ struct json_data_contract<PlanningOptions>
 {
   using constructor_t = PlanningOptionsConstructor;
 
+  // The 11 deprecated top-level ModelOptions-mirror keys
+  // (`demand_fail_cost`, `reserve_fail_cost`, `hydro_fail_cost`,
+  // `hydro_use_value`, `use_line_losses`, `loss_segments`,
+  // `use_kirchhoff`, `use_single_bus`, `kirchhoff_threshold`,
+  // `scale_objective`, `scale_theta`) were removed from the contract
+  // 2026-05-17 per §11.  Place them inside `options.model_options.*`.
   using type =
       json_member_list<json_string_null<"input_directory", OptName>,
                        json_string_null<"input_format", OptName>,
-                       json_number_null<"demand_fail_cost", OptReal>,
-                       json_number_null<"reserve_fail_cost", OptReal>,
-                       json_number_null<"hydro_fail_cost", OptReal>,
-                       json_number_null<"hydro_use_value", OptReal>,
-                       json_bool_null<"use_line_losses", OptBool>,
-                       json_number_null<"loss_segments", OptInt>,
-                       json_bool_null<"use_kirchhoff", OptBool>,
-                       json_bool_null<"use_single_bus", OptBool>,
-                       json_number_null<"kirchhoff_threshold", OptReal>,
-                       json_number_null<"scale_objective", OptReal>,
-                       json_number_null<"scale_theta", OptReal>,
                        json_number_null<"annual_discount_rate", OptReal>,
 
                        json_string_null<"output_directory", OptName>,
@@ -242,17 +189,6 @@ struct json_data_contract<PlanningOptions>
     return std::make_tuple(
         opt.input_directory,
         detail::enum_to_opt_name(opt.input_format),
-        opt.demand_fail_cost,
-        opt.reserve_fail_cost,
-        opt.hydro_fail_cost,
-        opt.hydro_use_value,
-        opt.use_line_losses,
-        opt.loss_segments,
-        opt.use_kirchhoff,
-        opt.use_single_bus,
-        opt.kirchhoff_threshold,
-        opt.scale_objective,
-        opt.scale_theta,
         opt.annual_discount_rate,
 
         opt.output_directory,

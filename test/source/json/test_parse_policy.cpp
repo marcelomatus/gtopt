@@ -41,12 +41,16 @@ TEST_CASE("StrictParsePolicy - unknown top-level field is rejected")
 TEST_CASE("StrictParsePolicy - unknown nested field is rejected")
 {
   // Unknown key nested inside planning.options must also fail.
-  const std::string json_with_unknown = R"({
-    "options": {
-      "demand_fail_cost": 1000.0,
-      "not_a_real_option": true
+  const std::string json_with_unknown = R"(
+    {
+      "options": {
+        "not_a_real_option": true,
+        "model_options": {
+          "demand_fail_cost": 1000.0
+        }
+      }
     }
-  })";
+  )";
 
   CHECK_THROWS_AS((void)daw::json::from_json<Planning>(json_with_unknown,
                                                        StrictParsePolicy),
@@ -59,7 +63,9 @@ TEST_CASE("StrictParsePolicy - valid JSON parses cleanly")
   // throwing.  Guards against accidentally tightening the policy to reject
   // legal input.
   const std::string valid_json = R"({
-    "demand_fail_cost": 1000.0
+    "model_options": {
+      "demand_fail_cost": 1000.0
+    }
   })";
 
   CHECK_NOTHROW((void)daw::json::from_json<PlanningOptions>(valid_json,

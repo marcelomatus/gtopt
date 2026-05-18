@@ -178,7 +178,13 @@ TEST_CASE("PlanningLP - Create simulations")
 
   // Create planning with components
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -226,7 +232,13 @@ TEST_CASE("PlanningLP - Write LP file")
 
   // Create planning with components
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -290,7 +302,13 @@ TEST_CASE(  // NOLINT
       .generator_array = generator_array,
   };
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -379,7 +397,13 @@ TEST_CASE("PlanningLP - Run LP")
 
   // Create planning with components
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -430,7 +454,13 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   // Create planning; name-bearing bool fields are set directly on
   // flat_options below so LP files include row/column names.
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -568,7 +598,13 @@ TEST_CASE("PlanningLP - Solver test")
 
   // Create planning with components
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -673,7 +709,13 @@ TEST_CASE("PlanningLP - auto_scale_theta computes median reactance")
 
   // No explicit scale_theta → auto_scale_theta should set it to median
   Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -733,7 +775,14 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when explicitly set")
 
   // Explicitly set scale_theta → auto_scale_theta should NOT override
   Planning planning {
-      .options = {.demand_fail_cost = 1000.0, .scale_theta = 42.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .scale_theta = 42.0,
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -792,7 +841,14 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when Kirchhoff disabled")
 
   // Kirchhoff disabled → auto_scale_theta should skip, use compiled default
   Planning planning {
-      .options = {.demand_fail_cost = 1000.0, .use_kirchhoff = false},
+      .options =
+          {
+              .model_options =
+                  {
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -848,7 +904,14 @@ TEST_CASE("PlanningLP - auto_scale_theta skips when single_bus enabled")
 
   // Single-bus enabled → auto_scale_theta should skip
   Planning planning {
-      .options = {.demand_fail_cost = 1000.0, .use_single_bus = true},
+      .options =
+          {
+              .model_options =
+                  {
+                      .use_single_bus = true,
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -940,7 +1003,13 @@ TEST_CASE("PlanningLP - auto_scale_theta with even number of lines")
   };
 
   Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -1040,7 +1109,7 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
   // auto_scale_theta's choice of dimensional median (x_pu, not raw X)
   // — independent of the DC-promotion feature.
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
   options.model_options.dc_line_reactance_threshold = 0.0;
 
   Planning planning {
@@ -1093,7 +1162,13 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
   };
 
   const Planning planning {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -1104,62 +1179,105 @@ TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
   CHECK(planning_lp.options().scale_theta() == doctest::Approx(1.0));
 }
 
-static constexpr std::string_view planning_json = R"({
-  "options": {
-    "annual_discount_rate": 0.1,
-    "output_compression": "uncompressed",
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1},
-      {"uid": 2, "first_block": 1, "count_block": 1}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "json_test_system",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 50, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 2, "capacity": 80}
-    ],
-    "line_array": [
-      {
-        "uid": 1, "name": "l1",
-        "bus_a": 1, "bus_b": 2,
-        "reactance": 0.1,
-        "tmax_ba": 200, "tmax_ab": 200,
-        "capacity": 200
+static constexpr std::string_view planning_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.1,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1",
-        "bus": 1,
-        "input_efficiency": 0.9,
-        "output_efficiency": 0.9,
-        "emin": 0, "emax": 50,
-        "pmax_charge": 100,
-        "pmax_discharge": 100,
-        "gcost": 0,
-        "capacity": 50
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 1,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "json_test_system",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 50,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 2,
+          "capacity": 80
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1",
+          "bus_a": 1,
+          "bus_b": 2,
+          "reactance": 0.1,
+          "tmax_ba": 200,
+          "tmax_ab": 200,
+          "capacity": 200
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bat1",
+          "bus": 1,
+          "input_efficiency": 0.9,
+          "output_efficiency": 0.9,
+          "emin": 0,
+          "emax": 50,
+          "pmax_charge": 100,
+          "pmax_discharge": 100,
+          "gcost": 0,
+          "capacity": 50
+        }
+      ]
+    }
   }
-})";
+)";
 
 TEST_CASE("Planning JSON parse and solve")
 {
@@ -1178,66 +1296,122 @@ TEST_CASE("Planning JSON parse and solve")
   REQUIRE(result.has_value());
 }
 
-static constexpr std::string_view hydro_planning_json = R"({
-  "options": {
-    "demand_fail_cost": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1}
-    ]
-  },
-  "system": {
-    "name": "hydro_json_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "hydro_gen", "bus": 1, "gcost": 5, "capacity": 200},
-      {"uid": 2, "name": "thermal_gen", "bus": 1, "gcost": 100, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-    ],
-    "junction_array": [
-      {"uid": 1, "name": "j_up"},
-      {"uid": 2, "name": "j_down", "drain": true}
-    ],
-    "waterway_array": [
-      {
-        "uid": 1, "name": "ww1",
-        "junction_a": 1, "junction_b": 2,
-        "fmin": 0, "fmax": 500
+static constexpr std::string_view hydro_planning_json = R"(
+  {
+    "options": {
+      "model_options": {
+        "demand_fail_cost": 1000
       }
-    ],
-    "flow_array": [
-      {"uid": 1, "name": "inflow", "direction": 1, "junction": 1, "discharge": 20}
-    ],
-    "reservoir_array": [
-      {
-        "uid": 1, "name": "rsv1",
-        "junction": 1,
-        "capacity": 1000,
-        "emin": 0, "emax": 1000,
-        "eini": 500
-      }
-    ],
-    "turbine_array": [
-      {
-        "uid": 1, "name": "tur1",
-        "waterway": 1, "generator": 1,
-        "production_factor": 1.0
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "hydro_json_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "hydro_gen",
+          "bus": 1,
+          "gcost": 5,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "thermal_gen",
+          "bus": 1,
+          "gcost": 100,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50
+        }
+      ],
+      "junction_array": [
+        {
+          "uid": 1,
+          "name": "j_up"
+        },
+        {
+          "uid": 2,
+          "name": "j_down",
+          "drain": true
+        }
+      ],
+      "waterway_array": [
+        {
+          "uid": 1,
+          "name": "ww1",
+          "junction_a": 1,
+          "junction_b": 2,
+          "fmin": 0,
+          "fmax": 500
+        }
+      ],
+      "flow_array": [
+        {
+          "uid": 1,
+          "name": "inflow",
+          "direction": 1,
+          "junction": 1,
+          "discharge": 20
+        }
+      ],
+      "reservoir_array": [
+        {
+          "uid": 1,
+          "name": "rsv1",
+          "junction": 1,
+          "capacity": 1000,
+          "emin": 0,
+          "emax": 1000,
+          "eini": 500
+        }
+      ],
+      "turbine_array": [
+        {
+          "uid": 1,
+          "name": "tur1",
+          "waterway": 1,
+          "generator": 1,
+          "production_factor": 1.0
+        }
+      ]
+    }
   }
-})";
+)";
 
 TEST_CASE("Planning JSON parse and solve - hydro system")
 {
@@ -1334,7 +1508,13 @@ TEST_CASE("PlanningLP - parallel multi-scene multi-phase build")
   };
 
   const Planning planning = {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -1449,7 +1629,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation logs are emitted")
   // instead log "Submitted 2 scene tasks to work pool" and is covered
   // by a dedicated test below.
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {
@@ -1542,7 +1722,7 @@ TEST_CASE("PlanningLP - parallelism instrumentation single cell")
 
   // Pin to full_parallel to assert the per-cell submission log.
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {
@@ -1652,7 +1832,7 @@ TEST_CASE("PlanningLP - --cpu-factor reaches the LP-build pool")
   // hardware_concurrency.  The 2×3 = 6 cells must therefore run
   // strictly serialized.
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.sddp_options.pool_cpu_factor = 0.0001;
 
   const Planning planning = {
@@ -1745,7 +1925,13 @@ TEST_CASE("PlanningLP - default cpu-factor leaves build pool at 2x HC")
   // No pool_cpu_factor override — `build_pool_cpu_factor()` returns
   // its 2.0 fallback.
   const Planning planning = {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = simulation,
       .system = system,
   };
@@ -1855,7 +2041,7 @@ TEST_CASE("PlanningLP - BuildMode::serial runs in calling thread")
   // and worker_threads must both be exactly 1 regardless of
   // hardware_concurrency or --cpu-factor.
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::serial;
   // --cpu-factor is ignored under serial; set it to a non-default
   // value to prove the mode overrides pool sizing.
@@ -1898,7 +2084,7 @@ TEST_CASE("PlanningLP - BuildMode::scene_parallel submits one task per scene")
   // submission log reads "Submitted 2 scene tasks to work pool" — the
   // count is num_scenes (2), not num_scenes × num_phases (6).
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::scene_parallel;
 
   const Planning planning = {
@@ -1932,7 +2118,13 @@ TEST_CASE("PlanningLP - BuildMode::scene_parallel is the default")
 
   // Omitting `build_mode` entirely must select scene_parallel.
   const Planning planning = {
-      .options = {.demand_fail_cost = 1000.0},
+      .options =
+          {
+              .model_options =
+                  {
+                      .demand_fail_cost = 1000.0,
+                  },
+          },
       .simulation = std::move(fx.simulation),
       .system = std::move(fx.system),
   };
@@ -1957,7 +2149,7 @@ TEST_CASE("PlanningLP - BuildMode::full_parallel submits one task per cell")
   auto fx = make_build_mode_fixture();
 
   PlanningOptions planning_options {};
-  planning_options.demand_fail_cost = 1000.0;
+  planning_options.model_options.demand_fail_cost = 1000.0;
   planning_options.build_mode = BuildMode::full_parallel;
 
   const Planning planning = {

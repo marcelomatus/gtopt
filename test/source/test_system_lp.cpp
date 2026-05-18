@@ -78,7 +78,7 @@ TEST_CASE("SystemLP 1")
   REQUIRE(!system.line_array.empty() == false);
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
@@ -189,7 +189,7 @@ TEST_CASE("SystemLP - Timeout Scenario")
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
@@ -270,7 +270,7 @@ TEST_CASE("SystemLP - move-ctor rebinds embedded SystemContext")
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
@@ -350,7 +350,7 @@ TEST_CASE("SystemLP - move-assign rebinds embedded SystemContext")
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
@@ -441,7 +441,7 @@ TEST_CASE(
   std::filesystem::create_directories(tmp_dir);
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   popts.output_directory = tmp_dir.string();
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
@@ -517,7 +517,7 @@ TEST_CASE(
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 

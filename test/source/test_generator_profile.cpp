@@ -248,7 +248,7 @@ TEST_CASE("GeneratorProfileLP - generator profile with spillover cost")
   };
 
   PlanningOptions opts;
-  opts.scale_objective = 1000.0;
+  opts.model_options.scale_objective = 1000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -373,7 +373,7 @@ TEST_CASE("GeneratorProfileLP - per-block profile clamps dispatch col_sol")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);

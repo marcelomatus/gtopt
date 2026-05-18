@@ -29,75 +29,174 @@ namespace
 {
 
 // clang-format off
-constexpr std::string_view kCanonicalPlanning = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array":    [{"uid": 1, "duration": 1}],
-    "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "naming_dialects_e2e",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d2", "bus": "b2", "lmax": [[150.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}
-    ]
+constexpr std::string_view kCanonicalPlanning = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "naming_dialects_e2e",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d2",
+          "bus": "b2",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }
+      ]
+    }
   }
-})json";
+)json";
 
 // Same Planning, but every aliasable field on Generator / Demand /
 // Line uses the §11 'modern' alias instead of the canonical key.
 // Note: top-level `demand_fail_cost` stays canonical because the
 // canonicalize hook also accepts canonical (no change required); the
 // alias coverage in this fixture is on the per-element side.
-constexpr std::string_view kAliasedPlanning = R"json({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "output_format": "csv",
-    "use_single_bus": false,
-    "value_of_lost_load": 1000,
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array":    [{"uid": 1, "duration": 1}],
-    "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "naming_dialects_e2e",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "min_power": 0,
-       "max_power": 300, "marginal_cost": 20}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d2", "bus": "b2", "max_demand": [[150.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
-       "reactance": 0.02, "max_flow_ab": 300, "max_flow_ba": 300}
-    ]
+constexpr std::string_view kAliasedPlanning = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "value_of_lost_load": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "naming_dialects_e2e",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "min_power": 0,
+          "max_power": 300,
+          "marginal_cost": 20
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d2",
+          "bus": "b2",
+          "max_demand": [
+            [
+              150.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "max_flow_ab": 300,
+          "max_flow_ba": 300
+        }
+      ]
+    }
   }
-})json";
+)json";
 // clang-format on
 
 }  // namespace
@@ -164,13 +263,14 @@ TEST_CASE(  // NOLINT
   {
     // The aliased fixture used `value_of_lost_load` instead of
     // `demand_fail_cost`; both should land in the same option.
-    CHECK(canonical.options.demand_fail_cost.has_value());
-    CHECK(aliased.options.demand_fail_cost.has_value());
-    if (canonical.options.demand_fail_cost.has_value()
-        && aliased.options.demand_fail_cost.has_value())
+    CHECK(canonical.options.model_options.demand_fail_cost.has_value());
+    CHECK(aliased.options.model_options.demand_fail_cost.has_value());
+    if (canonical.options.model_options.demand_fail_cost.has_value()
+        && aliased.options.model_options.demand_fail_cost.has_value())
     {
-      CHECK(*canonical.options.demand_fail_cost
-            == doctest::Approx(*aliased.options.demand_fail_cost));
+      CHECK(
+          *canonical.options.model_options.demand_fail_cost
+          == doctest::Approx(*aliased.options.model_options.demand_fail_cost));
     }
   }
 

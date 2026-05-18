@@ -62,8 +62,8 @@ TEST_CASE("LineLP - line losses (lossfactor > 0)")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -161,10 +161,10 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -270,10 +270,10 @@ TEST_CASE("LineLP - piecewise R=0 falls back to lossless transport")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -357,10 +357,10 @@ TEST_CASE("LineLP - piecewise tiny R drops every segment from loss row")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -453,10 +453,10 @@ TEST_CASE("LineLP - piecewise R drops first segment, keeps later ones")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -533,10 +533,10 @@ TEST_CASE("LineLP - bidirectional tiny R drops every segment from loss rows")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -636,9 +636,9 @@ TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_line_losses = true;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -734,11 +734,11 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.loss_segments = 3;  // Global: 3 segments
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.loss_segments = 3;  // Global: 3 segments
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -844,10 +844,10 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     };
 
     PlanningOptions opts;
-    opts.use_single_bus = false;
-    opts.use_kirchhoff = false;
-    opts.use_line_losses = false;  // global: disabled
-    opts.scale_objective = 1000.0;
+    opts.model_options.use_single_bus = false;
+    opts.model_options.use_kirchhoff = false;
+    opts.model_options.use_line_losses = false;  // global: disabled
+    opts.model_options.scale_objective = 1000.0;
     opts.model_options.demand_fail_cost = 1000.0;
 
     const System system = {
@@ -893,11 +893,11 @@ TEST_CASE("LineLP - per-line use_line_losses overrides global option")
     };
 
     PlanningOptions opts;
-    opts.use_single_bus = false;
-    opts.use_kirchhoff = false;
-    opts.use_line_losses = true;  // global: enabled
-    opts.loss_segments = 3;
-    opts.scale_objective = 1000.0;
+    opts.model_options.use_single_bus = false;
+    opts.model_options.use_kirchhoff = false;
+    opts.model_options.use_line_losses = true;  // global: enabled
+    opts.model_options.loss_segments = 3;
+    opts.model_options.scale_objective = 1000.0;
     opts.model_options.demand_fail_cost = 1000.0;
 
     const System system = {
@@ -1031,9 +1031,12 @@ TEST_CASE("LineLP - loss allocation mode receiver (default)")  // NOLINT
   Planning planning = {
       .options =
           {
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = simulation,
       .system =
@@ -1135,9 +1138,12 @@ TEST_CASE("LineLP - loss allocation mode sender")  // NOLINT
   Planning planning = {
       .options =
           {
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = simulation,
       .system =
@@ -1237,9 +1243,12 @@ TEST_CASE("LineLP - loss allocation mode split")  // NOLINT
   Planning planning = {
       .options =
           {
-              .demand_fail_cost = 1000.0,
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = simulation,
       .system =
@@ -1282,9 +1291,12 @@ TEST_CASE("LineLP - loss allocation modes affect LMPs but all solve")  // NOLINT
     return Planning {
         .options =
             {
-                .demand_fail_cost = 1000.0,
-                .use_kirchhoff = false,
-                .use_single_bus = false,
+                .model_options =
+                    {
+                        .use_single_bus = false,
+                        .use_kirchhoff = false,
+                        .demand_fail_cost = 1000.0,
+                    },
             },
         .simulation =
             {

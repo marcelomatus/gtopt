@@ -252,7 +252,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     PlanningOptions opt;
 
     // Create system with single bus mode
-    opt.use_single_bus = true;
+    opt.model_options.use_single_bus = true;
 
     const PlanningOptionsLP options(opt);
     const Simulation simu = {
@@ -279,7 +279,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     PlanningOptions opt;
 
     // Create system with single bus mode
-    opt.use_kirchhoff = false;
+    opt.model_options.use_kirchhoff = false;
 
     const PlanningOptionsLP options(opt);
     const Simulation simu = {
@@ -306,7 +306,7 @@ TEST_CASE("BusLP needs_kirchhoff method")
     PlanningOptions opt;
 
     // Create system with single bus mode
-    opt.kirchhoff_threshold = 1.5;
+    opt.model_options.kirchhoff_threshold = 1.5;
 
     const PlanningOptionsLP options(opt);
 
@@ -443,8 +443,8 @@ TEST_CASE("BusLP - DC OPF solve, theta col_sol")
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
   opts.model_options.demand_fail_cost = 1000.0;
   // Pin node_angle: this test asserts the θ column is solved to a
   // specific value (-1.0 rad).  cycle_basis has no θ column at all.

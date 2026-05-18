@@ -166,7 +166,7 @@ TEST_CASE(
         .generator_profile_array = gp_array,
     };
     PlanningOptions opts;
-    opts.scale_objective = 1.0;
+    opts.model_options.scale_objective = 1.0;
     const PlanningOptionsLP options {opts};
     SimulationLP sim_lp(sim, options);
     SystemLP system_lp(sys, sim_lp);
@@ -199,7 +199,7 @@ TEST_CASE(
         .capacity_profile_array = Array<CapacityProfile> {p},
     };
     PlanningOptions opts;
-    opts.scale_objective = 1.0;
+    opts.model_options.scale_objective = 1.0;
     const PlanningOptionsLP options {opts};
     SimulationLP sim_lp(sim, options);
     SystemLP system_lp(sys, sim_lp);
@@ -256,7 +256,7 @@ TEST_CASE(
         .demand_profile_array = dp_array,
     };
     PlanningOptions opts;
-    opts.scale_objective = 1.0;
+    opts.model_options.scale_objective = 1.0;
     const PlanningOptionsLP options {opts};
     SimulationLP sim_lp(sim, options);
     SystemLP system_lp(sys, sim_lp);
@@ -287,7 +287,7 @@ TEST_CASE(
         .capacity_profile_array = Array<CapacityProfile> {p},
     };
     PlanningOptions opts;
-    opts.scale_objective = 1.0;
+    opts.model_options.scale_objective = 1.0;
     const PlanningOptionsLP options {opts};
     SimulationLP sim_lp(sim, options);
     SystemLP system_lp(sys, sim_lp);
@@ -381,7 +381,7 @@ TEST_CASE(  // NOLINT
   const auto sim = make_single_block_sim();
 
   PlanningOptions opts;
-  opts.scale_objective = 1.0;
+  opts.model_options.scale_objective = 1.0;
   const PlanningOptionsLP options {opts};
   SimulationLP sim_lp(sim, options);
 

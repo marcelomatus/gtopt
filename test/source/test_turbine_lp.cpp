@@ -132,7 +132,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -273,7 +273,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -425,7 +425,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -582,7 +582,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -709,7 +709,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -852,7 +852,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -1042,7 +1042,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);

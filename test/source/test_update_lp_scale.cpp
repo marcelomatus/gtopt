@@ -80,7 +80,7 @@ inline void apply_scale_config(PlanningOptions& opts, const ScaleConfig& cfg)
           .scale = cfg.energy_scale,
       },
   };
-  opts.scale_objective = OptReal {cfg.scale_objective};
+  opts.model_options.scale_objective = OptReal {cfg.scale_objective};
   opts.lp_matrix_options.equilibration_method = cfg.equilibration;
 }
 
@@ -258,7 +258,7 @@ TEST_CASE("update_lp_scale - ReservoirSeepageLP under var_scale")  // NOLINT
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     apply_scale_config(opts, cfg);
 
     const PlanningOptionsLP options_lp(opts);
@@ -517,7 +517,7 @@ TEST_CASE(
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     apply_scale_config(opts, cfg);
 
     const PlanningOptionsLP options_lp(opts);
@@ -768,7 +768,7 @@ TEST_CASE(
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     apply_scale_config(opts, cfg);
 
     const PlanningOptionsLP options_lp(opts);

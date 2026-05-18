@@ -960,7 +960,7 @@ TEST_CASE(
   // never dispatches (flow == 0).  The penalty (1000 $/MWh) far exceeds the
   // hydro gcost (5 $/MWh), so the optimizer prefers to dispatch hydro.
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);

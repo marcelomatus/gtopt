@@ -324,8 +324,8 @@ TEST_CASE("FlowLP update_aperture updates bounds correctly")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
@@ -692,8 +692,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
@@ -967,7 +967,7 @@ TEST_CASE("FlowLP update_aperture with inactive flow")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
+  opts.model_options.use_single_bus = true;
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -1105,7 +1105,7 @@ TEST_CASE("FlowLP update_aperture with non-matching scenario key")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
+  opts.model_options.use_single_bus = true;
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -1315,9 +1315,9 @@ TEST_CASE("FlowLP aperture bound update affects LP objective value")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
-  opts.demand_fail_cost = 1000.0;
-  opts.scale_objective = OptReal {1.0};
+  opts.model_options.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.scale_objective = OptReal {1.0};
 
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);
@@ -1533,9 +1533,9 @@ auto make_2phase_aperture_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
-  options.scale_objective = OptReal {1.0};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
   options.output_format = DataFormat::csv;
   options.output_compression = CompressionCodec::uncompressed;
 
@@ -1818,8 +1818,8 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const PlanningOptionsLP options(opts);
   SimulationLP sim_lp(simulation, options);

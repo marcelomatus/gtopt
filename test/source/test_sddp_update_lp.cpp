@@ -479,7 +479,7 @@ TEST_CASE("update_lp - no-op when no updatable elements")  // NOLINT
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
@@ -585,7 +585,7 @@ TEST_CASE(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);
@@ -764,7 +764,7 @@ TEST_CASE(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
+  options.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(options);
   SimulationLP sim_lp(simulation, options_lp);
   SystemLP system_lp(system, sim_lp);

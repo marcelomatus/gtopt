@@ -299,7 +299,8 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;  // flexible demand – LP always feasible
+  opts.model_options.demand_fail_cost =
+      1000.0;  // flexible demand – LP always feasible
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -398,7 +399,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -490,7 +491,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   // Set energy scale via variable_scales (not per-element field)
   opts.variable_scales = {
       {
@@ -617,7 +618,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     // Set energy scale via variable_scales (not per-element field)
     opts.variable_scales = {
         {
@@ -748,7 +749,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {

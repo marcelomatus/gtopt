@@ -23,9 +23,12 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 auto make_kirchhoff_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = true,
-      .use_single_bus = false,
-      .kirchhoff_threshold = 0.0,
+      .model_options =
+          {
+              .use_single_bus = false,
+              .use_kirchhoff = true,
+              .kirchhoff_threshold = 0.0,
+          },
   };
   opts.model_options.kirchhoff_mode = OptName {"node_angle"};
   return PlanningOptionsLP {std::move(opts)};
@@ -35,8 +38,11 @@ auto make_kirchhoff_options() -> PlanningOptionsLP
 auto make_single_bus_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = true,
-      .use_single_bus = true,
+      .model_options =
+          {
+              .use_single_bus = true,
+              .use_kirchhoff = true,
+          },
   };
   return PlanningOptionsLP {std::move(opts)};
 }
@@ -45,8 +51,11 @@ auto make_single_bus_options() -> PlanningOptionsLP
 auto make_no_kirchhoff_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = false,
-      .use_single_bus = false,
+      .model_options =
+          {
+              .use_single_bus = false,
+              .use_kirchhoff = false,
+          },
   };
   return PlanningOptionsLP {std::move(opts)};
 }
@@ -632,9 +641,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   Planning planning = {
       .options = std::move(opts),
@@ -732,8 +741,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
 
   Planning planning = {
       .options = std::move(opts),
@@ -889,9 +898,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   Planning planning = {
       .options = std::move(opts),

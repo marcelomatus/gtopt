@@ -181,8 +181,7 @@ public:
    * @param poptions The PlanningOptions object to wrap (defaults to empty)
    */
   explicit PlanningOptionsLP(PlanningOptions poptions = {})
-      : m_options_(
-            (poptions.migrate_flat_to_model_options(), std::move(poptions)))
+      : m_options_(std::move(poptions))
       , m_variable_scale_map_(populate_variable_scales(m_options_))
   {
   }
@@ -673,8 +672,7 @@ public:
   /// Bound to CLI `--write-out` and JSON `write_out`.
   [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
   {
-    return m_options_.write_out.value_or(OutputFlags::solution
-                                         | OutputFlags::dual);
+    return m_options_.write_out.value_or(OutputFlags::all);
   }
 
   /**
@@ -1686,10 +1684,11 @@ private:
                                  });
     };
 
-    // Inject Bus.theta — scale_theta already follows physical = LP × scale
+    // Inject Bus.theta — scale_theta already follows physical = LP × scale.
+    // Post-§11 (2026-05-17): legacy top-level `opts.scale_theta` removed;
+    // single source is `opts.model_options.scale_theta`.
     if (!has_entry(Bus::class_name, "theta")) {
-      const auto st =
-          fallback_3(opts.scale_theta, opts.model_options.scale_theta, 1.0);
+      const auto st = opts.model_options.scale_theta.value_or(1.0);
       opts.variable_scales.push_back(VariableScale {
           .class_name = Bus::class_name,
           .variable = "theta",

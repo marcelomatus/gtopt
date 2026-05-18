@@ -171,7 +171,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   System system = {
       .name = "TwoBusSystem",
@@ -237,7 +237,7 @@ TEST_CASE("SystemLP with line - single bus mode")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
+  opts.model_options.use_single_bus = true;
   opts.model_options.demand_fail_cost = 1000.0;
 
   System system = {
@@ -362,8 +362,8 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -417,8 +417,8 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
   opts.model_options.demand_fail_cost = 1000.0;
   // Pin node_angle: this test compares row-counts AC vs DC, which only
   // diverge under the B-θ formulation (cycle_basis adds rows per cycle,
@@ -605,10 +605,10 @@ TEST_CASE("LineLP - inactive line is skipped")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.demand_fail_cost = 1000.0;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.scale_objective = 1000.0;
 
   const System system = {
       .name = "InactiveLineTest",
@@ -714,9 +714,9 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -818,10 +818,10 @@ TEST_CASE("LineLP - AMPL line.flow user constraint enforces physical bound")
       .scenario_array = {{.uid = Uid {0}}},
   };
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = false;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
@@ -927,10 +927,10 @@ TEST_CASE("LineLP - AMPL sum(line(all).flow) aggregates across lines")
       .scenario_array = {{.uid = Uid {0}}},
   };
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = false;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.scale_objective = 1000.0;
   opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {

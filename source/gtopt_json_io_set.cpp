@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdlib>
 #include <format>
@@ -18,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtopt/gtopt_json_io.hpp>
@@ -110,9 +112,58 @@ namespace
 /// Indices > 0 emit leading empty-object placeholders so the target
 /// lands at the requested position; the merge side leaves untouched
 /// elements alone (see `CascadeOptions::merge`).
-[[nodiscard]] std::string build_set_option_json(std::string_view dotted_key,
+/// Legacy short keys that used to live directly on `PlanningOptions`
+/// but were moved under `model_options` in §11 of
+/// `docs/analysis/naming-conventions.md`.  Apply this rewrite before
+/// path-splitting so existing CLI invocations like
+/// `--set demand_fail_cost=5000` continue to resolve.  Also applies
+/// the two §11.10 renames (reserve_fail_cost → reserve_shortage_cost,
+/// hydro_fail_cost → hydro_spill_cost).
+[[nodiscard]] std::string rewrite_legacy_model_options_key(
+    std::string_view dotted_key)
+{
+  static constexpr std::array<std::pair<std::string_view, std::string_view>, 13>
+      legacy = {
+          {
+              {"demand_fail_cost", "model_options.demand_fail_cost"},
+              {"reserve_fail_cost", "model_options.reserve_shortage_cost"},
+              {"reserve_shortage_cost", "model_options.reserve_shortage_cost"},
+              {"hydro_fail_cost", "model_options.hydro_spill_cost"},
+              {"hydro_spill_cost", "model_options.hydro_spill_cost"},
+              {"hydro_use_value", "model_options.hydro_use_value"},
+              {"use_line_losses", "model_options.use_line_losses"},
+              {"loss_segments", "model_options.loss_segments"},
+              {"use_kirchhoff", "model_options.use_kirchhoff"},
+              {"use_single_bus", "model_options.use_single_bus"},
+              {"kirchhoff_threshold", "model_options.kirchhoff_threshold"},
+              {"scale_objective", "model_options.scale_objective"},
+              {"scale_theta", "model_options.scale_theta"},
+          },
+      };
+  // Only rewrite if the *first* segment is one of the legacy short keys
+  // (i.e., the user wrote `--set demand_fail_cost=…`, not
+  // `--set model_options.demand_fail_cost=…`).
+  const auto first_dot = dotted_key.find('.');
+  const auto head = dotted_key.substr(0, first_dot);
+  for (const auto& [alias, canonical] : legacy) {
+    if (head == alias) {
+      if (first_dot == std::string_view::npos) {
+        return std::string {canonical};
+      }
+      std::string out {canonical};
+      out += dotted_key.substr(first_dot);  // includes leading '.'
+      return out;
+    }
+  }
+  return std::string {dotted_key};
+}
+
+[[nodiscard]] std::string build_set_option_json(std::string_view dotted_key_in,
                                                 std::string_view json_val)
 {
+  const auto rewritten = rewrite_legacy_model_options_key(dotted_key_in);
+  const std::string_view dotted_key {rewritten};
+
   // Split the key on '.' and collect into a vector of string_views.
   // `std::ranges::to<std::vector>()` has a libstdc++-14 / clang-21
   // compatibility issue (forward_like before definition), so we use the

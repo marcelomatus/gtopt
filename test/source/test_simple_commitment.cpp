@@ -113,7 +113,7 @@ TEST_CASE("SimpleCommitmentLP - binary mode basic")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "SimpleCommitTest",
@@ -165,7 +165,7 @@ TEST_CASE("SimpleCommitmentLP - relaxed mode")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "RelaxedCommitTest",
@@ -209,7 +209,7 @@ TEST_CASE("SimpleCommitmentLP - must run")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "MustRunTest",
@@ -266,7 +266,7 @@ TEST_CASE("SimpleCommitmentLP - dispatch_pmin defaults to generator pmin")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "DefaultPminTest",
@@ -316,7 +316,7 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
 
   const System system = {
@@ -402,7 +402,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "SimpleCommitMIPTest",

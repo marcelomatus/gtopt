@@ -159,8 +159,8 @@ TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveTest",
@@ -233,8 +233,8 @@ TEST_CASE("ReserveZoneLP - up and down reserve requirements")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveUpDownTest",
@@ -325,8 +325,8 @@ TEST_CASE("ReserveZoneLP - multi-stage reserve with provision")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "MultiStageReserveTest",
@@ -393,8 +393,8 @@ TEST_CASE("ReserveProvisionLP - capacity factor constraint")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "CapFactorTest",
@@ -456,7 +456,7 @@ TEST_CASE("ReserveZoneLP - reserve zone without requirement (no-op)")
   };
 
   PlanningOptions popts;
-  popts.demand_fail_cost = 1000.0;
+  popts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -514,8 +514,8 @@ TEST_CASE("ReserveZoneLP - down-reserve provision (dprov)")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "DownReserveTest",
@@ -589,8 +589,8 @@ TEST_CASE("ReserveZoneLP - both up and down reserve with capacity factor")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "BothReservesCapFactor",
@@ -694,10 +694,10 @@ TEST_CASE("ReserveZoneLP - add_to_output writes reserve output files")
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveOutputFullTest",
@@ -805,8 +805,8 @@ TEST_CASE("ReserveZoneLP - lookup methods on LP objects")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "LookupTest",
@@ -970,7 +970,7 @@ TEST_CASE("ReserveZoneLP - reserve fail cost with insufficient provision")
   };
 
   PlanningOptions opts;
-  opts.reserve_fail_cost = 5000.0;
+  opts.model_options.reserve_shortage_cost = 5000.0;
 
   const System system = {
       .name = "ReserveFailCostTest",
@@ -1093,7 +1093,7 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
 
   // No reserve_fail_cost set -> fixed requirement (no shortage variable)
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "FixedReqTest",
@@ -1208,8 +1208,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "DownReserveCapCostTest",
@@ -1330,8 +1330,8 @@ TEST_CASE("ReserveZoneLP - multiple blocks with reserve duals")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "MultiBlockReserveDuals",
@@ -1463,8 +1463,8 @@ TEST_CASE("ReserveZoneLP - reserve provision by zone name")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "NamedZoneTest",
@@ -1583,10 +1583,10 @@ TEST_CASE(
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveCsvOutputTest",
@@ -1709,8 +1709,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "TwoZonePartitioned",
@@ -1830,8 +1830,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "TwoZoneIndependentRequirements",
@@ -1946,8 +1946,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveOneProvisionTwoZones",

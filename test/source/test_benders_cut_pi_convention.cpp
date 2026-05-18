@@ -713,7 +713,7 @@ TEST_CASE(
                      int max_iters = 8) -> RunSummary
   {
     auto planning = make_2scene_10phase_two_reservoir_planning();
-    planning.options.scale_objective = OptReal {1.0};
+    planning.options.model_options.scale_objective = OptReal {1.0};
     planning.options.lp_matrix_options.equilibration_method = method;
     if (rsv_var_scale != 1.0) {
       planning.options.variable_scales = {

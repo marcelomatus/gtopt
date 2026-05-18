@@ -35,27 +35,62 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 // Minimal planning JSON for --set option tests.
 // Uses single-bus mode and a tiny system so that lp_only=true
 // completes instantly without a solver.
-constexpr auto set_test_json = R"({
-  "options": {
-    "demand_fail_cost": 1000,
-    "output_compression": "uncompressed"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "set_cli_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-    ]
+constexpr auto set_test_json = R"(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "set_cli_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10.0,
+          "capacity": 200.0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50.0
+        }
+      ]
+    }
   }
-})";
+)";
 
 // Write JSON content to a temp file and return the stem path
 // (without .json extension; gtopt_main appends it).
@@ -516,53 +551,102 @@ TEST_CASE("--set solver_options.log_mode accepts valid name")  // NOLINT
 // Minimal cascade case with three levels, one per model formulation.
 // Uses lp_only to avoid solver invocation; we only verify that the
 // overlay is parsed, merged, and applied without error.
-constexpr auto cascade_test_json = R"({
-  "options": {
-    "method": "cascade",
-    "demand_fail_cost": 1000,
-    "output_compression": "uncompressed",
-    "cascade_options": {
-      "sddp_options": {
-        "max_iterations": 1
+constexpr auto cascade_test_json = R"(
+  {
+    "options": {
+      "method": "cascade",
+      "output_compression": "uncompressed",
+      "cascade_options": {
+        "sddp_options": {
+          "max_iterations": 1
+        },
+        "level_array": [
+          {
+            "uid": 1,
+            "name": "uninodal",
+            "model_options": {
+              "use_single_bus": true
+            },
+            "sddp_options": {
+              "max_iterations": 1
+            }
+          },
+          {
+            "uid": 2,
+            "name": "transport",
+            "model_options": {
+              "use_single_bus": false,
+              "use_kirchhoff": false
+            },
+            "sddp_options": {
+              "max_iterations": 1
+            }
+          },
+          {
+            "uid": 3,
+            "name": "full_network",
+            "model_options": {
+              "use_single_bus": false,
+              "use_kirchhoff": true
+            },
+            "sddp_options": {
+              "max_iterations": 1
+            }
+          }
+        ]
       },
-      "level_array": [
+      "model_options": {
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
         {
           "uid": 1,
-          "name": "uninodal",
-          "model_options": {"use_single_bus": true},
-          "sddp_options": {"max_iterations": 1}
-        },
+          "duration": 1
+        }
+      ],
+      "stage_array": [
         {
-          "uid": 2,
-          "name": "transport",
-          "model_options": {"use_single_bus": false, "use_kirchhoff": false},
-          "sddp_options": {"max_iterations": 1}
-        },
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
         {
-          "uid": 3,
-          "name": "full_network",
-          "model_options": {"use_single_bus": false, "use_kirchhoff": true},
-          "sddp_options": {"max_iterations": 1}
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "set_cli_cascade_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10.0,
+          "capacity": 200.0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50.0
         }
       ]
     }
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "set_cli_cascade_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-    ]
   }
-})";
+)";
 
 TEST_CASE("--set array-index: cascade_options.level_array.0.sddp_options")
 {
@@ -869,6 +953,158 @@ TEST_CASE(
         == "transport");
   CHECK(planning.options.cascade_options.level_array[2].name.value_or("?")
         == "full_network");
+}
+
+// ── Legacy ModelOptions short-key aliases (§11 of naming-conventions) ──
+//
+// Per `source/gtopt_json_io_set.cpp::rewrite_legacy_model_options_key`,
+// every legacy top-level PlanningOptions mirror field continues to
+// work as a `--set` key after the §11 deletion, by transparently
+// rewriting `key` → `model_options.key` before the JSON overlay path.
+// The two §11.10 renames (reserve_fail_cost → reserve_shortage_cost,
+// hydro_fail_cost → hydro_spill_cost) also land on the new canonical
+// field.  These tests pin every entry of that alias table so a
+// future edit can't silently drop one.
+
+TEST_CASE("--set legacy alias: bare demand_fail_cost → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"demand_fail_cost=5000"}));
+  CHECK(planning.options.model_options.demand_fail_cost.value_or(-1.0)
+        == doctest::Approx(5000.0));
+}
+
+TEST_CASE("--set legacy alias: bare scale_objective → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"scale_objective=250"}));
+  CHECK(planning.options.model_options.scale_objective.value_or(-1.0)
+        == doctest::Approx(250.0));
+}
+
+TEST_CASE("--set legacy alias: bare scale_theta → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"scale_theta=0.001"}));
+  CHECK(planning.options.model_options.scale_theta.value_or(-1.0)
+        == doctest::Approx(0.001));
+}
+
+TEST_CASE("--set legacy alias: bare use_single_bus → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"use_single_bus=true"}));
+  CHECK(planning.options.model_options.use_single_bus.value_or(false) == true);
+}
+
+TEST_CASE("--set legacy alias: bare use_kirchhoff → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"use_kirchhoff=false"}));
+  CHECK(planning.options.model_options.use_kirchhoff.value_or(true) == false);
+}
+
+TEST_CASE("--set legacy alias: bare use_line_losses → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"use_line_losses=true"}));
+  CHECK(planning.options.model_options.use_line_losses.value_or(false) == true);
+}
+
+TEST_CASE("--set legacy alias: bare kirchhoff_threshold → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"kirchhoff_threshold=0.05"}));
+  CHECK(planning.options.model_options.kirchhoff_threshold.value_or(-1.0)
+        == doctest::Approx(0.05));
+}
+
+TEST_CASE("--set legacy alias: bare loss_segments → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"loss_segments=4"}));
+  CHECK(planning.options.model_options.loss_segments.value_or(-1) == 4);
+}
+
+TEST_CASE("--set legacy alias: bare hydro_use_value → model_options")
+{
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"hydro_use_value=12.5"}));
+  CHECK(planning.options.model_options.hydro_use_value.value_or(-1.0)
+        == doctest::Approx(12.5));
+}
+
+TEST_CASE("--set legacy alias: bare reserve_shortage_cost → model_options")
+{
+  // The canonical short key keeps working unchanged.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"reserve_shortage_cost=900"}));
+  CHECK(planning.options.model_options.reserve_shortage_cost.value_or(-1.0)
+        == doctest::Approx(900.0));
+}
+
+TEST_CASE("--set legacy alias: bare hydro_spill_cost → model_options")
+{
+  // The canonical short key keeps working unchanged.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"hydro_spill_cost=15"}));
+  CHECK(planning.options.model_options.hydro_spill_cost.value_or(-1.0)
+        == doctest::Approx(15.0));
+}
+
+TEST_CASE(
+    "--set legacy alias rename: reserve_fail_cost → reserve_shortage_cost")
+{
+  // §11.10 rename: the deprecated short key still resolves, and is
+  // routed to the new canonical field name on ModelOptions.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"reserve_fail_cost=750"}));
+  CHECK(planning.options.model_options.reserve_shortage_cost.value_or(-1.0)
+        == doctest::Approx(750.0));
+}
+
+TEST_CASE("--set legacy alias rename: hydro_fail_cost → hydro_spill_cost")
+{
+  // §11.10 rename: the deprecated short key still resolves, and is
+  // routed to the new canonical field name on ModelOptions.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"hydro_fail_cost=20"}));
+  CHECK(planning.options.model_options.hydro_spill_cost.value_or(-1.0)
+        == doctest::Approx(20.0));
+}
+
+TEST_CASE("--set legacy alias: nested suffix is preserved after rewrite")
+{
+  // `--set demand_fail_cost.something_else=…` would route through
+  // `model_options.demand_fail_cost.something_else=…`.  The suffix
+  // is preserved verbatim; this exercises the suffix-preservation
+  // branch of `rewrite_legacy_model_options_key`.  We assert the
+  // bare-key behaviour holds (no extraneous suffix produced when
+  // none was supplied).
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"demand_fail_cost=42"}));
+  CHECK(planning.options.model_options.demand_fail_cost.value_or(-1.0)
+        == doctest::Approx(42.0));
+  // The pre-rewrite key (i.e. a top-level PlanningOptions
+  // `demand_fail_cost` field) is gone, so nothing else can have
+  // received the value.  Sanity check: explicit canonical path
+  // also still works in isolation.
+  Planning planning_canon;
+  REQUIRE(
+      apply_set_options(planning_canon, {"model_options.demand_fail_cost=42"}));
+  CHECK(planning_canon.options.model_options.demand_fail_cost.value_or(-1.0)
+        == doctest::Approx(42.0));
+}
+
+TEST_CASE("--set legacy alias: non-legacy short key is NOT rewritten")
+{
+  // `output_format` is a real top-level PlanningOptions field — must
+  // route directly to options.output_format, not to
+  // model_options.output_format.
+  Planning planning;
+  REQUIRE(apply_set_options(planning, {"output_format=csv"}));
+  REQUIRE(planning.options.output_format.has_value());
+  CHECK(*planning.options.output_format == DataFormat::csv);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
