@@ -31,6 +31,7 @@
     {"class": "demand", "canonical": "fcost", "alt": "CustoDeficit",     "dialect": "sddp"},
 
     {"class": "line", "canonical": "tmax_ab", "alt": "max_flow_ab", "dialect": "gtopt"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "tmax",        "dialect": "gtopt-legacy"},
     {"class": "line", "canonical": "tmax_ab", "alt": "s_nom",       "dialect": "pypsa"},
     {"class": "line", "canonical": "tmax_ab", "alt": "max_i_ka",    "dialect": "pandapower"},
     {"class": "line", "canonical": "tmax_ab", "alt": "Max Flow",    "dialect": "plexos"},

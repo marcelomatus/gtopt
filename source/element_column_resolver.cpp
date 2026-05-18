@@ -25,6 +25,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
+#include <gtopt/names_registry.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -338,20 +339,39 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   const auto suid = stage.uid();
   const auto buid = block.uid();
 
+  // Normalise the attribute name via the runtime naming-dialects
+  // registry.  Lets PAMPL files reference parameters by any
+  // alternative listed in `share/gtopt/naming_dialects.json` — e.g.
+  // `generator.marginal_cost[…]` resolves the same as
+  // `generator.gcost[…]`; `line.tmax[…]` resolves the same as
+  // `line.tmax_ab[…]`.  Aliases must be globally unique across
+  // element types (registry-enforced invariant), which is why the
+  // per-class `target`↔`discharge` and `uvalue`↔`use_value` chains
+  // below stay hardcoded for now: `discharge` is the canonical
+  // attribute for `flow`, so it cannot be a global alias for
+  // `flow_right.target`.  An element-aware lookup is a Phase-2
+  // enhancement; see docs/analysis/naming-conventions.md §10.4.
+  auto attr = std::string_view {ref.attribute};
+  if (const auto canonical = NamesRegistry::instance().canonical_for(attr);
+      canonical.has_value())
+  {
+    attr = *canonical;
+  }
+
   try {
     // ── generator ────────────────────────────────────────────────────────
     if (ref.element_type == "generator") {
       const auto& gen = sc.get_element(ObjectSingleId<GeneratorLP> {single_id});
-      if (ref.attribute == "pmax") {
+      if (attr == "pmax") {
         return gen.param_pmax(suid, buid);
       }
-      if (ref.attribute == "pmin") {
+      if (attr == "pmin") {
         return gen.param_pmin(suid, buid);
       }
-      if (ref.attribute == "gcost") {
+      if (attr == "gcost") {
         return gen.param_gcost(suid);
       }
-      if (ref.attribute == "lossfactor") {
+      if (attr == "lossfactor") {
         return gen.param_lossfactor(suid);
       }
       // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
@@ -361,10 +381,10 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
       // are arrays without a meaningful scalar PAMPL projection — not
       // exposed; reference via the Fuel side instead.
-      if (ref.attribute == "heat_rate") {
+      if (attr == "heat_rate") {
         return gen.param_heat_rate(suid);
       }
-      if (ref.attribute == "emission_factor") {
+      if (attr == "emission_factor") {
         return gen.param_emission_factor(suid);
       }
       return std::nullopt;
@@ -376,16 +396,16 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // (no LP column path) since `FuelLP::add_to_lp` is a no-op.
     if (ref.element_type == "fuel") {
       const auto& fuel = sc.get_element(ObjectSingleId<FuelLP> {single_id});
-      if (ref.attribute == "price") {
+      if (attr == "price") {
         return fuel.param_price(suid);
       }
-      if (ref.attribute == "heat_content") {
+      if (attr == "heat_content") {
         return fuel.param_heat_content(suid);
       }
-      if (ref.attribute == "combustion_emission_factor") {
+      if (attr == "combustion_emission_factor") {
         return fuel.param_combustion_emission_factor(suid);
       }
-      if (ref.attribute == "upstream_emission_factor") {
+      if (attr == "upstream_emission_factor") {
         return fuel.param_upstream_emission_factor(suid);
       }
       return std::nullopt;
@@ -394,13 +414,13 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // ── demand ───────────────────────────────────────────────────────────
     if (ref.element_type == "demand") {
       const auto& dem = sc.get_element(ObjectSingleId<DemandLP> {single_id});
-      if (ref.attribute == "lmax") {
+      if (attr == "lmax") {
         return dem.param_lmax(suid, buid);
       }
-      if (ref.attribute == "fcost") {
+      if (attr == "fcost") {
         return dem.param_fcost(suid);
       }
-      if (ref.attribute == "lossfactor") {
+      if (attr == "lossfactor") {
         return dem.param_lossfactor(suid);
       }
       return std::nullopt;
@@ -409,16 +429,19 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // ── line ─────────────────────────────────────────────────────────────
     if (ref.element_type == "line") {
       const auto& ln = sc.get_element(ObjectSingleId<LineLP> {single_id});
-      if (ref.attribute == "tmax" || ref.attribute == "tmax_ab") {
+      // `tmax` (legacy) is now an alias for `tmax_ab` via the registry —
+      // canonicalisation above turns `tmax` into `tmax_ab`, so a single
+      // compare suffices here.
+      if (attr == "tmax_ab") {
         return ln.param_tmax_ab(suid, buid);
       }
-      if (ref.attribute == "tmax_ba") {
+      if (attr == "tmax_ba") {
         return ln.param_tmax_ba(suid, buid);
       }
-      if (ref.attribute == "tcost") {
+      if (attr == "tcost") {
         return ln.param_tcost(suid);
       }
-      if (ref.attribute == "reactance") {
+      if (attr == "reactance") {
         return ln.param_reactance(suid);
       }
       return std::nullopt;
@@ -427,19 +450,19 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // ── battery ──────────────────────────────────────────────────────────
     if (ref.element_type == "battery") {
       const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return bat.param_emin(suid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return bat.param_emax(suid);
       }
-      if (ref.attribute == "ecost") {
+      if (attr == "ecost") {
         return bat.param_ecost(suid);
       }
-      if (ref.attribute == "input_efficiency") {
+      if (attr == "input_efficiency") {
         return bat.param_input_efficiency(suid);
       }
-      if (ref.attribute == "output_efficiency") {
+      if (attr == "output_efficiency") {
         return bat.param_output_efficiency(suid);
       }
       return std::nullopt;
@@ -448,16 +471,16 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // ── reservoir ────────────────────────────────────────────────────────
     if (ref.element_type == "reservoir") {
       const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return res.param_emin(suid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return res.param_emax(suid);
       }
-      if (ref.attribute == "ecost") {
+      if (attr == "ecost") {
         return res.param_ecost(suid);
       }
-      if (ref.attribute == "capacity") {
+      if (attr == "capacity") {
         return res.param_capacity(suid);
       }
       return std::nullopt;
@@ -466,21 +489,25 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     // ── flow_right ───────────────────────────────────────────────────────
     if (ref.element_type == "flow_right") {
       const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
-      if (ref.attribute == "fmin") {
+      if (attr == "fmin") {
         return frt.param_fmin(suid, buid);
       }
-      if (ref.attribute == "fmax") {
+      if (attr == "fmax") {
         return frt.param_fmax(suid, buid);
       }
+      // `discharge` is the legacy alias of `target` *within flow_right*,
+      // but it is also the canonical attribute on `flow`, so it cannot
+      // be lifted into the global naming-dialects registry without
+      // element-aware lookup (see resolve_single_param header comment).
       if (ref.attribute == "target" || ref.attribute == "discharge") {
-        // "discharge" is the legacy alias of "target".
         return frt.param_target(suid, buid);
       }
-      if (ref.attribute == "fcost") {
+      if (attr == "fcost") {
         return frt.param_fcost(suid);
       }
+      // `use_value` is the legacy alias of `uvalue`; kept inline for
+      // consistency with the target/discharge case above.
       if (ref.attribute == "uvalue" || ref.attribute == "use_value") {
-        // "use_value" is the legacy alias of "uvalue".
         return frt.param_uvalue(suid);
       }
       return std::nullopt;
@@ -490,22 +517,22 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     if (ref.element_type == "volume_right") {
       const auto& vrt =
           sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
-      if (ref.attribute == "fmax") {
+      if (attr == "fmax") {
         return vrt.param_fmax(suid, buid);
       }
-      if (ref.attribute == "emin") {
+      if (attr == "emin") {
         return vrt.param_emin(suid);
       }
-      if (ref.attribute == "emax") {
+      if (attr == "emax") {
         return vrt.param_emax(suid);
       }
-      if (ref.attribute == "demand") {
+      if (attr == "demand") {
         return vrt.param_demand(suid);
       }
-      if (ref.attribute == "saving_rate") {
+      if (attr == "saving_rate") {
         return vrt.param_saving_rate(suid, buid);
       }
-      if (ref.attribute == "fail_cost") {
+      if (attr == "fail_cost") {
         return vrt.param_fail_cost();
       }
       return std::nullopt;
