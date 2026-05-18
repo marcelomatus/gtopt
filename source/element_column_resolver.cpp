@@ -366,7 +366,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return gen.param_pmin(suid, buid);
       }
       if (attr == "gcost") {
-        return gen.param_gcost(suid);
+        return gen.param_gcost(suid, buid);
       }
       if (attr == "lossfactor") {
         return gen.param_lossfactor(suid);
@@ -415,7 +415,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return dem.param_lmax(suid, buid);
       }
       if (attr == "fcost") {
-        return dem.param_fcost(suid);
+        return dem.param_fcost(suid, buid);
       }
       if (attr == "lossfactor") {
         return dem.param_lossfactor(suid);

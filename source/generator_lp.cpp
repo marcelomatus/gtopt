@@ -112,7 +112,6 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
-  const auto stage_gcost = gcost.optval(stage.uid()).value_or(0.0);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   // ── Resolve fuel parameters (PLEXOS-style FK + heat-rate model) ─────
@@ -144,23 +143,25 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         uid());
   }
 
-  // Per-MWh cost of segment k (cheapest first, k = 0).
-  const auto slope_cost_per_mwh = [&](double hr_slope)
-  { return (stage_fuel_price * hr_slope) + stage_gcost; };
+  // Per-MWh cost of segment k (cheapest first, k = 0), evaluated at a
+  // given (stage, block) gcost.  `gcost` is now per-(stage, block);
+  // fuel price + heat rate remain per-stage.
+  const auto slope_cost_per_mwh = [&](double hr_slope, double block_gcost)
+  { return (stage_fuel_price * hr_slope) + block_gcost; };
 
-  // Effective slope for the primary `generation` column.  When
-  // piecewise: slope of the cheapest segment; otherwise scalar heat
-  // rate (or 0 when no fuel/heat_rate is configured).
-  const double primary_slope_cost = [&]
+  // Effective slope for the primary `generation` column at a given
+  // block.  When piecewise: slope of the cheapest segment; otherwise
+  // scalar heat rate (or 0 when no fuel/heat_rate is configured).
+  const auto primary_slope_cost_at = [&](double block_gcost)
   {
     if (has_pw) {
-      return slope_cost_per_mwh(hr_segs.front());
+      return slope_cost_per_mwh(hr_segs.front(), block_gcost);
     }
     if (fuel_lp != nullptr) {
-      return slope_cost_per_mwh(stage_heat_rate);
+      return slope_cost_per_mwh(stage_heat_rate, block_gcost);
     }
-    return stage_gcost;
-  }();
+    return block_gcost;
+  };
 
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
@@ -210,14 +211,19 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
 
+    // Per-(stage, block) gcost; falls back to 0 when unset.
+    const auto block_gcost =
+        gcost.optval(stage.uid(), block.uid()).value_or(0.0);
+    const auto block_primary_slope_cost = primary_slope_cost_at(block_gcost);
+
     // Create generation variable for this time block.  Cost on the
     // primary column carries the cheapest-segment slope (or scalar
     // heat rate, or plain gcost when no fuel is set).
     const auto gcol = lp.add_col({
         .lowb = block_pmin,
         .uppb = block_pmax,
-        .cost =
-            CostHelper::block_ecost(scenario, stage, block, primary_slope_cost),
+        .cost = CostHelper::block_ecost(
+            scenario, stage, block, block_primary_slope_cost),
         .class_name = Element::class_name.full_name(),
         .variable_name = GenerationName,
         .variable_uid = guid,

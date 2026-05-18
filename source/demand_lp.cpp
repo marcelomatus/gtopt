@@ -97,7 +97,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
-  const auto stage_fcost = sc.demand_fail_cost(stage, fcost);
   const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   const auto& bus_balance_rows = bus_lp.balance_rows_at(scenario, stage);
@@ -107,8 +106,17 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // adding the minimum energy constraint
   const auto stage_emin = emin.optval(stage.uid());
   auto stage_ecost = ecost.optval(stage.uid());
-  if (!stage_ecost && stage_fcost) {
-    stage_ecost = stage_fcost;
+  // ecost fallback: when `Demand.ecost` is unset, reuse `fcost` sampled
+  // at the first block of the stage.  `fcost` is now per-(stage, block);
+  // the stage-level emin/ecost feature is itself per-stage, so we sample
+  // a single representative value (matches legacy semantics for scalar
+  // fcost; for true per-block fcost only the first block's value drives
+  // ecost — the per-block cost still applies to the load column).
+  if (!stage_ecost && fcost.has_value() && !blocks.empty()) {
+    stage_ecost = fcost.optval(stage.uid(), blocks.front().uid())
+                      .or_else([&] { return sc.options().demand_fail_cost(); });
+  } else if (!stage_ecost && sc.options().demand_fail_cost().has_value()) {
+    stage_ecost = sc.options().demand_fail_cost();
   }
 
   // ── emin aggregator collapse ─────────────────────────────────────
@@ -197,7 +205,14 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // converter-tied demand produces a mathematically wrong row.
   // Audit before enabling on a model with Converter elements.
   const bool option_c = sc.options().demand_fail_rhs_shift();
-  const bool fail_substituted = (stage_fcost.has_value() && !is_forced);
+  // `fcost` is now per-(stage, block); substitution is enabled when the
+  // field is set anywhere on the schedule grid OR the global
+  // `model_options.demand_fail_cost` fallback is set.  Per-block
+  // resolution happens inside the block loop via
+  // `sc.demand_fail_cost(stage, block, fcost)`.
+  const bool fail_substituted =
+      ((fcost.has_value() || sc.options().demand_fail_cost().has_value())
+       && !is_forced);
   const bool use_option_c = fail_substituted && option_c;
 
   // Reserve only the holders that will actually be populated in this
@@ -271,8 +286,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       double col_uppb = block_lmax;
       double lcol_cost = 0.0;
       if (fail_substituted) {
+        const auto block_fcost = sc.demand_fail_cost(stage, block, fcost);
         const auto block_ecost =
-            CostHelper::block_ecost(scenario, stage, block, *stage_fcost);
+            CostHelper::block_ecost(scenario, stage, block, *block_fcost);
         lcol_cost = -block_ecost;
         if (use_option_c) {
           // Option C: col represents neg_fail ∈ [-lmax, 0].

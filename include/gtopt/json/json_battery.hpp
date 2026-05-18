@@ -85,11 +85,11 @@ struct json_data_contract<Battery>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Max discharging power
       json_variant_null<"gcost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Discharge cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Discharge cost
       json_variant_null<"charge_cost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Charge cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Charge cost
       json_variant_null<"capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Capacity

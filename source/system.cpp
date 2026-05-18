@@ -82,32 +82,39 @@ namespace gtopt
 {
 namespace
 {
-/// Negate every numeric value inside an OptTRealFieldSched, preserving
-/// the variant shape (scalar → scalar, vector → vector).  File-backed
-/// schedules are passed through unchanged because we cannot eagerly
-/// load + negate at expand time; callers that wire ``charge_cost`` via
-/// a Parquet/CSV file route must already store the value pre-negated.
-/// Used by ``expand_batteries`` to push ``Battery.charge_cost`` onto
-/// the synthetic Demand.fcost as a negative coefficient (so the
-/// demand-LP substitution ``lcol_cost = -fcost × block_factor`` lands
-/// on a positive per-MWh cost on the charging column).
-[[nodiscard]] auto negate_real_sched(const OptTRealFieldSched& src)
-    -> OptTRealFieldSched
+/// Negate every numeric value inside an OptTBRealFieldSched, preserving
+/// the variant shape (scalar → scalar, 2-D vector → 2-D vector).
+/// File-backed schedules are passed through unchanged because we
+/// cannot eagerly load + negate at expand time; callers that wire
+/// ``charge_cost`` via a Parquet/CSV file route must already store
+/// the value pre-negated.  Used by ``expand_batteries`` to push
+/// ``Battery.charge_cost`` onto the synthetic Demand.fcost as a
+/// negative coefficient (so the demand-LP substitution
+/// ``lcol_cost = -fcost × block_factor`` lands on a positive per-MWh
+/// cost on the charging column).
+[[nodiscard]] auto negate_real_sched(const OptTBRealFieldSched& src)
+    -> OptTBRealFieldSched
 {
   if (!src.has_value()) {
     return std::nullopt;
   }
   return std::visit(
-      [](const auto& v) -> RealFieldSched
+      [](const auto& v) -> RealFieldSched2
       {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, double>) {
           return -v;
-        } else if constexpr (std::is_same_v<T, std::vector<double>>) {
-          std::vector<double> negated;
+        } else if constexpr (std::is_same_v<T,
+                                            std::vector<std::vector<double>>>) {
+          std::vector<std::vector<double>> negated;
           negated.reserve(v.size());
-          for (auto x : v) {
-            negated.push_back(-x);
+          for (const auto& row : v) {
+            std::vector<double> nrow;
+            nrow.reserve(row.size());
+            for (auto x : row) {
+              nrow.push_back(-x);
+            }
+            negated.push_back(std::move(nrow));
           }
           return negated;
         } else {
@@ -203,9 +210,9 @@ void System::expand_batteries()
     //     ``lcol_cost = -fcost × block_factor = +charge_cost × ...``.
     //     LP then pays ``charge_cost`` per MWh charged, mirroring
     //     UC.jl's ``Charge cost ($/MW)`` semantics.
-    OptTRealFieldSched dem_fcost = battery.charge_cost.has_value()
+    OptTBRealFieldSched dem_fcost = battery.charge_cost.has_value()
         ? negate_real_sched(battery.charge_cost)
-        : OptTRealFieldSched {RealFieldSched {0.0}};
+        : OptTBRealFieldSched {RealFieldSched2 {0.0}};
     demand_array.push_back(Demand {
         .uid = dem_uid++,
         .name = dem_name,

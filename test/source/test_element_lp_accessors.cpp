@@ -193,7 +193,8 @@ TEST_CASE(  // NOLINT
     CHECK(gen_lp.param_pmax(suid, buid).value_or(-1.0)
           == doctest::Approx(150.0));
     CHECK(gen_lp.param_pmin(suid, buid).value_or(-1.0) == doctest::Approx(0.0));
-    CHECK(gen_lp.param_gcost(suid).value_or(-1.0) == doctest::Approx(25.0));
+    CHECK(gen_lp.param_gcost(suid, buid).value_or(-1.0)
+          == doctest::Approx(25.0));
     CHECK(gen_lp.param_lossfactor(suid).value_or(-1.0)
           == doctest::Approx(0.02));
     CHECK(gen_lp.param_emission_factor(suid).value_or(-1.0)
@@ -218,7 +219,8 @@ TEST_CASE(  // NOLINT
 
     CHECK(dem_lp.param_lmax(suid, buid).value_or(-1.0)
           == doctest::Approx(80.0));
-    CHECK(dem_lp.param_fcost(suid).value_or(-1.0) == doctest::Approx(1500.0));
+    CHECK(dem_lp.param_fcost(suid, buid).value_or(-1.0)
+          == doctest::Approx(1500.0));
     CHECK(dem_lp.param_lossfactor(suid).value_or(-1.0)
           == doctest::Approx(0.03));
   }

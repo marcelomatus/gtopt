@@ -52,7 +52,13 @@ struct DemandAttrs
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+                                 ///< per-(stage, block).  Accepts a scalar
+                                 ///< (broadcast), a 2-D nested array
+                                 ///< ``[[block0, block1, ...], ...]``, or a
+                                 ///< file-backed schedule.  Mirrors UC.jl's
+                                 ///< per-hour ``Revenue ($/MW)`` on
+                                 ///< price-sensitive loads.
   OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
@@ -101,7 +107,10 @@ struct Demand
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+                                 ///< per-(stage, block); see
+                                 ///< ``DemandAttrs::fcost`` for accepted
+                                 ///< JSON shapes.
   OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]

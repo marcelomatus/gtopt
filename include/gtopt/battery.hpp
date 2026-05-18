@@ -208,12 +208,16 @@ struct Battery
       pmax_charge {};  ///< Max charging power [MW] (unified definition)
   OptTRealFieldSched
       pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
-  OptTRealFieldSched
-      gcost {};  ///< Discharge generation cost [$/MWh] (unified definition)
+  OptTBRealFieldSched
+      gcost {};  ///< Discharge generation cost [$/MWh]
+                 ///< per-(stage, block).  Forwarded to the synthetic
+                 ///< discharge ``Generator.gcost`` (also TB) by
+                 ///< ``System::expand_batteries()``.
 
-  OptTRealFieldSched charge_cost {};
-  ///< Per-MWh cost paid when charging the battery [$/MWh].  Mirrors
-  ///< UC.jl's ``Charge cost ($/MW)`` and PLEXOS's battery charge cost.
+  OptTBRealFieldSched charge_cost {};
+  ///< Per-MWh cost paid when charging the battery [$/MWh]
+  ///< per-(stage, block).  Mirrors UC.jl's per-hour ``Charge cost
+  ///< ($/MW)`` and PLEXOS's battery charge cost.
   ///< Counterpart to ``gcost`` (discharge cost): ``gcost`` prices
   ///< energy injected into the grid, ``charge_cost`` prices energy
   ///< absorbed from it.  Wired through ``System::expand_batteries()``

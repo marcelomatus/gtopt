@@ -114,7 +114,10 @@ public:
   {
     return pmin.at(s, b);
   }
-  [[nodiscard]] auto param_gcost(StageUid s) const { return gcost.at(s); }
+  [[nodiscard]] auto param_gcost(StageUid s, BlockUid b) const
+  {
+    return gcost.at(s, b);
+  }
   [[nodiscard]] auto param_heat_rate(StageUid s) const
   {
     return heat_rate.at(s);
@@ -156,7 +159,7 @@ private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;
   OptTRealSched lossfactor;
-  OptTRealSched gcost;
+  OptTBRealSched gcost;
   OptTRealSched heat_rate;
   OptTRealSched emission_factor;
 

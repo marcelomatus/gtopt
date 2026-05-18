@@ -112,6 +112,7 @@ import argparse
 import json
 import math
 import os
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -543,12 +544,19 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         revenue = psdata.get("Revenue ($/MW)")
         if revenue is None:
             continue
-        # ``Revenue`` is collapsed to its first-hour value: gtopt's
-        # ``Demand.fcost`` is ``OptTRealFieldSched`` (per-stage, not
-        # per-block), so a UC.jl per-hour revenue list can't be
-        # honored cell-by-cell.  ``Demand (MW)`` itself can be
-        # time-varying (lmax accepts a per-block list).
-        revenue_scalar = _first_hour(revenue) if isinstance(revenue, list) else revenue
+        # gtopt's ``Demand.fcost`` is now ``OptTBRealFieldSched``
+        # (per-stage, per-block).  When UC.jl ships a per-hour
+        # ``Revenue ($/MW)`` list, we round-trip it as a 2-D
+        # ``[[hour0, hour1, ...]]`` shape so the LP cost coefficient
+        # varies per block.  Scalar revenue still rides as a plain
+        # number (broadcast everywhere).
+        if isinstance(revenue, list):
+            revenue_ts = _time_series(revenue, T)
+            fcost_value: Any = [list(revenue_ts)]
+            revenue_max = max(revenue_ts) if revenue_ts else 0.0
+        else:
+            fcost_value = float(revenue)
+            revenue_max = float(revenue)
         # Skip entries where both demand and revenue are zero — UC.jl
         # base_with_storage ships a degenerate ps3 with {Revenue: 0,
         # Demand: 0} that would add a no-op Demand otherwise.
@@ -557,7 +565,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if isinstance(demand_mw, list)
             else float(demand_mw)
         )
-        if revenue_scalar == 0.0 and demand_max == 0.0:
+        if revenue_max == 0.0 and demand_max == 0.0:
             continue
         demand_uid += 1
         ps_ts = _time_series(demand_mw, T)
@@ -567,7 +575,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 "name": psname,
                 "bus": name_to_uid[bus_name],
                 "lmax": [ps_ts],
-                "fcost": float(revenue_scalar),
+                "fcost": fcost_value,
             }
         )
 
@@ -901,15 +909,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     # Dropped (silently) — no native gtopt mapping:
     #   * ``Minimum charge rate (MW)`` / ``Minimum discharge rate (MW)`` —
     #     gtopt's pmax_charge / pmax_discharge are upper bounds only.
-    #   * ``Charge cost ($/MW)`` — gtopt charges via the auto-generated
-    #     Demand's load cost, which the unified Battery doesn't expose
-    #     as a direct field; rolled into the round-trip ``gcost``
-    #     (discharge cost) approximation below.
-    #   * ``Last period maximum level`` — gtopt has efin (min) but not efmax.
     #   * ``Allow simultaneous charging and discharging`` — gtopt's
     #     formulation disallows simultaneous flows by construction.
-    #   * ``Loss factor`` — gtopt's ``annual_loss`` is in different units
-    #     (annual %/year vs UC.jl's per-block factor); deferred.
+    #
+    # Per-block hourly inputs now honored end-to-end (PR-A, 2026-05-18):
+    #   * ``Discharge cost ($/MW)`` → ``Battery.gcost`` (TB)
+    #   * ``Charge cost ($/MW)`` → ``Battery.charge_cost`` (TB)
+    # The remaining per-block fields (``Maximum charge rate (MW)``,
+    # ``Maximum discharge rate (MW)``, ``Charge/Discharge efficiency``)
+    # are still collapsed to first-hour because gtopt's underlying
+    # fields stay per-stage in this PR.
     uc_storage = data.get("Storage units", {}) or {}
     battery_array = []
     bat_uid = 0
@@ -1038,24 +1047,27 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             value = sdata.get(ucjl_key)
             if value is not None:
                 b_entry[gtopt_key] = float(value)
+
         # Discharge cost → ``Battery.gcost``; Charge cost →
-        # ``Battery.charge_cost`` (added 2026-05-18 to match UC.jl
-        # semantics).  gtopt's ``System::expand_batteries()`` wires
-        # ``charge_cost`` onto the synthetic charge-side Demand by
-        # encoding it as a negative ``fcost`` — the demand-LP
-        # substitution then lands the value as a positive per-MWh cost
-        # on the charging column, equivalent to UC.jl's
-        # ``Charge cost ($/MW)``.  Both costs collapse to first hour
-        # since the underlying gtopt fields are ``OptTRealFieldSched``
-        # (per-stage, NOT per-block).  Per-block schedules on UC.jl's
-        # storage cost fields are still dropped — see the inline note
-        # at the top of the storage block.
+        # ``Battery.charge_cost``.  Both are now ``OptTBRealFieldSched``
+        # (per-(stage, block)) so per-hour UC.jl lists round-trip as
+        # 2-D ``[[hour0, hour1, ...]]`` without collapse.  Scalar
+        # values still emit as a plain number (broadcast everywhere).
+        # ``System::expand_batteries()`` forwards ``gcost`` onto the
+        # synthetic discharge Generator and ``charge_cost`` (negated)
+        # onto the synthetic charge Demand's fcost — both pipelines
+        # are TB-compatible as of PR-A (Generator.gcost + Demand.fcost).
+        def _cost_value(raw: Any) -> Any:
+            if isinstance(raw, list):
+                return [list(_time_series(raw, T))]
+            return float(raw)
+
         d_cost = sdata.get("Discharge cost ($/MW)")
         if d_cost is not None:
-            b_entry["gcost"] = float(_first_hour(d_cost))
+            b_entry["gcost"] = _cost_value(d_cost)
         c_cost = sdata.get("Charge cost ($/MW)")
         if c_cost is not None:
-            b_entry["charge_cost"] = float(_first_hour(c_cost))
+            b_entry["charge_cost"] = _cost_value(c_cost)
         # Track installed capacity = max SoC so expansion / capacity-fail
         # bounds line up.
         emax_val = sdata.get("Maximum level (MWh)")
@@ -1334,10 +1346,15 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "annual_discount_rate": 0.0,
             "output_format": "csv",
             "output_compression": "uncompressed",
-            "use_single_bus": bool(copperplate),
-            "use_kirchhoff": not bool(copperplate),
-            "demand_fail_cost": power_balance_penalty,
-            "scale_objective": 1.0,  # Match UC.jl absolute $ values.
+            # Nested under model_options per the 2026-05-17 schema
+            # reorganisation; the legacy top-level keys are still
+            # accepted as deprecated aliases but emit a warning.
+            "model_options": {
+                "use_single_bus": bool(copperplate),
+                "use_kirchhoff": not bool(copperplate),
+                "demand_fail_cost": power_balance_penalty,
+                "scale_objective": 1.0,  # Match UC.jl absolute $ values.
+            },
         },
         "simulation": {
             "block_array": block_array,

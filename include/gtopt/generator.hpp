@@ -50,9 +50,13 @@ struct GeneratorAttrs
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
-                                ///< (non-fuel adder when `fuel`+`heat_rate`
-                                ///< are set; see `Generator` docstring)
+  OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
+                                 ///< per-(stage, block).  Accepts a scalar
+                                 ///< (broadcast), a 2-D nested array
+                                 ///< ``[[block0, block1, ...], ...]``, or a
+                                 ///< file-backed schedule.  Non-fuel adder
+                                 ///< when ``fuel``+``heat_rate`` are set;
+                                 ///< see ``Generator`` docstring.
 
   /// Optional FK to a `Fuel` element.  When set together with
   /// `heat_rate` (scalar) OR `heat_rate_segments` (piecewise), the
@@ -138,9 +142,10 @@ struct Generator
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
   OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
-                                ///< (non-fuel adder when `fuel`+`heat_rate`
-                                ///< are set; see field docstrings).
+  OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
+                                 ///< per-(stage, block); see
+                                 ///< ``GeneratorAttrs::gcost`` for accepted
+                                 ///< JSON shapes.
 
   /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
   OptSingleId fuel {};

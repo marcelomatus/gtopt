@@ -130,6 +130,18 @@ public:
     return fc ? fc : options().demand_fail_cost();
   }
 
+  /// Per-(stage, block) variant: resolves a `Demand.fcost`
+  /// (`OptTBRealSched`) at the block grain, with the same fallback
+  /// to the global `model_options.demand_fail_cost` when unset.
+  template<typename FailCost>
+  [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
+                                                const BlockLP& block,
+                                                const FailCost& fcost) const
+  {
+    const auto fc = fcost.optval(stage.uid(), block.uid());
+    return fc ? fc : options().demand_fail_cost();
+  }
+
   template<typename FailCost>
   [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
                                                 const FailCost& fcost) const

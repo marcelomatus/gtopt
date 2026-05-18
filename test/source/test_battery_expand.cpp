@@ -109,7 +109,7 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   REQUIRE(gen.capacity.has_value());
   CHECK(std::get<Real>(gen.capacity.value_or(RealFieldSched {0.0})) == 60.0);
   REQUIRE(gen.gcost.has_value());
-  CHECK(std::get<Real>(gen.gcost.value_or(RealFieldSched {-1.0})) == 0.0);
+  CHECK(std::get<Real>(gen.gcost.value_or(RealFieldSched2 {-1.0})) == 0.0);
 
   // Demand was appended
   CHECK(system.demand_array.size() == 2);
@@ -168,7 +168,7 @@ TEST_CASE("expand_batteries pins synthetic charge demand fcost=0")  // NOLINT
   const auto& dem = system.demand_array.back();
   CHECK(dem.name == "bat1_dem");
   REQUIRE(dem.fcost.has_value());
-  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched {-1.0})) == 0.0);
+  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched2 {-1.0})) == 0.0);
 }
 
 TEST_CASE("expand_batteries pins fcost=0 even with source_generator")  // NOLINT
@@ -210,7 +210,7 @@ TEST_CASE("expand_batteries pins fcost=0 even with source_generator")  // NOLINT
   REQUIRE(system.demand_array.size() == 1);
   const auto& dem = system.demand_array.back();
   REQUIRE(dem.fcost.has_value());
-  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched {-1.0})) == 0.0);
+  CHECK(std::get<Real>(dem.fcost.value_or(RealFieldSched2 {-1.0})) == 0.0);
 }
 
 TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
