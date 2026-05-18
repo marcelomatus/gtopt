@@ -166,3 +166,58 @@ TEST_CASE(
   REQUIRE(sys2.emission_array.size() == 2);
   CHECK(sys2.emission_array[0].name == "co2");
 }
+
+TEST_CASE("EmissionLP — schedule accessors resolve per-stage values")  // NOLINT
+{
+  // Smoke test for the param_* accessors that downstream Commit 2/4
+  // wiring will call on a per-stage basis.  Builds an EmissionLP via
+  // the same System → SystemLP path the production code uses (so the
+  // InputContext / schedule resolution flow matches), then reads the
+  // resolved schedule values back out.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const System system = {
+      .name = "EmissionParamTest",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = 10.0,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1},
+                          .name = "co2",
+                          .price = 75.0,
+                          .cap = 12345.0,
+                          .cap_cost = 999.0}},
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& emissions = system_lp.elements<EmissionLP>();
+  REQUIRE(emissions.size() == 1);
+  const auto& e_lp = emissions.front();
+  const auto sid = simulation_lp.stages().front().uid();
+  CHECK(e_lp.param_price(sid).value_or(0.0) == doctest::Approx(75.0));
+  CHECK(e_lp.param_cap(sid).value_or(0.0) == doctest::Approx(12345.0));
+  CHECK(e_lp.param_cap_cost(sid).value_or(0.0) == doctest::Approx(999.0));
+}
+
+TEST_CASE("System::merge preserves both emission_array rows")  // NOLINT
+{
+  System a;
+  a.emission_array = {{.uid = Uid {1}, .name = "co2", .price = 50.0}};
+  System b;
+  b.emission_array = {{.uid = Uid {2}, .name = "so2"}};
+
+  a.merge(std::move(b));
+  REQUIRE(a.emission_array.size() == 2);
+  CHECK(a.emission_array[0].name == "co2");
+  CHECK(a.emission_array[1].name == "so2");
+}
