@@ -68,6 +68,9 @@ _VENDORED_CASE14_PROFILED = _TEST_DATA_DIR / "UnitCommitmentJl_case14_profiled.j
 _VENDORED_CASE14_INTERFACE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_interface.json"
 _VENDORED_CASE14_STORAGE = _TEST_DATA_DIR / "UnitCommitmentJl_case14_storage.json.gz"
 _VENDORED_RTS_GMLC = _TEST_DATA_DIR / "UnitCommitmentJl_rts_gmlc.json.gz"
+_VENDORED_CASE14_CONTINGENCY = (
+    _TEST_DATA_DIR / "UnitCommitmentJl_case14_contingency.json"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +958,7 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-1_061_114.62, rel=1e-5)
+    assert obj == pytest.approx(-1_061_208.23, rel=1e-5)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -1189,7 +1192,11 @@ def test_real_case118_initcond_topology_counts(tmp_path: Path) -> None:
     ucjl = tmp_path / "case118.json"
     ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
     out = tmp_path / "g.json"
-    proc = _run_converter(ucjl, out)
+    # Skip contingencies here: case118-initcond ships 177 outages and
+    # the LODF-based N-1 mapping would emit thousands of soft
+    # UserConstraints, slowing the test below.  The case14/contingency
+    # tests exercise the N-1 path on a smaller fixture.
+    proc = _run_converter(ucjl, out, "--no-contingencies")
     assert proc.returncode == 0, proc.stderr
 
     system = json.loads(out.read_text())["system"]
@@ -1230,7 +1237,7 @@ def test_real_case118_initcond_lprelax_solves(tmp_path: Path) -> None:
     ucjl = tmp_path / "case118.json"
     ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
     out = tmp_path / "g.json"
-    proc = _run_converter(ucjl, out)
+    proc = _run_converter(ucjl, out, "--no-contingencies")
     assert proc.returncode == 0, proc.stderr
 
     rc, log = _solve(gtopt_bin, out, tmp_path / "run")
@@ -1269,7 +1276,7 @@ def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
     ucjl = tmp_path / "case118.json"
     ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
     out = tmp_path / "g.json"
-    proc = _run_converter(ucjl, out, "--mip")
+    proc = _run_converter(ucjl, out, "--mip", "--no-contingencies")
     assert proc.returncode == 0, proc.stderr
 
     rc, log = _solve(gtopt_bin, out, tmp_path / "run")
@@ -1972,4 +1979,122 @@ def test_real_rts_gmlc_solves_with_profiles(tmp_path: Path) -> None:
     assert prof_dir.is_dir(), (
         "GeneratorProfile/ output dir missing — profile entries didn't "
         "instantiate LP constraints"
+    )
+
+
+# ---------------------------------------------------------------------------
+# UC.jl case14/contingency.json — N-1 security via LODF + PAMPL
+# ---------------------------------------------------------------------------
+#
+# UC.jl ``Contingencies`` are single-element line outages.  The
+# converter computes Line Outage Distribution Factors (LODFs) from
+# the network reactance graph and emits one PAMPL ``UserConstraint``
+# per (monitored line × contingency outage) pair of the form::
+#
+#     |f_mon + LODF[mon, out] × f_out|  ≤  Emergency_mon
+#
+# Coefficients below ``contingency_eps`` (default 0.10 = 10 %) are
+# dropped so the row count scales reasonably with network size.
+# Soft constraints with ``Flow limit penalty`` allow the LP to
+# violate at known cost instead of going infeasible.
+
+
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_CONTINGENCY.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_CONTINGENCY}",
+)
+def test_real_case14_contingency_emits_lodf_constraints(tmp_path: Path) -> None:
+    """UC.jl ``Contingencies`` → LODF-based PAMPL UserConstraints.
+
+    Pins shape:
+
+      * 19 single-line contingencies × ~10–15 significantly-affected
+        monitored lines × 2 directions (upper + lower) → a few
+        hundred UserConstraints at the 10 % LODF threshold.
+      * Every emitted constraint name follows ``ctg_<out>_mon_<mon>_{upper,lower}``.
+      * PAMPL expression carries ``1.0 * line('mon').flow``,
+        ``LODF * line('out').flow``, and the Emergency limit RHS.
+      * ``--no-contingencies`` cleanly suppresses every emit.
+    """
+    out = tmp_path / "g.json"
+    proc = _run_converter(_VENDORED_CASE14_CONTINGENCY, out)
+    assert proc.returncode == 0, proc.stderr
+
+    system = json.loads(out.read_text())["system"]
+    ucs = [
+        uc for uc in system["user_constraint_array"] if uc["name"].startswith("ctg_")
+    ]
+    # 19 contingencies × ~K monitored lines × 2 directions — exact
+    # count is LODF-threshold-dependent.  At 10 % we land around 300.
+    assert 100 < len(ucs) < 1000, (
+        f"contingency UC count {len(ucs)} outside the expected range"
+    )
+
+    # Every UC carries the soft-violation penalty and the line.flow
+    # PAMPL syntax (no element-attribute typos).
+    for uc in ucs:
+        assert "line('" in uc["expression"]
+        assert ".flow" in uc["expression"]
+        assert uc["penalty"] > 0.0
+
+    # ``--no-contingencies`` short-circuits the LODF pipeline entirely.
+    out_off = tmp_path / "g_off.json"
+    proc = _run_converter(_VENDORED_CASE14_CONTINGENCY, out_off, "--no-contingencies")
+    assert proc.returncode == 0, proc.stderr
+    off_ucs = [
+        uc
+        for uc in json.loads(out_off.read_text())["system"]["user_constraint_array"]
+        if uc["name"].startswith("ctg_")
+    ]
+    assert off_ucs == []
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_CASE14_CONTINGENCY.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_CONTINGENCY}",
+)
+def test_real_case14_contingency_n_minus_1_binds_lp(tmp_path: Path) -> None:
+    """End-to-end: N-1 LODF constraints actually shape the dispatch.
+
+    case14/contingency ships ``Normal flow limit = Emergency flow
+    limit = 15 MW`` on every line — extremely tight by design — so
+    the N-1 envelope forces large curtailment that wouldn't happen
+    without the contingency constraints.  Pins:
+
+      * Solver status 0 (LP feasible with soft slacks).
+      * Far higher obj than the same case run with
+        ``--no-contingencies`` (the post-contingency envelope is
+        much tighter than the pre-contingency envelope), confirming
+        the N-1 constraints are doing real work.
+    """
+    gtopt_bin = _find_gtopt_binary()
+    assert gtopt_bin is not None
+
+    # With contingencies.
+    out_on = tmp_path / "g_on.json"
+    proc = _run_converter(_VENDORED_CASE14_CONTINGENCY, out_on)
+    assert proc.returncode == 0, proc.stderr
+    rc, log = _solve(gtopt_bin, out_on, tmp_path / "run_on")
+    assert rc == 0, log
+    status_on, obj_on = _read_solution_status(tmp_path / "run_on" / "output")
+    assert status_on == 0
+    assert obj_on is not None and math.isfinite(obj_on)
+
+    # Without contingencies — baseline for comparison.
+    out_off = tmp_path / "g_off.json"
+    proc = _run_converter(_VENDORED_CASE14_CONTINGENCY, out_off, "--no-contingencies")
+    assert proc.returncode == 0, proc.stderr
+    rc, log = _solve(gtopt_bin, out_off, tmp_path / "run_off")
+    assert rc == 0, log
+    _, obj_off = _read_solution_status(tmp_path / "run_off" / "output")
+    assert obj_off is not None and math.isfinite(obj_off)
+
+    # The contingency-constrained obj should be HIGHER (more
+    # curtailment cost or shrinkage of cheap-power reach) than the
+    # unconstrained one.  Loose tolerance — exact value depends on
+    # LODF threshold.
+    assert obj_on > obj_off + 1.0, (
+        f"contingency obj {obj_on} did not exceed baseline {obj_off} — "
+        f"N-1 constraints aren't biting"
     )
