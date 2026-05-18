@@ -63,7 +63,17 @@ namespace
   const auto loss_mode =
       line_losses::resolve_mode(raw_line, sc.options(), has_expansion);
 
-  const auto lf = self.param_lossfactor(stage.uid()).value_or(0.0);
+  // `lossfactor` is now per-(stage, block) (PR-B).  The `LossConfig`
+  // structure is built once per (line, stage) and reused across
+  // blocks for performance — sample at the FIRST block of the stage
+  // as the representative value.  Scalar schedules broadcast
+  // uniformly so this matches the previous semantics exactly.  True
+  // per-block lossfactor schedules see only the first block's value
+  // on the loss-link rows; full per-block lossfactor on those rows
+  // is a follow-up requiring `line_losses::add_block` to accept a
+  // block-overridable `lf` parameter.
+  const auto first_buid = blocks.empty() ? BlockUid {} : blocks.front().uid();
+  const auto lf = self.param_lossfactor(stage.uid(), first_buid).value_or(0.0);
   const auto R = self.param_resistance(stage.uid()).value_or(0.0);
   const auto V = self.param_voltage(stage.uid()).value_or(0.0);
   const int nseg = std::max(

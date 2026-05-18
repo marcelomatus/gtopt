@@ -112,15 +112,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
-  const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
-
   // ── Resolve fuel parameters (PLEXOS-style FK + heat-rate model) ─────
   // When `Generator.fuel` is set together with either `heat_rate`
-  // (scalar) or `heat_rate_segments` (piecewise), the per-MWh fuel
-  // cost is derived as `fuel.price × heat_rate_slope` and added to
-  // the existing `gcost` (treated as a non-combustion variable
-  // adder).  When `fuel` is unset, the fuel-derived cost is zero and
-  // the column carries `gcost` alone (legacy behaviour).
+  // (per-(stage, block) scalar/list) or `heat_rate_segments`
+  // (piecewise), the per-MWh fuel cost is derived as
+  // `fuel.price × heat_rate_slope` and added to the existing `gcost`
+  // (treated as a non-combustion variable adder).  When `fuel` is
+  // unset, the fuel-derived cost is zero and the column carries
+  // `gcost` alone (legacy behaviour).
   const FuelLP* fuel_lp = nullptr;
   if (const auto& fuel_ref = generator().fuel; fuel_ref.has_value()) {
     fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
@@ -128,37 +127,28 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const double stage_fuel_price = (fuel_lp != nullptr)
       ? fuel_lp->param_price(stage.uid()).value_or(0.0)
       : 0.0;
-  const double stage_heat_rate = heat_rate.optval(stage.uid()).value_or(0.0);
   const auto& hr_segs = generator().heat_rate_segments;
   const auto& pmax_segs_arr = generator().pmax_segments;
   const bool has_pw = has_heat_rate_segments();
 
-  // Validation: scalar `heat_rate` and `heat_rate_segments` are
-  // mutually exclusive — earlier validate_planning has already
-  // emitted the user-facing error; defensively short-circuit here.
-  if (has_pw && stage_heat_rate > 0.0) [[unlikely]] {
-    SPDLOG_WARN(
-        "GeneratorLP uid={}: both `heat_rate` and `heat_rate_segments` "
-        "are set — using segments, ignoring scalar heat_rate.",
-        uid());
-  }
-
   // Per-MWh cost of segment k (cheapest first, k = 0), evaluated at a
-  // given (stage, block) gcost.  `gcost` is now per-(stage, block);
-  // fuel price + heat rate remain per-stage.
+  // given (stage, block) gcost / heat_rate.  All three coefficients
+  // (`gcost`, `heat_rate`, `lossfactor`) are now per-(stage, block);
+  // fuel price remains per-stage.
   const auto slope_cost_per_mwh = [&](double hr_slope, double block_gcost)
   { return (stage_fuel_price * hr_slope) + block_gcost; };
 
   // Effective slope for the primary `generation` column at a given
   // block.  When piecewise: slope of the cheapest segment; otherwise
   // scalar heat rate (or 0 when no fuel/heat_rate is configured).
-  const auto primary_slope_cost_at = [&](double block_gcost)
+  const auto primary_slope_cost_at =
+      [&](double block_gcost, double block_heat_rate)
   {
     if (has_pw) {
       return slope_cost_per_mwh(hr_segs.front(), block_gcost);
     }
     if (fuel_lp != nullptr) {
-      return slope_cost_per_mwh(stage_heat_rate, block_gcost);
+      return slope_cost_per_mwh(block_heat_rate, block_gcost);
     }
     return block_gcost;
   };
@@ -211,10 +201,26 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
 
-    // Per-(stage, block) gcost; falls back to 0 when unset.
+    // Per-(stage, block) cost coefficients; fall back to 0 when unset.
     const auto block_gcost =
         gcost.optval(stage.uid(), block.uid()).value_or(0.0);
-    const auto block_primary_slope_cost = primary_slope_cost_at(block_gcost);
+    const auto block_heat_rate =
+        heat_rate.optval(stage.uid(), block.uid()).value_or(0.0);
+    const auto block_lossfactor =
+        lossfactor.optval(stage.uid(), block.uid()).value_or(0.0);
+
+    // Validation: scalar `heat_rate` and `heat_rate_segments` are
+    // mutually exclusive — earlier validate_planning has already
+    // emitted the user-facing error; defensively short-circuit here.
+    if (has_pw && block_heat_rate > 0.0) [[unlikely]] {
+      SPDLOG_WARN(
+          "GeneratorLP uid={}: both `heat_rate` and `heat_rate_segments` "
+          "are set — using segments, ignoring scalar heat_rate.",
+          uid());
+    }
+
+    const auto block_primary_slope_cost =
+        primary_slope_cost_at(block_gcost, block_heat_rate);
 
     // Create generation variable for this time block.  Cost on the
     // primary column carries the cheapest-segment slope (or scalar
@@ -234,7 +240,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // Add generator output to the bus power balance equation
     // Factor (1-lossfactor) accounts for generator losses
     auto& brow = lp.row_at(balance_row);
-    brow[gcol] = 1 - stage_lossfactor;
+    brow[gcol] = 1 - block_lossfactor;
 
     // Add capacity constraint if capacity expansion is modeled
     // Ensures generation <= installed capacity

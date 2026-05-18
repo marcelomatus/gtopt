@@ -369,20 +369,19 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return gen.param_gcost(suid, buid);
       }
       if (attr == "lossfactor") {
-        return gen.param_lossfactor(suid);
+        return gen.param_lossfactor(suid, buid);
       }
       // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
-      //   * heat_rate       — scalar <fuel_unit>/MWh (PLEXOS "Heat Rate")
-      //   * emission_factor — direct CO₂ rate tCO₂/MWh; non-combustion
-      //                       adder when combined with fuel.combustion_ef
+      //   * heat_rate       — per-(stage, block) <fuel_unit>/MWh
+      //   * emission_factor — per-(stage, block) tCO₂/MWh
       // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
       // are arrays without a meaningful scalar PAMPL projection — not
       // exposed; reference via the Fuel side instead.
       if (attr == "heat_rate") {
-        return gen.param_heat_rate(suid);
+        return gen.param_heat_rate(suid, buid);
       }
       if (attr == "emission_factor") {
-        return gen.param_emission_factor(suid);
+        return gen.param_emission_factor(suid, buid);
       }
       return std::nullopt;
     }
@@ -418,7 +417,7 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return dem.param_fcost(suid, buid);
       }
       if (attr == "lossfactor") {
-        return dem.param_lossfactor(suid);
+        return dem.param_lossfactor(suid, buid);
       }
       return std::nullopt;
     }

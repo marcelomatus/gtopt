@@ -118,17 +118,17 @@ public:
   {
     return gcost.at(s, b);
   }
-  [[nodiscard]] auto param_heat_rate(StageUid s) const
+  [[nodiscard]] auto param_heat_rate(StageUid s, BlockUid b) const
   {
-    return heat_rate.at(s);
+    return heat_rate.at(s, b);
   }
-  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  [[nodiscard]] auto param_lossfactor(StageUid s, BlockUid b) const
   {
-    return lossfactor.at(s);
+    return lossfactor.at(s, b);
   }
-  [[nodiscard]] auto param_emission_factor(StageUid s) const
+  [[nodiscard]] auto param_emission_factor(StageUid s, BlockUid b) const
   {
-    return emission_factor.at(s);
+    return emission_factor.at(s, b);
   }
   /// @}
 
@@ -158,10 +158,10 @@ public:
 private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;
-  OptTRealSched lossfactor;
+  OptTBRealSched lossfactor;
   OptTBRealSched gcost;
-  OptTRealSched heat_rate;
-  OptTRealSched emission_factor;
+  OptTBRealSched heat_rate;
+  OptTBRealSched emission_factor;
 
   STBIndexHolder<ColIndex> generation_cols;
   STBIndexHolder<RowIndex> capacity_rows;

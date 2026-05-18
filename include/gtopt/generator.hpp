@@ -49,7 +49,10 @@ struct GeneratorAttrs
 
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).  Accepts a
+                                      ///< scalar (broadcast), a 2-D nested
+                                      ///< array, or a file-backed schedule.
   OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
                                  ///< per-(stage, block).  Accepts a scalar
                                  ///< (broadcast), a 2-D nested array
@@ -76,7 +79,7 @@ struct GeneratorAttrs
   /// PLEXOS "Heat Rate" / "Heat Rate Incr" / SDDP "Consumo Específico".
   /// MUTUALLY EXCLUSIVE with `heat_rate_segments` — setting both
   /// raises a validation error.
-  OptTRealFieldSched heat_rate {};
+  OptTBRealFieldSched heat_rate {};
 
   /// Piecewise-linear convex heat-rate function.  When both arrays
   /// are present, the generation range `[pmin, pmax]` is decomposed
@@ -141,7 +144,10 @@ struct Generator
 
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).  Accepts a
+                                      ///< scalar (broadcast), a 2-D nested
+                                      ///< array, or a file-backed schedule.
   OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
                                  ///< per-(stage, block); see
                                  ///< ``GeneratorAttrs::gcost`` for accepted
@@ -150,9 +156,9 @@ struct Generator
   /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
   OptSingleId fuel {};
 
-  /// Constant (or per-stage) heat rate slope [`<fuel_unit>`/MWh].
+  /// Per-(stage, block) heat rate slope [`<fuel_unit>`/MWh].
   /// See `GeneratorAttrs::heat_rate`.
-  OptTRealFieldSched heat_rate {};
+  OptTBRealFieldSched heat_rate {};
 
   /// Piecewise-linear convex heat-rate function.  See
   /// `GeneratorAttrs::heat_rate_segments`.  Mutually exclusive with
@@ -174,13 +180,14 @@ struct Generator
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
-  OptTRealFieldSched emission_factor {};  ///< Direct CO₂ emission rate
-                                          ///< [tCO₂/MWh].  Additive with
-                                          ///< fuel-derived combustion+upstream
-                                          ///< when `fuel`+`heat_rate` are set
-                                          ///< (treats `emission_factor` as a
-                                          ///< non-combustion adder, e.g.
-                                          ///< process / venting / fugitive).
+  OptTBRealFieldSched emission_factor {};  ///< Direct CO₂ emission rate
+                                           ///< [tCO₂/MWh] per-(stage, block).
+                                           ///< Additive with fuel-derived
+                                           ///< combustion+upstream when
+                                           ///< `fuel`+`heat_rate` are set
+                                           ///< (treats `emission_factor` as a
+                                           ///< non-combustion adder, e.g.
+                                           ///< process / venting / fugitive).
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object

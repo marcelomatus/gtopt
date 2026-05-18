@@ -369,15 +369,17 @@ void add_emission_cap(const auto& collections,
     if (!gen.is_active(stage)) {
       continue;
     }
-    const auto ef = gen.param_emission_factor(stage.uid()).value_or(0.0);
-    if (ef <= 0.0) {
-      continue;
-    }
-
+    // `emission_factor` is now per-(stage, block) — sample inside
+    // the per-block loop.  Zero-skip happens per block.
     const auto& gen_cols = gen.generation_cols_at(scenario, stage);
     for (const auto& block : stage.blocks()) {
       const auto it = gen_cols.find(block.uid());
       if (it == gen_cols.end()) {
+        continue;
+      }
+      const auto ef =
+          gen.param_emission_factor(stage.uid(), block.uid()).value_or(0.0);
+      if (ef <= 0.0) {
         continue;
       }
       const auto coeff = ef * block.duration();

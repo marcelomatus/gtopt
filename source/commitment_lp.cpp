@@ -129,8 +129,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // Generator's emission_factor [tCO2/MWh] is used for non-segment cases.
   // When segments are present and fuel_emission_factor is set,
   // emission per segment = fuel_emission_factor × heat_rate_k [tCO2/MWh].
-  const auto stage_emission_factor =
-      generator_lp.param_emission_factor(stage.uid()).value_or(0.0);
+  // `emission_factor` is now per-(stage, block) — sampled below
+  // inside the per-block loop.
 
   // Evaluate emission_cost as scalar or stage-indexed array
   double stage_emission_cost = 0.0;
@@ -482,12 +482,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       rdrows[buid] = lp.add_row(std::move(row));
     }
 
+    // Per-(stage, block) emission_factor — sampled inside the loop.
+    const auto block_emission_factor =
+        generator_lp.param_emission_factor(stage.uid(), block.uid())
+            .value_or(0.0);
+
     // ── Emission cost adder on generation variable ──
-    if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0
+    if (stage_emission_cost > 0.0 && block_emission_factor > 0.0
         && !has_segments)
     {
       const auto emission_adder = CostHelper::block_ecost(
-          scenario, stage, block, stage_emission_cost * stage_emission_factor);
+          scenario, stage, block, stage_emission_cost * block_emission_factor);
       gcol_ref.cost += emission_adder;
     }
 
@@ -499,8 +504,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       double seg_emission_base = 0.0;
       if (use_fuel_ef) {
         seg_emission_base = stage_emission_cost * stage_fuel_ef;
-      } else if (stage_emission_cost > 0.0 && stage_emission_factor > 0.0) {
-        seg_emission_base = stage_emission_cost * stage_emission_factor;
+      } else if (stage_emission_cost > 0.0 && block_emission_factor > 0.0) {
+        seg_emission_base = stage_emission_cost * block_emission_factor;
       }
 
       // Build linking row: p - Pmin·u - Σ δ_k = 0

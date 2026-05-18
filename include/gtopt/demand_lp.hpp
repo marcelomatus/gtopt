@@ -84,15 +84,15 @@ public:
   {
     return fcost.at(s, b);
   }
-  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  [[nodiscard]] auto param_lossfactor(StageUid s, BlockUid b) const
   {
-    return lossfactor.at(s);
+    return lossfactor.at(s, b);
   }
   /// @}
 
 private:
   OptTBRealSched lmax;
-  OptTRealSched lossfactor;
+  OptTBRealSched lossfactor;
   OptTBRealSched fcost;
 
   OptTRealSched emin;

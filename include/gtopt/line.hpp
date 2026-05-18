@@ -94,7 +94,8 @@ struct Line
   OptTRealFieldSched reactance {};  ///< Series reactance for DC power flow [Ω].
                                     ///< Use p.u. when voltage is omitted
                                     ///< (default). Susceptance: B = V² / X.
-  OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+                                      ///< per-(stage, block).
   OptBool use_line_losses {};  ///< @deprecated Use `line_losses_mode` instead.
                                ///< Kept for backward compatibility:
                                ///< `true` maps to the global default mode,

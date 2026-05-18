@@ -187,3 +187,95 @@ TEST_CASE("TBRealFieldSched 2-D construction direct")  // NOLINT
   CHECK(v[0][1] == doctest::Approx(20.0));
   CHECK(v[0][2] == doctest::Approx(30.0));
 }
+
+// ─── PR-B: per-block heat_rate / lossfactor / emission_factor ──────
+
+TEST_CASE("Generator.heat_rate — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "g1",
+    "bus": 1,
+    "pmin": 0,
+    "pmax": 100,
+    "heat_rate": [[9.5, 10.0, 11.5]]
+  })";
+  const auto gen = daw::json::from_json<Generator>(json_data);
+  REQUIRE(gen.heat_rate.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.heat_rate);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 3);
+  CHECK(v[0][2] == doctest::Approx(11.5));
+}
+
+TEST_CASE("Generator.lossfactor — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "g1",
+    "bus": 1,
+    "pmin": 0,
+    "pmax": 100,
+    "lossfactor": [[0.01, 0.02]]
+  })";
+  const auto gen = daw::json::from_json<Generator>(json_data);
+  REQUIRE(gen.lossfactor.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.lossfactor);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 2);
+  CHECK(v[0][0] == doctest::Approx(0.01));
+  CHECK(v[0][1] == doctest::Approx(0.02));
+}
+
+TEST_CASE(
+    "Generator.emission_factor — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "g1",
+    "bus": 1,
+    "pmin": 0,
+    "pmax": 100,
+    "emission_factor": [[0.3, 0.4, 0.5]]
+  })";
+  const auto gen = daw::json::from_json<Generator>(json_data);
+  REQUIRE(gen.emission_factor.has_value());
+  const auto& v =
+      std::get<std::vector<std::vector<Real>>>(*gen.emission_factor);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 3);
+  CHECK(v[0][1] == doctest::Approx(0.4));
+}
+
+TEST_CASE("Demand.lossfactor — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "d1",
+    "bus": 1,
+    "lmax": [[50.0]],
+    "lossfactor": [[0.05, 0.08]]
+  })";
+  const auto dem = daw::json::from_json<Demand>(json_data);
+  REQUIRE(dem.lossfactor.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*dem.lossfactor);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 2);
+  CHECK(v[0][0] == doctest::Approx(0.05));
+  CHECK(v[0][1] == doctest::Approx(0.08));
+}
+
+TEST_CASE("Generator.heat_rate — scalar still broadcasts (legacy)")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "g1",
+    "bus": 1,
+    "pmin": 0,
+    "pmax": 100,
+    "heat_rate": 9.5
+  })";
+  const auto gen = daw::json::from_json<Generator>(json_data);
+  REQUIRE(gen.heat_rate.has_value());
+  CHECK(std::get<Real>(*gen.heat_rate) == doctest::Approx(9.5));
+}
