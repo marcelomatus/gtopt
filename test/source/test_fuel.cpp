@@ -658,6 +658,249 @@ TEST_CASE("PAMPL — fuel('gas').price resolves as scalar parameter")  // NOLINT
   CHECK(lp.get_obj_value() == doctest::Approx(5050.0).epsilon(1e-6));
 }
 
+// Compact sanity check that every new Fuel parameter resolves to the
+// *correct* field — each subcase pins a different attribute by
+// choosing a unique numeric value, building a user constraint that
+// adds the attribute to a single decision variable, and asserting
+// the LP binds at the expected algebraic threshold derived from that
+// specific value.  Catches a regression where the new fuel branch
+// returns the wrong field (e.g. price when heat_content was asked
+// for) — that mistake would still resolve as "param" but produce
+// the wrong RHS shift.
+TEST_CASE("PAMPL — every Fuel attribute resolves to its field")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Distinct numeric values so the assertion uniquely identifies
+  // which schedule was read.
+  const Array<Fuel> fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .price = 5.0,
+          .heat_content = 7.0,
+          .combustion_emission_factor = 11.0,
+          .upstream_emission_factor = 13.0,
+      },
+  };
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 100.0;
+
+  // Each subcase: `load + fuel.<attr> <= 5 + <attr_value>`
+  // ⇒ load <= 5  ⇒ obj = 5·$1 + 95·$100 = 5 + 9500 = 9505.
+  // If the resolver returns the wrong field, the threshold would
+  // shift and the obj wouldn't match.
+  const auto run_with_expression = [&](std::string expr, double expected_obj)
+  {
+    const Array<UserConstraint> ucs = {
+        {.uid = Uid {1}, .name = "uc", .expression = std::move(expr)},
+    };
+    const System system {
+        .name = "PamplFuelAttrFixture",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .fuel_array = fuel_array,
+        .user_constraint_array = ucs,
+    };
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(lp.get_obj_value() == doctest::Approx(expected_obj).epsilon(1e-6));
+  };
+
+  SUBCASE("price")
+  {
+    // load + 5 <= 10 ⇒ load <= 5 ⇒ obj = 5 + 9500 = 9505.
+    run_with_expression("demand('d1').load + fuel('gas').price <= 10", 9505.0);
+  }
+  SUBCASE("heat_content")
+  {
+    // load + 7 <= 12 ⇒ load <= 5 ⇒ obj = 5 + 9500 = 9505.
+    run_with_expression("demand('d1').load + fuel('gas').heat_content <= 12",
+                        9505.0);
+  }
+  SUBCASE("combustion_emission_factor")
+  {
+    // load + 11 <= 16 ⇒ load <= 5.
+    run_with_expression(
+        "demand('d1').load + fuel('gas').combustion_emission_factor <= 16",
+        9505.0);
+  }
+  SUBCASE("upstream_emission_factor")
+  {
+    // load + 13 <= 18 ⇒ load <= 5.
+    run_with_expression(
+        "demand('d1').load + fuel('gas').upstream_emission_factor <= 18",
+        9505.0);
+  }
+}
+
+TEST_CASE(
+    "PAMPL — unknown Fuel attribute is skipped under non-strict mode")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // The new fuel branch in `resolve_single_param` falls through to
+  // `return std::nullopt` for any attribute it doesn't recognise.
+  // Under the default `constraint_mode = strict`, the
+  // user-constraint builder throws; under `normal` it silently
+  // skips the term.  This test runs under `normal` so the LP
+  // builds + solves with the unknown-attribute term contributing
+  // nothing.  The corresponding `strict`-mode throw is exercised
+  // by the existing test_user_constraint_planning suite.
+  const Array<Fuel> fuel_array = {
+      {.uid = Uid {1}, .name = "gas", .price = 5.0},
+  };
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  // `fuel.density` is NOT a registered attribute — should fall
+  // through to nullopt; the term is silently dropped (default
+  // is_strict=false).  Constraint reduces to `load <= 100`, which
+  // is non-binding for demand=100.
+  const Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "unknown_attr",
+          .expression = "demand('d1').load + fuel('gas').density <= 100",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 100.0;
+  // Default is `strict` (throws on unresolvable refs); explicitly
+  // pick `normal` so the unknown-attribute term is silently dropped.
+  popts.constraint_mode = ConstraintMode::normal;
+
+  const System system {
+      .name = "PamplFuelUnknownAttr",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .fuel_array = fuel_array,
+      .user_constraint_array = ucs,
+  };
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  // Unknown attribute silently dropped; load <= 100 is non-binding;
+  // LP serves the full 100 MW demand: obj = 100 · $1 = 100.
+  CHECK(lp.get_obj_value() == doctest::Approx(100.0).epsilon(1e-6));
+}
+
+TEST_CASE(
+    "PAMPL — generator('g1').emission_factor resolves to its field")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // generator.emission_factor = 7 (distinct value to identify the
+  // field).  load + 7 <= 12 ⇒ load <= 5 ⇒ obj = 9505 (as in the
+  // fuel-attribute test).
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 200.0,
+          .emission_factor = 7.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .fcost = 100.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<UserConstraint> ucs = {
+      {
+          .uid = Uid {1},
+          .name = "emission_factor_cap",
+          .expression =
+              "demand('d1').load + generator('g1').emission_factor <= 12",
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 100.0;
+
+  const System system {
+      .name = "PamplGenEmissionFactorFixture",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .user_constraint_array = ucs,
+  };
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(lp.get_obj_value() == doctest::Approx(9505.0).epsilon(1e-6));
+}
+
 TEST_CASE(
     "PAMPL — generator('g1').heat_rate resolves as scalar parameter")  // NOLINT
 {
