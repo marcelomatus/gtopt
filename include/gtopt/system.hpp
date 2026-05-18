@@ -31,6 +31,8 @@
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/emission.hpp>
+#include <gtopt/emission_source.hpp>
+#include <gtopt/emission_zone.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/fuel.hpp>
@@ -114,6 +116,23 @@ struct System
   /// Commit 4 alongside the per-fuel `emission_factors[]` table on
   /// `Fuel`.  See `emission.hpp`.
   Array<Emission> emission_array {};
+
+  /// Constraint-owning zones (cap / soft-cap / price) for each
+  /// pollutant.  Always builds a per-(scenario, stage, block)
+  /// production column + balance row aggregating all
+  /// `EmissionSource` rows pointing at this zone.  Mirrors
+  /// `InertiaZone` / `ReserveZone`.  Passive in Commit 2 — see
+  /// `emission_zone.hpp`.
+  Array<EmissionZone> emission_zone_array {};
+
+  /// Generator → EmissionZone bridge rows.  Each row says "this
+  /// generator contributes `rate` tons / MWh of dispatch to this
+  /// zone's balance".  Also accepted inline on
+  /// `Generator.emissions[]` and expanded here by
+  /// `System::expand_emission_sources()`.  Mirrors `InertiaProvision`
+  /// / `ReserveProvision`.  Passive in Commit 2 — see
+  /// `emission_source.hpp`.
+  Array<EmissionSource> emission_source_array {};
 
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
@@ -211,6 +230,20 @@ struct System
    * that re-expansion is idempotent.
    */
   void expand_reservoir_constraints();
+
+  /**
+   * @brief Move inline `Generator.emissions[]` entries into the flat
+   *        `emission_source_array`, stamping `generator = <this gen>`
+   *        and auto-allocating uids/names where missing.
+   *
+   * Mirrors `expand_reservoir_constraints()` / `expand_batteries()` —
+   * the inline JSON form is user ergonomics; the LP iterates the
+   * top-level flat array.  Idempotent: a second call sees empty
+   * `Generator.emissions` and is a no-op.
+   *
+   * Called from PlanningLP setup alongside the other expand methods.
+   */
+  void expand_emission_sources();
 
   /**
    * @brief Fold legacy `generator_profile_array` / `demand_profile_array`

@@ -25,6 +25,8 @@
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/emission_lp.hpp>
+#include <gtopt/emission_source_lp.hpp>
+#include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
@@ -248,6 +250,8 @@ public:
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,
                                    Collection<EmissionLP>,
+                                   Collection<EmissionZoneLP>,
+                                   Collection<EmissionSourceLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
                                    Collection<InertiaZoneLP>,

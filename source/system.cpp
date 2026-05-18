@@ -312,6 +312,35 @@ void System::expand_reservoir_constraints()
   }
 }
 
+void System::expand_emission_sources()
+{
+  auto src_uid = next_uid(emission_source_array);
+  auto src_uids = build_uid_set(emission_source_array);
+  auto src_names = build_name_set(emission_source_array);
+
+  for (auto& gen : generator_array) {
+    if (gen.emissions.empty()) {
+      continue;
+    }
+    const SingleId gen_id {gen.uid};
+    for (auto& es : gen.emissions) {
+      if (es.uid == unknown_uid || src_uids.contains(es.uid)) {
+        es.uid = src_uid++;
+      }
+      if (es.name.empty() || src_names.contains(es.name)) {
+        // `as_label(gen.name, "emission", uid)` — 3 allocs → 1.  See
+        // expand_reservoir_constraints() for the same idiom.
+        es.name = as_label(gen.name, "emission", es.uid);
+      }
+      es.generator = OptSingleId {gen_id};
+      src_uids.insert(es.uid);
+      src_names.insert(es.name);
+      emission_source_array.push_back(std::move(es));
+    }
+    gen.emissions.clear();
+  }
+}
+
 void System::fold_legacy_profiles()
 {
   capacity_profile_array.reserve(capacity_profile_array.size()
@@ -375,6 +404,8 @@ void System::merge(System&& sys)
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));
   gtopt::merge(fuel_array, std::move(sys.fuel_array));
   gtopt::merge(emission_array, std::move(sys.emission_array));
+  gtopt::merge(emission_zone_array, std::move(sys.emission_zone_array));
+  gtopt::merge(emission_source_array, std::move(sys.emission_source_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
   gtopt::merge(simple_commitment_array, std::move(sys.simple_commitment_array));
 

@@ -32,6 +32,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/emission_source.hpp>
 #include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
@@ -230,6 +231,15 @@ struct Generator
 
     return self;
   }
+
+  /// Inline emission contributions — list of `EmissionSource` rows
+  /// scoped to THIS generator.  Each entry carries the destination
+  /// zone FK and the per-MWh emission rate; `generator` is set
+  /// automatically by `System::expand_emission_sources()` and the
+  /// row is appended to the flat `emission_source_array`.  Mirrors
+  /// `Reservoir.seepage[]` / `Battery.bus` inline expansion.
+  ///
+  Array<EmissionSource> emissions {};
 };
 
 }  // namespace gtopt
