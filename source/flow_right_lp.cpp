@@ -368,8 +368,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   // expressed in raw $/(m³/s·h) so that `CostHelper::*_ecost` (which
   // multiplies by block / stage duration) produces $/m³ × m³ totals
   // consistent with `Demand::fcost`.  Falls back to the global
-  // hydro_fail_cost / hydro_use_value ($/m³, ×3600 to share units).
-  auto stage_fcost = sc.hydro_fail_cost(stage, fcost);
+  // hydro_spill_cost / hydro_use_value ($/m³, ×3600 to share units).
+  auto stage_fcost = sc.hydro_spill_cost(stage, fcost);
   if (stage_fcost.has_value() && !fcost.at(stage.uid()).has_value()) {
     stage_fcost = OptReal {*stage_fcost * 3600.0};
   }
@@ -888,7 +888,7 @@ int FlowRightLP::update_lp(SystemLP& sys,
   // themselves are NOT touched on a bound_rule re-clamp).
   auto stage_fcost = fcost.at(stage.uid());
   if (!stage_fcost.has_value()) {
-    const auto global_fc = options.hydro_fail_cost();
+    const auto global_fc = options.hydro_spill_cost();
     if (global_fc.has_value()) {
       stage_fcost = OptReal {*global_fc * 3600.0};
     }

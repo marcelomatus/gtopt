@@ -97,7 +97,7 @@ struct ModelOptions
   OptReal reserve_fail_cost {};
   /// Default penalty cost for unmet hydro rights [$/m3].
   /// Per-element `fail_cost` overrides this global default.
-  OptReal hydro_fail_cost {};
+  OptReal hydro_spill_cost {};
   /// Default value (benefit) of exercising hydro rights [$/m3].
   /// Per-element `use_value` overrides this global default.
   OptReal hydro_use_value {};
@@ -196,7 +196,7 @@ struct ModelOptions
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
-    merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
+    merge_opt(hydro_spill_cost, opts.hydro_spill_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(state_violation_cost, opts.state_violation_cost);
     merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
@@ -216,7 +216,7 @@ struct ModelOptions
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || theta_max.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
-        || hydro_fail_cost.has_value() || hydro_use_value.has_value()
+        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
         || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
         || emission_cost.has_value() || emission_cap.has_value()
         || continuous_phases.has_value() || strict_storage_emin.has_value();
@@ -244,7 +244,7 @@ struct ModelOptions
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
         && covers_opt(reserve_fail_cost, other.reserve_fail_cost)
-        && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
+        && covers_opt(hydro_spill_cost, other.hydro_spill_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
         && covers_opt(state_violation_cost, other.state_violation_cost)
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)

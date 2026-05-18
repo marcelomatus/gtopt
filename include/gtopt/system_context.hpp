@@ -131,11 +131,11 @@ public:
   }
 
   template<typename FailCost>
-  [[nodiscard]] constexpr auto hydro_fail_cost(const StageLP& stage,
-                                               const FailCost& fcost) const
+  [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
+                                                const FailCost& fcost) const
   {
     const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().hydro_fail_cost();
+    return fc ? fc : options().hydro_spill_cost();
   }
 
   template<typename FailCost>

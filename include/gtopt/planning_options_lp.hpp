@@ -220,10 +220,13 @@ public:
     return m_options_.model_options.demand_fail_cost;
   }
 
-  /// @brief Gets the hydro failure cost from model_options.
-  [[nodiscard]] constexpr auto hydro_fail_cost() const
+  /// @brief Gets the hydro spill cost from model_options.
+  /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
+  /// still accepted as a JSON alias via the naming-dialects
+  /// registry.
+  [[nodiscard]] constexpr auto hydro_spill_cost() const
   {
-    return m_options_.model_options.hydro_fail_cost;
+    return m_options_.model_options.hydro_spill_cost;
   }
 
   /// @brief Gets the hydro use value (benefit per m³) from model_options.

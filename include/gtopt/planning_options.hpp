@@ -307,7 +307,11 @@ struct PlanningOptions
     migrate(model_options.scale_theta, scale_theta);
     migrate(model_options.demand_fail_cost, demand_fail_cost);
     migrate(model_options.reserve_fail_cost, reserve_fail_cost);
-    migrate(model_options.hydro_fail_cost, hydro_fail_cost);
+    // Top-level `hydro_fail_cost` is the deprecated legacy key; the
+    // canonical lives on ModelOptions as `hydro_spill_cost` (§11.10
+    // rename).  Migrate value, keep legacy name on PlanningOptions
+    // for back-compat.
+    migrate(model_options.hydro_spill_cost, hydro_fail_cost);
     migrate(model_options.hydro_use_value, hydro_use_value);
   }
 

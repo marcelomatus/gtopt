@@ -67,9 +67,9 @@
     {"class": "model_options", "canonical": "reserve_fail_cost", "alt": "VoRS",                  "dialect": "plexos"},
     {"class": "model_options", "canonical": "reserve_fail_cost", "alt": "CustoFaltaReserva",     "dialect": "sddp"},
 
-    {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "hydro_spill_cost",     "dialect": "gtopt"},
-    {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
-    {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "CustoVertimento",      "dialect": "sddp"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "CustoVertimento",      "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "state_violation_cost", "alt": "state_fail_cost",  "dialect": "gtopt-legacy"},
     {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},

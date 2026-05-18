@@ -1437,7 +1437,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
-    popts.model_options.hydro_fail_cost = global_fc;
+    popts.model_options.hydro_spill_cost = global_fc;
     const PlanningOptionsLP options(std::move(popts));
     const auto scale_obj = options.scale_objective();
     SimulationLP simulation_lp(simulation, options);

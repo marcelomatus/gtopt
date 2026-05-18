@@ -112,7 +112,9 @@ struct PlanningOptionsConstructor
     migrate(model_options.reserve_fail_cost,
             reserve_fail_cost,
             "reserve_fail_cost");
-    migrate(model_options.hydro_fail_cost, hydro_fail_cost, "hydro_fail_cost");
+    // Top-level legacy `hydro_fail_cost` → ModelOptions canonical
+    // `hydro_spill_cost` (§11.10 rename).
+    migrate(model_options.hydro_spill_cost, hydro_fail_cost, "hydro_fail_cost");
     migrate(model_options.hydro_use_value, hydro_use_value, "hydro_use_value");
 
     // annual_discount_rate: canonical location is simulation, not
