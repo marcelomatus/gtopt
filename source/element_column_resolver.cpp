@@ -501,10 +501,10 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return frt.param_target(suid, buid);
       }
       if (attr == "fcost") {
-        return frt.param_fcost(suid);
+        return frt.param_fcost(suid, buid);
       }
       if (attr == "uvalue") {
-        return frt.param_uvalue(suid);
+        return frt.param_uvalue(suid, buid);
       }
       return std::nullopt;
     }

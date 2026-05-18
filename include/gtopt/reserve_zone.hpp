@@ -44,8 +44,13 @@ struct ReserveZone
 
   OptTBRealFieldSched urreq {};  ///< Up-reserve requirement schedule [MW]
   OptTBRealFieldSched drreq {};  ///< Down-reserve requirement schedule [MW]
-  OptTRealFieldSched urcost {};  ///< Up-reserve shortage penalty [$/MW]
-  OptTRealFieldSched drcost {};  ///< Down-reserve shortage penalty [$/MW]
+  OptTBRealFieldSched urcost {};  ///< Up-reserve shortage penalty [$/MW]
+                                  ///< per-(stage, block); accepts a scalar
+                                  ///< (broadcasts), a 2-D nested array, or
+                                  ///< a file-backed schedule.
+  OptTBRealFieldSched drcost {};  ///< Down-reserve shortage penalty [$/MW]
+                                  ///< per-(stage, block); same shapes as
+                                  ///< ``urcost``.
 };
 
 }  // namespace gtopt

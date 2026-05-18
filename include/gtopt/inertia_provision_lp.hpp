@@ -68,8 +68,8 @@ private:
   std::vector<ElementIndex<InertiaZoneLP>> inertia_zone_indexes_;
 
   OptTBRealSched provision_max_;
-  OptTRealSched provision_factor_;
-  OptTRealSched cost_;
+  OptTBRealSched provision_factor_;
+  OptTBRealSched cost_;
 
   STBIndexHolder<ColIndex> provision_cols_;
   STBIndexHolder<RowIndex> coupling_rows_;

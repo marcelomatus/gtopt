@@ -364,26 +364,47 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     initial_rule_bound = evaluate_bound_rule(*opt_rule, axis_value);
   }
 
-  // Resolve per-stage fcost / uvalue once for the whole stage.  Both are
+  // `fcost` / `uvalue` are now per-(stage, block).  Both fields are
   // expressed in raw $/(m³/s·h) so that `CostHelper::*_ecost` (which
   // multiplies by block / stage duration) produces $/m³ × m³ totals
   // consistent with `Demand::fcost`.  Falls back to the global
   // hydro_spill_cost / hydro_use_value ($/m³, ×3600 to share units).
-  auto stage_fcost = sc.hydro_spill_cost(stage, fcost);
-  if (stage_fcost.has_value() && !fcost.at(stage.uid()).has_value()) {
-    stage_fcost = OptReal {*stage_fcost * 3600.0};
-  }
-  const Real stage_fcost_val = stage_fcost.value_or(0.0);
-  const bool fcost_active = stage_fcost_val > 0.0;
+  //
+  // Activity flag treats any non-zero cell / global fallback as
+  // "active"; a literal `0.0` global (e.g. test fixtures explicitly
+  // zeroing `hydro_spill_cost`) leaves the kink machinery dormant —
+  // preserving the legacy `stage_fcost_val > 0.0` decision boundary.
+  const auto global_fc_opt = options.hydro_spill_cost();
+  const bool global_fc_nonzero =
+      global_fc_opt.has_value() && global_fc_opt.value() != 0.0;
+  const bool fcost_active = fcost.has_value() || global_fc_nonzero;
 
-  Real stage_uvalue_val = uvalue_sched.at(stage.uid()).value_or(0.0);
-  if (stage_uvalue_val == 0.0) {
-    const auto global_uv = options.hydro_use_value().value_or(0.0);
-    if (global_uv > 0.0) {
-      stage_uvalue_val = global_uv * 3600.0;
+  const auto global_uv_opt = options.hydro_use_value();
+  const bool uvalue_active = uvalue_sched.has_value()
+      || (global_uv_opt.has_value() && global_uv_opt.value() != 0.0);
+
+  // Per-block fcost / uvalue resolver.  Mirrors the per-stage logic
+  // (×3600 lift for the global-fallback case, raw value for explicit
+  // schedule cells) on a per-block grain.  A literal `0.0` global
+  // produces `0.0` (the `*3600.0` lift is a no-op then anyway).
+  const auto block_fcost_at = [&](const BlockLP& b) -> Real
+  {
+    const auto fc_cell = fcost.optval(stage.uid(), b.uid());
+    if (fc_cell.has_value()) {
+      return *fc_cell;
     }
-  }
-  const bool uvalue_active = stage_uvalue_val != 0.0;
+    return global_fc_nonzero ? *global_fc_opt * 3600.0 : 0.0;
+  };
+  const auto block_uvalue_at = [&](const BlockLP& b) -> Real
+  {
+    const auto uv_cell = uvalue_sched.optval(stage.uid(), b.uid());
+    if (uv_cell.has_value()) {
+      return *uv_cell;
+    }
+    return (global_uv_opt.has_value() && global_uv_opt.value() != 0.0)
+        ? *global_uv_opt * 3600.0
+        : 0.0;
+  };
 
   // Resolve the time-resolution mode (see `FlowMode` doc).
   const auto mode = resolve_flow_mode(flow_right());
@@ -397,6 +418,12 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   Real fmax_e = 0.0;
   Real target_e = 0.0;
   bool has_target_e = false;
+  // Duration-weighted mean of fcost / uvalue across the stage's
+  // blocks; consumed by stage-scope `attach_flow` for stage_average
+  // and stage_uniform modes (mirrors the rb.fmin / rb.target volume-
+  // weighted aggregation already in place).
+  Real fcost_e = 0.0;
+  Real uvalue_e = 0.0;
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
@@ -429,6 +456,8 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         target_e += dur_ratio * *rb.target;
         has_target_e = true;
       }
+      fcost_e += dur_ratio * block_fcost_at(block);
+      uvalue_e += dur_ratio * block_uvalue_at(block);
     }
 
     if (!emit_block_flow) {
@@ -438,16 +467,23 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto block_ctx =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
 
+    // Per-block fcost / uvalue resolution.  Falls back to the global
+    // hydro_spill_cost / hydro_use_value (lifted ×3600) when the
+    // schedule cell is unset — same fallback chain as the legacy
+    // per-stage path.
+    const Real block_fcost_val = block_fcost_at(block);
+    const Real block_uvalue_val = block_uvalue_at(block);
+
     // Per-block flow column.  Kink/target are attached at the block
     // scope only in `per_block` mode; in `stage_average` the kink
     // moves to qeh (target = nullopt at block scope).
     const auto block_target =
         block_kink_active ? rb.target : std::optional<Real> {};
-    const Real sn_cost_cf = (block_kink_active && fcost_active)
-        ? CostHelper::block_ecost(scenario, stage, block, stage_fcost_val)
+    const Real sn_cost_cf = (block_kink_active && block_fcost_val > 0.0)
+        ? CostHelper::block_ecost(scenario, stage, block, block_fcost_val)
         : 0.0;
-    const Real sp_cost_cf = (block_kink_active && uvalue_active)
-        ? -CostHelper::block_ecost(scenario, stage, block, stage_uvalue_val)
+    const Real sp_cost_cf = (block_kink_active && block_uvalue_val != 0.0)
+        ? -CostHelper::block_ecost(scenario, stage, block, block_uvalue_val)
         : 0.0;
 
     const auto fa = attach_flow(lp,
@@ -523,14 +559,17 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
 
     // The stage-scope `attach_flow` is identical to the per-block one;
     // the only differences are scope-appropriate cost factors and the
-    // chosen name bundle (`qeh`, `qeh_sp`, `qeh_sn`, `qkink`).
+    // chosen name bundle (`qeh`, `qeh_sp`, `qeh_sn`, `qkink`).  Per-
+    // block fcost / uvalue are duration-weighted into the stage-level
+    // `fcost_e` / `uvalue_e` aggregates above so the qeh kink sees a
+    // single representative cost per scope.
     const auto stage_target =
         has_target_e ? std::optional<Real> {target_e} : std::optional<Real> {};
-    const Real sn_cost_cf = fcost_active
-        ? CostHelper::scenario_stage_ecost(scenario, stage, stage_fcost_val)
+    const Real sn_cost_cf = (fcost_active && fcost_e > 0.0)
+        ? CostHelper::scenario_stage_ecost(scenario, stage, fcost_e)
         : 0.0;
-    const Real sp_cost_cf = uvalue_active
-        ? -CostHelper::scenario_stage_ecost(scenario, stage, stage_uvalue_val)
+    const Real sp_cost_cf = (uvalue_active && uvalue_e != 0.0)
+        ? -CostHelper::scenario_stage_ecost(scenario, stage, uvalue_e)
         : 0.0;
     const auto fa = attach_flow(lp,
                                 fmin_e,
@@ -883,26 +922,20 @@ int FlowRightLP::update_lp(SystemLP& sys,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);
 
-  // Re-resolve stage_fcost / stage_uvalue the same way add_to_lp does
-  // (only used to drive resolve_bounds's defaults — the kink slacks
-  // themselves are NOT touched on a bound_rule re-clamp).
-  auto stage_fcost = fcost.at(stage.uid());
-  if (!stage_fcost.has_value()) {
-    const auto global_fc = options.hydro_spill_cost();
-    if (global_fc.has_value()) {
-      stage_fcost = OptReal {*global_fc * 3600.0};
-    }
-  }
-  const bool fcost_active = stage_fcost.value_or(0.0) > 0.0;
+  // Re-resolve the fcost / uvalue activity flags the same way
+  // add_to_lp does (only used to drive resolve_bounds's defaults —
+  // the kink slacks themselves are NOT touched on a bound_rule
+  // re-clamp).  Both fields are now per-(stage, block); the schedule
+  // is "active" when any cell is set OR the global fallback is
+  // present AND non-zero.
+  const auto global_fc = options.hydro_spill_cost();
+  const bool global_fc_nonzero =
+      global_fc.has_value() && global_fc.value() != 0.0;
+  const bool fcost_active = fcost.has_value() || global_fc_nonzero;
 
-  Real stage_uvalue_val = uvalue_sched.at(stage.uid()).value_or(0.0);
-  if (stage_uvalue_val == 0.0) {
-    const auto global_uv = options.hydro_use_value().value_or(0.0);
-    if (global_uv > 0.0) {
-      stage_uvalue_val = global_uv * 3600.0;
-    }
-  }
-  const bool uvalue_active = stage_uvalue_val != 0.0;
+  const auto global_uv = options.hydro_use_value();
+  const bool uvalue_active = uvalue_sched.has_value()
+      || (global_uv.has_value() && global_uv.value() != 0.0);
 
   const auto axis_value = resolve_bound_rule_axis_value(
       *opt_rule,

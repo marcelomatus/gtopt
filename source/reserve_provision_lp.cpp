@@ -46,14 +46,16 @@ std::expected<void, Error> add_provision(
     auto get_requirement_rows,
     auto provision_row)
 {
-  const auto stage_provision_factor = rp.provision_factor.optval(stage.uid());
-  if (!stage_provision_factor || (stage_provision_factor.value() <= 0.0)) {
+  // `provision_factor` / `cost` / `capacity_factor` are now
+  // per-(stage, block).  An *empty* provision_factor at every block of
+  // the stage still means "no provision wired"; we short-circuit when
+  // none of the blocks have a positive factor.  Per-block resolution
+  // happens inside the block loop below.
+  if (!rp.provision_factor.has_value()) {
     return {};
   }
-
-  const auto stage_cost = rp.cost.optval(stage.uid()).value_or(0.0);
-  const auto stage_capacity_factor = rp.capacity_factor.optval(stage.uid());
-  const auto use_capacity = capacity_col && stage_capacity_factor;
+  const auto use_capacity_field =
+      capacity_col && rp.capacity_factor.has_value();
 
   const auto st_k = std::tuple {scenario.uid(), stage.uid()};
 
@@ -89,6 +91,21 @@ std::expected<void, Error> add_provision(
   for (const auto& block : blocks) {
     const auto buid = block.uid();
 
+    // Resolve the per-(stage, block) provision factor.  When the
+    // provision_factor cell at this block is unset OR ≤ 0, the
+    // provision is inactive for the block — skip it (preserves the
+    // legacy per-stage short-circuit one block at a time).
+    const auto block_provision_factor =
+        rp.provision_factor.optval(stage.uid(), buid);
+    if (!block_provision_factor || (block_provision_factor.value() <= 0.0)) {
+      continue;
+    }
+
+    const auto block_cost = rp.cost.optval(stage.uid(), buid).value_or(0.0);
+    const auto block_capacity_factor =
+        rp.capacity_factor.optval(stage.uid(), buid);
+    const bool use_capacity = use_capacity_field && block_capacity_factor;
+
     //
     // create the provision col and row when needed and if possible, i.e.,
     // if there is a rmax provision defined for the stage and block
@@ -109,7 +126,7 @@ std::expected<void, Error> add_provision(
 
     const auto prov_col = lp.add_col({
         .uppb = block_rmax.value(),
-        .cost = CostHelper::block_ecost(scenario, stage, block, stage_cost),
+        .cost = CostHelper::block_ecost(scenario, stage, block, block_cost),
         .class_name = cname,
         .variable_name = pname,
         .variable_uid = uid,
@@ -128,7 +145,7 @@ std::expected<void, Error> add_provision(
                   make_block_context(scenario.uid(), stage.uid(), block.uid()),
           }
               .greater_equal(0);
-      crow[capacity_col.value()] = stage_capacity_factor.value();
+      crow[capacity_col.value()] = block_capacity_factor.value();
       crow[prov_col] = -1;
       cap_rows[buid] = lp.add_row(std::move(crow));
     }
@@ -146,7 +163,7 @@ std::expected<void, Error> add_provision(
       const auto req_row_it = req_rows_ptr->find(buid);
       if (req_row_it != req_rows_ptr->end()) {
         lp.set_coeff(
-            req_row_it->second, prov_col, stage_provision_factor.value());
+            req_row_it->second, prov_col, block_provision_factor.value());
       }
     }
   }

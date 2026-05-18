@@ -151,10 +151,13 @@ public:
   {
     return target_sched.at(s, b);
   }
-  [[nodiscard]] auto param_fcost(StageUid s) const { return fcost.at(s); }
-  [[nodiscard]] auto param_uvalue(StageUid s) const
+  [[nodiscard]] auto param_fcost(StageUid s, BlockUid b) const
   {
-    return uvalue_sched.at(s);
+    return fcost.at(s, b);
+  }
+  [[nodiscard]] auto param_uvalue(StageUid s, BlockUid b) const
+  {
+    return uvalue_sched.at(s, b);
   }
 
   /// @brief Test-only existence probes for LP entities.
@@ -248,13 +251,13 @@ private:
   OptTBRealSched target_sched;
   int direction {-1};
 
-  /// Resolved fcost schedule for per-stage deficit penalty cost.
-  /// Mirrors Demand::fcost structure (per-stage only); the LP cost
-  /// coefficient at each block is built via
-  /// `CostHelper::block_ecost(scenario, stage, block, fcost)`.
-  OptTRealSched fcost;
-  /// Resolved uvalue schedule for per-stage excess bonus.
-  OptTRealSched uvalue_sched;
+  /// Resolved fcost schedule for per-(stage, block) deficit penalty cost.
+  /// Mirrors Demand::fcost structure (per-(stage, block) since PR-C);
+  /// the LP cost coefficient at each block is built via
+  /// `CostHelper::block_ecost(scenario, stage, block, block_fcost)`.
+  OptTBRealSched fcost;
+  /// Resolved uvalue schedule for per-(stage, block) excess bonus.
+  OptTBRealSched uvalue_sched;
 
   /// Per-block primary flow column `flow_b ∈ [fmin_b, fmax_b]`.
   STBIndexHolder<ColIndex> flow_cols;

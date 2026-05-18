@@ -150,6 +150,18 @@ public:
     return fc ? fc : options().hydro_spill_cost();
   }
 
+  /// Per-(stage, block) variant: resolves a `FlowRight.fcost`
+  /// (`OptTBRealSched`) at the block grain, falling back to the
+  /// global `model_options.hydro_spill_cost`.
+  template<typename FailCost>
+  [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
+                                                const BlockLP& block,
+                                                const FailCost& fcost) const
+  {
+    const auto fc = fcost.optval(stage.uid(), block.uid());
+    return fc ? fc : options().hydro_spill_cost();
+  }
+
   template<typename FailCost>
   [[nodiscard]] constexpr auto reserve_shortage_cost(
       const StageLP& stage, const FailCost& fcost) const
@@ -158,11 +170,34 @@ public:
     return fc ? fc : options().reserve_shortage_cost();
   }
 
+  /// Per-(stage, block) variant: resolves a `ReserveZone.urcost` /
+  /// `ReserveZone.drcost` / `InertiaZone.cost` (`OptTBRealSched`) at
+  /// the block grain, falling back to the global
+  /// `model_options.reserve_shortage_cost`.
+  template<typename FailCost>
+  [[nodiscard]] constexpr auto reserve_shortage_cost(
+      const StageLP& stage, const BlockLP& block, const FailCost& fcost) const
+  {
+    const auto fc = fcost.optval(stage.uid(), block.uid());
+    return fc ? fc : options().reserve_shortage_cost();
+  }
+
   template<typename StateCost>
   [[nodiscard]] constexpr auto state_violation_cost(
       const StageLP& stage, const StateCost& scost) const
   {
     const auto sc = scost.optval(stage.uid());
+    return sc ? sc : options().state_violation_cost();
+  }
+
+  /// Per-(stage, block) variant: resolves an `OptTBRealSched`-typed
+  /// state cost at the block grain, falling back to the global
+  /// `model_options.state_violation_cost`.
+  template<typename StateCost>
+  [[nodiscard]] constexpr auto state_violation_cost(
+      const StageLP& stage, const BlockLP& block, const StateCost& scost) const
+  {
+    const auto sc = scost.optval(stage.uid(), block.uid());
     return sc ? sc : options().state_violation_cost();
   }
 

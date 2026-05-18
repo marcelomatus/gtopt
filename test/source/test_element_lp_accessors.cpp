@@ -490,8 +490,10 @@ TEST_CASE(  // NOLINT
     CHECK(fr_lp.param_fmax(suid, buid).value_or(-1.0) == doctest::Approx(40.0));
     CHECK(fr_lp.param_target(suid, buid).value_or(-1.0)
           == doctest::Approx(20.0));
-    CHECK(fr_lp.param_fcost(suid).value_or(-1.0) == doctest::Approx(5000.0));
-    CHECK(fr_lp.param_uvalue(suid).value_or(-1.0) == doctest::Approx(10.0));
+    CHECK(fr_lp.param_fcost(suid, buid).value_or(-1.0)
+          == doctest::Approx(5000.0));
+    CHECK(fr_lp.param_uvalue(suid, buid).value_or(-1.0)
+          == doctest::Approx(10.0));
   }
 
   SUBCASE("VolumeRightLP accessors")

@@ -55,18 +55,27 @@ struct ReserveProvision
   OptTBRealFieldSched urmax {};  ///< Maximum up-reserve offer [MW]
   OptTBRealFieldSched drmax {};  ///< Maximum down-reserve offer [MW]
 
-  OptTRealFieldSched
-      ur_capacity_factor {};  ///< Up-reserve capacity factor [p.u.]
-  OptTRealFieldSched
-      dr_capacity_factor {};  ///< Down-reserve capacity factor [p.u.]
+  OptTBRealFieldSched
+      ur_capacity_factor {};  ///< Up-reserve capacity factor [p.u.] —
+                              ///< per-(stage, block); accepts a scalar
+                              ///< (broadcasts), a 2-D nested array, or a
+                              ///< file-backed schedule.
+  OptTBRealFieldSched
+      dr_capacity_factor {};  ///< Down-reserve capacity factor [p.u.] —
+                              ///< same shapes as ``ur_capacity_factor``.
 
-  OptTRealFieldSched
-      ur_provision_factor {};  ///< Up-reserve provision factor [p.u.]
-  OptTRealFieldSched
-      dr_provision_factor {};  ///< Down-reserve provision factor [p.u.]
+  OptTBRealFieldSched
+      ur_provision_factor {};  ///< Up-reserve provision factor [p.u.] —
+                               ///< per-(stage, block); same shapes as
+                               ///< ``ur_capacity_factor``.
+  OptTBRealFieldSched
+      dr_provision_factor {};  ///< Down-reserve provision factor [p.u.] —
+                               ///< per-(stage, block).
 
-  OptTRealFieldSched urcost {};  ///< Up-reserve bid cost [$/MW]
-  OptTRealFieldSched drcost {};  ///< Down-reserve bid cost [$/MW]
+  OptTBRealFieldSched urcost {};  ///< Up-reserve bid cost [$/MW] —
+                                  ///< per-(stage, block).
+  OptTBRealFieldSched drcost {};  ///< Down-reserve bid cost [$/MW] —
+                                  ///< per-(stage, block).
 };
 
 }  // namespace gtopt

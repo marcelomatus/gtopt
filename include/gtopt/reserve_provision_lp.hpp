@@ -136,9 +136,9 @@ public:
               auto&& rprof);
 
     OptTBRealSched max;
-    OptTRealSched cost;
-    OptTRealSched capacity_factor;
-    OptTRealSched provision_factor;
+    OptTBRealSched cost;
+    OptTBRealSched capacity_factor;
+    OptTBRealSched provision_factor;
     STBIndexHolder<ColIndex> provision_cols;
     STBIndexHolder<RowIndex> provision_rows;
     STBIndexHolder<RowIndex> capacity_rows;

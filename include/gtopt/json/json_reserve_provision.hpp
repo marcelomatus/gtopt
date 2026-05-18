@@ -26,19 +26,19 @@ struct json_data_contract<ReserveProvision>
       json_variant_null<"urmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"ur_capacity_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"dr_capacity_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"ur_provision_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"dr_provision_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
-      json_variant_null<"urcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"drcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveProvision const& obj)
   {

@@ -87,8 +87,9 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
     auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
     const auto& blocks = stage.blocks();
 
-    // Compute provision_factor: explicit schedule > H*S/Pmin > 1.0
-    const auto stage_pf = provision_factor_.optval(stage.uid());
+    // `provision_factor_` / `cost_` are now per-(stage, block); the
+    // legacy per-stage `stage_pf` short-circuit is replaced by a
+    // per-block resolution inside the loop.
     const auto& ip = inertia_provision();
 
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};
@@ -109,10 +110,12 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       const auto gen_pmin = lp.get_col_lowb(gcol);
       const auto gen_pmax = lp.get_col_uppb(gcol);
 
-      // Resolve provision_factor for this block
+      // Resolve provision_factor for this block.  Per-(stage, block)
+      // schedule wins; fallback chain is H × S / Pmin → 1.0.
+      const auto block_pf = provision_factor_.optval(stage.uid(), buid);
       double pf_value = 1.0;
-      if (stage_pf) {
-        pf_value = stage_pf.value();
+      if (block_pf) {
+        pf_value = block_pf.value();
       } else if (ip.inertia_constant && ip.rated_power) {
         const auto pmin_eff =
             (gen_pmin > 0.0) ? gen_pmin : gen_pmax;  // fallback
@@ -130,12 +133,12 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       auto block_pmax = provision_max_.optval(stage.uid(), buid)
                             .value_or(gen_pmin > 0.0 ? gen_pmin : gen_pmax);
 
-      const auto stage_cost = cost_.optval(stage.uid()).value_or(0.0);
+      const auto block_cost = cost_.optval(stage.uid(), buid).value_or(0.0);
 
       // Create provision variable r_inertia
       const auto pcol = lp.add_col({
           .uppb = block_pmax,
-          .cost = CostHelper::block_ecost(scenario, stage, block, stage_cost),
+          .cost = CostHelper::block_ecost(scenario, stage, block, block_cost),
           .class_name = cname,
           .variable_name = ProvisionName,
           .variable_uid = uid(),

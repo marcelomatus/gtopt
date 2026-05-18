@@ -156,15 +156,17 @@ struct FlowRight
   /// Penalty cost for unmet flow below `target` [$/m³/s·h].
   /// Analogous to Demand::fcost for electrical load curtailment.
   /// Higher values give this right higher priority in the LP.
-  /// Per-stage scheduling (mirrors Demand::fcost structure exactly).
-  OptTRealFieldSched fcost {};
+  /// Per-(stage, block) scheduling (mirrors Demand::fcost since PR-A).
+  /// Accepts a scalar (broadcasts), a 2-D nested array, or a
+  /// file-backed schedule.
+  OptTBRealFieldSched fcost {};
 
   /// Value of exercising the right above `target` [$/m³/s·h].
   /// Subtracted from the objective (benefit): positive = incentivizes
   /// flow above target, negative = penalizes flow above target.
   /// Renamed from legacy `use_value` for naming parity with `fcost`.
-  /// Per-stage scheduling.
-  OptTRealFieldSched uvalue {};
+  /// Per-(stage, block) scheduling.
+  OptTBRealFieldSched uvalue {};
 
   /// Priority level for allocation ordering [dimensionless].
   OptReal priority {};

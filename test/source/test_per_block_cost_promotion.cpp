@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Per-(stage, block) promotion tests for PR-A:
-//   * Generator.gcost   — OptTBRealFieldSched
-//   * Demand.fcost      — OptTBRealFieldSched
-//   * Battery.gcost     — OptTBRealFieldSched
-//   * Battery.charge_cost — OptTBRealFieldSched
+// Per-(stage, block) promotion tests for the T→TB sweep.
+//
+//   * PR-A: Generator.gcost / Demand.fcost / Battery.gcost / charge_cost
+//   * PR-B: Generator.heat_rate / lossfactor / emission_factor,
+//           Demand.lossfactor, Line.lossfactor
+//   * PR-C: ReserveZone.urcost/drcost,
+//           ReserveProvision.urcost/drcost/{ur,dr}_capacity_factor/
+//           {ur,dr}_provision_factor,
+//           InertiaZone.cost,
+//           InertiaProvision.cost/provision_factor,
+//           FlowRight.fcost/uvalue
 //
 // Each test exercises three round-trip paths:
 //   1. JSON parse of a 2-D ``[[block0, block1, ...]]`` literal — the
@@ -20,10 +26,20 @@
 #include <doctest/doctest.h>
 #include <gtopt/battery.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/inertia_provision.hpp>
+#include <gtopt/inertia_zone.hpp>
 #include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_demand.hpp>
+#include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_generator.hpp>
+#include <gtopt/json/json_inertia_provision.hpp>
+#include <gtopt/json/json_inertia_zone.hpp>
+#include <gtopt/json/json_reserve_provision.hpp>
+#include <gtopt/json/json_reserve_zone.hpp>
+#include <gtopt/reserve_provision.hpp>
+#include <gtopt/reserve_zone.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -278,4 +294,133 @@ TEST_CASE("Generator.heat_rate — scalar still broadcasts (legacy)")  // NOLINT
   const auto gen = daw::json::from_json<Generator>(json_data);
   REQUIRE(gen.heat_rate.has_value());
   CHECK(std::get<Real>(*gen.heat_rate) == doctest::Approx(9.5));
+}
+
+// ─── PR-C: per-block reserve / inertia / flow_right cost block ─────
+
+TEST_CASE("ReserveZone.urcost/drcost — 2-D JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "z1",
+    "urcost": [[900.0, 1000.0]],
+    "drcost": [[700.0, 800.0]]
+  })";
+  const auto rz = daw::json::from_json<ReserveZone>(json_data);
+  REQUIRE(rz.urcost.has_value());
+  REQUIRE(rz.drcost.has_value());
+  const auto& vu = std::get<std::vector<std::vector<Real>>>(*rz.urcost);
+  const auto& vd = std::get<std::vector<std::vector<Real>>>(*rz.drcost);
+  REQUIRE(vu.size() == 1);
+  REQUIRE(vu[0].size() == 2);
+  CHECK(vu[0][0] == doctest::Approx(900.0));
+  CHECK(vu[0][1] == doctest::Approx(1000.0));
+  CHECK(vd[0][0] == doctest::Approx(700.0));
+  CHECK(vd[0][1] == doctest::Approx(800.0));
+}
+
+TEST_CASE("ReserveZone.urcost — scalar still broadcasts (legacy)")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "z1",
+    "urcost": 950.0
+  })";
+  const auto rz = daw::json::from_json<ReserveZone>(json_data);
+  REQUIRE(rz.urcost.has_value());
+  CHECK(std::get<Real>(*rz.urcost) == doctest::Approx(950.0));
+}
+
+TEST_CASE("ReserveProvision.{ur,dr}cost/provision_factor — 2-D JSON")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "p1",
+    "generator": 1,
+    "reserve_zones": [1],
+    "urcost": [[5.0, 8.0]],
+    "drcost": [[3.0, 4.0]],
+    "ur_capacity_factor": [[1.0, 0.9]],
+    "dr_capacity_factor": [[1.0, 0.8]],
+    "ur_provision_factor": [[1.0, 0.95]],
+    "dr_provision_factor": [[1.0, 0.9]]
+  })";
+  const auto rp = daw::json::from_json<ReserveProvision>(json_data);
+  REQUIRE(rp.urcost.has_value());
+  REQUIRE(rp.drcost.has_value());
+  REQUIRE(rp.ur_capacity_factor.has_value());
+  REQUIRE(rp.ur_provision_factor.has_value());
+  const auto& vu = std::get<std::vector<std::vector<Real>>>(*rp.urcost);
+  REQUIRE(vu[0].size() == 2);
+  CHECK(vu[0][0] == doctest::Approx(5.0));
+  CHECK(vu[0][1] == doctest::Approx(8.0));
+  const auto& vupf =
+      std::get<std::vector<std::vector<Real>>>(*rp.ur_provision_factor);
+  CHECK(vupf[0][1] == doctest::Approx(0.95));
+}
+
+TEST_CASE("InertiaZone.cost — 2-D JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "iz1",
+    "cost": [[50.0, 75.0]]
+  })";
+  const auto iz = daw::json::from_json<InertiaZone>(json_data);
+  REQUIRE(iz.cost.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*iz.cost);
+  REQUIRE(v[0].size() == 2);
+  CHECK(v[0][0] == doctest::Approx(50.0));
+  CHECK(v[0][1] == doctest::Approx(75.0));
+}
+
+TEST_CASE("InertiaProvision.cost/provision_factor — 2-D JSON")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "ip1",
+    "generator": 1,
+    "inertia_zones": [1],
+    "provision_factor": [[20.0, 22.0]],
+    "cost": [[1.5, 2.5]]
+  })";
+  const auto ip = daw::json::from_json<InertiaProvision>(json_data);
+  REQUIRE(ip.cost.has_value());
+  REQUIRE(ip.provision_factor.has_value());
+  const auto& vc = std::get<std::vector<std::vector<Real>>>(*ip.cost);
+  const auto& vpf =
+      std::get<std::vector<std::vector<Real>>>(*ip.provision_factor);
+  CHECK(vc[0][1] == doctest::Approx(2.5));
+  CHECK(vpf[0][0] == doctest::Approx(20.0));
+}
+
+TEST_CASE("FlowRight.fcost/uvalue — 2-D JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "fr1",
+    "fcost": [[5000.0, 5500.0]],
+    "uvalue": [[10.0, 12.5]]
+  })";
+  const auto fr = daw::json::from_json<FlowRight>(json_data);
+  REQUIRE(fr.fcost.has_value());
+  REQUIRE(fr.uvalue.has_value());
+  const auto& vf = std::get<std::vector<std::vector<Real>>>(*fr.fcost);
+  const auto& vu = std::get<std::vector<std::vector<Real>>>(*fr.uvalue);
+  REQUIRE(vf[0].size() == 2);
+  CHECK(vf[0][0] == doctest::Approx(5000.0));
+  CHECK(vf[0][1] == doctest::Approx(5500.0));
+  CHECK(vu[0][1] == doctest::Approx(12.5));
+}
+
+TEST_CASE("FlowRight.fcost — scalar still broadcasts (legacy)")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "fr1",
+    "fcost": 3000.0
+  })";
+  const auto fr = daw::json::from_json<FlowRight>(json_data);
+  REQUIRE(fr.fcost.has_value());
+  CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(3000.0));
 }

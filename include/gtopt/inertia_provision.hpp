@@ -65,8 +65,13 @@ struct InertiaProvision
   OptReal rated_power {};  ///< Rated apparent power S [MVA]
 
   OptTBRealFieldSched provision_max {};  ///< Max inertia provision [MW]
-  OptTRealFieldSched provision_factor {};  ///< Effectiveness factor FE [MWs/MW]
-  OptTRealFieldSched cost {};  ///< Provision cost [$/MW]
+  OptTBRealFieldSched
+      provision_factor {};  ///< Effectiveness factor FE [MWs/MW] —
+                            ///< per-(stage, block); accepts a scalar
+                            ///< (broadcasts), a 2-D nested array, or
+                            ///< a file-backed schedule.
+  OptTBRealFieldSched cost {};  ///< Provision cost [$/MW] —
+                                ///< per-(stage, block).
 };
 
 }  // namespace gtopt
