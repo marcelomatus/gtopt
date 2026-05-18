@@ -122,8 +122,12 @@ struct Reservoir
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
   OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
                                       ///< loss [p.u./year]
-  OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³]
-  OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³]
+  OptTBRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³] —
+                                ///< per-(stage, block); accepts a scalar
+                                ///< (broadcasts), a 2-D nested array, or a
+                                ///< file-backed schedule.
+  OptTBRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³] —
+                                ///< same shapes as ``emin``.
   OptTRealFieldSched
       ecost {};  ///< Shadow cost of stored water (water value) [$/hm³]
   OptReal eini {};  ///< Initial stored volume at start of horizon [hm³].

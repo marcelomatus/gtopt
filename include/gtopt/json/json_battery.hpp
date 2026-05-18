@@ -53,11 +53,15 @@ struct json_data_contract<Battery>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
       json_variant_null<"emin",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Minimum energy level
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Minimum energy level
+                                                 ///< — scalar or 2-D
+                                                 ///< per-(stage, block)
       json_variant_null<"emax",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Maximum energy level
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Maximum energy level
+                                                 ///< — scalar or 2-D
+                                                 ///< per-(stage, block)
       json_variant_null<"ecost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Voltage cost
@@ -83,6 +87,9 @@ struct json_data_contract<Battery>
       json_variant_null<"gcost",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Discharge cost
+      json_variant_null<"charge_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,  ///< Charge cost
       json_variant_null<"capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Capacity
@@ -135,6 +142,7 @@ struct json_data_contract<Battery>
                                  battery.pmax_charge,
                                  battery.pmax_discharge,
                                  battery.gcost,
+                                 battery.charge_cost,
                                  battery.capacity,
                                  battery.expcap,
                                  battery.expmod,

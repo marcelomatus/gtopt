@@ -545,9 +545,112 @@ TEST_CASE(  // NOLINT
   REQUIRE(!stages.empty());
 
   const auto stage_uid = stages[0].uid();
-  CHECK(bat_lp.param_emin(stage_uid).value_or(-1.0) == doctest::Approx(10.0));
-  CHECK(bat_lp.param_emax(stage_uid).value_or(-1.0) == doctest::Approx(90.0));
+  const auto block_uid = stages[0].blocks().front().uid();
+  CHECK(bat_lp.param_emin(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(10.0));
+  CHECK(bat_lp.param_emax(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(90.0));
   CHECK(bat_lp.param_ecost(stage_uid).value_or(-1.0) == doctest::Approx(5.0));
+}
+
+// ─── Per-(stage, block) emin/emax wiring on Battery ─────────────────────────
+//
+// Pins the runtime contract introduced when ``Battery.emin``/``emax`` (and
+// the parallel Reservoir/VolumeRight/LngTerminal fields) were promoted from
+// ``OptTRealFieldSched`` (per-stage) to ``OptTBRealFieldSched`` (per-(stage,
+// block)) on 2026-05-18.  Three input shapes are supported and must
+// round-trip into ``param_emin(stage, block)``/``param_emax(stage, block)``:
+//
+//   * scalar — broadcasts to every (stage, block);
+//   * 2-D nested array ``[[block, …], …]`` — per-(stage, block) explicit;
+//   * Mx1 nested array — per-stage with one block per stage (PLP shape).
+
+TEST_CASE(  // NOLINT
+    "StorageLP per-block emin/emax — scalar broadcasts to every block")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // emin/emax scalar — should broadcast to every (stage, block).
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_scalar_bounds",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 5.0,
+          .emax = 80.0,
+          .capacity = 100.0,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& stage = sys_lp.phase().stages().front();
+  const auto stage_uid = stage.uid();
+
+  // Every block of the stage sees the same scalar (broadcast semantic).
+  for (const auto& block : stage.blocks()) {
+    const auto buid = block.uid();
+    CHECK(bat_lp.param_emin(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(5.0));
+    CHECK(bat_lp.param_emax(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(80.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP per-block emin/emax — 2-D nested array indexed per block")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The simple simulation ships 1 stage × multiple blocks.  Stage 0
+  // gets per-block emax overrides: blocks at successive uids carry
+  // distinct bounds.  Verify ``param_emax(stage, block)`` returns the
+  // per-block value.
+  const auto sim = make_simple_simulation();
+  const std::size_t num_blocks = sim.block_array.size();
+  REQUIRE(num_blocks >= 2);  // need at least 2 blocks to exercise the contract
+
+  std::vector<Real> per_block_emax;
+  per_block_emax.reserve(num_blocks);
+  for (std::size_t b = 0; b < num_blocks; ++b) {
+    per_block_emax.push_back(100.0 - static_cast<Real>(b) * 10.0);
+  }
+  std::vector<std::vector<Real>> emax_matrix = {per_block_emax};
+
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_per_block",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,  // scalar — broadcasts
+          .emax = emax_matrix,  // per-(stage, block)
+          .capacity = 100.0,
+      },
+  };
+
+  auto [sys_lp, options] = make_battery_system(battery_array, sim);
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& stage = sys_lp.phase().stages().front();
+  const auto stage_uid = stage.uid();
+
+  // emin scalar broadcasts everywhere.
+  CHECK(
+      bat_lp.param_emin(stage_uid, stage.blocks().front().uid()).value_or(-1.0)
+      == doctest::Approx(0.0));
+
+  // emax per-block: each block reads its own row entry.
+  const auto& blocks = stage.blocks();
+  for (std::size_t b = 0; b < blocks.size(); ++b) {
+    const auto buid = blocks[b].uid();
+    const double expected = 100.0 - static_cast<Real>(b) * 10.0;
+    CHECK(bat_lp.param_emax(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(expected));
+  }
 }
 
 // ─── soft_emin_col_at returns nullopt when no soft_emin ─────────────────────

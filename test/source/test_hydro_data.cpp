@@ -329,8 +329,38 @@ TEST_CASE("Reservoir with time-varying volume limits")
 
   Reservoir reservoir;
 
-  std::vector<Real> emin_schedule = {8000.0, 10000.0, 12000.0, 9000.0};
-  std::vector<Real> emax_schedule = {40000.0, 45000.0, 50000.0, 42000.0};
+  // ``Reservoir.emin/emax`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since 2026-05-18.  Encode the per-stage schedule as a Mx1 nested vector
+  // (one block per stage); the ``at(stage, block)`` resolver returns the
+  // single per-stage value.
+  std::vector<std::vector<Real>> emin_schedule = {
+      {
+          8000.0,
+      },
+      {
+          10000.0,
+      },
+      {
+          12000.0,
+      },
+      {
+          9000.0,
+      },
+  };
+  std::vector<std::vector<Real>> emax_schedule = {
+      {
+          40000.0,
+      },
+      {
+          45000.0,
+      },
+      {
+          50000.0,
+      },
+      {
+          42000.0,
+      },
+  };
 
   reservoir.emin = emin_schedule;
   reservoir.emax = emax_schedule;
@@ -338,8 +368,9 @@ TEST_CASE("Reservoir with time-varying volume limits")
   REQUIRE(reservoir.emin.has_value());
   REQUIRE(reservoir.emax.has_value());
 
-  auto* emin_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emin.value());
-  auto* emax_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emax.value());
+  using Mat = std::vector<std::vector<Real>>;
+  auto* emin_vec_ptr = std::get_if<Mat>(&reservoir.emin.value());
+  auto* emax_vec_ptr = std::get_if<Mat>(&reservoir.emax.value());
 
   REQUIRE(emin_vec_ptr != nullptr);
   REQUIRE(emax_vec_ptr != nullptr);
@@ -347,10 +378,10 @@ TEST_CASE("Reservoir with time-varying volume limits")
   CHECK(emin_vec_ptr->size() == 4);
   CHECK(emax_vec_ptr->size() == 4);
 
-  CHECK((*emin_vec_ptr)[0] == doctest::Approx(8000.0));
-  CHECK((*emin_vec_ptr)[3] == doctest::Approx(9000.0));
-  CHECK((*emax_vec_ptr)[0] == doctest::Approx(40000.0));
-  CHECK((*emax_vec_ptr)[3] == doctest::Approx(42000.0));
+  CHECK((*emin_vec_ptr)[0][0] == doctest::Approx(8000.0));
+  CHECK((*emin_vec_ptr)[3][0] == doctest::Approx(9000.0));
+  CHECK((*emax_vec_ptr)[0][0] == doctest::Approx(40000.0));
+  CHECK((*emax_vec_ptr)[3][0] == doctest::Approx(42000.0));
 }
 
 TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT

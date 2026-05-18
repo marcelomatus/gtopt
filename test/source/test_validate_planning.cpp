@@ -1104,7 +1104,18 @@ TEST_CASE(  // NOLINT
   // segment, direction) listing how many stages fail and the worst
   // offender — replaces the earlier "skip on schedule form" behavior
   // that hid real feasibility bugs in PLP-converted cases.
-  p.system.reservoir_array.front().emin = std::vector<Real> {100.0, 200.0};
+  // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block)).
+  // Encode the per-stage schedule as a Mx1 matrix (one inner entry per
+  // stage), exactly how PLP-style per-stage data is represented after
+  // the 2026-05-18 widening.
+  p.system.reservoir_array.front().emin = std::vector<std::vector<Real>> {
+      {
+          100.0,
+      },
+      {
+          200.0,
+      },
+  };
   p.system.reservoir_seepage_array = {
       {
           .uid = Uid {1},

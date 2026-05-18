@@ -16,6 +16,7 @@
 #include <gtopt/bus_island.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/field_sched.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system.hpp>
@@ -79,6 +80,43 @@ template<typename T>
 
 namespace gtopt
 {
+namespace
+{
+/// Negate every numeric value inside an OptTRealFieldSched, preserving
+/// the variant shape (scalar → scalar, vector → vector).  File-backed
+/// schedules are passed through unchanged because we cannot eagerly
+/// load + negate at expand time; callers that wire ``charge_cost`` via
+/// a Parquet/CSV file route must already store the value pre-negated.
+/// Used by ``expand_batteries`` to push ``Battery.charge_cost`` onto
+/// the synthetic Demand.fcost as a negative coefficient (so the
+/// demand-LP substitution ``lcol_cost = -fcost × block_factor`` lands
+/// on a positive per-MWh cost on the charging column).
+[[nodiscard]] auto negate_real_sched(const OptTRealFieldSched& src)
+    -> OptTRealFieldSched
+{
+  if (!src.has_value()) {
+    return std::nullopt;
+  }
+  return std::visit(
+      [](const auto& v) -> RealFieldSched
+      {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, double>) {
+          return -v;
+        } else if constexpr (std::is_same_v<T, std::vector<double>>) {
+          std::vector<double> negated;
+          negated.reserve(v.size());
+          for (auto x : v) {
+            negated.push_back(-x);
+          }
+          return negated;
+        } else {
+          return v;
+        }
+      },
+      *src);
+}
+}  // namespace
 
 void System::setup_reference_bus(const PlanningOptionsLP& options)
 {
@@ -151,15 +189,28 @@ void System::expand_batteries()
     });
 
     // Charge demand: power absorbed from the charge bus.
-    // fcost is pinned to 0 so this synthetic demand is truly dispatchable
-    // in [0, pmax_charge] regardless of the global model_options
-    // .demand_fail_cost — otherwise a positive global default would force
-    // the LP to charge at pmax to avoid the per-MWh fail-cost penalty.
+    //
+    // ``fcost`` selects between two regimes:
+    //
+    //   * ``Battery.charge_cost`` unset (default): pin to 0 so the
+    //     synthetic demand is truly dispatchable in [0, pmax_charge]
+    //     regardless of the global ``model_options.demand_fail_cost`` —
+    //     otherwise a positive global default would force the LP to
+    //     charge at pmax to avoid the per-MWh fail-cost penalty.
+    //   * ``Battery.charge_cost`` set: negate it so the demand-LP
+    //     substitution (``demand_lp.cpp::add_to_lp``) stamps the
+    //     charging column with a positive cost coefficient
+    //     ``lcol_cost = -fcost × block_factor = +charge_cost × ...``.
+    //     LP then pays ``charge_cost`` per MWh charged, mirroring
+    //     UC.jl's ``Charge cost ($/MW)`` semantics.
+    OptTRealFieldSched dem_fcost = battery.charge_cost.has_value()
+        ? negate_real_sched(battery.charge_cost)
+        : OptTRealFieldSched {RealFieldSched {0.0}};
     demand_array.push_back(Demand {
         .uid = dem_uid++,
         .name = dem_name,
         .bus = charge_bus,
-        .fcost = 0.0,
+        .fcost = std::move(dem_fcost),
         .capacity = battery.pmax_charge,
     });
 

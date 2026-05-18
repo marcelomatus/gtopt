@@ -745,6 +745,29 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
                           });
   }
 
+  // Class-level compound: `converter.flow = +discharge − charge`.
+  // Mirrors `line.flow`: positive when the converter discharges the
+  // battery into the grid (alias `discharge` → generator generation
+  // column), negative when it charges from the grid (alias `charge` →
+  // demand load column).  Both leg attributes are registered per-element
+  // by `ConverterLP::add_to_lp` via `add_ampl_variable(..., DischargeName,
+  // ...)` and `add_ampl_variable(..., ChargeName, ...)`.
+  {
+    constexpr auto converter_class = Converter::class_name.snake_case();
+    sim.add_ampl_compound(converter_class,
+                          ConverterLP::FlowName,
+                          {
+                              AmplCompoundLeg {
+                                  .coefficient = +1.0,
+                                  .source_attribute = BatteryLP::DischargeName,
+                              },
+                              AmplCompoundLeg {
+                                  .coefficient = -1.0,
+                                  .source_attribute = BatteryLP::ChargeName,
+                              },
+                          });
+  }
+
   // ── options.* scalar allow-list (Phase 1d) ────────────────────────────
   //
   // Explicit allow-list (not full-open): only fields that are intended

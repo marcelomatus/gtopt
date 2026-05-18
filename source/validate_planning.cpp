@@ -712,9 +712,19 @@ struct SeepageEnvelopes
   using std::ranges::max;
   using std::ranges::min;
 
-  auto emins = per_stage_values(res.emin, num_stages, 0.0);
-  auto emaxs = per_stage_values(
-      res.emax, num_stages, std::numeric_limits<Real>::infinity());
+  // Reservoir.emin / emax are per-(stage, block) — reduce each stage's
+  // block vector to the strictest stage-level value: max(emin) (highest
+  // required floor), min(emax) (lowest allowed ceiling).
+  auto emins =
+      per_stage_values_2d(res.emin,
+                          num_stages,
+                          0.0,
+                          [](const std::vector<Real>& v) { return max(v); });
+  auto emaxs =
+      per_stage_values_2d(res.emax,
+                          num_stages,
+                          std::numeric_limits<Real>::infinity(),
+                          [](const std::vector<Real>& v) { return min(v); });
   // Reduce per-stage block vectors to the strictest stage-level
   // value: max(fmin) (highest required floor), min(fmax) (lowest
   // allowed ceiling).
@@ -753,9 +763,21 @@ struct DischargeLimitEnvelopes
 [[nodiscard]] std::optional<DischargeLimitEnvelopes>
 resolve_discharge_limit_envelopes(const Reservoir& res, std::size_t num_stages)
 {
-  auto emins = per_stage_values(res.emin, num_stages, 0.0);
-  auto emaxs = per_stage_values(
-      res.emax, num_stages, std::numeric_limits<Real>::infinity());
+  // Reservoir.emin / emax are per-(stage, block) — reduce each stage's
+  // block vector to the strictest stage-level value: max(emin) (highest
+  // required floor), min(emax) (lowest allowed ceiling).
+  using std::ranges::max;
+  using std::ranges::min;
+  auto emins =
+      per_stage_values_2d(res.emin,
+                          num_stages,
+                          0.0,
+                          [](const std::vector<Real>& v) { return max(v); });
+  auto emaxs =
+      per_stage_values_2d(res.emax,
+                          num_stages,
+                          std::numeric_limits<Real>::infinity(),
+                          [](const std::vector<Real>& v) { return min(v); });
   if (!emins.has_value() || !emaxs.has_value()) {
     return std::nullopt;
   }

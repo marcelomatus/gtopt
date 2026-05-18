@@ -461,9 +461,13 @@ public:
     const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
 
     // Physical bounds — stored directly in SparseCol; flatten() converts
-    // to LP units by dividing by col.scale.
+    // to LP units by dividing by col.scale.  ``emin`` / ``emax`` are
+    // ``OptTBRealSched`` (per-(stage, block)); for the eini / sini
+    // boundary columns (created BEFORE the block loop) we read the
+    // first block's bound, which represents the SoC at the start of
+    // the stage.
     const auto [stage_emax, stage_emin] =
-        sc.stage_maxmin_at(stage, emax, emin, stage_capacity);
+        sc.block_maxmin_at(stage, blocks.front(), emax, emin, stage_capacity);
 
     // PLP-style emin enforcement gate.  When false (default), the per-stage
     // `emin` floor is dropped from the `sini` (cross-phase initial energy)
@@ -627,12 +631,16 @@ public:
       // restored — `efin_block_lowb = stage_emin` — preserving the inter-
       // stage semantics so the next stage's `sini` is also ≥ stage_emin.
       //
-      // Capacity (uppb = stage_emax) is a real physical bound and stays per
-      // block.
+      // Capacity (uppb = block_emax) is a real physical bound and is
+      // read per-block — ``emin`` / ``emax`` are ``OptTBRealSched`` so
+      // per-(stage, block) overrides bind correctly here (UC.jl-style
+      // ``Last period maximum level`` etc.).
+      const auto [block_emax, block_emin] =
+          sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
       const bool emin_block = (buid == blocks.back().uid());
       const auto ec = lp.add_col({
           .lowb = emin_block ? efin_block_lowb : 0.0,
-          .uppb = stage_emax,
+          .uppb = block_emax,
           .cost = stage_ecost,
           .scale = energy_scale,
           .class_name = opts.class_name,
@@ -946,14 +954,25 @@ public:
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
-  [[nodiscard]] auto param_emin(StageUid s) const { return emin.at(s); }
-  [[nodiscard]] auto param_emax(StageUid s) const { return emax.at(s); }
+  [[nodiscard]] auto param_emin(StageUid s, BlockUid b) const
+  {
+    return emin.at(s, b);
+  }
+  [[nodiscard]] auto param_emax(StageUid s, BlockUid b) const
+  {
+    return emax.at(s, b);
+  }
   [[nodiscard]] auto param_ecost(StageUid s) const { return ecost.at(s); }
   /// @}
 
 private:
-  OptTRealSched emin;
-  OptTRealSched emax;
+  OptTBRealSched emin;  ///< Per-(stage, block) min SoC.  Sources from
+                        ///< the Element's ``emin`` field (Battery /
+                        ///< Reservoir / VolumeRight / LngTerminal —
+                        ///< all are ``OptTBRealFieldSched`` since
+                        ///< 2026-05-18).
+  OptTBRealSched emax;  ///< Per-(stage, block) max SoC.  Same source
+                        ///< contract as ``emin``.
   OptTRealSched ecost;
 
   OptTRealSched annual_loss;

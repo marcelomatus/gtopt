@@ -149,3 +149,100 @@ TEST_CASE("schedule test 3")
   REQUIRE(sched.at(make_uid<Scenario>(0), make_uid<Stage>(0)) == 4);
   REQUIRE(sched.at(make_uid<Scenario>(1), make_uid<Stage>(1)) == 4);
 }
+
+// ─── Per-(stage, block) schedule input shape tests ─────────────────────
+//
+// Pins the conversion semantics for ``OptTBRealSched`` introduced when
+// Battery/Reservoir/VolumeRight/LngTerminal upgraded ``emin``/``emax``
+// from per-stage to per-(stage, block) on 2026-05-18.  The wrapper
+// accepts three JSON / C++ shapes (the FieldSched variant alternatives):
+//
+//   1. **Scalar** — broadcasts to every (stage, block).
+//   2. **2-D nested array** ``[[block, …], …]`` — per-(stage, block).
+//   3. **FileSched path** — file-backed schedule (covered by other tests).
+//
+// These tests pin shapes (1) and (2) at the OptSchedule level, using the
+// no-arrow-array ctor that takes a bare FSched (no InputContext needed).
+
+TEST_CASE(
+    "FieldSched2 / OptTBRealSched — scalar broadcast across (stage, block)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // FieldSched2<Real> = variant<Real, vector<vector<Real>>, FileSched>.
+  // Storing a scalar puts the value in the ``Real`` alternative.  The
+  // OptSchedule ``at(stage, block)`` resolver returns the scalar for
+  // every (stage, block) pair — native broadcast (no arrow array
+  // lookup required).
+  FieldSched2<Real> scalar_field = 42.5;
+  OptSchedule<Real, StageUid, BlockUid> sched {scalar_field};
+
+  // Any (stage_uid, block_uid) returns the same scalar.
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
+        == doctest::Approx(42.5));
+  CHECK(sched.at(make_uid<Stage>(5), make_uid<Block>(99)).value_or(-1.0)
+        == doctest::Approx(42.5));
+  CHECK(sched.at(make_uid<Stage>(0), make_uid<Block>(0)).value_or(-1.0)
+        == doctest::Approx(42.5));
+}
+
+TEST_CASE("FieldSched2 / OptTBRealSched — empty optional yields no value")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const OptSchedule<Real, StageUid, BlockUid> sched_empty;
+  CHECK_FALSE(sched_empty.has_value());
+  CHECK_FALSE(
+      sched_empty.at(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
+}
+
+TEST_CASE("FieldSched2 — 2-D ``[[block, …], …]`` shape construction")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // 2 stages × 3 blocks: stage 0 = {10, 20, 30}, stage 1 = {40, 50, 60}.
+  // Constructing the FieldSched2 stores the alternative correctly.
+  FieldSched2<Real> nested_field = std::vector<std::vector<Real>> {
+      {10.0, 20.0, 30.0},
+      {40.0, 50.0, 60.0},
+  };
+
+  REQUIRE(std::holds_alternative<std::vector<std::vector<Real>>>(nested_field));
+  const auto& mat = std::get<std::vector<std::vector<Real>>>(nested_field);
+  REQUIRE(mat.size() == 2);
+  REQUIRE(mat[0].size() == 3);
+  CHECK(mat[0][0] == doctest::Approx(10.0));
+  CHECK(mat[1][2] == doctest::Approx(60.0));
+}
+
+TEST_CASE(
+    "FieldSched2 — per-stage list encoded as Mx1 nested array (PLP shape)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // PLP-style per-stage data: each stage has a single per-stage value.
+  // Encoded as a M×1 nested vector — one stage row, each row has a
+  // 1-block inner vector.  The 2-D variant accepts this shape cleanly.
+  FieldSched2<Real> per_stage_field = std::vector<std::vector<Real>> {
+      {
+          100.0,
+      },
+      {
+          200.0,
+      },
+      {
+          300.0,
+      },
+  };
+
+  REQUIRE(
+      std::holds_alternative<std::vector<std::vector<Real>>>(per_stage_field));
+  const auto& mat = std::get<std::vector<std::vector<Real>>>(per_stage_field);
+  REQUIRE(mat.size() == 3);
+  for (const auto& row : mat) {
+    REQUIRE(row.size() == 1);
+  }
+  CHECK(mat[0][0] == doctest::Approx(100.0));
+  CHECK(mat[1][0] == doctest::Approx(200.0));
+  CHECK(mat[2][0] == doctest::Approx(300.0));
+}

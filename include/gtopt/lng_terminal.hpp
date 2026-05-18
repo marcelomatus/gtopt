@@ -117,8 +117,12 @@ struct LngTerminal
   OptActive active {};  ///< Activation status (default: active)
 
   // ── Storage parameters ─────────────────────────────────────────────────
-  OptTRealFieldSched emin {};  ///< Minimum tank level [m³]
-  OptTRealFieldSched emax {};  ///< Maximum tank level [m³]
+  OptTBRealFieldSched emin {};  ///< Minimum tank level [m³] — per-(stage,
+                                ///< block); accepts a scalar (broadcasts),
+                                ///< a 2-D nested array, or a file-backed
+                                ///< schedule.
+  OptTBRealFieldSched emax {};  ///< Maximum tank level [m³] — same shapes
+                                ///< as ``emin``.
   OptTRealFieldSched ecost {};  ///< Storage holding cost [$/m³]
   OptReal eini {};  ///< Initial tank level [m³]
   OptReal efin {};  ///< End-of-horizon minimum level [m³]

@@ -113,8 +113,12 @@ struct VolumeRight
 
   // ── Storage-like fields (rights accounting) ────────────────────────
 
-  OptTRealFieldSched emin {};  ///< Minimum accumulated right volume [hm³]
-  OptTRealFieldSched emax {};  ///< Maximum accumulated right volume [hm³]
+  OptTBRealFieldSched emin {};  ///< Minimum accumulated right volume [hm³]
+                                ///< — per-(stage, block); accepts a scalar
+                                ///< (broadcasts), a 2-D nested array, or
+                                ///< a file-backed schedule.
+  OptTBRealFieldSched emax {};  ///< Maximum accumulated right volume [hm³]
+                                ///< — same shapes as ``emin``.
   OptTRealFieldSched ecost {};  ///< Shadow cost of accumulated rights [$/hm³]
   OptReal eini {};  ///< Initial accumulated volume at start of horizon [hm³]
   OptReal efin {};  ///< Minimum required accumulated volume at end [hm³]

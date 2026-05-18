@@ -166,9 +166,17 @@ struct Battery
   OptTRealFieldSched
       annual_loss {};  ///< Annual self-discharge rate [p.u./year]
 
-  OptTRealFieldSched emin {};  ///< Minimum state of charge [MWh]
-  OptTRealFieldSched
-      emax {};  ///< Maximum state of charge (usable capacity) [MWh]
+  OptTBRealFieldSched
+      emin {};  ///< Minimum state of charge [MWh] — per-(stage, block).
+                ///< Accepts a scalar (broadcast), a 2-D nested-array
+                ///< ``[[block0, block1, ...], ...]`` indexed by stage and
+                ///< block, or a file-backed schedule.  The 2-D form lets
+                ///< UC.jl-style ``Last period minimum level`` tighten the
+                ///< SoC bound on a single block (typically the last) of a
+                ///< stage without affecting the others.
+  OptTBRealFieldSched emax {};  ///< Maximum state of charge (usable capacity)
+                                ///< [MWh] — per-(stage, block); see ``emin``
+                                ///< for the accepted JSON / C++ shapes.
   OptTRealFieldSched
       ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
   OptReal eini {};  ///< Initial state of charge [MWh].  Sets an equality
@@ -202,6 +210,19 @@ struct Battery
       pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
   OptTRealFieldSched
       gcost {};  ///< Discharge generation cost [$/MWh] (unified definition)
+
+  OptTRealFieldSched charge_cost {};
+  ///< Per-MWh cost paid when charging the battery [$/MWh].  Mirrors
+  ///< UC.jl's ``Charge cost ($/MW)`` and PLEXOS's battery charge cost.
+  ///< Counterpart to ``gcost`` (discharge cost): ``gcost`` prices
+  ///< energy injected into the grid, ``charge_cost`` prices energy
+  ///< absorbed from it.  Wired through ``System::expand_batteries()``
+  ///< onto the synthetic charge-side Demand element by encoding the
+  ///< cost as a negative ``Demand.fcost`` — the demand-LP substitution
+  ///< (``demand_lp.cpp:249``) then stamps the column with the correct
+  ///< positive coefficient (``lcol_cost = -block_ecost``).  When
+  ///< unset (default), charging is free at the LP level (only the
+  ///< discharge cost is paid).
 
   OptTRealFieldSched capacity {};  ///< Installed energy capacity [MWh]
   OptTRealFieldSched expcap {};  ///< Energy capacity per expansion module [MWh]

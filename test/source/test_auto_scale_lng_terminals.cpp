@@ -300,12 +300,25 @@ TEST_CASE("auto_scale_lng_terminals — idempotent on empty re-call")
 
 TEST_CASE("auto_scale_lng_terminals — stage-indexed emax uses max element")
 {
-  // emax as a vector: scale uses max element
+  // emax as a 2-D (per-(stage, block)) schedule: scale uses the max of
+  // ALL block entries across all stages.  Mirrors the per-stage list
+  // form (encoded as Mx1 inner here).
   auto planning = make_lng_planning({
       {
           .uid = Uid {1},
           .name = "lng_vector",
-          .emax = std::vector<Real> {10'000, 50'000, 30'000},
+          .emax =
+              std::vector<std::vector<Real>> {
+                  {
+                      10'000,
+                  },
+                  {
+                      50'000,
+                  },
+                  {
+                      30'000,
+                  },
+              },
       },
   });
 

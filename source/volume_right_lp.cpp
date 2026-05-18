@@ -229,9 +229,14 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // with the previous phase's efin, and backward duals are not
   // propagated through the reset.
   if (is_reset_stage) {
+    // Read the first block's ``emax`` for the reset provisioning: the
+    // reset is a per-stage event, and ``emax`` is now ``OptTBRealSched``
+    // (per-(stage, block)).  Block 0 holds the stage's nominal cap; any
+    // per-block tightening within the stage doesn't apply to the initial
+    // provision.
     const auto provision = opt_rule.has_value()
         ? initial_rule_bound
-        : param_emax(stage.uid()).value_or(0.0);
+        : param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
     auto& eini_col = lp.col_at(eini_col_at(scenario, stage));
     eini_col.lowb = provision;
     eini_col.uppb = provision;

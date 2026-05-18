@@ -1964,8 +1964,16 @@ inline auto make_backtracking_recovery_planning() -> Planning
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
   // Per-stage emin: zero everywhere except phase 7 requiring ≥ 180.
-  std::vector<double> emin_per_stage(num_phases, 0.0);
-  emin_per_stage[phase_seven_stage_idx] = 180.0;
+  // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since 2026-05-18; wrap each per-stage scalar in a 1-block inner
+  // vector so direct C++ assignment still compiles.
+  std::vector<std::vector<double>> emin_per_stage(num_phases,
+                                                  std::vector<double> {
+                                                      0.0,
+                                                  });
+  emin_per_stage[phase_seven_stage_idx] = std::vector<double> {
+      180.0,
+  };
 
   // Per-stage inflow: 10 everywhere except phase 1 which gets a
   // one-shot boost of 80 to give p1 enough slack to satisfy the
@@ -2140,11 +2148,14 @@ inline auto make_backtracking_no_recovery_planning() -> Planning
 
   // Tighten phase 7's `emin` above the reservoir's `emax` so the
   // target is physically unreachable regardless of upstream state.
-  // The `emin` schedule is a plain per-stage vector; index 6 is
-  // phase 7.
+  // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block));
+  // we store one block per stage so phase 7 (index 6) inner[0] is the
+  // value the LP reads.
   auto& emin_var = planning.system.reservoir_array[0].emin.value();
-  auto& emin_vec = std::get<std::vector<double>>(emin_var);
-  emin_vec[6] = 220.0;  // > emax = 200 ⇒ strictly unreachable
+  auto& emin_mat = std::get<std::vector<std::vector<double>>>(emin_var);
+  emin_mat[6] = {
+      220.0,
+  };  // > emax = 200 ⇒ strictly unreachable
 
   planning.system.name = "sddp_backtrack_10phase_infeasible";
   return planning;
@@ -2203,7 +2214,13 @@ inline auto make_backtracking_recovery_two_reservoir_planning(
   // the cut-row /scale_objective bug: a strict terminal volume target
   // that the iter-0 forward pass cannot meet without future-cost
   // cuts steering the trajectory.
-  std::vector<double> emin_per_stage(num_phases, 0.0);
+  // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since 2026-05-18; wrap each per-stage scalar in a 1-block inner
+  // vector so direct C++ assignment still compiles.
+  std::vector<std::vector<double>> emin_per_stage(num_phases,
+                                                  std::vector<double> {
+                                                      0.0,
+                                                  });
 
   // Per-stage inflow schedule (scenario × stage × block): a phase-0
   // boost of 80 hm³ followed by a flat 20 hm³.  Total per reservoir
@@ -2436,7 +2453,13 @@ inline auto make_2scene_10phase_two_reservoir_planning() -> Planning
   auto phase_array =
       make_single_stage_phases(static_cast<std::size_t>(num_phases));
 
-  std::vector<double> emin_per_stage(num_phases, 0.0);
+  // ``Reservoir.emin`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since 2026-05-18; wrap each per-stage scalar in a 1-block inner
+  // vector so direct C++ assignment still compiles.
+  std::vector<std::vector<double>> emin_per_stage(num_phases,
+                                                  std::vector<double> {
+                                                      0.0,
+                                                  });
 
   // Inflow schedule: scenario × stage × block.
   // Both scenarios are identical (phase-0 boost of 80, then 20 hm³ each).
