@@ -202,6 +202,21 @@ struct System
    */
   void expand_reservoir_constraints();
 
+  /**
+   * @brief Fold legacy `generator_profile_array` / `demand_profile_array`
+   *        entries into the unified `capacity_profile_array`.
+   *
+   * Each legacy entry becomes a `CapacityProfile` with the matching
+   * `owner_kind` (Generator / Demand) and `owner = legacy.generator` /
+   * `legacy.demand`.  The legacy arrays are cleared after the move so
+   * the LP layer sees only `capacity_profile_array`, making the
+   * unified path the single source of truth for downstream code.
+   *
+   * Idempotent: calling twice is safe (second call is a no-op on
+   * already-cleared arrays).
+   */
+  void fold_legacy_profiles();
+
   void setup_reference_bus(const class PlanningOptionsLP& options);
 };
 

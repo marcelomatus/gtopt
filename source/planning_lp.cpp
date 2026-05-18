@@ -834,6 +834,7 @@ auto PlanningLP::create_systems(System& system,
 {
   system.expand_batteries();
   system.expand_reservoir_constraints();
+  system.fold_legacy_profiles();
   system.setup_reference_bus(options);
 
   // Enable per-cell AMPL variable registration when user constraints

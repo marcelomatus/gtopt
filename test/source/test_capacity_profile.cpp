@@ -303,3 +303,131 @@ TEST_CASE(
   CHECK(legacy_rows == unified_rows);
   CHECK(legacy_cols == unified_cols);
 }
+
+// ── Commit 2 — legacy → unified folding ──────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "System::fold_legacy_profiles moves both legacy arrays into unified one")
+{
+  System sys;
+  sys.generator_profile_array = {
+      {.uid = Uid {11},
+       .name = "gp_legacy",
+       .generator = Uid {7},
+       .profile = 0.42,
+       .scost = 1.5},
+  };
+  sys.demand_profile_array = {
+      {.uid = Uid {22},
+       .name = "dp_legacy",
+       .demand = Uid {3},
+       .profile = 0.77},
+  };
+
+  sys.fold_legacy_profiles();
+
+  CHECK(sys.generator_profile_array.empty());
+  CHECK(sys.demand_profile_array.empty());
+  REQUIRE(sys.capacity_profile_array.size() == 2);
+
+  const auto find_by_uid = [&](Uid u) -> const CapacityProfile&
+  {
+    auto it = std::ranges::find_if(sys.capacity_profile_array,
+                                   [u](const auto& p) { return p.uid == u; });
+    REQUIRE(it != sys.capacity_profile_array.end());
+    return *it;
+  };
+  const auto& g = find_by_uid(Uid {11});
+  CHECK(g.owner_kind == ProfileOwnerKind::Generator);
+  CHECK(g.name == "gp_legacy");
+  CHECK(std::get<Uid>(g.owner) == Uid {7});
+
+  const auto& d = find_by_uid(Uid {22});
+  CHECK(d.owner_kind == ProfileOwnerKind::Demand);
+  CHECK(d.name == "dp_legacy");
+  CHECK(std::get<Uid>(d.owner) == Uid {3});
+
+  sys.fold_legacy_profiles();  // idempotent
+  CHECK(sys.capacity_profile_array.size() == 2);
+}
+
+TEST_CASE(  // NOLINT
+    "Legacy generator_profile_array folded yields identical LP to direct "
+    "legacy path")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 0.0,
+       .capacity = 200.0},
+      {.uid = Uid {2},
+       .name = "backup",
+       .bus = Uid {1},
+       .gcost = 100.0,
+       .capacity = 200.0},
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+  const Array<GeneratorProfile> gp_array = {
+      {.uid = Uid {1},
+       .name = "gp1",
+       .generator = Uid {1},
+       .profile = 0.5,
+       .scost = 10.0},
+  };
+  const auto sim = make_single_block_sim();
+
+  PlanningOptions opts;
+  opts.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(sim, options);
+
+  double direct_obj {};
+  int direct_rows {};
+  int direct_cols {};
+  {
+    const System sys = {
+        .name = "LegacyDirect",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .generator_profile_array = gp_array,
+    };
+    SystemLP system_lp(sys, sim_lp);
+    auto&& lp = system_lp.linear_interface();
+    REQUIRE(lp.resolve().has_value());
+    direct_obj = lp.get_obj_value();
+    direct_rows = lp.get_numrows();
+    direct_cols = lp.get_numcols();
+  }
+
+  double folded_obj {};
+  int folded_rows {};
+  int folded_cols {};
+  {
+    System sys = {
+        .name = "FoldedViaUnified",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .generator_profile_array = gp_array,
+    };
+    sys.fold_legacy_profiles();
+    CHECK(sys.generator_profile_array.empty());
+    REQUIRE(sys.capacity_profile_array.size() == 1);
+
+    SystemLP system_lp(sys, sim_lp);
+    auto&& lp = system_lp.linear_interface();
+    REQUIRE(lp.resolve().has_value());
+    folded_obj = lp.get_obj_value();
+    folded_rows = lp.get_numrows();
+    folded_cols = lp.get_numcols();
+  }
+
+  CHECK(direct_obj == doctest::Approx(folded_obj).epsilon(1e-9));
+  CHECK(direct_rows == folded_rows);
+  CHECK(direct_cols == folded_cols);
+}
