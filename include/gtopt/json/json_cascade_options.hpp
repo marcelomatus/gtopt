@@ -86,7 +86,9 @@ struct json_data_contract<CascadeLevel>
                        json_class_null<"model_options", ModelOptions>,
                        json_string_null<"system_file", OptName>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
-                       json_class_null<"transition", CascadeTransition>>;
+                       json_class_null<"transition", CascadeTransition>,
+                       json_string_null<"output_subdir", OptName>,
+                       json_string_null<"write_out", OptName>>;
 
   constexpr static auto to_json_data(CascadeLevel const& opt)
   {
@@ -96,7 +98,9 @@ struct json_data_contract<CascadeLevel>
                                  opt.model_options,
                                  opt.system_file,
                                  opt.sddp_options,
-                                 opt.transition);
+                                 opt.transition,
+                                 opt.output_subdir,
+                                 opt.write_out);
   }
 };
 
