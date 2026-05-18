@@ -492,6 +492,25 @@ bool HighsSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
+int HighsSolverBackend::relax_all_integers()
+{
+  // HiGHS exposes a true single-call relaxation: `clearIntegrality()`
+  // empties the LP's `integrality_` vector, which marks every column
+  // as continuous in HiGHS's view (any column not covered by the
+  // integrality vector is treated as kContinuous).  Count the
+  // currently-integer columns first so we can return a meaningful
+  // result without re-scanning afterward.
+  const auto& lp = m_highs_->getLp();
+  int relaxed = 0;
+  for (const auto t : lp.integrality_) {
+    if (t != HighsVarType::kContinuous) {
+      ++relaxed;
+    }
+  }
+  m_highs_->clearIntegrality();
+  return relaxed;
+}
+
 // Problem-data and solution accessors all delegate directly to HiGHS
 // internal storage — no plugin-level buffer is needed.  HiGHS's
 // `getLp()` and `getSolution()` return `const HighsLp&` /

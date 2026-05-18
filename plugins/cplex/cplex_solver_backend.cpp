@@ -920,6 +920,31 @@ bool CplexSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
+int CplexSolverBackend::relax_all_integers()
+{
+  // Single-call bulk relaxation: switch the problem type from
+  // MILP/MIQP to LP/QP — CPLEX internally flips every integer
+  // column to continuous as part of `CPXchgprobtype`, far cheaper
+  // than per-column `CPXchgctype` round-trips.  Already-LP
+  // problems are a no-op.
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
+  if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
+    return 0;  // pure LP / QP — nothing to relax
+  }
+
+  // Count integer columns BEFORE the flip — `CPXgetnumint` is O(1)
+  // (CPLEX maintains the count internally).  After
+  // `CPXchgprobtype(... CPXPROB_LP)` every column is continuous.
+  const int int_count = CPXgetnumint(m_env_lp_.env(), m_env_lp_.lp());
+  const int bin_count = CPXgetnumbin(m_env_lp_.env(), m_env_lp_.lp());
+  const int relaxed = int_count + bin_count;
+
+  const int target_type =
+      (cplex_type == CPXPROB_MIQP) ? CPXPROB_QP : CPXPROB_LP;
+  CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), target_type);
+  return relaxed;
+}
+
 void CplexSolverBackend::invalidate_problem_data() const noexcept
 {
   m_collb_cached_ = false;

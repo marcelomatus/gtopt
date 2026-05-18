@@ -169,6 +169,136 @@ TEST_CASE("LinearInterface - Variable types and bounds")
   REQUIRE(col_upp[continuous_var] == doctest::Approx(8.0));
 }
 
+TEST_CASE("LinearInterface - relax_integers flips MIP columns to continuous")
+{
+  using namespace gtopt;
+
+  LinearInterface interface;
+
+  // Build a tiny mixed problem: one continuous, one integer, one binary.
+  const auto cont_var = interface.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+  const auto int_var = interface.add_col(SparseCol {
+      .uppb = 10.0,
+      .cost = 1.0,
+  });
+  const auto bin_var = interface.add_col(SparseCol {
+      .uppb = 1.0,
+      .cost = 1.0,
+  });
+
+  interface.set_continuous(cont_var);
+  interface.set_integer(int_var);
+  interface.set_binary(bin_var);
+
+  REQUIRE(interface.is_continuous(cont_var));
+  REQUIRE(interface.is_integer(int_var));
+  REQUIRE(interface.is_integer(bin_var));
+
+  SUBCASE("relaxes every integer column in a single pass")
+  {
+    const auto relaxed = interface.relax_integers();
+    CHECK(relaxed == 2);
+
+    // All columns are now continuous; previously-continuous column
+    // is left untouched.
+    CHECK(interface.is_continuous(cont_var));
+    CHECK(interface.is_continuous(int_var));
+    CHECK(interface.is_continuous(bin_var));
+
+    CHECK(!interface.is_integer(int_var));
+    CHECK(!interface.is_integer(bin_var));
+  }
+
+  SUBCASE("idempotent — second call is a no-op")
+  {
+    const auto first = interface.relax_integers();
+    CHECK(first == 2);
+
+    const auto second = interface.relax_integers();
+    CHECK(second == 0);
+
+    CHECK(interface.is_continuous(int_var));
+    CHECK(interface.is_continuous(bin_var));
+  }
+}
+
+TEST_CASE("LinearInterface - relax_integers on a pure LP is a no-op")
+{
+  using namespace gtopt;
+
+  LinearInterface interface;
+
+  (void)interface.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 1.0,
+  });
+  (void)interface.add_col(SparseCol {
+      .uppb = 5.0,
+      .cost = 1.0,
+  });
+
+  // Neither column has been flagged as integer — relaxation finds
+  // nothing to do and returns 0 without touching the backend's
+  // column-type state.
+  const auto relaxed = interface.relax_integers();
+  CHECK(relaxed == 0);
+}
+
+TEST_CASE(
+    "LinearInterface - relax_integers uses backend bulk API on every solver")
+{
+  // End-to-end check that the active backend's `relax_all_integers()`
+  // override (or the default fallback) correctly clears integrality
+  // on every column.  This exercises whichever backend the build is
+  // linking — the ctest matrix already runs the test binary once per
+  // solver plugin via the test_solver_* / test_mip_solvers pattern,
+  // so each invocation lands on a different backend and this doctest
+  // covers the active one.  We deliberately do NOT iterate solver
+  // backends here.
+  using namespace gtopt;
+
+  LinearInterface interface;
+
+  const auto a = interface.add_col(SparseCol {
+      .uppb = 7.0,
+      .cost = 1.0,
+  });
+  const auto b = interface.add_col(SparseCol {
+      .uppb = 4.0,
+      .cost = 1.0,
+  });
+  const auto c = interface.add_col(SparseCol {
+      .uppb = 1.0,
+      .cost = 1.0,
+  });
+
+  // Flag every column as integer/binary so the bulk relaxation path
+  // has work to do on whichever backend is linked.
+  interface.set_integer(a);
+  interface.set_integer(b);
+  interface.set_binary(c);
+
+  REQUIRE(interface.is_integer(a));
+  REQUIRE(interface.is_integer(b));
+  REQUIRE(interface.is_integer(c));
+
+  // One call into the bulk virtual.  Default fallback or native
+  // single-call API — both must end in a fully-continuous LP.
+  const auto relaxed = interface.relax_integers();
+  CHECK(relaxed == 3);
+
+  CHECK(interface.is_continuous(a));
+  CHECK(interface.is_continuous(b));
+  CHECK(interface.is_continuous(c));
+
+  CHECK(!interface.is_integer(a));
+  CHECK(!interface.is_integer(b));
+  CHECK(!interface.is_integer(c));
+}
+
 TEST_CASE("LinearInterface - LP file output")
 {
   using namespace gtopt;

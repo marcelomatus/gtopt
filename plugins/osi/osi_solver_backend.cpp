@@ -531,6 +531,28 @@ bool OsiSolverBackend::is_integer(int index) const
   return m_solver_->isInteger(index);
 }
 
+int OsiSolverBackend::relax_all_integers()
+{
+  // OsiSolverInterface exposes a bulk overload
+  // `setContinuous(const int* indices, int len)` that issues a
+  // single backend write for the whole array.  We still need to
+  // scan column types to build the index list, but the actual
+  // backend mutation is one call instead of N.
+  const int ncols = m_solver_->getNumCols();
+  std::vector<int> int_cols;
+  int_cols.reserve(static_cast<size_t>(ncols));
+  for (int i = 0; i < ncols; ++i) {
+    if (m_solver_->isInteger(i)) {
+      int_cols.push_back(i);
+    }
+  }
+  if (int_cols.empty()) {
+    return 0;
+  }
+  m_solver_->setContinuous(int_cols.data(), static_cast<int>(int_cols.size()));
+  return static_cast<int>(int_cols.size());
+}
+
 const double* OsiSolverBackend::col_lower() const
 {
   return m_solver_->getColLower();

@@ -475,6 +475,12 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // The guard re-compresses on scope exit (level 2 only).
   const DecompressionGuard dcomp_guard(target_sys.linear_interface());
 
+  // NOTE: integer relaxation for Benders / SDDP subproblem validity is
+  // performed PER aperture clone in `source/sddp_aperture.cpp` (one line
+  // above `clone.resolve(aperture_opts)`).  Relaxing the target LP here
+  // would also flip the master's commitment columns to continuous and
+  // break the forward-pass MIP solve — see commit log.
+
   // Resolve the α column for the source phase once; it is passed into
   // aperture cut building and reused below for any fallback.
   const auto* src_alpha_svar = find_alpha_state_var(

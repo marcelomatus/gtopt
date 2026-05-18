@@ -255,6 +255,35 @@ public:
   [[nodiscard]] virtual bool is_continuous(int index) const = 0;
   [[nodiscard]] virtual bool is_integer(int index) const = 0;
 
+  /// Relax every integer column to continuous in a single backend call.
+  /// Hot path: invoked once per aperture clone in
+  /// `LinearInterface::relax_integers()`, called immediately before the
+  /// per-clone backward-pass resolve in
+  /// `source/sddp_aperture.cpp` (above `clone.resolve(aperture_opts)`).
+  ///
+  /// Default fallback enumerates `get_numcols()` and calls
+  /// `set_continuous(i)` only on columns where `is_integer(i)` is true,
+  /// returning the number of columns flipped.  Plugins SHOULD override
+  /// when the native API offers a real one-call path — those overrides
+  /// drop both per-call dispatch overhead and any internal per-element
+  /// MIP→LP bookkeeping the solver may do.
+  ///
+  /// @return Number of columns flipped to continuous, or -1 if the
+  ///         backend cannot determine the count cheaply (caller logs
+  ///         informationally; correctness does not depend on the value).
+  virtual int relax_all_integers()
+  {
+    const int n = get_num_cols();
+    int relaxed = 0;
+    for (int i = 0; i < n; ++i) {
+      if (is_integer(i)) {
+        set_continuous(i);
+        ++relaxed;
+      }
+    }
+    return relaxed;
+  }
+
   // ---- solution access (raw pointers, caller wraps in std::span) ----
 
   [[nodiscard]] virtual const double* col_lower() const = 0;

@@ -122,6 +122,7 @@ public:
   void set_integer(int index) override;
   [[nodiscard]] bool is_continuous(int index) const override;
   [[nodiscard]] bool is_integer(int index) const override;
+  int relax_all_integers() override;
 
   // ---- solution access ----
   [[nodiscard]] const double* col_lower() const override;

@@ -706,6 +706,38 @@ bool GurobiSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
+int GurobiSolverBackend::relax_all_integers()
+{
+  // Single bulk attribute-array call: flip every column's VType to
+  // GRB_CONTINUOUS at once.  We still need to scan the current VType
+  // vector to count how many columns were integer so the caller has
+  // an accurate relaxation count; the bulk write itself is one call.
+  ensure_updated_();
+  const int ncols = get_num_cols();
+  if (ncols == 0) {
+    return 0;
+  }
+
+  // Read current VType to count integer columns (informational
+  // only — bulk write is unconditional).
+  std::vector<char> vtypes(static_cast<size_t>(ncols), GRB_CONTINUOUS);
+  GRBgetcharattrarray(m_model_, GRB_CHAR_ATTR_VTYPE, 0, ncols, vtypes.data());
+  int relaxed = 0;
+  for (const auto c : vtypes) {
+    if (c != GRB_CONTINUOUS) {
+      ++relaxed;
+    }
+  }
+  if (relaxed == 0) {
+    return 0;
+  }
+
+  std::vector<char> all_cont(static_cast<size_t>(ncols), GRB_CONTINUOUS);
+  GRBsetcharattrarray(m_model_, GRB_CHAR_ATTR_VTYPE, 0, ncols, all_cont.data());
+  m_dirty_ = true;
+  return relaxed;
+}
+
 // ── cache helpers ────────────────────────────────────────────────────────
 
 void GurobiSolverBackend::invalidate_problem_data() const noexcept

@@ -3028,6 +3028,24 @@ bool LinearInterface::is_integer(const ColIndex index) const
   return m_backend_->is_integer(index);
 }
 
+Index LinearInterface::relax_integers()
+{
+  // Ensure a live backend before querying / mutating column types.
+  // Under compress / rebuild this rehydrates the snapshot so that the
+  // post-snapshot integer flags installed by `load_flat` (see
+  // `for (auto i : flat_lp.colint)` above) are visible to the
+  // backend's `relax_all_integers` override.
+  //
+  // Routes through the backend's bulk relaxation virtual: each plugin
+  // implements `relax_all_integers()` with its native single-call API
+  // (CPLEX `CPXchgprobtype`, HiGHS `clearIntegrality`, Gurobi
+  // `GRBsetcharattrarray`, OSI `setContinuous(const int*, int)`,
+  // MindOpt default loop), so this is one backend call instead of
+  // a per-column dispatch loop on the hot SDDP aperture path.
+  ensure_backend();
+  return Index {m_backend_->relax_all_integers()};
+}
+
 // ── Names & LP file output ─ moved to linear_interface_labels.cpp
 // ── Solve ─ moved to linear_interface_solve.cpp
 //

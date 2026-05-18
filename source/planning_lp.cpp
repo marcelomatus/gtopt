@@ -273,7 +273,19 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // Cumulative `Σ_l (tmax_l · x_τ_l)` — used as the topology-aware
   // upper bound on `|θ_a − θ_b|` along any path.  See the `theta_max`
   // assignment below for the rationale.
+  //
+  // Per-line contribution `tmax_l · x_τ_l` is clamped at
+  // ``kPerLineThetaContrib`` so a single "no hard cap" sentinel
+  // (``tmax_ab >= 1e5`` emitted by converters when a line has no
+  // explicit transmission limit) cannot inflate the global
+  // ``theta_max`` into the 10^5+ range and destabilise the LP's
+  // angle-column bounds (CPLEX/IPM numerics degrade once
+  // ``|θ| ≫ 10^3``).  The clamp is generous (`1e3` rad ≈ 160 full
+  // rotations) so real fixtures, where per-line contributions are
+  // O(10-100) rad, are unaffected.
+  constexpr double kPerLineThetaContrib = 1e3;
   double theta_max_accum = 0.0;
+  std::size_t clamped_lines = 0;
   for (const auto& line : planning.system.line_array) {
     if (!line.reactance.has_value()) {
       continue;
@@ -302,8 +314,21 @@ void PlanningLP::auto_scale_theta(Planning& planning)
       if (line.tmax_ba.has_value()) {
         tmax = std::max(tmax, tb_sched_to_max(*line.tmax_ba));
       }
-      theta_max_accum += tmax * x_tau;
+      const double contrib = tmax * x_tau;
+      if (contrib > kPerLineThetaContrib) {
+        ++clamped_lines;
+      }
+      theta_max_accum += std::min(contrib, kPerLineThetaContrib);
     }
+  }
+  if (clamped_lines > 0) {
+    spdlog::info(
+        "  Clamped {} line(s) at theta-contrib ceiling {:.1f} rad — "
+        "their tmax_ab/ba likely encodes a 'no hard cap' sentinel "
+        "(e.g. converter default for missing Emergency flow limit). "
+        "Soft-cap-with-penalty rows still constrain the actual flow.",
+        clamped_lines,
+        kPerLineThetaContrib);
   }
 
   if (x_taus.empty()) {
@@ -340,13 +365,30 @@ void PlanningLP::auto_scale_theta(Planning& planning)
   // explicit user override.
   if (!opts.model_options.theta_max.has_value()) {
     // Floor at default (`2π`) so very small networks don't end up
-    // with theta_max ≪ 1 and lose simplex / IPM headroom.
-    const double theta_max =
-        std::max(theta_max_accum, PlanningOptionsLP::default_theta_max);
+    // with theta_max ≪ 1 and lose simplex / IPM headroom.  Ceiling
+    // at ``kThetaMaxCeiling`` (1e5 rad) keeps the angle column bound
+    // numerically tractable even if many lines hit the per-line
+    // contribution ceiling — CPLEX/HiGHS lose precision once
+    // ``|θ| ≫ 1e5`` and the IPM normal-equation system becomes
+    // ill-conditioned.  Real fixtures fall comfortably inside the
+    // band (case14_base auto theta_max ≈ 2007 rad).
+    constexpr double kThetaMaxCeiling = 1e5;
+    const double theta_max = std::clamp(theta_max_accum,
+                                        PlanningOptionsLP::default_theta_max,
+                                        kThetaMaxCeiling);
     opts.model_options.theta_max = theta_max;
-    spdlog::info("  Auto theta_max = {:.6g}  (Σ_l tmax_l · x_τ_l = {:.6g})",
-                 theta_max,
-                 theta_max_accum);
+    if (theta_max_accum > kThetaMaxCeiling) {
+      spdlog::info(
+          "  Auto theta_max = {:.6g} (capped at {:.0g} — raw "
+          "Σ_l tmax_l · x_τ_l = {:.6g} exceeded sanity ceiling)",
+          theta_max,
+          kThetaMaxCeiling,
+          theta_max_accum);
+    } else {
+      spdlog::info("  Auto theta_max = {:.6g}  (Σ_l tmax_l · x_τ_l = {:.6g})",
+                   theta_max,
+                   theta_max_accum);
+    }
   }
 
   // P0-3 — unit-consistency validation.
@@ -624,7 +666,11 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
   };
 
   // Helper: extract a representative scalar from a FieldSched optional.
-  auto scalar_of = [](const OptTRealFieldSched& fs) -> std::optional<double>
+  // Handles per-stage 1-D (``OptTRealFieldSched``) and per-(stage, block)
+  // 2-D (``OptTBRealFieldSched``) shapes uniformly.  The 2-D shape
+  // collapses to the maximum across all (stage, block) cells, mirroring
+  // the per-stage helper that takes ``max`` across the per-stage vector.
+  auto scalar_of = []<typename OptFS>(const OptFS& fs) -> std::optional<double>
   {
     if (!fs.has_value()) {
       return std::nullopt;
@@ -632,10 +678,24 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
     if (std::holds_alternative<double>(*fs)) {
       return std::get<double>(*fs);
     }
-    if (std::holds_alternative<std::vector<Real>>(*fs)) {
-      const auto& vec = std::get<std::vector<Real>>(*fs);
-      if (!vec.empty()) {
-        return *std::ranges::max_element(vec);
+    if constexpr (std::is_same_v<OptFS, OptTRealFieldSched>) {
+      if (std::holds_alternative<std::vector<Real>>(*fs)) {
+        const auto& vec = std::get<std::vector<Real>>(*fs);
+        if (!vec.empty()) {
+          return *std::ranges::max_element(vec);
+        }
+      }
+    } else if constexpr (std::is_same_v<OptFS, OptTBRealFieldSched>) {
+      using Mat = std::vector<std::vector<Real>>;
+      if (std::holds_alternative<Mat>(*fs)) {
+        const auto& mat = std::get<Mat>(*fs);
+        std::optional<double> mx;
+        for (const auto& row : mat) {
+          for (const auto v : row) {
+            mx = mx ? std::max(*mx, v) : v;
+          }
+        }
+        return mx;
       }
     }
     return std::nullopt;  // FileSched — can't resolve statically
@@ -727,7 +787,11 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning,
                                });
   };
 
-  auto scalar_of = [](const OptTRealFieldSched& fs) -> std::optional<double>
+  // ``LngTerminal.emax`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since the 2026-05-18 storage-bound widening.  Extract a representative
+  // maximum across all alternatives so the auto-scaling threshold check
+  // (``emax > 1000``, ``emax < solver_infinity`` sentinel) keeps working.
+  auto scalar_of = [](const OptTBRealFieldSched& fs) -> std::optional<double>
   {
     if (!fs.has_value()) {
       return std::nullopt;
@@ -735,11 +799,15 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning,
     if (std::holds_alternative<double>(*fs)) {
       return std::get<double>(*fs);
     }
-    if (std::holds_alternative<std::vector<Real>>(*fs)) {
-      const auto& vec = std::get<std::vector<Real>>(*fs);
-      if (!vec.empty()) {
-        return *std::ranges::max_element(vec);
+    if (std::holds_alternative<std::vector<std::vector<Real>>>(*fs)) {
+      const auto& mat = std::get<std::vector<std::vector<Real>>>(*fs);
+      std::optional<double> best;
+      for (const auto& row : mat) {
+        for (const auto v : row) {
+          best = best.has_value() ? std::max(*best, v) : v;
+        }
       }
+      return best;
     }
     return std::nullopt;
   };

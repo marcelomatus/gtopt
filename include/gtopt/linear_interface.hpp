@@ -1953,6 +1953,25 @@ public:
   [[nodiscard]] bool is_integer(ColIndex index) const;
 
   /**
+   * @brief Relaxes every integer column to continuous (LP relaxation).
+   *
+   * Iterates all columns and, for each currently flagged as integer,
+   * calls `set_continuous(col)`.  Used by the SDDP/Benders aperture
+   * path: the "master" LP may carry binary commitment variables
+   * (e.g. UC.jl-converted MIP), but the per-aperture subproblem clones
+   * must be LP — Benders cuts are only valid for convex subproblems.
+   *
+   * Cheap: a single linear sweep with one solver call per integer
+   * column.  No LP rebuild is needed.  Idempotent: a second call is a
+   * no-op (no columns are flagged as integer after the first call).
+   * Returns the number of columns flipped to continuous; 0 when the
+   * problem was already a pure LP.
+   *
+   * @return Number of columns relaxed from integer to continuous.
+   */
+  Index relax_integers();
+
+  /**
    * @brief Sets a time limit for the solver
    * @param time_limit Maximum solve time in seconds
    */

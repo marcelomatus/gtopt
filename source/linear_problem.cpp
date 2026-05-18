@@ -347,9 +347,17 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   }
   const size_t ncols = get_numcols();
   const size_t nrows = get_numrows();
-  if (ncols == 0 || nrows == 0) [[unlikely]] {
+  if (ncols == 0) [[unlikely]] {
     return {};
   }
+  // ``nrows == 0`` with ``ncols > 0`` is rare in production (every
+  // gtopt build adds bus_balance rows), but unit tests exercise it
+  // directly by calling ``add_col`` without rows.  Fall through so
+  // colub / collb / col_scales / colint get populated and the test
+  // can verify the per-column post-flatten state.  The CSC matrix
+  // passes below are no-ops when ``nrows == 0`` (the row-iteration
+  // loops simply skip), and ``apply_equilibration`` short-circuits
+  // when there are no rows to scale.
 
   using fp_index_t = FlatLinearProblem::index_t;
   std::vector<fp_index_t> matbeg(ncols + 1, 0);

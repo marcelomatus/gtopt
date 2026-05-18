@@ -545,6 +545,19 @@ auto solve_apertures_for_phase(
             // basis on the shared clone — bound-only deltas keep
             // the dual basis valid → typically converges in a
             // fraction of a cold barrier.
+            //
+            // Relax every integer column on the clone to continuous
+            // before solving.  Benders / SDDP subproblem clones must
+            // be convex LPs: cuts built from a MIP's dual / reduced
+            // costs are not valid value-function supports for the
+            // master.  Routed through the backend's bulk
+            // `relax_all_integers()` (CPLEX `CPXchgprobtype`, HiGHS
+            // `clearIntegrality`, Gurobi/OSI/MindOpt bulk attr setters)
+            // so this is a single native call per clone, not a
+            // per-column loop.  Idempotent on pure-LP problems and on
+            // chunk-shared clones (cheap noop after the first
+            // aperture).
+            clone.relax_integers();
             [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
             const bool feasible = clone.is_optimal();
             if (!feasible) {
