@@ -24,6 +24,7 @@
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
+#include <gtopt/emission_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
@@ -96,6 +97,7 @@ static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
 static_assert(AddToLP<FuelLP>);
+static_assert(AddToLP<EmissionLP>);
 static_assert(AddToLP<CommitmentLP>);
 static_assert(AddToLP<SimpleCommitmentLP>);
 static_assert(AddToLP<InertiaZoneLP>);
@@ -242,6 +244,7 @@ public:
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,
+                                   Collection<EmissionLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
                                    Collection<InertiaZoneLP>,

@@ -19,6 +19,7 @@
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
+#include <gtopt/json/json_emission.hpp>
 #include <gtopt/json/json_flow.hpp>
 #include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_fuel.hpp>
@@ -76,6 +77,7 @@ struct json_data_contract<System>
                       Array<ReserveProvision>,
                       ReserveProvision>,
       json_array_null<"fuel_array", Array<Fuel>, Fuel>,
+      json_array_null<"emission_array", Array<Emission>, Emission>,
       json_array_null<"commitment_array", Array<Commitment>, Commitment>,
       json_array_null<"simple_commitment_array",
                       Array<SimpleCommitment>,
@@ -125,6 +127,7 @@ struct json_data_contract<System>
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
                                  system.fuel_array,
+                                 system.emission_array,
                                  system.commitment_array,
                                  system.simple_commitment_array,
                                  system.inertia_zone_array,
