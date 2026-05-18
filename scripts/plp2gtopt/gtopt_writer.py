@@ -678,18 +678,15 @@ class GTOptWriter(
             "min_iterations": 2,
             "stationary_window": 3,
             "convergence_tol": convergence_tol,
-            # Set to 0.1 % on 2026-05-15.  L2 adds the multi-bus
-            # network model on top of an 8-aperture Monte-Carlo
-            # sample.  The aperture sample-size doubling (4→8)
-            # narrows the noise floor by ~√2 vs L1, but the
-            # multi-bus model contributes modelling-driven noise
-            # that more than offsets that gain — pushing the floor
-            # to ~0.1 % on juan/IPLP.  Earlier knob attempts at
-            # 1 %, 0.5 %, then 0.25 % all converged L2 with real
-            # Δgap still ≥ 0.7 %, leaving room for further policy
-            # sharpening.  At 0.1 %, L2 must demonstrate genuine
+            # Tightened from 0.1 % to 0.05 % on 2026-05-18.  L2 adds
+            # the multi-bus network model on top of an 8-aperture
+            # Monte-Carlo sample.  The aperture sample-size doubling
+            # (4→8) narrows the noise floor by ~√2 vs L1, and pairing
+            # 0.05 % on L2 with 0.1 % on L3 keeps a clean 2× ratio
+            # between the last two levels (matching the ratio used
+            # between L0 and L1).  L2 must demonstrate genuine
             # stationarity before handing off the cuts to L3.
-            "stationary_tol": 0.001,
+            "stationary_tol": 0.0005,
             "stationary_gap_ceiling": 0.5,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
@@ -709,17 +706,16 @@ class GTOptWriter(
             # multi-bus + Kirchhoff model.
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # Tightened from 1.0 % to 0.5 % on 2026-05-15.  L3 runs
+            # Tightened from 0.5 % to 0.1 % on 2026-05-18.  L3 runs
             # with the FULL per-phase aperture list (every scenario),
             # so its sample-size-induced noise floor is the widest
-            # of any cascade level — tightening below 0.5 % risks
-            # the policy never qualifying within the iteration
-            # budget once the aperture-sampling noise dominates the
-            # genuine policy improvement.  0.5 % is loose enough to
-            # accept the full-aperture noise floor while still
-            # sharper than the previous 1 % knob, which was reached
-            # at iter 28 (gtopt-real Δgap = 0.94 %).
-            "stationary_tol": 0.005,
+            # of any cascade level, but coupling it with L2's 0.05 %
+            # tightening keeps the last two levels at a clean 2×
+            # ratio (0.05 % → 0.1 %) and demands the full-fidelity
+            # multi-bus + Kirchhoff model converge to within 0.1 %
+            # Δgap before exit, matching what production users
+            # consume as the "final" answer.
+            "stationary_tol": 0.001,
             "stationary_gap_ceiling": 0.5,
         }
 

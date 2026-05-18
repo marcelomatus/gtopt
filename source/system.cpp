@@ -373,6 +373,8 @@ void System::merge(System&& sys)
 
   gtopt::merge(reserve_zone_array, std::move(sys.reserve_zone_array));
   gtopt::merge(reserve_provision_array, std::move(sys.reserve_provision_array));
+  gtopt::merge(fuel_array, std::move(sys.fuel_array));
+  gtopt::merge(emission_array, std::move(sys.emission_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
   gtopt::merge(simple_commitment_array, std::move(sys.simple_commitment_array));
 

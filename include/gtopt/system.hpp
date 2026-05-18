@@ -30,6 +30,7 @@
 #include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
+#include <gtopt/emission.hpp>
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/fuel.hpp>
@@ -104,6 +105,15 @@ struct System
   /// Time-schedulable fuel price + combustion / upstream emission
   /// factors referenced by `Generator.fuel`.  See `fuel.hpp`.
   Array<Fuel> fuel_array {};
+
+  // ── Emissions (pollutants) ─────────────────────────────────────────────
+  /// First-class pollutant entities (e.g. `co2`, `so2`, `nox`).  Carry
+  /// optional per-stage `price` (tax / permit cost in $/ton) and `cap`
+  /// (tons / stage, soft constraint with `cap_cost` slack).  Passive in
+  /// Commit 1 — wiring of cap row and price coefficient lands in
+  /// Commit 4 alongside the per-fuel `emission_factors[]` table on
+  /// `Fuel`.  See `emission.hpp`.
+  Array<Emission> emission_array {};
 
   // ── Unit commitment ────────────────────────────────────────────────────
   Array<Commitment>
