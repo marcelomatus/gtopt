@@ -922,20 +922,20 @@ def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
     reason=f"vendored UC.jl fixture missing: {_VENDORED_CASE14_FLEX}",
 )
 def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
-    """UC.jl ``case14/flex.json``: flexiramp reserves dropped, distinct optimum.
+    """UC.jl ``case14/flex.json``: flexiramp (bidirectional) reserves.
 
     The fixture's two ``Reserves`` zones are both ``Type = flexiramp``,
-    which the converter intentionally drops (gtopt's ``ReserveZone``
-    models spinning reserves only).  The result is a substantially
-    different commit pattern from ``case14/base`` — g3 stays off, g1
-    is committed every hour, and the MIP optimum lands at a small
-    positive obj.
+    which the converter maps to **bidirectional** ReserveZone +
+    ReserveProvision (urreq = drreq = Amount, urcost = drcost =
+    penalty; providers get both ur_provision_factor and
+    dr_provision_factor).  The LP then earns the symmetric reserve
+    credit on both directions, pushing the obj strongly negative.
 
     Pins:
 
       * Solver status 0.
       * Every ``status_sol`` is clean 0/1.
-      * gtopt MIP obj = ``+36 459.08``.
+      * gtopt MIP obj ≈ ``-1 061 114.62``.
       * g1 status = ``[1, 1, 1, 1]`` (consistent across base / flex —
         g1 is always the cheapest base-load commit on this topology).
 
@@ -955,7 +955,7 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(44_684.27, rel=1e-5)
+    assert obj == pytest.approx(-1_061_114.62, rel=1e-5)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(

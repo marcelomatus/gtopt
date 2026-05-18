@@ -12,8 +12,19 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
   shutdown_ramp, initial_status / initial_hours, piecewise heat rates
   (pmax_segments + heat_rate_segments).
 * **ReserveZone** + **ReserveProvision** mirror UC.jl's ``Reserves``
-  block and per-generator ``Reserve eligibility``: spinning-reserve
-  ``Amount (MW)`` → ``urreq``, ``Shortfall penalty ($/MW)`` → ``urcost``.
+  block and per-generator ``Reserve eligibility``.  Reserve types are
+  classified into two directions:
+
+    - **Up-only** (``spinning``, ``non-spinning``, ``replacement``,
+      ``regulation-up``): emits ``urreq`` / ``urcost`` only;
+      providers get ``ur_provision_factor = 1``.
+    - **Bidirectional** (``flexiramp``, ``regulation``): emits both
+      ``urreq`` / ``urcost`` AND ``drreq`` / ``drcost`` (symmetric,
+      same Amount + penalty); providers also get
+      ``dr_provision_factor = 1``.
+
+  Unknown types are skipped with a warning so the user can extend
+  the type set explicitly.
 * **GeneratorProfile** — UC.jl v0.3 ships time-varying renewable
   availability as a list-of-lists inside ``Production cost curve
   (MW)`` (outer length 1 = single capacity segment, inner is the
@@ -65,7 +76,6 @@ UC.jl problems map onto gtopt's native unit-commitment formulation:
 
 Not yet mapped (scoped out, will silently no-op when present):
 
-* Non-spinning reserves (UC.jl ``Type != "Spinning"``).
 * Contingencies (N-1 outage constraints, would need pre-computed
   LODFs + one UserConstraint per (monitored line × outage)).
 * AC-specific fields: ``Emergency flow limit`` per line is not mapped
@@ -443,17 +453,61 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
 
     # --- Reserve zones -------------------------------------------------------
     # UC.jl: ``Reserves = {r1: {Type, Amount (MW), Shortfall penalty ($/MW)}}``.
-    # We map only ``Type == "Spinning"`` zones onto ReserveZone.urreq /
-    # ReserveZone.urcost.  Other types (Non-spinning, Flexiramp, ...) are
-    # silently dropped — extending the mapping is a follow-up scope.
+    # gtopt's ``ReserveZone`` distinguishes up-reserve (``urreq`` /
+    # ``urcost``) from down-reserve (``drreq`` / ``drcost``) but is
+    # agnostic to UC.jl's spinning / non-spinning distinction (which
+    # is about WHICH gens can provide, not about WHAT direction the
+    # reserve is in).  Map by UC.jl reserve type:
+    #
+    #   * spinning, non-spinning, regulation-up, replacement →
+    #     up-reserve only (urreq, urcost).
+    #   * flexiramp, regulation → bidirectional, treat as symmetric
+    #     (urreq = drreq = Amount, urcost = drcost = penalty).
+    #     Tracking the type per zone lets the provision loop below
+    #     decide whether to emit a ``dr_provision_factor`` alongside
+    #     the ``ur_provision_factor``.
+    #
+    # Per-zone metadata is stored alongside the name → uid map so the
+    # provision loop can look up the direction without re-reading the
+    # source ``Type``.
+    _UP_RESERVE_TYPES = {
+        "spinning",
+        "non-spinning",
+        "non_spinning",
+        "nonspinning",
+        "replacement",
+        "regulation-up",
+        "regulation_up",
+    }
+    _BIDIRECTIONAL_RESERVE_TYPES = {
+        "flexiramp",
+        "flexi-ramp",
+        "regulation",
+        "regulation-down",
+        "regulation_down",
+    }
     uc_reserves = data.get("Reserves", {}) or {}
     reserve_zone_array = []
     reserve_zone_name_to_uid: dict[str, int] = {}
+    # Per-zone direction tag: "up" (urreq only) or "bidirectional" (urreq + drreq).
+    reserve_zone_direction: dict[str, str] = {}
     for zname, zdata in uc_reserves.items():
-        if str(zdata.get("Type", "Spinning")).lower() != "spinning":
+        rtype = str(zdata.get("Type", "Spinning")).strip().lower()
+        if rtype in _UP_RESERVE_TYPES:
+            direction = "up"
+        elif rtype in _BIDIRECTIONAL_RESERVE_TYPES:
+            direction = "bidirectional"
+        else:
+            # Unknown reserve type — skip silently for now; emit a print
+            # so the user knows the converter saw something it doesn't
+            # model.
+            print(
+                f"  warning: skipping reserve zone {zname!r} with unmapped Type={rtype!r}"
+            )
             continue
         zuid = len(reserve_zone_array) + 1
         reserve_zone_name_to_uid[zname] = zuid
+        reserve_zone_direction[zname] = direction
         # ``Amount (MW)`` may be a scalar OR a per-hour list (UC.jl v0.3
         # case118-initcond ships a length-T time series).  Always emit
         # the 2-D ``[stage][block]`` shape that ``OptTBRealFieldSched``
@@ -461,15 +515,18 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         # at source/reserve_zone_lp.cpp:40 would otherwise skip blocks
         # with no explicit value).
         amount = zdata.get("Amount (MW)", 0.0)
-        urreq_ts = _time_series(amount, T)
-        reserve_zone_array.append(
-            {
-                "uid": zuid,
-                "name": zname,
-                "urreq": [urreq_ts],
-                "urcost": float(zdata.get("Shortfall penalty ($/MW)", 1000.0)),
-            }
-        )
+        req_ts = _time_series(amount, T)
+        penalty = float(zdata.get("Shortfall penalty ($/MW)", 1000.0))
+        zone_entry: dict = {
+            "uid": zuid,
+            "name": zname,
+            "urreq": [req_ts],
+            "urcost": penalty,
+        }
+        if direction == "bidirectional":
+            zone_entry["drreq"] = [req_ts]
+            zone_entry["drcost"] = penalty
+        reserve_zone_array.append(zone_entry)
 
     # --- Generators + Commitments + ReserveProvisions ------------------------
     uc_gens = data.get("Generators", {})
@@ -659,12 +716,19 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
 
         # ReserveProvision: one entry per generator listing the zones it
         # is eligible to serve.  UC.jl's ``Reserve eligibility`` is a list
-        # of zone names; we resolve them against the spinning-zone map
-        # built above and silently drop unknown / non-spinning zones.
+        # of zone names; resolve against the map built above and silently
+        # drop unknown zones.  When ANY of the eligible zones is
+        # bidirectional (flexiramp / regulation), the provision needs
+        # both up- and down-reserve fields — gtopt's
+        # ``ReserveProvisionLP`` skips a direction silently when its
+        # ``*_provision_factor`` is unset.
         eligible = gdata.get("Reserve eligibility") or []
         zones = [z for z in eligible if z in reserve_zone_name_to_uid]
         if zones:
             provision_uid += 1
+            needs_dr = any(
+                reserve_zone_direction.get(z) == "bidirectional" for z in zones
+            )
             # ``urmax`` + ``ur_provision_factor`` must both be set or the
             # provision is silently skipped: ``ur_provision_factor``
             # gates the whole add_to_lp branch
@@ -676,20 +740,19 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             # ``urmax = pmax`` matches UC.jl's implicit cap of "all
             # capacity is reservable" without needing a ``Reserve max``
             # field that UC.jl's schema doesn't carry.
-            reserve_provision_array.append(
-                {
-                    "uid": provision_uid,
-                    "name": f"{gname}_rp",
-                    "generator": gname,
-                    "reserve_zones": zones,
-                    # ``urmax`` is ``OptTBRealFieldSched`` (2-D [stage][block]).
-                    # Match the explicit shape used for ``urreq`` and
-                    # ``Demand.lmax`` to avoid silent scalar-broadcast
-                    # variance across FieldSched call sites.
-                    "urmax": [[float(pmax)] * T],
-                    "ur_provision_factor": 1.0,
-                }
-            )
+            pmax_box = [[float(pmax)] * T]
+            provision_entry: dict = {
+                "uid": provision_uid,
+                "name": f"{gname}_rp",
+                "generator": gname,
+                "reserve_zones": zones,
+                "urmax": pmax_box,
+                "ur_provision_factor": 1.0,
+            }
+            if needs_dr:
+                provision_entry["drmax"] = pmax_box
+                provision_entry["dr_provision_factor"] = 1.0
+            reserve_provision_array.append(provision_entry)
 
     # --- Storage units (BESS) ------------------------------------------------
     # UC.jl ``Storage units`` map onto gtopt's unified ``Battery`` element:
