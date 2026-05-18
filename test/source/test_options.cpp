@@ -272,7 +272,7 @@ TEST_CASE("PlanningOptionsLP - Default construction")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -308,7 +308,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 2")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -343,7 +343,7 @@ TEST_CASE("PlanningOptionsLP - Default construction 3")
   CHECK(options_lp.input_format_enum()
         == PlanningOptionsLP::default_input_format);
   CHECK_FALSE(options_lp.demand_fail_cost().has_value());
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_kirchhoff() == PlanningOptionsLP::default_use_kirchhoff);
@@ -395,7 +395,7 @@ TEST_CASE("PlanningOptionsLP - Construction with Options")
   CHECK(options_lp.output_directory() == "custom_output");
 
   // Check defaults for unset values
-  CHECK_FALSE(options_lp.reserve_fail_cost().has_value());
+  CHECK_FALSE(options_lp.reserve_shortage_cost().has_value());
   CHECK(options_lp.use_line_losses()
         == PlanningOptionsLP::default_use_line_losses);
   CHECK(options_lp.use_single_bus()
@@ -450,10 +450,10 @@ TEST_CASE("PlanningOptionsLP - Test all accessor methods")
   if (options_lp.demand_fail_cost()) {
     CHECK(*options_lp.demand_fail_cost() == doctest::Approx(1500.0));
   }
-  REQUIRE(options_lp.reserve_fail_cost().has_value());
+  REQUIRE(options_lp.reserve_shortage_cost().has_value());
 
-  if (options_lp.reserve_fail_cost()) {
-    CHECK(*options_lp.reserve_fail_cost() == doctest::Approx(750.0));
+  if (options_lp.reserve_shortage_cost()) {
+    CHECK(*options_lp.reserve_shortage_cost() == doctest::Approx(750.0));
   }
 
   CHECK(options_lp.use_line_losses() == false);

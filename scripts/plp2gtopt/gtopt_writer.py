@@ -1204,8 +1204,13 @@ class GTOptWriter(
         # computes the optimal value from median line reactance).
         if "scale_theta" in src_model:
             model_opts["scale_theta"] = src_model["scale_theta"]
-        if "reserve_fail_cost" in src_model:
-            model_opts["reserve_fail_cost"] = src_model["reserve_fail_cost"]
+        # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
+        # accept either spelling from `src_model` for back-compat,
+        # emit the new canonical.
+        if "reserve_shortage_cost" in src_model:
+            model_opts["reserve_shortage_cost"] = src_model["reserve_shortage_cost"]
+        elif "reserve_fail_cost" in src_model:
+            model_opts["reserve_shortage_cost"] = src_model["reserve_fail_cost"]
         if "use_line_losses" in src_model:
             model_opts["use_line_losses"] = src_model["use_line_losses"]
         if "line_losses_mode" in src_model:

@@ -208,8 +208,9 @@ TEST_CASE(
   {
     CHECK(r.canonical_for("value_of_lost_load").value_or("")
           == "demand_fail_cost");
-    CHECK(r.canonical_for("reserve_shortage_cost").value_or("")
-          == "reserve_fail_cost");
+    // §11.10 rename: reserve_fail_cost → reserve_shortage_cost.
+    CHECK(r.canonical_for("reserve_fail_cost").value_or("")
+          == "reserve_shortage_cost");
     // §11.10 rename: hydro_fail_cost → hydro_spill_cost.
     CHECK(r.canonical_for("hydro_fail_cost").value_or("")
           == "hydro_spill_cost");

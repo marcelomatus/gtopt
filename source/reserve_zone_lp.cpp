@@ -28,7 +28,7 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     return {};
   }
 
-  const auto stage_rcost = sc.reserve_fail_cost(stage, rr.cost);
+  const auto stage_rcost = sc.reserve_shortage_cost(stage, rr.cost);
 
   BIndexHolder<ColIndex> rr_cols;
   BIndexHolder<RowIndex> rr_rows;

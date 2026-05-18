@@ -109,7 +109,9 @@ struct PlanningOptionsConstructor
     migrate(model_options.scale_theta, scale_theta, "scale_theta");
     migrate(
         model_options.demand_fail_cost, demand_fail_cost, "demand_fail_cost");
-    migrate(model_options.reserve_fail_cost,
+    // Top-level legacy `reserve_fail_cost` → ModelOptions canonical
+    // `reserve_shortage_cost` (§11.10 rename).
+    migrate(model_options.reserve_shortage_cost,
             reserve_fail_cost,
             "reserve_fail_cost");
     // Top-level legacy `hydro_fail_cost` → ModelOptions canonical

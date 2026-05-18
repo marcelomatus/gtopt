@@ -235,10 +235,12 @@ public:
     return m_options_.model_options.hydro_use_value;
   }
 
-  /// @brief Gets the reserve failure cost from model_options.
-  [[nodiscard]] constexpr auto reserve_fail_cost() const
+  /// @brief Gets the reserve shortage cost from model_options.
+  /// Renamed from `reserve_fail_cost` per §11.10; legacy spelling
+  /// still accepted as a JSON alias via the naming-dialects registry.
+  [[nodiscard]] constexpr auto reserve_shortage_cost() const
   {
-    return m_options_.model_options.reserve_fail_cost;
+    return m_options_.model_options.reserve_shortage_cost;
   }
 
   /// @brief Gets the state failure cost from model_options [$/MWh].
@@ -658,11 +660,21 @@ public:
   }
 
   /// Which output fields `OutputContext` should emit.  Default is
-  /// `OutputFlags::all` — every field (solution, dual, reduced_cost).
+  /// `solution | dual` — primal solutions plus row duals.  Reduced
+  /// costs (`col_cost`) are NOT emitted by default: of the 18 element
+  /// types that wire them, only `Generator/generation_cost`,
+  /// `Demand/fail_cost`, `Line/flowp_cost`, and `Line/flown_cost` have
+  /// any downstream consumer (the `gtopt_check_output` cost breakdown
+  /// plus `gtopt_marginal_units` congestion-rent proxy).  Users who
+  /// want those still get them via `--write-out sol,dual,reduced_cost`
+  /// or `--write-out all`.  Matches the default-output posture of
+  /// PSR SDDP / SDDP.jl / PyPSA / GenX / PLEXOS.
+  ///
   /// Bound to CLI `--write-out` and JSON `write_out`.
   [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
   {
-    return m_options_.write_out.value_or(OutputFlags::all);
+    return m_options_.write_out.value_or(OutputFlags::solution
+                                         | OutputFlags::dual);
   }
 
   /**

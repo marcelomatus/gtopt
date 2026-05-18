@@ -358,10 +358,12 @@ static constexpr std::string_view uc_reserve_json = R"json({
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "reserve_fail_cost": 10000,
-    "scale_objective": 1000
+    "model_options": {
+      "use_single_bus": true,
+      "demand_fail_cost": 1000,
+      "reserve_shortage_cost": 10000,
+      "scale_objective": 1000
+    }
   },
   "simulation": {
     "block_array": [{"uid": 1, "duration": 1}],

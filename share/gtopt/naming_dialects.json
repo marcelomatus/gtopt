@@ -63,9 +63,9 @@
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "CustoDeficitGlobal", "dialect": "sddp"},
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "load_shedding",      "dialect": "pypsa"},
 
-    {"class": "model_options", "canonical": "reserve_fail_cost", "alt": "reserve_shortage_cost", "dialect": "gtopt"},
-    {"class": "model_options", "canonical": "reserve_fail_cost", "alt": "VoRS",                  "dialect": "plexos"},
-    {"class": "model_options", "canonical": "reserve_fail_cost", "alt": "CustoFaltaReserva",     "dialect": "sddp"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "reserve_fail_cost",  "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "VoRS",                "dialect": "plexos"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
     {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "Hydro Spill Penalty",  "dialect": "plexos"},

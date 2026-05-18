@@ -97,7 +97,11 @@ TEST_CASE("PlanningOptionsLP defaults — empty PlanningOptions")  // NOLINT
   CHECK(lp.lp_only() == false);
   CHECK(lp.lp_fingerprint() == false);
   CHECK(lp.constraint_mode() == ConstraintMode::strict);
-  CHECK(lp.write_out() == OutputFlags::all);
+  // Default `solution | dual` — reduced costs are opt-in via
+  // `--write-out sol,dual,reduced_cost` or `all` (see audit in
+  // commit history for the rationale).
+  CHECK(lp.write_out() == (OutputFlags::solution | OutputFlags::dual));
+  CHECK_FALSE(has_flag(lp.write_out(), OutputFlags::reduced_cost));
 }
 
 // ─── Flat field → migrate_flat_to_model_options ─────────────────────────────

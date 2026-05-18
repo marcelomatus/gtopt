@@ -428,7 +428,10 @@ def build_options(args: argparse.Namespace) -> dict:
     if args.scale_theta is not None:
         model_opts["scale_theta"] = args.scale_theta
     if args.reserve_fail_cost is not None:
-        model_opts["reserve_fail_cost"] = args.reserve_fail_cost
+        # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
+        # legacy `reserve_fail_cost` JSON key still accepted via the
+        # naming-dialects registry.  CLI arg keeps the legacy spelling.
+        model_opts["reserve_shortage_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         model_opts["use_line_losses"] = args.use_line_losses
     if args.line_losses_mode is not None:
