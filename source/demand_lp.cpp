@@ -177,7 +177,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
                                        // = block_lmax so user constraints
                                        // resolve `demand.load` -> col + lmax
   const bool is_forced = demand().forced.value_or(false);
-  // Option C (experimental, opt-in via `model_options.demand_option_c`).
+  // Option C (experimental, opt-in via
+  // `model_options.demand_fail_rhs_shift`; legacy
+  // `demand_option_c` accepted as alias via naming-dialects).
   // When false (default): Option A — col represents `load`, cost
   // `−fail_cost × ecost`, and the `+fail_cost × ecost × lmax`
   // baseline rides on `lp.add_obj_constant(...)`.
@@ -194,7 +196,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   // carries `load`, not `neg_fail`.  Enabling Option C with a
   // converter-tied demand produces a mathematically wrong row.
   // Audit before enabling on a model with Converter elements.
-  const bool option_c = sc.options().demand_option_c();
+  const bool option_c = sc.options().demand_fail_rhs_shift();
   const bool fail_substituted = (stage_fcost.has_value() && !is_forced);
   const bool use_option_c = fail_substituted && option_c;
 
@@ -246,7 +248,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     //   * `lp.add_obj_constant(+fail_cost × ecost × lmax)`,
     //   * bus_brow / capacity row RHS = 0 (default).
     //
-    // Option C (`model_options.demand_option_c = true`): substitute
+    // Option C (`model_options.demand_fail_rhs_shift = true`): substitute
     // `neg_fail = load − lmax`:
     //   * `lcol.cost = −fail_cost × ecost` (same),
     //   * `lcol.bounds = [-lmax, 0]`,

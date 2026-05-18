@@ -344,12 +344,14 @@ public:
         default_strict_storage_emin);
   }
 
-  /// Experimental Option C demand-fail substitution flag.
-  /// Default false (Option A: obj_constant baseline).  See
-  /// `ModelOptions::demand_option_c` for the full rationale.
-  [[nodiscard]] constexpr bool demand_option_c() const
+  /// Demand-failure substitution with RHS shift (Option C — renamed
+  /// from `demand_option_c` per §11.10 of
+  /// `docs/analysis/naming-conventions.md`).  Default false
+  /// (Option A: obj_constant baseline).  See
+  /// `ModelOptions::demand_fail_rhs_shift` for the full rationale.
+  [[nodiscard]] constexpr bool demand_fail_rhs_shift() const
   {
-    return m_options_.model_options.demand_option_c.value_or(false);
+    return m_options_.model_options.demand_fail_rhs_shift.value_or(false);
   }
 
   /// @brief Gets the objective function scaling factor.

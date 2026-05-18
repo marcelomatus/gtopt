@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Tests for `model_options.demand_option_c` — the experimental
+// Tests for `model_options.demand_fail_rhs_shift` (renamed from
+// the legacy `demand_option_c` per §11.10) — the experimental
 // demand-fail substitution that encodes the LP column as
 // `neg_fail = load − lmax` instead of `load`.  See
 // `source/demand_lp.cpp` and the matching commit message for the
@@ -47,7 +48,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   popts.model_options.demand_fail_cost = 1000.0;
   popts.model_options.scale_objective = 1.0;
   if (option_c) {
-    popts.model_options.demand_option_c = true;
+    popts.model_options.demand_fail_rhs_shift = true;
   }
   return popts;
 }

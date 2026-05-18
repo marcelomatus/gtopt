@@ -214,8 +214,10 @@ TEST_CASE(
           == "hydro_fail_cost");
     CHECK(r.canonical_for("state_violation_cost").value_or("")
           == "state_fail_cost");
-    CHECK(r.canonical_for("demand_fail_rhs_shift").value_or("")
-          == "demand_option_c");
+    // §11.10 rename: demand_option_c → demand_fail_rhs_shift.
+    // The legacy name is now the alias; the descriptive name is canonical.
+    CHECK(r.canonical_for("demand_option_c").value_or("")
+          == "demand_fail_rhs_shift");
     CHECK(r.canonical_for("copper_plate").value_or("") == "use_single_bus");
   }
 }

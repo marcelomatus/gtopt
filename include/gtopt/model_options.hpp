@@ -107,7 +107,15 @@ struct ModelOptions
   /// the element's `mean_production_factor`.
   OptReal state_fail_cost {};
 
-  /// Experimental Option C demand-fail substitution.
+  /// Demand-failure substitution with RHS shift (renamed from the
+  /// legacy `demand_option_c` per §11.10 of
+  /// `docs/analysis/naming-conventions.md`; both Options A and C
+  /// substitute `fail = lmax − load`, but Option C *additionally*
+  /// shifts the `+fail_cost·ecost·lmax` baseline off `obj_constant`
+  /// onto the bus-balance and capacity rows — the new name
+  /// describes that distinguishing behaviour rather than referencing
+  /// an internal code label).  The legacy `demand_option_c` JSON
+  /// key is accepted as an alias via the naming-dialects registry.
   ///
   /// When false (default): demand_lp emits the column as
   /// `load ∈ [0, lmax]` with cost = `−fail_cost × ecost` and folds
@@ -131,7 +139,7 @@ struct ModelOptions
   /// `neg_fail`, so enabling this with a converter-tied demand
   /// produces a mathematically wrong row.  See
   /// `source/demand_lp.cpp` and the related deferred-follow-up note.
-  OptBool demand_option_c {};
+  OptBool demand_fail_rhs_shift {};
 
   /// System-wide CO2 emission cost [$/tCO2].
   /// When set, generators with a non-zero `emission_factor` incur an
@@ -191,7 +199,7 @@ struct ModelOptions
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(state_fail_cost, opts.state_fail_cost);
-    merge_opt(demand_option_c, opts.demand_option_c);
+    merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
@@ -209,7 +217,7 @@ struct ModelOptions
         || scale_loss_link.has_value() || theta_max.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || demand_option_c.has_value()
+        || state_fail_cost.has_value() || demand_fail_rhs_shift.has_value()
         || emission_cost.has_value() || emission_cap.has_value()
         || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
@@ -239,7 +247,7 @@ struct ModelOptions
         && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
         && covers_opt(state_fail_cost, other.state_fail_cost)
-        && covers_opt(demand_option_c, other.demand_option_c)
+        && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)
         && covers_opt(continuous_phases, other.continuous_phases)

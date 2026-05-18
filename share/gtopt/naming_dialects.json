@@ -72,7 +72,7 @@
     {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "CustoVertimento",      "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "state_fail_cost",   "alt": "state_violation_cost", "dialect": "gtopt"},
-    {"class": "model_options", "canonical": "demand_option_c",   "alt": "demand_fail_rhs_shift","dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},
 
     {"class": "model_options", "canonical": "use_single_bus",    "alt": "copper_plate",   "dialect": "gtopt"},
     {"class": "model_options", "canonical": "use_single_bus",    "alt": "Copper Plate",   "dialect": "plexos"},
