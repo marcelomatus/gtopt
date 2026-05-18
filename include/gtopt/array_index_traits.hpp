@@ -107,7 +107,7 @@ struct ArrayIndexBase
                  as_string(array_key));
 
     // Cache miss - need to load table and create index
-    auto [table, index_idx] = [&]()
+    auto [table, index_idx, present_mask] = [&]()
     {
       const auto table_key = table_map_key {cname, fname};
 
@@ -117,7 +117,7 @@ struct ArrayIndexBase
 
       // Load table and create index if not found
       auto table = read_arrow_table(system_context, cname, fname);
-      auto index = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
+      auto [index, mask] = UidToArrowIdx<Uid...>::make_arrow_uids_idx(table);
 
       SPDLOG_DEBUG("get_arrow_index: read table '{}' for key '{} {}'",
                    fname,
@@ -131,7 +131,8 @@ struct ArrayIndexBase
         throw std::runtime_error(msg);
       }
 
-      auto [res, ok] = table_map.emplace(table_key, std::pair {table, index});
+      auto [res, ok] =
+          table_map.emplace(table_key, std::tuple {table, index, mask});
       if (!ok) [[unlikely]] {
         const auto msg = std::format(
             "Can't insert non-unique table key '{}' '{}'", cname, fname);
@@ -198,7 +199,8 @@ struct ArrayIndexBase
     }
 
     // Cache the array
-    auto [res, ok] = array_map.emplace(array_key, std::pair {array, index_idx});
+    auto [res, ok] = array_map.emplace(
+        array_key, std::tuple {array, index_idx, present_mask});
     if (!ok) [[unlikely]] {
       const auto msg = std::format(
           "Can't insert non-unique arrow key '{} {} {}'", cname, fname, uid);

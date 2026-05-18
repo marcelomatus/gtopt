@@ -346,8 +346,9 @@ TEST_CASE("Parquet read int16 columns as int32")
 
     // Use make_uid_column which should handle int16 -> int32 conversion
     using TestTraits = UidToArrowIdx<ScenarioUid, StageUid, BlockUid>;
-    auto result = TestTraits::make_arrow_uids_idx(table);
+    auto [result, mask] = TestTraits::make_arrow_uids_idx(table);
     REQUIRE(result != nullptr);
+    CHECK(mask == 7U);
     CHECK(result->size() == 4);
 
     // Verify the index was built correctly from int16 data

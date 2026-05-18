@@ -10,7 +10,9 @@
 
 #pragma once
 
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include <gtopt/field_sched.hpp>
 #include <gtopt/overload.hpp>  // Add Overload include
@@ -28,6 +30,30 @@ namespace gtopt
 
 struct InputTraits : UidTraits
 {
+  /// Project a UID tuple onto the dimensions present in @p mask.  Slots
+  /// whose corresponding bit is zero are replaced by a default-constructed
+  /// UID — this is the same sentinel that the loader stored in the row
+  /// index when the column was absent, so the projected key always finds
+  /// the row that the file intends to broadcast.
+  template<typename Tuple, std::size_t... I>
+  [[nodiscard]] static constexpr auto project_key_impl(
+      const Tuple& key,
+      PresentMask mask,
+      std::index_sequence<I...> /*seq*/) noexcept -> Tuple
+  {
+    return Tuple {(((mask >> I) & 1U) ? std::get<I>(key)
+                                      : std::tuple_element_t<I, Tuple> {})...};
+  }
+
+  template<typename Tuple>
+  [[nodiscard]] static constexpr auto project_key(const Tuple& key,
+                                                  PresentMask mask) noexcept
+      -> Tuple
+  {
+    return project_key_impl(
+        key, mask, std::make_index_sequence<std::tuple_size_v<Tuple>> {});
+  }
+
   template<typename Type,
            typename RType = Type,
            typename FSched,
@@ -57,11 +83,14 @@ struct InputTraits : UidTraits
         [&]([[maybe_unused]] const file_sched& arr_idx) -> RType
         {
           using a_uid_idx_type = arrow_array_uid_idx_t<Uid...>;
-          const auto& [array, a_uid_idx] = std::get<a_uid_idx_type>(uid_idx);
+          const auto& [array, a_uid_idx, present_mask] =
+              std::get<a_uid_idx_type>(uid_idx);
           if (!array || !a_uid_idx) {
             SPDLOG_ERROR("access_sched: invalid arrow array or index");
             throw std::runtime_error("Invalid arrow array or index");
           }
+          const auto raw_key = std::make_tuple(uid...);
+          const auto lookup_key = project_key(raw_key, present_mask);
 
           const auto chunk = array->chunk(0);
           if (!chunk) {
@@ -95,7 +124,7 @@ struct InputTraits : UidTraits
             }
 
             return RType {
-                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+                access_oper(array_value, a_uid_idx, lookup_key),
             };
           } else if constexpr (std::is_floating_point_v<Type>
                                && sizeof(Type) >= sizeof(double))
@@ -119,7 +148,7 @@ struct InputTraits : UidTraits
             }
 
             return RType {
-                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+                access_oper(array_value, a_uid_idx, lookup_key),
             };
           } else {
             if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
@@ -137,7 +166,7 @@ struct InputTraits : UidTraits
                 std::static_pointer_cast<array_value_type>(chunk);
 
             return RType {
-                access_oper(array_value, a_uid_idx, std::make_tuple(uid...)),
+                access_oper(array_value, a_uid_idx, lookup_key),
             };
           }
         },

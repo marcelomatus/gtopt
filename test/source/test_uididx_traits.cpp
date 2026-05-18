@@ -384,8 +384,9 @@ TEST_SUITE("make_uid_column with int16/int8 columns")
     auto schema = arrow::schema({arrow::field("stage", arrow::int16())});
     auto table = arrow::Table::Make(schema, {stage_array});
 
-    auto result = TestTraits::make_arrow_uids_idx(table);
+    auto [result, mask] = TestTraits::make_arrow_uids_idx(table);
     REQUIRE(result != nullptr);
+    CHECK(mask == 1U);
     CHECK(result->size() == 3);
     CHECK(result->at({make_uid<Stage>(1)}) == 0);
     CHECK(result->at({make_uid<Stage>(2)}) == 1);
@@ -404,8 +405,9 @@ TEST_SUITE("make_uid_column with int16/int8 columns")
     auto schema = arrow::schema({arrow::field("stage", arrow::int64())});
     auto table = arrow::Table::Make(schema, {stage_array});
 
-    auto result = TestTraits::make_arrow_uids_idx(table);
+    auto [result, mask] = TestTraits::make_arrow_uids_idx(table);
     REQUIRE(result != nullptr);
+    CHECK(mask == 1U);
     CHECK(result->size() == 3);
     CHECK(result->at({make_uid<Stage>(10)}) == 0);
     CHECK(result->at({make_uid<Stage>(20)}) == 1);
@@ -604,8 +606,10 @@ TEST_SUITE("UidToArrowIdx multi-chunk and duplicate-UID handling")
     REQUIRE(stage_chunks->num_chunks() == 2);
     REQUIRE(block_chunks->num_chunks() == 2);
 
-    auto result = TestTraits::make_arrow_uids_idx(table);
+    auto [result, mask] = TestTraits::make_arrow_uids_idx(table);
     REQUIRE(result != nullptr);
+    // Both `stage` and `block` columns are present → mask = 0b11.
+    CHECK(mask == 3U);
     CHECK(result->size() == 5);
     // Every (Stage, Block) tuple from the contiguous logical sequence
     // must be present at the correct row index — and there must be

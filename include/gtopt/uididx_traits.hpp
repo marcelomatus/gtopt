@@ -12,9 +12,11 @@
 
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <stdexcept>
 #include <tuple>
+#include <utility>
 
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
@@ -31,6 +33,26 @@
 
 namespace gtopt
 {
+
+/// Bitmask describing which UID dimensions are present in an input table.
+/// Bit `i` corresponds to the `i`-th UID in the parameter pack.  When the
+/// bit is 0, the underlying column was absent from the table and the
+/// loader has built / will look up the index with a default-constructed
+/// UID in that slot — i.e. the value is **broadcast** across that
+/// dimension.
+using ArrowPresentMask = std::uint32_t;
+
+/// Check whether @p table has a column named @p name.  Returns false on a
+/// null table.
+[[nodiscard]] inline auto table_has_column(const ArrowTable& table,
+                                           std::string_view name) noexcept
+    -> bool
+{
+  if (!table) {
+    return false;
+  }
+  return table->GetColumnByName(std::string {name}) != nullptr;
+}
 struct UidColumn
 {
   [[nodiscard]]
@@ -149,31 +171,74 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
+  /// Build the (scenario, stage, block) → row-index map, broadcasting over
+  /// any of the three UID axes whose column is absent from @p table.  Bit
+  /// `i` of the returned mask is set when the i-th column (scenario / stage
+  /// / block) was found on disk.  Absent dimensions are stored with a
+  /// default-constructed UID in the key, which is the same sentinel the
+  /// runtime lookup substitutes for broadcast slots.
   static auto make_arrow_uids_idx(const ArrowTable& table)
+      -> std::pair<std::shared_ptr<uid_arrow_idx_map_t>, ArrowPresentMask>
   {
-    const auto scenarios = make_uid_column(table, Scenario::class_name);
-    if (!scenarios) {
-      SPDLOG_ERROR("Failed to get scenarios column {}", scenarios.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    constexpr ArrowPresentMask kScenarioBit = 1U << 0U;
+    constexpr ArrowPresentMask kStageBit = 1U << 1U;
+    constexpr ArrowPresentMask kBlockBit = 1U << 2U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> scenarios_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> blocks_arr;
+
+    if (table_has_column(table, Scenario::class_name)) {
+      auto col = make_uid_column(table, Scenario::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get scenarios column {}", col.error());
+        return {nullptr, 0};
+      }
+      scenarios_arr = *col;
+      mask |= kScenarioBit;
     }
-    const auto stages = make_uid_column(table, Stage::class_name);
-    if (!stages) {
-      SPDLOG_ERROR("Failed to get stages column {}", stages.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get stages column {}", col.error());
+        return {nullptr, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
     }
-    const auto blocks = make_uid_column(table, Block::class_name);
-    if (!blocks) {
-      SPDLOG_ERROR("Failed to get blocks column {}", blocks.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    if (table_has_column(table, Block::class_name)) {
+      auto col = make_uid_column(table, Block::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get blocks column {}", col.error());
+        return {nullptr, 0};
+      }
+      blocks_arr = *col;
+      mask |= kBlockBit;
+    }
+
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR(
+          "Table has none of the expected UID columns "
+          "(scenario, stage, block) — cannot build a (Scenario, Stage, "
+          "Block) row index");
+      return {nullptr, 0};
     }
 
     uid_arrow_idx_map_t uid_idx;
     map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      const auto key = key_type {make_uid<Scenario>((*scenarios)->Value(i)),
-                                 make_uid<Stage>((*stages)->Value(i)),
-                                 make_uid<Block>((*blocks)->Value(i))};
+      const auto sid = (mask & kScenarioBit)
+          ? make_uid<Scenario>(scenarios_arr->Value(i))
+          : ScenarioUid {};
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto bid = (mask & kBlockBit)
+          ? make_uid<Block>(blocks_arr->Value(i))
+          : BlockUid {};
+      const auto key = key_type {sid, tid, bid};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
         SPDLOG_ERROR(
@@ -191,7 +256,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
       }
     }
 
-    return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
+    return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
 };
 
@@ -200,25 +265,59 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
+  /// Build the (stage, block) → row-index map.  When the table only has
+  /// a `stage` column (no `block`), the loader broadcasts the per-stage
+  /// value across every block by emitting keys of the form
+  /// `(stage_uid, BlockUid{})`.  The runtime lookup zeroes the block slot
+  /// for the same broadcast effect.  Bit 0 = stage column present,
+  /// bit 1 = block column present.
   static auto make_arrow_uids_idx(const ArrowTable& table)
+      -> std::pair<std::shared_ptr<uid_arrow_idx_map_t>, ArrowPresentMask>
   {
-    const auto stages = make_uid_column(table, Stage::class_name);
-    if (!stages) {
-      SPDLOG_ERROR("Failed to get stages column: {}", stages.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    constexpr ArrowPresentMask kStageBit = 1U << 0U;
+    constexpr ArrowPresentMask kBlockBit = 1U << 1U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> blocks_arr;
+
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get stages column: {}", col.error());
+        return {nullptr, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
     }
-    const auto blocks = make_uid_column(table, Block::class_name);
-    if (!blocks) {
-      SPDLOG_ERROR("Failed to get blocks column {}", blocks.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    if (table_has_column(table, Block::class_name)) {
+      auto col = make_uid_column(table, Block::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get blocks column {}", col.error());
+        return {nullptr, 0};
+      }
+      blocks_arr = *col;
+      mask |= kBlockBit;
+    }
+
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR(
+          "Table has neither `stage` nor `block` columns — cannot build "
+          "a (Stage, Block) row index");
+      return {nullptr, 0};
     }
 
     uid_arrow_idx_map_t uid_idx;
     map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      const auto key = key_type {make_uid<Stage>((*stages)->Value(i)),
-                                 make_uid<Block>((*blocks)->Value(i))};
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto bid = (mask & kBlockBit)
+          ? make_uid<Block>(blocks_arr->Value(i))
+          : BlockUid {};
+      const auto key = key_type {tid, bid};
       SPDLOG_DEBUG("uididx Processing key: {} and {}", as_string(key), i);
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
@@ -245,7 +344,7 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
       }
     }
 
-    return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
+    return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
 };
 
@@ -255,25 +354,57 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
+  /// Build the (scenario, stage) → row-index map.  When either of the two
+  /// UID columns is missing the corresponding axis is broadcast (stored
+  /// with a default-constructed UID).  Bit 0 = scenario column present,
+  /// bit 1 = stage column present.
   static auto make_arrow_uids_idx(const ArrowTable& table)
+      -> std::pair<std::shared_ptr<uid_arrow_idx_map_t>, ArrowPresentMask>
   {
-    const auto scenarios = make_uid_column(table, Scenario::class_name);
-    if (!scenarios) {
-      SPDLOG_ERROR("Failed to get scenarios column {}", scenarios.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    constexpr ArrowPresentMask kScenarioBit = 1U << 0U;
+    constexpr ArrowPresentMask kStageBit = 1U << 1U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> scenarios_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+
+    if (table_has_column(table, Scenario::class_name)) {
+      auto col = make_uid_column(table, Scenario::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get scenarios column {}", col.error());
+        return {nullptr, 0};
+      }
+      scenarios_arr = *col;
+      mask |= kScenarioBit;
     }
-    const auto stages = make_uid_column(table, Stage::class_name);
-    if (!stages) {
-      SPDLOG_ERROR("Failed to get stages column {}", stages.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("Failed to get stages column {}", col.error());
+        return {nullptr, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
+    }
+
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR(
+          "Table has neither `scenario` nor `stage` columns — cannot "
+          "build a (Scenario, Stage) row index");
+      return {nullptr, 0};
     }
 
     uid_arrow_idx_map_t uid_idx;
     map_reserve(uid_idx, static_cast<size_t>(table->num_rows()));
 
     for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
-      const auto key = key_type {make_uid<Scenario>((*scenarios)->Value(i)),
-                                 make_uid<Stage>((*stages)->Value(i))};
+      const auto sid = (mask & kScenarioBit)
+          ? make_uid<Scenario>(scenarios_arr->Value(i))
+          : ScenarioUid {};
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto key = key_type {sid, tid};
       const auto res = uid_idx.emplace(key, i);
       if (!res.second) {
         SPDLOG_ERROR(
@@ -287,7 +418,7 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
       }
     }
 
-    return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
+    return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
 };
 
@@ -296,12 +427,18 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
 {
   using UidIdx = uid_arrow_idx_map_ptr;
 
+  /// Build the (stage,) → row-index map.  Bit 0 indicates whether the
+  /// `stage` column was present; the single-axis variant always requires
+  /// it.
   static auto make_arrow_uids_idx(const ArrowTable& table)
+      -> std::pair<std::shared_ptr<uid_arrow_idx_map_t>, ArrowPresentMask>
   {
+    constexpr ArrowPresentMask kStageBit = 1U << 0U;
+
     const auto stages = make_uid_column(table, Stage::class_name);
     if (!stages) {
       SPDLOG_ERROR("Failed to get stages column {}", stages.error());
-      return std::shared_ptr<uid_arrow_idx_map_t>();
+      return {nullptr, 0};
     }
 
     uid_arrow_idx_map_t uid_idx;
@@ -323,7 +460,8 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
     }
 
     // Return a shared pointer to the map containing the index to uid mapping
-    return std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx));
+    return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)),
+            kStageBit};
   }
 };
 
