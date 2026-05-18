@@ -71,6 +71,7 @@ _VENDORED_RTS_GMLC = _TEST_DATA_DIR / "UnitCommitmentJl_rts_gmlc.json.gz"
 _VENDORED_CASE14_CONTINGENCY = (
     _TEST_DATA_DIR / "UnitCommitmentJl_case14_contingency.json"
 )
+_VENDORED_ISSUE_0057 = _TEST_DATA_DIR / "UnitCommitmentJl_issue_0057.json.gz"
 
 
 # ---------------------------------------------------------------------------
@@ -2694,4 +2695,30 @@ def test_ucjl_golden_rts_gmlc(tmp_path: Path) -> None:
         "rts_gmlc",
         _VENDORED_RTS_GMLC,
         block_mw_tol=200.0,
+    )
+
+
+@pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
+@pytest.mark.skipif(
+    not _VENDORED_ISSUE_0057.is_file(),
+    reason=f"vendored UC.jl fixture missing: {_VENDORED_ISSUE_0057}",
+)
+def test_ucjl_golden_issue_0057(tmp_path: Path) -> None:
+    """UC.jl GitHub issue #57 regression: gen_524d4c85 forced ON in
+    block 1 only via ``Commitment status = [1, 0, 0, 0]``.  UC.jl's
+    own ``regression_test.jl`` pins
+    ``Thermal production (MW)["gen_524d4c85"][1] == 90.0`` — gtopt
+    must reproduce this bit-for-bit after the 2026-05-18 fix to the
+    converter's ``Commitment status`` parser, which previously
+    silently dropped integer-typed truthy values (case14/fixed uses
+    Python ``bool`` ``true`` / ``false``, but issue-0057 / schema
+    v0.3 uses plain ``int`` ``1`` / ``0`` — ``v is True`` matched
+    only the ``bool`` form).
+    """
+    _run_ucjl_cross_check(
+        tmp_path,
+        "issue_0057",
+        _VENDORED_ISSUE_0057,
+        block_mw_tol=0.1,
+        pinned_gens=("gen_524d4c85",),
     )

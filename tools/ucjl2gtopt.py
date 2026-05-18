@@ -843,7 +843,11 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 trimmed += [pad_value] * (T - len(trimmed))
             has_null = any(v is None for v in trimmed)
             if not has_null:
-                mapped = [1.0 if v is True else 0.0 for v in trimmed]
+                # UC.jl uses Python ``bool`` (true / false) in modern
+                # fixtures (case14/fixed.json) but plain ``int`` 1 / 0
+                # in older ones (issue-0057.json, schema v0.3).  Map
+                # both: anything truthy → 1.0, otherwise → 0.0.
+                mapped = [1.0 if bool(v) else 0.0 for v in trimmed]
                 c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
             # else: drop fixed_status — partial pinning is intentionally
             # lost (see comment above).  LP runs with u free on every block.
