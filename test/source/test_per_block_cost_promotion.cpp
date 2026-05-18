@@ -424,3 +424,49 @@ TEST_CASE("FlowRight.fcost — scalar still broadcasts (legacy)")  // NOLINT
   REQUIRE(fr.fcost.has_value());
   CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(3000.0));
 }
+
+// ─── PR-E: Battery efficiencies (input / output) → TB ──────────────
+
+TEST_CASE(
+    "Battery.input_efficiency — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "pmax_charge": 60,
+    "pmax_discharge": 60,
+    "input_efficiency": [[0.95, 0.93, 0.91]],
+    "output_efficiency": [[0.90, 0.92, 0.94]]
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.input_efficiency.has_value());
+  REQUIRE(bat.output_efficiency.has_value());
+  const auto& vi =
+      std::get<std::vector<std::vector<Real>>>(*bat.input_efficiency);
+  const auto& vo =
+      std::get<std::vector<std::vector<Real>>>(*bat.output_efficiency);
+  REQUIRE(vi[0].size() == 3);
+  CHECK(vi[0][0] == doctest::Approx(0.95));
+  CHECK(vi[0][2] == doctest::Approx(0.91));
+  CHECK(vo[0][0] == doctest::Approx(0.90));
+  CHECK(vo[0][2] == doctest::Approx(0.94));
+}
+
+TEST_CASE(
+    "Battery.input_efficiency — scalar still broadcasts (legacy)")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "pmax_charge": 60,
+    "pmax_discharge": 60,
+    "input_efficiency": 0.95,
+    "output_efficiency": 0.93
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.input_efficiency.has_value());
+  CHECK(std::get<Real>(*bat.input_efficiency) == doctest::Approx(0.95));
+  CHECK(std::get<Real>(*bat.output_efficiency) == doctest::Approx(0.93));
+}

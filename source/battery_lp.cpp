@@ -68,10 +68,14 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
-  const auto stage_input_efficiency =
-      input_efficiency.optval(stage.uid()).value_or(1.0);
-  const auto stage_output_efficiency =
-      output_efficiency.optval(stage.uid()).value_or(1.0);
+  // Per-(stage, block) efficiency lookups since PR-E.  Battery's
+  // ``input_efficiency`` / ``output_efficiency`` are OptTBRealSched.
+  // StorageBase::add_to_lp expects callables (BlockUid → double),
+  // sampled inside its per-block SoC-balance loop.
+  const auto input_efficiency_at = [&](BlockUid b)
+  { return input_efficiency.optval(stage.uid(), b).value_or(1.0); };
+  const auto output_efficiency_at = [&](BlockUid b)
+  { return output_efficiency.optval(stage.uid(), b).value_or(1.0); };
 
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
@@ -121,9 +125,9 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                               lp,
                               flow_conversion_rate,
                               finps,
-                              stage_input_efficiency,
+                              input_efficiency_at,
                               fouts,
-                              stage_output_efficiency,
+                              output_efficiency_at,
                               stage_capacity,
                               capacity_col,
                               {},

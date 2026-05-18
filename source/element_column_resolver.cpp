@@ -456,10 +456,10 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         return bat.param_ecost(suid, buid);
       }
       if (attr == "input_efficiency") {
-        return bat.param_input_efficiency(suid);
+        return bat.param_input_efficiency(suid, buid);
       }
       if (attr == "output_efficiency") {
-        return bat.param_output_efficiency(suid);
+        return bat.param_output_efficiency(suid, buid);
       }
       return std::nullopt;
     }

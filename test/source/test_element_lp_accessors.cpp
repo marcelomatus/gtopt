@@ -237,9 +237,9 @@ TEST_CASE(  // NOLINT
     CHECK(!finp.empty());
     CHECK(finp.size() == fout.size());
 
-    CHECK(bat_lp.param_input_efficiency(suid).value_or(-1.0)
+    CHECK(bat_lp.param_input_efficiency(suid, buid).value_or(-1.0)
           == doctest::Approx(0.92));
-    CHECK(bat_lp.param_output_efficiency(suid).value_or(-1.0)
+    CHECK(bat_lp.param_output_efficiency(suid, buid).value_or(-1.0)
           == doctest::Approx(0.91));
   }
 

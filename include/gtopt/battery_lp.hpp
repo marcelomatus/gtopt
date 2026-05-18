@@ -101,19 +101,19 @@ public:
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
-  [[nodiscard]] auto param_input_efficiency(StageUid s) const
+  [[nodiscard]] auto param_input_efficiency(StageUid s, BlockUid b) const
   {
-    return input_efficiency.at(s);
+    return input_efficiency.at(s, b);
   }
-  [[nodiscard]] auto param_output_efficiency(StageUid s) const
+  [[nodiscard]] auto param_output_efficiency(StageUid s, BlockUid b) const
   {
-    return output_efficiency.at(s);
+    return output_efficiency.at(s, b);
   }
   /// @}
 
 private:
-  OptTRealSched input_efficiency;
-  OptTRealSched output_efficiency;
+  OptTBRealSched input_efficiency;
+  OptTBRealSched output_efficiency;
 
   STBIndexHolder<ColIndex> finp_cols;
   STBIndexHolder<ColIndex> fout_cols;

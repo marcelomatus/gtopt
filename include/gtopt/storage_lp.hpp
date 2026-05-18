@@ -396,7 +396,14 @@ public:
     return physical_efin(sys.linear_interface(), scenario, stage, default_efin);
   }
 
-  template<typename SystemContextT>
+  /// @param finp_efficiency_at  Callable ``(BlockUid) -> double`` returning
+  ///        the per-block charge / inflow efficiency.  Pass a lambda
+  ///        sampling an ``OptTBRealSched`` for per-block schedules
+  ///        (e.g. Battery's input_efficiency since PR-E), or
+  ///        ``[](BlockUid){ return 1.0; }`` for elements with no
+  ///        efficiency loss (Reservoir / LngTerminal / VolumeRight).
+  /// @param fout_efficiency_at  Same shape, for discharge / outflow.
+  template<typename SystemContextT, typename FinpEffFn, typename FoutEffFn>
   bool add_to_lp(const LPClassName& cname,
                  std::string_view ampl_class,
                  SystemContextT& sc,
@@ -405,9 +412,9 @@ public:
                  LinearProblem& lp,
                  const double flow_conversion_rate,
                  const BIndexHolder<ColIndex>& finp_cols,
-                 const double finp_efficiency,
+                 FinpEffFn&& finp_efficiency_at,
                  const BIndexHolder<ColIndex>& fout_cols,
-                 const double fout_efficiency,
+                 FoutEffFn&& fout_efficiency_at,
                  const double stage_capacity,
                  const std::optional<ColIndex> capacity_col = {},
                  const std::optional<Real> drain_cost = {},
@@ -669,22 +676,25 @@ public:
 
       if (has_fout) {
         const auto fout_col = fout_cols.at(buid);
-        erow[fout_col] = +(flow_conversion_rate / fout_efficiency)
-            * block.duration() * dc_stage_scale;
+        const auto fout_eff_b = fout_efficiency_at(buid);
+        erow[fout_col] = +(flow_conversion_rate / fout_eff_b) * block.duration()
+            * dc_stage_scale;
 
         if (has_finp) {
           const auto finp_col = finp_cols.at(buid);
           // if the input and output are the same, we only need one entry
           if (fout_col != finp_col) {
-            erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
+            const auto finp_eff_b = finp_efficiency_at(buid);
+            erow[finp_col] = -(flow_conversion_rate * finp_eff_b)
                 * block.duration() * dc_stage_scale;
           }
         }
       } else if (has_finp) {
         // No fout — finp is a pure inflow (adds to storage volume).
         const auto finp_col = finp_cols.at(buid);
-        erow[finp_col] = -(flow_conversion_rate * finp_efficiency)
-            * block.duration() * dc_stage_scale;
+        const auto finp_eff_b = finp_efficiency_at(buid);
+        erow[finp_col] = -(flow_conversion_rate * finp_eff_b) * block.duration()
+            * dc_stage_scale;
       }
 
       if (drain_enabled) {

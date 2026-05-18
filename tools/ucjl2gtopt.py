@@ -1017,14 +1017,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 # (round-trips identically to the legacy emission).
                 b_entry[gtopt_key] = float(base)
 
-        # Remaining per-stage scalar fields — gtopt's Battery still
-        # exposes these as ``OptTRealFieldSched`` (per-stage), so per-
-        # block UC.jl lists collapse to the first-hour scalar.
+        # Per-stage scalar fields — gtopt's Battery exposes
+        # ``pmax_charge`` / ``pmax_discharge`` as ``OptTRealFieldSched``,
+        # so per-block UC.jl lists collapse to the first-hour scalar.
         for ucjl_key, gtopt_key in (
             ("Maximum charge rate (MW)", "pmax_charge"),
             ("Maximum discharge rate (MW)", "pmax_discharge"),
-            ("Charge efficiency", "input_efficiency"),
-            ("Discharge efficiency", "output_efficiency"),
         ):
             value = sdata.get(ucjl_key)
             if value is None:
@@ -1032,6 +1030,21 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             b_entry[gtopt_key] = (
                 float(_first_hour(value)) if isinstance(value, list) else value
             )
+        # ``input_efficiency`` / ``output_efficiency`` are TB since
+        # PR-E (per-(stage, block)).  Hourly UC.jl lists round-trip
+        # as 2-D ``[[h0, h1, ...]]``; scalar values stay scalar
+        # (broadcast across every block).
+        for ucjl_key, gtopt_key in (
+            ("Charge efficiency", "input_efficiency"),
+            ("Discharge efficiency", "output_efficiency"),
+        ):
+            value = sdata.get(ucjl_key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                b_entry[gtopt_key] = [list(_time_series(value, T))]
+            else:
+                b_entry[gtopt_key] = float(value)
 
         # UC.jl ``Loss factor`` models per-period SoC decay
         # ``SoC[t+1] = (1 − λ) × SoC[t] + η_in·charge − discharge/η_out``.
@@ -1055,11 +1068,28 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             lf_scalar = float(_first_hour(loss_factor_raw))
             if lf_scalar > 0.0:
                 damp = math.sqrt(max(1.0 - lf_scalar, 0.0))
+
                 # Default efficiencies are 1.0 when UC.jl omitted them.
-                eff_in = float(b_entry.get("input_efficiency", 1.0))
-                eff_out = float(b_entry.get("output_efficiency", 1.0))
-                b_entry["input_efficiency"] = round(eff_in * damp, 6)
-                b_entry["output_efficiency"] = round(eff_out * damp, 6)
+                # Efficiencies are TB since PR-E — the field may be a
+                # scalar (broadcast) or a 2-D ``[[h0, h1, ...]]`` list.
+                # When 2-D, multiply each cell by damp; when scalar,
+                # multiply directly.
+                def _scale_eff(raw: Any, damp_v: float) -> Any:
+                    if raw is None:
+                        return round(damp_v, 6)
+                    if isinstance(raw, list):
+                        # 2-D [[h0, h1, ...], ...] - scale each cell.
+                        return [
+                            [round(float(c) * damp_v, 6) for c in row] for row in raw
+                        ]
+                    return round(float(raw) * damp_v, 6)
+
+                b_entry["input_efficiency"] = _scale_eff(
+                    b_entry.get("input_efficiency"), damp
+                )
+                b_entry["output_efficiency"] = _scale_eff(
+                    b_entry.get("output_efficiency"), damp
+                )
         # Scalars (not field schedules).
         for ucjl_key, gtopt_key in (
             ("Initial level (MWh)", "eini"),

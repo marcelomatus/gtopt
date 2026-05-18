@@ -44,11 +44,11 @@ struct json_data_contract<Battery>
                         OptSingleId,
                         jvtl_SingleId>,  ///< Source generator for coupled mode
       json_variant_null<"input_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Input efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Input efficiency schedule
       json_variant_null<"output_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Output efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Output efficiency schedule
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
