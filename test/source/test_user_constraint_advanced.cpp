@@ -2136,6 +2136,9 @@ TEST_CASE("User constraint - soft slack columns appear in CSV output")
 
   auto planning = parse_planning_json(soft_le_uc_json);
   planning.options.output_directory = tmpdir.string();
+  // Reduced-cost output is no longer default — enable it to observe
+  // realized slack cost.
+  planning.options.write_out = OutputFlags::all;
 
   const PlanningOptionsLP options(planning.options);
   SimulationLP sim_lp(planning.simulation, options);

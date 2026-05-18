@@ -95,11 +95,11 @@ TEST_CASE("output_flags_to_string - round-trip")  // NOLINT
   CHECK(parse_output_flags(output_flags_to_string(combined)) == combined);
 }
 
-TEST_CASE("PlanningOptionsLP::write_out - default is all")  // NOLINT
+TEST_CASE("PlanningOptionsLP::write_out - default is solution|dual")  // NOLINT
 {
   const PlanningOptions opts;
   const PlanningOptionsLP wrapper(opts);
-  CHECK(wrapper.write_out() == OutputFlags::all);
+  CHECK(wrapper.write_out() == (OutputFlags::solution | OutputFlags::dual));
 }
 
 TEST_CASE("PlanningOptionsLP::write_out - explicit overrides")  // NOLINT

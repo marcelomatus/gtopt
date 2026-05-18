@@ -1221,6 +1221,7 @@ TEST_CASE(  // NOLINT
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
+  opts.write_out = OutputFlags::all;  // explicitly emit reduced_cost columns
 
   const System system = {
       .name = "MultiGenTest",

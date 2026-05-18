@@ -60,6 +60,7 @@ inline auto make_planning_json(std::string_view scenario_array,
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
+    "write_out": "all",
     "model_options": {
       "use_single_bus": true,
       "scale_objective": 1,
