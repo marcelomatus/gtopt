@@ -1024,6 +1024,30 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       SPDLOG_INFO("Cascade: remaining global budget = {}", remaining_budget);
     }
 
+    // ── Per-level output emission (Issue #479) ──
+    // When the user set ``CascadeLevel.output_subdir`` for this level,
+    // emit its per-element parquet output NOW — while the level's LP is
+    // still alive and before the state-extraction cleanup drops the
+    // owned LP.  Each level writes under its own
+    // ``<output_directory>/<output_subdir>/...`` (set above by
+    // ``apply_level_output_overrides``), so emissions never overlap
+    // across levels.
+    //
+    // The final active level is left to the existing delegate-transfer
+    // path (see ``Transfer the final level's LP to the caller`` below),
+    // which lets the caller's ``planning_lp.write_out()`` drive the
+    // emission.  The intermediate emission here mirrors the work the
+    // caller would do — ``PlanningLP::write_out`` is idempotent
+    // (guarded by ``SystemLP::m_output_written_``).
+    if (has_output_subdir && level_idx != last_active_level_idx
+        && current_lp != nullptr)
+    {
+      SPDLOG_INFO("Cascade [{}]: emitting per-level output under '{}'",
+                  level_name,
+                  output_subdir_str);
+      current_lp->write_out();
+    }
+
     // Advance the global iteration index past every index this level
     // produced — `last.iteration_index` is the simulation-pass slot at
     // `next(last training iteration)`, so `next()` of that is strictly
