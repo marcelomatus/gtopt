@@ -1186,7 +1186,14 @@ class GTOptWriter(
             "use_single_bus": effective_single_bus,
             "use_kirchhoff": src_model.get("use_kirchhoff", True),
             "demand_fail_cost": effective_demand_fail,
-            "state_fail_cost": src_model.get("state_fail_cost", 1000),
+            # §11.10 rename: gtopt canonical is `state_violation_cost`;
+            # `state_fail_cost` JSON key still accepted via the
+            # naming-dialects registry for back-compat (so existing
+            # callers passing the legacy key in `src_model` keep working).
+            "state_violation_cost": src_model.get(
+                "state_violation_cost",
+                src_model.get("state_fail_cost", 1000),
+            ),
             "strict_storage_emin": src_model.get("strict_storage_emin", False),
             "auto_scale": src_model.get("auto_scale", True),
         }

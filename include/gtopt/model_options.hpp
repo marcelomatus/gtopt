@@ -105,7 +105,7 @@ struct ModelOptions
   /// [$/MWh].  Used as fallback when a reservoir (or other storage element)
   /// does not define its own `scost`.  Converted to physical units using
   /// the element's `mean_production_factor`.
-  OptReal state_fail_cost {};
+  OptReal state_violation_cost {};
 
   /// Demand-failure substitution with RHS shift (renamed from the
   /// legacy `demand_option_c` per §11.10 of
@@ -198,7 +198,7 @@ struct ModelOptions
     merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
     merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
     merge_opt(hydro_use_value, opts.hydro_use_value);
-    merge_opt(state_fail_cost, opts.state_fail_cost);
+    merge_opt(state_violation_cost, opts.state_violation_cost);
     merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
     merge_opt(emission_cost, opts.emission_cost);
     merge_opt(emission_cap, opts.emission_cap);
@@ -217,7 +217,7 @@ struct ModelOptions
         || scale_loss_link.has_value() || theta_max.has_value()
         || demand_fail_cost.has_value() || reserve_fail_cost.has_value()
         || hydro_fail_cost.has_value() || hydro_use_value.has_value()
-        || state_fail_cost.has_value() || demand_fail_rhs_shift.has_value()
+        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
         || emission_cost.has_value() || emission_cap.has_value()
         || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
@@ -246,7 +246,7 @@ struct ModelOptions
         && covers_opt(reserve_fail_cost, other.reserve_fail_cost)
         && covers_opt(hydro_fail_cost, other.hydro_fail_cost)
         && covers_opt(hydro_use_value, other.hydro_use_value)
-        && covers_opt(state_fail_cost, other.state_fail_cost)
+        && covers_opt(state_violation_cost, other.state_violation_cost)
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(emission_cost, other.emission_cost)
         && covers_opt(emission_cap, other.emission_cap)

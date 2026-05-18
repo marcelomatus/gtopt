@@ -1246,7 +1246,7 @@ TEST_CASE(  // NOLINT
   // structurally infeasible at the bottom phase — empirically
   // surfaced on the col_scale=10 / 2-reservoir backtracking test.
   //
-  // ``link.scost`` (the business state_fail_cost hint) is intentionally
+  // ``link.scost`` (the business state_violation_cost hint) is intentionally
   // NOT used in slack pricing (line `(void)link.scost` in
   // ``relax_fixed_state_variable``) — only the geometric ``var_scale``
   // factor is applied.  PLP parity is preserved on the cost magnitude

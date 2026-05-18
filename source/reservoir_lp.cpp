@@ -102,7 +102,7 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
 
   const auto mpf = reservoir().mean_production_factor.value_or(
       Reservoir::default_mean_production_factor);
-  const auto stage_scost = sc.state_fail_cost(stage, scost);
+  const auto stage_scost = sc.state_violation_cost(stage, scost);
   const double rsv_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {

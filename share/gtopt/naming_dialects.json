@@ -71,7 +71,7 @@
     {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
     {"class": "model_options", "canonical": "hydro_fail_cost",   "alt": "CustoVertimento",      "dialect": "sddp"},
 
-    {"class": "model_options", "canonical": "state_fail_cost",   "alt": "state_violation_cost", "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "state_violation_cost", "alt": "state_fail_cost",  "dialect": "gtopt-legacy"},
     {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},
 
     {"class": "model_options", "canonical": "use_single_bus",    "alt": "copper_plate",   "dialect": "gtopt"},

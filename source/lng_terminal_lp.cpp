@@ -98,7 +98,7 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
 
   const auto mpf = terminal().mean_production_factor.value_or(
       LngTerminal::default_mean_production_factor);
-  const auto stage_scost = sc.state_fail_cost(stage, scost);
+  const auto stage_scost = sc.state_violation_cost(stage, scost);
   const double lng_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {

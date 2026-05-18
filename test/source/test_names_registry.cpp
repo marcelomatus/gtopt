@@ -212,8 +212,9 @@ TEST_CASE(
           == "reserve_fail_cost");
     CHECK(r.canonical_for("hydro_spill_cost").value_or("")
           == "hydro_fail_cost");
-    CHECK(r.canonical_for("state_violation_cost").value_or("")
-          == "state_fail_cost");
+    // §11.10 rename: state_fail_cost → state_violation_cost.
+    CHECK(r.canonical_for("state_fail_cost").value_or("")
+          == "state_violation_cost");
     // §11.10 rename: demand_option_c → demand_fail_rhs_shift.
     // The legacy name is now the alias; the descriptive name is canonical.
     CHECK(r.canonical_for("demand_option_c").value_or("")

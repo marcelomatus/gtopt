@@ -239,9 +239,9 @@ public:
   }
 
   /// @brief Gets the state failure cost from model_options [$/MWh].
-  [[nodiscard]] constexpr auto state_fail_cost() const
+  [[nodiscard]] constexpr auto state_violation_cost() const
   {
-    return m_options_.model_options.state_fail_cost;
+    return m_options_.model_options.state_violation_cost;
   }
 
   /// @brief Gets the system-wide emission cost [$/tCO2].

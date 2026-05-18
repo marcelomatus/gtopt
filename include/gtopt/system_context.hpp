@@ -147,11 +147,11 @@ public:
   }
 
   template<typename StateCost>
-  [[nodiscard]] constexpr auto state_fail_cost(const StageLP& stage,
-                                               const StateCost& scost) const
+  [[nodiscard]] constexpr auto state_violation_cost(
+      const StageLP& stage, const StateCost& scost) const
   {
     const auto sc = scost.optval(stage.uid());
-    return sc ? sc : options().state_fail_cost();
+    return sc ? sc : options().state_violation_cost();
   }
 
   //

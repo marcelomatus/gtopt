@@ -148,7 +148,7 @@ struct Reservoir
 
   OptReal mean_production_factor {};  ///< Expected turbine production factor
                                       ///< [MWh/hm³].  Converts the global
-                                      ///< `state_fail_cost` ($/MWh) into
+                                      ///< `state_violation_cost` ($/MWh) into
                                       ///< reservoir-specific units ($/hm³).
                                       ///< Defaults to 5.0 MWh/hm³.
   OptTRealFieldSched

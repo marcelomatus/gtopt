@@ -519,7 +519,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   // to prefer cheap-to-violate variables over expensive ones.
   // PLP parity (osicallsc.cpp:658): slack obj = 1.0 flat for every
   // relaxed state, regardless of per-variable business-cost hints.
-  // `link.scost` carries the business `state_fail_cost` (default
+  // `link.scost` carries the business `state_violation_cost` (default
   // 5000 in production cases) — NOT a Chinneck Phase-1 feasibility
   // price.  Using it here amplified the ray magnitude 5000× and
   // produced emax-pinning multi-cuts that violated LP tolerance by
