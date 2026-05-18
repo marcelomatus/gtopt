@@ -34,14 +34,18 @@ struct NameAliasEntry
   std::string dialect;
 };
 
-/// The whole file. We only consume `aliases`; the `version` and `doc`
+/// The whole file. We consume `aliases` (global) and `class_aliases`
+/// (class-scoped); the `version` / `doc` / `_class_aliases_doc`
 /// fields are accepted (so strict parsing doesn't reject them) but
-/// otherwise ignored at runtime.
+/// otherwise ignored at runtime.  Field order must match the
+/// `json_data_contract` member-list order below.
 struct NamesFile
 {
   int version = 0;
   std::string doc;
   std::vector<NameAliasEntry> aliases;
+  std::string class_aliases_doc;
+  std::vector<NameAliasEntry> class_aliases;
 };
 
 }  // namespace gtopt::names_registry_detail
@@ -72,12 +76,17 @@ struct json_data_contract<gtopt::names_registry_detail::NamesFile>
       json_string_null<"doc", std::string>,
       json_array<"aliases",
                  gtopt::names_registry_detail::NameAliasEntry,
-                 std::vector<gtopt::names_registry_detail::NameAliasEntry>>>;
+                 std::vector<gtopt::names_registry_detail::NameAliasEntry>>,
+      json_string_null<"_class_aliases_doc", std::string>,
+      json_array_null<"class_aliases",
+                      std::vector<gtopt::names_registry_detail::NameAliasEntry>,
+                      gtopt::names_registry_detail::NameAliasEntry>>;
 
   constexpr static auto to_json_data(
       gtopt::names_registry_detail::NamesFile const& f)
   {
-    return std::forward_as_tuple(f.version, f.doc, f.aliases);
+    return std::forward_as_tuple(
+        f.version, f.doc, f.aliases, f.class_aliases_doc, f.class_aliases);
   }
 };
 
@@ -140,9 +149,44 @@ void NamesRegistry::build_from_json(std::string_view json_content)
     m_canonical_to_aliases_[entry.canonical].emplace_back(entry.alt);
   }
 
-  spdlog::debug("names_registry: loaded {} aliases (skipped {} duplicate rows)",
-                m_alias_to_canonical_.size(),
-                skipped_dupes);
+  std::size_t class_skipped_dupes = 0;
+  for (const auto& entry : file.class_aliases) {
+    if (entry.klass.empty() || entry.canonical.empty() || entry.alt.empty()) {
+      continue;
+    }
+    if (entry.alt == entry.canonical) {
+      continue;
+    }
+    // Class-scoped uniqueness: within a given class, an alias must
+    // map to exactly one canonical.  An alias that exists both
+    // globally and class-scoped is allowed; the class-scoped entry
+    // takes precedence in `canonical_for(class, alias)`.
+    auto key = std::make_pair(entry.klass, entry.alt);
+    if (const auto it = m_class_alias_to_canonical_.find(key);
+        it != m_class_alias_to_canonical_.end())
+    {
+      if (it->second != entry.canonical) {
+        throw std::runtime_error(std::format(
+            "naming_dialects.json: class-scoped alias ({}, '{}') is "
+            "registered for two different canonicals: '{}' and '{}'",
+            entry.klass,
+            entry.alt,
+            it->second,
+            entry.canonical));
+      }
+      ++class_skipped_dupes;
+      continue;
+    }
+    m_class_alias_to_canonical_.emplace(std::move(key), entry.canonical);
+  }
+
+  spdlog::debug(
+      "names_registry: loaded {} global aliases (skipped {} dupes) + "
+      "{} class-scoped aliases (skipped {} dupes)",
+      m_alias_to_canonical_.size(),
+      skipped_dupes,
+      m_class_alias_to_canonical_.size(),
+      class_skipped_dupes);
 }
 
 NamesRegistry::NamesRegistry(std::string_view json_content)
@@ -170,6 +214,23 @@ std::optional<std::string_view> NamesRegistry::canonical_for(
     return std::nullopt;
   }
   return std::string_view {it->second};
+}
+
+std::optional<std::string_view> NamesRegistry::canonical_for(
+    std::string_view class_name, std::string_view alias) const noexcept
+{
+  // Class-scoped first.  An entry here takes precedence over a
+  // matching global alias — necessary for cases like `discharge`
+  // which is canonical for `flow` globally but a legacy alias for
+  // `flow_right.target` when scoped.
+  if (const auto it = m_class_alias_to_canonical_.find(
+          std::make_pair(std::string {class_name}, std::string {alias}));
+      it != m_class_alias_to_canonical_.end())
+  {
+    return std::string_view {it->second};
+  }
+  // Fall back to global aliases.
+  return canonical_for(alias);
 }
 
 std::optional<std::filesystem::path> find_names_file()

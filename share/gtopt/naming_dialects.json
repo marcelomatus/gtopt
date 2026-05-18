@@ -79,5 +79,11 @@
     {"class": "model_options", "canonical": "use_single_bus",    "alt": "Uninodal",       "dialect": "sddp"},
 
     {"class": "options", "canonical": "use_uid_fname", "alt": "use_uid_filenames", "dialect": "gtopt"}
+  ],
+
+  "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",
+  "class_aliases": [
+    {"class": "flow_right", "canonical": "target", "alt": "discharge",  "dialect": "gtopt-legacy"},
+    {"class": "flow_right", "canonical": "uvalue", "alt": "use_value",  "dialect": "gtopt-legacy"}
   ]
 }

@@ -55,11 +55,25 @@ public:
   /// Construct from a JSON file. Throws on read or parse error.
   explicit NamesRegistry(const std::filesystem::path& json_path);
 
-  /// Resolve an alias to its canonical name. Returns `nullopt` if
-  /// `alias` is not a registered alias (which includes the case
-  /// where `alias` is itself already a canonical name).
+  /// Resolve a **global** alias to its canonical name.  Returns
+  /// `nullopt` if `alias` is not a registered global alias (which
+  /// includes the case where `alias` is itself already a canonical
+  /// name).  Class-scoped aliases are not consulted by this overload
+  /// — use the (class, alias) overload below from element-typed
+  /// resolution paths.  This overload is used by `canonicalize_json_keys`
+  /// (which has no element-type context).
   [[nodiscard]] std::optional<std::string_view> canonical_for(
       std::string_view alias) const noexcept;
+
+  /// Resolve an alias scoped to a specific element class
+  /// (`"generator"`, `"flow_right"`, …).  Looks up the class-scoped
+  /// table first (`class_aliases[]` in naming_dialects.json), then
+  /// falls back to the global table.  Used by `resolve_single_param`
+  /// where the element class is known and aliases like `discharge`
+  /// (canonical for `flow`, legacy for `flow_right.target`) need
+  /// class-aware disambiguation.
+  [[nodiscard]] std::optional<std::string_view> canonical_for(
+      std::string_view class_name, std::string_view alias) const noexcept;
 
   /// Number of (alias, canonical) entries. Useful for diagnostics
   /// and tests.
@@ -68,8 +82,9 @@ public:
     return m_alias_to_canonical_.size();
   }
 
-  /// Returns the (canonical -> {aliases}) inverse view for
-  /// diagnostics (e.g. `--list-dialects`).
+  /// Returns the (canonical -> {aliases}) inverse view for global
+  /// aliases.  Used for diagnostics (e.g. `--list-dialects`).
+  /// Class-scoped aliases are not included.
   [[nodiscard]] const gtopt::flat_map<std::string, std::vector<std::string>>&
   canonical_to_aliases() const noexcept
   {
@@ -99,6 +114,12 @@ private:
   gtopt::flat_map<std::string, std::string> m_alias_to_canonical_;
   gtopt::flat_map<std::string, std::vector<std::string>>
       m_canonical_to_aliases_;
+  /// Class-scoped lookup table.  Key is `(class_name, alias)`; value
+  /// is the canonical attribute name within that class.  Populated
+  /// from `class_aliases[]` in naming_dialects.json.  Looked up only
+  /// via the (class, alias) overload of `canonical_for`.
+  gtopt::flat_map<std::pair<std::string, std::string>, std::string>
+      m_class_alias_to_canonical_;
   std::optional<std::filesystem::path> m_source_path_;
 };
 

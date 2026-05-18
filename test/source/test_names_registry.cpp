@@ -109,6 +109,73 @@ TEST_CASE("NamesRegistry — version validation")  // NOLINT
   CHECK_THROWS_AS(NamesRegistry {wrong_version}, std::runtime_error);
 }
 
+TEST_CASE("NamesRegistry — class-scoped alias lookup")  // NOLINT
+{
+  constexpr std::string_view with_class_aliases = R"json(
+{
+  "version": 1,
+  "aliases": [
+    {"class": "flow", "canonical": "discharge", "alt": "Vazao", "dialect": "sddp"}
+  ],
+  "class_aliases": [
+    {"class": "flow_right", "canonical": "target", "alt": "discharge",  "dialect": "gtopt-legacy"},
+    {"class": "flow_right", "canonical": "uvalue", "alt": "use_value",  "dialect": "gtopt-legacy"}
+  ]
+}
+)json";
+
+  const NamesRegistry r {with_class_aliases};
+
+  SUBCASE("class-scoped lookup resolves within its scope")
+  {
+    CHECK(r.canonical_for("flow_right", "discharge").value_or("") == "target");
+    CHECK(r.canonical_for("flow_right", "use_value").value_or("") == "uvalue");
+  }
+
+  SUBCASE("class-scoped alias is invisible to global lookup")
+  {
+    // `discharge` is class-scoped under flow_right; the class-blind
+    // overload must NOT rewrite it (because `discharge` is also
+    // canonical for `flow`, and rewriting it globally would break
+    // Flow parsing).
+    CHECK_FALSE(r.canonical_for("discharge").has_value());
+    CHECK_FALSE(r.canonical_for("use_value").has_value());
+  }
+
+  SUBCASE("class-scoped lookup falls back to global aliases")
+  {
+    // `Vazao` is a *global* alias for `discharge` (Flow).  The
+    // class-aware overload should find it even when scoped to flow.
+    CHECK(r.canonical_for("flow", "Vazao").value_or("") == "discharge");
+  }
+
+  SUBCASE("class scope is per-class — other classes see no entry")
+  {
+    // `discharge` mapped under flow_right scope must NOT appear
+    // when the lookup is scoped to a different class.
+    CHECK_FALSE(r.canonical_for("flow", "discharge").has_value());
+    CHECK_FALSE(r.canonical_for("generator", "discharge").has_value());
+  }
+}
+
+TEST_CASE("NamesRegistry — class-scoped uniqueness invariant")  // NOLINT
+{
+  // The same (class, alias) pair mapped to two different canonicals
+  // must throw (mirror of the global uniqueness check).
+  constexpr std::string_view bad = R"json(
+{
+  "version": 1,
+  "aliases": [],
+  "class_aliases": [
+    {"class": "flow_right", "canonical": "target", "alt": "discharge", "dialect": "x"},
+    {"class": "flow_right", "canonical": "uvalue", "alt": "discharge", "dialect": "y"}
+  ]
+}
+)json";
+
+  CHECK_THROWS_AS(NamesRegistry {bad}, std::runtime_error);
+}
+
 TEST_CASE(
     "NamesRegistry — singleton loads from the shipped dictionary")  // NOLINT
 {

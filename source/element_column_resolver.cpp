@@ -340,19 +340,16 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   const auto buid = block.uid();
 
   // Normalise the attribute name via the runtime naming-dialects
-  // registry.  Lets PAMPL files reference parameters by any
-  // alternative listed in `share/gtopt/naming_dialects.json` — e.g.
-  // `generator.marginal_cost[…]` resolves the same as
-  // `generator.gcost[…]`; `line.tmax[…]` resolves the same as
-  // `line.tmax_ab[…]`.  Aliases must be globally unique across
-  // element types (registry-enforced invariant), which is why the
-  // per-class `target`↔`discharge` and `uvalue`↔`use_value` chains
-  // below stay hardcoded for now: `discharge` is the canonical
-  // attribute for `flow`, so it cannot be a global alias for
-  // `flow_right.target`.  An element-aware lookup is a Phase-2
-  // enhancement; see docs/analysis/naming-conventions.md §10.4.
+  // registry.  Class-scoped lookup first (entries under
+  // `class_aliases[]` — e.g. `flow_right.discharge → target`,
+  // `flow_right.use_value → uvalue` — both legacy gtopt aliases
+  // that collide with canonicals on other classes); falls back to
+  // the global table for class-blind aliases like `marginal_cost
+  // → gcost`, `tmax → tmax_ab`, etc.  See
+  // docs/analysis/naming-conventions.md §10.4.
   auto attr = std::string_view {ref.attribute};
-  if (const auto canonical = NamesRegistry::instance().canonical_for(attr);
+  if (const auto canonical =
+          NamesRegistry::instance().canonical_for(ref.element_type, attr);
       canonical.has_value())
   {
     attr = *canonical;
@@ -487,6 +484,12 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     }
 
     // ── flow_right ───────────────────────────────────────────────────────
+    // Legacy aliases `discharge → target` and `use_value → uvalue`
+    // are registered under `class_aliases[]` in
+    // share/gtopt/naming_dialects.json (class-scoped because
+    // `discharge` is *canonical* on `flow`).  The class-aware
+    // canonicalize step above turns either legacy form into the
+    // canonical name, so a single compare per attribute suffices.
     if (ref.element_type == "flow_right") {
       const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
       if (attr == "fmin") {
@@ -495,19 +498,13 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       if (attr == "fmax") {
         return frt.param_fmax(suid, buid);
       }
-      // `discharge` is the legacy alias of `target` *within flow_right*,
-      // but it is also the canonical attribute on `flow`, so it cannot
-      // be lifted into the global naming-dialects registry without
-      // element-aware lookup (see resolve_single_param header comment).
-      if (ref.attribute == "target" || ref.attribute == "discharge") {
+      if (attr == "target") {
         return frt.param_target(suid, buid);
       }
       if (attr == "fcost") {
         return frt.param_fcost(suid);
       }
-      // `use_value` is the legacy alias of `uvalue`; kept inline for
-      // consistency with the target/discharge case above.
-      if (ref.attribute == "uvalue" || ref.attribute == "use_value") {
+      if (attr == "uvalue") {
         return frt.param_uvalue(suid);
       }
       return std::nullopt;
