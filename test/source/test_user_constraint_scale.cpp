@@ -788,7 +788,7 @@ auto make_battery_uc_json(double energy_scale_val) -> std::string
           "eini": 50,
           "pmax_charge": 50,
           "pmax_discharge": 50,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 100
         }}
       ],
@@ -1393,7 +1393,7 @@ constexpr std::string_view multi_scale_uc_json = R"json(
           "eini": 50,
           "pmax_charge": 50,
           "pmax_discharge": 50,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 100
         }
       ],

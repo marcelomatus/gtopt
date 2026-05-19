@@ -92,6 +92,7 @@ public:
 
 private:
   OptTBRealSched lmax;
+  OptTBRealSched lmin;
   OptTBRealSched lossfactor;
   OptTBRealSched fcost;
 

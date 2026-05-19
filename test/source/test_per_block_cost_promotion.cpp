@@ -2,7 +2,8 @@
 //
 // Per-(stage, block) promotion tests for the T→TB sweep.
 //
-//   * PR-A: Generator.gcost / Demand.fcost / Battery.gcost / charge_cost
+//   * PR-A: Generator.gcost / Demand.fcost / Battery.discharge_cost /
+//     charge_cost
 //   * PR-B: Generator.heat_rate / lossfactor / emission_factor,
 //           Demand.lossfactor, Line.lossfactor
 //   * PR-C: ReserveZone.urcost/drcost,
@@ -25,12 +26,14 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/battery.hpp>
+#include <gtopt/converter.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_zone.hpp>
 #include <gtopt/json/json_battery.hpp>
+#include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_generator.hpp>
@@ -117,7 +120,7 @@ TEST_CASE("Demand.fcost — scalar still broadcasts (legacy)")  // NOLINT
   CHECK(std::get<Real>(*dem.fcost) == doctest::Approx(1500.0));
 }
 
-TEST_CASE("Battery.gcost — 2-D per-block JSON parses as TB")  // NOLINT
+TEST_CASE("Battery.discharge_cost — 2-D per-block JSON parses as TB")  // NOLINT
 {
   constexpr std::string_view json_data = R"({
     "uid": 1,
@@ -127,12 +130,12 @@ TEST_CASE("Battery.gcost — 2-D per-block JSON parses as TB")  // NOLINT
     "pmax_charge": 60,
     "input_efficiency": 0.95,
     "output_efficiency": 0.95,
-    "gcost": [[2.5, 5.0, 7.5]]
+    "discharge_cost": [[2.5, 5.0, 7.5]]
   })";
 
   const auto bat = daw::json::from_json<Battery>(json_data);
-  REQUIRE(bat.gcost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.gcost);
+  REQUIRE(bat.discharge_cost.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.discharge_cost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(2.5));
@@ -469,4 +472,140 @@ TEST_CASE(
   REQUIRE(bat.input_efficiency.has_value());
   CHECK(std::get<Real>(*bat.input_efficiency) == doctest::Approx(0.95));
   CHECK(std::get<Real>(*bat.output_efficiency) == doctest::Approx(0.93));
+}
+
+// --- TB promotion of pmax_* + new pmin_* + commitment JSON parse ----------
+
+TEST_CASE("Battery.pmax_charge — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "pmax_charge": [[10.0, 10.5, 11.0]],
+    "pmax_discharge": [[8.0, 8.5, 9.0]]
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.pmax_charge.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.pmax_charge);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 3);
+  CHECK(v[0][0] == doctest::Approx(10.0));
+  CHECK(v[0][2] == doctest::Approx(11.0));
+  REQUIRE(bat.pmax_discharge.has_value());
+  const auto& w = std::get<std::vector<std::vector<Real>>>(*bat.pmax_discharge);
+  CHECK(w[0][1] == doctest::Approx(8.5));
+}
+
+TEST_CASE(
+    "Battery.pmin_charge / pmin_discharge — scalar JSON parses")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "pmax_charge": 60,
+    "pmax_discharge": 60,
+    "pmin_charge": 5,
+    "pmin_discharge": 2
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.pmin_charge.has_value());
+  CHECK(std::get<Real>(*bat.pmin_charge) == doctest::Approx(5.0));
+  REQUIRE(bat.pmin_discharge.has_value());
+  CHECK(std::get<Real>(*bat.pmin_discharge) == doctest::Approx(2.0));
+}
+
+TEST_CASE("Battery.pmin_charge — 2-D per-block JSON parses as TB")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "pmax_charge": 60,
+    "pmax_discharge": 60,
+    "pmin_charge": [[5.0, 5.1, 5.2, 5.3]]
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.pmin_charge.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.pmin_charge);
+  REQUIRE(v[0].size() == 4);
+  CHECK(v[0][0] == doctest::Approx(5.0));
+  CHECK(v[0][3] == doctest::Approx(5.3));
+}
+
+TEST_CASE("Battery.commitment — JSON parses as OptBool")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1,
+    "commitment": true
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  REQUIRE(bat.commitment.has_value());
+  CHECK(*bat.commitment == true);
+}
+
+TEST_CASE("Battery.commitment — JSON omission leaves nullopt")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "b1",
+    "bus": 1
+  })";
+  const auto bat = daw::json::from_json<Battery>(json_data);
+  CHECK_FALSE(bat.commitment.has_value());
+}
+
+TEST_CASE("Converter.commitment — JSON parses as OptBool")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1,
+    "name": "c1",
+    "battery": "bat1",
+    "generator": "gen1",
+    "demand": "dem1",
+    "commitment": true
+  })";
+  const auto conv = daw::json::from_json<Converter>(json_data);
+  REQUIRE(conv.commitment.has_value());
+  CHECK(*conv.commitment == true);
+}
+
+TEST_CASE("Demand.lmin — JSON scalar + 2-D TB shapes parse")  // NOLINT
+{
+  // Scalar broadcast
+  {
+    constexpr std::string_view json_data = R"({
+      "uid": 1, "name": "d1", "bus": 1,
+      "lmax": 100, "lmin": 30
+    })";
+    const auto dem = daw::json::from_json<Demand>(json_data);
+    REQUIRE(dem.lmin.has_value());
+    CHECK(std::get<Real>(*dem.lmin) == doctest::Approx(30.0));
+  }
+  // Per-block 2-D
+  {
+    constexpr std::string_view json_data = R"({
+      "uid": 1, "name": "d1", "bus": 1,
+      "lmax": [[100, 100, 100]],
+      "lmin": [[20, 25, 30]]
+    })";
+    const auto dem = daw::json::from_json<Demand>(json_data);
+    REQUIRE(dem.lmin.has_value());
+    const auto& v = std::get<std::vector<std::vector<Real>>>(*dem.lmin);
+    REQUIRE(v[0].size() == 3);
+    CHECK(v[0][0] == doctest::Approx(20.0));
+    CHECK(v[0][2] == doctest::Approx(30.0));
+  }
+}
+
+TEST_CASE("Demand.lmin — JSON omission leaves nullopt")  // NOLINT
+{
+  constexpr std::string_view json_data = R"({
+    "uid": 1, "name": "d1", "bus": 1, "lmax": 100
+  })";
+  const auto dem = daw::json::from_json<Demand>(json_data);
+  CHECK_FALSE(dem.lmin.has_value());
 }

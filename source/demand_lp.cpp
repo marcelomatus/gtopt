@@ -20,6 +20,7 @@ namespace gtopt
 DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
     : CapacityBase(pdemand, ic, Element::class_name)
     , lmax(ic, Element::class_name, id(), std::move(object().lmax))
+    , lmin(ic, Element::class_name, id(), std::move(object().lmin))
     , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
     , fcost(ic, Element::class_name, id(), std::move(object().fcost))
     , emin(ic, Element::class_name, id(), std::move(object().emin))
@@ -283,7 +284,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     // When block_lmax == 0 every entry below is a no-op (zero
     // coefficients, zero RHS shift, zero cost contribution).
     if (has_load) {
-      double col_lowb = is_forced ? block_lmax : 0.0;
+      // ``lmin`` provides a HARD floor on served load (per-(stage, block));
+      // used to propagate ``Battery.pmin_charge`` onto the synthetic
+      // charge demand so the LP must charge at least that rate every
+      // block.  Floor at 0 (no negative floors).
+      const auto block_lmin =
+          std::max(0.0, lmin.optval(stage.uid(), buid).value_or(0.0));
+      double col_lowb = std::max(block_lmin, is_forced ? block_lmax : 0.0);
       double col_uppb = block_lmax;
       double lcol_cost = 0.0;
       if (fail_substituted) {

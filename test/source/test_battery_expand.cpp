@@ -22,7 +22,10 @@ TEST_CASE("Battery new fields default to nullopt")  // NOLINT
   CHECK_FALSE(battery.bus.has_value());
   CHECK_FALSE(battery.pmax_charge.has_value());
   CHECK_FALSE(battery.pmax_discharge.has_value());
-  CHECK_FALSE(battery.gcost.has_value());
+  CHECK_FALSE(battery.pmin_charge.has_value());
+  CHECK_FALSE(battery.pmin_discharge.has_value());
+  CHECK_FALSE(battery.discharge_cost.has_value());
+  CHECK_FALSE(battery.commitment.has_value());
 }
 
 TEST_CASE("Battery unified field assignment")  // NOLINT
@@ -36,7 +39,7 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
   battery.bus = Uid {3};
   battery.pmax_charge = 60.0;
   battery.pmax_discharge = 60.0;
-  battery.gcost = 5.0;
+  battery.discharge_cost = 5.0;
 
   REQUIRE(battery.bus.has_value());
   CHECK(std::get<Uid>(*battery.bus) == Uid {3});
@@ -47,8 +50,8 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
   REQUIRE(battery.pmax_discharge.has_value());
   CHECK(std::get<Real>(*battery.pmax_discharge) == 60.0);
 
-  REQUIRE(battery.gcost.has_value());
-  CHECK(std::get<Real>(*battery.gcost) == 5.0);
+  REQUIRE(battery.discharge_cost.has_value());
+  CHECK(std::get<Real>(*battery.discharge_cost) == 5.0);
 }
 
 TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
@@ -88,7 +91,7 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
           .emax = 200.0,
           .pmax_charge = 60.0,
           .pmax_discharge = 60.0,
-          .gcost = 0.0,
+          .discharge_cost = 0.0,
           .capacity = 200.0,
       },
   };
@@ -106,8 +109,12 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(gen.name == "bat1_gen");
   CHECK(gen.uid == Uid {2});
   CHECK(std::get<Uid>(gen.bus) == Uid {1});
-  REQUIRE(gen.capacity.has_value());
-  CHECK(std::get<Real>(gen.capacity.value_or(RealFieldSched {0.0})) == 60.0);
+  // ``Battery.pmax_discharge`` now maps to ``Generator.pmax`` (TB)
+  // instead of ``Generator.capacity`` (T).  ``capacity`` is left unset
+  // so the default ``numeric_limits<double>::max()`` sentinel applies.
+  REQUIRE(gen.pmax.has_value());
+  CHECK(std::get<Real>(gen.pmax.value_or(RealFieldSched2 {0.0})) == 60.0);
+  CHECK_FALSE(gen.capacity.has_value());
   REQUIRE(gen.gcost.has_value());
   CHECK(std::get<Real>(gen.gcost.value_or(RealFieldSched2 {-1.0})) == 0.0);
 
@@ -117,8 +124,11 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(dem.name == "bat1_dem");
   CHECK(dem.uid == Uid {2});
   CHECK(std::get<Uid>(dem.bus) == Uid {1});
-  REQUIRE(dem.capacity.has_value());
-  CHECK(std::get<Real>(dem.capacity.value_or(RealFieldSched {0.0})) == 60.0);
+  // ``Battery.pmax_charge`` now maps to ``Demand.lmax`` (TB) instead
+  // of ``Demand.capacity`` (T).
+  REQUIRE(dem.lmax.has_value());
+  CHECK(std::get<Real>(dem.lmax.value_or(RealFieldSched2 {0.0})) == 60.0);
+  CHECK_FALSE(dem.capacity.has_value());
 
   // Converter was created
   CHECK(system.converter_array.size() == 1);
@@ -326,14 +336,16 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
   CHECK(system.demand_array[0].name == "bat1_dem");
   CHECK(system.demand_array[1].name == "bat2_dem");
 
-  // Verify different power ratings
-  REQUIRE(system.generator_array[1].capacity.has_value());
+  // Verify different power ratings (now mapped to operational
+  // bounds: ``pmax_discharge`` → ``Generator.pmax``,
+  // ``pmax_charge`` → ``Demand.lmax``).
+  REQUIRE(system.generator_array[1].pmax.has_value());
   CHECK(std::get<Real>(
-            system.generator_array[1].capacity.value_or(RealFieldSched {0.0}))
+            system.generator_array[1].pmax.value_or(RealFieldSched2 {0.0}))
         == 40.0);
-  REQUIRE(system.demand_array[1].capacity.has_value());
+  REQUIRE(system.demand_array[1].lmax.has_value());
   CHECK(std::get<Real>(
-            system.demand_array[1].capacity.value_or(RealFieldSched {0.0}))
+            system.demand_array[1].lmax.value_or(RealFieldSched2 {0.0}))
         == 30.0);
 }
 
@@ -371,7 +383,7 @@ TEST_CASE(
           .emax = 200.0,
           .pmax_charge = 60.0,
           .pmax_discharge = 60.0,
-          .gcost = 0.0,
+          .discharge_cost = 0.0,
           .capacity = 200.0,
       },
   };
@@ -653,3 +665,110 @@ TEST_CASE(
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
+
+// --- New field wiring (pmin_*, lmin, commitment) ----------------------------
+
+TEST_CASE("Battery pmin_charge/pmin_discharge accept TB schedules")  // NOLINT
+{
+  Battery battery;
+  battery.pmin_charge = 5.0;  // scalar broadcast
+  battery.pmin_discharge =
+      TBRealFieldSched {std::vector<std::vector<Real>> {{2.0, 2.5, 3.0}}};
+
+  REQUIRE(battery.pmin_charge.has_value());
+  CHECK(std::get<Real>(*battery.pmin_charge) == doctest::Approx(5.0));
+
+  REQUIRE(battery.pmin_discharge.has_value());
+  const auto& v =
+      std::get<std::vector<std::vector<Real>>>(*battery.pmin_discharge);
+  REQUIRE(v.size() == 1);
+  REQUIRE(v[0].size() == 3);
+  CHECK(v[0][0] == doctest::Approx(2.0));
+  CHECK(v[0][1] == doctest::Approx(2.5));
+  CHECK(v[0][2] == doctest::Approx(3.0));
+}
+
+TEST_CASE("expand_batteries wires pmin_* onto synthetic gen/demand")  // NOLINT
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .pmin_charge = 3.0,
+          .pmin_discharge = 2.0,
+          .discharge_cost = 1.0,
+      },
+  };
+
+  system.expand_batteries();
+
+  REQUIRE(system.generator_array.size() == 1);
+  const auto& gen = system.generator_array.back();
+  // pmin_discharge → Generator.pmin (TB schedule)
+  REQUIRE(gen.pmin.has_value());
+  CHECK(std::get<Real>(gen.pmin.value_or(RealFieldSched2 {0.0})) == 2.0);
+  // pmax_discharge → Generator.pmax
+  REQUIRE(gen.pmax.has_value());
+  CHECK(std::get<Real>(gen.pmax.value_or(RealFieldSched2 {0.0})) == 10.0);
+
+  REQUIRE(system.demand_array.size() == 1);
+  const auto& dem = system.demand_array.back();
+  // pmin_charge → Demand.lmin
+  REQUIRE(dem.lmin.has_value());
+  CHECK(std::get<Real>(dem.lmin.value_or(RealFieldSched2 {0.0})) == 3.0);
+  REQUIRE(dem.lmax.has_value());
+  CHECK(std::get<Real>(dem.lmax.value_or(RealFieldSched2 {0.0})) == 10.0);
+}
+
+TEST_CASE("expand_batteries propagates commitment to Converter")  // NOLINT
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .pmin_charge = 3.0,
+          .commitment = true,
+      },
+  };
+
+  system.expand_batteries();
+  REQUIRE(system.converter_array.size() == 1);
+  const auto& conv = system.converter_array.back();
+  REQUIRE(conv.commitment.has_value());
+  CHECK(*conv.commitment == true);
+}
+
+TEST_CASE(
+    "expand_batteries omits Converter.commitment when Battery.commitment unset")
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat1",
+          .bus = Uid {1},
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          // .commitment intentionally unset
+      },
+  };
+
+  system.expand_batteries();
+  REQUIRE(system.converter_array.size() == 1);
+  CHECK_FALSE(system.converter_array.back().commitment.has_value());
+}

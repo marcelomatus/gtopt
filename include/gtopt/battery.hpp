@@ -31,7 +31,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -62,7 +62,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -210,21 +210,47 @@ struct Battery
       soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
                           ///< violation [$/MWh] — per-(stage, block).
 
-  OptTRealFieldSched
-      pmax_charge {};  ///< Max charging power [MW] (unified definition)
-  OptTRealFieldSched
-      pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
   OptTBRealFieldSched
-      gcost {};  ///< Discharge generation cost [$/MWh]
-                 ///< per-(stage, block).  Forwarded to the synthetic
-                 ///< discharge ``Generator.gcost`` (also TB) by
-                 ///< ``System::expand_batteries()``.
+      pmax_charge {};  ///< Max charging power [MW] (unified definition).
+                       ///< Per-(stage, block); accepts scalar, 2-D
+                       ///< ``[[block0, ...], ...]``, or file-backed.
+                       ///< Forwarded to the synthetic charge ``Demand.lmax``
+                       ///< by ``System::expand_batteries()``.
+  OptTBRealFieldSched
+      pmax_discharge {};  ///< Max discharging power [MW]
+                          ///< per-(stage, block).  Forwarded to the
+                          ///< synthetic discharge ``Generator.pmax``.
+  OptTBRealFieldSched
+      pmin_charge {};  ///< Minimum charging power [MW] per-(stage, block).
+                       ///< Forwarded to the synthetic charge ``Demand.lmin``.
+                       ///< By default a HARD floor every block; when
+                       ///< ``Battery.commitment`` is set, the synthetic
+                       ///< ``Converter`` gates the floor with a per-block
+                       ///< binary so the bound only fires when the
+                       ///< battery is actively charging.  Mirrors UC.jl
+                       ///< ``Minimum charge rate (MW)`` and PLEXOS
+                       ///< ``Battery.Min Charge Rate``.
+  OptTBRealFieldSched
+      pmin_discharge {};  ///< Minimum discharging power [MW] per-(stage,
+                          ///< block).  HARD floor on the synthetic
+                          ///< discharge ``Generator.pmin``.  Mirrors
+                          ///< UC.jl ``Minimum discharge rate (MW)`` and
+                          ///< PLEXOS ``Battery.Min Generation``.
+  OptTBRealFieldSched
+      discharge_cost {};  ///< Per-MWh cost paid when discharging the
+                          ///< battery (energy injected into the grid)
+                          ///< [$/MWh] per-(stage, block).  Mirrors
+                          ///< UC.jl ``Discharge cost ($/MW)`` and
+                          ///< PLEXOS ``Battery.Generation Cost``.
+                          ///< Forwarded to the synthetic discharge
+                          ///< ``Generator.gcost`` (also TB) by
+                          ///< ``System::expand_batteries()``.
 
   OptTBRealFieldSched charge_cost {};
   ///< Per-MWh cost paid when charging the battery [$/MWh]
   ///< per-(stage, block).  Mirrors UC.jl's per-hour ``Charge cost
   ///< ($/MW)`` and PLEXOS's battery charge cost.
-  ///< Counterpart to ``gcost`` (discharge cost): ``gcost`` prices
+  ///< Counterpart to ``discharge_cost``: ``discharge_cost`` prices
   ///< energy injected into the grid, ``charge_cost`` prices energy
   ///< absorbed from it.  Wired through ``System::expand_batteries()``
   ///< onto the synthetic charge-side Demand element by encoding the
@@ -257,6 +283,24 @@ struct Battery
   /// decoupled stage/phase behaviour (use_state_variable forced false).
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
+
+  /// Gate the synthetic charge ``Demand`` and discharge ``Generator``
+  /// floors with per-block INTEGER commitment binaries on the linking
+  /// ``Converter``.  When unset (default), ``pmin_charge`` /
+  /// ``pmin_discharge`` are HARD floors that fire every block — correct
+  /// for must-run batteries and LP-only solves.  When set, the
+  /// ``Converter`` LP adds per-block binaries ``u_charge`` /
+  /// ``u_discharge`` and the C2-style rows ``load ≥ lmin × u_charge``,
+  /// ``load ≤ lmax × u_charge`` (and the analogous pair on the
+  /// discharge side), so the floor only fires WHEN the battery is
+  /// actively charging/discharging.  Mirrors UC.jl's conditional
+  /// ``Minimum charge/discharge rate (MW)`` semantics and PLEXOS
+  /// ``Battery.Commitment Status``.  Always introduces integer
+  /// columns — if you need LP-relax behaviour leave ``commitment``
+  /// unset (hard floors), which is the natural LP-only mode.
+  /// Propagated by ``System::expand_batteries()`` onto
+  /// ``Converter.commitment``.
+  OptBool commitment {};
 };
 
 }  // namespace gtopt

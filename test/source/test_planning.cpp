@@ -1271,7 +1271,7 @@ static constexpr std::string_view planning_json = R"(
           "emax": 50,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ]

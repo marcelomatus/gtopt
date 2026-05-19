@@ -51,6 +51,14 @@ struct DemandAttrs
 {
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
+  OptTBRealFieldSched lmin {};  ///< Minimum served load [MW] per-(stage,
+                                ///< block).  When set, the LP column's
+                                ///< lower bound is ``max(lmin, forced?
+                                ///< lmax : 0)``, forcing dispatch ≥ lmin
+                                ///< every block.  Used by
+                                ///< ``System::expand_batteries()`` to
+                                ///< propagate ``Battery.pmin_charge`` onto
+                                ///< the synthetic charge demand.
   OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
                                       ///< per-(stage, block).
   OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
@@ -107,6 +115,8 @@ struct Demand
 
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
+  OptTBRealFieldSched lmin {};  ///< Minimum served load [MW] per-(stage,
+                                ///< block); see ``DemandAttrs::lmin``.
   OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
                                       ///< per-(stage, block).
   OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
@@ -143,6 +153,7 @@ struct Demand
   {
     self.bus = std::exchange(attrs.bus, {});
     self.lmax = std::exchange(attrs.lmax, {});
+    self.lmin = std::exchange(attrs.lmin, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.fcost = std::exchange(attrs.fcost, {});
     self.forced = std::exchange(attrs.forced, {});

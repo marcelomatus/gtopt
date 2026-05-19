@@ -1488,7 +1488,7 @@ static constexpr std::string_view battery_planning_json = R"(
           "pmax_discharge": 100,
           "input_efficiency": 0.95,
           "output_efficiency": 0.95,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 400,
           "use_state_variable": true,
           "daily_cycle": false

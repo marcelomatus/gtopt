@@ -124,6 +124,127 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // Conditional commitment: when ``Converter.commitment`` is set,
+  // gate the synthetic charge ``Demand`` and discharge ``Generator``
+  // floors/ceilings with per-block binaries.  Mirrors UC.jl's
+  // ``Minimum charge/discharge rate (MW)`` semantics (the floor only
+  // fires when the battery is actively charging/discharging) and
+  // PLEXOS ``Battery.Commitment Status``.
+  //
+  // Approach: read the column bounds that ``GeneratorLP`` /
+  // ``DemandLP`` already stamped (block_pmax = uppb, block_pmin =
+  // lowb on the generation/load columns), then RESET the static
+  // lower bounds to 0 and emit C2-style rows
+  //
+  //     col − ub × u ≤ 0        (col_upper)
+  //     col − lb × u ≥ 0        (col_lower, only when lb > 0)
+  //
+  // so the bounds only fire when the corresponding binary u is 1.
+  // Default u ∈ [0, 1] continuous (LP relax — the cost-minimisation
+  // objective still drives binaries to extreme points at the solver
+  // because the inner Generator.gcost / Demand.fcost coefficients
+  // make any fractional u suboptimal); ``integer_commitment`` flips
+  // them to {0, 1} for a true MIP.
+  if (converter().commitment.value_or(false)) {
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), buid);
+      const auto gcol = gen_cols.at(buid);
+      const auto dcol = demand_cols.at(buid);
+      const auto block_pmin = lp.get_col_lowb(gcol);
+      const auto block_pmax = lp.get_col_uppb(gcol);
+      const auto block_lmin = lp.get_col_lowb(dcol);
+      const auto block_lmax = lp.get_col_uppb(dcol);
+
+      // Discharge side: migrate ``Generator.pmin`` from a static col
+      // floor to a u-gated row.  ``u_discharge`` exists only when the
+      // discharge envelope is non-degenerate (pmax > 0).
+      if (block_pmax > 0.0) {
+        lp.col_at(gcol).lowb = 0.0;
+        const auto u_disc = lp.add_col({
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = 0.0,
+            .is_integer = true,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = UDischargeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = DischargeUpperName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .less_equal(0.0);
+          row[gcol] = 1.0;
+          row[u_disc] = -block_pmax;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+        if (block_pmin > 0.0) {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = DischargeLowerName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .greater_equal(0.0);
+          row[gcol] = 1.0;
+          row[u_disc] = -block_pmin;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+      }
+
+      // Charge side: mirror the discharge gating onto the synthetic
+      // ``Demand.lmin`` / ``Demand.lmax``.  Same skip condition
+      // (lmax > 0); same migration of static lowb → u-gated row.
+      if (block_lmax > 0.0) {
+        lp.col_at(dcol).lowb = 0.0;
+        const auto u_chg = lp.add_col({
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = 0.0,
+            .is_integer = true,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = UChargeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = ChargeUpperName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .less_equal(0.0);
+          row[dcol] = 1.0;
+          row[u_chg] = -block_lmax;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+        if (block_lmin > 0.0) {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = ChargeLowerName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .greater_equal(0.0);
+          row[dcol] = 1.0;
+          row[u_chg] = -block_lmin;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+      }
+    }
+  }
+
   // storing the indices for this scenario and stage
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   capacity_rows[st_key] = std::move(crows);
