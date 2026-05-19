@@ -17,6 +17,8 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast, TypedDict
 
+import pandas as pd
+
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .cenfi_parser import CenfiParser
@@ -623,6 +625,16 @@ class JunctionWriter(BaseWriter):
         # Process reservoirs
         if central_parser:
             self._process_reservoirs(system, central_parser, parquet_cols)
+            # `_apply_soft_emin` / `_apply_soft_storage_bounds` populate
+            # `reservoir["soft_emin"]` / `reservoir["soft_emin_cost"]` as
+            # per-stage Python lists.  gtopt's `OptTBRealFieldSched`
+            # variant accepts only scalar / 2-D / FileSched, so a 1-D
+            # inline list trips a strict-parse error
+            # ("Expected array type to begin with '['").  Promote each
+            # populated list into a `Reservoir/soft_emin*.parquet`
+            # file-schedule reference, matching the existing
+            # `Reservoir/emin.parquet` / `emax.parquet` pattern.
+            self._promote_reservoir_soft_emin_to_parquet(system)
 
         # Process extraction plants
         if self.extrac_parser and central_parser:
@@ -2386,6 +2398,73 @@ class JunctionWriter(BaseWriter):
                 "reservoir_production_factor_array",
                 "production_factor",
             )
+
+    def _promote_reservoir_soft_emin_to_parquet(
+        self, system: HydroSystemOutput
+    ) -> None:
+        """Normalise per-reservoir ``soft_emin`` / ``soft_emin_cost``
+        emissions so the strict gtopt JSON parser accepts them.
+
+        * ``soft_emin`` carries the per-stage minimum-energy floors and
+          is genuinely time-varying, so it goes to
+          ``Reservoir/soft_emin.parquet`` (one row per stage, one
+          ``uid:N`` column per reservoir).  The reservoir's inline list
+          is replaced with the FileSched string sentinel
+          ``"soft_emin"``.
+        * ``soft_emin_cost`` is a single penalty rate (either the CLI
+          default or the per-reservoir resolved cost — see
+          `_resolve_storage_bound_cost`).  Its emission as a 1-D
+          repeating list was incidental: emit it as a scalar instead
+          (`Real` is the first alternative in the TB variant, so the
+          parser accepts it natively).
+
+        gtopt's `OptTBRealFieldSched` is a
+        ``variant<Real, vector<vector<Real>>, FileSched>`` — a 1-D
+        inline array is not a valid shape, so without this promotion
+        the strict daw::json parser bails out with
+        ``Expected array type to begin with '['`` on the first scalar
+        of the inline list.  Idempotent — a no-op when no reservoir
+        has an inline list.
+        """
+        soft_emin_rows: list[tuple[int, int, float]] = []
+
+        for reservoir in system.get("reservoir_array", []):
+            uid = reservoir["uid"]
+            soft_emin = reservoir.get("soft_emin")
+            if isinstance(soft_emin, list):
+                for stage_idx, v in enumerate(soft_emin):
+                    soft_emin_rows.append((stage_idx + 1, uid, float(v)))
+                reservoir["soft_emin"] = "soft_emin"  # FileSched reference
+
+            soft_cost = reservoir.get("soft_emin_cost")
+            if isinstance(soft_cost, list):
+                # The per-stage list is the same scalar repeated (either
+                # the CLI default or `_resolve_storage_bound_cost`).
+                # Collapse to the first non-zero value, or 0.0 if the
+                # list is all zeros (which means soft_emin itself was
+                # also all zeros and the upstream paths would not have
+                # set the list in the first place).
+                non_zero = next((float(c) for c in soft_cost if float(c) > 0), 0.0)
+                reservoir["soft_emin_cost"] = non_zero
+
+        if not soft_emin_rows:
+            return
+
+        output_dir = (
+            self.options["output_dir"] / "Reservoir"
+            if "output_dir" in self.options
+            else Path("Reservoir")
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        df = pd.DataFrame(soft_emin_rows, columns=["stage", "uid", "value"])
+        wide = (
+            df.pivot(index="stage", columns="uid", values="value")
+            .fillna(0.0)
+            .reset_index()
+        )
+        wide.columns = ["stage"] + [f"uid:{c}" for c in wide.columns[1:]]
+        self.write_dataframe(wide, output_dir, "soft_emin")
 
     def _write_parquet_files(self) -> Dict[str, List[str]]:
         """Write demand data to Parquet file format."""
