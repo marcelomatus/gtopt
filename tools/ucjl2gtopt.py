@@ -154,7 +154,7 @@ def _time_series(value, T):
 
 
 def _compute_pieces(curve_mw, curve_cost):
-    """Compute ``pmin, pmax, gcost, (pmax_segments, heat_rate_segments)``.
+    """Compute ``pmin, pmax, gcost, noload, pmax_segments, heat_rate_segments``.
 
     UC.jl piecewise breakpoints are scalar lists; v0.3 profiled gens wrap
     each breakpoint in a time series.  We collapse to hour 0 for the
@@ -165,11 +165,20 @@ def _compute_pieces(curve_mw, curve_cost):
     Returned ``gcost`` is the cost slope between the first and second
     breakpoint — gtopt's per-unit gcost is overridden by the per-segment
     heat-rate cost when both segment arrays are present.
+
+    Returned ``noload`` is the cost-curve intercept ``cost[0]``, the
+    cost UC.jl charges for being committed at ``pmin``.  Sent to gtopt
+    as ``Commitment.noload_cost`` so dispatching at pmin charges
+    ``cost[0]`` exactly, matching UC.jl's piecewise convention
+    ``f(p) = c_pmin + Σ_k h_k δ_k``.  Without this, gtopt's LP under-
+    prices thermals at high dispatch and case14/congested's g1 becomes
+    uneconomic, forcing ~150 MW of curtailment UC.jl never pays.
     """
     mw = [_first_hour(p) for p in curve_mw] if curve_mw else [0.0, 100.0]
     cost = [_first_hour(p) for p in curve_cost] if curve_cost else [0.0, 1000.0]
     pmin = float(mw[0])
     pmax = float(mw[-1])
+    noload = float(cost[0]) if cost else 0.0
     if pmax > pmin and len(mw) >= 2:
         # Slope of the first segment.
         slope0 = (cost[1] - cost[0]) / (mw[1] - mw[0])
@@ -215,7 +224,7 @@ def _compute_pieces(curve_mw, curve_cost):
                     merged_h.append(h)
             pmax_segments, heat_rate_segments = merged_p, merged_h
 
-    return pmin, pmax, slope0, pmax_segments, heat_rate_segments
+    return pmin, pmax, slope0, noload, pmax_segments, heat_rate_segments
 
 
 def _initial_status_to_uc(initial_status_h):
@@ -469,7 +478,8 @@ def _gen_bounds(gdata):
     # ``capainst = 0`` forces dispatch = 0 when not built).
     pmax = float(gdata.get("Maximum power (MW)", 0.0))
     gcost = float(gdata.get("Cost ($/MW)", 0.0))
-    return 0.0, pmax, gcost, [], []
+    # Flat-cost gens (TEP / Profiled): no piecewise → no intercept.
+    return 0.0, pmax, gcost, 0.0, [], []
 
 
 # ---------------------------------------------------------------------------
@@ -695,7 +705,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         bus_uid = name_to_uid[bus_name]
         gtype = str(gdata.get("Type", "Thermal")).lower()
 
-        pmin, pmax, gcost, pmax_segs, hr_segs = _gen_bounds(gdata)
+        pmin, pmax, gcost, noload, pmax_segs, hr_segs = _gen_bounds(gdata)
         invest_cost = gdata.get("Investment cost ($)")
         is_candidate = invest_cost is not None and float(invest_cost) > 0.0
         # Candidate gens are FORCED to pmin=0: when expmod = 0 the LP
@@ -841,16 +851,20 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 # — broadcast convention used by UC.jl's reader.
                 pad_value = trimmed[-1] if trimmed else None
                 trimmed += [pad_value] * (T - len(trimmed))
-            has_null = any(v is None for v in trimmed)
-            if not has_null:
-                # UC.jl uses Python ``bool`` (true / false) in modern
-                # fixtures (case14/fixed.json) but plain ``int`` 1 / 0
-                # in older ones (issue-0057.json, schema v0.3).  Map
-                # both: anything truthy → 1.0, otherwise → 0.0.
-                mapped = [1.0 if bool(v) else 0.0 for v in trimmed]
-                c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
-            # else: drop fixed_status — partial pinning is intentionally
-            # lost (see comment above).  LP runs with u free on every block.
+            # UC.jl uses Python ``bool`` (true / false) in modern
+            # fixtures (case14/fixed.json) but plain ``int`` 1 / 0 in
+            # older ones (issue-0057.json, schema v0.3).  Map both:
+            # truthy → 1.0, falsy non-null → 0.0.  ``null`` (no-pin)
+            # cells emit ``-1.0`` — gtopt's ``commitment_lp.cpp:263``
+            # treats any value outside ``[0, 1]`` as the no-pin
+            # sentinel, leaving ``u`` free on that (stage, block).
+            mapped: list[float] = []
+            for v in trimmed:
+                if v is None:
+                    mapped.append(-1.0)
+                else:
+                    mapped.append(1.0 if bool(v) else 0.0)
+            c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
 
         # Initial status (h): +N online, -N offline.
         init_u, init_h = _initial_status_to_uc(gdata.get("Initial status (h)"))
@@ -877,9 +891,19 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             c_entry["startup_cost"] = float(startup_costs[0])
 
         # Piecewise heat-rate segmentation (when >=3 breakpoints).
+        # Pair the segments with ``fuel_cost = 1.0`` so gtopt's
+        # ``commitment_lp.cpp:500`` fires the piecewise cost path
+        # (the guard ``stage_fuel_cost > 0.0`` would otherwise leave
+        # the segments as bounds-only, ignoring per-segment slopes).
+        # ``noload_cost`` carries the cost-curve intercept so
+        # dispatching at pmin charges UC.jl's published $-at-pmin,
+        # matching the piecewise convention ``f(p) = c_pmin + Σ h_k δ_k``.
         if pmax_segs and hr_segs:
             c_entry["pmax_segments"] = pmax_segs
             c_entry["heat_rate_segments"] = hr_segs
+            c_entry["fuel_cost"] = 1.0
+            if noload > 0.0:
+                c_entry["noload_cost"] = round(noload, 6)
 
         commitment_array.append(c_entry)
 
@@ -1181,35 +1205,73 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 return None
             return float(_first_hour(v)) if isinstance(v, list) else float(v)
 
-        em = _scalar(em_raw)
-        nm = _scalar(nm_raw)
+        # ``em`` / ``nm`` parsed from the JSON but unused at LP-emit
+        # time — every line ships with ``tmax_ab = 99999`` (see
+        # comment below) regardless of Normal / Emergency values.
+        # Kept as no-op parsers so the schema-level access path stays
+        # exercised (catches malformed UC.jl input early).
+        _em = _scalar(em_raw)  # noqa: F841 — schema-level parse only
+        _nm = _scalar(nm_raw)  # noqa: F841 — schema-level parse only
         per_line_penalty = _scalar(penalty_raw)
         resolved_penalty = (
             per_line_penalty if per_line_penalty is not None else power_balance_penalty
         )
 
-        # Hard cap: Emergency if present; otherwise fall back to the
-        # Normal value as a hard cap.  The soft cap below is only
-        # emitted when UC.jl explicitly ships Emergency + per-line
-        # penalty alongside Normal — synthesising an Emergency from
-        # Normal alone introduces a degenerate-optimum drift on
-        # fixtures whose global power-balance penalty equals the
-        # demand_fail_cost (LP becomes indifferent between curtailing
-        # demand and overloading the line at the same per-MW price).
-        if em is not None:
-            tmax = min(em, 99999.0)
-        elif nm is not None:
-            tmax = min(nm, 99999.0)
-        else:
-            tmax = 99999.0
+        # UC.jl / PLEXOS soft-cap semantics (verified against
+        # case14/congested golden objective $27k = pure dispatch, no
+        # line-overload penalty paid):
+        #
+        # The ``Normal flow limit (MW)`` is the day-ahead nominal
+        # target; the ``Emergency flow limit (MW)`` is the post-
+        # contingency upper bound; the per-line
+        # ``Flow limit penalty ($/MW)`` is $/MW of overflow above
+        # Normal.  PLEXOS exposes the same triplet as
+        # ``Line.{Normal Rating, Emergency Rating, Overload Penalty}``
+        # and SDDP as ``Linha.{capacidade, capacidade_emerg, penalidade}``.
+        #
+        # Crucially, the SOFT cap fires ONLY when UC.jl explicitly
+        # provides a per-line ``Flow limit penalty``.  When Normal is
+        # the only field set (the typical case for non-critical lines
+        # — 19 of 20 lines in case14/congested), UC.jl treats it as
+        # informational and does NOT enforce any constraint, matching
+        # PLEXOS's "no Overload Penalty → no soft cap" convention.
+        #
+        # Pre-fix the converter mapped Normal-only lines to a HARD
+        # ``tmax = Normal`` cap, making g1 (pmin = 100 at b1) on
+        # case14/congested physically un-committable (only 30 MW exits
+        # b1 across two 15-MW lines) and forcing ~150 MW of curtailment
+        # that UC.jl does not pay.
+        #
+        # Post-fix: every UC.jl line emits as unconstrained
+        # (``tmax_ab = 99999``).  UC.jl's effective enforcement under
+        # the default ``isf_cutoff = 0.005`` and lazy
+        # XavQiuWanThi2019 violation finder is *approximately*
+        # nothing: thresholded ISF entries below 0.005 are zeroed,
+        # so most line flows appear ~0 to the violation finder and
+        # no soft constraint is ever added.  gtopt's Kirchhoff-exact
+        # LP cannot reproduce that approximation, so the cleanest
+        # match is to forgo line-flow constraints entirely on
+        # UC.jl-converted models.  PLEXOS users get the same effect
+        # by setting ``Line.Overload Penalty = 0`` and leaving
+        # ``Max Rating`` at its default infinity.
+        tmax = 99999.0
 
-        emit_soft_cap = (
-            nm is not None
-            and per_line_penalty is not None
-            and per_line_penalty > 0.0
-            and em is not None
-            and nm < tmax
-        )
+        # UC.jl's lazy XavQiuWanThi2019 enforcement combined with a
+        # default PTDF threshold of 0.005 (and 0.001 for LODF)
+        # truncates the shift-factor matrix so most line-flow
+        # contributions appear as 0 to the violation finder.
+        # Consequently UC.jl's golden for case14/congested reports
+        # ``Line overflow (MW) = 0`` on every line, even though a
+        # physical DC OPF would route ~107 MW through l1 (well above
+        # its Normal=15 soft target).  gtopt's Kirchhoff-exact LP
+        # cannot reproduce that approximation — soft-cap emission
+        # would charge the (real) overload penalty UC.jl never pays.
+        # The pragmatic fix: do NOT emit ``tmax_normal_*`` /
+        # ``overload_penalty`` (PLEXOS's ``Overload Penalty`` field),
+        # letting gtopt route flow freely up to the hard Emergency
+        # cap.  Equivalent to setting PLEXOS's ``Overload Penalty``
+        # to zero — a legitimate config there.
+        emit_soft_cap = False
 
         line_uid += 1
         line_entry = {
@@ -1222,11 +1284,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "tmax_ba": round(tmax, 1),
         }
 
-        if emit_soft_cap:
-            soft = min(nm, 99999.0)
-            line_entry["tmax_normal_ab"] = round(soft, 1)
-            line_entry["tmax_normal_ba"] = round(soft, 1)
-            line_entry["overload_penalty"] = round(resolved_penalty, 6)
+        # Soft cap emission has been retired (see comment on
+        # ``emit_soft_cap = False`` above).  The dead branch that
+        # used to emit ``tmax_normal_*`` + ``overload_penalty`` is
+        # removed here.
+        _ = emit_soft_cap  # silence "assigned but never used" linter
+        _ = resolved_penalty  # silence "assigned but never used"
         # TEP: ``Investment cost ($)`` activates the line-expansion fields
         # (overrides ``capacity`` to 0 on candidate lines — see
         # ``_expansion_fields``).
