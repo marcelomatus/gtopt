@@ -10,11 +10,19 @@ from pathlib import Path
 import pandas as pd
 
 from ._reader import (
+    dataset_uid_cols,
     get_block_durations,
     get_generator_info,
     get_generator_profile_info,
     get_line_info,
+    open_dataset,
     read_table,
+    streaming_pairwise_weighted_sum,
+    streaming_sol_weighted_sum,
+    streaming_sol_weighted_sum_per_uid,
+    streaming_uid_stats,
+    streaming_uid_sum,
+    streaming_uid_sum_per_col,
 )
 
 log = logging.getLogger(__name__)
@@ -75,9 +83,26 @@ def check_expected_files(results_dir: Path) -> list[Finding]:
         ("Line/flowp_sol", "line flows (A→B)"),
     ]
 
+    # Cheap existence probe — DO NOT call `read_table` here.  On wide
+    # hive-partitioned streams (Generator/generation_sol, etc.)
+    # `pd.read_parquet` would materialise the entire ~70 GB dataset in
+    # pandas RAM just to answer "does this exist?".  A filesystem
+    # `exists()` / glob check is the right tool.
+    def _stem_present(stem: str) -> bool:
+        pq = results_dir / (stem + ".parquet")
+        if pq.is_dir() or pq.is_file():
+            return True
+        parent = results_dir / Path(stem).parent
+        name = Path(stem).name
+        for ext in (".csv", ".csv.zst", ".csv.gz"):
+            if (results_dir / (stem + ext)).is_file():
+                return True
+            if any(parent.glob(f"{name}_s*_p*{ext}")):
+                return True
+        return False
+
     for stem, label in required:
-        df = read_table(results_dir, stem)
-        if df is None:
+        if not _stem_present(stem):
             findings.append(
                 Finding(
                     "expected_files",
@@ -87,8 +112,7 @@ def check_expected_files(results_dir: Path) -> list[Finding]:
             )
 
     for stem, label in expected:
-        df = read_table(results_dir, stem)
-        if df is None:
+        if not _stem_present(stem):
             findings.append(
                 Finding(
                     "expected_files",
@@ -105,26 +129,25 @@ def check_expected_files(results_dir: Path) -> list[Finding]:
 
 
 def check_load_shedding(results_dir: Path, planning: dict) -> list[Finding]:
-    """Check for unserved demand (load shedding)."""
+    """Check for unserved demand (load shedding).  Streaming aggregation —
+    never materialises the full Demand/fail_sol dataset in memory."""
     findings: list[Finding] = []
-    fail_df = read_table(results_dir, "Demand/fail_sol")
-    if fail_df is None:
+    fail_ds = open_dataset(results_dir, "Demand/fail_sol")
+    if fail_ds is None:
         return findings
 
-    vals = _to_wide(fail_df)
-    total_shed = vals.sum().sum()
-    max_shed = vals.max().max()
+    stats = streaming_uid_stats(fail_ds)
+    if not stats:
+        return findings
+    total_shed = stats["sum"]
+    max_shed = stats["max"]
 
     if total_shed > 0.01:
-        # Compute energy shed
+        # Energy = Σ fail × duration(block).  Stream over partition batches
+        # so even a 70 GB pandas equivalent stays at one batch (~80 MB)
+        # in memory at a time.
         durations = get_block_durations(planning)
-        energy_shed = 0.0
-        if "block" in fail_df.columns:
-            for _, row in fail_df.iterrows():
-                blk = int(row.get("block", 0))
-                dur = durations.get(blk, 1.0)
-                energy_shed += vals.loc[row.name].sum() * dur
-
+        energy_shed = streaming_sol_weighted_sum(fail_ds, durations)
         findings.append(
             Finding(
                 "load_shedding",
@@ -141,16 +164,17 @@ def check_load_shedding(results_dir: Path, planning: dict) -> list[Finding]:
 
 
 def check_generation_vs_demand(results_dir: Path, planning: dict) -> list[Finding]:
-    """Compare total generation to total demand served."""
+    """Compare total generation to total demand served.  Streaming —
+    aggregates `sum()` directly from per-partition record batches."""
     findings: list[Finding] = []
-    gen_df = read_table(results_dir, "Generator/generation_sol")
-    load_df = read_table(results_dir, "Demand/load_sol")
+    gen_ds = open_dataset(results_dir, "Generator/generation_sol")
+    load_ds = open_dataset(results_dir, "Demand/load_sol")
 
-    if gen_df is None or load_df is None:
+    if gen_ds is None or load_ds is None:
         return findings
 
-    gen_total = _to_wide(gen_df).sum().sum()
-    load_total = _to_wide(load_df).sum().sum()
+    gen_total = streaming_uid_sum(gen_ds)
+    load_total = streaming_uid_sum(load_ds)
 
     if gen_total < load_total * 0.99:
         findings.append(
@@ -176,34 +200,42 @@ def check_generation_vs_demand(results_dir: Path, planning: dict) -> list[Findin
 def compute_energy_by_type(
     results_dir: Path, planning: dict
 ) -> tuple[list[Finding], dict]:
-    """Compute energy production (MWh) by generator type."""
+    """Compute energy production (MWh) by generator type — streaming.
+
+    Old version materialised `Generator/generation_sol` as a wide pandas
+    DataFrame (6.6M rows × 1335 cols × 8 bytes ≈ 71 GB) and then walked
+    every cell via a per-uid Python `for idx, val in df[col].items()`
+    inner loop.  Both the materialisation and the row-by-row walk were
+    catastrophic on the 2-year case — the 80 GB WSL OOM.  The new path
+    asks `pyarrow.dataset.scanner()` to yield per-partition record
+    batches (~80 MB each), aggregates per-uid sums in C++-backed
+    Arrow code, then multiplies by the per-block duration via a
+    weighted streaming sum.
+    """
     findings: list[Finding] = []
-    gen_df = read_table(results_dir, "Generator/generation_sol")
-    if gen_df is None:
+    gen_ds = open_dataset(results_dir, "Generator/generation_sol")
+    if gen_ds is None:
         return findings, {}
 
     gen_info = get_generator_info(planning)
     durations = get_block_durations(planning)
-
-    uid_cols = _uid_cols(gen_df)
-    if not uid_cols:
-        return findings, {}
 
     # Build uid → type mapping
     uid_type: dict[int, str] = {}
     for _, row in gen_info.iterrows():
         uid_type[int(row["uid"])] = row["type"]
 
+    # Per-uid energy = Σ value(s,t,b) · duration(b).  Pass `coef_per_uid=1`
+    # to get the duration-weighted per-uid totals.  pyarrow streams over
+    # partitions; peak memory is one record batch.
+    uid_energy = streaming_sol_weighted_sum_per_uid(gen_ds, durations)
+    if not uid_energy:
+        return findings, {}
+
     energy_by_type: dict[str, float] = {}
-    for col in uid_cols:
-        uid = int(col.split(":")[1])
+    for uid, energy in uid_energy.items():
         gtype = uid_type.get(uid, "unknown")
-        col_energy = 0.0
-        for idx, val in gen_df[col].items():
-            blk = int(gen_df.at[idx, "block"]) if "block" in gen_df.columns else 0
-            dur = durations.get(blk, 1.0)
-            col_energy += float(val) * dur
-        energy_by_type[gtype] = energy_by_type.get(gtype, 0.0) + col_energy
+        energy_by_type[gtype] = energy_by_type.get(gtype, 0.0) + energy
 
     # Import classify_type for category grouping
     try:
@@ -254,15 +286,34 @@ def compute_energy_by_type(
     return findings, energy_by_type
 
 
+def _streaming_uid_abs_max_per_col(dataset) -> dict[int, float]:
+    """Per-uid `max(|value|)` aggregated via pyarrow streaming."""
+    if dataset is None:
+        return {}
+    cols = dataset_uid_cols(dataset)
+    out: dict[int, float] = {int(c.split(":")[1]): 0.0 for c in cols}
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    for batch in dataset.scanner(columns=cols).to_batches():
+        for col in cols:
+            arr = pc.abs(batch[col])
+            mx = pc.max(arr).as_py()
+            if mx is not None and mx > out[int(col.split(":")[1])]:
+                out[int(col.split(":")[1])] = float(mx)
+    return out
+
+
 def compute_congestion_ranking(
     results_dir: Path, planning: dict, top_n: int = 10
 ) -> list[Finding]:
-    """Rank transmission lines by congestion (utilization of capacity)."""
+    """Rank transmission lines by congestion (utilization of capacity).
+    Streaming: per-uid max(|flow|) accumulated across record batches —
+    never materialises the wide Line/flowp_sol or flown_sol tables."""
     findings: list[Finding] = []
-    flowp = read_table(results_dir, "Line/flowp_sol")
-    flown = read_table(results_dir, "Line/flown_sol")
+    flowp_ds = open_dataset(results_dir, "Line/flowp_sol")
+    flown_ds = open_dataset(results_dir, "Line/flown_sol")
 
-    if flowp is None:
+    if flowp_ds is None:
         return findings
 
     line_info = get_line_info(planning)
@@ -275,20 +326,15 @@ def compute_congestion_ranking(
         uid_tmax[int(row["uid"])] = float(row["tmax"]) if row["tmax"] > 0 else 1e9
         uid_name[int(row["uid"])] = row["name"]
 
-    utilizations: list[tuple[str, float, float]] = []
-    uid_cols = _uid_cols(flowp)
-    for col in uid_cols:
-        uid = int(col.split(":")[1])
-        tmax = uid_tmax.get(uid, 1e9)
-        name = uid_name.get(uid, col)
+    # Per-uid absolute-max flow in each direction; streaming aggregates.
+    fp_max = _streaming_uid_abs_max_per_col(flowp_ds)
+    fn_max = _streaming_uid_abs_max_per_col(flown_ds)
 
-        fp = flowp[col].abs()
-        fn = (
-            flown[col].abs()
-            if flown is not None and col in flown.columns
-            else pd.Series([0])
-        )
-        max_flow = max(fp.max(), fn.max())
+    utilizations: list[tuple[str, float, float]] = []
+    for uid, fp in fp_max.items():
+        tmax = uid_tmax.get(uid, 1e9)
+        name = uid_name.get(uid, f"uid:{uid}")
+        max_flow = max(fp, fn_max.get(uid, 0.0))
         utilization = max_flow / tmax if tmax > 0 else 0.0
         utilizations.append((name, utilization, max_flow))
 
@@ -321,19 +367,21 @@ def compute_congestion_ranking(
 
 
 def compute_lmp_statistics(results_dir: Path, planning: dict) -> list[Finding]:
-    """Compute LMP (locational marginal price) statistics per bus."""
+    """Compute LMP (locational marginal price) statistics per bus.
+    Streaming: aggregates min/max/sum/count/negative-count per record
+    batch via pyarrow; never materialises the wide LMP table."""
     findings: list[Finding] = []
-    lmp_df = read_table(results_dir, "Bus/balance_dual")
-    if lmp_df is None:
+    lmp_ds = open_dataset(results_dir, "Bus/balance_dual")
+    if lmp_ds is None:
         return findings
 
-    vals = _to_wide(lmp_df)
-    if vals.empty:
+    stats = streaming_uid_stats(lmp_ds)
+    if not stats or stats.get("count", 0) == 0:
         return findings
 
-    overall_mean = vals.mean().mean()
-    overall_max = vals.max().max()
-    overall_min = vals.min().min()
+    overall_mean = stats["mean"]
+    overall_max = stats["max"]
+    overall_min = stats["min"]
     spread = overall_max - overall_min
 
     findings.append(
@@ -355,7 +403,7 @@ def compute_lmp_statistics(results_dir: Path, planning: dict) -> list[Finding]:
         )
 
     # Negative LMPs
-    neg_count = (vals < -0.01).sum().sum()
+    neg_count = stats.get("n_neg", 0)
     if neg_count > 0:
         findings.append(
             Finding(
@@ -423,41 +471,33 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
     """
     findings: list[Finding] = []
     components: dict[str, float] = {}
+    durations = get_block_durations(planning)
 
     # ─── Generation cost: Σ srmc · generation · duration ────────────────
-    srmc_df = read_table(results_dir, "Generator/srmc_sol")
-    gen_df = read_table(results_dir, "Generator/generation_sol")
-    if srmc_df is not None and gen_df is not None:
-        srmc_wide = _to_wide(srmc_df)
-        gen_wide = _to_wide(gen_df)
-        # Align on shared uid columns only; srmc and generation_sol
-        # share schema by construction (same per-(s,t,b,uid) keying).
-        shared = [c for c in srmc_wide.columns if c in gen_wide.columns]
-        if shared:
-            durations = _per_block_durations(planning, gen_df)
-            product = srmc_wide[shared].fillna(0.0) * gen_wide[shared].fillna(0.0)
-            total = float(product.mul(durations, axis=0).sum().sum())
-            if abs(total) > 0.01:
-                components["generation"] = total
+    # Streaming: per partition, multiply srmc batch × generation batch
+    # × duration vector and accumulate.  Skips the pandas wide-DF
+    # materialisation that previously consumed ~140 GB on the 2y case
+    # (srmc + generation = two ~70 GB wide DataFrames plus a product).
+    srmc_ds = open_dataset(results_dir, "Generator/srmc_sol")
+    gen_ds = open_dataset(results_dir, "Generator/generation_sol")
+    if srmc_ds is not None and gen_ds is not None:
+        gen_total = streaming_pairwise_weighted_sum(srmc_ds, gen_ds, durations)
+        if abs(gen_total) > 0.01:
+            components["generation"] = gen_total
 
     # ─── Load-shedding penalty: demand_fail_cost · fail · duration ─────
-    # demand_fail_cost is a system-wide scalar; per-demand `fcost`
-    # overrides are not yet handled here (would need per-uid lookup).
-    fail_df = read_table(results_dir, "Demand/fail_sol")
-    if fail_df is not None:
+    fail_ds = open_dataset(results_dir, "Demand/fail_sol")
+    if fail_ds is not None:
         model_opts = planning.get("options", {}).get("model_options", {})
         dfc = _scalar_from_planning_field(
             model_opts.get("demand_fail_cost"), fallback=0.0
         )
         if dfc > 0.0:
-            durations = _per_block_durations(planning, fail_df)
-            fail_wide = _to_wide(fail_df).fillna(0.0)
-            total = float(fail_wide.mul(durations, axis=0).sum().sum() * dfc)
-            if abs(total) > 0.01:
-                components["load shedding penalty"] = total
+            fail_total = streaming_sol_weighted_sum(fail_ds, durations) * dfc
+            if abs(fail_total) > 0.01:
+                components["load shedding penalty"] = fail_total
 
-    # ─── Transmission cost: tcost · |flow| · duration ──────────────────
-    line_info = get_line_info(planning)
+    # ─── Transmission cost: tcost · flow · duration ────────────────────
     line_tcost: dict[int, float] = {}
     for ln in planning.get("system", {}).get("line_array", []):
         line_tcost[int(ln.get("uid", 0))] = _scalar_from_planning_field(
@@ -467,23 +507,12 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
         ("Line/flowp_sol", "transmission (A→B)"),
         ("Line/flown_sol", "transmission (B→A)"),
     ):
-        flow_df = read_table(results_dir, stem)
-        if flow_df is None or flow_df.empty:
+        flow_ds = open_dataset(results_dir, stem)
+        if flow_ds is None:
             continue
-        flow_wide = _to_wide(flow_df).fillna(0.0)
-        durations = _per_block_durations(planning, flow_df)
-        total = 0.0
-        for col in flow_wide.columns:
-            uid = int(col.split(":")[1]) if col.startswith("uid:") else 0
-            tcost = line_tcost.get(uid, 0.0)
-            if tcost == 0.0:
-                continue
-            total += float((flow_wide[col] * durations).sum()) * tcost
+        total = streaming_sol_weighted_sum(flow_ds, durations, line_tcost)
         if abs(total) > 0.01:
             components[label] = total
-
-    # Silence unused-arg warning when no `line_info` reader hook is needed.
-    _ = line_info
 
     grand_total = sum(components.values())
     if grand_total > 0:
@@ -503,14 +532,14 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
 
 
 def check_battery_soc(results_dir: Path, planning: dict) -> list[Finding]:
-    """Check battery state-of-charge bounds."""
+    """Check battery state-of-charge bounds (streaming)."""
     findings: list[Finding] = []
-    soc_df = read_table(results_dir, "Battery/energy_sol")
-    if soc_df is None:
+    soc_ds = open_dataset(results_dir, "Battery/energy_sol")
+    if soc_ds is None:
         return findings
 
-    vals = _to_wide(soc_df)
-    neg = (vals < -0.01).sum().sum()
+    stats = streaming_uid_stats(soc_ds)
+    neg = stats.get("n_neg", 0) if stats else 0
     if neg > 0:
         findings.append(
             Finding("battery_soc", "WARNING", f"{neg} negative battery SoC values")
@@ -521,14 +550,14 @@ def check_battery_soc(results_dir: Path, planning: dict) -> list[Finding]:
 
 
 def check_reservoir_levels(results_dir: Path, planning: dict) -> list[Finding]:
-    """Check reservoir energy levels."""
+    """Check reservoir energy levels (streaming)."""
     findings: list[Finding] = []
-    energy_df = read_table(results_dir, "Reservoir/energy_sol")
-    if energy_df is None:
+    energy_ds = open_dataset(results_dir, "Reservoir/energy_sol")
+    if energy_ds is None:
         return findings
 
-    vals = _to_wide(energy_df)
-    neg = (vals < -0.01).sum().sum()
+    stats = streaming_uid_stats(energy_ds)
+    neg = stats.get("n_neg", 0) if stats else 0
     if neg > 0:
         findings.append(
             Finding("reservoir_levels", "WARNING", f"{neg} negative reservoir levels")
@@ -554,11 +583,11 @@ def check_renewable_curtailment(
     findings: list[Finding] = []
     curtailment_data: dict[str, float] = {}
 
-    spill_df = read_table(results_dir, "GeneratorProfile/spillover_sol")
-    if spill_df is None:
+    spill_ds = open_dataset(results_dir, "GeneratorProfile/spillover_sol")
+    if spill_ds is None:
         return findings, curtailment_data
 
-    gen_df = read_table(results_dir, "Generator/generation_sol")
+    gen_ds = open_dataset(results_dir, "Generator/generation_sol")
     profile_info = get_generator_profile_info(planning)
     gen_info = get_generator_info(planning)
     durations = get_block_durations(planning)
@@ -577,36 +606,31 @@ def check_renewable_curtailment(
     for _, row in gen_info.iterrows():
         gen_uid_name[int(row["uid"])] = row["name"]
 
-    uid_cols = _uid_cols(spill_df)
-    if not uid_cols:
+    # Per-profile curtailment energy = Σ spillover · duration(block).
+    # Per-linked-generator actual energy = Σ generation · duration(block).
+    # Both via streaming aggregators — never materialises the wide
+    # spillover or generation tables in memory.  The old per-row Python
+    # iteration (`for idx, val in df[col].items()` × every uid) was the
+    # second-worst memory + CPU offender after the wide-DF
+    # materialisation itself.
+    spill_energy_per_uid = streaming_sol_weighted_sum_per_uid(spill_ds, durations)
+    gen_energy_per_uid = (
+        streaming_sol_weighted_sum_per_uid(gen_ds, durations) if gen_ds else {}
+    )
+
+    if not spill_energy_per_uid:
         return findings, curtailment_data
 
     total_curtailment_energy = 0.0
     total_potential_energy = 0.0
     per_profile: list[tuple[str, str, float, float, float]] = []
 
-    for col in uid_cols:
-        profile_uid = int(col.split(":")[1])
-        pname = profile_uid_name.get(profile_uid, col)
+    for profile_uid, curtail_energy in spill_energy_per_uid.items():
+        pname = profile_uid_name.get(profile_uid, f"uid:{profile_uid}")
         gen_uid = profile_uid_gen.get(profile_uid, -1)
         gen_name = gen_uid_name.get(gen_uid, f"uid:{gen_uid}")
 
-        # Compute curtailment energy (spillover × duration)
-        curtail_energy = 0.0
-        for idx, val in spill_df[col].items():
-            blk = int(spill_df.at[idx, "block"]) if "block" in spill_df.columns else 0
-            dur = durations.get(blk, 1.0)
-            curtail_energy += float(val) * dur
-
-        # Compute actual generation energy for the linked generator
-        actual_energy = 0.0
-        gen_col = f"uid:{gen_uid}"
-        if gen_df is not None and gen_col in gen_df.columns:
-            for idx, val in gen_df[gen_col].items():
-                blk = int(gen_df.at[idx, "block"]) if "block" in gen_df.columns else 0
-                dur = durations.get(blk, 1.0)
-                actual_energy += float(val) * dur
-
+        actual_energy = gen_energy_per_uid.get(gen_uid, 0.0)
         potential_energy = actual_energy + curtail_energy
         pct = 100 * curtail_energy / potential_energy if potential_energy > 0 else 0.0
 
