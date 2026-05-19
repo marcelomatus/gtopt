@@ -310,97 +310,6 @@ void fix_stage_islands(const auto& collections,
   }
 }
 
-/// @brief Resolve a stage-indexed OptTRealFieldSched to a scalar value.
-///
-/// Handles the three cases: scalar → return directly, vector → index by stage
-/// ordinal index (dense position), FileSched → unsupported (returns 0).
-double resolve_stage_field(const OptTRealFieldSched& field,
-                           StageIndex stage_index)
-{
-  if (!field.has_value()) {
-    return 0.0;
-  }
-  const auto& val = *field;
-  if (std::holds_alternative<Real>(val)) {
-    return std::get<Real>(val);
-  }
-  if (std::holds_alternative<std::vector<Real>>(val)) {
-    const auto& vec = std::get<std::vector<Real>>(val);
-    if (stage_index < std::ssize(vec)) {
-      return vec[stage_index];
-    }
-  }
-  return 0.0;
-}
-
-/// @brief Add emission cap constraint for a (scenario, stage) pair.
-///
-/// If the system options define an emission_cap for this stage, adds a single
-/// constraint row:
-///   sum_g sum_b (emission_factor_g × duration_b × p_{g,b}) <= emission_cap_s
-///
-/// This aggregates across all generators that have a non-zero emission factor.
-///
-/// @note For generators with piecewise heat rate segments and per-segment
-/// fuel_emission_factor, this uses the flat generator emission_factor on the
-/// total generation variable p.  A more accurate formulation would use
-/// per-segment emission coefficients (fuel_emission_factor × heat_rate_k)
-/// on each segment variable δ_k, but that requires cross-collection access
-/// to CommitmentLP segment columns.  TODO: refine when segment-level emission
-/// accounting is needed for emission-cap-binding scenarios.
-void add_emission_cap(const auto& collections,
-                      SystemContext& system_context,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      LinearProblem& lp)
-{
-  const auto stage_cap = resolve_stage_field(
-      system_context.options().emission_cap(), stage.index());
-  if (stage_cap <= 0.0) {
-    return;
-  }
-
-  const auto& generators =
-      std::get<Collection<GeneratorLP>>(collections).elements();
-
-  auto row =
-      SparseRow {
-          .class_name = system_class_name,
-          .constraint_name = emission_cap_constraint_name,
-          .context = make_stage_context(scenario.uid(), stage.uid()),
-      }
-          .less_equal(stage_cap);
-
-  bool has_terms = false;
-
-  for (const auto& gen : generators) {
-    if (!gen.is_active(stage)) {
-      continue;
-    }
-    // `emission_factor` is now per-(stage, block) — sample inside
-    // the per-block loop.  Zero-skip happens per block.
-    const auto& gen_cols = gen.generation_cols_at(scenario, stage);
-    for (const auto& block : stage.blocks()) {
-      const auto it = gen_cols.find(block.uid());
-      if (it == gen_cols.end()) {
-        continue;
-      }
-      const auto ef =
-          gen.param_emission_factor(stage.uid(), block.uid()).value_or(0.0);
-      if (ef <= 0.0) {
-        continue;
-      }
-      const auto coeff = ef * block.duration();
-      row[it->second] = coeff;
-      has_terms = true;
-    }
-  }
-
-  if (has_terms) {
-    std::ignore = lp.add_row(std::move(row));
-  }
-}
-
 /// Build the LinearProblem from collections + flatten it, returning the
 /// flat LP, fingerprint, and the LabelMaker used.  Used by the eager
 /// `create_linear_interface` path (one-shot build at construction).
@@ -499,9 +408,6 @@ constexpr auto flatten_from_collections(auto& collections,
       if (check_islands) {
         fix_stage_islands(collections, scenario, stage, lp);
       }
-
-      // Add system-wide emission cap constraint if configured
-      add_emission_cap(collections, system_context, scenario, stage, lp);
     }
   }
 

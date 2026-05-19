@@ -97,13 +97,9 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // when both are present.  When `fuel` is unset, fall back to the
   // legacy inline schedules (pre-2026-05 behaviour).
   double stage_fuel_cost = 0.0;
-  double stage_fuel_ef = 0.0;
   if (commitment().fuel.has_value()) {
     const auto& fuel_lp = sc.element<FuelLP>(FuelLPSId {*commitment().fuel});
     stage_fuel_cost = fuel_lp.param_price(stage.uid()).value_or(0.0);
-    stage_fuel_ef =
-        fuel_lp.param_combustion_emission_factor(stage.uid()).value_or(0.0)
-        + fuel_lp.param_upstream_emission_factor(stage.uid()).value_or(0.0);
     if (commitment().fuel_cost.has_value()
         || commitment().fuel_emission_factor.has_value())
     {
@@ -116,7 +112,6 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   } else if (has_segments) {
     stage_fuel_cost = fuel_cost_.optval(stage.uid()).value_or(0.0);
-    stage_fuel_ef = fuel_emission_factor_.optval(stage.uid()).value_or(0.0);
   }
 
   // Pre-size per-segment column holders
@@ -124,30 +119,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     segment_cols_.resize(pmax_segs.size());
   }
 
-  // Resolve emission parameters from system options
-  const auto& emission_cost_field = sc.options().emission_cost();
-  // Generator's emission_factor [tCO2/MWh] is used for non-segment cases.
-  // When segments are present and fuel_emission_factor is set,
-  // emission per segment = fuel_emission_factor × heat_rate_k [tCO2/MWh].
-  // `emission_factor` is now per-(stage, block) — sampled below
-  // inside the per-block loop.
-
-  // Evaluate emission_cost as scalar or stage-indexed array
-  double stage_emission_cost = 0.0;
-  if (emission_cost_field.has_value()) {
-    const auto& ec = *emission_cost_field;
-    if (std::holds_alternative<Real>(ec)) {
-      stage_emission_cost = std::get<Real>(ec);
-    } else if (std::holds_alternative<std::vector<Real>>(ec)) {
-      const auto& vec = std::get<std::vector<Real>>(ec);
-      // Stage-schedule arrays are indexed by ordinal stage position,
-      // not by the (arbitrary) stage UID.
-      const auto sidx = static_cast<size_t>(stage.index());
-      if (sidx < vec.size()) {
-        stage_emission_cost = vec[sidx];
-      }
-    }
-  }
+  // Emission cost is no longer wired here — the per-pollutant tax
+  // and cap live on `EmissionZone` (see `emission_zone_lp.cpp`),
+  // which adds its `price · production` term to the objective via
+  // a dedicated bridge column.  Generator dispatch + segment cost
+  // accounting here is fuel-only.
 
   // Resolve startup cost tiers
   const auto opt_hot_cost = commitment().hot_start_cost;
@@ -482,31 +458,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       rdrows[buid] = lp.add_row(std::move(row));
     }
 
-    // Per-(stage, block) emission_factor — sampled inside the loop.
-    const auto block_emission_factor =
-        generator_lp.param_emission_factor(stage.uid(), block.uid())
-            .value_or(0.0);
-
-    // ── Emission cost adder on generation variable ──
-    if (stage_emission_cost > 0.0 && block_emission_factor > 0.0
-        && !has_segments)
-    {
-      const auto emission_adder = CostHelper::block_ecost(
-          scenario, stage, block, stage_emission_cost * block_emission_factor);
-      gcol_ref.cost += emission_adder;
-    }
-
     // ── Piecewise heat rate curve ──
+    //
+    // Segment costs are FUEL-ONLY here.  The per-pollutant tax (if
+    // any) is wired separately through `EmissionZoneLP` — its
+    // `production` bridge column is summed over generator dispatch
+    // segments via `EmissionSourceLP`-injected coefficients on
+    // `Emission/balance` rows.
     if (has_segments && stage_fuel_cost > 0.0) {
       gcol_ref.cost = 0.0;
-
-      const bool use_fuel_ef = stage_fuel_ef > 0.0 && stage_emission_cost > 0.0;
-      double seg_emission_base = 0.0;
-      if (use_fuel_ef) {
-        seg_emission_base = stage_emission_cost * stage_fuel_ef;
-      } else if (stage_emission_cost > 0.0 && block_emission_factor > 0.0) {
-        seg_emission_base = stage_emission_cost * block_emission_factor;
-      }
 
       // Build linking row: p - Pmin·u - Σ δ_k = 0
       auto link_row =
@@ -528,9 +488,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           continue;
         }
 
-        const auto seg_emission =
-            use_fuel_ef ? seg_emission_base * hr_segs[k] : seg_emission_base;
-        const auto seg_marginal = (stage_fuel_cost * hr_segs[k]) + seg_emission;
+        const auto seg_marginal = stage_fuel_cost * hr_segs[k];
         const auto seg_cost =
             CostHelper::block_ecost(scenario, stage, block, seg_marginal);
 

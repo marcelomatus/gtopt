@@ -141,17 +141,6 @@ struct ModelOptions
   /// `source/demand_lp.cpp` and the related deferred-follow-up note.
   OptBool demand_fail_rhs_shift {};
 
-  /// System-wide CO2 emission cost [$/tCO2].
-  /// When set, generators with a non-zero `emission_factor` incur an
-  /// additional objective cost of emission_cost × emission_factor per MWh.
-  OptTRealFieldSched emission_cost {};
-
-  /// System-wide CO2 emission cap [tCO2/year] per stage.
-  /// When set, a constraint is added per stage:
-  ///   sum_g sum_b (emission_factor_g × p_{g,b} × duration_b) ≤ cap_s
-  /// The dual of this constraint is the endogenous carbon price.
-  OptTRealFieldSched emission_cap {};
-
   /// Phase range expression controlling which phases use LP relaxation
   /// (all integer/binary variables become continuous).
   /// Syntax: `"all"`, `"none"` (default), `"0"`, `"1,3:5,8:"`, `":3"`.
@@ -200,8 +189,6 @@ struct ModelOptions
     merge_opt(hydro_use_value, opts.hydro_use_value);
     merge_opt(state_violation_cost, opts.state_violation_cost);
     merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
-    merge_opt(emission_cost, opts.emission_cost);
-    merge_opt(emission_cap, opts.emission_cap);
     merge_opt(continuous_phases, opts.continuous_phases);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
   }
@@ -218,7 +205,6 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_shortage_cost.has_value()
         || hydro_spill_cost.has_value() || hydro_use_value.has_value()
         || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
-        || emission_cost.has_value() || emission_cap.has_value()
         || continuous_phases.has_value() || strict_storage_emin.has_value();
   }
 
@@ -248,8 +234,6 @@ struct ModelOptions
         && covers_opt(hydro_use_value, other.hydro_use_value)
         && covers_opt(state_violation_cost, other.state_violation_cost)
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
-        && covers_opt(emission_cost, other.emission_cost)
-        && covers_opt(emission_cap, other.emission_cap)
         && covers_opt(continuous_phases, other.continuous_phases)
         && covers_opt(strict_storage_emin, other.strict_storage_emin);
   }
