@@ -463,23 +463,23 @@ def _gen_bounds(gdata):
             gdata.get("Production cost curve (MW)", [0, 100]),
             gdata.get("Production cost curve ($)", [0, 1000]),
         )
-    # TEP / Profiled flat-cost schema.  ``Minimum power (MW)`` is
-    # forced to 0: the gtopt invariant is "pmin lives on Commitment,
-    # not on Generator" — ``CommitmentLP::add_to_lp`` reads
-    # ``gen_pmin = lp.get_col_lowb(gcol)`` and then resets
-    # ``gcol.lowb = 0`` (source/commitment_lp.cpp:347-352), migrating
-    # the floor onto a C2 row gated by the binary status ``u`` so it
-    # only binds when the unit is committed.  Profiled / renewable
-    # generators have NO Commitment in our converter, so emitting
-    # ``Generator.pmin > 0`` would leave the static col lower bound
-    # in place and force dispatch ≥ pmin every block regardless of
-    # whether the unit is "running" — that's the wrong semantics for
-    # renewable curtailment (and breaks TEP candidate units where
-    # ``capainst = 0`` forces dispatch = 0 when not built).
+    # TEP / Profiled flat-cost schema.  UC.jl's ``Minimum power (MW)``
+    # for ``Type = "Profiled"`` is a HARD must-run floor (no on/off
+    # commitment to gate it), so we preserve it as the Generator's
+    # static column lower bound.  Profiled gens emit NO Commitment in
+    # our converter, which means ``CommitmentLP::add_to_lp``'s pmin
+    # migration to a u-gated C2 row never fires for them — the static
+    # ``lowb`` stays in place and forces dispatch ≥ pmin every block,
+    # matching UC.jl semantics.
+    #
+    # TEP candidate units (``Investment cost ($) > 0``) need pmin = 0
+    # because ``capainst = 0`` forces dispatch = 0 when not built;
+    # the caller clamps that separately (see ``is_candidate`` branch).
     pmax = float(gdata.get("Maximum power (MW)", 0.0))
+    pmin = float(gdata.get("Minimum power (MW)", 0.0))
     gcost = float(gdata.get("Cost ($/MW)", 0.0))
     # Flat-cost gens (TEP / Profiled): no piecewise → no intercept.
-    return 0.0, pmax, gcost, 0.0, [], []
+    return pmin, pmax, gcost, 0.0, [], []
 
 
 # ---------------------------------------------------------------------------

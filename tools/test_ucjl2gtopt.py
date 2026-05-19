@@ -1353,7 +1353,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-359_391.43, abs=1.0)
+    assert obj == pytest.approx(-358_715.18, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -2573,17 +2573,6 @@ def test_ucjl_golden_case14_flex(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Known divergence: thermal aggregate dispatches differ by ~60 MW "
-        "because gtopt's renewable ``GeneratorProfile`` and UC.jl's "
-        "time-varying capacity profile resolve curtailment differently when "
-        "thermal headroom is tight.  Confirms the converter recognises "
-        "profiled gens but the LP-side semantics differ — investigate when "
-        "revisiting renewable-curtailment cost handling."
-    ),
-)
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")
 def test_ucjl_golden_case14_profiled(tmp_path: Path) -> None:
     """case14/profiled: thermal aggregate matches; renewable gens have no Commitment."""
