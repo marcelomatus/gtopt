@@ -36,6 +36,7 @@ TEST_CASE("EmissionSource JSON round-trip")  // NOLINT
     "name": "ngcc_la_to_global_co2",
     "generator": "ngcc_la",
     "zone": "global_co2",
+    "emission": "co2",
     "rate": 0.4
   })";
 
@@ -59,8 +60,8 @@ TEST_CASE(
           .name = "ngcc_la",
           .emissions =
               {
-                  {.zone = Uid {1}, .rate = 0.4},
-                  {.zone = Uid {2}, .rate = 0.05},
+                  {.zone = Uid {1}, .emission = Uid {1}, .rate = 0.4},
+                  {.zone = Uid {2}, .emission = Uid {2}, .rate = 0.05},
               },
       },
   };
@@ -89,12 +90,10 @@ TEST_CASE(
     "EmissionSource — inline JSON omits uid/name/generator (auto-filled)")  // NOLINT
 {
   // The inline form on Generator.emissions[] is the user ergonomics —
-  // only `zone` and `rate` are needed; uid/name/generator are
-  // auto-filled by `System::expand_emission_sources()`.  Verify that
-  // a bare EmissionSource JSON with only `zone` (and optional `rate`)
-  // parses cleanly.
+  // only `zone`, `emission`, and `rate` are needed; uid/name/generator
+  // are auto-filled by `System::expand_emission_sources()`.
   constexpr std::string_view src = R"({
-    "zone": "global_co2", "rate": 0.4
+    "zone": "global_co2", "emission": "co2", "rate": 0.4
   })";
 
   const auto s = daw::json::from_json<EmissionSource>(src);
@@ -105,6 +104,7 @@ TEST_CASE(
   CHECK(s.name.empty());
   CHECK_FALSE(s.generator.has_value());
   CHECK(std::get<Name>(s.zone) == "global_co2");
+  CHECK(std::get<Name>(s.emission) == "co2");
   REQUIRE(s.rate.has_value());
   CHECK(std::get<Real>(s.rate.value_or(Real {0.0})) == doctest::Approx(0.4));
 }
@@ -118,15 +118,17 @@ TEST_CASE(
     "uid": 1, "name": "ngcc",
     "bus": 1, "gcost": 10.0, "capacity": 200.0,
     "emissions": [
-      {"zone": "global_co2", "rate": 0.4},
-      {"zone": "la_nox",     "rate": 0.05}
+      {"zone": "global_co2", "emission": "co2", "rate": 0.4},
+      {"zone": "la_nox",     "emission": "nox", "rate": 0.05}
     ]
   })";
 
   const auto g = daw::json::from_json<Generator>(src);
   REQUIRE(g.emissions.size() == 2);
   CHECK(std::get<Name>(g.emissions[0].zone) == "global_co2");
+  CHECK(std::get<Name>(g.emissions[0].emission) == "co2");
   CHECK(std::get<Name>(g.emissions[1].zone) == "la_nox");
+  CHECK(std::get<Name>(g.emissions[1].emission) == "nox");
   CHECK(std::get<Real>(g.emissions[0].rate.value_or(Real {0.0}))
         == doctest::Approx(0.4));
 }
@@ -152,11 +154,13 @@ TEST_CASE("EmissionSource survives the System → SystemLP pipeline")  // NOLINT
       .emission_array = {{.uid = Uid {1}, .name = "co2"}},
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "global_co2",
-                               .emission = Uid {1}}},
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
       .emission_source_array = {{.uid = Uid {1},
                                  .name = "g1_co2",
                                  .generator = OptSingleId {Uid {1}},
                                  .zone = Uid {1},
+                                 .emission = Uid {1},
                                  .rate = 0.4}},
   };
 

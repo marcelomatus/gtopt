@@ -1,9 +1,13 @@
 /**
  * @file      json_emission.hpp
- * @brief     JSON serialization for Emission
+ * @brief     JSON serialization for Emission (pollutant tag)
  * @date      2026-05-18
  * @author    marcelo
  * @copyright BSD-3-Clause
+ *
+ * Emission carries only `uid` + `name` + `active`.  Cap / price /
+ * slack moved to `EmissionZone`; per-generator rates moved to
+ * `EmissionSource`.
  */
 
 #pragma once
@@ -18,18 +22,14 @@ using gtopt::Emission;
 template<>
 struct json_data_contract<Emission>
 {
-  using type = json_member_list<
-      json_number<"uid", Uid>,
-      json_string<"name", Name>,
-      json_variant_null<"active", OptActive, jvtl_Active>,
-      json_variant_null<"price", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"cap", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"cap_cost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+  using type =
+      json_member_list<json_number<"uid", Uid>,
+                       json_string<"name", Name>,
+                       json_variant_null<"active", OptActive, jvtl_Active>>;
 
-  constexpr static auto to_json_data(Emission const& obj)
+  constexpr static auto to_json_data(Emission const& e)
   {
-    return std::forward_as_tuple(
-        obj.uid, obj.name, obj.active, obj.price, obj.cap, obj.cap_cost);
+    return std::forward_as_tuple(e.uid, e.name, e.active);
   }
 };
 

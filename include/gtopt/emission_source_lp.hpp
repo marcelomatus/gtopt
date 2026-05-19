@@ -62,10 +62,15 @@ public:
   /// @name Parameter accessors (resolved schedules)
   /// @{
   [[nodiscard]] auto param_rate(StageUid s) const { return rate_.at(s); }
+  [[nodiscard]] auto param_upstream_rate(StageUid s) const
+  {
+    return upstream_rate_.at(s);
+  }
   /// @}
 
 private:
   OptTRealSched rate_;
+  OptTRealSched upstream_rate_;
 };
 
 using EmissionSourceLPSId = ObjectSingleId<EmissionSourceLP>;

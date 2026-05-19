@@ -27,7 +27,7 @@ TEST_CASE("EmissionZone default construction")  // NOLINT
   CHECK(z.uid == Uid {unknown_uid});
   CHECK(z.name.empty());
   CHECK_FALSE(z.active.has_value());
-  CHECK(z.emission == SingleId {unknown_uid});
+  CHECK(z.emissions.empty());
   CHECK_FALSE(z.cap.has_value());
   CHECK_FALSE(z.cap_cost.has_value());
   CHECK_FALSE(z.price.has_value());
@@ -38,20 +38,26 @@ TEST_CASE("EmissionZone attribute assignment")  // NOLINT
   EmissionZone z;
   z.uid = Uid {1};
   z.name = "global_co2";
-  z.emission = Uid {1};
+  z.emissions = {{.emission = Uid {1}, .weight = 1.0}};
   z.cap = 1.0e6;
   z.cap_cost = 1000.0;
   z.price = 50.0;
 
   CHECK(z.name == "global_co2");
-  CHECK(std::get<Uid>(z.emission) == Uid {1});
+  REQUIRE(z.emissions.size() == 1);
+  CHECK(std::get<Uid>(z.emissions.front().emission) == Uid {1});
   REQUIRE(z.cap.has_value());
   REQUIRE(z.cap_cost.has_value());
   REQUIRE(z.price.has_value());
 }
 
-TEST_CASE("EmissionZone JSON round-trip")  // NOLINT
+TEST_CASE(
+    "EmissionZone JSON round-trip — legacy singular `emission` shortcut")  // NOLINT
 {
+  // Legacy single-pollutant form auto-folds into `emissions[]` with
+  // weight 1.0.  This preserves backward compat with the pre-multi-
+  // pollutant JSON shape that's still in test fixtures and existing
+  // case files.
   constexpr std::string_view src = R"({
     "uid": 1,
     "name": "global_co2",
@@ -63,7 +69,9 @@ TEST_CASE("EmissionZone JSON round-trip")  // NOLINT
 
   const auto z = daw::json::from_json<EmissionZone>(src);
   CHECK(z.name == "global_co2");
-  CHECK(std::get<Name>(z.emission) == "co2");
+  REQUIRE(z.emissions.size() == 1);
+  CHECK(std::get<Name>(z.emissions.front().emission) == "co2");
+  CHECK(z.emissions.front().weight.value_or(0.0) == doctest::Approx(1.0));
   REQUIRE(z.cap.has_value());
   CHECK(std::get<Real>(z.cap.value_or(Real {0.0})) == doctest::Approx(1.0e6));
 
@@ -110,7 +118,8 @@ TEST_CASE("EmissionZone survives the System → SystemLP pipeline")  // NOLINT
       .emission_array = {{.uid = Uid {1}, .name = "co2"}},
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "global_co2",
-                               .emission = Uid {1},
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}},
                                .cap = 1.0e6,
                                .cap_cost = 1000.0,
                                .price = 50.0}},
@@ -136,10 +145,14 @@ TEST_CASE("System::merge concatenates emission_zone_array")  // NOLINT
 {
   System a;
   a.emission_zone_array = {
-      {.uid = Uid {1}, .name = "global_co2", .emission = Uid {1}}};
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
   System b;
   b.emission_zone_array = {
-      {.uid = Uid {2}, .name = "la_nox", .emission = Uid {2}}};
+      {.uid = Uid {2},
+       .name = "la_nox",
+       .emissions = {{.emission = Uid {2}, .weight = 1.0}}}};
 
   a.merge(std::move(b));
   REQUIRE(a.emission_zone_array.size() == 2);
@@ -182,11 +195,13 @@ TEST_CASE(
       .emission_array = {{.uid = Uid {1}, .name = "co2"}},
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "global_co2",
-                               .emission = Uid {1}}},
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
       .emission_source_array = {{.uid = Uid {1},
                                  .name = "g1_co2",
                                  .generator = OptSingleId {Uid {1}},
                                  .zone = Uid {1},
+                                 .emission = Uid {1},
                                  .rate = rate}},
   };
 
@@ -255,13 +270,15 @@ TEST_CASE("EmissionZoneLP soft cap binds + slack penalises")  // NOLINT
       // 5 forces slack = 15.
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "global_co2",
-                               .emission = Uid {1},
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}},
                                .cap = 5.0,
                                .cap_cost = 100.0}},
       .emission_source_array = {{.uid = Uid {1},
                                  .name = "g1_co2",
                                  .generator = OptSingleId {Uid {1}},
                                  .zone = Uid {1},
+                                 .emission = Uid {1},
                                  .rate = 0.4}},
   };
 
@@ -292,4 +309,140 @@ TEST_CASE("EmissionZoneLP soft cap binds + slack penalises")  // NOLINT
   const auto prod_col = prod_cols.at(st_key).at(blk_uid);
   const auto col_sol = lp.get_col_sol();
   CHECK(col_sol[prod_col] == doctest::Approx(20.0).epsilon(1e-9));
+}
+
+TEST_CASE(
+    "EmissionZone multi-pollutant GHG basket — CO₂ + CH₄ weighted")  // NOLINT
+{
+  // GHG basket: zone covers both CO₂ (weight 1.0) and CH₄ (GWP-100 = 27.9).
+  // Two sources on the same generator, one per pollutant.
+  // Expected: production_sol = 1.0 * (0.4 * 50 * 1) + 27.9 * (0.003 * 50 * 1)
+  //                          = 20.0 + 4.185 = 24.185 tCO₂-eq.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "GhgBasket",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1000.0,
+                        .capacity = 50.0}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "ngcc",
+                           .bus = Uid {1},
+                           .gcost = 10.0,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"},
+                         {.uid = Uid {2}, .name = "ch4"}},
+      .emission_zone_array =
+          {{.uid = Uid {1},
+            .name = "ghg_basket",
+            .emissions = {{.emission = Uid {1}, .weight = 1.0},
+                          {.emission = Uid {2}, .weight = 27.9}}}},
+      .emission_source_array =
+          {
+              {.uid = Uid {1},
+               .name = "ngcc_co2",
+               .generator = OptSingleId {Uid {1}},
+               .zone = Uid {1},
+               .emission = Uid {1},
+               .rate = 0.4},
+              {.uid = Uid {2},
+               .name = "ngcc_ch4",
+               .generator = OptSingleId {Uid {1}},
+               .zone = Uid {1},
+               .emission = Uid {2},
+               .rate = 0.003},
+          },
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  const auto& zones = system_lp.elements<EmissionZoneLP>();
+  REQUIRE(zones.size() == 1);
+  const auto& zone = zones.front();
+  const auto& prod_cols = zone.production_cols();
+  const auto scen_uid = simulation_lp.scenarios().front().uid();
+  const auto stg = simulation_lp.stages().front();
+  const auto stg_uid = stg.uid();
+  const auto blk_uid = stg.blocks().front().uid();
+  const auto prod_col =
+      prod_cols.at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
+
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[prod_col]
+        == doctest::Approx(20.0 + 27.9 * 0.003 * 50.0).epsilon(1e-9));
+}
+
+TEST_CASE(
+    "EmissionZone — combustion + upstream (WTT) sum into balance")  // NOLINT
+{
+  // Single CO₂ zone, single source with BOTH combustion AND upstream
+  // rates set.  Verify production_sol = (rate + upstream_rate) × gen × dur.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const double comb_rate = 0.4;  // tank-to-stack
+  const double upstream_rate = 0.05;  // well-to-tank
+  const double gen_sol = 50.0;
+
+  const System system = {
+      .name = "WttPlusTtw",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1000.0,
+                        .capacity = gen_sol}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = 10.0,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "lifecycle_co2",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = comb_rate,
+                                 .upstream_rate = upstream_rate}},
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  const auto& zone = system_lp.elements<EmissionZoneLP>().front();
+  const auto scen_uid = simulation_lp.scenarios().front().uid();
+  const auto stg = simulation_lp.stages().front();
+  const auto stg_uid = stg.uid();
+  const auto blk_uid = stg.blocks().front().uid();
+  const auto prod_col =
+      zone.production_cols().at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
+
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[prod_col]
+        == doctest::Approx((comb_rate + upstream_rate) * gen_sol * 1.0)
+               .epsilon(1e-9));
 }
