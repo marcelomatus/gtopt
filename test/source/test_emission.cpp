@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Tests for the `Emission` pollutant entity and its `EmissionLP`
-// parameter-carrier wrapper (Commit 1 — passive registry only).
-//
-// `Emission` is a top-level entity introduced 2026-05-18 representing
-// a single pollutant (e.g. CO₂, SO₂, NOₓ).  It carries optional
-// stage-schedulable `price` ($/ton), `cap` (tons/stage), and
-// `cap_cost` ($/ton penalty over cap).  `EmissionLP` resolves the
-// three schedules at construction; it contributes NO LP variables or
-// rows on its own in Commit 1.  Cap-row and price-coefficient wiring
-// is deferred to Commit 4 alongside the per-fuel `emission_factors[]`
-// table on `Fuel`.
+// Tests for the `Emission` pollutant tag (registry only — no LP
+// rows / columns).  Cap / price / slack moved to `EmissionZone` and
+// per-generator rates to `EmissionSource` (see test_emission_zone.cpp
+// and test_emission_source.cpp for the LP-active surface).
 
 #include <daw/json/daw_json_link.h>
 #include <doctest/doctest.h>
@@ -31,9 +24,6 @@ TEST_CASE("Emission default construction")  // NOLINT
   CHECK(e.uid == Uid {unknown_uid});
   CHECK(e.name.empty());
   CHECK_FALSE(e.active.has_value());
-  CHECK_FALSE(e.price.has_value());
-  CHECK_FALSE(e.cap.has_value());
-  CHECK_FALSE(e.cap_cost.has_value());
 }
 
 TEST_CASE("Emission attribute assignment")  // NOLINT
@@ -42,67 +32,46 @@ TEST_CASE("Emission attribute assignment")  // NOLINT
   e.uid = Uid {42};
   e.name = "co2";
   e.active = true;
-  e.price = 50.0;  // $/tCO2
-  e.cap = 1.0e6;  // tons / stage
-  e.cap_cost = 1000.0;  // $/ton above cap
 
   CHECK(e.uid == Uid {42});
   CHECK(e.name == "co2");
   REQUIRE(e.active.has_value());
   CHECK(std::get<IntBool>(e.active.value_or(Active {False})) == 1);
-  REQUIRE(e.price.has_value());
-  CHECK(std::get<Real>(e.price.value_or(Real {0.0})) == doctest::Approx(50.0));
-  REQUIRE(e.cap.has_value());
-  CHECK(std::get<Real>(e.cap.value_or(Real {0.0})) == doctest::Approx(1.0e6));
-  REQUIRE(e.cap_cost.has_value());
-  CHECK(std::get<Real>(e.cap_cost.value_or(Real {0.0}))
-        == doctest::Approx(1000.0));
 }
 
-TEST_CASE("Emission JSON round-trip")  // NOLINT
+TEST_CASE("Emission JSON round-trip — minimal pollutant tag")  // NOLINT
 {
   constexpr std::string_view src = R"({
     "uid": 7,
-    "name": "co2",
-    "price": 60.0,
-    "cap": 5.0e5,
-    "cap_cost": 2000.0
+    "name": "co2"
   })";
 
   const auto e = daw::json::from_json<Emission>(src);
   CHECK(e.uid == Uid {7});
   CHECK(e.name == "co2");
-  REQUIRE(e.price.has_value());
-  CHECK(std::get<Real>(e.price.value_or(Real {0.0})) == doctest::Approx(60.0));
-  REQUIRE(e.cap.has_value());
-  CHECK(std::get<Real>(e.cap.value_or(Real {0.0})) == doctest::Approx(5.0e5));
 
-  // Re-emit and re-parse to confirm field-key naming survives.
+  // Re-emit and re-parse — the minimal shape survives.
   const auto rendered = daw::json::to_json(e);
   const auto e2 = daw::json::from_json<Emission>(rendered);
   CHECK(e2.uid == e.uid);
   CHECK(e2.name == e.name);
 }
 
-TEST_CASE("Emission JSON — partial (only name + cap)")  // NOLINT
+TEST_CASE("Emission JSON — minimal (only uid + name)")  // NOLINT
 {
   constexpr std::string_view src = R"({
     "uid": 9,
-    "name": "so2",
-    "cap": 100.0
+    "name": "so2"
   })";
 
   const auto e = daw::json::from_json<Emission>(src);
   CHECK(e.name == "so2");
-  CHECK_FALSE(e.price.has_value());
-  REQUIRE(e.cap.has_value());
-  CHECK_FALSE(e.cap_cost.has_value());
+  CHECK_FALSE(e.active.has_value());
 }
 
 TEST_CASE("Emission survives the System → SystemLP pipeline")  // NOLINT
 {
-  // Build a trivially-feasible single-bus system with an Emission row.
-  // EmissionLP is passive in Commit 1, so its presence must NOT
+  // Pollutant tag is passive — its presence in the system must NOT
   // affect feasibility, row/col counts, or objective.
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
@@ -120,11 +89,7 @@ TEST_CASE("Emission survives the System → SystemLP pipeline")  // NOLINT
                            .bus = Uid {1},
                            .gcost = 10.0,
                            .capacity = 200.0}},
-      .emission_array = {{.uid = Uid {1},
-                          .name = "co2",
-                          .price = 50.0,
-                          .cap = 1.0e6,
-                          .cap_cost = 1000.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
   };
 
   const PlanningOptionsLP options;
@@ -149,7 +114,7 @@ TEST_CASE(
   constexpr std::string_view src = R"({
     "name": "EmRound",
     "emission_array": [
-      {"uid": 1, "name": "co2", "price": 50.0},
+      {"uid": 1, "name": "co2"},
       {"uid": 2, "name": "so2"}
     ]
   })";
@@ -158,61 +123,18 @@ TEST_CASE(
   REQUIRE(sys.emission_array.size() == 2);
   CHECK(sys.emission_array[0].name == "co2");
   CHECK(sys.emission_array[1].name == "so2");
-  CHECK_FALSE(sys.emission_array[1].price.has_value());
 
-  // Re-emit, re-parse — the new top-level key survives.
+  // Re-emit, re-parse.
   const auto rendered = daw::json::to_json(sys);
   const auto sys2 = daw::json::from_json<System>(rendered);
   REQUIRE(sys2.emission_array.size() == 2);
   CHECK(sys2.emission_array[0].name == "co2");
 }
 
-TEST_CASE("EmissionLP — schedule accessors resolve per-stage values")  // NOLINT
-{
-  // Smoke test for the param_* accessors that downstream Commit 2/4
-  // wiring will call on a per-stage basis.  Builds an EmissionLP via
-  // the same System → SystemLP path the production code uses (so the
-  // InputContext / schedule resolution flow matches), then reads the
-  // resolved schedule values back out.
-  const Simulation simulation = {
-      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}},
-  };
-  const System system = {
-      .name = "EmissionParamTest",
-      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
-      .demand_array =
-          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 50.0}},
-      .generator_array = {{.uid = Uid {1},
-                           .name = "g1",
-                           .bus = Uid {1},
-                           .gcost = 10.0,
-                           .capacity = 200.0}},
-      .emission_array = {{.uid = Uid {1},
-                          .name = "co2",
-                          .price = 75.0,
-                          .cap = 12345.0,
-                          .cap_cost = 999.0}},
-  };
-
-  const PlanningOptionsLP options;
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
-
-  const auto& emissions = system_lp.elements<EmissionLP>();
-  REQUIRE(emissions.size() == 1);
-  const auto& e_lp = emissions.front();
-  const auto sid = simulation_lp.stages().front().uid();
-  CHECK(e_lp.param_price(sid).value_or(0.0) == doctest::Approx(75.0));
-  CHECK(e_lp.param_cap(sid).value_or(0.0) == doctest::Approx(12345.0));
-  CHECK(e_lp.param_cap_cost(sid).value_or(0.0) == doctest::Approx(999.0));
-}
-
 TEST_CASE("System::merge preserves both emission_array rows")  // NOLINT
 {
   System a;
-  a.emission_array = {{.uid = Uid {1}, .name = "co2", .price = 50.0}};
+  a.emission_array = {{.uid = Uid {1}, .name = "co2"}};
   System b;
   b.emission_array = {{.uid = Uid {2}, .name = "so2"}};
 

@@ -307,7 +307,13 @@ class BaseWriter(ABC):
         item_number: int | str,
         options: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Get and validate compression option from writer options."""
+        """Build the parquet column name for an item.
+
+        Returns ``uid:<N>`` by default; when ``use_uid_label`` is False
+        in *options*, returns ``<name>:<N>`` instead.  A string
+        *item_number* is returned verbatim (used by demand-style writers
+        whose UID is the bus name).
+        """
         if options is None:
             options = self.options
 

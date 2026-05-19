@@ -4,6 +4,8 @@ import textwrap
 from unittest.mock import MagicMock
 
 import numpy as np
+import pyarrow.parquet as pq
+import pytest
 
 from plp2gtopt.aperture_writer import (
     ApertureResult,
@@ -326,3 +328,84 @@ class TestWriteApertureAfluents:
         )
         parquet_files = list((tmp_path / "Flow").glob("*.parquet"))
         assert len(parquet_files) == 1
+
+    def test_writes_parquet_schema_and_values(self, tmp_path):
+        """Parquet emitted by ``write_aperture_afluents`` has the exact
+        schema ``stage | block | uid:<scenario_uid>`` and the value column
+        matches the extra-hydro slice of the flow matrix."""
+        flow_matrix = np.array(
+            [[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]], dtype=np.float64
+        )
+        aflce_item = {
+            "name": "CENTRAL1",
+            "flow": flow_matrix,
+            "block": np.array([1, 2]),
+        }
+        aflce_parser = MagicMock()
+        aflce_parser.items = [aflce_item]
+
+        central_parser = MagicMock()
+        block_parser = MagicMock()
+        block_parser.items = [
+            {"number": 1, "stage": 1},
+            {"number": 2, "stage": 1},
+        ]
+
+        write_aperture_afluents(
+            aflce_parser=aflce_parser,
+            central_parser=central_parser,
+            block_parser=block_parser,
+            aperture_hydros=[0, 2],  # 0-based: hydro 0 is forward, 2 is extra
+            forward_hydros={0},
+            output_dir=tmp_path,
+            options={"output_format": "parquet", "compression": "snappy"},
+            hydro_uid_map={2: 3},
+        )
+
+        tbl = pq.read_table(tmp_path / "Flow" / "CENTRAL1.parquet")
+        names = tbl.schema.names
+        assert "stage" in names
+        assert "block" in names
+        assert "uid:3" in names, (
+            f"expected 'uid:3' (from hydro_uid_map={{2:3}}); got {names}"
+        )
+        assert tbl.num_rows == 2
+
+        # block_parser items put block 1 and 2 both at stage 1 → stage col = [1,1]
+        assert tbl.column("stage").to_pylist() == [1, 1]
+        assert tbl.column("block").to_pylist() == [1, 2]
+        # extra hydro is index 2 (0-based) → flow_matrix[:,2] = [30.0, 60.0]
+        assert tbl.column("uid:3").to_pylist() == pytest.approx([30.0, 60.0])
+
+
+# ---------------------------------------------------------------------------
+# build_aperture_array — fallback path renormalises probability_factor
+# ---------------------------------------------------------------------------
+
+
+def test_build_aperture_array_fallback_renormalises_probabilities(tmp_path):
+    """When num_stages filter drops every stage entry, the first-entry
+    fallback path must still leave ``probability_factor`` summing to 1.0
+    across the surviving apertures (re-normalisation step)."""
+    content = textwrap.dedent("""\
+        # Archivo de caudales
+        # Numero de etapas
+              2
+        # Mes  Etapa  NApert  ApertInd
+           001   005    2   10   20
+           002   006    2   10   20
+    """)
+    p = tmp_path / "plpidap2.dat"
+    p.write_text(content)
+    parser = IdAp2Parser(p)
+    parser.parse()
+
+    # num_stages=2 but entries have stage 5 and 6 → forces fallback to
+    # first entry; both hydros (10, 20) are mapped to forward scenarios.
+    scenario_hydro_map = {9: 1, 19: 2}
+    res = build_aperture_array(parser, scenario_hydro_map, num_stages=2)
+    total = sum(a["probability_factor"] for a in res.aperture_array)
+    assert total == pytest.approx(1.0)
+    # 2 surviving apertures → 0.5 each
+    for ap in res.aperture_array:
+        assert ap["probability_factor"] == pytest.approx(0.5)

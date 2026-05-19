@@ -169,6 +169,20 @@ private:
   /// columns.  Outer vector has size `K - 1` where `K` is the number
   /// of heat-rate segments.  Empty when no segments are configured.
   std::vector<STBIndexHolder<ColIndex>> heat_rate_slack_cols_;
+
+  /// Cached per-block cost-stack components (physical $/MWh, source-
+  /// schedule path — Path A in the design doc).  Populated during
+  /// `add_to_lp` and emitted as
+  /// `Generator/{vom_cost,fuel_cost,srmc}_sol.parquet` by `add_to_output`.
+  /// PLEXOS-aligned naming:
+  ///   - VOM Cost: `Generator.gcost(stage, block)`.
+  ///   - Fuel Cost: `heat_rate · fuel.price` (primary segment for piecewise).
+  ///   - SRMC: VOM + Fuel (Short-Run Marginal Cost; matches the
+  ///     coefficient on the primary generation column).  Emission
+  ///     tax adds in via EmissionZone.price on a separate column.
+  STBIndexHolder<double> vom_cost_values_;
+  STBIndexHolder<double> fuel_cost_values_;
+  STBIndexHolder<double> srmc_values_;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;

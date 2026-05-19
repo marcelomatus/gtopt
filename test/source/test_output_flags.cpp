@@ -195,19 +195,47 @@ TEST_CASE(
   REQUIRE(result.has_value());
   system_lp.write_out();
 
-  // With CSV format, each field lands under Generator/ as a separate shard.
-  // With solution-only, shards ending in "_sol_*" must exist while "_dual_*"
-  // and "_cost_*" must not.
+  // With CSV format, each field lands under Generator/ as a separate
+  // shard.  Filenames follow the convention `<col>_<tier>_<scen>_<stg>.csv`
+  // where tier ∈ {sol, dual, cost}.  Column names may themselves
+  // contain `_cost` (e.g. `vom_cost`, `fuel_cost`) — so we identify
+  // the tier by its POSITION (third-from-last `_`-separated token of
+  // the stem), not a substring match.
+  const auto tier_of = [](const std::string& filename) -> std::string
+  {
+    auto stem = filename;
+    if (const auto dot = stem.find_last_of('.'); dot != std::string::npos) {
+      stem = stem.substr(0, dot);
+    }
+    // Stem layout: <col>_<tier>_<scen>_<stg> → split on `_` and take
+    // the third-from-last token.
+    std::vector<std::string> parts;
+    std::string token;
+    for (auto c : stem) {
+      if (c == '_') {
+        parts.push_back(std::move(token));
+        token.clear();
+      } else {
+        token.push_back(c);
+      }
+    }
+    parts.push_back(std::move(token));
+    if (parts.size() < 3) {
+      return {};
+    }
+    return parts[parts.size() - 3];
+  };
+
   const auto gen_dir = tmpdir / "Generator";
   REQUIRE(std::filesystem::exists(gen_dir));
   bool saw_sol = false;
   bool saw_dual_or_cost = false;
   for (const auto& entry : std::filesystem::directory_iterator(gen_dir)) {
     const auto name = entry.path().filename().string();
-    if (name.contains("_sol_")) {
+    const auto tier = tier_of(name);
+    if (tier == "sol") {
       saw_sol = true;
-    }
-    if (name.contains("_dual_") || name.contains("_cost_")) {
+    } else if (tier == "dual" || tier == "cost") {
       saw_dual_or_cost = true;
     }
   }

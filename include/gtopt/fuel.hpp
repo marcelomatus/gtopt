@@ -70,6 +70,41 @@ namespace gtopt
 {
 
 /**
+ * @struct FuelEmissionFactor
+ * @brief Per-pollutant emission factors of a `Fuel` (tons / fuel-unit).
+ *
+ * A single fuel emits multiple pollutants — CO₂, SO₂, NOₓ, CH₄, …
+ * Each pollutant has its own combustion (tank-to-stack) and optional
+ * upstream (well-to-tank) factor in the same per-fuel-unit basis that
+ * `Fuel.price` and `Fuel.heat_content` use.  Naming follows IPCC
+ * AR6 / EPA AP-42 / GHG Protocol terminology.
+ *
+ * When a `Generator.fuel` reference + a non-null `Generator.heat_rate`
+ * are both set, the fuel-derived per-MWh emission rate becomes
+ *   `heat_rate · combustion`  [tons / MWh] — combustion path
+ *   `heat_rate · upstream`    [tons / MWh] — upstream path (optional)
+ * and is added to the matching `EmissionSource`'s `rate` /
+ * `upstream_rate` at LP-build time (additive, NOT replacing).
+ */
+struct FuelEmissionFactor
+{
+  /// FK to the `Emission` pollutant this factor describes.
+  SingleId emission {unknown_uid};
+
+  /// Combustion / tank-to-stack factor `[tons emission / fuel-unit]`,
+  /// stage-schedulable.  The amount released at the burner per unit
+  /// of fuel.  PLEXOS calls this `Emission Production Rate`; SDDP
+  /// `Coeficiente de Emissão`; IPCC `combustion emission factor`.
+  OptTRealFieldSched combustion {};
+
+  /// Upstream / well-to-tank factor `[tons emission / fuel-unit]`,
+  /// stage-schedulable.  Emissions released producing + transporting
+  /// the fuel.  Optional — set for full lifecycle (well-to-burner-tip)
+  /// accounting; leave unset for stack-only (Scope 1) accounting.
+  OptTRealFieldSched upstream {};
+};
+
+/**
  * @struct Fuel
  * @brief Time-schedulable fuel price, heat content, and emission factors
  *
@@ -104,13 +139,24 @@ struct Fuel
   /// reporting can convert correctly.
   OptTRealFieldSched heat_content {};
 
-  /// Combustion ("stack" / direct / tank-to-stack) emission factor
-  /// `[tCO₂/<fuel_unit>]`, stage-schedulable.
+  /// **Legacy single-pollutant** combustion CO₂ factor
+  /// `[tCO₂/<fuel_unit>]`.  Auto-folded by
+  /// `System::fold_legacy_fuel_emission_factors()` into
+  /// `emission_factors[]` (matching emission "co2") at parse time
+  /// and cleared.  Prefer the new `emission_factors[]` for new
+  /// configs — it supports multi-pollutant.
   OptTRealFieldSched combustion_emission_factor {};
 
-  /// Upstream ("well-to-tank" / pre-combustion / fuel-cycle) emission
-  /// factor `[tCO₂/<fuel_unit>]`, stage-schedulable.
+  /// **Legacy single-pollutant** upstream CO₂ factor — same fold path
+  /// as `combustion_emission_factor`.
   OptTRealFieldSched upstream_emission_factor {};
+
+  /// Multi-pollutant per-fuel emission factors.  One row per
+  /// `Emission` kind, with optional combustion + upstream factors.
+  /// Combines with `Generator.heat_rate` at LP-build to inject
+  /// per-block coefficients into the matching pollutant's
+  /// `EmissionZone/balance` row.
+  Array<FuelEmissionFactor> emission_factors {};
 };
 
 }  // namespace gtopt
