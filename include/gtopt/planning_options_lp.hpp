@@ -681,7 +681,32 @@ public:
   /// Bound to CLI `--write-out` and JSON `write_out`.
   [[nodiscard]] auto write_out() const noexcept -> OutputSelection
   {
-    return m_options_.write_out.value_or(OutputSelection {OutputFlags::all});
+    // Default emits every primal solution + every dual everywhere, and
+    // reduced costs ONLY on Generator and Line — the union of what
+    // every current consumer reads:
+    //   * `gtopt_marginal_units` → Generator/generation_cost.
+    //   * `gtopt_check_output`   → since the rc-based cost-breakdown
+    //                              bug was fixed, no rc stream is
+    //                              needed; sol × coefficient suffices.
+    //   * `gtopt_results_summary` → Generator/generation_cost.
+    //   * `gtopt_compare`         → sol only.
+    // Line is included in the rc scope because the marginal-units
+    // pipeline documents it as part of the recommended recipe (kept
+    // forward-compat for any future congestion-rent analysis that may
+    // want flowp_cost / flown_cost — both currently emit only when the
+    // line has overload slacks, so cost is near-zero on typical cases).
+    // Extras (heat-rate slacks, vom/fuel decomposition, line losses,
+    // overload slacks, capacity duals) stay off by default; opt in via
+    // `--write-out all` or `--write-out ...,extras` /
+    // `...,extras:Generator`.
+    if (m_options_.write_out.has_value()) {
+      return *m_options_.write_out;
+    }
+    OutputSelection sel;
+    sel.atoms =
+        OutputFlags::solution | OutputFlags::dual | OutputFlags::reduced_cost;
+    sel.rc_classes = {"Generator", "Line"};
+    return sel;
   }
 
   /**

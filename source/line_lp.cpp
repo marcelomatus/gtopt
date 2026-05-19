@@ -530,20 +530,26 @@ bool LineLP::add_to_output(OutputContext& out) const
   }
 
   // Loss solutions: piecewise / bidirectional only.  none / linear /
-  // piecewise_direct don't create loss vars so these are no-ops.
-  out.add_col_sol(cname, LosspName, pid, lossp_cols);
-  out.add_col_sol(cname, LossnName, pid, lossn_cols);
+  // piecewise_direct don't create loss vars so these are no-ops.  No
+  // current consumer reads per-line losses — congestion analysis works
+  // off the net flow (already in flowp/flown_sol).  Demoted to
+  // `extras`; opt in via `--write-out ...,extras:Line`.
+  out.add_col_sol_extras(cname, LosspName, pid, lossp_cols);
+  out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
 
   // Overload-slack solutions and costs: only populated when the
   // soft-cap feature is active for this line (see `add_to_lp`).
   // No-op for lines without `tmax_normal_*` + `overload_penalty`.
+  // Used today only by audits that look for "did the LP violate the
+  // soft tmax_normal cap?" — `extras`-gated so the default footprint
+  // doesn't pay for them on cases where the feature is unused.
   if (!overloadp_cols.empty()) {
-    out.add_col_sol(cname, OverloadpName, pid, overloadp_cols);
-    out.add_col_cost(cname, OverloadpName, pid, overloadp_cols);
+    out.add_col_sol_extras(cname, OverloadpName, pid, overloadp_cols);
+    out.add_col_cost_extras(cname, OverloadpName, pid, overloadp_cols);
   }
   if (!overloadn_cols.empty()) {
-    out.add_col_sol(cname, OverloadnName, pid, overloadn_cols);
-    out.add_col_cost(cname, OverloadnName, pid, overloadn_cols);
+    out.add_col_sol_extras(cname, OverloadnName, pid, overloadn_cols);
+    out.add_col_cost_extras(cname, OverloadnName, pid, overloadn_cols);
   }
 
   return CapacityBase::add_to_output(out);

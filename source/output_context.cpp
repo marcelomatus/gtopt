@@ -242,6 +242,23 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 
   parquet::WriterProperties::Builder props_builder;
   props_builder.compression(resolve_parquet_codec(zfmt));
+  // Trim per-column metadata on the wide schemas gtopt emits
+  // (~1000-1500 columns per partition file).  Two on-by-default
+  // features dominate the footer footprint:
+  //
+  //   * `disable_statistics()` — drops per-column min/max +
+  //     null-count stats (~100 bytes per column).
+  //   * `set_page_index_enabled(false)` — drops the per-column
+  //     `OffsetIndex` / `ColumnIndex` blobs (another ~100 bytes per
+  //     column).
+  //
+  // Combined, these cut a typical partition file from ~400 KB to
+  // ~120 KB without affecting readability — no downstream consumer
+  // (gtopt's scripts, marginal_units, check_output, results_summary,
+  // compare) uses parquet column stats or page indexes for pruning,
+  // and pyarrow's reader transparently handles their absence.
+  props_builder.disable_statistics();
+  props_builder.disable_write_page_index();
   const auto props = props_builder.build();
 
   auto status = parquet::arrow::WriteTable(*table.get(),

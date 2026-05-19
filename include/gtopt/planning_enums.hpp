@@ -374,7 +374,17 @@ enum class OutputFlags : uint8_t
   solution = 1U,
   dual = 2U,
   reduced_cost = 4U,
-  all = 7U,  // solution | dual | reduced_cost
+  /// Opt-in atom for streams that no current consumer reads but
+  /// that may be useful for future audits / debugging.  Today this
+  /// gates Generator's `capacity_dual`, `heat_rate_slack_sol/cost`,
+  /// `vom_cost_sol`, `fuel_cost_sol`; and Line's piecewise-segment
+  /// `flowp/flown` slices, `lossp/lossn_sol`,
+  /// `overloadp/overloadn_sol/cost`.  Default `write_out` is
+  /// `solution | dual | reduced_cost` (extras excluded); pass
+  /// `--write-out all` or `--write-out sol,dual,rc,extras` to opt
+  /// in.
+  extras = 8U,
+  all = 15U,  // solution | dual | reduced_cost | extras
 };
 
 [[nodiscard]] constexpr auto operator|(OutputFlags a, OutputFlags b) noexcept
@@ -421,6 +431,8 @@ inline constexpr auto output_flags_entries =
         {.name = "rcost", .value = OutputFlags::reduced_cost, .is_alias = true},
         {.name = "rc", .value = OutputFlags::reduced_cost, .is_alias = true},
         {.name = "cost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "extras", .value = OutputFlags::extras},
+        {.name = "extra", .value = OutputFlags::extras, .is_alias = true},
         {.name = "all", .value = OutputFlags::all},
     });
 
@@ -526,6 +538,7 @@ struct OutputSelection
   std::vector<std::string> sol_classes {};
   std::vector<std::string> dual_classes {};
   std::vector<std::string> rc_classes {};
+  std::vector<std::string> extra_classes {};
 
   /// Construct with no atoms and no scope — matches a default
   /// `OutputFlags::none`.
@@ -575,6 +588,8 @@ struct OutputSelection
         return dual_classes;
       case OutputFlags::reduced_cost:
         return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
       default:
         // Aliases (`all`, `none`) and unknown bits never hit this path
         // — the parser breaks them into atom-bit components first.
@@ -592,6 +607,8 @@ struct OutputSelection
         return dual_classes;
       case OutputFlags::reduced_cost:
         return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
       default:
         return rc_classes;
     }

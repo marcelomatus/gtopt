@@ -368,22 +368,122 @@ def compute_lmp_statistics(results_dir: Path, planning: dict) -> list[Finding]:
     return findings
 
 
+def _per_block_durations(planning: dict, df: pd.DataFrame) -> pd.Series:
+    """Map each row's `block` column to its duration (hours)."""
+    block_dur = get_block_durations(planning)
+    if "block" in df.columns:
+        return df["block"].map(block_dur).fillna(1.0).astype(float)
+    return pd.Series(1.0, index=df.index, dtype=float)
+
+
+def _scalar_from_planning_field(value: object, fallback: float = 0.0) -> float:
+    """Extract a scalar from a planning-JSON cost field.  Returns
+    `fallback` when the field is a parquet file reference, a TB
+    schedule, or anything other than a single number — those need
+    per-(stage, block) handling which the cost breakdown does not
+    attempt (file references would also force loading per-element
+    parquets, which is out of scope for this top-level summary)."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    return fallback
+
+
 def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
-    """Break down total cost by component."""
+    """Total system cost broken down by component.
+
+    Each component is computed from the LP primal solution multiplied
+    by its cost coefficient and the block duration:
+
+        cost_component = Σ_{s,t,b,uid}
+            sol(s,t,b,uid) · coefficient(uid, s,t,b) · duration(b)
+
+    Earlier versions summed the per-column REDUCED COSTS from
+    `*_cost.parquet`.  That is wrong: for an interior basic LP column
+    the reduced cost is zero by complementary slackness, so summing
+    rcs systematically understates the real component cost (and the
+    "total system cost" headline never matched the LP objective).
+    Switching to `sol × coefficient × duration` also lets this check
+    work without the per-element reduced-cost streams, so a leaner
+    `--write-out` flag is enough to produce a correct breakdown.
+
+    Cost coefficients sourced from the planning JSON:
+      * Generator → uses `Generator/srmc_sol.parquet` (already in
+        physical $/MWh and segment-aware for piecewise heat rate).
+      * Demand    → `model_options.demand_fail_cost` (per-system
+        scalar) times `Demand/fail_sol.parquet`.
+      * Line      → `tcost` per line (scalar or skipped if file-ref).
+
+    Fields stored as a parquet file reference / per-(stage, block)
+    schedule are treated as zero contribution here — they need
+    per-block resolution that the top-level cost summary does not
+    attempt.  The full per-block cost surface is still recoverable
+    downstream by joining `*_sol` with the corresponding cost
+    schedule (or, for Generator, by reading `vom_cost_sol` and
+    `fuel_cost_sol` opt-in via `--write-out extras`).
+    """
     findings: list[Finding] = []
     components: dict[str, float] = {}
 
-    for stem, label in [
-        ("Generator/generation_cost", "generation"),
-        ("Demand/fail_cost", "load shedding penalty"),
-        ("Line/flowp_cost", "transmission (A→B)"),
-        ("Line/flown_cost", "transmission (B→A)"),
-    ]:
-        df = read_table(results_dir, stem)
-        if df is not None:
-            total = _to_wide(df).sum().sum()
+    # ─── Generation cost: Σ srmc · generation · duration ────────────────
+    srmc_df = read_table(results_dir, "Generator/srmc_sol")
+    gen_df = read_table(results_dir, "Generator/generation_sol")
+    if srmc_df is not None and gen_df is not None:
+        srmc_wide = _to_wide(srmc_df)
+        gen_wide = _to_wide(gen_df)
+        # Align on shared uid columns only; srmc and generation_sol
+        # share schema by construction (same per-(s,t,b,uid) keying).
+        shared = [c for c in srmc_wide.columns if c in gen_wide.columns]
+        if shared:
+            durations = _per_block_durations(planning, gen_df)
+            product = srmc_wide[shared].fillna(0.0) * gen_wide[shared].fillna(0.0)
+            total = float(product.mul(durations, axis=0).sum().sum())
             if abs(total) > 0.01:
-                components[label] = total
+                components["generation"] = total
+
+    # ─── Load-shedding penalty: demand_fail_cost · fail · duration ─────
+    # demand_fail_cost is a system-wide scalar; per-demand `fcost`
+    # overrides are not yet handled here (would need per-uid lookup).
+    fail_df = read_table(results_dir, "Demand/fail_sol")
+    if fail_df is not None:
+        model_opts = planning.get("options", {}).get("model_options", {})
+        dfc = _scalar_from_planning_field(
+            model_opts.get("demand_fail_cost"), fallback=0.0
+        )
+        if dfc > 0.0:
+            durations = _per_block_durations(planning, fail_df)
+            fail_wide = _to_wide(fail_df).fillna(0.0)
+            total = float(fail_wide.mul(durations, axis=0).sum().sum() * dfc)
+            if abs(total) > 0.01:
+                components["load shedding penalty"] = total
+
+    # ─── Transmission cost: tcost · |flow| · duration ──────────────────
+    line_info = get_line_info(planning)
+    line_tcost: dict[int, float] = {}
+    for ln in planning.get("system", {}).get("line_array", []):
+        line_tcost[int(ln.get("uid", 0))] = _scalar_from_planning_field(
+            ln.get("tcost"), fallback=0.0
+        )
+    for stem, label in (
+        ("Line/flowp_sol", "transmission (A→B)"),
+        ("Line/flown_sol", "transmission (B→A)"),
+    ):
+        flow_df = read_table(results_dir, stem)
+        if flow_df is None or flow_df.empty:
+            continue
+        flow_wide = _to_wide(flow_df).fillna(0.0)
+        durations = _per_block_durations(planning, flow_df)
+        total = 0.0
+        for col in flow_wide.columns:
+            uid = int(col.split(":")[1]) if col.startswith("uid:") else 0
+            tcost = line_tcost.get(uid, 0.0)
+            if tcost == 0.0:
+                continue
+            total += float((flow_wide[col] * durations).sum()) * tcost
+        if abs(total) > 0.01:
+            components[label] = total
+
+    # Silence unused-arg warning when no `line_info` reader hook is needed.
+    _ = line_info
 
     grand_total = sum(components.values())
     if grand_total > 0:

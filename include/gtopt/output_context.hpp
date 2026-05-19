@@ -139,6 +139,31 @@ public:
                      block_factor_matrix_t {});
   }
 
+  /// Extras-gated variant of `add_col_sol_values`.  Same on-disk
+  /// shape (`<col_name>_sol.parquet`) and same encoding; gated on
+  /// `OutputFlags::extras` instead of `solution` so the caller can
+  /// keep the stream around for opt-in audits without bloating the
+  /// default footprint.  Used by `GeneratorLP::add_to_output` for
+  /// the per-block VOM / fuel cost decomposition (no current consumer
+  /// reads these — `srmc_sol` already covers the marginal-cost use
+  /// case).
+  constexpr void add_col_sol_values_extras(std::string_view cname,
+                                           std::string_view col_name,
+                                           const Id& id,
+                                           const STBIndexHolder<double>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     block_factor_matrix_t {});
+  }
+
   constexpr void add_col_cost_values(std::string_view cname,
                                      std::string_view col_name,
                                      const Id& id,
@@ -227,6 +252,29 @@ public:
               block_factor_matrix_t {});
   }
 
+  /// Extras-gated variant of `add_col_sol(..., STBIndexHolder<ColIndex>)`.
+  /// File name stays `<col_name>_sol.parquet`; only the gate moves to
+  /// `OutputFlags::extras`.  Used by LineLP for piecewise-segment
+  /// slices, line losses, and overload slacks — none of which any
+  /// current consumer reads.
+  constexpr void add_col_sol_extras(std::string_view cname,
+                                    std::string_view col_name,
+                                    const Id& id,
+                                    const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
+  }
+
   /// Sum-of-cols solution overload: writes Σ col_sol[col] for each
   /// block.  Used by `piecewise_direct` line-loss mode to emit
   /// `Line.flowp:sol` / `Line.flown:sol` as the per-block segment-sum
@@ -293,6 +341,28 @@ public:
               sc.get().block_icost_factors());
   }
 
+  /// Extras-gated variant of `add_col_cost(..., STBIndexHolder<ColIndex>)`.
+  /// Used by GeneratorLP for heat-rate slack reduced costs and by
+  /// LineLP for overload-slack reduced costs.  Both streams are
+  /// retained for future audit use but read by no current consumer.
+  constexpr void add_col_cost_extras(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
+  }
+
   constexpr void add_row_dual(std::string_view cname,
                               std::string_view row_name,
                               const Id& id,
@@ -317,6 +387,29 @@ public:
                               const STBIndexHolder<RowIndex>& holder)
   {
     if (!emit_dual(cname)) {
+      return;
+    }
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
+  }
+
+  /// Extras-gated variant of `add_row_dual(..., STBIndexHolder<RowIndex>)`.
+  /// Used by GeneratorLP for the capacity-row dual.  The dual is the
+  /// shadow price on the per-block `gen <= pmax` constraint —
+  /// informative for capacity-expansion studies, but unused by the
+  /// dispatch / marginal-unit pipelines.
+  constexpr void add_row_dual_extras(std::string_view cname,
+                                     std::string_view row_name,
+                                     const Id& id,
+                                     const STBIndexHolder<RowIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
       return;
     }
     add_field(cname,
@@ -507,6 +600,15 @@ public:
       -> bool
   {
     return m_output_selection_.emits(OutputFlags::reduced_cost, cname);
+  }
+  /// Opt-in gate for streams that no current consumer reads (heat-rate
+  /// slacks, per-block cost decomposition, line piecewise / loss /
+  /// overload slack columns, capacity row duals).  `*LP::add_to_output`
+  /// routes those calls through `add_*_extras` overloads which check
+  /// this gate instead of the default sol/dual/rc gate.
+  [[nodiscard]] auto emit_extras(std::string_view cname) const noexcept -> bool
+  {
+    return m_output_selection_.emits(OutputFlags::extras, cname);
   }
 
   void write() const;

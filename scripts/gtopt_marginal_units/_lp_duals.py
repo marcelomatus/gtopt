@@ -167,10 +167,13 @@ def check_write_out_flags(
         "marginal-unit attribution requires gtopt reduced-cost output, "
         f"but the following parquet stems are missing under {output_dir}:\n"
         f"  - {listing}\n"
-        "Re-run gtopt with `--write-out sol,dual,rc` (or `--write-out all`) "
-        "and point this tool at the new output directory. The default since "
-        "commit a3b026a93 (2026-05-18) is `--write-out sol,dual`, which "
-        "omits reduced costs."
+        "\n"
+        "Re-run gtopt with the recommended scoped flag — emits only the "
+        "streams this tool consumes, keeps disk footprint lean:\n"
+        "    --write-out 'sol,dual,rc:Generator,Line'\n"
+        "\n"
+        "Or, if you want every reduced cost / dual / extras stream for a "
+        "broader audit, pass `--write-out all`."
     )
 
 
