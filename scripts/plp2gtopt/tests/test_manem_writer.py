@@ -4,6 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from ..central_parser import CentralParser
@@ -230,3 +231,54 @@ def test_to_parquet_empty(tmp_path):
     cols = writer.to_parquet(out_dir)
     assert not cols["emin"]
     assert not cols["emax"]
+
+
+def test_emin_parquet_is_per_stage_only(tmp_path):
+    """Verify emin.parquet (and emax.parquet) are per-stage, never per-block.
+
+    The C++ Reservoir reader broadcasts a stage-indexed series across all
+    blocks of the stage. If the writer ever added a ``block`` column the
+    reader would mis-broadcast — this guards the contract from regressions.
+    """
+    manem_f = tmp_path / "plpmanem.dat"
+    manem_f.write_text(
+        " 1\n'RESERVOIR1'\n   2\n   03     001  0.30  1.50\n   03     002  0.35  1.45\n"
+    )
+    manem_parser = ManemParser(manem_f)
+    manem_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "RESERVOIR1")
+    stage_parser = _make_stage_parser(tmp_path, 2)
+
+    writer = ManemWriter(manem_parser, central_parser, stage_parser)
+    out_dir = tmp_path / "manem_out_schema"
+    writer.to_parquet(out_dir)
+
+    df_emin = pd.read_parquet(out_dir / "emin.parquet")
+    df_emax = pd.read_parquet(out_dir / "emax.parquet")
+
+    assert "stage" in df_emin.columns
+    assert "block" not in df_emin.columns, (
+        "emin.parquet must be per-stage only — adding a 'block' column "
+        "would make the C++ Reservoir reader mis-broadcast"
+    )
+    assert "stage" in df_emax.columns
+    assert "block" not in df_emax.columns
+    assert len(df_emin) == 2
+    assert len(df_emax) == 2
+
+    # Spot-check values against the fixture above:
+    # stage 1: emin=0.30, emax=1.50 ; stage 2: emin=0.35, emax=1.45
+    data_cols_emin = [c for c in df_emin.columns if c.startswith("uid:")]
+    data_cols_emax = [c for c in df_emax.columns if c.startswith("uid:")]
+    assert len(data_cols_emin) == 1
+    assert len(data_cols_emax) == 1
+
+    s1_emin = df_emin[df_emin["stage"] == 1][data_cols_emin[0]].iloc[0]
+    s2_emin = df_emin[df_emin["stage"] == 2][data_cols_emin[0]].iloc[0]
+    s1_emax = df_emax[df_emax["stage"] == 1][data_cols_emax[0]].iloc[0]
+    s2_emax = df_emax[df_emax["stage"] == 2][data_cols_emax[0]].iloc[0]
+    assert float(s1_emin) == pytest.approx(0.30)
+    assert float(s2_emin) == pytest.approx(0.35)
+    assert float(s1_emax) == pytest.approx(1.50)
+    assert float(s2_emax) == pytest.approx(1.45)

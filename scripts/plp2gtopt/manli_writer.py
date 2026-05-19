@@ -127,14 +127,9 @@ class ManliWriter(BaseWriter):
         cols["tmax_ba"] = df_tmax_ba.columns.tolist() if not df_tmax_ba.empty else []
         cols["active"] = df_active.columns.tolist() if not df_active.empty else []
 
-        try:
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            self.write_dataframe(df_tmax_ab, output_dir, "tmax_ab")
-            self.write_dataframe(df_tmax_ba, output_dir, "tmax_ba")
-            self.write_dataframe(df_active, output_dir, "active")
-        finally:
-            # Clean up DataFrames
-            del df_tmax_ab, df_tmax_ba, df_active
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.write_dataframe(df_tmax_ab, output_dir, "tmax_ab")
+        self.write_dataframe(df_tmax_ba, output_dir, "tmax_ba")
+        self.write_dataframe(df_active, output_dir, "active")
 
         return cols
