@@ -96,7 +96,7 @@ _BATTERY_NAME = "bat_57b_synthetic"
 #
 # Formula:
 #   declared_MC[battery]    = LMP_at_charge / η + degradation_cost
-#   emission_factor[battery] = EF_at_charge / η
+#   emission_rate[battery] = EF_at_charge / η
 # Charging assumption: the battery charges off-peak when the cheap
 # thermals (MC=20, EF=400 kg CO₂/MWh in our synthetic catalogue) are
 # marginal. v1 uses constants — a v1.1 multi-segment cost-curve model
@@ -114,7 +114,7 @@ BATTERY_EMISSION_FACTOR = BATTERY_EF_AT_CHARGE / BATTERY_ROUND_TRIP_EFF
 # proportionally inflate the per-discharged-MWh emission intensity)
 
 # IEEE 57b emission factors (synthetic — IEEE benchmarks don't ship
-# emission_factor values). MC=20 thermals modelled as gas combined-cycle
+# emission_rate values). MC=20 thermals modelled as gas combined-cycle
 # (≈400 kg CO₂/MWh), MC=40 thermals as oil/diesel peakers (≈700).
 _IEEE57B_EF_BY_MC = {20.0: 400.0, 40.0: 700.0}
 
@@ -211,7 +211,7 @@ def composite_feed(tmp_path: Path) -> Path:
 
     # Inject synthetic emission factors on the IEEE 57b thermals so the
     # emission-intensity recipe table has data to work with. (IEEE
-    # benchmarks don't ship emission_factor values.)
+    # benchmarks don't ship emission_rate values.)
     base_thermals = [
         Generator(
             uid=g.uid,
@@ -221,7 +221,7 @@ def composite_feed(tmp_path: Path) -> Path:
             pmax=g.pmax,
             declared_MC=g.declared_MC,
             kind=g.kind,
-            emission_factor=_IEEE57B_EF_BY_MC.get(
+            emission_rate=_IEEE57B_EF_BY_MC.get(
                 float(g.declared_MC) if g.declared_MC is not None else -1.0,
                 500.0,  # fallback for any thermal not at MC=20 or 40
             ),
@@ -230,7 +230,7 @@ def composite_feed(tmp_path: Path) -> Path:
     ]
 
     # Battery at the chosen high-demand bus, with declared_MC and
-    # emission_factor derived from the storage-economics literature
+    # emission_rate derived from the storage-economics literature
     # (see module-level constants).
     battery_gen = Generator(
         uid=_BATTERY_GEN_UID,
@@ -240,7 +240,7 @@ def composite_feed(tmp_path: Path) -> Path:
         pmax=float(bat_params["pmax_discharge"]),  # 60 MW from bat_4b_24
         declared_MC=BATTERY_DECLARED_MC,  # ≈ 28.53 USD/MWh
         kind="battery",
-        emission_factor=BATTERY_EMISSION_FACTOR,  # ≈ 470.59 kgCO₂/MWh
+        emission_rate=BATTERY_EMISSION_FACTOR,  # ≈ 470.59 kgCO₂/MWh
     )
 
     # Three solar-profile generators distributed across the network.
@@ -253,7 +253,7 @@ def composite_feed(tmp_path: Path) -> Path:
             pmax=120.0,  # ~360 MW combined, capped by SOLAR_PROFILE
             declared_MC=0.0,
             kind="profile",
-            emission_factor=0.0,
+            emission_rate=0.0,
         )
         for i, (uid, bus_uid) in enumerate(zip(_SOLAR_GEN_UIDS, _HOST_BUSES_SOLAR))
     ]

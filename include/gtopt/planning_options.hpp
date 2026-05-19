@@ -263,9 +263,13 @@ struct PlanningOptions
   /** @brief Which output fields `OutputContext` should emit.
    *
    * Bitmask over `OutputFlags` (solution / dual / reduced_cost).  When
-   * unset, the solver emits everything (historical behaviour).  CLI form:
-   * `--write-out solution,dual`.  JSON form: `"write_out": "solution,dual"`
-   * (parsed via `parse_output_flags()`). */
+   * unset, the solver emits `all` (primal, dual, and reduced cost) so
+   * that downstream tools — notably `gtopt_marginal_units` — can
+   * identify the marginal unit per (bus, scene, stage, block) from
+   * column reduced costs without re-running the LP.  CLI form:
+   * `--write-out solution,dual`.  JSON form:
+   * `"write_out": "solution,dual"` (parsed via
+   * `parse_output_flags()`). */
   std::optional<OutputFlags> write_out {};
 
   void merge(PlanningOptions&& opts)

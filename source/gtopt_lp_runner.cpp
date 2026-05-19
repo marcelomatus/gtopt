@@ -66,7 +66,7 @@ namespace
       + field_sched_dynamic_bytes(g.capacity)
       + field_sched_dynamic_bytes(g.expcap)
       + field_sched_dynamic_bytes(g.lossfactor)
-      + field_sched_dynamic_bytes(g.emission_factor);
+      + field_sched_dynamic_bytes(g.emission_rate);
 }
 
 [[nodiscard]] inline std::size_t sum_field_sched_bytes(const Demand& d)

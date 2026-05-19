@@ -70,6 +70,7 @@ struct InertiaProvision
                             ///< per-(stage, block); accepts a scalar
                             ///< (broadcasts), a 2-D nested array, or
                             ///< a file-backed schedule.
+  /// TODO(unit-audit): see /tmp/field_doc_audit.md §3
   OptTBRealFieldSched cost {};  ///< Provision cost [$/MW] —
                                 ///< per-(stage, block).
 };

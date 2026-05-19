@@ -100,7 +100,7 @@ struct json_data_contract<Generator>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
-      json_variant_null<"emission_factor",
+      json_variant_null<"emission_rate",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_array_null<"emissions", Array<EmissionSource>, EmissionSource>,
@@ -131,7 +131,7 @@ struct json_data_contract<Generator>
                                  generator.annual_capcost,
                                  generator.annual_derating,
                                  generator.integer_expmod,
-                                 generator.emission_factor,
+                                 generator.emission_rate,
                                  generator.emissions,
                                  generator.emission_captures);
   }

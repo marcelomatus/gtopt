@@ -22,7 +22,7 @@ def test_roundtrip_topology(gold_feed_dir, gold_topology):
     g = topology.gen_by_uid(10)
     assert g.name == "cheap_gas"
     assert g.declared_MC == 10.0
-    assert g.emission_factor == 400.0
+    assert g.emission_rate == 400.0
 
 
 def test_roundtrip_cells_dispatch(gold_feed_dir, gold_cells):

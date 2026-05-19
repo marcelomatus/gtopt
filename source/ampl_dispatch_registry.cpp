@@ -91,13 +91,13 @@ std::optional<double> gen_param_heat_rate(const SystemContext& sc,
   return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
       .param_heat_rate(s, b);
 }
-std::optional<double> gen_param_emission_factor(const SystemContext& sc,
-                                                Uid uid,
-                                                StageUid s,
-                                                BlockUid b)
+std::optional<double> gen_param_emission_rate(const SystemContext& sc,
+                                              Uid uid,
+                                              StageUid s,
+                                              BlockUid b)
 {
   return sc.get_element(ObjectSingleId<GeneratorLP> {uid})
-      .param_emission_factor(s, b);
+      .param_emission_rate(s, b);
 }
 
 // Fuel
@@ -429,7 +429,7 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   sim.register_ampl_param(generator_cls, "lossfactor", &gen_param_lossfactor);
   sim.register_ampl_param(generator_cls, "heat_rate", &gen_param_heat_rate);
   sim.register_ampl_param(
-      generator_cls, "emission_factor", &gen_param_emission_factor);
+      generator_cls, "emission_rate", &gen_param_emission_rate);
 
   constexpr auto fuel_cls = Fuel::class_name.snake_case();
   sim.register_ampl_param(fuel_cls, "price", &fuel_param_price);

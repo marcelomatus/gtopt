@@ -117,7 +117,12 @@ struct Reservoir
                                  ///< falls back to ``+DblMax`` (clamped to
                                  ///< solver +inf at flatten time), so the
                                  ///< drain teleport is unbounded.
-  OptReal spillway_cost {};  ///< Penalty cost per unit of spilled water [$/hm³]
+  OptReal spillway_cost {};  ///< Penalty cost per unit of spillway flow
+                             ///< [$/(m³/s)/h] — applied via
+                             ///< CostHelper::block_ecost(...) on the drain
+                             ///< column (m³/s), so the LP pays
+                             ///< ``spillway_cost · q · duration`` per block.
+                             ///< Same unit convention as ``Waterway.fcost``.
 
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
   OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage

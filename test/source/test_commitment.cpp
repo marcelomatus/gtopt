@@ -1098,7 +1098,7 @@ TEST_CASE("Stage chronological field JSON")
   CHECK(s2.chronological.value_or(false) == true);
 }
 
-TEST_CASE("Generator emission_factor JSON")
+TEST_CASE("Generator emission_rate JSON")
 {
   std::string_view json_str = R"({
     "uid": 1,
@@ -1106,12 +1106,12 @@ TEST_CASE("Generator emission_factor JSON")
     "bus": 1,
     "gcost": 20,
     "capacity": 500,
-    "emission_factor": 0.9
+    "emission_rate": 0.9
   })";
   const auto g = daw::json::from_json<Generator>(json_str);
   CHECK(g.uid == 1);
-  REQUIRE(g.emission_factor.has_value());
-  CHECK(std::get<Real>(g.emission_factor.value()) == doctest::Approx(0.9));
+  REQUIRE(g.emission_rate.has_value());
+  CHECK(std::get<Real>(g.emission_rate.value()) == doctest::Approx(0.9));
 }
 
 // ── Audit-driven regression tests ──────────────────────────────────────

@@ -41,6 +41,10 @@ from gtopt_canonical_feed.cells import (
     COL_STAGE,
 )
 from gtopt_check_output._reader import load_planning, read_table
+from gtopt_marginal_units._lp_duals import (
+    GtoptLpDuals,
+    load_gtopt_lp_duals,
+)
 from gtopt_marginal_units.errors import (
     ExpansionNotSupportedError,
     InputValidationError,
@@ -114,7 +118,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=float(g.get("pmax", g.get("capacity", 0.0))),
                 declared_MC=declared_mc,
                 kind=kind,
-                emission_factor=_opt_float(g.get("emission_factor")),
+                emission_rate=_opt_float(g.get("emission_rate")),
             )
         )
 
@@ -130,7 +134,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=g.pmax,
                 declared_MC=g.declared_MC,
                 kind="profile" if g.uid in profile_uids else g.kind,
-                emission_factor=g.emission_factor,
+                emission_rate=g.emission_rate,
             )
             for g in generators
         ]
@@ -147,7 +151,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=g.pmax,
                 declared_MC=g.declared_MC,
                 kind="battery" if g.uid in battery_uids else g.kind,
-                emission_factor=g.emission_factor,
+                emission_rate=g.emission_rate,
             )
             for g in generators
         ]
@@ -272,11 +276,19 @@ def _wide_to_long(
 # ---------------------------------------------------------------------------
 
 
-def read_gtopt(planning_path: Path, output_dir: Path) -> tuple[Topology, Cells]:
-    """Read a gtopt planning JSON + its output directory; return
-    the canonical Topology + Cells. Used by main.py when
-    ``--input-kind gtopt-dir``."""
+def read_gtopt(
+    planning_path: Path, output_dir: Path
+) -> tuple[Topology, Cells, GtoptLpDuals]:
+    """Read a gtopt planning JSON + its output directory.
+
+    Returns ``(Topology, Cells, GtoptLpDuals)``. The third element is
+    optional in the sense that every field on it may be ``None`` when
+    gtopt was run without the corresponding ``--write-out`` flag; the
+    fast-fail check lives in :func:`_lp_duals.check_write_out_flags`,
+    not here.
+    """
     planning = load_planning(Path(planning_path))
     topology = topology_from_planning(planning)
     cells = cells_from_gtopt_output(Path(output_dir))
-    return topology, cells
+    lp_duals = load_gtopt_lp_duals(Path(output_dir))
+    return topology, cells, lp_duals

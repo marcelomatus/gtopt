@@ -111,7 +111,7 @@ TEST_CASE(  // NOLINT
       {"generator", "gcost"},
       {"generator", "lossfactor"},
       {"generator", "heat_rate"},
-      {"generator", "emission_factor"},
+      {"generator", "emission_rate"},
       // Fuel
       {"fuel", "price"},
       {"fuel", "heat_content"},

@@ -68,11 +68,11 @@ public:
   ///                                               (s, t, b))
   ///   `EmissionSource/captured_sol.parquet`    — captured tons (only when
   ///                                               capture_rate > 0)
-  ///   `EmissionSource/rate_sol.parquet`        — combustion rate [tons/MWh],
+  ///   `EmissionSource/rate_sol.parquet`        — combustion rate [t/MWh],
   ///                                               replicated per block from
   ///                                               the per-stage schedule.
   ///   `EmissionSource/upstream_rate_sol.parquet`
-  ///                                            — WTT rate [tons/MWh] (only
+  ///                                            — WTT rate [t/MWh] (only
   ///                                               emitted when upstream_rate
   ///                                               is non-zero).
   ///
@@ -106,11 +106,11 @@ private:
   STBIndexHolder<double> upstream_factor_;
   /// `capture · (rate + upstream) · dur` per (s, t, b).
   STBIndexHolder<double> captured_factor_;
-  /// Combustion `rate` [tons/MWh] per (s, t, b) — broadcast of the
+  /// Combustion `rate` [t/MWh] per (s, t, b) — broadcast of the
   /// per-stage scalar across the stage's blocks.  Constant inside a
   /// stage by construction.
   STBIndexHolder<double> rate_values_;
-  /// Upstream `upstream_rate` [tons/MWh] per (s, t, b) — same shape
+  /// Upstream `upstream_rate` [t/MWh] per (s, t, b) — same shape
   /// as `rate_values_`, only populated when upstream_rate is set.
   STBIndexHolder<double> upstream_rate_values_;
 };

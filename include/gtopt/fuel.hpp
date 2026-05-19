@@ -14,7 +14,7 @@
  *   effective_gcost = fuel.price × heat_rate + Generator.gcost
  *   effective_ef    = (fuel.combustion_emission_factor
  *                      + fuel.upstream_emission_factor) × heat_rate
- *                     + Generator.emission_factor
+ *                     + Generator.emission_rate
  *
  * ## Unit-flexibility contract (PLEXOS / SDDP style)
  *
@@ -81,8 +81,8 @@ namespace gtopt
  *
  * When a `Generator.fuel` reference + a non-null `Generator.heat_rate`
  * are both set, the fuel-derived per-MWh emission rate becomes
- *   `heat_rate · combustion`  [tons / MWh] — combustion path
- *   `heat_rate · upstream`    [tons / MWh] — upstream path (optional)
+ *   `heat_rate · combustion`  [t/MWh] — combustion path
+ *   `heat_rate · upstream`    [t/MWh] — upstream path (optional)
  * and is added to the matching `EmissionSource`'s `rate` /
  * `upstream_rate` at LP-build time (additive, NOT replacing).
  */
@@ -91,13 +91,13 @@ struct FuelEmissionFactor
   /// FK to the `Emission` pollutant this factor describes.
   SingleId emission {unknown_uid};
 
-  /// Combustion / tank-to-stack factor `[tons emission / fuel-unit]`,
+  /// Combustion / tank-to-stack factor `[t/<fuel_unit>]`,
   /// stage-schedulable.  The amount released at the burner per unit
   /// of fuel.  PLEXOS calls this `Emission Production Rate`; SDDP
   /// `Coeficiente de Emissão`; IPCC `combustion emission factor`.
   OptTRealFieldSched combustion {};
 
-  /// Upstream / well-to-tank factor `[tons emission / fuel-unit]`,
+  /// Upstream / well-to-tank factor `[t/<fuel_unit>]`,
   /// stage-schedulable.  Emissions released producing + transporting
   /// the fuel.  Optional — set for full lifecycle (well-to-burner-tip)
   /// accounting; leave unset for stack-only (Scope 1) accounting.

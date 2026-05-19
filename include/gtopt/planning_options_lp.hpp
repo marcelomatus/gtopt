@@ -222,12 +222,26 @@ public:
   /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
   /// still accepted as a JSON alias via the naming-dialects
   /// registry.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume), matching the
+  /// documentation on `ModelOptions::hydro_spill_cost`.  Callers
+  /// pricing a flow column `[m³/s]` via `CostHelper::block_ecost(...)`
+  /// (which multiplies by block duration `[h]`) MUST lift the value
+  /// by `× 3600` to convert to `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:396` for the reference pattern.  Direct
+  /// volume-based costs (`$/m³ × m³`) need no conversion.
   [[nodiscard]] constexpr auto hydro_spill_cost() const
   {
     return m_options_.model_options.hydro_spill_cost;
   }
 
   /// @brief Gets the hydro use value (benefit per m³) from model_options.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume, like
+  /// `hydro_spill_cost`).  Same `× 3600` lift required when used as
+  /// a fallback for a flow-column benefit `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:471` and the parallel comment on
+  /// `hydro_spill_cost()` above.
   [[nodiscard]] constexpr auto hydro_use_value() const
   {
     return m_options_.model_options.hydro_use_value;
@@ -646,21 +660,20 @@ public:
   }
 
   /// Which output fields `OutputContext` should emit.  Default is
-  /// `solution | dual` — primal solutions plus row duals.  Reduced
-  /// costs (`col_cost`) are NOT emitted by default: of the 18 element
-  /// types that wire them, only `Generator/generation_cost`,
-  /// `Demand/fail_cost`, `Line/flowp_cost`, and `Line/flown_cost` have
-  /// any downstream consumer (the `gtopt_check_output` cost breakdown
-  /// plus `gtopt_marginal_units` congestion-rent proxy).  Users who
-  /// want those still get them via `--write-out sol,dual,reduced_cost`
-  /// or `--write-out all`.  Matches the default-output posture of
-  /// PSR SDDP / SDDP.jl / PyPSA / GenX / PLEXOS.
+  /// `OutputFlags::all` — primal solutions, row duals, and reduced
+  /// costs.  The reduced-cost streams are needed by
+  /// `gtopt_marginal_units` to identify the marginal unit at each
+  /// (bus, scene, stage, block) — without them the attribution must
+  /// fall back to the static `gcost` from the planning JSON, which
+  /// silently fails for piecewise generators and for hydro / battery
+  /// units whose true MC is a reservoir / battery shadow price.
+  /// Users who want a leaner output footprint can opt out via
+  /// `--write-out sol,dual` or `--write-out sol`.
   ///
   /// Bound to CLI `--write-out` and JSON `write_out`.
   [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
   {
-    return m_options_.write_out.value_or(OutputFlags::solution
-                                         | OutputFlags::dual);
+    return m_options_.write_out.value_or(OutputFlags::all);
   }
 
   /**

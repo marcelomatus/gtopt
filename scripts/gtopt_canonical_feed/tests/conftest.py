@@ -64,7 +64,7 @@ def gold_topology() -> Topology:
             pmax=100,
             declared_MC=10.0,
             kind="thermal",
-            emission_factor=400.0,
+            emission_rate=400.0,
         ),
         Generator(
             uid=20,
@@ -74,7 +74,7 @@ def gold_topology() -> Topology:
             pmax=150,
             declared_MC=30.0,
             kind="thermal",
-            emission_factor=350.0,
+            emission_rate=350.0,
         ),
         Generator(
             uid=30,
@@ -84,7 +84,7 @@ def gold_topology() -> Topology:
             pmax=80,
             declared_MC=80.0,
             kind="thermal",
-            emission_factor=700.0,
+            emission_rate=700.0,
         ),
     ]
     lines = [

@@ -78,13 +78,13 @@ struct EmissionSource
   /// the zone's `emissions[]`.
   SingleId emission {unknown_uid};
 
-  /// Combustion / tank-to-stack (TTW) emission rate `[tons / MWh]`,
+  /// Combustion / tank-to-stack (TTW) emission rate `[t/MWh]`,
   /// stage-schedulable.  The CO₂ released at the burner per MWh of
   /// gross generation.  Adds `weight · rate · dur · gen` to the
   /// zone's balance row.
   OptTRealFieldSched rate {};
 
-  /// Upstream / well-to-tank (WTT) emission rate `[tons / MWh]`,
+  /// Upstream / well-to-tank (WTT) emission rate `[t/MWh]`,
   /// stage-schedulable.  Emissions from extracting, processing and
   /// transporting the fuel per MWh of generation.  Adds
   /// `weight · upstream_rate · dur · gen` to the zone's balance row

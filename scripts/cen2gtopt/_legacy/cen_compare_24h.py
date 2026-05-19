@@ -19,7 +19,7 @@ Improvements over v1:
     ``/instrucciones-operacionales-cmg/v4``: any central with
     ``estado in {RO, ...}`` is marked ``merit_eligible=False`` (master
     plan §4.11.1 driver #1).
-  * Real ~700-unit catalogue, with declared_MC and emission_factor
+  * Real ~700-unit catalogue, with declared_MC and emission_rate
     looked up by ``tipo_tecnologia`` (Hidráulica, Solar, Eólica,
     Carbón, Diésel, Gas Natural, Biomasa, Geotérmica, BESS).
   * Optional **SCVIC consolidado** Excel override
@@ -121,7 +121,7 @@ REF_BUSES = [
 
 
 # ---------------------------------------------------------------------------
-# Technology defaults  — declared_MC ($/MWh) and emission_factor (kg/MWh).
+# Technology defaults  — declared_MC ($/MWh) and emission_rate (kg/MWh).
 #
 # Pure-data classification: every value below comes from a CEN
 # endpoint or an IPCC-published emission factor. NO pmax-tier MC,
@@ -419,7 +419,7 @@ def build_topology(
       * If ``id_central`` is in ``forced_id_set`` and the unit is
         thermal, demote to ``profile``.
       * ``declared_MC`` = SCVIC CV when bridged; otherwise 0.
-      * ``emission_factor`` derived from SCVIC fuel type via the
+      * ``emission_rate`` derived from SCVIC fuel type via the
         IPCC-derived lookup table.
       * ``pmin`` = declared ``pot_min_tecnica`` aggregated per
         ``id_central``; ``0`` if not declared (no 30% × pmax fallback).
@@ -494,7 +494,7 @@ def build_topology(
                 pmax=pmax,
                 declared_MC=mc,
                 kind=kind,
-                emission_factor=ef,
+                emission_rate=ef,
             )
         )
     print(f"  catalogue: {len(gens)} centrales (data-only — no heuristics)")
@@ -649,7 +649,7 @@ def render_tables(
         ],
     ].rename(columns={"gen_name": "marginal_unit", "marginal_cost": "MC_star"})
 
-    ef_by_uid = {g.uid: g.emission_factor for g in topology.generators}
+    ef_by_uid = {g.uid: g.emission_rate for g in topology.generators}
     marg["epsilon_pipe"] = marg["gen_uid"].map(ef_by_uid).fillna(0.0)
 
     sys_lmp_pipe = (

@@ -95,10 +95,10 @@ struct ModelOptions
   OptReal demand_fail_cost {};
   /// Penalty cost for unserved spinning-reserve [$/MWh].
   OptReal reserve_shortage_cost {};
-  /// Default penalty cost for unmet hydro rights [$/m3].
+  /// Default penalty cost for unmet hydro rights [$/m³].
   /// Per-element `fail_cost` overrides this global default.
   OptReal hydro_spill_cost {};
-  /// Default value (benefit) of exercising hydro rights [$/m3].
+  /// Default value (benefit) of exercising hydro rights [$/m³].
   /// Per-element `use_value` overrides this global default.
   OptReal hydro_use_value {};
   /// Penalty cost for state variable violations in SDDP elastic filter

@@ -70,9 +70,9 @@ struct GeneratorAttrs
   ///
   ///   effective_gcost   = fuel.price        × heat_rate + gcost
   ///   effective_ef      = (fuel.combustion_ef + fuel.upstream_ef)
-  ///                       × heat_rate + emission_factor
+  ///                       × heat_rate + emission_rate
   ///
-  /// Both `gcost` and `emission_factor` are kept as additive offsets
+  /// Both `gcost` and `emission_rate` are kept as additive offsets
   /// (variable non-combustion O&M / process emissions respectively).
   /// Mirrors PLEXOS `Generator.Fuel` / SDDP `Combustível`.
   OptSingleId fuel {};
@@ -182,14 +182,14 @@ struct Generator
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
-  OptTBRealFieldSched emission_factor {};  ///< Direct CO₂ emission rate
-                                           ///< [tCO₂/MWh] per-(stage, block).
-                                           ///< Additive with fuel-derived
-                                           ///< combustion+upstream when
-                                           ///< `fuel`+`heat_rate` are set
-                                           ///< (treats `emission_factor` as a
-                                           ///< non-combustion adder, e.g.
-                                           ///< process / venting / fugitive).
+  OptTBRealFieldSched emission_rate {};  ///< Direct CO₂ emission rate
+                                         ///< [tCO₂/MWh] per-(stage, block).
+                                         ///< Additive with fuel-derived
+                                         ///< combustion+upstream when
+                                         ///< `fuel`+`heat_rate` are set
+                                         ///< (treats `emission_rate` as a
+                                         ///< non-combustion adder, e.g.
+                                         ///< process / venting / fugitive).
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object

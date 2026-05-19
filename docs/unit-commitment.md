@@ -445,7 +445,7 @@ gtopt supports two complementary mechanisms for internalizing carbon costs:
 ### 6.1 Emission Cost (Carbon Price)
 
 Set `model_options.emission_cost` ($/tCO₂) to add a carbon price to dispatch
-costs.  For committed generators with `emission_factor` (tCO₂/MWh):
+costs.  For committed generators with `emission_rate` (tCO₂/MWh):
 
 $$c_{g,t}^{\text{effective}} = c_{g,t}^{\text{gen}} + \tau_s \times e_g$$
 
@@ -701,13 +701,13 @@ curves) where temporal ordering is meaningless — UC is skipped silently.
   "bus": 1,
   "gcost": 25,
   "capacity": 600,
-  "emission_factor": 0.95
+  "emission_rate": 0.95
 }
 ```
 
 | Field | Type | Default | Unit | Description |
 |-------|------|---------|------|-------------|
-| `emission_factor` | real / array | — | tCO₂/MWh | CO₂ emission rate (stage-schedulable) |
+| `emission_rate` | real / array | — | tCO₂/MWh | CO₂ emission rate (stage-schedulable) |
 
 Used with `emission_cost` to add a carbon price adder, and with `emission_cap`
 to constrain total emissions.
@@ -904,7 +904,7 @@ clean.  Adding a carbon price reverses the merit order.
   "system": {
     "generator_array": [
       {"uid": 1, "name": "coal", "bus": 1, "gcost": 10, "capacity": 100,
-       "emission_factor": 1.0},
+       "emission_rate": 1.0},
       {"uid": 2, "name": "gas", "bus": 1, "gcost": 30, "capacity": 100}
     ],
     "commitment_array": [
@@ -938,7 +938,7 @@ split between generators.
 }
 ```
 
-With g1 (`emission_factor = 1.0 tCO₂/MWh`) and demand = 80 MW over 1 hour:
+With g1 (`emission_rate = 1.0 tCO₂/MWh`) and demand = 80 MW over 1 hour:
 - Cap = 30 tCO₂ → g1 can produce at most 30 MWh (30 / 1.0 / 1h)
 - g2 (clean) must produce the remaining 50 MW
 
@@ -1004,7 +1004,7 @@ use chronological blocks with full UC.
 
 2. **Emission cap uses flat emission factor**: When piecewise segments are
    active with `fuel_emission_factor`, the emission cap constraint still uses
-   the flat `generator.emission_factor` on the total generation variable $p$,
+   the flat `generator.emission_rate` on the total generation variable $p$,
    rather than per-segment emission rates.  This is conservative but
    approximate.
 

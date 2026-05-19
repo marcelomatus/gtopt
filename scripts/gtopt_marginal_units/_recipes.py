@@ -40,7 +40,7 @@ class RecipeRow:
     formula_kind: str
     marginal_gen_uids: list[int]
     marginal_weights: list[float] = field(default_factory=list)
-    marginal_data: list[float] = field(default_factory=list)  # MC or emission_factor
+    marginal_data: list[float] = field(default_factory=list)  # MC or emission_rate
     formula_constant: float = 0.0
     formula_explanation: str = ""
     recomputed_value: float = 0.0  # λ_b for price recipe; ε_b for emission
@@ -223,7 +223,7 @@ def _formula_data(
             continue
         mcs.append(float(g.declared_MC) if g.declared_MC is not None else float("nan"))
         ems.append(
-            float(g.emission_factor) if g.emission_factor is not None else float("nan")
+            float(g.emission_rate) if g.emission_rate is not None else float("nan")
         )
     return weights, mcs, ems
 
@@ -246,11 +246,11 @@ def _explain_lmp(kind: str, marginal_uids: list[int]) -> str:
 
 def _explain_em(kind: str, marginal_uids: list[int]) -> str:
     if kind == FormulaKind.SINGLE_UNIT.value:
-        return f"ε_b = emission_factor of g{marginal_uids[0]}"
+        return f"ε_b = emission_rate of g{marginal_uids[0]}"
     if kind == FormulaKind.TIED_UNITS.value:
         return f"ε_b = mean of emission_factors of g{marginal_uids}"
     if kind == FormulaKind.FORCED_PMIN_MARGINAL.value:
-        return f"ε_b = emission_factor of forced-pmin g{marginal_uids[0]}"
+        return f"ε_b = emission_rate of forced-pmin g{marginal_uids[0]}"
     if kind == FormulaKind.HYDRO_MARGINAL.value:
         return "ε_b = 0 (hydro at the bus bar)"
     if kind == FormulaKind.DEMAND_FAIL.value:
