@@ -341,6 +341,110 @@ void System::expand_emission_sources()
   }
 }
 
+void System::fold_legacy_emission_factor()
+{
+  // Short-circuit: if no generator has a legacy emission_factor set,
+  // there's nothing to fold.
+  bool any_legacy = false;
+  for (const auto& gen : generator_array) {
+    if (gen.emission_factor.has_value()) {
+      any_legacy = true;
+      break;
+    }
+  }
+  if (!any_legacy) {
+    return;
+  }
+
+  // ── Ensure the synthetic CO₂ pollutant tag exists ──────────────────
+  auto co2_it = std::ranges::find_if(
+      emission_array, [](const Emission& e) { return e.name == "co2"; });
+  if (co2_it == emission_array.end()) {
+    auto next = next_uid(emission_array);
+    emission_array.push_back(Emission {
+        .uid = next,
+        .name = "co2",
+    });
+    co2_it = std::prev(emission_array.end());
+  }
+  const auto co2_uid = co2_it->uid;
+
+  // ── Ensure a CO₂-covering EmissionZone exists ──────────────────────
+  auto zone_it = std::ranges::find_if(
+      emission_zone_array,
+      [co2_uid](const EmissionZone& z)
+      {
+        return std::ranges::any_of(
+            z.emissions,
+            [co2_uid](const EmissionZoneFactor& f)
+            {
+              return std::holds_alternative<Uid>(f.emission)
+                  && std::get<Uid>(f.emission) == co2_uid;
+            });
+      });
+  if (zone_it == emission_zone_array.end()) {
+    auto next = next_uid(emission_zone_array);
+    emission_zone_array.push_back(EmissionZone {
+        .uid = next,
+        .name = "default_co2",
+        .emissions =
+            {
+                {
+                    .emission = SingleId {co2_uid},
+                    .weight = OptReal {1.0},
+                },
+            },
+    });
+    zone_it = std::prev(emission_zone_array.end());
+  }
+  const auto zone_uid = zone_it->uid;
+
+  // ── Synthesize EmissionSource rows; clear legacy field ─────────────
+  auto src_uid = next_uid(emission_source_array);
+  auto src_uids = build_uid_set(emission_source_array);
+
+  for (auto& gen : generator_array) {
+    if (!gen.emission_factor.has_value()) {
+      continue;
+    }
+    const auto& legacy = *gen.emission_factor;
+
+    // Downgrade `OptTBRealFieldSched` → `OptTRealFieldSched`.  Only
+    // the scalar case is folded losslessly; vector and FileSched
+    // require manual migration (we emit a one-shot warning and skip).
+    OptTRealFieldSched rate;
+    if (std::holds_alternative<Real>(legacy)) {
+      rate = OptTRealFieldSched {std::get<Real>(legacy)};
+    } else {
+      SPDLOG_WARN(
+          "Generator '{}' (uid={}): legacy emission_factor has "
+          "non-scalar shape — skipped by auto-fold.  Replace with an "
+          "explicit `emission_source_array` entry to keep the "
+          "per-block / file-backed rate.",
+          gen.name,
+          gen.uid);
+      // Leave the legacy field in place so a human can migrate it.
+      continue;
+    }
+
+    while (src_uids.contains(src_uid)) {
+      ++src_uid;
+    }
+    src_uids.insert(src_uid);
+
+    emission_source_array.push_back(EmissionSource {
+        .uid = src_uid++,
+        .name = as_label(gen.name, "co2_legacy"),
+        .generator = OptSingleId {SingleId {gen.uid}},
+        .zone = SingleId {zone_uid},
+        .emission = SingleId {co2_uid},
+        .rate = std::move(rate),
+    });
+
+    gen.emission_factor.reset();  // idempotent — second call sees null
+  }
+}
+
 void System::fold_legacy_profiles()
 {
   capacity_profile_array.reserve(capacity_profile_array.size()

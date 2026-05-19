@@ -246,6 +246,30 @@ struct System
   void expand_emission_sources();
 
   /**
+   * @brief Auto-fold the legacy `Generator.emission_factor` (scalar
+   *        per-MWh CO₂ rate) into a synthetic CO₂ `Emission` +
+   *        `EmissionZone` + `EmissionSource` triple, then clear the
+   *        legacy field on the generator.
+   *
+   * For each `Generator` with a non-null scalar `emission_factor`:
+   *   - If no `Emission{name="co2"}` exists, create one.
+   *   - If no `EmissionZone` covers that pollutant, create
+   *     `EmissionZone{name="default_co2", emissions=[{co2, 1.0}]}`
+   *     (pure-reporting zone — no cap, no price).
+   *   - Append an `EmissionSource{generator: <this>, zone:
+   *     default_co2_zone, emission: co2, rate: emission_factor}`.
+   *
+   * Vector and FileSched legacy factors are NOT downgraded (warning
+   * emitted and field left untouched); the user should migrate them
+   * manually to the new schema.  Idempotent on already-folded
+   * generators (skips when `emission_factor` is null).
+   *
+   * Mirrors `fold_legacy_profiles()` — same migration idiom we used
+   * for `GeneratorProfile` / `DemandProfile` → `CapacityProfile`.
+   */
+  void fold_legacy_emission_factor();
+
+  /**
    * @brief Fold legacy `generator_profile_array` / `demand_profile_array`
    *        entries into the unified `capacity_profile_array`.
    *

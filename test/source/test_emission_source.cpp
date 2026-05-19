@@ -178,3 +178,74 @@ TEST_CASE("EmissionSource survives the System → SystemLP pipeline")  // NOLINT
   const auto sid = simulation_lp.stages().front().uid();
   CHECK(sources.front().param_rate(sid).value_or(0.0) == doctest::Approx(0.4));
 }
+
+// ── Commit 7 — legacy auto-fold ─────────────────────────────────────
+
+TEST_CASE(
+    "System::fold_legacy_emission_factor — synthesizes default CO2 zone+source")  // NOLINT
+{
+  // Generator carries the legacy scalar `emission_factor` field;
+  // expect post-fold:
+  //   - emission_array has a CO2 row
+  //   - emission_zone_array has a default_co2 zone
+  //   - emission_source_array has the synthesized source
+  //   - generator.emission_factor is cleared
+  System sys;
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "ngcc",
+                          .bus = Uid {1},
+                          .gcost = 10.0,
+                          .capacity = 100.0,
+                          .emission_factor = 0.42}};
+
+  sys.fold_legacy_emission_factor();
+
+  REQUIRE(sys.emission_array.size() == 1);
+  CHECK(sys.emission_array.front().name == "co2");
+
+  REQUIRE(sys.emission_zone_array.size() == 1);
+  const auto& zone = sys.emission_zone_array.front();
+  CHECK(zone.name == "default_co2");
+  REQUIRE(zone.emissions.size() == 1);
+  CHECK(zone.emissions.front().weight.value_or(0.0) == doctest::Approx(1.0));
+
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  REQUIRE(src.generator.has_value());
+  CHECK(std::get<Uid>(src.generator.value_or(SingleId {Uid {0}})) == Uid {7});
+  REQUIRE(src.rate.has_value());
+  CHECK(std::get<Real>(src.rate.value_or(Real {0.0})) == doctest::Approx(0.42));
+
+  // Legacy field cleared.
+  CHECK_FALSE(sys.generator_array.front().emission_factor.has_value());
+
+  // Idempotent: second call is a no-op.
+  sys.fold_legacy_emission_factor();
+  CHECK(sys.emission_source_array.size() == 1);
+}
+
+TEST_CASE(
+    "System::fold_legacy_emission_factor — reuses existing CO2 entities")  // NOLINT
+{
+  // When a CO2 Emission and a covering EmissionZone already exist,
+  // the fold should NOT create duplicates — only synthesize the
+  // missing EmissionSource row.
+  System sys;
+  sys.emission_array = {{.uid = Uid {99}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {7},
+       .name = "custom_co2_cap",
+       .emissions = {{.emission = Uid {99}, .weight = 1.0}},
+       .cap = 1.0e6}};
+  sys.generator_array = {
+      {.uid = Uid {1}, .name = "g1", .bus = Uid {1}, .emission_factor = 0.4}};
+
+  sys.fold_legacy_emission_factor();
+
+  CHECK(sys.emission_array.size() == 1);  // no new CO2
+  CHECK(sys.emission_zone_array.size() == 1);  // no new zone
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  CHECK(std::get<Uid>(src.zone) == Uid {7});  // points at existing zone
+  CHECK(std::get<Uid>(src.emission) == Uid {99});
+}
