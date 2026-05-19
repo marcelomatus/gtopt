@@ -90,7 +90,7 @@ _LOG = logging.getLogger("cen2gtopt.mc")
 #  * Biomasa       0   kg CO₂/ton    (biogenic — IPCC Vol. 2 §2.3.1)
 #  * GLP / LPG     ~3000 kg CO₂/ton   (IPCC default propane/butane mix)
 #  * Otro          NaN — caller must supply a custom factor or accept
-#                  NaN emission_factor for that row
+#                  NaN emission_rate for that row
 # ----------------------------------------------------------------------
 _FUEL_EMISSION_FACTORS_KG_PER_UNIT: dict[str, float] = {
     "diesel": 3170.0,  # ton (Diésel)

@@ -1107,7 +1107,7 @@ In summary tables below, ✱ marks required fields.
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **Bus** | `uid`✱, `name`✱, `voltage` (kV), `reference_theta` | Electrical node |
-| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod`, `emission_factor` | Generation unit |
+| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod`, `emission_rate` | Generation unit |
 | **Demand** | `uid`✱, `name`✱, `bus`✱, `lmax`, `capacity`, `expcap`, `expmod`, `annual_capcost` | Electrical load |
 | **Line** | `uid`✱, `name`✱, `bus_a`✱, `bus_b`✱, `reactance`, `tmax_ab`, `tmax_ba`, `expcap`, `expmod` | Transmission branch |
 

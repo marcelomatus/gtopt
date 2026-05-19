@@ -182,23 +182,23 @@ TEST_CASE("EmissionSource survives the System → SystemLP pipeline")  // NOLINT
 // ── Commit 7 — legacy auto-fold ─────────────────────────────────────
 
 TEST_CASE(
-    "System::fold_legacy_emission_factor — synthesizes default CO2 zone+source")  // NOLINT
+    "System::fold_legacy_emission_rate — synthesizes default CO2 zone+source")  // NOLINT
 {
-  // Generator carries the legacy scalar `emission_factor` field;
+  // Generator carries the legacy scalar `emission_rate` field;
   // expect post-fold:
   //   - emission_array has a CO2 row
   //   - emission_zone_array has a default_co2 zone
   //   - emission_source_array has the synthesized source
-  //   - generator.emission_factor is cleared
+  //   - generator.emission_rate is cleared
   System sys;
   sys.generator_array = {{.uid = Uid {7},
                           .name = "ngcc",
                           .bus = Uid {1},
                           .gcost = 10.0,
                           .capacity = 100.0,
-                          .emission_factor = 0.42}};
+                          .emission_rate = 0.42}};
 
-  sys.fold_legacy_emission_factor();
+  sys.fold_legacy_emission_rate();
 
   REQUIRE(sys.emission_array.size() == 1);
   CHECK(sys.emission_array.front().name == "co2");
@@ -217,15 +217,15 @@ TEST_CASE(
   CHECK(std::get<Real>(src.rate.value_or(Real {0.0})) == doctest::Approx(0.42));
 
   // Legacy field cleared.
-  CHECK_FALSE(sys.generator_array.front().emission_factor.has_value());
+  CHECK_FALSE(sys.generator_array.front().emission_rate.has_value());
 
   // Idempotent: second call is a no-op.
-  sys.fold_legacy_emission_factor();
+  sys.fold_legacy_emission_rate();
   CHECK(sys.emission_source_array.size() == 1);
 }
 
 TEST_CASE(
-    "System::fold_legacy_emission_factor — reuses existing CO2 entities")  // NOLINT
+    "System::fold_legacy_emission_rate — reuses existing CO2 entities")  // NOLINT
 {
   // When a CO2 Emission and a covering EmissionZone already exist,
   // the fold should NOT create duplicates — only synthesize the
@@ -238,9 +238,9 @@ TEST_CASE(
        .emissions = {{.emission = Uid {99}, .weight = 1.0}},
        .cap = 1.0e6}};
   sys.generator_array = {
-      {.uid = Uid {1}, .name = "g1", .bus = Uid {1}, .emission_factor = 0.4}};
+      {.uid = Uid {1}, .name = "g1", .bus = Uid {1}, .emission_rate = 0.4}};
 
-  sys.fold_legacy_emission_factor();
+  sys.fold_legacy_emission_rate();
 
   CHECK(sys.emission_array.size() == 1);  // no new CO2
   CHECK(sys.emission_zone_array.size() == 1);  // no new zone

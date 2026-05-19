@@ -92,7 +92,7 @@ TEST_CASE(  // NOLINT
           .lossfactor = 0.02,
           .gcost = 25.0,
           .capacity = 150.0,
-          .emission_factor = 0.4,
+          .emission_rate = 0.4,
       },
   };
 
@@ -189,7 +189,7 @@ TEST_CASE(  // NOLINT
     const auto& gcols = gen_lp.generation_cols_at(scenario, stage);
     CHECK(!gcols.empty());
 
-    // Parameter accessors — pmax/pmin/lossfactor/gcost/emission_factor.
+    // Parameter accessors — pmax/pmin/lossfactor/gcost/emission_rate.
     CHECK(gen_lp.param_pmax(suid, buid).value_or(-1.0)
           == doctest::Approx(150.0));
     CHECK(gen_lp.param_pmin(suid, buid).value_or(-1.0) == doctest::Approx(0.0));
@@ -197,7 +197,7 @@ TEST_CASE(  // NOLINT
           == doctest::Approx(25.0));
     CHECK(gen_lp.param_lossfactor(suid, buid).value_or(-1.0)
           == doctest::Approx(0.02));
-    CHECK(gen_lp.param_emission_factor(suid, buid).value_or(-1.0)
+    CHECK(gen_lp.param_emission_rate(suid, buid).value_or(-1.0)
           == doctest::Approx(0.4));
   }
 

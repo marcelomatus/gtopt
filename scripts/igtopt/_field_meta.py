@@ -97,6 +97,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Comma-separated aperture UIDs for this phase (empty = use all global apertures)",
             None,
         ),
+        (
+            "continuous",
+            _J_BOOL,
+            False,
+            "If true, integer variables in this phase are relaxed to continuous "
+            "(LP relaxation). Defaults to false; can also be set globally via "
+            "model_options.continuous_phases.",
+            None,
+        ),
     ],
     "scene_array": [
         ("uid", _J_INT, True, "Unique scene identifier (SDDP)", 1),
@@ -220,6 +229,38 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("tmax_ba", _J_SCHED, False, "Max power flow B→A [MW]", 500.0),
         ("tmax_ab", _J_SCHED, False, "Max power flow A→B [MW]", 500.0),
+        (
+            "tmax_normal_ba",
+            _J_SCHED,
+            False,
+            "Soft (normal) flow threshold B→A [MW]. When set together with "
+            "overload_penalty, flow above this threshold is priced (still "
+            "capped at tmax_ba).",
+            None,
+        ),
+        (
+            "tmax_normal_ab",
+            _J_SCHED,
+            False,
+            "Soft (normal) flow threshold A→B [MW] — analogous to tmax_normal_ba.",
+            None,
+        ),
+        (
+            "overload_penalty",
+            _J_SCHED,
+            False,
+            "Overload penalty above tmax_normal_* [$/MWh] per-(stage, block).",
+            None,
+        ),
+        (
+            "line_losses_mode",
+            _J_STR,
+            False,
+            "Per-line loss-model override: 'none', 'linear', 'piecewise', "
+            "'bidirectional', 'adaptive', 'dynamic'. When unset, inherits "
+            "from ModelOptions.",
+            None,
+        ),
         ("tcost", _J_SCHED, False, "Transmission cost [$/MWh]", None),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MW]", None),
         (
@@ -271,6 +312,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "g1",
         ),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "description",
+            _J_STR,
+            False,
+            "Free-form label for UI/post-processing; not used by the LP solver.",
+            None,
+        ),
         ("bus", _J_ID, True, "Connected bus uid or name", "b1"),
         ("pmin", _J_SCHED, False, "Minimum active power output [MW]", 0.0),
         ("pmax", _J_SCHED, False, "Maximum active power output [MW]", 100.0),
@@ -287,6 +335,61 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Variable generation cost [$/MWh]",
             30.0,
+        ),
+        (
+            "fuel",
+            _J_ID,
+            False,
+            "Optional FK to a Fuel element. When set with heat_rate, "
+            "per-MWh fuel cost = Fuel.price × heat_rate.",
+            None,
+        ),
+        (
+            "heat_rate",
+            _J_SCHED,
+            False,
+            "Per-(stage, block) heat-rate slope [<fuel_unit>/MWh]; combines "
+            "with Fuel.price to produce a per-MWh generation cost.",
+            None,
+        ),
+        (
+            "pmax_segments",
+            "JSON array",
+            False,
+            "Piecewise-linear cumulative power breakpoints [MW] for convex "
+            "heat-rate functions. Mutually exclusive with heat_rate.",
+            None,
+        ),
+        (
+            "heat_rate_segments",
+            "JSON array",
+            False,
+            "Piecewise-linear heat-rate per segment [<fuel_unit>/MWh].",
+            None,
+        ),
+        (
+            "emission_rate",
+            _J_SCHED,
+            False,
+            "Direct CO2 emission rate [tCO2/MWh] per-(stage, block); "
+            "additive with fuel-derived combustion+upstream emissions.",
+            None,
+        ),
+        (
+            "emissions",
+            "JSON array",
+            False,
+            "Inline list of EmissionSource rows scoped to this generator "
+            "(each with zone + emission FKs and per-MWh rate / upstream_rate).",
+            None,
+        ),
+        (
+            "emission_captures",
+            "JSON array",
+            False,
+            "Inline list of EmissionCapture (CCS / abatement) rows scoped "
+            "to this generator.",
+            None,
         ),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MW]", None),
         (
@@ -353,6 +456,278 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
     ],
     # ------------------------------------------------------------------
+    # System — capacity profiles (unified replacement for
+    # generator_profile / demand_profile, owner-kind-tagged)
+    # ------------------------------------------------------------------
+    "capacity_profile_array": [
+        ("uid", _J_INT, True, "Unique capacity-profile identifier", 1),
+        ("name", _J_STR, True, "Profile name", "cp1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "owner_kind",
+            _J_STR,
+            True,
+            "Owner element type: 'generator' or 'demand'.",
+            "generator",
+        ),
+        (
+            "owner",
+            _J_ID,
+            True,
+            "FK to the owning element (generator or demand) by uid or name.",
+            "g3",
+        ),
+        (
+            "profile",
+            _J_SCHED,
+            True,
+            "Capacity-factor profile [p.u.] — per-(scenario, stage, block); "
+            "scalar, array, or filename.",
+            "profile",
+        ),
+        (
+            "scost",
+            _J_SCHED,
+            False,
+            "Slack column unit cost override [$/MWh].",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — fuels (referenced by Generator.fuel / Commitment.fuel)
+    # ------------------------------------------------------------------
+    "fuel_array": [
+        ("uid", _J_INT, True, "Unique fuel identifier", 1),
+        ("name", _J_STR, True, "Fuel name (e.g. 'natgas', 'diesel')", "natgas"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "price",
+            _J_SCHED,
+            False,
+            "Fuel price [$/<fuel_unit>], stage-schedulable.",
+            None,
+        ),
+        (
+            "heat_content",
+            _J_SCHED,
+            False,
+            "Heat content [GJ/<fuel_unit>], stage-schedulable (optional; "
+            "enables physical/energy fuel-consumption reporting).",
+            None,
+        ),
+        (
+            "combustion_emission_factor",
+            _J_SCHED,
+            False,
+            "Legacy single-pollutant combustion CO2 factor "
+            "[tCO2/<fuel_unit>]. Folded into emission_factors[] at parse time.",
+            None,
+        ),
+        (
+            "upstream_emission_factor",
+            _J_SCHED,
+            False,
+            "Legacy single-pollutant upstream CO2 factor [tCO2/<fuel_unit>].",
+            None,
+        ),
+        (
+            "emission_factors",
+            "JSON array",
+            False,
+            "Multi-pollutant per-fuel emission factors. JSON array of "
+            "{emission, combustion [t/<fuel_unit>], upstream [t/<fuel_unit>]}.",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — commitment (unit-commitment data linked to Generator)
+    # ------------------------------------------------------------------
+    "commitment_array": [
+        ("uid", _J_INT, True, "Unique commitment identifier", 1),
+        ("name", _J_STR, True, "Commitment name (e.g. 'thermal1_uc')", "uc1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("generator", _J_ID, True, "Generator uid or name", "g1"),
+        (
+            "fuel",
+            _J_ID,
+            False,
+            "Optional FK to Fuel element; replaces inline fuel_cost / "
+            "fuel_emission_factor with Fuel.price × heat_rate_segment.",
+            None,
+        ),
+        (
+            "startup_cost",
+            _J_SCHED,
+            False,
+            "Startup cost [$/start], stage-schedulable.",
+            None,
+        ),
+        (
+            "shutdown_cost",
+            _J_SCHED,
+            False,
+            "Shutdown cost [$/stop], stage-schedulable.",
+            None,
+        ),
+        (
+            "noload_cost",
+            _J_NUM,
+            False,
+            "No-load cost when committed [$/h].",
+            None,
+        ),
+        ("min_up_time", _J_NUM, False, "Minimum up time [h].", None),
+        ("min_down_time", _J_NUM, False, "Minimum down time [h].", None),
+        ("ramp_up", _J_NUM, False, "Ramp-up limit while online [MW/h].", None),
+        (
+            "ramp_down",
+            _J_NUM,
+            False,
+            "Ramp-down limit while online [MW/h].",
+            None,
+        ),
+        (
+            "startup_ramp",
+            _J_NUM,
+            False,
+            "Max output in startup block [MW].",
+            None,
+        ),
+        (
+            "shutdown_ramp",
+            _J_NUM,
+            False,
+            "Max output in shutdown block [MW].",
+            None,
+        ),
+        (
+            "initial_status",
+            _J_NUM,
+            False,
+            "Initial on/off status (1.0 = online, 0.0 = offline).",
+            None,
+        ),
+        (
+            "initial_hours",
+            _J_NUM,
+            False,
+            "Hours in current state at t=0 [h].",
+            None,
+        ),
+        (
+            "relax",
+            _J_BOOL,
+            False,
+            "LP relaxation: u/v/w continuous in [0,1].",
+            None,
+        ),
+        ("must_run", _J_BOOL, False, "Force committed: u = 1 always.", None),
+        (
+            "fixed_status",
+            _J_SCHED,
+            False,
+            "Per-(stage, block) forced commitment status: 1.0 = committed, "
+            "0.0 = not committed. Pins the u variable.",
+            None,
+        ),
+        (
+            "commitment_period",
+            _J_NUM,
+            False,
+            "Binary variable period [h]. When set, u/v/w live at a coarser "
+            "time resolution than the generation blocks.",
+            None,
+        ),
+        (
+            "pmax_segments",
+            "JSON array",
+            False,
+            "Cumulative power breakpoints [MW] for the piecewise heat-rate curve.",
+            None,
+        ),
+        (
+            "heat_rate_segments",
+            "JSON array",
+            False,
+            "Heat rate per segment [<fuel_unit>/MWh] (matches fuel unit).",
+            None,
+        ),
+        (
+            "fuel_cost",
+            _J_SCHED,
+            False,
+            "Legacy inline fuel cost [$/<fuel_unit>], stage-schedulable. "
+            "Prefer the new `fuel` FK.",
+            None,
+        ),
+        (
+            "fuel_emission_factor",
+            _J_SCHED,
+            False,
+            "Legacy inline emission factor [tCO2/<fuel_unit>], stage-schedulable.",
+            None,
+        ),
+        (
+            "hot_start_cost",
+            _J_NUM,
+            False,
+            "Startup cost when recently offline [$/start].",
+            None,
+        ),
+        (
+            "warm_start_cost",
+            _J_NUM,
+            False,
+            "Startup cost at medium offline duration [$/start].",
+            None,
+        ),
+        (
+            "cold_start_cost",
+            _J_NUM,
+            False,
+            "Startup cost when long offline [$/start].",
+            None,
+        ),
+        (
+            "hot_start_time",
+            _J_NUM,
+            False,
+            "Max offline hours for hot start [h].",
+            None,
+        ),
+        (
+            "cold_start_time",
+            _J_NUM,
+            False,
+            "Min offline hours for cold start [h].",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — simple_commitment (minimal UC: pmin gating)
+    # ------------------------------------------------------------------
+    "simple_commitment_array": [
+        ("uid", _J_INT, True, "Unique simple-commitment identifier", 1),
+        ("name", _J_STR, True, "SimpleCommitment name", "sc1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        ("generator", _J_ID, True, "Generator uid or name", "g1"),
+        (
+            "dispatch_pmin",
+            _J_SCHED,
+            False,
+            "Minimum output when dispatched [MW] per-(stage, block).",
+            None,
+        ),
+        (
+            "relax",
+            _J_BOOL,
+            False,
+            "LP relaxation: u continuous in [0,1].",
+            None,
+        ),
+        ("must_run", _J_BOOL, False, "Force committed: u = 1 always.", None),
+    ],
+    # ------------------------------------------------------------------
     # System — demand
     # ------------------------------------------------------------------
     "demand_array": [
@@ -368,6 +743,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             100.0,
         ),
         (
+            "lmin",
+            _J_SCHED,
+            False,
+            "Minimum served load [MW] per-(stage, block) — forces dispatch "
+            ">= lmin every block.",
+            None,
+        ),
+        (
             "lossfactor",
             _J_SCHED,
             False,
@@ -379,6 +762,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_SCHED,
             False,
             "Failure cost for unserved load [$/MWh] (overrides global demand_fail_cost)",
+            None,
+        ),
+        (
+            "forced",
+            _J_BOOL,
+            False,
+            "When true, load is fixed at lmax (PLP-style forced load).",
             None,
         ),
         (
@@ -513,6 +903,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "efin_cost",
+            _J_NUM,
+            False,
+            "Penalty cost per unit of efin shortfall [$/MWh] "
+            "(soft end-of-horizon target; mirrors Reservoir.efin_cost)",
+            None,
+        ),
+        (
             "soft_emin",
             _J_SCHED,
             False,
@@ -539,6 +937,45 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Maximum discharging power [MW]",
             50.0,
+        ),
+        (
+            "pmin_charge",
+            _J_SCHED,
+            False,
+            "Minimum charging power [MW] per-(stage, block); HARD floor "
+            "(gated by commitment when set). Mirrors UC.jl Min Charge Rate.",
+            None,
+        ),
+        (
+            "pmin_discharge",
+            _J_SCHED,
+            False,
+            "Minimum discharging power [MW] per-(stage, block); HARD floor. "
+            "Mirrors UC.jl Min Discharge Rate.",
+            None,
+        ),
+        (
+            "discharge_cost",
+            _J_SCHED,
+            False,
+            "Per-MWh cost paid when discharging the battery [$/MWh] per-(stage, block)",
+            None,
+        ),
+        (
+            "charge_cost",
+            _J_SCHED,
+            False,
+            "Per-MWh cost paid when charging the battery [$/MWh] "
+            "per-(stage, block); counterpart to discharge_cost.",
+            None,
+        ),
+        (
+            "commitment",
+            _J_BOOL,
+            False,
+            "When true, the synthetic Converter adds per-block binaries "
+            "u_charge / u_discharge to gate pmin_charge / pmin_discharge.",
+            None,
         ),
         ("gcost", _J_SCHED, False, "Discharge operation cost [$/MWh]", None),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MWh]", None),
@@ -583,14 +1020,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_BOOL,
             False,
             "Reset SoC to eini at the start of each day (true/false)",
-            None,
-        ),
-        (
-            "energy_scale",
-            _J_NUM,
-            False,
-            "Energy scale for LP numerics: LP var = energy / scale"
-            " (optional, default: 1.0)",
             None,
         ),
     ],
@@ -668,6 +1097,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("emax", _J_SCHED, False, "Maximum tank level [m³]", 150000),
         ("eini", _J_NUM, False, "Initial tank level [m³]", 80000),
         ("efin", _J_NUM, False, "End-of-horizon minimum level [m³]", None),
+        (
+            "efin_cost",
+            _J_NUM,
+            False,
+            "Penalty cost per unit of efin shortfall [$/m³]. "
+            "When set (and > 0) the hard vol_end >= efin row becomes soft.",
+            None,
+        ),
         ("ecost", _J_SCHED, False, "Holding cost [$/m³]", None),
         ("annual_loss", _J_SCHED, False, "Boil-off gas rate [p.u./year]", 0.001),
         ("sendout_max", _J_NUM, False, "Max regasification rate [m³/h]", None),
@@ -790,6 +1227,182 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("drcost", _J_SCHED, False, "Down-reserve provision cost [$/MW]", None),
     ],
     # ------------------------------------------------------------------
+    # System — inertia (system-inertia requirements + provision links)
+    # ------------------------------------------------------------------
+    "inertia_zone_array": [
+        ("uid", _J_INT, True, "Unique inertia-zone identifier", 1),
+        ("name", _J_STR, True, "InertiaZone name", "iz1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "requirement",
+            _J_SCHED,
+            False,
+            "Minimum inertia requirement [MWs] per-(stage, block).",
+            None,
+        ),
+        (
+            "cost",
+            _J_SCHED,
+            False,
+            "Inertia shortage penalty [$/MWs] per-(stage, block).",
+            None,
+        ),
+    ],
+    # TODO(unit-audit): reconcile InertiaProvision.cost vs InertiaZone.cost ($/MW vs $/MWs)
+    "inertia_provision_array": [
+        ("uid", _J_INT, True, "Unique inertia-provision identifier", 1),
+        ("name", _J_STR, True, "InertiaProvision name", "ip1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "generator",
+            _J_ID,
+            True,
+            "FK to the providing generator (uid or name).",
+            "g1",
+        ),
+        (
+            "inertia_zones",
+            _J_STR,
+            False,
+            "Typed array of InertiaZone references (uid or name per element); "
+            "JSON array form (replaces legacy colon-delimited string).",
+            None,
+        ),
+        (
+            "inertia_constant",
+            _J_NUM,
+            False,
+            "Machine inertia constant H [s].",
+            None,
+        ),
+        (
+            "rated_power",
+            _J_NUM,
+            False,
+            "Rated apparent power S [MVA].",
+            None,
+        ),
+        (
+            "provision_max",
+            _J_SCHED,
+            False,
+            "Max inertia provision [MW] per-(stage, block).",
+            None,
+        ),
+        (
+            "provision_factor",
+            _J_SCHED,
+            False,
+            "Effectiveness factor FE [MWs/MW] per-(stage, block).",
+            None,
+        ),
+        (
+            "cost",
+            _J_SCHED,
+            False,
+            "Provision cost [$/MW] per-(stage, block). "
+            "(see TODO above — unit may be $/MWs after audit.)",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — emissions (pollutant registry + zones + sources)
+    # ------------------------------------------------------------------
+    "emission_array": [
+        # Pollutant registry: minimal (uid/name/active). Required when any
+        # emission_zone is defined.
+        ("uid", _J_INT, True, "Unique pollutant identifier", 1),
+        (
+            "name",
+            _J_STR,
+            True,
+            "Pollutant name (e.g. 'co2', 'ch4', 'n2o', 'sf6').",
+            "co2",
+        ),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+    ],
+    "emission_zone_array": [
+        ("uid", _J_INT, True, "Unique emission-zone identifier", 1),
+        ("name", _J_STR, True, "EmissionZone name", "global_co2"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "emissions",
+            "JSON array",
+            False,
+            "List of pollutants covered by this zone, each with a GWP weight. "
+            "JSON array of {emission, weight [p.u.]}. Example: "
+            '[{"emission":"co2","weight":1.0},{"emission":"ch4","weight":27.9}].',
+            None,
+        ),
+        (
+            "cap",
+            _J_SCHED,
+            False,
+            "Per-stage cap on total emissions [CO2-eq t / stage] across "
+            "all sources in this zone. Hard by default; soft if cap_cost set.",
+            None,
+        ),
+        (
+            "cap_cost",
+            _J_SCHED,
+            False,
+            "Slack penalty above cap [$/t] (converts cap from hard to soft).",
+            None,
+        ),
+        (
+            "price",
+            _J_SCHED,
+            False,
+            "Per-ton tax / permit price [$/t], stage-schedulable.",
+            None,
+        ),
+    ],
+    # NOTE: `emission_capture` does not have a top-level array — instances
+    # live inline only on `Generator.emission_captures[]`.
+    "emission_source_array": [
+        ("uid", _J_INT, False, "Unique emission-source identifier", 1),
+        ("name", _J_STR, False, "EmissionSource name", "ngcc_co2"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "generator",
+            _J_ID,
+            False,
+            "FK to the contributing generator. Required for the canonical "
+            "top-level form; omitted (and auto-filled) in the inline "
+            "Generator.emissions[] shorthand.",
+            None,
+        ),
+        (
+            "zone",
+            _J_ID,
+            True,
+            "FK to the EmissionZone the source contributes to.",
+            "global_co2",
+        ),
+        (
+            "emission",
+            _J_ID,
+            True,
+            "FK to the Emission pollutant kind.",
+            "co2",
+        ),
+        (
+            "rate",
+            _J_SCHED,
+            False,
+            "Combustion / tank-to-stack (TTW) emission rate [t/MWh], "
+            "stage-schedulable.",
+            None,
+        ),
+        (
+            "upstream_rate",
+            _J_SCHED,
+            False,
+            "Upstream / well-to-tank (WTT) emission rate [t/MWh], stage-schedulable.",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
     # System — hydro
     # ------------------------------------------------------------------
     "junction_array": [
@@ -883,6 +1496,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "j1",
         ),
         (
+            "spill_junction",
+            _J_ID,
+            False,
+            "Optional downstream junction uid or name for spill routing. "
+            "When set, spilled water flows downstream instead of vanishing "
+            "(mirrors PLP SerVer chaining).",
+            None,
+        ),
+        (
             "spillway_capacity",
             _J_NUM,
             False,
@@ -893,7 +1515,9 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "spillway_cost",
             _J_NUM,
             False,
-            "Cost per unit of spilled water [$/m³/s]",
+            "Penalty cost per unit of spillway flow [$/(m³/s)/h] "
+            "— LP pays spillway_cost · q · duration per block "
+            "(same convention as Waterway.fcost)",
             None,
         ),
         ("capacity", _J_SCHED, False, "Reservoir storage capacity [hm³]", None),
@@ -916,6 +1540,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("eini", _J_NUM, False, "Initial reservoir volume [hm³]", None),
         ("efin", _J_NUM, False, "Required final reservoir volume [hm³]", None),
         (
+            "efin_cost",
+            _J_NUM,
+            False,
+            "Penalty cost per unit of efin shortfall [$/hm³]. "
+            "When set (and > 0) the hard vol_end >= efin row becomes soft.",
+            None,
+        ),
+        (
             "soft_emin",
             _J_SCHED,
             False,
@@ -930,6 +1562,24 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "mean_production_factor",
+            _J_NUM,
+            False,
+            "Expected turbine production factor [MWh/hm³]. Converts the "
+            "global state_violation_cost ($/MWh) into reservoir-specific "
+            "units ($/hm³). Defaults to 5.0 MWh/hm³.",
+            None,
+        ),
+        (
+            "scost",
+            _J_SCHED,
+            False,
+            "State cost: elastic penalty for SDDP state-variable violations "
+            "[$/hm³] per-(stage, block). When unset, computed from "
+            "state_fail_cost × mean_production_factor.",
+            None,
+        ),
+        (
             "fmin",
             _J_NUM,
             False,
@@ -941,13 +1591,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_NUM,
             False,
             "Maximum turbine discharge [m³/s]",
-            None,
-        ),
-        (
-            "energy_scale",
-            _J_NUM,
-            False,
-            "Energy scaling factor [hm³/unit] (default: 1.0)",
             None,
         ),
         (
@@ -994,7 +1637,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "slope",
             _J_SCHED,
             False,
-            "Seepage slope [m³/s per dam³] — scalar, per-stage array, or filename. "
+            "Seepage slope [m³/s per hm³] — scalar, per-stage array, or filename. "
             "Used when segments is empty or as the initial value before the "
             "first volume-dependent update.",
             None,
@@ -1013,7 +1656,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "JSON array",
             False,
             "Piecewise-linear seepage curve (plpfilemb.dat model): JSON array "
-            "of {volume [dam³], slope [m³/s per dam³], constant [m³/s]} objects. "
+            "of {volume [hm³], slope [m³/s per hm³], constant [m³/s]} objects. "
             "When present, the active segment is selected at each phase based on "
             "the current reservoir volume and the LP constraint coefficients "
             "(slope on eini/efin and the RHS) are updated directly in the LP. "
@@ -1045,7 +1688,7 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "JSON array",
             False,
             "Piecewise-linear discharge-limit curve: JSON array of "
-            "{volume [dam³], slope [m³/s per dam³], intercept [m³/s]} objects. "
+            "{volume [hm³], slope [m³/s per hm³], intercept [m³/s]} objects. "
             "The active segment is selected based on reservoir volume. "
             'Example: [{"volume":0,"slope":6.9868e-5,"intercept":15.787},'
             '{"volume":757000,"slope":1.3985e-4,"intercept":57.454}]',
@@ -1090,6 +1733,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Water-to-power production factor [MW/(m³/s)]",
             1.0,
+        ),
+        (
+            "efficiency",
+            _J_SCHED,
+            False,
+            "Turbine efficiency [p.u.] (default 1.0). Effective conversion "
+            "rate = efficiency × production_factor.",
+            None,
         ),
         (
             "capacity",
@@ -1154,6 +1805,325 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
     ],
     # ------------------------------------------------------------------
+    # System — pumps (electrical-to-water conversion)
+    # ------------------------------------------------------------------
+    "pump_array": [
+        ("uid", _J_INT, True, "Unique pump identifier", 1),
+        ("name", _J_STR, True, "Pump name", "pmp1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "waterway",
+            _J_ID,
+            True,
+            "Pumping waterway uid or name (junction_a = downstream intake, "
+            "junction_b = upstream discharge).",
+            "ww_pump1",
+        ),
+        (
+            "demand",
+            _J_ID,
+            True,
+            "Electrical demand uid or name (the pump load).",
+            "d_pump1",
+        ),
+        (
+            "pump_factor",
+            _J_SCHED,
+            False,
+            "Power consumed per unit flow [MW/(m³/s)], stage-schedulable.",
+            None,
+        ),
+        (
+            "efficiency",
+            _J_SCHED,
+            False,
+            "Pump efficiency [p.u.] (default 1.0), stage-schedulable.",
+            None,
+        ),
+        (
+            "capacity",
+            _J_SCHED,
+            False,
+            "Maximum pump flow [m³/s], stage-schedulable.",
+            None,
+        ),
+        (
+            "main_reservoir",
+            _J_ID,
+            False,
+            "Optional reservoir uid or name whose volume drives the pump's "
+            "conversion rate (future SDDP dynamic update).",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — water rights (flow-based and volume-based)
+    # ------------------------------------------------------------------
+    "flow_right_array": [
+        ("uid", _J_INT, True, "Unique flow-right identifier", 1),
+        ("name", _J_STR, True, "FlowRight name", "fr1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "purpose",
+            _J_STR,
+            False,
+            "Use case: 'irrigation', 'generation', 'environmental', etc. "
+            "Metadata only — does not affect LP.",
+            None,
+        ),
+        (
+            "junction",
+            _J_ID,
+            False,
+            "Reference junction uid or name where the right is exercised. "
+            "When set, the flow is subtracted from the junction's balance.",
+            None,
+        ),
+        (
+            "direction",
+            _J_INT,
+            False,
+            "Direction sign: +1 = supply (inflow), -1 = withdrawal "
+            "(consumptive extraction).",
+            None,
+        ),
+        (
+            "fmin",
+            _J_SCHED,
+            False,
+            "Hard lower bound on the served flow [m³/s] per-(stage, block). Default 0.",
+            None,
+        ),
+        (
+            "fmax",
+            _J_SCHED,
+            False,
+            "Hard upper bound on the served flow [m³/s] per-(stage, block). "
+            "When unset, defaults to target (or fmin).",
+            None,
+        ),
+        (
+            "target",
+            _J_SCHED,
+            False,
+            "Soft kink point [m³/s] per-(stage, block). Below target: fcost "
+            "penalty; above target: uvalue bonus/penalty. "
+            "Aliases legacy `discharge`.",
+            None,
+        ),
+        (
+            "flow_mode",
+            _J_STR,
+            False,
+            "Time-resolution mode: 'per_block' (default), 'stage_average', "
+            "or 'stage_uniform'.",
+            None,
+        ),
+        (
+            "use_average",
+            _J_BOOL,
+            False,
+            "Deprecated: true → flow_mode='stage_average'; false → "
+            "'per_block'. Ignored when flow_mode is set explicitly.",
+            None,
+        ),
+        (
+            "fcost",
+            _J_SCHED,
+            False,
+            "Penalty cost for unmet flow below target [$/m³/s/h] per-(stage, block).",
+            None,
+        ),
+        (
+            "uvalue",
+            _J_SCHED,
+            False,
+            "Value of exercising the right above target [$/m³/s/h] "
+            "per-(stage, block). Positive = incentivize; negative = penalize.",
+            None,
+        ),
+        (
+            "priority",
+            _J_NUM,
+            False,
+            "Priority level for allocation ordering [dimensionless].",
+            None,
+        ),
+        (
+            "bound_rule",
+            "JSON object",
+            False,
+            "Volume-dependent piecewise-linear bound rule for dynamic fmax "
+            "(reservoir-volume-driven cushion zones).",
+            None,
+        ),
+    ],
+    "volume_right_array": [
+        ("uid", _J_INT, True, "Unique volume-right identifier", 1),
+        ("name", _J_STR, True, "VolumeRight name", "vr1"),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "purpose",
+            _J_STR,
+            False,
+            "Use case: 'irrigation', 'generation', 'economy', etc. "
+            "Metadata only — does not affect LP.",
+            None,
+        ),
+        (
+            "reservoir",
+            _J_ID,
+            False,
+            "Physical source reservoir uid or name. When set, the right's "
+            "input flow is subtracted from the reservoir's balance.",
+            None,
+        ),
+        (
+            "right_reservoir",
+            _J_ID,
+            False,
+            "Optional FK to another VolumeRight for hierarchical rights balance.",
+            None,
+        ),
+        (
+            "direction",
+            _J_INT,
+            False,
+            "Direction sign on right_reservoir balance: +1 = supply, -1 = withdrawal.",
+            None,
+        ),
+        (
+            "emin",
+            _J_SCHED,
+            False,
+            "Minimum accumulated right volume [hm³] per-(stage, block).",
+            None,
+        ),
+        (
+            "emax",
+            _J_SCHED,
+            False,
+            "Maximum accumulated right volume [hm³] per-(stage, block).",
+            None,
+        ),
+        (
+            "ecost",
+            _J_SCHED,
+            False,
+            "Shadow cost of accumulated rights [$/hm³] per-(stage, block).",
+            None,
+        ),
+        (
+            "eini",
+            _J_NUM,
+            False,
+            "Initial accumulated volume at start of horizon [hm³].",
+            None,
+        ),
+        (
+            "efin",
+            _J_NUM,
+            False,
+            "Minimum required accumulated volume at end [hm³].",
+            None,
+        ),
+        (
+            "efin_cost",
+            _J_NUM,
+            False,
+            "Penalty cost per unit of efin shortfall [$/hm³].",
+            None,
+        ),
+        (
+            "soft_emin",
+            _J_SCHED,
+            False,
+            "Soft minimum volume [hm³] per-(stage, block).",
+            None,
+        ),
+        (
+            "soft_emin_cost",
+            _J_SCHED,
+            False,
+            "Penalty cost for soft_emin violation [$/hm³] per-(stage, block).",
+            None,
+        ),
+        (
+            "demand",
+            _J_SCHED,
+            False,
+            "Required volume delivery per stage [hm³].",
+            None,
+        ),
+        (
+            "fmax",
+            _J_SCHED,
+            False,
+            "Maximum extraction rate from the right [m³/s] per-(stage, block).",
+            None,
+        ),
+        (
+            "fail_cost",
+            _J_NUM,
+            False,
+            "Penalty cost for unmet volume demand [$/hm³].",
+            None,
+        ),
+        (
+            "priority",
+            _J_NUM,
+            False,
+            "Priority level for allocation ordering [dimensionless].",
+            None,
+        ),
+        (
+            "saving_rate",
+            _J_SCHED,
+            False,
+            "Maximum saving deposit rate per block [m³/s] "
+            "(only for economy VolumeRights).",
+            None,
+        ),
+        (
+            "flow_conversion_rate",
+            _J_NUM,
+            False,
+            "Converts m³/s × hours into hm³ [hm³/(m³/s·h)] (default 0.0036).",
+            None,
+        ),
+        (
+            "use_state_variable",
+            _J_BOOL,
+            False,
+            "Propagate accumulated volume state across phases via "
+            "StateVariables (SDDP coupling).",
+            None,
+        ),
+        (
+            "annual_loss",
+            _J_SCHED,
+            False,
+            "Annual fractional loss [p.u./year], stage-schedulable.",
+            None,
+        ),
+        (
+            "reset_month",
+            _J_STR,
+            False,
+            "Calendar month at which rights are re-provisioned "
+            "(e.g. 'april'). At reset, eini is set from bound_rule (or emax).",
+            None,
+        ),
+        (
+            "bound_rule",
+            "JSON object",
+            False,
+            "Volume-dependent piecewise-linear rule for dynamic extraction "
+            "adjustment and at-reset eini provisioning.",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
     # System — user constraints
     # ------------------------------------------------------------------
     "user_constraint_array": [
@@ -1180,6 +2150,49 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_STR,
             False,
             "Dual scaling hint: 'power' (default), 'energy', 'raw', or 'unitless'",
+            None,
+        ),
+        (
+            "penalty",
+            _J_NUM,
+            False,
+            "Per-unit slack cost. When set and > 0, the constraint is "
+            "relaxed via auto-created slack columns.",
+            None,
+        ),
+        (
+            "penalty_class",
+            _J_STR,
+            False,
+            "Penalty unit hint: 'raw' (default) or 'hydro_flow'. "
+            "Controls how `penalty` is interpreted physically.",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — user parameters (named constants for AMPL-style scripts)
+    # ------------------------------------------------------------------
+    "user_param_array": [
+        (
+            "name",
+            _J_STR,
+            True,
+            "Parameter name (referenced in pseudo-AMPL constraint scripts).",
+            "pct_elec",
+        ),
+        (
+            "value",
+            _J_NUM,
+            False,
+            "Scalar parameter value (mutually exclusive with `monthly`).",
+            None,
+        ),
+        (
+            "monthly",
+            "JSON array",
+            False,
+            "Monthly-indexed parameter [jan=0..dec=11]. Must be a 12-element "
+            "array. Resolved using the stage's calendar month.",
             None,
         ),
     ],

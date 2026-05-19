@@ -146,8 +146,8 @@ solver configurations.
 | `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
 | `hydro_use_value` | float | -- | Default benefit $/m³ for exercising hydro rights (falls back to `0.0` when unset). Overridden by per-element `use_value` |
 | `state_fail_cost` | float | -- | Penalty $/MWh for state-variable violations in SDDP elastic filter. Fallback when an element (reservoir, etc.) does not define its own `scost`. Converted to physical units via the element's `mean_production_factor` |
-| `emission_cost` | float/schedule | -- | System-wide CO₂ emission cost [$/tCO₂]. When set, generators with non-zero `emission_factor` pay `emission_cost × emission_factor` per MWh |
-| `emission_cap` | float/schedule | -- | System-wide CO₂ cap [tCO₂] per stage. Adds `Σ emission_factor · p · duration ≤ cap_s`; the dual is the endogenous carbon price |
+| `emission_cost` | float/schedule | -- | System-wide CO₂ emission cost [$/tCO₂]. When set, generators with non-zero `emission_rate` pay `emission_cost × emission_rate` per MWh |
+| `emission_cap` | float/schedule | -- | System-wide CO₂ cap [tCO₂] per stage. Adds `Σ emission_rate · p · duration ≤ cap_s`; the dual is the endogenous carbon price |
 | `continuous_phases` | string | `"none"` | Phase-range expression controlling which phases run LP-relaxed (integers become continuous). Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"`. Settable per cascade level |
 
 ## SolverOptions Fields

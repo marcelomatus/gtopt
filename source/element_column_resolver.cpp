@@ -373,15 +373,15 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       }
       // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
       //   * heat_rate       — per-(stage, block) <fuel_unit>/MWh
-      //   * emission_factor — per-(stage, block) tCO₂/MWh
+      //   * emission_rate — per-(stage, block) tCO₂/MWh
       // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
       // are arrays without a meaningful scalar PAMPL projection — not
       // exposed; reference via the Fuel side instead.
       if (attr == "heat_rate") {
         return gen.param_heat_rate(suid, buid);
       }
-      if (attr == "emission_factor") {
-        return gen.param_emission_factor(suid, buid);
+      if (attr == "emission_rate") {
+        return gen.param_emission_rate(suid, buid);
       }
       return std::nullopt;
     }

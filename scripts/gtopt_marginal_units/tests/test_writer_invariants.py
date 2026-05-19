@@ -28,7 +28,7 @@ def _gen(uid: int, mc: float) -> Generator:
         pmax=100,
         declared_MC=mc,
         kind="thermal",
-        emission_factor=400.0,
+        emission_rate=400.0,
     )
 
 

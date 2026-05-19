@@ -4,7 +4,7 @@
 //
 //   * PR-A: Generator.gcost / Demand.fcost / Battery.discharge_cost /
 //     charge_cost
-//   * PR-B: Generator.heat_rate / lossfactor / emission_factor,
+//   * PR-B: Generator.heat_rate / lossfactor / emission_rate,
 //           Demand.lossfactor, Line.lossfactor
 //   * PR-C: ReserveZone.urcost/drcost,
 //           ReserveProvision.urcost/drcost/{ur,dr}_capacity_factor/
@@ -207,7 +207,7 @@ TEST_CASE("TBRealFieldSched 2-D construction direct")  // NOLINT
   CHECK(v[0][2] == doctest::Approx(30.0));
 }
 
-// ─── PR-B: per-block heat_rate / lossfactor / emission_factor ──────
+// ─── PR-B: per-block heat_rate / lossfactor / emission_rate ──────
 
 TEST_CASE("Generator.heat_rate — 2-D per-block JSON parses as TB")  // NOLINT
 {
@@ -247,7 +247,7 @@ TEST_CASE("Generator.lossfactor — 2-D per-block JSON parses as TB")  // NOLINT
 }
 
 TEST_CASE(
-    "Generator.emission_factor — 2-D per-block JSON parses as TB")  // NOLINT
+    "Generator.emission_rate — 2-D per-block JSON parses as TB")  // NOLINT
 {
   constexpr std::string_view json_data = R"({
     "uid": 1,
@@ -255,12 +255,11 @@ TEST_CASE(
     "bus": 1,
     "pmin": 0,
     "pmax": 100,
-    "emission_factor": [[0.3, 0.4, 0.5]]
+    "emission_rate": [[0.3, 0.4, 0.5]]
   })";
   const auto gen = daw::json::from_json<Generator>(json_data);
-  REQUIRE(gen.emission_factor.has_value());
-  const auto& v =
-      std::get<std::vector<std::vector<Real>>>(*gen.emission_factor);
+  REQUIRE(gen.emission_rate.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*gen.emission_rate);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][1] == doctest::Approx(0.4));

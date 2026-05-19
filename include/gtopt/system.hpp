@@ -253,7 +253,7 @@ struct System
    * For each fuel with either legacy field set: synthesize (or update)
    * a `FuelEmissionFactor` row keyed by the CO₂ `Emission` (creating
    * the CO₂ tag if absent).  Both legacy fields are cleared so a
-   * second call is a no-op.  Mirrors `fold_legacy_emission_factor()`.
+   * second call is a no-op.  Mirrors `fold_legacy_emission_rate()`.
    */
   void fold_legacy_fuel_emission_factors();
 
@@ -283,28 +283,28 @@ struct System
   void expand_fuel_emission_sources();
 
   /**
-   * @brief Auto-fold the legacy `Generator.emission_factor` (scalar
+   * @brief Auto-fold the legacy `Generator.emission_rate` (scalar
    *        per-MWh CO₂ rate) into a synthetic CO₂ `Emission` +
    *        `EmissionZone` + `EmissionSource` triple, then clear the
    *        legacy field on the generator.
    *
-   * For each `Generator` with a non-null scalar `emission_factor`:
+   * For each `Generator` with a non-null scalar `emission_rate`:
    *   - If no `Emission{name="co2"}` exists, create one.
    *   - If no `EmissionZone` covers that pollutant, create
    *     `EmissionZone{name="default_co2", emissions=[{co2, 1.0}]}`
    *     (pure-reporting zone — no cap, no price).
    *   - Append an `EmissionSource{generator: <this>, zone:
-   *     default_co2_zone, emission: co2, rate: emission_factor}`.
+   *     default_co2_zone, emission: co2, rate: emission_rate}`.
    *
    * Vector and FileSched legacy factors are NOT downgraded (warning
    * emitted and field left untouched); the user should migrate them
    * manually to the new schema.  Idempotent on already-folded
-   * generators (skips when `emission_factor` is null).
+   * generators (skips when `emission_rate` is null).
    *
    * Mirrors `fold_legacy_profiles()` — same migration idiom we used
    * for `GeneratorProfile` / `DemandProfile` → `CapacityProfile`.
    */
-  void fold_legacy_emission_factor();
+  void fold_legacy_emission_rate();
 
   /**
    * @brief Fold legacy `generator_profile_array` / `demand_profile_array`

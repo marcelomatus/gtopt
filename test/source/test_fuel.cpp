@@ -580,7 +580,7 @@ TEST_CASE(  // NOLINT
 
 // ── PAMPL parameter mappings (2026-05-17) ────────────────────────────
 //
-// Fuel and the new Generator heat_rate / emission_factor fields are
+// Fuel and the new Generator heat_rate / emission_rate fields are
 // exposed as `resolve_single_param` constants so user constraints
 // can reference them directly.  These tests build a small fixture
 // with a user constraint that uses the parameter on the LHS as a
@@ -841,10 +841,10 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "PAMPL — generator('g1').emission_factor resolves to its field")  // NOLINT
+    "PAMPL — generator('g1').emission_rate resolves to its field")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // generator.emission_factor = 7 (distinct value to identify the
+  // generator.emission_rate = 7 (distinct value to identify the
   // field).  load + 7 <= 12 ⇒ load <= 5 ⇒ obj = 9505 (as in the
   // fuel-attribute test).
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
@@ -855,7 +855,7 @@ TEST_CASE(
           .bus = Uid {1},
           .gcost = 1.0,
           .capacity = 200.0,
-          .emission_factor = 7.0,
+          .emission_rate = 7.0,
       },
   };
   const Array<Demand> demand_array = {
@@ -870,9 +870,9 @@ TEST_CASE(
   const Array<UserConstraint> ucs = {
       {
           .uid = Uid {1},
-          .name = "emission_factor_cap",
+          .name = "emission_rate_cap",
           .expression =
-              "demand('d1').load + generator('g1').emission_factor <= 12",
+              "demand('d1').load + generator('g1').emission_rate <= 12",
       },
   };
   const Simulation simulation = {

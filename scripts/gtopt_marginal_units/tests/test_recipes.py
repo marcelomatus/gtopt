@@ -25,7 +25,7 @@ def _gen(uid: int, mc: float, ef: float = 400.0, kind: str = "thermal") -> Gener
         pmax=100.0,
         declared_MC=mc,
         kind=kind,
-        emission_factor=ef,
+        emission_rate=ef,
     )
 
 
@@ -162,7 +162,7 @@ def test_hydro_marginal_emission_is_zero():
     assert em[0].recomputed_value == 0.0
 
 
-def test_missing_emission_factor_yields_nan():
+def test_missing_emission_rate_yields_nan():
     topo = Topology(
         buses=[],
         generators=[
@@ -174,7 +174,7 @@ def test_missing_emission_factor_yields_nan():
                 pmax=100,
                 declared_MC=20.0,
                 kind="thermal",
-                emission_factor=None,
+                emission_rate=None,
             ),
         ],
         lines=[],

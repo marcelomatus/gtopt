@@ -24,7 +24,7 @@ def test_round_trip_via_canonical_reader(tmp_path: Path):
                 pmax=350,
                 declared_MC=35.0,
                 kind="thermal",
-                emission_factor=950.0,
+                emission_rate=950.0,
             ),
         ],
         lines=[

@@ -27,7 +27,7 @@ def _gen(uid: int, mc: float, kind: str = "thermal") -> Generator:
         pmax=100.0,
         declared_MC=mc,
         kind=kind,
-        emission_factor=400.0,
+        emission_rate=400.0,
     )
 
 
@@ -95,7 +95,7 @@ def test_ladder_excludes_profile_units():
             pmax=100,
             declared_MC=0.0,
             kind="profile",
-            emission_factor=0.0,
+            emission_rate=0.0,
         ),
     ]
     rungs = build_ladder(

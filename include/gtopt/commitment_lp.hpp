@@ -12,7 +12,7 @@
  * - C3 (exclusion): v[t] + w[t] ≤ 1
  *
  * Also handles emission cost adder on the generation variable when the
- * generator has an emission_factor and the system defines emission_cost.
+ * generator has an emission_rate and the system defines emission_cost.
  */
 
 #pragma once

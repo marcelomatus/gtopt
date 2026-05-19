@@ -103,7 +103,7 @@ struct RightBoundSegment
 {
   Real volume {
       0.0,
-  };  ///< Volume breakpoint [hm3] -- segment active when V >= volume
+  };  ///< Volume breakpoint [hm³] -- segment active when V >= volume
   Real slope {0.0};  ///< d(bound)/d(V)
   Real constant {
       0.0,
@@ -132,7 +132,7 @@ struct RightBoundRule
   /// When empty, the bound rule has no effect.
   std::vector<RightBoundSegment> segments {};
 
-  /// Maximum cap on the computed bound (e.g., 5000 m3/s for Laja
+  /// Maximum cap on the computed bound (e.g., 5000 m³/s for Laja
   /// irrigation rights).  When unset, no upper cap is applied.
   OptReal cap {};
 
@@ -178,7 +178,7 @@ struct RightBoundRule
  * segment, then clamps to [floor, cap].
  *
  * @param rule The bound rule with segments, cap, and floor
- * @param volume Current reservoir volume [hm3]
+ * @param volume Current reservoir volume [hm³]
  * @return The computed bound value (clamped)
  */
 [[nodiscard]] inline auto evaluate_bound_rule(const RightBoundRule& rule,

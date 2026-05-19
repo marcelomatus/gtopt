@@ -2405,7 +2405,7 @@ mathematical symbols used in this formulation.
 | `generator_array[].pmax` | $\overline{P}_g$ | Max output (MW) |
 | `generator_array[].capacity` | $\bar{C}_g^0$ | Installed capacity (MW) |
 | `generator_array[].lossfactor` | $\lambda_g$ | Injection loss |
-| `generator_array[].emission_factor` | $f_g$ | CO₂ emission intensity (tCO₂/MWh) |
+| `generator_array[].emission_rate` | $f_g$ | CO₂ emission intensity (tCO₂/MWh) |
 | `generator_array[].expcap` | $M_g$ | MW per module |
 | `generator_array[].expmod` | $\overline{m}_g$ | Max modules |
 | `generator_array[].annual_capcost` | $K_g^{\text{cap}}$ | \$/year per module |

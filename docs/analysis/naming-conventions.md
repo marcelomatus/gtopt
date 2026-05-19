@@ -988,7 +988,7 @@ is standard.
 | `capmax` | `Max Capacity Built` | `PotMax` | $P_g^{\max,total}$ | |
 | `annual_capcost` | `Build Cost` × `WACC` | `CFix` / `FixedCost` | $c_g^{inv}$ | |
 | `annual_derating` | (Outage rate / De-rating Factor) | `TaxaIndispoForcada` / `FOR` | — | |
-| `emission_factor` | `CO2 Production Rate` | `FatorEmissao` / `EmissionFactor` | — | |
+| `emission_rate` | `CO2 Production Rate` | `FatorEmissao` / `EmissionFactor` | — | |
 
 ### C.3 Demand / Load
 
