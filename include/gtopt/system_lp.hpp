@@ -98,11 +98,14 @@ static_assert(AddToLP<BatteryLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
-// `FuelLP` and `EmissionLP` are intentionally NOT `AddToLP` in Commit 1
-// — they are passive parameter carriers.  The visitor in
-// `system_lp.cpp::add_to_lp()` gates on `AddToLP<T>` and skips them
-// at compile time.  `EmissionLP` is promoted to LP-active in Commit 3
-// (the bridge-element wiring); `FuelLP` stays passive permanently.
+// `FuelLP` and `EmissionLP` are intentionally NOT `AddToLP` — they
+// are passive parameter carriers.  The visitor in
+// `system_lp.cpp::add_to_lp()` gates on `AddToLP<T>` and skips them.
+// `EmissionZoneLP` (Commit 3) owns the production col + balance row +
+// optional cap row; `EmissionSourceLP` (same commit) injects its
+// `-rate · dur` coefficient into the matching balance row.
+static_assert(AddToLP<EmissionZoneLP>);
+static_assert(AddToLP<EmissionSourceLP>);
 static_assert(AddToLP<CommitmentLP>);
 static_assert(AddToLP<SimpleCommitmentLP>);
 static_assert(AddToLP<InertiaZoneLP>);

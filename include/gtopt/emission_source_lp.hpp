@@ -40,9 +40,24 @@ public:
     return self.object();
   }
 
-  // Intentionally no `add_to_lp` / `add_to_output` in Commit 2.
-  // Promoted to LP-active in Commit 3 — adds a coefficient to its
-  // zone's balance row.
+  /// Inject `-rate · dur_b` into the zone's balance row at every
+  /// generator dispatch column for this (scenario, stage, block).
+  /// EmissionZoneLP::add_to_lp must run BEFORE this — by the
+  /// `lp_element_types_t` ordering it does (EmissionZoneLP precedes
+  /// EmissionSourceLP).  Same dependency InertiaProvisionLP has on
+  /// InertiaZoneLP.
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
+
+  /// No per-element output stream — the per-source contribution is
+  /// captured by `EmissionZone/production_sol` (aggregate) and can be
+  /// reconstructed post-solve as `rate · gen_sol · dur` when needed.
+  [[nodiscard]] bool add_to_output(OutputContext& /*out*/) const noexcept
+  {
+    return true;
+  }
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
