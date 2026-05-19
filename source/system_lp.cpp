@@ -1174,7 +1174,7 @@ void SystemLP::write_out()
   // implies emission (compress + diagnostics-only runs).  Mark
   // `m_output_written_` so the idempotence guard fires on subsequent
   // calls from PlanningLP's pool.
-  if (options().write_out() == OutputFlags::none) {
+  if (options().write_out().atoms == OutputFlags::none) {
     if (options().lp_fingerprint()) {
       const auto fname = as_label(
           "lp_fingerprint", "scene", scene().uid(), "phase", phase().uid());

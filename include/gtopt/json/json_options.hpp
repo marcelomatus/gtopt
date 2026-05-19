@@ -133,7 +133,7 @@ struct PlanningOptionsConstructor
           "constraint_mode", *constraint_mode_str);
     }
     if (write_out_str) {
-      opts.write_out = gtopt::parse_output_flags(*write_out_str);
+      opts.write_out = gtopt::parse_output_selection(*write_out_str);
     }
     return opts;
   }
@@ -217,7 +217,7 @@ struct json_data_contract<PlanningOptions>
         opt.variable_scales,
         detail::enum_to_opt_name(opt.constraint_mode),
         opt.write_out.has_value()
-            ? std::optional<std::string> {gtopt::output_flags_to_string(
+            ? std::optional<std::string> {gtopt::output_selection_to_string(
                   *opt.write_out)}
             : std::optional<std::string> {});
   }

@@ -139,22 +139,25 @@ public:
   static constexpr DataFormat default_output_format = DataFormat::parquet;
   /** @brief Default compression codec for Parquet output files.
    *
-   *  `lz4` matches snappy's decode speed (within a few percent on the
-   *  small Arrow buffers gtopt emits) while delivering a noticeably
-   *  better ratio on the highly-redundant primal/dual columns produced
-   *  by the per-(scene, phase) solution files, so the default disk
-   *  footprint shrinks without measurable read-side cost.  Set
-   *  `output_compression: zstd` in the JSON (or `--output-compression
-   *  zstd`) when archival ratio matters more than encode time, or
-   *  `output_compression: snappy` for compatibility with downstream
-   *  Spark / Athena consumers that prefer Snappy.
+   *  `snappy` is the de-facto Spark / Arrow / Parquet default: very
+   *  fast encode + decode on the small Arrow buffers gtopt emits, and
+   *  every Parquet-consuming tool in the ecosystem reads it natively.
+   *  Use `output_compression: zstd` when archival ratio matters more
+   *  than encode time, or `output_compression: lz4` when downstream
+   *  consumers prefer the LZ4 frame format.
+   *
+   *  History: between 2026-05-18 and 2026-05-19 the default was
+   *  briefly flipped to `lz4`, but `resolve_parquet_codec` was missing
+   *  the `lz4` mapping — every column was silently written
+   *  UNCOMPRESSED.  The codec table is fixed and the default is back
+   *  to `snappy`, both behaviours that callers naturally expect.
    *
    *  `lp_compression` (LP debug files) keeps `zstd` as its default —
    *  those files are large textual dumps where the ratio matters and
    *  decode speed does not.
    */
   static constexpr CompressionCodec default_output_compression =
-      CompressionCodec::lz4;
+      CompressionCodec::snappy;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -661,19 +664,24 @@ public:
 
   /// Which output fields `OutputContext` should emit.  Default is
   /// `OutputFlags::all` — primal solutions, row duals, and reduced
-  /// costs.  The reduced-cost streams are needed by
-  /// `gtopt_marginal_units` to identify the marginal unit at each
-  /// (bus, scene, stage, block) — without them the attribution must
-  /// fall back to the static `gcost` from the planning JSON, which
-  /// silently fails for piecewise generators and for hydro / battery
-  /// units whose true MC is a reservoir / battery shadow price.
-  /// Users who want a leaner output footprint can opt out via
-  /// `--write-out sol,dual` or `--write-out sol`.
+  /// costs, all unscoped (every element class included).  The
+  /// reduced-cost streams are needed by `gtopt_marginal_units` to
+  /// identify the marginal unit at each (bus, scene, stage, block) —
+  /// without them the attribution must fall back to the static
+  /// `gcost` from the planning JSON, which silently fails for
+  /// piecewise generators and for hydro / battery units whose true MC
+  /// is a reservoir / battery shadow price.  Users who want a leaner
+  /// output footprint can pass any of:
+  ///
+  ///   - `--write-out sol`                  primal only
+  ///   - `--write-out sol,dual`             primal + LMPs
+  ///   - `--write-out sol,dual,rc:Generator`   primal + duals everywhere,
+  ///                                           rc only on Generator
   ///
   /// Bound to CLI `--write-out` and JSON `write_out`.
-  [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
+  [[nodiscard]] auto write_out() const noexcept -> OutputSelection
   {
-    return m_options_.write_out.value_or(OutputFlags::all);
+    return m_options_.write_out.value_or(OutputSelection {OutputFlags::all});
   }
 
   /**

@@ -127,7 +127,7 @@ public:
                                     const Id& id,
                                     const STBIndexHolder<double>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field_values(cname,
@@ -144,7 +144,7 @@ public:
                                      const Id& id,
                                      const STBIndexHolder<double>& holder)
   {
-    if (!emit_reduced_cost()) {
+    if (!emit_reduced_cost(cname)) {
       return;
     }
     // Mirrors the `:cost` factor pipeline of `add_col_cost`: applies
@@ -167,7 +167,7 @@ public:
                                      const Id& id,
                                      const STBIndexHolder<double>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field_values(cname,
@@ -196,7 +196,7 @@ public:
                              const Id& id,
                              const GSTBIndexHolder<ColIndex>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field(cname,
@@ -214,7 +214,7 @@ public:
                              const Id& id,
                              const STBIndexHolder<ColIndex>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field(cname,
@@ -244,7 +244,7 @@ public:
       const Id& id,
       const STBIndexHolder<std::vector<ColIndex>>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field_sum(cname,
@@ -262,7 +262,7 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<ColIndex>& holder)
   {
-    if (!emit_reduced_cost()) {
+    if (!emit_reduced_cost(cname)) {
       return;
     }
     add_field(cname,
@@ -280,7 +280,7 @@ public:
                               const Id& id,
                               const STBIndexHolder<ColIndex>& holder)
   {
-    if (!emit_reduced_cost()) {
+    if (!emit_reduced_cost(cname)) {
       return;
     }
     add_field(cname,
@@ -298,7 +298,7 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<RowIndex>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field(cname,
@@ -316,7 +316,7 @@ public:
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field(cname,
@@ -337,7 +337,7 @@ public:
                               const STBIndexHolder<RowIndex>& holder,
                               const STIndexHolder<double>& st_scale)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field_st_scaled(
@@ -350,7 +350,7 @@ public:
                                   const Id& id,
                                   const STBIndexHolder<RowIndex>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field(cname,
@@ -370,7 +370,7 @@ public:
                              const Id& id,
                              const STIndexHolder<ColIndex>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field(cname,
@@ -388,7 +388,7 @@ public:
                               const Id& id,
                               const STIndexHolder<ColIndex>& holder)
   {
-    if (!emit_reduced_cost()) {
+    if (!emit_reduced_cost(cname)) {
       return;
     }
     add_field(cname,
@@ -406,7 +406,7 @@ public:
                               const Id& id,
                               const STIndexHolder<RowIndex>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field(cname,
@@ -426,7 +426,7 @@ public:
                              const Id& id,
                              const TIndexHolder<ColIndex>& holder)
   {
-    if (!emit_solution()) {
+    if (!emit_solution(cname)) {
       return;
     }
     add_field(cname,
@@ -444,7 +444,7 @@ public:
                               const Id& id,
                               const TIndexHolder<ColIndex>& holder)
   {
-    if (!emit_reduced_cost()) {
+    if (!emit_reduced_cost(cname)) {
       return;
     }
     add_field(cname,
@@ -462,7 +462,7 @@ public:
                               const Id& id,
                               const TIndexHolder<RowIndex>& holder)
   {
-    if (!emit_dual()) {
+    if (!emit_dual(cname)) {
       return;
     }
     add_field(cname,
@@ -476,22 +476,37 @@ public:
   }
 
   /// Which output fields were requested for this context.
-  [[nodiscard]] constexpr auto output_flags() const noexcept -> OutputFlags
+  [[nodiscard]] auto output_flags() const noexcept -> OutputFlags
   {
-    return m_output_flags_;
+    return m_output_selection_.atoms;
+  }
+  [[nodiscard]] auto output_selection() const noexcept -> const OutputSelection&
+  {
+    return m_output_selection_;
   }
 
-  [[nodiscard]] constexpr bool emit_solution() const noexcept
+  // Per-(atom, cname) gating.  The `cname` is the element-class
+  // string each `*LP::add_to_output` passes as the first argument to
+  // `add_col_sol` / `add_col_cost` / `add_row_dual` — i.e. the same
+  // top-level directory name the parquet output uses (`Generator`,
+  // `Bus`, `Line`, …).  When the user supplies a per-atom class
+  // allow-list (e.g. `--write-out rc:Generator,Line`), only those
+  // cnames pass the gate.  When no scope is configured for an atom,
+  // every cname passes.
+
+  [[nodiscard]] auto emit_solution(std::string_view cname) const noexcept
+      -> bool
   {
-    return has_flag(m_output_flags_, OutputFlags::solution);
+    return m_output_selection_.emits(OutputFlags::solution, cname);
   }
-  [[nodiscard]] constexpr bool emit_dual() const noexcept
+  [[nodiscard]] auto emit_dual(std::string_view cname) const noexcept -> bool
   {
-    return has_flag(m_output_flags_, OutputFlags::dual);
+    return m_output_selection_.emits(OutputFlags::dual, cname);
   }
-  [[nodiscard]] constexpr bool emit_reduced_cost() const noexcept
+  [[nodiscard]] auto emit_reduced_cost(std::string_view cname) const noexcept
+      -> bool
   {
-    return has_flag(m_output_flags_, OutputFlags::reduced_cost);
+    return m_output_selection_.emits(OutputFlags::reduced_cost, cname);
   }
 
   void write() const;
@@ -502,7 +517,7 @@ private:
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
 
-  OutputFlags m_output_flags_ {OutputFlags::all};
+  OutputSelection m_output_selection_ {OutputFlags::all};
 
   ScaledView col_sol_span;
   ScaledView col_cost_span;

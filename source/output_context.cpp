@@ -188,14 +188,34 @@ auto make_table(FieldVector&& field_vector)
   using codec_t = decltype(parquet::Compression::UNCOMPRESSED);
   // Small fixed table — linear scan is cheaper than a hash lookup and
   // avoids constructing a std::string from the string_view key.
-  static constexpr std::array<std::pair<std::string_view, codec_t>, 6>
+  //
+  // Keep in lock-step with `probe_parquet_codec` (see below) and with
+  // the JSON-side `CompressionCodec` enum in `planning_enums.hpp`.
+  // Pre-2026-05-19 this table was missing entries for `snappy`, `lz4`,
+  // `lz4_raw`, and `brotli`: the codecs all parsed clean in
+  // `probe_parquet_codec` (so the log printed `Output compression
+  // codec: lz4`) but `resolve_parquet_codec` then fell off the loop
+  // and returned UNCOMPRESSED.  Result: every parquet column was
+  // written uncompressed even though the user had asked for snappy
+  // or lz4.  See the support/plp_2_years bloat regression.
+  static constexpr std::array<std::pair<std::string_view, codec_t>, 9>
       codec_map {
           {
               {"", parquet::Compression::UNCOMPRESSED},
               {"none", parquet::Compression::UNCOMPRESSED},
               {"uncompressed", parquet::Compression::UNCOMPRESSED},
+              {"snappy", parquet::Compression::SNAPPY},
               {"gzip", parquet::Compression::GZIP},
+              {"brotli", parquet::Compression::BROTLI},
               {"zstd", parquet::Compression::ZSTD},
+              // Parquet rejects `LZ4_FRAME` (an Arrow-level frame
+              // wrapper) — use `LZ4` (the legacy Hadoop variant) for
+              // the JSON/CLI keyword `lz4`, which parquet writers
+              // accept.  The "raw" parquet LZ4 codec is `LZ4_RAW` but
+              // it is not in the Arrow enum at this version, and
+              // `LZ4` is the codec downstream Spark / Arrow readers
+              // expect for any "lz4"-tagged file.
+              {"lz4", parquet::Compression::LZ4},
               {"lzo", parquet::Compression::LZO},
           },
       };
@@ -509,7 +529,7 @@ OutputContext::OutputContext(const SystemContext& psc,
     : sc(psc)
     , m_scene_uid_(scene_uid)
     , m_phase_uid_(phase_uid)
-    , m_output_flags_(psc.options().write_out())
+    , m_output_selection_(psc.options().write_out())
     , col_sol_span(linear_interface.get_col_sol())
     , col_cost_span(linear_interface.get_col_cost())
     , row_dual_span(linear_interface.get_row_dual())
