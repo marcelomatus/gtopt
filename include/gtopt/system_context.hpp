@@ -122,17 +122,9 @@ public:
     return ReturnType {};
   }
 
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
-                                                const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().demand_fail_cost();
-  }
-
-  /// Per-(stage, block) variant: resolves a `Demand.fcost`
-  /// (`OptTBRealSched`) at the block grain, with the same fallback
-  /// to the global `model_options.demand_fail_cost` when unset.
+  /// Resolves a `Demand.fcost` (`OptTBRealSched`) at the (stage, block)
+  /// grain, falling back to the global `model_options.demand_fail_cost`
+  /// when unset.  Returned in `[$/MWh]`.
   template<typename FailCost>
   [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
                                                 const BlockLP& block,
@@ -142,38 +134,10 @@ public:
     return fc ? fc : options().demand_fail_cost();
   }
 
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
-                                                const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().hydro_spill_cost();
-  }
-
-  /// Per-(stage, block) variant: resolves a `FlowRight.fcost`
-  /// (`OptTBRealSched`) at the block grain, falling back to the
-  /// global `model_options.hydro_spill_cost`.
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
-                                                const BlockLP& block,
-                                                const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid(), block.uid());
-    return fc ? fc : options().hydro_spill_cost();
-  }
-
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto reserve_shortage_cost(
-      const StageLP& stage, const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().reserve_shortage_cost();
-  }
-
-  /// Per-(stage, block) variant: resolves a `ReserveZone.urcost` /
-  /// `ReserveZone.drcost` / `InertiaZone.cost` (`OptTBRealSched`) at
-  /// the block grain, falling back to the global
-  /// `model_options.reserve_shortage_cost`.
+  /// Resolves a `ReserveZone.urcost` / `ReserveZone.drcost` /
+  /// `InertiaZone.cost` (`OptTBRealSched`) at the (stage, block) grain,
+  /// falling back to the global `model_options.reserve_shortage_cost`.
+  /// Returned in `[$/MW]` (reserves) or `[$/MWs]` (inertia).
   template<typename FailCost>
   [[nodiscard]] constexpr auto reserve_shortage_cost(
       const StageLP& stage, const BlockLP& block, const FailCost& fcost) const
@@ -182,17 +146,11 @@ public:
     return fc ? fc : options().reserve_shortage_cost();
   }
 
-  template<typename StateCost>
-  [[nodiscard]] constexpr auto state_violation_cost(
-      const StageLP& stage, const StateCost& scost) const
-  {
-    const auto sc = scost.optval(stage.uid());
-    return sc ? sc : options().state_violation_cost();
-  }
-
-  /// Per-(stage, block) variant: resolves an `OptTBRealSched`-typed
-  /// state cost at the block grain, falling back to the global
-  /// `model_options.state_violation_cost`.
+  /// Resolves an `OptTBRealSched`-typed state cost (e.g. `Reservoir.scost`,
+  /// `LngTerminal.scost`) at the (stage, block) grain, falling back to
+  /// the global `model_options.state_violation_cost`.  Returned in
+  /// `[$/MWh]` (energy-equivalent — multiplied by element-specific
+  /// `mean_production_factor` at the caller).
   template<typename StateCost>
   [[nodiscard]] constexpr auto state_violation_cost(
       const StageLP& stage, const BlockLP& block, const StateCost& scost) const

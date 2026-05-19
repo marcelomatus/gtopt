@@ -560,13 +560,13 @@ void System::expand_fuel_emission_sources()
   }
 }
 
-void System::fold_legacy_emission_factor()
+void System::fold_legacy_emission_rate()
 {
-  // Short-circuit: if no generator has a legacy emission_factor set,
+  // Short-circuit: if no generator has a legacy emission_rate set,
   // there's nothing to fold.
   bool any_legacy = false;
   for (const auto& gen : generator_array) {
-    if (gen.emission_factor.has_value()) {
+    if (gen.emission_rate.has_value()) {
       any_legacy = true;
       break;
     }
@@ -623,10 +623,10 @@ void System::fold_legacy_emission_factor()
   auto src_uids = build_uid_set(emission_source_array);
 
   for (auto& gen : generator_array) {
-    if (!gen.emission_factor.has_value()) {
+    if (!gen.emission_rate.has_value()) {
       continue;
     }
-    const auto& legacy = *gen.emission_factor;
+    const auto& legacy = *gen.emission_rate;
 
     // Downgrade `OptTBRealFieldSched` → `OptTRealFieldSched`.  Only
     // the scalar case is folded losslessly; vector and FileSched
@@ -636,7 +636,7 @@ void System::fold_legacy_emission_factor()
       rate = OptTRealFieldSched {std::get<Real>(legacy)};
     } else {
       SPDLOG_WARN(
-          "Generator '{}' (uid={}): legacy emission_factor has "
+          "Generator '{}' (uid={}): legacy emission_rate has "
           "non-scalar shape — skipped by auto-fold.  Replace with an "
           "explicit `emission_source_array` entry to keep the "
           "per-block / file-backed rate.",
@@ -660,7 +660,7 @@ void System::fold_legacy_emission_factor()
         .rate = std::move(rate),
     });
 
-    gen.emission_factor.reset();  // idempotent — second call sees null
+    gen.emission_rate.reset();  // idempotent — second call sees null
   }
 }
 

@@ -222,12 +222,26 @@ public:
   /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
   /// still accepted as a JSON alias via the naming-dialects
   /// registry.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume), matching the
+  /// documentation on `ModelOptions::hydro_spill_cost`.  Callers
+  /// pricing a flow column `[m³/s]` via `CostHelper::block_ecost(...)`
+  /// (which multiplies by block duration `[h]`) MUST lift the value
+  /// by `× 3600` to convert to `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:396` for the reference pattern.  Direct
+  /// volume-based costs (`$/m³ × m³`) need no conversion.
   [[nodiscard]] constexpr auto hydro_spill_cost() const
   {
     return m_options_.model_options.hydro_spill_cost;
   }
 
   /// @brief Gets the hydro use value (benefit per m³) from model_options.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume, like
+  /// `hydro_spill_cost`).  Same `× 3600` lift required when used as
+  /// a fallback for a flow-column benefit `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:471` and the parallel comment on
+  /// `hydro_spill_cost()` above.
   [[nodiscard]] constexpr auto hydro_use_value() const
   {
     return m_options_.model_options.hydro_use_value;
