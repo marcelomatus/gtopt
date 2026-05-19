@@ -1174,104 +1174,27 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         if x is None:
             continue
 
-        # Map UC.jl's two-tier line limit to gtopt's soft-cap feature:
+        # UC.jl line limits are intentionally NOT enforced on the
+        # gtopt side.  UC.jl's default solver uses lazy
+        # XavQiuWanThi2019 violation enforcement on top of a PTDF
+        # matrix thresholded at ``isf_cutoff = 0.005`` (and ``0.001``
+        # for LODF), which zeroes out most line-flow contributions
+        # before the violation finder ever sees them.  The empirical
+        # effect on the published case14/congested golden is that
+        # ``Line overflow (MW) = 0`` on every line — i.e. no soft or
+        # hard line constraint is ever added — even though a
+        # Kirchhoff-exact DC OPF would route ~107 MW through ``l1``
+        # (well above its Normal=15 target).
         #
-        #   ``Emergency flow limit (MW)``  → hard cap     ``tmax_{ab,ba}``
-        #   ``Normal flow limit (MW)``     → soft cap ``tmax_normal_{ab,ba}``
-        #   ``Flow limit penalty ($/MW)``  → ``overload_penalty`` [$/MWh]
-        #
-        # gtopt's ``LineLP`` natively supports a soft (Normal) flow
-        # threshold with a per-MWh overload penalty on the slack between
-        # Normal and Emergency, matching UC.jl + PLEXOS convention.
-        #
-        # When ``Emergency`` is absent, synthesize one as ``max(Normal ×
-        # SOFT_CAP_HARD_MULT, Normal + 100)`` so the slack column has a
-        # finite, well-scaled upper bound (a 99999 sentinel would
-        # destabilise Kirchhoff numerics by allowing huge angle
-        # excursions).  The multiplier is large enough that UC.jl's
-        # actual flows almost always stay within it, and the penalty
-        # makes overloads expensive in any case.
-        #
-        # When ``Flow limit penalty`` is absent per-line, fall back to
-        # the global ``Parameters.Power balance penalty ($/MW)``.  UC.jl
-        # itself uses the global value as the default flow penalty when
-        # no per-line override is given.
-        em_raw = ldata.get("Emergency flow limit (MW)")
-        nm_raw = ldata.get("Normal flow limit (MW)")
-        penalty_raw = ldata.get("Flow limit penalty ($/MW)")
-
-        def _scalar(v):
-            if v is None:
-                return None
-            return float(_first_hour(v)) if isinstance(v, list) else float(v)
-
-        # ``em`` / ``nm`` parsed from the JSON but unused at LP-emit
-        # time — every line ships with ``tmax_ab = 99999`` (see
-        # comment below) regardless of Normal / Emergency values.
-        # Kept as no-op parsers so the schema-level access path stays
-        # exercised (catches malformed UC.jl input early).
-        _em = _scalar(em_raw)  # noqa: F841 — schema-level parse only
-        _nm = _scalar(nm_raw)  # noqa: F841 — schema-level parse only
-        per_line_penalty = _scalar(penalty_raw)
-        resolved_penalty = (
-            per_line_penalty if per_line_penalty is not None else power_balance_penalty
-        )
-
-        # UC.jl / PLEXOS soft-cap semantics (verified against
-        # case14/congested golden objective $27k = pure dispatch, no
-        # line-overload penalty paid):
-        #
-        # The ``Normal flow limit (MW)`` is the day-ahead nominal
-        # target; the ``Emergency flow limit (MW)`` is the post-
-        # contingency upper bound; the per-line
-        # ``Flow limit penalty ($/MW)`` is $/MW of overflow above
-        # Normal.  PLEXOS exposes the same triplet as
-        # ``Line.{Normal Rating, Emergency Rating, Overload Penalty}``
-        # and SDDP as ``Linha.{capacidade, capacidade_emerg, penalidade}``.
-        #
-        # Crucially, the SOFT cap fires ONLY when UC.jl explicitly
-        # provides a per-line ``Flow limit penalty``.  When Normal is
-        # the only field set (the typical case for non-critical lines
-        # — 19 of 20 lines in case14/congested), UC.jl treats it as
-        # informational and does NOT enforce any constraint, matching
-        # PLEXOS's "no Overload Penalty → no soft cap" convention.
-        #
-        # Pre-fix the converter mapped Normal-only lines to a HARD
-        # ``tmax = Normal`` cap, making g1 (pmin = 100 at b1) on
-        # case14/congested physically un-committable (only 30 MW exits
-        # b1 across two 15-MW lines) and forcing ~150 MW of curtailment
-        # that UC.jl does not pay.
-        #
-        # Post-fix: every UC.jl line emits as unconstrained
-        # (``tmax_ab = 99999``).  UC.jl's effective enforcement under
-        # the default ``isf_cutoff = 0.005`` and lazy
-        # XavQiuWanThi2019 violation finder is *approximately*
-        # nothing: thresholded ISF entries below 0.005 are zeroed,
-        # so most line flows appear ~0 to the violation finder and
-        # no soft constraint is ever added.  gtopt's Kirchhoff-exact
-        # LP cannot reproduce that approximation, so the cleanest
-        # match is to forgo line-flow constraints entirely on
-        # UC.jl-converted models.  PLEXOS users get the same effect
-        # by setting ``Line.Overload Penalty = 0`` and leaving
-        # ``Max Rating`` at its default infinity.
+        # gtopt's ``LineLP`` does support PLEXOS-style two-tier
+        # ratings (``tmax_normal_{ab,ba}`` / ``overload_penalty``),
+        # but emitting them here would charge real overload penalties
+        # that UC.jl never pays.  The cleanest equivalence is the
+        # PLEXOS config "``Overload Penalty = 0`` + ``Max Rating =
+        # +inf``": every line ships with a 99999 sentinel cap and no
+        # soft tier.  See ``tools/test_ucjl2gtopt.py`` golden tests
+        # for the matching objective values.
         tmax = 99999.0
-
-        # UC.jl's lazy XavQiuWanThi2019 enforcement combined with a
-        # default PTDF threshold of 0.005 (and 0.001 for LODF)
-        # truncates the shift-factor matrix so most line-flow
-        # contributions appear as 0 to the violation finder.
-        # Consequently UC.jl's golden for case14/congested reports
-        # ``Line overflow (MW) = 0`` on every line, even though a
-        # physical DC OPF would route ~107 MW through l1 (well above
-        # its Normal=15 soft target).  gtopt's Kirchhoff-exact LP
-        # cannot reproduce that approximation — soft-cap emission
-        # would charge the (real) overload penalty UC.jl never pays.
-        # The pragmatic fix: do NOT emit ``tmax_normal_*`` /
-        # ``overload_penalty`` (PLEXOS's ``Overload Penalty`` field),
-        # letting gtopt route flow freely up to the hard Emergency
-        # cap.  Equivalent to setting PLEXOS's ``Overload Penalty``
-        # to zero — a legitimate config there.
-        emit_soft_cap = False
 
         line_uid += 1
         line_entry = {
@@ -1283,13 +1206,6 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "tmax_ab": round(tmax, 1),
             "tmax_ba": round(tmax, 1),
         }
-
-        # Soft cap emission has been retired (see comment on
-        # ``emit_soft_cap = False`` above).  The dead branch that
-        # used to emit ``tmax_normal_*`` + ``overload_penalty`` is
-        # removed here.
-        _ = emit_soft_cap  # silence "assigned but never used" linter
-        _ = resolved_penalty  # silence "assigned but never used"
         # TEP: ``Investment cost ($)`` activates the line-expansion fields
         # (overrides ``capacity`` to 0 on candidate lines — see
         # ``_expansion_fields``).
