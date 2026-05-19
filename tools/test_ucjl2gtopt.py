@@ -1353,7 +1353,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-358_464.25, abs=1.0)
+    assert obj == pytest.approx(-358_715.18, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -2626,23 +2626,20 @@ def test_ucjl_golden_case14_interface(tmp_path: Path) -> None:
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "Known divergence (block 1: gtopt 348.5 MW thermal vs UC.jl "
-        "305 MW): the new ``Battery.pmin_charge`` / ``pmin_discharge`` "
-        "fields wire to ``Demand.lmin`` / ``Generator.pmin`` as HARD "
-        "static floors (the col lower bound), enforced every block.  "
-        "UC.jl's ``Minimum charge/discharge rate (MW)`` is CONDITIONAL — "
-        "it applies only when the battery is actively "
-        "charging/discharging (gated by an internal binary).  In "
-        "blocks where UC.jl chooses idle (charge = 0, discharge = 0), "
-        "gtopt's unconditional floor still forces ≥ 5 MW charge + ≥ "
-        "2 MW discharge on su2, drawing extra thermal generation.  "
-        "Fully reconciling requires a commitment-style binary on the "
-        "synthetic charge demand + discharge generator with C2-style "
-        "linkage (``load ≥ lmin × u``, ``p ≥ pmin × u``).  The unconditional "
-        "floor is still correct for PLEXOS-style ``must-run`` batteries "
-        "and for any case where UC.jl actually dispatches above the "
-        "floor every block, so the wiring is kept; only this golden "
-        "cross-check stays xfail until conditional floors land."
+        "Known divergence (block 1: gtopt 340 MW thermal vs UC.jl "
+        "305 MW), now traced to a DIFFERENT root cause after the "
+        "``Converter.commitment`` conditional rate-floor landed.  The "
+        "battery side matches bit-for-bit: su2 idle in block 1 "
+        "(u_charge=u_discharge=0), su3 discharges 4 MW, etc.  The "
+        "remaining 35 MW gap comes from the price-sensitive load "
+        "``ps1`` (Revenue $100/MW, 50 MW max at b3): UC.jl partially "
+        "curtails ps1 (~35 MW unserved) because the marginal cost of "
+        "committing g3 to serve it exceeds $100/MW under UC.jl's "
+        "MIP optimum; gtopt's MIP commits g2 + maxes g4/g5 instead "
+        "and serves ps1 fully.  The objectives are within a few "
+        "hundred dollars but the dispatch patterns differ — degenerate "
+        "MIP optima on thermal commitment, not a wiring bug.  No "
+        "model-side fix; the test stays xfail as a known multi-optimum."
     ),
 )
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

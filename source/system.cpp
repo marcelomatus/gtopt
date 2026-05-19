@@ -238,13 +238,21 @@ void System::expand_batteries()
         .fcost = std::move(dem_fcost),
     });
 
-    // Converter linking battery, generator, and demand
+    // Converter linking battery, generator, and demand.
+    //
+    // Propagates ``Battery.commitment`` / ``Battery.integer_commitment``
+    // onto the Converter so its ``add_to_lp`` adds per-block binaries
+    // ``u_charge`` / ``u_discharge`` that gate the synthetic
+    // ``Demand.{lmin,lmax}`` / ``Generator.{pmin,pmax}`` floors —
+    // converting them from HARD every-block bounds into CONDITIONAL
+    // "when active" bounds (UC.jl + PLEXOS semantics).
     converter_array.push_back(Converter {
         .uid = conv_uid++,
         .name = conv_name,
         .battery = Name {battery.name},
         .generator = Name {gen_name},
         .demand = Name {dem_name},
+        .commitment = battery.commitment,
     });
 
     SPDLOG_TRACE(

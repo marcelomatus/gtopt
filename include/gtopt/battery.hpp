@@ -222,9 +222,13 @@ struct Battery
                           ///< synthetic discharge ``Generator.pmax``.
   OptTBRealFieldSched
       pmin_charge {};  ///< Minimum charging power [MW] per-(stage, block).
-                       ///< HARD floor on the synthetic charge ``Demand.lmin``
-                       ///< when the battery is allowed to charge.  Mirrors
-                       ///< UC.jl ``Minimum charge rate (MW)`` and PLEXOS
+                       ///< Forwarded to the synthetic charge ``Demand.lmin``.
+                       ///< By default a HARD floor every block; when
+                       ///< ``Battery.commitment`` is set, the synthetic
+                       ///< ``Converter`` gates the floor with a per-block
+                       ///< binary so the bound only fires when the
+                       ///< battery is actively charging.  Mirrors UC.jl
+                       ///< ``Minimum charge rate (MW)`` and PLEXOS
                        ///< ``Battery.Min Charge Rate``.
   OptTBRealFieldSched
       pmin_discharge {};  ///< Minimum discharging power [MW] per-(stage,
@@ -279,6 +283,24 @@ struct Battery
   /// decoupled stage/phase behaviour (use_state_variable forced false).
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
+
+  /// Gate the synthetic charge ``Demand`` and discharge ``Generator``
+  /// floors with per-block INTEGER commitment binaries on the linking
+  /// ``Converter``.  When unset (default), ``pmin_charge`` /
+  /// ``pmin_discharge`` are HARD floors that fire every block — correct
+  /// for must-run batteries and LP-only solves.  When set, the
+  /// ``Converter`` LP adds per-block binaries ``u_charge`` /
+  /// ``u_discharge`` and the C2-style rows ``load ≥ lmin × u_charge``,
+  /// ``load ≤ lmax × u_charge`` (and the analogous pair on the
+  /// discharge side), so the floor only fires WHEN the battery is
+  /// actively charging/discharging.  Mirrors UC.jl's conditional
+  /// ``Minimum charge/discharge rate (MW)`` semantics and PLEXOS
+  /// ``Battery.Commitment Status``.  Always introduces integer
+  /// columns — if you need LP-relax behaviour leave ``commitment``
+  /// unset (hard floors), which is the natural LP-only mode.
+  /// Propagated by ``System::expand_batteries()`` onto
+  /// ``Converter.commitment``.
+  OptBool commitment {};
 };
 
 }  // namespace gtopt

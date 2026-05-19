@@ -1168,6 +1168,24 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 _first_hour(emax_val) if isinstance(emax_val, list) else emax_val
             )
             b_entry["capacity"] = float(scalar_emax)
+        # Conditional rate floor: UC.jl's ``Minimum charge/discharge rate``
+        # only fires when the battery is actively charging/discharging.
+        # gtopt's static ``Demand.lmin`` / ``Generator.pmin`` are HARD
+        # every-block floors by default; flipping ``Battery.commitment``
+        # tells ``System::expand_batteries()`` to enable the per-block
+        # binary gating on the synthetic ``Converter`` so the floors only
+        # fire when the corresponding binary is 1 — matching UC.jl.
+        # Commitment binaries are always integer (introduces a true MIP);
+        # for LP-only solves leave ``Minimum charge/discharge rate`` out
+        # of the UC.jl input so the static floor stays unconditional.
+        if not relax_commitment and any(
+            sdata.get(k) is not None
+            for k in (
+                "Minimum charge rate (MW)",
+                "Minimum discharge rate (MW)",
+            )
+        ):
+            b_entry["commitment"] = True
         battery_array.append(b_entry)
 
     # --- Lines ---------------------------------------------------------------
