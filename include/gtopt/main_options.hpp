@@ -325,10 +325,10 @@ template<typename T>
       ("write-out",
        po::value<std::string>(),
        "comma-separated list of output fields the solver should emit "
-       "(default: sol,dual — reduced costs are NOT emitted by default; "
-       "use 'all' or add 'reduced_cost' to opt in).  Atoms: solution "
-       "(alias: sol), dual, reduced_cost (aliases: cost, rcost, rc), "
-       "all, none.  Example: --write-out sol,dual  or  --write-out all")  //
+       "(default: all — primal solutions, row duals, and reduced costs).  "
+       "Atoms: solution (alias: sol), dual, reduced_cost (aliases: cost, "
+       "rcost, rc), all, none.  Example: --write-out sol,dual to skip "
+       "reduced costs, or --write-out sol to skip duals as well.")  //
       ("build-mode",
        po::value<std::string>(),
        "LP build parallelism: serial, scene-parallel, full-parallel, "
