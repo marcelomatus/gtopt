@@ -898,6 +898,8 @@ auto PlanningLP::create_systems(System& system,
 {
   system.expand_batteries();
   system.expand_reservoir_constraints();
+  system.fold_legacy_fuel_emission_factors();
+  system.expand_fuel_emission_sources();
   system.expand_emission_sources();
   system.fold_legacy_emission_factor();
   system.fold_legacy_profiles();

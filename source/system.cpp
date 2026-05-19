@@ -341,6 +341,201 @@ void System::expand_emission_sources()
   }
 }
 
+namespace
+{
+
+/// Extract a scalar `double` from an `Opt*FieldSched`; returns
+/// nullopt for unset, vector, or FileSched forms.  Works on the 1D
+/// (per-stage) `OptTRealFieldSched` and the 2D (per-stage, per-block)
+/// `OptTBRealFieldSched` because both wrap `FieldSched<Real, …>` —
+/// the scalar arm is `Real` in both cases.
+template<typename T, typename Vector>
+[[nodiscard]] std::optional<Real> scalar_or(
+    const std::optional<FieldSched<T, Vector>>& field)
+{
+  if (!field.has_value()) {
+    return std::nullopt;
+  }
+  if (std::holds_alternative<T>(*field)) {
+    return std::get<T>(*field);
+  }
+  return std::nullopt;  // vector / FileSched — caller logs WARN
+}
+
+}  // namespace
+
+void System::fold_legacy_fuel_emission_factors()
+{
+  // Short-circuit if no fuel carries a legacy single-pollutant field.
+  bool any_legacy = false;
+  for (const auto& f : fuel_array) {
+    if (f.combustion_emission_factor.has_value()
+        || f.upstream_emission_factor.has_value())
+    {
+      any_legacy = true;
+      break;
+    }
+  }
+  if (!any_legacy) {
+    return;
+  }
+
+  // Ensure the CO₂ pollutant tag exists.
+  auto co2_it = std::ranges::find_if(
+      emission_array, [](const Emission& e) { return e.name == "co2"; });
+  if (co2_it == emission_array.end()) {
+    auto next = next_uid(emission_array);
+    emission_array.push_back(Emission {.uid = next, .name = "co2"});
+    co2_it = std::prev(emission_array.end());
+  }
+  const auto co2_uid = co2_it->uid;
+
+  // For each fuel with legacy fields, append/update a CO₂ row in
+  // its emission_factors[] table.
+  for (auto& f : fuel_array) {
+    if (!f.combustion_emission_factor.has_value()
+        && !f.upstream_emission_factor.has_value())
+    {
+      continue;
+    }
+
+    auto fef_it =
+        std::ranges::find_if(f.emission_factors,
+                             [co2_uid](const FuelEmissionFactor& fef)
+                             {
+                               return std::holds_alternative<Uid>(fef.emission)
+                                   && std::get<Uid>(fef.emission) == co2_uid;
+                             });
+
+    if (fef_it == f.emission_factors.end()) {
+      f.emission_factors.push_back(FuelEmissionFactor {
+          .emission = SingleId {co2_uid},
+          .combustion = std::move(f.combustion_emission_factor),
+          .upstream = std::move(f.upstream_emission_factor),
+      });
+    } else {
+      // Merge legacy into existing row (legacy wins only on null).
+      if (!fef_it->combustion.has_value()) {
+        fef_it->combustion = std::move(f.combustion_emission_factor);
+      }
+      if (!fef_it->upstream.has_value()) {
+        fef_it->upstream = std::move(f.upstream_emission_factor);
+      }
+    }
+
+    f.combustion_emission_factor.reset();
+    f.upstream_emission_factor.reset();
+  }
+}
+
+void System::expand_fuel_emission_sources()
+{
+  if (fuel_array.empty() || generator_array.empty()
+      || emission_zone_array.empty())
+  {
+    return;
+  }
+
+  auto src_uid = next_uid(emission_source_array);
+  auto src_uids = build_uid_set(emission_source_array);
+  auto src_names = build_name_set(emission_source_array);
+
+  for (auto& gen : generator_array) {
+    if (!gen.fuel.has_value()) {
+      continue;
+    }
+
+    // Resolve fuel by SingleId.  Handle both Uid and Name variants.
+    const Fuel* fuel = nullptr;
+    if (std::holds_alternative<Uid>(*gen.fuel)) {
+      const auto fuel_uid = std::get<Uid>(*gen.fuel);
+      auto it = std::ranges::find_if(
+          fuel_array, [fuel_uid](const Fuel& f) { return f.uid == fuel_uid; });
+      if (it != fuel_array.end()) {
+        fuel = &*it;
+      }
+    } else {
+      const auto& fuel_name = std::get<Name>(*gen.fuel);
+      auto it = std::ranges::find_if(
+          fuel_array, [&](const Fuel& f) { return f.name == fuel_name; });
+      if (it != fuel_array.end()) {
+        fuel = &*it;
+      }
+    }
+    if (fuel == nullptr || fuel->emission_factors.empty()) {
+      continue;
+    }
+
+    // Scalar heat_rate only — time-varying needs manual migration.
+    const auto hr_scalar = scalar_or(gen.heat_rate);
+    if (!hr_scalar.has_value() || *hr_scalar == 0.0) {
+      if (gen.heat_rate.has_value()) {
+        SPDLOG_WARN(
+            "Generator '{}' uid={}: heat_rate is time-varying — fuel-derived "
+            "emission sources skipped.  Declare explicit "
+            "EmissionSource entries to retain per-block accuracy.",
+            gen.name,
+            gen.uid);
+      }
+      continue;
+    }
+    const double hr = *hr_scalar;
+
+    for (const auto& fef : fuel->emission_factors) {
+      const auto comb_factor = scalar_or(fef.combustion);
+      const auto upstream_factor = scalar_or(fef.upstream);
+      const double combustion = comb_factor.value_or(0.0);
+      const double upstream = upstream_factor.value_or(0.0);
+      if (combustion == 0.0 && upstream == 0.0) {
+        continue;
+      }
+
+      // Iterate zones covering this pollutant; one synthesized
+      // EmissionSource per (gen, zone) — stacked-cap users naturally
+      // get one source per zone.
+      for (const auto& zone : emission_zone_array) {
+        const bool covers =
+            std::ranges::any_of(zone.emissions,
+                                [&](const EmissionZoneFactor& zef)
+                                { return zef.emission == fef.emission; });
+        if (!covers) {
+          continue;
+        }
+
+        // Auto-name and skip duplicates so a re-run is idempotent.
+        std::string emission_label;
+        if (std::holds_alternative<Uid>(fef.emission)) {
+          emission_label = std::format("uid{}", std::get<Uid>(fef.emission));
+        } else {
+          emission_label = std::get<Name>(fef.emission);
+        }
+        auto sname = as_label(gen.name, emission_label, "via_fuel", zone.name);
+        if (src_names.contains(sname)) {
+          continue;
+        }
+
+        while (src_uids.contains(src_uid)) {
+          ++src_uid;
+        }
+
+        emission_source_array.push_back(EmissionSource {
+            .uid = src_uid++,
+            .name = sname,
+            .generator = OptSingleId {SingleId {gen.uid}},
+            .zone = SingleId {zone.uid},
+            .emission = fef.emission,
+            .rate = OptTRealFieldSched {hr * combustion},
+            .upstream_rate = upstream != 0.0
+                ? OptTRealFieldSched {hr * upstream}
+                : OptTRealFieldSched {},
+        });
+        src_uids.insert(emission_source_array.back().uid);
+        src_names.insert(sname);
+      }
+    }
+  }
+}
+
 void System::fold_legacy_emission_factor()
 {
   // Short-circuit: if no generator has a legacy emission_factor set,

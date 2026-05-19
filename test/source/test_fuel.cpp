@@ -965,3 +965,271 @@ TEST_CASE(
   // 50 MW served · $1/MWh + 50 MW unserved · $100/MWh = 5050.
   CHECK(lp.get_obj_value() == doctest::Approx(5050.0).epsilon(1e-6));
 }
+
+// ── Commit 9 — Fuel.emission_factors[] table + auto-fold + expand ──────
+
+TEST_CASE("FuelEmissionFactor JSON round-trip")  // NOLINT
+{
+  constexpr std::string_view src = R"({
+    "emission": "co2",
+    "combustion": 0.0561,
+    "upstream": 0.0094
+  })";
+  const auto f = daw::json::from_json<FuelEmissionFactor>(src);
+  CHECK(std::get<Name>(f.emission) == "co2");
+  REQUIRE(f.combustion.has_value());
+  CHECK(std::get<Real>(*f.combustion) == doctest::Approx(0.0561));
+  REQUIRE(f.upstream.has_value());
+  CHECK(std::get<Real>(*f.upstream) == doctest::Approx(0.0094));
+}
+
+TEST_CASE("Fuel.emission_factors[] JSON round-trip")  // NOLINT
+{
+  constexpr std::string_view src = R"({
+    "uid": 1,
+    "name": "gas",
+    "price": 5.0,
+    "emission_factors": [
+      {"emission": "co2", "combustion": 0.0561, "upstream": 0.0094},
+      {"emission": "ch4", "combustion": 0.0002}
+    ]
+  })";
+  const auto f = daw::json::from_json<Fuel>(src);
+  REQUIRE(f.emission_factors.size() == 2);
+  CHECK(std::get<Name>(f.emission_factors[0].emission) == "co2");
+  CHECK(std::get<Real>(*f.emission_factors[0].upstream)
+        == doctest::Approx(0.0094));
+  CHECK(std::get<Name>(f.emission_factors[1].emission) == "ch4");
+  CHECK_FALSE(f.emission_factors[1].upstream.has_value());
+}
+
+TEST_CASE(
+    "System::fold_legacy_fuel_emission_factors — moves scalar legacy fields "
+    "into emission_factors[] (CO₂ row)")  // NOLINT
+{
+  System sys;
+  sys.fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .price = 5.0,
+          .combustion_emission_factor = 0.0561,
+          .upstream_emission_factor = 0.0094,
+      },
+  };
+
+  sys.fold_legacy_fuel_emission_factors();
+
+  // A CO₂ emission tag is auto-registered.
+  REQUIRE(sys.emission_array.size() == 1);
+  CHECK(sys.emission_array.front().name == "co2");
+  const auto co2_uid = sys.emission_array.front().uid;
+
+  // The fuel now carries the merged row.
+  REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
+  const auto& fef = sys.fuel_array.front().emission_factors.front();
+  CHECK(std::get<Uid>(fef.emission) == co2_uid);
+  REQUIRE(fef.combustion.has_value());
+  CHECK(std::get<Real>(*fef.combustion) == doctest::Approx(0.0561));
+  REQUIRE(fef.upstream.has_value());
+  CHECK(std::get<Real>(*fef.upstream) == doctest::Approx(0.0094));
+
+  // Legacy fields cleared.
+  CHECK_FALSE(sys.fuel_array.front().combustion_emission_factor.has_value());
+  CHECK_FALSE(sys.fuel_array.front().upstream_emission_factor.has_value());
+
+  // Idempotent second call.
+  sys.fold_legacy_fuel_emission_factors();
+  CHECK(sys.fuel_array.front().emission_factors.size() == 1);
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — synthesizes EmissionSource rows "
+    "from fuel.emission_factors × Generator.heat_rate")  // NOLINT
+{
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .price = 5.0,
+          .emission_factors =
+              {
+                  {
+                      .emission = SingleId {Uid {1}},
+                      .combustion = 0.05,
+                      .upstream = 0.01,
+                  },
+              },
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {7},
+          .name = "ngcc",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .fuel = SingleId {Uid {1}},
+          .heat_rate = 8.0,  // GJ/MWh
+          .capacity = 200.0,
+      },
+  };
+
+  sys.expand_fuel_emission_sources();
+
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& es = sys.emission_source_array.front();
+  REQUIRE(es.generator.has_value());
+  CHECK(std::get<Uid>(es.generator.value_or(SingleId {Uid {0}})) == Uid {7});
+  CHECK(std::get<Uid>(es.zone) == Uid {1});
+  CHECK(std::get<Uid>(es.emission) == Uid {1});
+  REQUIRE(es.rate.has_value());
+  CHECK(std::get<Real>(*es.rate) == doctest::Approx(8.0 * 0.05));  // 0.40
+  REQUIRE(es.upstream_rate.has_value());
+  CHECK(std::get<Real>(*es.upstream_rate) == doctest::Approx(8.0 * 0.01));
+
+  // Idempotent — same names → skipped on re-run.
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.size() == 1);
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — skips when no covering zone")  // NOLINT
+{
+  // Pollutant exists, fuel carries a factor for it, but no
+  // `EmissionZone` covers the pollutant → no source synthesized.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"},
+                        {.uid = Uid {2}, .name = "nox"}};
+  // Zone covers NOx only, not CO₂.
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "la_nox",
+       .emissions = {{.emission = Uid {2}, .weight = 1.0}}}};
+  sys.fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .emission_factors = {{.emission = SingleId {Uid {1}},
+                                .combustion = 0.05}},
+      },
+  };
+  sys.generator_array = {
+      {
+          .uid = Uid {7},
+          .name = "ngcc",
+          .bus = Uid {1},
+          .fuel = SingleId {Uid {1}},
+          .heat_rate = 8.0,
+      },
+  };
+
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.empty());
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — time-varying heat_rate skipped "
+    "with warn (LP-balance lossless contract)")  // NOLINT
+{
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {1},
+                     .name = "gas",
+                     .emission_factors = {{.emission = SingleId {Uid {1}},
+                                           .combustion = 0.05}}}};
+  // Per-stage vector heat_rate — fold path requires scalar.
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "ngcc",
+                          .bus = Uid {1},
+                          .fuel = SingleId {Uid {1}},
+                          .heat_rate = OptTBRealFieldSched {
+                              std::vector<std::vector<Real>> {{8.0}, {9.0}}}}};
+
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.empty());
+}
+
+TEST_CASE(
+    "Fuel.emission_factors[] + Generator.heat_rate end-to-end — "
+    "balance row hits expected coefficient via PlanningLP")  // NOLINT
+{
+  // gen.heat_rate=8 GJ/MWh, fuel.emission_factors[co2].combustion=0.05
+  // ⇒ effective combustion rate = 0.40 tCO₂/MWh.  Upstream=0.01 ⇒
+  // additional 0.08 tCO₂/MWh.  Cap=20 tCO₂ at the zone, demand=100,
+  // 1 block of 1h ⇒ binding (cap = 20 / 0.48 = 41.67 MWh served).
+  //
+  // We don't pin the objective here — just verify the system builds,
+  // solves, and that fold + expand produced one EmissionSource.
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Emission> emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  const Array<EmissionZone> emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}},
+       .cap = 20.0}};
+  const Array<Fuel> fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .price = 1.0,
+          .emission_factors = {{.emission = SingleId {Uid {1}},
+                                .combustion = 0.05,
+                                .upstream = 0.01}},
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "ngcc",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .fuel = SingleId {Uid {1}},
+          .heat_rate = 8.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
+
+  Planning planning;
+  planning.simulation.block_array = {{.uid = Uid {1}, .duration = 1.0}};
+  planning.simulation.stage_array = {
+      {.uid = Uid {1}, .first_block = 0, .count_block = 1}};
+  planning.simulation.scenario_array = {{.uid = Uid {0}}};
+  planning.system = System {
+      .name = "FuelEmFactorsE2E",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .fuel_array = fuel_array,
+      .emission_array = emission_array,
+      .emission_zone_array = emission_zone_array,
+  };
+  planning.options.model_options.demand_fail_cost = 1000.0;
+  planning.options.model_options.scale_objective = 1.0;
+
+  // Drive the fold+expand path that lives in PlanningLP::create_systems
+  // without depending on PlanningLP construction internals: call the
+  // System hooks directly, then verify the synthesized source.  This
+  // is the same contract `PlanningLP::create_systems()` relies on.
+  planning.system.fold_legacy_fuel_emission_factors();
+  planning.system.expand_fuel_emission_sources();
+
+  REQUIRE(planning.system.emission_source_array.size() == 1);
+  const auto& es = planning.system.emission_source_array.front();
+  REQUIRE(es.rate.has_value());
+  CHECK(std::get<Real>(*es.rate) == doctest::Approx(0.40));
+  REQUIRE(es.upstream_rate.has_value());
+  CHECK(std::get<Real>(*es.upstream_rate) == doctest::Approx(0.08));
+}

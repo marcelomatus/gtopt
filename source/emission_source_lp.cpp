@@ -171,6 +171,8 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<double> blk_combustion_factor;
   BIndexHolder<double> blk_upstream_factor;
   BIndexHolder<double> blk_captured_factor;
+  BIndexHolder<double> blk_rate_value;
+  BIndexHolder<double> blk_upstream_rate_value;
 
   for (const auto& block : stage.blocks()) {
     const auto buid = block.uid();
@@ -207,6 +209,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     blk_combustion_factor[buid] = net_factor * rate * dur;
     blk_upstream_factor[buid] = net_factor * upstream * dur;
     blk_captured_factor[buid] = capture_rate * effective_rate * dur;
+    blk_rate_value[buid] = rate;
+    if (upstream != 0.0) {
+      blk_upstream_rate_value[buid] = upstream;
+    }
   }
 
   if (!blk_gen_cols.empty()) {
@@ -214,6 +220,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     combustion_factor_[st_key] = std::move(blk_combustion_factor);
     upstream_factor_[st_key] = std::move(blk_upstream_factor);
     captured_factor_[st_key] = std::move(blk_captured_factor);
+    rate_values_[st_key] = std::move(blk_rate_value);
+    if (!blk_upstream_rate_value.empty()) {
+      upstream_rate_values_[st_key] = std::move(blk_upstream_rate_value);
+    }
   }
 
   return true;
@@ -273,6 +283,14 @@ bool EmissionSourceLP::add_to_output(OutputContext& out) const
   }
   if (any_captured) {
     out.add_col_sol_values(cname, "captured", pid, captured_values);
+  }
+
+  // Per-MWh rate streams (raw input coefficient broadcast across blocks).
+  if (!rate_values_.empty()) {
+    out.add_col_sol_values(cname, "rate", pid, rate_values_);
+  }
+  if (!upstream_rate_values_.empty()) {
+    out.add_col_sol_values(cname, "upstream_rate", pid, upstream_rate_values_);
   }
 
   return true;

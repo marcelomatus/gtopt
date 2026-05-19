@@ -246,6 +246,43 @@ struct System
   void expand_emission_sources();
 
   /**
+   * @brief Auto-fold the legacy single-pollutant
+   * `Fuel.combustion_emission_factor` and `Fuel.upstream_emission_factor` (both
+   * CO₂-only) into the new multi-pollutant `Fuel.emission_factors[]` table.
+   *
+   * For each fuel with either legacy field set: synthesize (or update)
+   * a `FuelEmissionFactor` row keyed by the CO₂ `Emission` (creating
+   * the CO₂ tag if absent).  Both legacy fields are cleared so a
+   * second call is a no-op.  Mirrors `fold_legacy_emission_factor()`.
+   */
+  void fold_legacy_fuel_emission_factors();
+
+  /**
+   * @brief Synthesize `EmissionSource` rows from
+   *        `Generator.fuel × Generator.heat_rate × Fuel.emission_factors[]`.
+   *
+   * For each `Generator` with `fuel` + scalar `heat_rate` set, for
+   * each entry in the referenced `Fuel.emission_factors[]`, for each
+   * `EmissionZone` covering that pollutant: append an
+   * `EmissionSource{rate = heat_rate × factor.combustion,
+   *                  upstream_rate = heat_rate × factor.upstream}`
+   * row to `emission_source_array`.  The synthesized row name is
+   * `<gen>_<pollutant>_via_fuel`.
+   *
+   * Time-varying heat_rate (vector / FileSched) or time-varying
+   * fuel factors emit a one-shot WARN and skip the row — manual
+   * migration to explicit `EmissionSource` rows is required.
+   * Idempotent on the scalar path: a re-run produces the same rows
+   * with the same auto-generated names, so duplicates would collide
+   * and skip.
+   *
+   * Mirrors `expand_emission_sources()` (the inline-on-generator
+   * unwrap) — both produce the same flat `emission_source_array`
+   * that the LP layer iterates.
+   */
+  void expand_fuel_emission_sources();
+
+  /**
    * @brief Auto-fold the legacy `Generator.emission_factor` (scalar
    *        per-MWh CO₂ rate) into a synthetic CO₂ `Emission` +
    *        `EmissionZone` + `EmissionSource` triple, then clear the
