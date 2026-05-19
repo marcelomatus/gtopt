@@ -21,6 +21,7 @@
 #include <ranges>
 #include <unordered_map>
 
+#include <gtopt/ampl_dispatch_registry.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/gtopt_main.hpp>
@@ -656,6 +657,11 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
       sim.register_ampl_element(class_name, obj.name, obj.uid);
     }
   }
+
+  // AMPL parameter + iterator dispatch tables — populate via the helpers
+  // in `ampl_dispatch_registry.cpp` (shims + registration glue).
+  register_ampl_param_dispatchers(sim);
+  register_ampl_iterator_dispatchers(sim);
 
   // Class-level compound: `line.flow = +flowp − flown`.
   // Registered once globally; the resolver expands it per-(uid, block).

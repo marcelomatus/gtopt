@@ -597,6 +597,27 @@ public:
     return simulation().find_ampl_suppression(class_name, attribute);
   }
 
+  /// Look up the class-level parameter resolver for (class, attribute).
+  /// Returns nullptr when the pair is not registered — see
+  /// `SimulationLP::register_ampl_param` for the population side.  Used
+  /// by `element_column_resolver.cpp::resolve_single_param` to replace
+  /// the legacy per-class if/else dispatch with a single map lookup +
+  /// indirect call.
+  [[nodiscard]] AmplParamFn find_ampl_param(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_param(class_name, attribute);
+  }
+
+  /// Look up the class-level iterator function for `class_name`.
+  /// Returns nullptr when the class is not registered (means the class
+  /// does not participate in `sum(class(all)...)` enumeration).
+  [[nodiscard]] AmplIterFn find_ampl_iter(
+      std::string_view class_name) const noexcept
+  {
+    return simulation().find_ampl_iter(class_name);
+  }
+
   /// Register filter metadata for one element (F9).
   /// See `SimulationLP::register_ampl_element_metadata`.
   void register_ampl_element_metadata(std::string_view class_name,

@@ -9,34 +9,18 @@
 #include <algorithm>
 #include <charconv>
 #include <format>
+#include <functional>
 #include <utility>
 
 #include <gtopt/as_label.hpp>
-#include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/constraint_expr.hpp>
-#include <gtopt/converter_lp.hpp>
-#include <gtopt/demand_lp.hpp>
 #include <gtopt/element_column_resolver.hpp>
-#include <gtopt/flow_lp.hpp>
-#include <gtopt/flow_right_lp.hpp>
-#include <gtopt/fuel_lp.hpp>
-#include <gtopt/generator_lp.hpp>
-#include <gtopt/junction_lp.hpp>
-#include <gtopt/line_lp.hpp>
-#include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/names_registry.hpp>
-#include <gtopt/reserve_provision_lp.hpp>
-#include <gtopt/reserve_zone_lp.hpp>
-#include <gtopt/reservoir_lp.hpp>
-#include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
-#include <gtopt/turbine_lp.hpp>
-#include <gtopt/volume_right_lp.hpp>
-#include <gtopt/waterway_lp.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -201,6 +185,8 @@ namespace
 /// when the resolved column carries a non-zero AMPL offset (e.g.
 /// demand's Option C `neg_fail = load − lmax`); the caller folds the
 /// shift onto the row's RHS via the existing `param_shift` accumulator.
+namespace
+{
 [[nodiscard]] ResolveColResult stamp_ref(const SystemContext& sc,
                                          const ScenarioLP& scenario,
                                          const StageLP& stage,
@@ -256,6 +242,7 @@ namespace
   }
   return {.emitted = false, .offset_shift = 0.0};
 }
+}  // namespace
 
 ResolveColResult resolve_col_to_row(const SystemContext& sc,
                                     const ScenarioLP& scenario,
@@ -339,6 +326,29 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   const auto suid = stage.uid();
   const auto buid = block.uid();
 
+  // Convert element_id (Uid or Name) into a concrete Uid.  Names are
+  // looked up via the AMPL element-name registry populated by each
+  // element's `add_to_lp` on first invocation.  Same path as
+  // `resolve_single_col` — see lookup_ampl_element_uid.
+  const auto uid_opt = [&]() -> std::optional<Uid>
+  {
+    if (std::holds_alternative<Uid>(single_id)) {
+      return std::get<Uid>(single_id);
+    }
+    if (std::holds_alternative<Name>(single_id)) {
+      return sc.lookup_ampl_element_uid(ref.element_type,
+                                        std::get<Name>(single_id));
+    }
+    return std::nullopt;
+  }();
+
+  if (!uid_opt) {
+    SPDLOG_WARN("user_constraint: unknown {} name '{}' (param resolution)",
+                ref.element_type,
+                ref.element_id);
+    return std::nullopt;
+  }
+
   // Normalise the attribute name via the runtime naming-dialects
   // registry.  Class-scoped lookup first (entries under
   // `class_aliases[]` — e.g. `flow_right.discharge → target`,
@@ -356,184 +366,17 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   }
 
   try {
-    // ── generator ────────────────────────────────────────────────────────
-    if (ref.element_type == "generator") {
-      const auto& gen = sc.get_element(ObjectSingleId<GeneratorLP> {single_id});
-      if (attr == "pmax") {
-        return gen.param_pmax(suid, buid);
-      }
-      if (attr == "pmin") {
-        return gen.param_pmin(suid, buid);
-      }
-      if (attr == "gcost") {
-        return gen.param_gcost(suid, buid);
-      }
-      if (attr == "lossfactor") {
-        return gen.param_lossfactor(suid, buid);
-      }
-      // Added 2026-05-17 alongside the Fuel entity (d13da9e8):
-      //   * heat_rate       — per-(stage, block) <fuel_unit>/MWh
-      //   * emission_factor — per-(stage, block) tCO₂/MWh
-      // Per-segment heat rates (`heat_rate_segments`, `pmax_segments`)
-      // are arrays without a meaningful scalar PAMPL projection — not
-      // exposed; reference via the Fuel side instead.
-      if (attr == "heat_rate") {
-        return gen.param_heat_rate(suid, buid);
-      }
-      if (attr == "emission_factor") {
-        return gen.param_emission_factor(suid, buid);
-      }
-      return std::nullopt;
+    // Registry-driven dispatch.  Every per-class param exposed to user
+    // constraints is registered as `(class_name, attribute) -> fn` in
+    // `ampl_dispatch_registry.cpp::register_ampl_param_dispatchers`.  The
+    // function is a thin shim into the element's `param_X(s, b)`
+    // accessor, so a single map probe + indirect call replaces the
+    // legacy per-class if/else chain.  Adding a new (class, attribute)
+    // means registering one function pointer — no change here.
+    if (const auto fn = sc.find_ampl_param(ref.element_type, attr)) {
+      return fn(sc, *uid_opt, suid, buid);
     }
-
-    // ── fuel (passive parameter carrier, no LP cols) ────────────────────
-    // PLEXOS-named schedules referenced by Generator.fuel /
-    // Commitment.fuel.  Resolves only through `resolve_single_param`
-    // (no LP column path) since `FuelLP::add_to_lp` is a no-op.
-    if (ref.element_type == "fuel") {
-      const auto& fuel = sc.get_element(ObjectSingleId<FuelLP> {single_id});
-      if (attr == "price") {
-        return fuel.param_price(suid);
-      }
-      if (attr == "heat_content") {
-        return fuel.param_heat_content(suid);
-      }
-      if (attr == "combustion_emission_factor") {
-        return fuel.param_combustion_emission_factor(suid);
-      }
-      if (attr == "upstream_emission_factor") {
-        return fuel.param_upstream_emission_factor(suid);
-      }
-      return std::nullopt;
-    }
-
-    // ── demand ───────────────────────────────────────────────────────────
-    if (ref.element_type == "demand") {
-      const auto& dem = sc.get_element(ObjectSingleId<DemandLP> {single_id});
-      if (attr == "lmax") {
-        return dem.param_lmax(suid, buid);
-      }
-      if (attr == "fcost") {
-        return dem.param_fcost(suid, buid);
-      }
-      if (attr == "lossfactor") {
-        return dem.param_lossfactor(suid, buid);
-      }
-      return std::nullopt;
-    }
-
-    // ── line ─────────────────────────────────────────────────────────────
-    if (ref.element_type == "line") {
-      const auto& ln = sc.get_element(ObjectSingleId<LineLP> {single_id});
-      // `tmax` (legacy) is now an alias for `tmax_ab` via the registry —
-      // canonicalisation above turns `tmax` into `tmax_ab`, so a single
-      // compare suffices here.
-      if (attr == "tmax_ab") {
-        return ln.param_tmax_ab(suid, buid);
-      }
-      if (attr == "tmax_ba") {
-        return ln.param_tmax_ba(suid, buid);
-      }
-      if (attr == "tcost") {
-        return ln.param_tcost(suid, buid);
-      }
-      if (attr == "reactance") {
-        return ln.param_reactance(suid);
-      }
-      return std::nullopt;
-    }
-
-    // ── battery ──────────────────────────────────────────────────────────
-    if (ref.element_type == "battery") {
-      const auto& bat = sc.get_element(ObjectSingleId<BatteryLP> {single_id});
-      if (attr == "emin") {
-        return bat.param_emin(suid, buid);
-      }
-      if (attr == "emax") {
-        return bat.param_emax(suid, buid);
-      }
-      if (attr == "ecost") {
-        return bat.param_ecost(suid, buid);
-      }
-      if (attr == "input_efficiency") {
-        return bat.param_input_efficiency(suid, buid);
-      }
-      if (attr == "output_efficiency") {
-        return bat.param_output_efficiency(suid, buid);
-      }
-      return std::nullopt;
-    }
-
-    // ── reservoir ────────────────────────────────────────────────────────
-    if (ref.element_type == "reservoir") {
-      const auto& res = sc.get_element(ObjectSingleId<ReservoirLP> {single_id});
-      if (attr == "emin") {
-        return res.param_emin(suid, buid);
-      }
-      if (attr == "emax") {
-        return res.param_emax(suid, buid);
-      }
-      if (attr == "ecost") {
-        return res.param_ecost(suid, buid);
-      }
-      if (attr == "capacity") {
-        return res.param_capacity(suid);
-      }
-      return std::nullopt;
-    }
-
-    // ── flow_right ───────────────────────────────────────────────────────
-    // Legacy aliases `discharge → target` and `use_value → uvalue`
-    // are registered under `class_aliases[]` in
-    // share/gtopt/naming_dialects.json (class-scoped because
-    // `discharge` is *canonical* on `flow`).  The class-aware
-    // canonicalize step above turns either legacy form into the
-    // canonical name, so a single compare per attribute suffices.
-    if (ref.element_type == "flow_right") {
-      const auto& frt = sc.get_element(ObjectSingleId<FlowRightLP> {single_id});
-      if (attr == "fmin") {
-        return frt.param_fmin(suid, buid);
-      }
-      if (attr == "fmax") {
-        return frt.param_fmax(suid, buid);
-      }
-      if (attr == "target") {
-        return frt.param_target(suid, buid);
-      }
-      if (attr == "fcost") {
-        return frt.param_fcost(suid, buid);
-      }
-      if (attr == "uvalue") {
-        return frt.param_uvalue(suid, buid);
-      }
-      return std::nullopt;
-    }
-
-    // ── volume_right ─────────────────────────────────────────────────────
-    if (ref.element_type == "volume_right") {
-      const auto& vrt =
-          sc.get_element(ObjectSingleId<VolumeRightLP> {single_id});
-      if (attr == "fmax") {
-        return vrt.param_fmax(suid, buid);
-      }
-      if (attr == "emin") {
-        return vrt.param_emin(suid, buid);
-      }
-      if (attr == "emax") {
-        return vrt.param_emax(suid, buid);
-      }
-      if (attr == "demand") {
-        return vrt.param_demand(suid);
-      }
-      if (attr == "saving_rate") {
-        return vrt.param_saving_rate(suid, buid);
-      }
-      if (attr == "fail_cost") {
-        return vrt.param_fail_cost();
-      }
-      return std::nullopt;
-    }
-
+    return std::nullopt;
   } catch (const std::exception& ex) {
     SPDLOG_WARN(
         std::format("user_constraint: cannot resolve param {}.{}('{}'): {}",
@@ -543,8 +386,6 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                     ex.what()));
     return std::nullopt;
   }
-
-  return std::nullopt;
 }
 
 // ── Sum predicate evaluation ────────────────────────────────────────────────
@@ -684,57 +525,42 @@ double collect_sum_cols(const SystemContext& sc,
   };
 
   if (sum_ref.all_elements) {
-    // Common pattern: iterate a collection, apply AND-of-predicates via
-    // the metadata registry, and emit `add_one` for each survivor.
-    auto iterate = [&]<typename LP>(std::string_view class_name)
-    {
-      for (const auto& el : sc.elements<LP>()) {
-        if (!element_passes_filters(sc, class_name, el.uid(), sum_ref.filters))
-        {
-          continue;
-        }
-        add_one(as_label(el.uid()));
-      }
-    };
-
-    // NOLINTBEGIN(bugprone-branch-clone): each branch targets a different
-    // C++ type (GeneratorLP, DemandLP, etc.).
-    if (sum_ref.element_type == "generator") {
-      iterate.template operator()<GeneratorLP>("generator");
-    } else if (sum_ref.element_type == "demand") {
-      iterate.template operator()<DemandLP>("demand");
-    } else if (sum_ref.element_type == "line") {
-      iterate.template operator()<LineLP>("line");
-    } else if (sum_ref.element_type == "battery") {
-      iterate.template operator()<BatteryLP>("battery");
-    } else if (sum_ref.element_type == "reservoir") {
-      iterate.template operator()<ReservoirLP>("reservoir");
-    } else if (sum_ref.element_type == "waterway") {
-      iterate.template operator()<WaterwayLP>("waterway");
-    } else if (sum_ref.element_type == "turbine") {
-      iterate.template operator()<TurbineLP>("turbine");
-    } else if (sum_ref.element_type == "converter") {
-      iterate.template operator()<ConverterLP>("converter");
-    } else if (sum_ref.element_type == "junction") {
-      iterate.template operator()<JunctionLP>("junction");
-    } else if (sum_ref.element_type == "flow") {
-      iterate.template operator()<FlowLP>("flow");
-    } else if (sum_ref.element_type == "flow_right") {
-      iterate.template operator()<FlowRightLP>("flow_right");
-    } else if (sum_ref.element_type == "volume_right") {
-      iterate.template operator()<VolumeRightLP>("volume_right");
-    } else if (sum_ref.element_type == "seepage") {
-      iterate.template operator()<ReservoirSeepageLP>("seepage");
-    } else if (sum_ref.element_type == "reserve_provision") {
-      iterate.template operator()<ReserveProvisionLP>("reserve_provision");
-    } else if (sum_ref.element_type == "reserve_zone") {
-      iterate.template operator()<ReserveZoneLP>("reserve_zone");
-    } else if (sum_ref.element_type == "bus") {
-      iterate.template operator()<BusLP>("bus");
-    } else if (sum_ref.element_type == "lng_terminal") {
-      iterate.template operator()<LngTerminalLP>("lng_terminal");
+    // Registry-driven dispatch.  The class iterator was registered in
+    // `ampl_dispatch_registry.cpp::register_ampl_iterator_dispatchers` —
+    // a function pointer that walks `sc.elements<LP>()` for the matching
+    // LP class.  Filter evaluation stays here because the iterator
+    // layer is decoupled from `constraint_expr.hpp`; we pass a
+    // captureless C-style callback + state struct so the iterator
+    // signature can be a plain function pointer (no `std::function`).
+    if (const auto iter_fn = sc.find_ampl_iter(sum_ref.element_type)) {
+      struct IterState
+      {
+        const SystemContext* sc;
+        std::string_view class_name;
+        const std::vector<SumPredicate>* filters;
+        std::function<void(Uid)>* add_uid;
+      };
+      std::function<void(Uid)> add_uid = [&](Uid uid)
+      { add_one(as_label(uid)); };
+      IterState state {
+          .sc = &sc,
+          .class_name = sum_ref.element_type,
+          .filters = &sum_ref.filters,
+          .add_uid = &add_uid,
+      };
+      iter_fn(
+          sc,
+          &state,
+          +[](void* p, Uid uid)
+          {
+            auto* s = static_cast<IterState*>(p);
+            if (!element_passes_filters(
+                    *s->sc, s->class_name, uid, *s->filters)) {
+              return;
+            }
+            (*s->add_uid)(uid);
+          });
     }
-    // NOLINTEND(bugprone-branch-clone)
   } else {
     for (const auto& eid : sum_ref.element_ids) {
       add_one(eid);
