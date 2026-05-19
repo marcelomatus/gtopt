@@ -1,22 +1,38 @@
 /**
  * @file      emission_zone_lp.hpp
- * @brief     Parameter-carrier wrapper for the EmissionZone struct
+ * @brief     LP-active wrapper for the EmissionZone bridge entity
  * @date      2026-05-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * `EmissionZoneLP` is currently **passive** (Commit 2 of the emissions
- * ladder).  It resolves the per-stage schedules (`cap`, `cap_cost`,
- * `price`) at construction time and exposes them via `param_*`
- * accessors.  In Commit 3 it is promoted to LP-active and gains the
- * `add_to_lp` method that owns the `EmissionZone/production` column +
- * `EmissionZone/balance` row + (optional) `EmissionZone/cap` row +
- * (optional) price coefficient.
+ * `EmissionZoneLP` owns the per-(scenario, stage, block)
+ * `EmissionZone/production` column (the bridge variable, in tCO₂ /
+ * block) plus the `EmissionZone/balance` row that pins
+ *
+ *   production_{z,b} − Σ_{s ∈ sources(z)} rate_s · gen_s,b · dur_b  =  0
+ *
+ * Optionally, when `EmissionZone.cap` is set, a per-stage cap row
+ *
+ *   Σ_b production_{z,b}  ≤  cap_z,s
+ *
+ * is built (hard if `cap_cost` unset; soft with a slack column
+ * penalised at `cap_cost` otherwise).
+ *
+ * When `EmissionZone.price` is set, the production column carries an
+ * objective coefficient `price · duration` so each tonne emitted in
+ * block `b` costs `price · dur_b`.
+ *
+ * `EmissionSourceLP::add_to_lp` runs after this and injects the
+ * generator-side coefficient `-rate · dur_b` on its generator's
+ * generation column into the corresponding balance row — analogous
+ * to `InertiaProvisionLP` injecting its provision factor into
+ * `InertiaZoneLP::requirement_rows()`.
  */
 
 #pragma once
 
 #include <gtopt/emission_zone.hpp>
+#include <gtopt/index_holder.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -36,6 +52,12 @@ class EmissionZoneLP : public ObjectLP<EmissionZone>
 public:
   using Base = ObjectLP<EmissionZone>;
 
+  /// Column / row name constants (snake_case for output filenames).
+  static constexpr std::string_view ProductionName {"production"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view CapName {"cap"};
+  static constexpr std::string_view CapSlackName {"cap_slack"};
+
   explicit EmissionZoneLP(const EmissionZone& zone, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& emission_zone(this auto&& self) noexcept
@@ -43,11 +65,12 @@ public:
     return self.object();
   }
 
-  // Intentionally no `add_to_lp` / `add_to_output` in Commit 2.
-  // Passive parameter carrier — promoted to LP-active in Commit 3
-  // (the bridge wiring that owns `production` col + `balance` row +
-  // optional `cap` row).  The visitor in `system_lp.cpp` gates on
-  // `AddToLP<T>` and skips this type.
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
+
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
@@ -59,18 +82,36 @@ public:
   [[nodiscard]] auto param_price(StageUid s) const { return price_.at(s); }
   /// @}
 
+  /// @name LP-row / col accessors — consumed by EmissionSourceLP at
+  /// add_to_lp time to inject the `-rate · dur` coefficient into the
+  /// matching balance row.
+  /// @{
+  [[nodiscard]] constexpr const auto& production_cols() const noexcept
+  {
+    return production_cols_;
+  }
+  [[nodiscard]] constexpr const auto& balance_rows() const noexcept
+  {
+    return balance_rows_;
+  }
+  /// @}
+
 private:
+  // Schedule parameter holders
   OptTRealSched cap_;
   OptTRealSched cap_cost_;
   OptTRealSched price_;
+
+  // Per-(scenario, stage, block) indices populated by add_to_lp.
+  STBIndexHolder<ColIndex> production_cols_;
+  STBIndexHolder<RowIndex> balance_rows_;
+  // Per-(scenario, stage) cap row + optional slack column.
+  STIndexHolder<RowIndex> cap_rows_;
+  STIndexHolder<ColIndex> cap_slack_cols_;
 };
 
-/// SingleId-style reference into `Collection<EmissionZoneLP>`.  Used by
-/// `EmissionSource.zone` and (in Commit 3) by the AMPL resolver to
-/// look up zones by uid/name.
 using EmissionZoneLPSId = ObjectSingleId<EmissionZoneLP>;
 
-// Pin the class-name literal.
 static_assert(EmissionZoneLP::Element::class_name
                   == LPClassName {"EmissionZone"},
               "EmissionZone::class_name must remain \"EmissionZone\"");
