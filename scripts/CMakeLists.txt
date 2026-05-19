@@ -598,6 +598,35 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
   )
 endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
 
+# ---- tools/test_ucjl2gtopt.py — UC.jl converter cross-check ---------------
+#
+# 60+ pytest cases that convert UC.jl benchmark fixtures
+# (``tools/test_data/UnitCommitmentJl_*.json[.gz]``) via
+# ``tools/ucjl2gtopt.py``, solve them with gtopt, and compare against
+# UC.jl's CPLEX-solved golden files (``*_ucjl_golden.json``).  Lives
+# outside ``scripts/`` because the converter is a single-file tool,
+# not a package, but the test infrastructure is identical to the
+# scripts/ pytest tests.
+#
+# Registered as a single CTest entry to keep ctest output compact;
+# users wanting per-test runs can invoke pytest directly with
+# ``cd tools && python -m pytest test_ucjl2gtopt.py -n auto -k <pat>``.
+set(_tools_dir "${CMAKE_CURRENT_LIST_DIR}/../tools")
+if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
+  add_test(
+    NAME scripts-ucjl2gtopt-integration
+    COMMAND "${PYTHON_EXECUTABLE}" -m pytest
+      "${_tools_dir}/test_ucjl2gtopt.py"
+      -n auto -v --tb=short
+    WORKING_DIRECTORY "${_tools_dir}"
+  )
+  set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES
+    COST 30
+    FIXTURES_REQUIRED scripts-deps
+    LABELS "integration;script;ucjl"
+  )
+endif()
+
 endif() # GTOPT_REGISTER_PYTHON_TESTS
 
 # ---- Install ----
