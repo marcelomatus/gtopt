@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <limits>
 #include <span>
 
 #include <gtopt/constraint_names.hpp>
@@ -216,6 +215,17 @@ public:
                                                     const StageLP& stage) const
   {
     return drain_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Per-(scenario, stage) factor applied to the energy-balance dual at
+  /// Parquet-write time.  Folds two effects: a constant `-1` sign flip
+  /// (industry-convention positive water value / marginal storage value)
+  /// and the `24/duration` daily-cycle correction when `daily_cycle=true`.
+  /// Exposed for regression tests that pin the sign convention.
+  [[nodiscard]] constexpr double output_dual_scale_at(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    return output_dual_scale.at({scenario.uid(), stage.uid()});
   }
 
   /// Non-throwing lookup: returns a pointer to the drain/spill column map
@@ -880,15 +890,44 @@ public:
           lp.add_row(std::move(close_row));
     }
 
-    // Store the dual correction factor for daily-cycle time-scaling.
-    // flatten() applies col_scale to coefficients, so energy_scale is
-    // already accounted for in the LP matrix — no manual correction needed.
-    // When the factor is effectively 1.0, no entry is stored; downstream
-    // flat() defaults to 1.0 for absent keys (no correction applied).
-    const double dual_scale = dc_stage_scale;
-    if (std::abs(dual_scale - 1.0) > std::numeric_limits<double>::epsilon()) {
-      output_dual_scale[stg_ctx] = dual_scale;
-    }
+    // Store the per-(scenario, stage) factor applied to the
+    // energy-balance dual at write time.  Two effects are folded
+    // together:
+    //
+    //   1. **Sign flip (always −1).**  The energy-balance row is an
+    //      equality whose RHS is 0; raising the RHS by +1 is
+    //      algebraically equivalent to injecting one extra unit of
+    //      stored energy at block `b` (the `+1` slot belongs to
+    //      `energy_b`).  In a minimization LP this lowers the
+    //      objective, so the raw LP dual π is ≤ 0 whenever stored
+    //      energy is valuable.  Industry tools (PLEXOS Shadow
+    //      Price, PyPSA `mu_energy_balance`, PLP / PSR-SDDP
+    //      "water value", Calliope, GenX, Backbone) publish a
+    //      **positive** number for the same quantity.  We flip the
+    //      sign at the write boundary so the Parquet column is
+    //      directly comparable with those reports.  The flip is
+    //      confined to the energy-balance row dual; capacity,
+    //      efin, and soft-emin row duals keep their natural LP
+    //      signs (those rows are inequalities with orthogonal sign
+    //      conventions).
+    //
+    //   2. **Daily-cycle time-rescale.**  When `daily_cycle=true`,
+    //      the LP is built in compressed (per-block) time but the
+    //      physical reporting basis is 24 h; multiplying by
+    //      `dc_stage_scale = 24 / stage.duration()` converts the
+    //      LP-units dual back to physical $/MWh (Battery) or $/m³
+    //      (Reservoir).  When daily_cycle is off, `dc_stage_scale`
+    //      is 1.0 and only the sign flip applies.
+    //
+    // flatten() applies col_scale to coefficients, so energy_scale
+    // is already accounted for in the LP matrix — no manual
+    // correction needed here.
+    //
+    // The map is populated unconditionally (one entry per (scen,
+    // stage) call to `add_to_lp`) so downstream `add_field_st_scaled`
+    // always finds the negative factor and never falls back to the
+    // absent-key default of 1.0.
+    output_dual_scale[stg_ctx] = -dc_stage_scale;
 
     // storing the indices for this scenario and stage
     if (is_cross_phase) {
@@ -938,7 +977,9 @@ public:
   }
 
   template<typename OutputContext>
-  bool add_to_output(OutputContext& out, std::string_view cname) const
+  bool add_to_output(OutputContext& out,
+                     std::string_view cname,
+                     std::string_view energy_dual_name = EnergyName) const
   {
     const auto pid = id();
 
@@ -954,11 +995,18 @@ public:
     out.add_col_sol(cname, EnergyName, pid, energy_cols);
     out.add_col_cost(cname, EnergyName, pid, energy_cols);
 
-    // Dual output: output_dual_scale = dc_stage_scale.
-    // Row equilibration is already removed by get_row_dual().
-    // This corrects the daily-cycle time-scaling (dc_stage_scale).
-    // flatten() handles energy_scale via col_scale on coefficients.
-    out.add_row_dual(cname, EnergyName, pid, energy_rows, output_dual_scale);
+    // Energy-balance dual.  `output_dual_scale = -dc_stage_scale`
+    // (sign-flipped at `add_to_lp` time so the Parquet column matches
+    // PLEXOS / PyPSA / PLP / PSR-SDDP sign conventions).  Row
+    // equilibration is already removed by get_row_dual(); flatten()
+    // handles energy_scale via col_scale on coefficients.  The
+    // `energy_dual_name` argument lets subclasses publish the column
+    // under a domain-specific name (e.g. ReservoirLP overrides it
+    // with `"water_value"`) while keeping the LP variable / row
+    // names — and thus `<class>.energy.sol` / `<class>.energy.cost` —
+    // untouched.
+    out.add_row_dual(
+        cname, energy_dual_name, pid, energy_rows, output_dual_scale);
 
     out.add_row_dual(cname, CapacityName, pid, capacity_rows);
     out.add_row_dual(cname, EfinName, pid, efin_rows);

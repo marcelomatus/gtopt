@@ -205,7 +205,11 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
   out.add_col_sol(cname, ExtractionName, id(), extraction_cols);
   out.add_col_cost(cname, ExtractionName, id(), extraction_cols);
 
-  return StorageBase::add_to_output(out, Element::class_name.full_name());
+  // Publish the per-block volume-balance dual under `water_value`
+  // rather than the storage-generic `energy` stem.  See
+  // `ReservoirLP::WaterValueName` for the rationale.
+  return StorageBase::add_to_output(
+      out, Element::class_name.full_name(), WaterValueName);
 }
 
 }  // namespace gtopt

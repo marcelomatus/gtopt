@@ -179,6 +179,16 @@ public:
                      sc.get().block_icost_factors());
   }
 
+  /// Read-only view of the accumulated Parquet field map, keyed by
+  /// `(class_name, field_name, suffix)`.  Exposed for regression tests
+  /// that need to assert on the schema (column presence, naming) without
+  /// going end-to-end through the Parquet writer.  Not part of the
+  /// production code path — `write` consumes the map directly.
+  [[nodiscard]] constexpr const auto& fields() const noexcept
+  {
+    return field_vector_map;
+  }
+
   // ── STB/GSTB block-indexed overloads ─────────────────────────────
 
   constexpr void add_col_sol(std::string_view cname,
