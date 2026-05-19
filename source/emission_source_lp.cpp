@@ -21,6 +21,7 @@
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
 #include <spdlog/spdlog.h>
 
@@ -164,6 +165,13 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   //                      (scaled via CostHelper::block_ecost — the same
   //                      probability × discount × scale chain every other
   //                      thermal cost uses)
+  // Per-block output-reconstruction caches (populated below; consumed
+  // by add_to_output to compute the per-source emission streams).
+  BIndexHolder<ColIndex> blk_gen_cols;
+  BIndexHolder<double> blk_combustion_factor;
+  BIndexHolder<double> blk_upstream_factor;
+  BIndexHolder<double> blk_captured_factor;
+
   for (const auto& block : stage.blocks()) {
     const auto buid = block.uid();
     const auto brow_it = balance_rows.find(buid);
@@ -174,7 +182,8 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     if (gcol_it == gen_cols.end()) {
       continue;
     }
-    const auto coeff = -weight * net_factor * effective_rate * block.duration();
+    const auto dur = block.duration();
+    const auto coeff = -weight * net_factor * effective_rate * dur;
     // Multiple sources may target the same (zone, generator) pair
     // (e.g. two pollutants in a basket, or a fuel-derived plus a
     // direct rate).  Read-modify-write to accumulate contributions
@@ -192,6 +201,78 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
           scenario, stage, block, capture_rate * effective_rate * capture_cost);
       lp.col_at(gcol_it->second).cost += adder;
     }
+
+    // Stash factors for `add_to_output` per-source streams.
+    blk_gen_cols[buid] = gcol_it->second;
+    blk_combustion_factor[buid] = net_factor * rate * dur;
+    blk_upstream_factor[buid] = net_factor * upstream * dur;
+    blk_captured_factor[buid] = capture_rate * effective_rate * dur;
+  }
+
+  if (!blk_gen_cols.empty()) {
+    gen_cols_[st_key] = std::move(blk_gen_cols);
+    combustion_factor_[st_key] = std::move(blk_combustion_factor);
+    upstream_factor_[st_key] = std::move(blk_upstream_factor);
+    captured_factor_[st_key] = std::move(blk_captured_factor);
+  }
+
+  return true;
+}
+
+bool EmissionSourceLP::add_to_output(OutputContext& out) const
+{
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto pid = id();
+
+  // Reconstruct each per-source stream from
+  //   value_{s,t,b} = primal(gen_col_{s,t,b}) · factor_{s,t,b}
+  // and emit via the value-emit OutputContext path (no LP-scale
+  // unwrap — values are physical tons per block).
+  STBIndexHolder<double> emissions_values;
+  STBIndexHolder<double> combustion_values;
+  STBIndexHolder<double> upstream_values;
+  STBIndexHolder<double> captured_values;
+
+  bool any_upstream = false;
+  bool any_captured = false;
+
+  for (const auto& [st_key, blk_cols] : gen_cols_) {
+    auto& emissions_st = emissions_values[st_key];
+    auto& combustion_st = combustion_values[st_key];
+    auto& upstream_st = upstream_values[st_key];
+    auto& captured_st = captured_values[st_key];
+
+    const auto& combustion_st_in = combustion_factor_.at(st_key);
+    const auto& upstream_st_in = upstream_factor_.at(st_key);
+    const auto& captured_st_in = captured_factor_.at(st_key);
+
+    for (const auto& [buid, gcol] : blk_cols) {
+      const auto gen_sol = out.primal(gcol);
+      const auto comb = combustion_st_in.at(buid) * gen_sol;
+      const auto upstr = upstream_st_in.at(buid) * gen_sol;
+      const auto capt = captured_st_in.at(buid) * gen_sol;
+
+      combustion_st[buid] = comb;
+      upstream_st[buid] = upstr;
+      captured_st[buid] = capt;
+      emissions_st[buid] = comb + upstr;
+
+      if (upstream_st_in.at(buid) != 0.0) {
+        any_upstream = true;
+      }
+      if (captured_st_in.at(buid) != 0.0) {
+        any_captured = true;
+      }
+    }
+  }
+
+  out.add_col_sol_values(cname, "emissions", pid, emissions_values);
+  out.add_col_sol_values(cname, "combustion", pid, combustion_values);
+  if (any_upstream) {
+    out.add_col_sol_values(cname, "upstream", pid, upstream_values);
+  }
+  if (any_captured) {
+    out.add_col_sol_values(cname, "captured", pid, captured_values);
   }
 
   return true;

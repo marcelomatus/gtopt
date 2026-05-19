@@ -14,6 +14,7 @@
 #pragma once
 
 #include <gtopt/emission_source.hpp>
+#include <gtopt/index_holder.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -51,13 +52,23 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp);
 
-  /// No per-element output stream — the per-source contribution is
-  /// captured by `EmissionZone/production_sol` (aggregate) and can be
-  /// reconstructed post-solve as `rate · gen_sol · dur` when needed.
-  [[nodiscard]] bool add_to_output(OutputContext& /*out*/) const noexcept
-  {
-    return true;
-  }
+  /// Emits per-source per-block emission breakdown streams.  Reads
+  /// the dispatch primal via `OutputContext::primal(gen_col)` and
+  /// multiplies by the per-(stage, block) factors cached in
+  /// `add_to_lp` to produce:
+  ///
+  ///   `EmissionSource/emissions_sol.parquet`   — NET tons (post-capture)
+  ///   `EmissionSource/combustion_sol.parquet`  — combustion-only post-capture
+  ///   `EmissionSource/upstream_sol.parquet`    — WTT post-capture (only
+  ///                                               emitted when upstream_rate
+  ///                                               is non-zero at any
+  ///                                               (s, t, b))
+  ///   `EmissionSource/captured_sol.parquet`    — captured tons (only when
+  ///                                               capture_rate > 0)
+  ///
+  /// All values are physical tons per block, computed Path A from
+  /// source schedules + post-solve generation primal.
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
@@ -71,6 +82,18 @@ public:
 private:
   OptTRealSched rate_;
   OptTRealSched upstream_rate_;
+
+  // Caches populated in add_to_lp and consumed in add_to_output to
+  // reconstruct the four per-source emission streams.  All four maps
+  // share the same (scenario, stage, block) key set.
+  STBIndexHolder<ColIndex> gen_cols_;
+  /// `(1 − capture) · rate · dur` per (s, t, b)  — combustion-only
+  /// multiplier on `gen_sol[col]`.
+  STBIndexHolder<double> combustion_factor_;
+  /// `(1 − capture) · upstream · dur` per (s, t, b).
+  STBIndexHolder<double> upstream_factor_;
+  /// `capture · (rate + upstream) · dur` per (s, t, b).
+  STBIndexHolder<double> captured_factor_;
 };
 
 using EmissionSourceLPSId = ObjectSingleId<EmissionSourceLP>;
