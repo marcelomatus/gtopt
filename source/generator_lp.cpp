@@ -237,6 +237,16 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     });
     gcols[buid] = gcol;
 
+    // ── Stash per-block cost-stack components (physical $/MWh) ─────────
+    // VOM = block_gcost; Fuel = primary slope minus VOM (heat_rate ·
+    // fuel.price); SRMC = primary slope = VOM + Fuel.  Emitted later
+    // as `Generator/{vom_cost,fuel_cost,srmc}_sol.parquet` for the
+    // dispatch-cost-stack analysis (Path A — source-schedule
+    // reconstruction; no LP scaling involved).
+    vom_cost_values_[st_key][buid] = block_gcost;
+    fuel_cost_values_[st_key][buid] = block_primary_slope_cost - block_gcost;
+    srmc_values_[st_key][buid] = block_primary_slope_cost;
+
     // Add generator output to the bus power balance equation
     // Factor (1-lossfactor) accounts for generator losses
     auto& brow = lp.row_at(balance_row);
@@ -358,6 +368,29 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
     out.add_col_sol(cname, HeatRateSlackName, pid, scols);
     out.add_col_cost(cname, HeatRateSlackName, pid, scols);
   }
+
+  // ── PLEXOS-aligned per-MWh dispatch cost stack ($/MWh) ─────────────
+  //
+  //   Generator/vom_cost_sol.parquet  — `gcost(stage, block)`,
+  //                                    matches PLEXOS `VOM Cost`.
+  //   Generator/fuel_cost_sol.parquet — `heat_rate · fuel.price`,
+  //                                    matches PLEXOS `Fuel Cost`.
+  //   Generator/srmc_sol.parquet      — VOM + Fuel = primary-segment
+  //                                    cost coefficient on the
+  //                                    `generation` column, matches
+  //                                    PLEXOS `SRMC` (Short-Run
+  //                                    Marginal Cost).
+  //
+  // All values are physical $/MWh (Path A — computed from source
+  // schedules at `add_to_lp` time; no LP-scale un-wrapping needed).
+  // Emission cost is wired separately via EmissionZone.price on the
+  // `EmissionZone/production` column; reconstruct the full carbon-
+  // inclusive SRMC downstream by summing this `srmc_sol` with the
+  // per-block emission-zone marginal price scaled by the generator's
+  // weighted emission rate.
+  out.add_col_sol_values(cname, "vom_cost", pid, vom_cost_values_);
+  out.add_col_sol_values(cname, "fuel_cost", pid, fuel_cost_values_);
+  out.add_col_sol_values(cname, "srmc", pid, srmc_values_);
 
   return CapacityBase::add_to_output(out);
 }
