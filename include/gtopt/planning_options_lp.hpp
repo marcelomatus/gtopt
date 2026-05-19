@@ -247,18 +247,6 @@ public:
     return m_options_.model_options.state_violation_cost;
   }
 
-  /// @brief Gets the system-wide emission cost [$/tCO2].
-  [[nodiscard]] constexpr const auto& emission_cost() const
-  {
-    return m_options_.model_options.emission_cost;
-  }
-
-  /// @brief Gets the system-wide emission cap [tCO2/year] per stage.
-  [[nodiscard]] constexpr const auto& emission_cap() const
-  {
-    return m_options_.model_options.emission_cap;
-  }
-
   /// @brief Whether a given phase should use continuous LP relaxation.
   /// Parses the `continuous_phases` string from model_options using
   /// PhaseRangeSet.
