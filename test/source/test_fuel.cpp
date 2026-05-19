@@ -1233,3 +1233,447 @@ TEST_CASE(
   REQUIRE(es.upstream_rate.has_value());
   CHECK(std::get<Real>(*es.upstream_rate) == doctest::Approx(0.08));
 }
+
+// ── More fold / expand edge cases ──────────────────────────────────
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — resolves Generator.fuel by Name "
+    "(in addition to Uid)")  // NOLINT
+{
+  // Some workflows reference the fuel by its `name` string instead of
+  // the numeric `uid` (this is the form plp2gtopt emits today).  The
+  // expand pass must resolve either form.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {99},
+                     .name = "gas",
+                     .emission_factors = {{.emission = SingleId {Uid {1}},
+                                           .combustion = 0.05}}}};
+  sys.generator_array = {
+      {.uid = Uid {7},
+       .name = "ngcc",
+       .bus = Uid {1},
+       .fuel = SingleId {Name {"gas"}},  // Name reference, not Uid
+       .heat_rate = 8.0}};
+
+  sys.expand_fuel_emission_sources();
+
+  REQUIRE(sys.emission_source_array.size() == 1);
+  CHECK(std::get<Real>(*sys.emission_source_array.front().rate)
+        == doctest::Approx(0.40));
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — dangling Generator.fuel ref is "
+    "skipped (no crash, no source synthesized)")  // NOLINT
+{
+  // No matching Fuel in `fuel_array` — validate_planning catches this,
+  // but the expand pass must be robust if called pre-validation (some
+  // unit tests bypass validation).
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {1},
+                     .name = "gas",
+                     .emission_factors = {{.emission = SingleId {Uid {1}},
+                                           .combustion = 0.05}}}};
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .fuel = SingleId {Uid {404}},  // dangling
+                          .heat_rate = 8.0}};
+
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.empty());
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — fuel with empty "
+    "emission_factors[] yields no sources")  // NOLINT
+{
+  // The fuel exists and is referenced, but it carries no
+  // emission_factors[] rows — typical for a non-emitting biomass fuel
+  // with no upstream WTT factor set.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {1}, .name = "biomass"}};
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "biomass_plant",
+                          .bus = Uid {1},
+                          .fuel = SingleId {Uid {1}},
+                          .heat_rate = 12.0}};
+
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.empty());
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — generator with heat_rate but no "
+    "fuel reference is skipped")  // NOLINT
+{
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {1},
+                     .name = "gas",
+                     .emission_factors = {{.emission = SingleId {Uid {1}},
+                                           .combustion = 0.05}}}};
+  sys.generator_array = {{
+      .uid = Uid {7},
+      .name = "ngcc_unconfigured",
+      .bus = Uid {1},
+      .heat_rate = 8.0  // no .fuel set
+  }};
+
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.empty());
+}
+
+TEST_CASE(
+    "System::expand_fuel_emission_sources — multiple zones covering same "
+    "pollutant produce one EmissionSource per (generator, zone)")  // NOLINT
+{
+  // Useful when a generator must respect both a regional and a global
+  // CO₂ basket (e.g. EU ETS plus a national sector cap).  Expect
+  // 1 fueled generator × 2 covering zones = 2 sources.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "national_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}},
+      {.uid = Uid {2},
+       .name = "regional_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+  sys.fuel_array = {{.uid = Uid {1},
+                     .name = "gas",
+                     .emission_factors = {{.emission = SingleId {Uid {1}},
+                                           .combustion = 0.05}}}};
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "ngcc",
+                          .bus = Uid {1},
+                          .fuel = SingleId {Uid {1}},
+                          .heat_rate = 8.0}};
+
+  sys.expand_fuel_emission_sources();
+  REQUIRE(sys.emission_source_array.size() == 2);
+  // Both sources tied to the same generator.
+  for (const auto& es : sys.emission_source_array) {
+    REQUIRE(es.generator.has_value());
+    CHECK(std::get<Uid>(es.generator.value_or(SingleId {Uid {0}})) == Uid {7});
+  }
+  // One source per zone — auto-named distinctly.
+  const auto& a = sys.emission_source_array[0];
+  const auto& b = sys.emission_source_array[1];
+  CHECK(a.name != b.name);
+  CHECK(std::get<Uid>(a.zone) != std::get<Uid>(b.zone));
+}
+
+TEST_CASE(
+    "System::fold_legacy_fuel_emission_factors — merges into an existing "
+    "CO₂ row instead of duplicating it")  // NOLINT
+{
+  // The fuel already has a CO₂ row (combustion only set) and ALSO
+  // sets the legacy `upstream_emission_factor` scalar.  The fold
+  // should fill the missing `upstream` slot in the existing row,
+  // NOT push a duplicate row.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.fuel_array = {{.uid = Uid {1},
+                     .name = "gas",
+                     .upstream_emission_factor = 0.0094,  // legacy field
+                     .emission_factors = {
+                         {.emission = SingleId {Uid {1}},
+                          .combustion = 0.0561,
+                          .upstream = std::nullopt},
+                     }}};
+
+  sys.fold_legacy_fuel_emission_factors();
+
+  REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
+  const auto& fef = sys.fuel_array.front().emission_factors.front();
+  REQUIRE(fef.combustion.has_value());
+  CHECK(std::get<Real>(*fef.combustion) == doctest::Approx(0.0561));
+  REQUIRE(fef.upstream.has_value());
+  CHECK(std::get<Real>(*fef.upstream) == doctest::Approx(0.0094));
+  // Legacy field cleared.
+  CHECK_FALSE(sys.fuel_array.front().upstream_emission_factor.has_value());
+}
+
+TEST_CASE(
+    "System::fold_legacy_fuel_emission_factors — does NOT overwrite an "
+    "existing combustion factor in the table (new-style wins on conflict)")  // NOLINT
+{
+  // Both legacy + new-style combustion factors are set with DIFFERENT
+  // numeric values.  The fold leaves the new-style value in place
+  // (i.e. legacy only fills null slots), so the user-curated
+  // emission_factors[] table is always the source of truth on conflict.
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.fuel_array = {
+      {.uid = Uid {1},
+       .name = "gas",
+       .combustion_emission_factor = 0.99,  // legacy (would clobber)
+       .emission_factors = {
+           {.emission = SingleId {Uid {1}}, .combustion = 0.0561}}}};
+
+  sys.fold_legacy_fuel_emission_factors();
+
+  REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
+  // New-style value preserved.
+  CHECK(std::get<Real>(
+            *sys.fuel_array.front().emission_factors.front().combustion)
+        == doctest::Approx(0.0561));
+}
+
+TEST_CASE(
+    "System::fold_legacy_fuel_emission_factors — reuses existing CO₂ tag "
+    "(no duplicate emission registry entry)")  // NOLINT
+{
+  // A CO₂ tag with uid 42 already exists in emission_array; the fold
+  // should NOT push a second one.
+  System sys;
+  sys.emission_array = {{.uid = Uid {42}, .name = "co2"}};
+  sys.fuel_array = {
+      {.uid = Uid {1}, .name = "gas", .combustion_emission_factor = 0.05}};
+
+  sys.fold_legacy_fuel_emission_factors();
+
+  CHECK(sys.emission_array.size() == 1);
+  CHECK(sys.emission_array.front().uid == Uid {42});
+  REQUIRE(sys.fuel_array.front().emission_factors.size() == 1);
+  CHECK(std::get<Uid>(sys.fuel_array.front().emission_factors.front().emission)
+        == Uid {42});
+}
+
+// ── Literature-reference unit tests ────────────────────────────────
+//
+// Pin gtopt's per-MWh rates against published IPCC 2006 (AR6) default
+// emission factors so a future refactor of the fold/expand path
+// cannot silently break the contract `rate = heat_rate · factor`.
+//
+// Reference: IPCC 2006 Guidelines for National Greenhouse Gas
+// Inventories, Volume 2 (Energy), Chapter 2 (Stationary Combustion),
+// Table 2.2 (default CO₂ EFs for stationary combustion).
+// https://www.ipcc-nggip.iges.or.jp/public/2006gl/pdf/2_Volume2/V2_2_Ch2_Stationary_Combustion.pdf
+//
+//   Coking Coal:           94.6 kg/GJ  (0.0946 tCO₂/GJ)
+//   Other Bituminous Coal: 94.6 kg/GJ
+//   Sub-Bituminous Coal:   96.1 kg/GJ
+//   Lignite:              101.0 kg/GJ
+//   Anthracite:            98.3 kg/GJ
+//   Natural Gas:           56.1 kg/GJ  (0.0561 tCO₂/GJ)
+//   Diesel / Gas Oil:      74.1 kg/GJ  (0.0741 tCO₂/GJ)
+//   Residual Fuel Oil:     77.4 kg/GJ
+//   Motor Gasoline:        69.3 kg/GJ
+//   LPG:                   63.1 kg/GJ
+//
+// Heat rates picked from typical EIA-EPM / IEA-WEO values for
+// modern subcritical / CCGT / oil-peaker plants:
+//   Coal subcritical:      ~10.5 GJ/MWh  (≈ 34% η)
+//   Coal supercritical:    ~9.0 GJ/MWh   (≈ 40% η)
+//   Gas CCGT:              ~7.5 GJ/MWh   (≈ 48% η)
+//   Gas OCGT:              ~10.0 GJ/MWh  (≈ 36% η)
+//   Diesel peaker:         ~10.5 GJ/MWh  (≈ 34% η)
+
+TEST_CASE(
+    "Literature reference — IPCC 2006 default factors produce the expected "
+    "per-MWh rates through expand_fuel_emission_sources")  // NOLINT
+{
+  // Build one generator per (fuel, plant-type) pair listed above and
+  // verify the synthesized EmissionSource.rate matches the literature
+  // benchmark to within 0.1%.
+  struct Bench
+  {
+    Name fuel_name;
+    Uid fuel_uid;
+    Real combustion;  // tCO₂/GJ
+    Name plant_name;
+    Uid plant_uid;
+    Real heat_rate;  // GJ/MWh
+    Real expected_rate;  // tCO₂/MWh (= combustion · heat_rate)
+  };
+  // Use Approx(...) on every check, so the table can be read as
+  // "literature value × heat-rate ≈ expected".
+  const std::array benchmarks {
+      Bench {"coal_subcrit",
+             Uid {1},
+             0.0946,
+             "coal_pc_subcrit",
+             Uid {1},
+             10.5,
+             0.99330},
+      Bench {"coal_supercrit",
+             Uid {2},
+             0.0946,
+             "coal_pc_supercrit",
+             Uid {2},
+             9.0,
+             0.85140},
+      Bench {"natural_gas", Uid {3}, 0.0561, "ccgt", Uid {3}, 7.5, 0.42075},
+      Bench {
+          "natural_gas_ocgt", Uid {4}, 0.0561, "ocgt", Uid {4}, 10.0, 0.56100},
+      Bench {
+          "diesel", Uid {5}, 0.0741, "diesel_peaker", Uid {5}, 10.5, 0.77805},
+      Bench {
+          "residual_oil", Uid {6}, 0.0774, "oil_steam", Uid {6}, 11.0, 0.85140},
+  };
+
+  System sys;
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}}};
+
+  for (const auto& b : benchmarks) {
+    sys.fuel_array.push_back(
+        {.uid = b.fuel_uid,
+         .name = b.fuel_name,
+         .emission_factors = {
+             {.emission = SingleId {Uid {1}}, .combustion = b.combustion}}});
+    sys.generator_array.push_back({.uid = b.plant_uid,
+                                   .name = b.plant_name,
+                                   .bus = Uid {1},
+                                   .fuel = SingleId {b.fuel_uid},
+                                   .heat_rate = b.heat_rate});
+  }
+
+  sys.expand_fuel_emission_sources();
+  REQUIRE(sys.emission_source_array.size() == benchmarks.size());
+
+  for (const auto& b : benchmarks) {
+    const auto it = std::ranges::find_if(
+        sys.emission_source_array,
+        [&](const auto& es)
+        {
+          return es.generator.has_value()
+              && std::get<Uid>(es.generator.value_or(SingleId {Uid {0}}))
+              == b.plant_uid;
+        });
+    REQUIRE(it != sys.emission_source_array.end());
+    REQUIRE(it->rate.has_value());
+    CHECK(std::get<Real>(*it->rate)
+          == doctest::Approx(b.expected_rate).epsilon(1e-4));
+  }
+}
+
+// Many real-world fuels emit more than just CO₂.  PLEXOS Power Datasets
+// and EPA AP-42 publish co-pollutants (NOₓ, SO₂, CH₄, particulates)
+// alongside the headline CO₂ number.  Verify the multi-pollutant row
+// expansion works end-to-end with literature values.
+//
+// AP-42 / EIA-923 NOₓ + SO₂ rates for coal (uncontrolled, low-sulfur
+// bituminous):
+//   coal NOₓ (combustion): ~0.000800 tNOx/GJ  (≈ 0.8 kg/GJ)
+//   coal SO₂ (1% S coal):  ~0.000900 tSO₂/GJ  (≈ 0.9 kg/GJ)
+//   gas  NOₓ:              ~0.000060 tNOx/GJ
+//
+// Ref: US EPA AP-42 Compilation of Air Pollutant Emission Factors,
+// Vol. 1 Stationary Sources, Ch. 1 (External Combustion).
+
+TEST_CASE(
+    "Literature reference — EPA AP-42 multi-pollutant factors for coal + gas "
+    "produce expected NOₓ / SO₂ rates")  // NOLINT
+{
+  constexpr Real nox_coal = 0.000800;  // tNOx/GJ
+  constexpr Real so2_coal = 0.000900;  // tSO2/GJ
+  constexpr Real nox_gas = 0.000060;  // tNOx/GJ
+  constexpr Real hr_coal = 10.5;  // GJ/MWh
+  constexpr Real hr_gas = 7.5;  // GJ/MWh
+
+  System sys;
+  // Pollutants.
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"},
+                        {.uid = Uid {2}, .name = "nox"},
+                        {.uid = Uid {3}, .name = "so2"}};
+  // Three zones — one per pollutant.
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "global_co2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}}},
+      {.uid = Uid {2},
+       .name = "regional_nox",
+       .emissions = {{.emission = Uid {2}, .weight = 1.0}}},
+      {.uid = Uid {3},
+       .name = "regional_so2",
+       .emissions = {{.emission = Uid {3}, .weight = 1.0}}},
+  };
+  // Coal — 3-pollutant factors.
+  sys.fuel_array.push_back(
+      {.uid = Uid {1},
+       .name = "coal",
+       .emission_factors = {
+           {.emission = SingleId {Uid {1}}, .combustion = 0.0946},
+           {.emission = SingleId {Uid {2}}, .combustion = nox_coal},
+           {.emission = SingleId {Uid {3}}, .combustion = so2_coal}}});
+  // Gas — CO₂ + NOₓ (no SO₂ — natural gas is essentially sulfur-free).
+  sys.fuel_array.push_back(
+      {.uid = Uid {2},
+       .name = "gas",
+       .emission_factors = {
+           {.emission = SingleId {Uid {1}}, .combustion = 0.0561},
+           {.emission = SingleId {Uid {2}}, .combustion = nox_gas}}});
+  // Two generators.
+  sys.generator_array = {
+      {.uid = Uid {1},
+       .name = "coal_pc",
+       .bus = Uid {1},
+       .fuel = SingleId {Uid {1}},
+       .heat_rate = hr_coal},
+      {.uid = Uid {2},
+       .name = "ngcc",
+       .bus = Uid {1},
+       .fuel = SingleId {Uid {2}},
+       .heat_rate = hr_gas},
+  };
+
+  sys.expand_fuel_emission_sources();
+  // 1 coal × 3 zones (CO₂+NOₓ+SO₂) + 1 gas × 2 zones (CO₂+NOₓ) = 5.
+  REQUIRE(sys.emission_source_array.size() == 5);
+
+  // Helper to locate a synthesized row by (gen_uid, emission_uid).
+  const auto get_rate = [&](Uid gen_uid, Uid em_uid) -> Real
+  {
+    const auto it = std::ranges::find_if(
+        sys.emission_source_array,
+        [&](const auto& es)
+        {
+          return es.generator.has_value()
+              && std::get<Uid>(es.generator.value_or(SingleId {Uid {0}}))
+              == gen_uid
+              && std::holds_alternative<Uid>(es.emission)
+              && std::get<Uid>(es.emission) == em_uid;
+        });
+    REQUIRE(it != sys.emission_source_array.end());
+    REQUIRE(it->rate.has_value());
+    return std::get<Real>(*it->rate);
+  };
+
+  // Coal: CO₂, NOₓ, SO₂ rates per MWh.
+  CHECK(get_rate(Uid {1}, Uid {1})
+        == doctest::Approx(hr_coal * 0.0946).epsilon(1e-6));
+  CHECK(get_rate(Uid {1}, Uid {2})
+        == doctest::Approx(hr_coal * nox_coal).epsilon(1e-6));
+  CHECK(get_rate(Uid {1}, Uid {3})
+        == doctest::Approx(hr_coal * so2_coal).epsilon(1e-6));
+  // Gas: CO₂, NOₓ.
+  CHECK(get_rate(Uid {2}, Uid {1})
+        == doctest::Approx(hr_gas * 0.0561).epsilon(1e-6));
+  CHECK(get_rate(Uid {2}, Uid {2})
+        == doctest::Approx(hr_gas * nox_gas).epsilon(1e-6));
+}

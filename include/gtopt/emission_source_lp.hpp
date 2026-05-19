@@ -1,14 +1,16 @@
 /**
  * @file      emission_source_lp.hpp
- * @brief     Parameter-carrier wrapper for the EmissionSource bridge
+ * @brief     LP-active wrapper for the EmissionSource bridge entity
  * @date      2026-05-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Passive in Commit 2 — resolves the per-stage `rate` schedule at
- * construction and exposes it via `param_rate(stage_uid)`.  In Commit
- * 3 this type becomes LP-active and contributes a coefficient
- * `rate · gen · dur` to its zone's balance row.
+ * Resolves the per-stage combustion and upstream emission rates at
+ * construction and exposes them via `param_rate` / `param_upstream_rate`.
+ * In `add_to_lp` injects `weight · (1 − capture) · (rate + upstream) ·
+ * dur` into every generator-dispatch column of its zone's balance row,
+ * and adds a `capture · (rate + upstream) · capture_cost` adder when
+ * CCS is configured for the matching (generator, pollutant) pair.
  */
 
 #pragma once
@@ -41,12 +43,13 @@ public:
     return self.object();
   }
 
-  /// Inject `-rate · dur_b` into the zone's balance row at every
-  /// generator dispatch column for this (scenario, stage, block).
-  /// EmissionZoneLP::add_to_lp must run BEFORE this — by the
-  /// `lp_element_types_t` ordering it does (EmissionZoneLP precedes
-  /// EmissionSourceLP).  Same dependency InertiaProvisionLP has on
-  /// InertiaZoneLP.
+  /// Inject `−weight · (1 − capture) · (rate + upstream) · dur` into
+  /// the zone's balance row at every generator-dispatch column of this
+  /// (scenario, stage, block), and add a per-MWh CCS opex adder when
+  /// `Generator.emission_captures[]` carries a row for this pollutant.
+  /// `EmissionZoneLP::add_to_lp` must run BEFORE this — guaranteed by
+  /// the `lp_element_types_t` visitor ordering (same dependency
+  /// `InertiaProvisionLP` has on `InertiaZoneLP`).
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,

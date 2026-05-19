@@ -344,54 +344,73 @@ void System::expand_emission_sources()
 namespace
 {
 
-/// Extract a scalar `double` from an `Opt*FieldSched`; returns
-/// nullopt for unset, vector, or FileSched forms.  Works on the 1D
-/// (per-stage) `OptTRealFieldSched` and the 2D (per-stage, per-block)
-/// `OptTBRealFieldSched` because both wrap `FieldSched<Real, …>` —
-/// the scalar arm is `Real` in both cases.
+/// Extract a scalar `Real` from an `Opt*FieldSched`; returns
+/// `nullopt` for unset, vector, or FileSched forms.  Works on both
+/// the 1D `OptTRealFieldSched` and the 2D `OptTBRealFieldSched`
+/// because both wrap `FieldSched<Real, …>` — the scalar arm is
+/// `Real` in either case.
 template<typename T, typename Vector>
 [[nodiscard]] std::optional<Real> scalar_or(
     const std::optional<FieldSched<T, Vector>>& field)
 {
-  if (!field.has_value()) {
+  if (!field.has_value() || !std::holds_alternative<T>(*field)) {
     return std::nullopt;
   }
-  if (std::holds_alternative<T>(*field)) {
-    return std::get<T>(*field);
+  return std::get<T>(*field);
+}
+
+/// Resolve a `Generator.fuel` SingleId against `fuel_array`.  Returns
+/// nullptr when the reference dangles (validation catches this earlier;
+/// the lookup is robust against the absence of validation in tests).
+[[nodiscard]] const Fuel* find_fuel(const gtopt::Array<Fuel>& fuel_array,
+                                    const SingleId& ref) noexcept
+{
+  const auto it = std::ranges::find_if(fuel_array,
+                                       [&](const Fuel& f)
+                                       {
+                                         return std::holds_alternative<Uid>(ref)
+                                             ? f.uid == std::get<Uid>(ref)
+                                             : f.name == std::get<Name>(ref);
+                                       });
+  return it == fuel_array.end() ? nullptr : &*it;
+}
+
+/// Format the emission label component of an auto-generated source
+/// name — uses the user-friendly `co2`/`nox`/… name when the FK is
+/// a `Name`, falls back to `uid<N>` when it's a numeric `Uid`.
+[[nodiscard]] std::string emission_label(const SingleId& ref)
+{
+  if (std::holds_alternative<Uid>(ref)) {
+    return std::format("uid{}", std::get<Uid>(ref));
   }
-  return std::nullopt;  // vector / FileSched — caller logs WARN
+  return std::get<Name>(ref);
 }
 
 }  // namespace
 
 void System::fold_legacy_fuel_emission_factors()
 {
-  // Short-circuit if no fuel carries a legacy single-pollutant field.
-  bool any_legacy = false;
-  for (const auto& f : fuel_array) {
-    if (f.combustion_emission_factor.has_value()
-        || f.upstream_emission_factor.has_value())
-    {
-      any_legacy = true;
-      break;
-    }
-  }
+  const bool any_legacy =
+      std::ranges::any_of(fuel_array,
+                          [](const Fuel& f)
+                          {
+                            return f.combustion_emission_factor.has_value()
+                                || f.upstream_emission_factor.has_value();
+                          });
   if (!any_legacy) {
     return;
   }
 
-  // Ensure the CO₂ pollutant tag exists.
+  // Ensure the CO₂ pollutant tag exists; legacy fields are CO₂-only.
   auto co2_it = std::ranges::find_if(
       emission_array, [](const Emission& e) { return e.name == "co2"; });
   if (co2_it == emission_array.end()) {
-    auto next = next_uid(emission_array);
-    emission_array.push_back(Emission {.uid = next, .name = "co2"});
+    emission_array.push_back(
+        Emission {.uid = next_uid(emission_array), .name = "co2"});
     co2_it = std::prev(emission_array.end());
   }
   const auto co2_uid = co2_it->uid;
 
-  // For each fuel with legacy fields, append/update a CO₂ row in
-  // its emission_factors[] table.
   for (auto& f : fuel_array) {
     if (!f.combustion_emission_factor.has_value()
         && !f.upstream_emission_factor.has_value())
@@ -414,7 +433,8 @@ void System::fold_legacy_fuel_emission_factors()
           .upstream = std::move(f.upstream_emission_factor),
       });
     } else {
-      // Merge legacy into existing row (legacy wins only on null).
+      // Merge legacy fields into an existing CO₂ row — legacy only
+      // fills slots that are currently null (new table wins on conflict).
       if (!fef_it->combustion.has_value()) {
         fef_it->combustion = std::move(f.combustion_emission_factor);
       }
@@ -445,54 +465,37 @@ void System::expand_fuel_emission_sources()
       continue;
     }
 
-    // Resolve fuel by SingleId.  Handle both Uid and Name variants.
-    const Fuel* fuel = nullptr;
-    if (std::holds_alternative<Uid>(*gen.fuel)) {
-      const auto fuel_uid = std::get<Uid>(*gen.fuel);
-      auto it = std::ranges::find_if(
-          fuel_array, [fuel_uid](const Fuel& f) { return f.uid == fuel_uid; });
-      if (it != fuel_array.end()) {
-        fuel = &*it;
-      }
-    } else {
-      const auto& fuel_name = std::get<Name>(*gen.fuel);
-      auto it = std::ranges::find_if(
-          fuel_array, [&](const Fuel& f) { return f.name == fuel_name; });
-      if (it != fuel_array.end()) {
-        fuel = &*it;
-      }
-    }
+    const Fuel* fuel = find_fuel(fuel_array, *gen.fuel);
     if (fuel == nullptr || fuel->emission_factors.empty()) {
       continue;
     }
 
-    // Scalar heat_rate only — time-varying needs manual migration.
-    const auto hr_scalar = scalar_or(gen.heat_rate);
-    if (!hr_scalar.has_value() || *hr_scalar == 0.0) {
+    // Scalar heat_rate only — time-varying schedules can't be folded
+    // lossless into the per-stage `EmissionSource.rate` field.
+    const auto hr_opt = scalar_or(gen.heat_rate);
+    if (!hr_opt.has_value() || *hr_opt == 0.0) {
       if (gen.heat_rate.has_value()) {
         SPDLOG_WARN(
-            "Generator '{}' uid={}: heat_rate is time-varying — fuel-derived "
-            "emission sources skipped.  Declare explicit "
-            "EmissionSource entries to retain per-block accuracy.",
+            "Generator '{}' uid={}: non-scalar heat_rate — fuel-derived "
+            "emission sources skipped.  Declare explicit EmissionSource "
+            "entries to retain per-block accuracy.",
             gen.name,
             gen.uid);
       }
       continue;
     }
-    const double hr = *hr_scalar;
+    const double hr = *hr_opt;
 
     for (const auto& fef : fuel->emission_factors) {
-      const auto comb_factor = scalar_or(fef.combustion);
-      const auto upstream_factor = scalar_or(fef.upstream);
-      const double combustion = comb_factor.value_or(0.0);
-      const double upstream = upstream_factor.value_or(0.0);
+      const double combustion = scalar_or(fef.combustion).value_or(0.0);
+      const double upstream = scalar_or(fef.upstream).value_or(0.0);
       if (combustion == 0.0 && upstream == 0.0) {
         continue;
       }
 
-      // Iterate zones covering this pollutant; one synthesized
-      // EmissionSource per (gen, zone) — stacked-cap users naturally
-      // get one source per zone.
+      // One synthesized EmissionSource per (generator, covering zone).
+      // Stacked-cap users (e.g. one global CO₂ zone plus a regional
+      // basket) naturally pick up one source per zone they belong to.
       for (const auto& zone : emission_zone_array) {
         const bool covers =
             std::ranges::any_of(zone.emissions,
@@ -502,14 +505,10 @@ void System::expand_fuel_emission_sources()
           continue;
         }
 
-        // Auto-name and skip duplicates so a re-run is idempotent.
-        std::string emission_label;
-        if (std::holds_alternative<Uid>(fef.emission)) {
-          emission_label = std::format("uid{}", std::get<Uid>(fef.emission));
-        } else {
-          emission_label = std::get<Name>(fef.emission);
-        }
-        auto sname = as_label(gen.name, emission_label, "via_fuel", zone.name);
+        auto sname = as_label(
+            gen.name, emission_label(fef.emission), "via_fuel", zone.name);
+        // Skip auto-generated duplicates — keeps the pass idempotent
+        // under repeated invocation (e.g. merge → re-expand).
         if (src_names.contains(sname)) {
           continue;
         }
