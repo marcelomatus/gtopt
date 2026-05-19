@@ -32,6 +32,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/emission_capture.hpp>
 #include <gtopt/emission_source.hpp>
 #include <gtopt/lp_class_name.hpp>
 
@@ -240,6 +241,13 @@ struct Generator
   /// `Reservoir.seepage[]` / `Battery.bus` inline expansion.
   ///
   Array<EmissionSource> emissions {};
+
+  /// Inline CCS / abatement rows for THIS generator, one per pollutant
+  /// kind captured.  Each entry's `(1 − rate)` factor scales the
+  /// matching `EmissionSource` contribution to its zone's balance row
+  /// AND adds `rate × (combustion + upstream) × cost` to the
+  /// generator's dispatch-column cost (paid per MWh generated).
+  Array<EmissionCapture> emission_captures {};
 };
 
 }  // namespace gtopt

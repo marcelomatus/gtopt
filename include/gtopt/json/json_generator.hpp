@@ -2,6 +2,7 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/generator.hpp>
+#include <gtopt/json/json_emission_capture.hpp>
 #include <gtopt/json/json_emission_source.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
@@ -102,7 +103,10 @@ struct json_data_contract<Generator>
       json_variant_null<"emission_factor",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
-      json_array_null<"emissions", Array<EmissionSource>, EmissionSource>>;
+      json_array_null<"emissions", Array<EmissionSource>, EmissionSource>,
+      json_array_null<"emission_captures",
+                      Array<EmissionCapture>,
+                      EmissionCapture>>;
 
   constexpr static auto to_json_data(Generator const& generator)
   {
@@ -128,7 +132,8 @@ struct json_data_contract<Generator>
                                  generator.annual_derating,
                                  generator.integer_expmod,
                                  generator.emission_factor,
-                                 generator.emissions);
+                                 generator.emissions,
+                                 generator.emission_captures);
   }
 };
 

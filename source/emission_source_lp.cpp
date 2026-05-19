@@ -16,6 +16,7 @@
  * factor into `InertiaZoneLP::requirement_rows()`.
  */
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_source_lp.hpp>
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/generator_lp.hpp>
@@ -25,6 +26,34 @@
 
 namespace gtopt
 {
+
+namespace
+{
+/// Resolve an `OptTRealFieldSched` to a scalar.  Handles the scalar
+/// and per-stage-vector cases; falls back to 0 for FileSched (which
+/// requires the InputContext machinery — not threaded through here
+/// yet for `Generator.emission_captures[].rate/cost`).
+[[nodiscard]] double resolve_stage_scalar(const OptTRealFieldSched& field,
+                                          std::size_t stage_index) noexcept
+{
+  if (!field.has_value()) {
+    return 0.0;
+  }
+  const auto& val = *field;
+  if (std::holds_alternative<Real>(val)) {
+    return std::get<Real>(val);
+  }
+  if (std::holds_alternative<std::vector<Real>>(val)) {
+    const auto& vec = std::get<std::vector<Real>>(val);
+    if (stage_index < vec.size()) {
+      return vec[stage_index];
+    }
+  }
+  // FileSched (string) path requires InputContext + Schedule and is
+  // not yet wired for inline emission_captures.  TODO.
+  return 0.0;
+}
+}  // namespace
 
 EmissionSourceLP::EmissionSourceLP(const EmissionSource& src,
                                    const InputContext& ic)
@@ -98,6 +127,25 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
+  // ── CCS / abatement: per-(generator, pollutant) capture row ────────
+  //
+  // If `Generator.emission_captures[]` contains a row for this
+  // pollutant, scale the source contribution to the balance by
+  // `(1 − capture_rate)` and add a per-MWh objective adder of
+  // `capture_rate · effective_rate · capture_cost` on the generator
+  // dispatch column.
+  double capture_rate = 0.0;
+  double capture_cost = 0.0;
+  const auto stage_index = static_cast<std::size_t>(stage.index());
+  for (const auto& cap : gen.generator().emission_captures) {
+    if (cap.emission == src.emission) {
+      capture_rate = resolve_stage_scalar(cap.rate, stage_index);
+      capture_cost = resolve_stage_scalar(cap.cost, stage_index);
+      break;
+    }
+  }
+  const double net_factor = 1.0 - capture_rate;
+
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
   const auto& brows_map = zone.balance_rows();
@@ -109,10 +157,13 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
 
   const auto& gen_cols = gen.generation_cols_at(scenario, stage);
 
-  // Per block: balance_b ← balance_b − weight · (rate + upstream) · dur · gen
-  // (LP convention: the balance row pins
-  //   production_b − Σ contributions = 0
-  //  so contributions enter with a negative coefficient.)
+  // Per block:
+  //   balance_b ← balance_b − weight · (1 − capture_rate) · (rate + upstream)
+  //                            · dur · gen
+  //   gen_b col cost  ← + capture_rate · (rate + upstream) · capture_cost · dur
+  //                      (scaled via CostHelper::block_ecost — the same
+  //                      probability × discount × scale chain every other
+  //                      thermal cost uses)
   for (const auto& block : stage.blocks()) {
     const auto buid = block.uid();
     const auto brow_it = balance_rows.find(buid);
@@ -123,13 +174,24 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     if (gcol_it == gen_cols.end()) {
       continue;
     }
-    const auto coeff = -weight * effective_rate * block.duration();
+    const auto coeff = -weight * net_factor * effective_rate * block.duration();
     // Multiple sources may target the same (zone, generator) pair
     // (e.g. two pollutants in a basket, or a fuel-derived plus a
     // direct rate).  Read-modify-write to accumulate contributions
     // rather than overwriting.
     const auto existing = lp.get_coeff(brow_it->second, gcol_it->second);
     lp.set_coeff(brow_it->second, gcol_it->second, existing + coeff);
+
+    // CCS opex: charge capture_cost per ton captured.  The captured
+    // tonnage per MWh is `capture_rate · (rate + upstream)`, and we
+    // multiply by `capture_cost` to get $/MWh, then through
+    // `block_ecost` to put it on the same probability × discount ×
+    // scale chain the rest of the dispatch cost stack uses.
+    if (capture_rate > 0.0 && capture_cost > 0.0) {
+      const auto adder = CostHelper::block_ecost(
+          scenario, stage, block, capture_rate * effective_rate * capture_cost);
+      lp.col_at(gcol_it->second).cost += adder;
+    }
   }
 
   return true;

@@ -446,3 +446,69 @@ TEST_CASE(
         == doctest::Approx((comb_rate + upstream_rate) * gen_sol * 1.0)
                .epsilon(1e-9));
 }
+
+TEST_CASE(
+    "EmissionZone — CCS capture_rate scales the balance contribution")  // NOLINT
+{
+  // Verify `(1 − capture_rate)` scaling on the balance row.
+  // rate=0.4, gen=50, dur=1, capture_rate=0.9 → production = 0.4·50·(1-0.9)
+  // = 2.0.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  const double rate = 0.4;
+  const double gen_sol = 50.0;
+  const double capture_rate = 0.9;
+
+  const System system = {
+      .name = "CcsCapture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1000.0,
+                        .capacity = gen_sol}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = 10.0,
+                           .capacity = 200.0,
+                           .emission_captures = {{.emission = Uid {1},
+                                                  .rate = capture_rate,
+                                                  .cost = 0.0}}}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "co2_zone",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = rate}},
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  const auto& zone = system_lp.elements<EmissionZoneLP>().front();
+  const auto scen_uid = simulation_lp.scenarios().front().uid();
+  const auto stg = simulation_lp.stages().front();
+  const auto stg_uid = stg.uid();
+  const auto blk_uid = stg.blocks().front().uid();
+  const auto prod_col =
+      zone.production_cols().at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
+
+  const auto col_sol = lp.get_col_sol();
+  // Expected: production = (1 - 0.9) × 0.4 × 50 × 1 = 2.0 t.
+  CHECK(col_sol[prod_col]
+        == doctest::Approx((1.0 - capture_rate) * rate * gen_sol * 1.0)
+               .epsilon(1e-9));
+}
