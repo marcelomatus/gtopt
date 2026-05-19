@@ -356,7 +356,12 @@ class BatteryWriter(BaseWriter):
                 bat["bus"] = entry["bus"]
                 bat["pmax_charge"] = entry["pmax_charge"]
                 bat["pmax_discharge"] = entry["pmax_discharge"]
-                bat["gcost"] = 0.0
+                # `discharge_cost` (was `gcost` before the
+                # `e54b795a4` unified-battery rename) — per-MWh cost
+                # paid when discharging.  Forwarded to the synthetic
+                # discharge `Generator.gcost` by
+                # `System::expand_batteries()`.
+                bat["discharge_cost"] = 0.0
                 # Generation-coupled mode: include source_generator reference
                 source_gen = entry.get("source_generator")
                 if source_gen:

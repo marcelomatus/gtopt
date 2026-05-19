@@ -77,8 +77,15 @@ std::expected<Planning, std::string> parse_planning_files(
 
       spdlog::info("  Parsing input file {}", fpath.string());
 
+      // `canonical` must outlive the catch block: `daw::json::json_exception`
+      // carries raw pointers into the buffer it was parsed from, and
+      // `to_formatted_string` walks back from the error position looking
+      // for the surrounding line.  Passing a different buffer (the
+      // pre-canonicalisation source) causes that walk to segfault when
+      // the canonicalisation shifted byte offsets — see the
+      // `BAT_ALICANTO` reproducer on `support/plp_2_years`.
+      const auto canonical = canonicalize_json_keys(json_result.value());
       try {
-        const auto canonical = canonicalize_json_keys(json_result.value());
         auto plan =
             daw::json::from_json<Planning>(canonical, StrictParsePolicy);
         my_planning.merge(std::move(plan));
@@ -86,7 +93,7 @@ std::expected<Planning, std::string> parse_planning_files(
         return std::unexpected(
             std::format("JSON parsing error in file '{}': {}",
                         fpath.string(),
-                        to_formatted_string(jex, json_result.value().c_str())));
+                        to_formatted_string(jex, canonical.c_str())));
       }
 
     } catch (const std::exception& ex) {
