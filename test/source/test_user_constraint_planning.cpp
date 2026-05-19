@@ -986,7 +986,7 @@ static constexpr std::string_view uc_multi_component_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],
@@ -1282,7 +1282,7 @@ static constexpr std::string_view uc_sum_ref_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],
@@ -2379,7 +2379,7 @@ static constexpr std::string_view uc_energy_type_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],

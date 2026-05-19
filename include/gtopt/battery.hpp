@@ -31,7 +31,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -62,7 +62,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -210,21 +210,43 @@ struct Battery
       soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
                           ///< violation [$/MWh] — per-(stage, block).
 
-  OptTRealFieldSched
-      pmax_charge {};  ///< Max charging power [MW] (unified definition)
-  OptTRealFieldSched
-      pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
   OptTBRealFieldSched
-      gcost {};  ///< Discharge generation cost [$/MWh]
-                 ///< per-(stage, block).  Forwarded to the synthetic
-                 ///< discharge ``Generator.gcost`` (also TB) by
-                 ///< ``System::expand_batteries()``.
+      pmax_charge {};  ///< Max charging power [MW] (unified definition).
+                       ///< Per-(stage, block); accepts scalar, 2-D
+                       ///< ``[[block0, ...], ...]``, or file-backed.
+                       ///< Forwarded to the synthetic charge ``Demand.lmax``
+                       ///< by ``System::expand_batteries()``.
+  OptTBRealFieldSched
+      pmax_discharge {};  ///< Max discharging power [MW]
+                          ///< per-(stage, block).  Forwarded to the
+                          ///< synthetic discharge ``Generator.pmax``.
+  OptTBRealFieldSched
+      pmin_charge {};  ///< Minimum charging power [MW] per-(stage, block).
+                       ///< HARD floor on the synthetic charge ``Demand.lmin``
+                       ///< when the battery is allowed to charge.  Mirrors
+                       ///< UC.jl ``Minimum charge rate (MW)`` and PLEXOS
+                       ///< ``Battery.Min Charge Rate``.
+  OptTBRealFieldSched
+      pmin_discharge {};  ///< Minimum discharging power [MW] per-(stage,
+                          ///< block).  HARD floor on the synthetic
+                          ///< discharge ``Generator.pmin``.  Mirrors
+                          ///< UC.jl ``Minimum discharge rate (MW)`` and
+                          ///< PLEXOS ``Battery.Min Generation``.
+  OptTBRealFieldSched
+      discharge_cost {};  ///< Per-MWh cost paid when discharging the
+                          ///< battery (energy injected into the grid)
+                          ///< [$/MWh] per-(stage, block).  Mirrors
+                          ///< UC.jl ``Discharge cost ($/MW)`` and
+                          ///< PLEXOS ``Battery.Generation Cost``.
+                          ///< Forwarded to the synthetic discharge
+                          ///< ``Generator.gcost`` (also TB) by
+                          ///< ``System::expand_batteries()``.
 
   OptTBRealFieldSched charge_cost {};
   ///< Per-MWh cost paid when charging the battery [$/MWh]
   ///< per-(stage, block).  Mirrors UC.jl's per-hour ``Charge cost
   ///< ($/MW)`` and PLEXOS's battery charge cost.
-  ///< Counterpart to ``gcost`` (discharge cost): ``gcost`` prices
+  ///< Counterpart to ``discharge_cost``: ``discharge_cost`` prices
   ///< energy injected into the grid, ``charge_cost`` prices energy
   ///< absorbed from it.  Wired through ``System::expand_batteries()``
   ///< onto the synthetic charge-side Demand element by encoding the

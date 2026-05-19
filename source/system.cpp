@@ -186,16 +186,32 @@ void System::expand_batteries()
       battery.source_generator.reset();
     }
 
-    // Discharge generator: power injected into the external bus
+    // Discharge generator: power injected into the external bus.
+    //
+    // ``pmax_discharge`` (TB) → ``Generator.pmax`` — per-(stage,
+    // block) operational ceiling.  ``pmin_discharge`` (TB) →
+    // ``Generator.pmin`` — HARD per-block floor, mirroring UC.jl
+    // ``Minimum discharge rate (MW)`` and PLEXOS ``Min Generation``.
+    // ``Generator.capacity`` is left unset: the default capacity
+    // sentinel is ``numeric_limits<double>::max()`` (unlimited), so
+    // ``block_pmax = min(stage_capacity, pmax_at) = pmax_at``.  No
+    // expansion column is created (batteries express their
+    // investment side via ``Battery.expcap`` on the energy axis).
     generator_array.push_back(Generator {
         .uid = gen_uid++,
         .name = gen_name,
         .bus = *battery.bus,
-        .gcost = battery.gcost,
-        .capacity = battery.pmax_discharge,
+        .pmin = battery.pmin_discharge,
+        .pmax = battery.pmax_discharge,
+        .gcost = battery.discharge_cost,
     });
 
     // Charge demand: power absorbed from the charge bus.
+    //
+    // ``pmax_charge`` (TB) → ``Demand.lmax`` — per-(stage, block)
+    // operational ceiling.  ``pmin_charge`` (TB) → ``Demand.lmin`` —
+    // HARD per-block floor.  Mirrors UC.jl ``Maximum/Minimum charge
+    // rate (MW)`` and PLEXOS ``Max/Min Load`` on the charge side.
     //
     // ``fcost`` selects between two regimes:
     //
@@ -217,8 +233,9 @@ void System::expand_batteries()
         .uid = dem_uid++,
         .name = dem_name,
         .bus = charge_bus,
+        .lmax = battery.pmax_charge,
+        .lmin = battery.pmin_charge,
         .fcost = std::move(dem_fcost),
-        .capacity = battery.pmax_charge,
     });
 
     // Converter linking battery, generator, and demand

@@ -1258,7 +1258,7 @@ def test_real_base_with_storage_topology_counts(tmp_path: Path) -> None:
     assert bats["su1"]["output_efficiency"] == pytest.approx(0.95 * 0.99**0.5, abs=1e-5)
     assert bats["su1"]["eini"] == 50.0
     assert bats["su1"]["efin"] == 20.0
-    assert bats["su1"]["gcost"] == 1.5
+    assert bats["su1"]["discharge_cost"] == 1.5
 
     # su2 has per-block list emax/emin in UC.jl — round-trips as the
     # 2-D ``[[v_1, ..., v_T]]`` schedule shape now accepted by
@@ -1353,7 +1353,7 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0
-    assert obj == pytest.approx(-358_715.18, abs=1.0)
+    assert obj == pytest.approx(-358_464.25, abs=1.0)
 
     # Integer-column scaling-fix invariant on every commitment.
     for gen_uid in range(1, 11):  # 10 commitments on the thermal gens
@@ -2088,8 +2088,18 @@ def test_real_case14_storage_battery_shape(tmp_path: Path) -> None:
     # ``Last period min/max level (MWh)`` (21.0 / 22.0).
     assert bats["su3"]["emin"] == [[10.0, 11.0, 12.0, 21.0]]
     assert bats["su3"]["emax"] == [[100.0, 110.0, 120.0, 22.0]]
-    # pmax_charge stays per-stage → first-hour scalar.
-    assert bats["su3"]["pmax_charge"] == 10.0
+    # pmax_charge / pmax_discharge / pmin_charge / pmin_discharge are
+    # now TB schedules (Battery.{pmax,pmin}_{charge,discharge} promoted
+    # from T to TB in 2026-05-18), forwarded to the synthetic charge
+    # ``Demand.{lmax,lmin}`` and discharge ``Generator.{pmax,pmin}``.
+    # UC.jl per-hour lists round-trip as 2-D ``[[h0, h1, ...]]``.
+    assert bats["su3"]["pmax_charge"] == [[10.0, 10.1, 10.2, 10.3]]
+    assert bats["su3"]["pmin_charge"] == [[5.0, 5.1, 5.2, 5.3]]
+    assert bats["su3"]["pmax_discharge"] == [[8.0, 8.1, 8.2, 8.3]]
+    assert bats["su3"]["pmin_discharge"] == [[4.0, 4.1, 4.2, 4.3]]
+    # su2 ships scalar rate floors → stay scalar.
+    assert bats["su2"]["pmin_charge"] == 5.0
+    assert bats["su2"]["pmin_discharge"] == 2.0
 
     # su2 ships scalar baselines + last-period overrides → 2-D schedule
     # with the broadcast baseline on the first T-1 blocks and the
@@ -2616,17 +2626,23 @@ def test_ucjl_golden_case14_interface(tmp_path: Path) -> None:
 @pytest.mark.xfail(
     strict=False,
     reason=(
-        "Known divergence: thermal aggregate matches UC.jl bit-for-bit in "
-        "block 2 (335 MW); blocks 1/3/4 still diverge ~20-40 MW.  After "
-        "wiring ``Battery.charge_cost`` + ``Loss factor`` folded into "
-        "efficiencies + ``Last period maximum/minimum level`` → "
-        "per-block ``emin`` / ``emax`` 2-D shape (2026-05-18), the "
-        "remaining residue comes from UC.jl storage fields gtopt still "
-        "doesn't model: ``Minimum charge/discharge rate`` (rate-floor), "
-        "``Allow simultaneous charging and discharging``, and per-block "
-        "schedules on rate / efficiency / cost lists that gtopt still "
-        "exposes as ``OptTRealFieldSched`` (per-stage) and the converter "
-        "collapses to first-hour via ``_first_hour``."
+        "Known divergence (block 1: gtopt 348.5 MW thermal vs UC.jl "
+        "305 MW): the new ``Battery.pmin_charge`` / ``pmin_discharge`` "
+        "fields wire to ``Demand.lmin`` / ``Generator.pmin`` as HARD "
+        "static floors (the col lower bound), enforced every block.  "
+        "UC.jl's ``Minimum charge/discharge rate (MW)`` is CONDITIONAL — "
+        "it applies only when the battery is actively "
+        "charging/discharging (gated by an internal binary).  In "
+        "blocks where UC.jl chooses idle (charge = 0, discharge = 0), "
+        "gtopt's unconditional floor still forces ≥ 5 MW charge + ≥ "
+        "2 MW discharge on su2, drawing extra thermal generation.  "
+        "Fully reconciling requires a commitment-style binary on the "
+        "synthetic charge demand + discharge generator with C2-style "
+        "linkage (``load ≥ lmin × u``, ``p ≥ pmin × u``).  The unconditional "
+        "floor is still correct for PLEXOS-style ``must-run`` batteries "
+        "and for any case where UC.jl actually dispatches above the "
+        "floor every block, so the wiring is kept; only this golden "
+        "cross-check stays xfail until conditional floors land."
     ),
 )
 @pytest.mark.skipif(_find_gtopt_binary() is None, reason="gtopt binary not found")

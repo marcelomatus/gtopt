@@ -2,7 +2,8 @@
 //
 // Per-(stage, block) promotion tests for the T→TB sweep.
 //
-//   * PR-A: Generator.gcost / Demand.fcost / Battery.gcost / charge_cost
+//   * PR-A: Generator.gcost / Demand.fcost / Battery.discharge_cost /
+//     charge_cost
 //   * PR-B: Generator.heat_rate / lossfactor / emission_factor,
 //           Demand.lossfactor, Line.lossfactor
 //   * PR-C: ReserveZone.urcost/drcost,
@@ -117,7 +118,7 @@ TEST_CASE("Demand.fcost — scalar still broadcasts (legacy)")  // NOLINT
   CHECK(std::get<Real>(*dem.fcost) == doctest::Approx(1500.0));
 }
 
-TEST_CASE("Battery.gcost — 2-D per-block JSON parses as TB")  // NOLINT
+TEST_CASE("Battery.discharge_cost — 2-D per-block JSON parses as TB")  // NOLINT
 {
   constexpr std::string_view json_data = R"({
     "uid": 1,
@@ -127,12 +128,12 @@ TEST_CASE("Battery.gcost — 2-D per-block JSON parses as TB")  // NOLINT
     "pmax_charge": 60,
     "input_efficiency": 0.95,
     "output_efficiency": 0.95,
-    "gcost": [[2.5, 5.0, 7.5]]
+    "discharge_cost": [[2.5, 5.0, 7.5]]
   })";
 
   const auto bat = daw::json::from_json<Battery>(json_data);
-  REQUIRE(bat.gcost.has_value());
-  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.gcost);
+  REQUIRE(bat.discharge_cost.has_value());
+  const auto& v = std::get<std::vector<std::vector<Real>>>(*bat.discharge_cost);
   REQUIRE(v.size() == 1);
   REQUIRE(v[0].size() == 3);
   CHECK(v[0][0] == doctest::Approx(2.5));

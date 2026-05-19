@@ -955,19 +955,26 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     # values) round-trip naturally — gtopt's ``OptTRealFieldSched`` /
     # ``OptTBRealFieldSched`` accept both scalar and list shapes.
     #
-    # Dropped (silently) — no native gtopt mapping:
-    #   * ``Minimum charge rate (MW)`` / ``Minimum discharge rate (MW)`` —
-    #     gtopt's pmax_charge / pmax_discharge are upper bounds only.
-    #   * ``Allow simultaneous charging and discharging`` — gtopt's
-    #     formulation disallows simultaneous flows by construction.
+    # Per-block hourly inputs honored end-to-end:
+    #   * ``Discharge cost ($/MW)`` → ``Battery.discharge_cost`` (TB)
+    #   * ``Charge cost ($/MW)``    → ``Battery.charge_cost`` (TB)
+    #   * ``Maximum charge rate (MW)``     → ``Battery.pmax_charge`` (TB)
+    #   * ``Maximum discharge rate (MW)``  → ``Battery.pmax_discharge`` (TB)
+    #   * ``Minimum charge rate (MW)``     → ``Battery.pmin_charge`` (TB)
+    #     — HARD floor on synthetic charge ``Demand.lmin``.
+    #   * ``Minimum discharge rate (MW)``  → ``Battery.pmin_discharge`` (TB)
+    #     — HARD floor on synthetic discharge ``Generator.pmin``.
+    #   * ``Charge/Discharge efficiency``  → ``Battery.input/output_efficiency``
     #
-    # Per-block hourly inputs now honored end-to-end (PR-A, 2026-05-18):
-    #   * ``Discharge cost ($/MW)`` → ``Battery.gcost`` (TB)
-    #   * ``Charge cost ($/MW)`` → ``Battery.charge_cost`` (TB)
-    # The remaining per-block fields (``Maximum charge rate (MW)``,
-    # ``Maximum discharge rate (MW)``, ``Charge/Discharge efficiency``)
-    # are still collapsed to first-hour because gtopt's underlying
-    # fields stay per-stage in this PR.
+    # Dropped (silently) — no native gtopt mapping needed:
+    #   * ``Allow simultaneous charging and discharging`` — gtopt's
+    #     synthetic charge Demand and discharge Generator are
+    #     independent LP elements (linked only through the SoC row
+    #     in the Converter+Battery pair), so simultaneous charge +
+    #     discharge is allowed by construction.  UC.jl's flag
+    #     forbids it via a binary; we ignore the flag (the LP almost
+    #     always chooses one direction at optimum because both legs
+    #     pay positive costs in the cost-minimisation objective).
     uc_storage = data.get("Storage units", {}) or {}
     battery_array = []
     bat_uid = 0
@@ -1045,19 +1052,25 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 # (round-trips identically to the legacy emission).
                 b_entry[gtopt_key] = float(base)
 
-        # Per-stage scalar fields — gtopt's Battery exposes
-        # ``pmax_charge`` / ``pmax_discharge`` as ``OptTRealFieldSched``,
-        # so per-block UC.jl lists collapse to the first-hour scalar.
+        # Charge/discharge rate envelopes — gtopt's Battery exposes
+        # all four as ``OptTBRealFieldSched`` (per-(stage, block)),
+        # forwarded by ``System::expand_batteries()`` to the synthetic
+        # ``Generator.pmin/pmax`` (discharge) and ``Demand.lmin/lmax``
+        # (charge).  Scalars stay scalar; per-hour UC.jl lists emit
+        # as 2-D ``[[h0, h1, ...]]``.
         for ucjl_key, gtopt_key in (
             ("Maximum charge rate (MW)", "pmax_charge"),
             ("Maximum discharge rate (MW)", "pmax_discharge"),
+            ("Minimum charge rate (MW)", "pmin_charge"),
+            ("Minimum discharge rate (MW)", "pmin_discharge"),
         ):
             value = sdata.get(ucjl_key)
             if value is None:
                 continue
-            b_entry[gtopt_key] = (
-                float(_first_hour(value)) if isinstance(value, list) else value
-            )
+            if isinstance(value, list):
+                b_entry[gtopt_key] = [list(_time_series(value, T))]
+            else:
+                b_entry[gtopt_key] = float(value)
         # ``input_efficiency`` / ``output_efficiency`` are TB since
         # PR-E (per-(stage, block)).  Hourly UC.jl lists round-trip
         # as 2-D ``[[h0, h1, ...]]``; scalar values stay scalar
@@ -1127,15 +1140,15 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if value is not None:
                 b_entry[gtopt_key] = float(value)
 
-        # Discharge cost → ``Battery.gcost``; Charge cost →
-        # ``Battery.charge_cost``.  Both are now ``OptTBRealFieldSched``
+        # Discharge cost → ``Battery.discharge_cost``; Charge cost →
+        # ``Battery.charge_cost``.  Both are ``OptTBRealFieldSched``
         # (per-(stage, block)) so per-hour UC.jl lists round-trip as
         # 2-D ``[[hour0, hour1, ...]]`` without collapse.  Scalar
         # values still emit as a plain number (broadcast everywhere).
-        # ``System::expand_batteries()`` forwards ``gcost`` onto the
-        # synthetic discharge Generator and ``charge_cost`` (negated)
-        # onto the synthetic charge Demand's fcost — both pipelines
-        # are TB-compatible as of PR-A (Generator.gcost + Demand.fcost).
+        # ``System::expand_batteries()`` forwards ``discharge_cost``
+        # onto the synthetic discharge ``Generator.gcost`` and
+        # ``charge_cost`` (negated) onto the synthetic charge
+        # ``Demand.fcost`` — both pipelines are TB-compatible.
         def _cost_value(raw: Any) -> Any:
             if isinstance(raw, list):
                 return [list(_time_series(raw, T))]
@@ -1143,7 +1156,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
 
         d_cost = sdata.get("Discharge cost ($/MW)")
         if d_cost is not None:
-            b_entry["gcost"] = _cost_value(d_cost)
+            b_entry["discharge_cost"] = _cost_value(d_cost)
         c_cost = sdata.get("Charge cost ($/MW)")
         if c_cost is not None:
             b_entry["charge_cost"] = _cost_value(c_cost)

@@ -116,7 +116,7 @@ static constexpr std::string_view resolver_diverse_json = R"json(
           "eini": 50,
           "pmax_charge": 50,
           "pmax_discharge": 50,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 200
         }
       ],
@@ -519,7 +519,7 @@ TEST_CASE(  // NOLINT
             "eini": 50,
             "pmax_charge": 30,
             "pmax_discharge": 30,
-            "gcost": 0,
+            "discharge_cost": 0,
             "capacity": 100
           }
         ],
@@ -994,7 +994,7 @@ TEST_CASE(  // NOLINT
             "eini": 50,
             "pmax_charge": 30,
             "pmax_discharge": 30,
-            "gcost": 0,
+            "discharge_cost": 0,
             "capacity": 100
           }
         ],

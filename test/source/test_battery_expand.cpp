@@ -22,7 +22,7 @@ TEST_CASE("Battery new fields default to nullopt")  // NOLINT
   CHECK_FALSE(battery.bus.has_value());
   CHECK_FALSE(battery.pmax_charge.has_value());
   CHECK_FALSE(battery.pmax_discharge.has_value());
-  CHECK_FALSE(battery.gcost.has_value());
+  CHECK_FALSE(battery.discharge_cost.has_value());
 }
 
 TEST_CASE("Battery unified field assignment")  // NOLINT
@@ -36,7 +36,7 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
   battery.bus = Uid {3};
   battery.pmax_charge = 60.0;
   battery.pmax_discharge = 60.0;
-  battery.gcost = 5.0;
+  battery.discharge_cost = 5.0;
 
   REQUIRE(battery.bus.has_value());
   CHECK(std::get<Uid>(*battery.bus) == Uid {3});
@@ -47,8 +47,8 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
   REQUIRE(battery.pmax_discharge.has_value());
   CHECK(std::get<Real>(*battery.pmax_discharge) == 60.0);
 
-  REQUIRE(battery.gcost.has_value());
-  CHECK(std::get<Real>(*battery.gcost) == 5.0);
+  REQUIRE(battery.discharge_cost.has_value());
+  CHECK(std::get<Real>(*battery.discharge_cost) == 5.0);
 }
 
 TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
@@ -88,7 +88,7 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
           .emax = 200.0,
           .pmax_charge = 60.0,
           .pmax_discharge = 60.0,
-          .gcost = 0.0,
+          .discharge_cost = 0.0,
           .capacity = 200.0,
       },
   };
@@ -106,8 +106,12 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(gen.name == "bat1_gen");
   CHECK(gen.uid == Uid {2});
   CHECK(std::get<Uid>(gen.bus) == Uid {1});
-  REQUIRE(gen.capacity.has_value());
-  CHECK(std::get<Real>(gen.capacity.value_or(RealFieldSched {0.0})) == 60.0);
+  // ``Battery.pmax_discharge`` now maps to ``Generator.pmax`` (TB)
+  // instead of ``Generator.capacity`` (T).  ``capacity`` is left unset
+  // so the default ``numeric_limits<double>::max()`` sentinel applies.
+  REQUIRE(gen.pmax.has_value());
+  CHECK(std::get<Real>(gen.pmax.value_or(RealFieldSched2 {0.0})) == 60.0);
+  CHECK_FALSE(gen.capacity.has_value());
   REQUIRE(gen.gcost.has_value());
   CHECK(std::get<Real>(gen.gcost.value_or(RealFieldSched2 {-1.0})) == 0.0);
 
@@ -117,8 +121,11 @@ TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
   CHECK(dem.name == "bat1_dem");
   CHECK(dem.uid == Uid {2});
   CHECK(std::get<Uid>(dem.bus) == Uid {1});
-  REQUIRE(dem.capacity.has_value());
-  CHECK(std::get<Real>(dem.capacity.value_or(RealFieldSched {0.0})) == 60.0);
+  // ``Battery.pmax_charge`` now maps to ``Demand.lmax`` (TB) instead
+  // of ``Demand.capacity`` (T).
+  REQUIRE(dem.lmax.has_value());
+  CHECK(std::get<Real>(dem.lmax.value_or(RealFieldSched2 {0.0})) == 60.0);
+  CHECK_FALSE(dem.capacity.has_value());
 
   // Converter was created
   CHECK(system.converter_array.size() == 1);
@@ -326,14 +333,16 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
   CHECK(system.demand_array[0].name == "bat1_dem");
   CHECK(system.demand_array[1].name == "bat2_dem");
 
-  // Verify different power ratings
-  REQUIRE(system.generator_array[1].capacity.has_value());
+  // Verify different power ratings (now mapped to operational
+  // bounds: ``pmax_discharge`` → ``Generator.pmax``,
+  // ``pmax_charge`` → ``Demand.lmax``).
+  REQUIRE(system.generator_array[1].pmax.has_value());
   CHECK(std::get<Real>(
-            system.generator_array[1].capacity.value_or(RealFieldSched {0.0}))
+            system.generator_array[1].pmax.value_or(RealFieldSched2 {0.0}))
         == 40.0);
-  REQUIRE(system.demand_array[1].capacity.has_value());
+  REQUIRE(system.demand_array[1].lmax.has_value());
   CHECK(std::get<Real>(
-            system.demand_array[1].capacity.value_or(RealFieldSched {0.0}))
+            system.demand_array[1].lmax.value_or(RealFieldSched2 {0.0}))
         == 30.0);
 }
 
@@ -371,7 +380,7 @@ TEST_CASE(
           .emax = 200.0,
           .pmax_charge = 60.0,
           .pmax_discharge = 60.0,
-          .gcost = 0.0,
+          .discharge_cost = 0.0,
           .capacity = 200.0,
       },
   };

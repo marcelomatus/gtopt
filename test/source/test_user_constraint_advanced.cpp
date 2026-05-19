@@ -424,7 +424,7 @@ static constexpr std::string_view uc_converter_json = R"json(
           "eini": 50,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 100
         }
       ],
@@ -515,7 +515,7 @@ static constexpr std::string_view uc_converter_flow_json = R"json({
         "input_efficiency": 0.95, "output_efficiency": 0.95,
         "emin": 0, "emax": 100, "eini": 50,
         "pmax_charge": 100, "pmax_discharge": 100,
-        "gcost": 0, "capacity": 100
+        "discharge_cost": 0, "capacity": 100
       }
     ],
     "converter_array": [

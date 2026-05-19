@@ -27,6 +27,7 @@ struct json_data_contract<DemandAttrs>
   using type = json_member_list<
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lossfactor",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
@@ -50,6 +51,7 @@ struct json_data_contract<DemandAttrs>
   {
     return std::forward_as_tuple(attrs.bus,
                                  attrs.lmax,
+                                 attrs.lmin,
                                  attrs.lossfactor,
                                  attrs.fcost,
                                  attrs.forced,
@@ -77,6 +79,7 @@ struct json_data_contract<Demand>
       json_string_null<"type", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lossfactor",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
@@ -104,6 +107,7 @@ struct json_data_contract<Demand>
                                  demand.type,
                                  demand.bus,
                                  demand.lmax,
+                                 demand.lmin,
                                  demand.lossfactor,
                                  demand.fcost,
                                  demand.forced,
