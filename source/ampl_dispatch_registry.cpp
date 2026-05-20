@@ -24,7 +24,9 @@
 #include <gtopt/ampl_variable.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/emission_source_lp.hpp>
 #include <gtopt/emission_zone_lp.hpp>
@@ -32,6 +34,8 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/inertia_provision_lp.hpp>
+#include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
@@ -39,6 +43,7 @@
 #include <gtopt/reserve_zone_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
+#include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -538,6 +543,23 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
                          &iter_class<EmissionZoneLP>);
   sim.register_ampl_iter(EmissionSource::class_name.snake_case(),
                          &iter_class<EmissionSourceLP>);
+  // Commitment family: Commitment exposes status/startup/shutdown PAMPL
+  // variables, SimpleCommitment exposes status — both have to be iterable
+  // for `sum(commitment(all).status)` / `sum(simple_commitment(all).status)`.
+  sim.register_ampl_iter(Commitment::class_name.snake_case(),
+                         &iter_class<CommitmentLP>);
+  sim.register_ampl_iter(SimpleCommitment::class_name.snake_case(),
+                         &iter_class<SimpleCommitmentLP>);
+  // Inertia: zone-level requirement column + per-generator provision
+  // columns; both register AMPL variables on every (scenario, stage).
+  sim.register_ampl_iter(InertiaZone::class_name.snake_case(),
+                         &iter_class<InertiaZoneLP>);
+  sim.register_ampl_iter(InertiaProvision::class_name.snake_case(),
+                         &iter_class<InertiaProvisionLP>);
+  // Free continuous decision variable referenced via
+  // `decision_variable("X").value` from PAMPL constraints.
+  sim.register_ampl_iter(DecisionVariable::class_name.snake_case(),
+                         &iter_class<DecisionVariableLP>);
 }
 
 }  // namespace gtopt

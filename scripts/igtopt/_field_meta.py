@@ -65,6 +65,23 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Discount factor applied to this stage's costs (default: 1.0)",
             1.0,
         ),
+        (
+            "month",
+            _J_STR,
+            False,
+            "Calendar month tag (jan, feb, …, dec). Drives seasonal "
+            "parameter lookups (e.g. irrigation schedules, monthly user_param).",
+            None,
+        ),
+        (
+            "chronological",
+            _J_BOOL,
+            False,
+            "When true, blocks in this stage are chronologically ordered and "
+            "unit-commitment startup/shutdown transitions are enforced. "
+            "False / unset = commitment transitions silently skipped.",
+            None,
+        ),
     ],
     "scenario_array": [
         ("uid", _J_INT, True, "Unique scenario identifier", 1),
@@ -76,6 +93,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Probability weight of this scenario (default: 1.0)",
             1.0,
+        ),
+        (
+            "hydrology",
+            _J_INT,
+            False,
+            "Optional 0-based PLP hydrology class index (metadata for "
+            "provenance / post-processing; not consumed by the LP solver).",
+            None,
         ),
     ],
     "phase_array": [
@@ -133,6 +158,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("uid", _J_INT, True, "Unique bus identifier", 1),
         ("name", _J_STR, True, "Bus name (used to reference this bus)", "b1"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "type",
+            _J_STR,
+            False,
+            "Element type tag (free-form metadata; not used by the LP).",
+            None,
+        ),
         ("voltage", _J_NUM, False, "Nominal voltage level [kV]", 220.0),
         (
             "reference_theta",
@@ -278,6 +310,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "When true, restrict the expansion-module count to integer values "
+            "(otherwise continuous; default: false).",
+            None,
+        ),
+        (
             "capmax",
             _J_SCHED,
             False,
@@ -317,6 +357,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_STR,
             False,
             "Free-form label for UI/post-processing; not used by the LP solver.",
+            None,
+        ),
+        (
+            "type",
+            _J_STR,
+            False,
+            "Element type tag (free-form metadata; not used by the LP).",
             None,
         ),
         ("bus", _J_ID, True, "Connected bus uid or name", "b1"),
@@ -404,6 +451,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_SCHED,
             False,
             "Maximum number of expansion modules",
+            None,
+        ),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "When true, restrict the expansion-module count to integer values "
+            "(otherwise continuous; default: false).",
             None,
         ),
         (
@@ -501,6 +556,32 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("name", _J_STR, True, "Fuel name (e.g. 'natgas', 'diesel')", "natgas"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         (
+            "emission",
+            _J_ID,
+            False,
+            "Legacy single-pollutant shortcut: Emission uid or name. Folded "
+            "into `emission_factors[]` together with `combustion` / `upstream`.",
+            None,
+        ),
+        (
+            "combustion",
+            _J_SCHED,
+            False,
+            "Legacy single-pollutant combustion (tank-to-stack) emission "
+            "factor [t/<fuel_unit>]. Used with `emission`; folded into "
+            "`emission_factors[]` at parse time.",
+            None,
+        ),
+        (
+            "upstream",
+            _J_SCHED,
+            False,
+            "Legacy single-pollutant upstream (well-to-tank) emission factor "
+            "[t/<fuel_unit>]. Used with `emission`; folded into "
+            "`emission_factors[]` at parse time.",
+            None,
+        ),
+        (
             "price",
             _J_SCHED,
             False,
@@ -548,11 +629,12 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         ("generator", _J_ID, True, "Generator uid or name", "g1"),
         (
-            "fuel",
-            _J_ID,
+            "pmin",
+            _J_NUM,
             False,
-            "Optional FK to Fuel element; replaces inline fuel_cost / "
-            "fuel_emission_factor with Fuel.price × heat_rate_segment.",
+            "Minimum output when committed [MW]. When set, the LP enforces "
+            "generation >= pmin × u; otherwise the linked Generator's `pmin` "
+            "is gated by u in the usual way.",
             None,
         ),
         (
@@ -639,35 +721,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "pmax_segments",
-            "JSON array",
-            False,
-            "Cumulative power breakpoints [MW] for the piecewise heat-rate curve.",
-            None,
-        ),
-        (
-            "heat_rate_segments",
-            "JSON array",
-            False,
-            "Heat rate per segment [<fuel_unit>/MWh] (matches fuel unit).",
-            None,
-        ),
-        (
-            "fuel_cost",
-            _J_SCHED,
-            False,
-            "Legacy inline fuel cost [$/<fuel_unit>], stage-schedulable. "
-            "Prefer the new `fuel` FK.",
-            None,
-        ),
-        (
-            "fuel_emission_factor",
-            _J_SCHED,
-            False,
-            "Legacy inline emission factor [tCO2/<fuel_unit>], stage-schedulable.",
-            None,
-        ),
-        (
             "hot_start_cost",
             _J_NUM,
             False,
@@ -734,6 +787,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("uid", _J_INT, True, "Unique demand identifier", 1),
         ("name", _J_STR, True, "Demand name (used in profile and output files)", "d1"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "type",
+            _J_STR,
+            False,
+            "Element type tag (free-form metadata; not used by the LP).",
+            None,
+        ),
         ("bus", _J_ID, True, "Connected bus uid or name", "b1"),
         (
             "lmax",
@@ -795,6 +855,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("expmod", _J_SCHED, False, "Maximum number of expansion modules", None),
         (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "When true, restrict the expansion-module count to integer values "
+            "(otherwise continuous; default: false).",
+            None,
+        ),
+        (
             "capmax",
             _J_SCHED,
             False,
@@ -849,6 +917,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("uid", _J_INT, True, "Unique battery identifier", 1),
         ("name", _J_STR, True, "Battery name", "bat1"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "type",
+            _J_STR,
+            False,
+            "Element type tag (free-form metadata; not used by the LP).",
+            None,
+        ),
         ("bus", _J_ID, False, "Connected bus uid or name (optional)", None),
         (
             "source_generator",
@@ -977,7 +1052,6 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "u_charge / u_discharge to gate pmin_charge / pmin_discharge.",
             None,
         ),
-        ("gcost", _J_SCHED, False, "Discharge operation cost [$/MWh]", None),
         ("capacity", _J_SCHED, False, "Initial installed capacity [MWh]", None),
         (
             "expcap",
@@ -987,6 +1061,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("expmod", _J_SCHED, False, "Maximum number of expansion modules", None),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "When true, restrict the expansion-module count to integer values "
+            "(otherwise continuous; default: false).",
+            None,
+        ),
         (
             "capmax",
             _J_SCHED,
@@ -1055,6 +1137,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Energy conversion ratio [MWh/MWh] (default: 1.0)",
             None,
         ),
+        (
+            "commitment",
+            _J_BOOL,
+            False,
+            "When true, add per-block u_charge / u_discharge binaries to gate "
+            "pmin_charge / pmin_discharge on the linked Battery.",
+            None,
+        ),
         ("capacity", _J_SCHED, False, "Initial converter capacity [MW]", None),
         (
             "expcap",
@@ -1064,6 +1154,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("expmod", _J_SCHED, False, "Maximum number of expansion modules", None),
+        (
+            "integer_expmod",
+            _J_BOOL,
+            False,
+            "When true, restrict the expansion-module count to integer values "
+            "(otherwise continuous; default: false).",
+            None,
+        ),
         (
             "capmax",
             _J_SCHED,
@@ -1138,6 +1236,22 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             '(e.g. [{"generator": 10, "heat_rate": 0.18}])',
             None,
         ),
+        (
+            "generator",
+            _J_ID,
+            False,
+            "Legacy single-generator shortcut: folded into `generators` "
+            "with the top-level `heat_rate` at parse time.",
+            None,
+        ),
+        (
+            "heat_rate",
+            _J_NUM,
+            False,
+            "Legacy single-generator heat-rate companion to the `generator` "
+            "shortcut [m³/MWh]; folded into the first `generators` entry.",
+            None,
+        ),
     ],
     # ------------------------------------------------------------------
     # System — reserves
@@ -1195,6 +1309,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ),
         ("urmax", _J_SCHED, False, "Maximum up-reserve contribution [MW]", None),
         ("drmax", _J_SCHED, False, "Maximum down-reserve contribution [MW]", None),
+        (
+            "urmin",
+            _J_SCHED,
+            False,
+            "Minimum up-reserve contribution [MW] (hard floor).",
+            None,
+        ),
+        (
+            "drmin",
+            _J_SCHED,
+            False,
+            "Minimum down-reserve contribution [MW] (hard floor).",
+            None,
+        ),
         (
             "ur_capacity_factor",
             _J_SCHED,
@@ -1326,6 +1454,22 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         ("name", _J_STR, True, "EmissionZone name", "global_co2"),
         ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
         (
+            "emission",
+            _J_ID,
+            False,
+            "Legacy single-pollutant shortcut: Emission uid or name, "
+            "auto-promoted to a 1-element `emissions=[{emission, weight=1}]`.",
+            None,
+        ),
+        (
+            "weight",
+            _J_NUM,
+            False,
+            "GWP weight for the legacy `emission` shortcut (default: 1.0). "
+            "Ignored when `emissions[]` is set explicitly.",
+            None,
+        ),
+        (
             "emissions",
             "JSON array",
             False,
@@ -1451,6 +1595,13 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         ("fmax", _J_SCHED, False, "Maximum flow rate [m³/s]", None),
+        (
+            "fcost",
+            _J_SCHED,
+            False,
+            "Per-unit flow cost [$/m³/s/h] charged on the waterway flow column.",
+            None,
+        ),
     ],
     "flow_array": [
         ("uid", _J_INT, True, "Unique flow identifier", 1),
@@ -1614,6 +1765,32 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Reset reservoir to eini at the start of each day",
             None,
         ),
+        (
+            "seepage",
+            "JSON array",
+            False,
+            "Inline list of ReservoirSeepage rows scoped to this reservoir "
+            "(folded into the top-level `reservoir_seepage_array` at parse time).",
+            None,
+        ),
+        (
+            "discharge_limit",
+            "JSON array",
+            False,
+            "Inline list of ReservoirDischargeLimit rows scoped to this "
+            "reservoir (folded into the top-level "
+            "`reservoir_discharge_limit_array` at parse time).",
+            None,
+        ),
+        (
+            "production_factor",
+            "JSON array",
+            False,
+            "Inline list of ReservoirProductionFactor rows scoped to this "
+            "reservoir (folded into the top-level "
+            "`reservoir_production_factor_array` at parse time).",
+            None,
+        ),
     ],
     "reservoir_seepage_array": [
         ("uid", _J_INT, True, "Unique seepage identifier", 1),
@@ -1652,6 +1829,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "volume",
+            _J_NUM,
+            False,
+            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
+            "(volume, slope, constant) entry promoted into `segments[]` at "
+            "parse time.",
+            None,
+        ),
+        (
             "segments",
             "JSON array",
             False,
@@ -1682,6 +1868,31 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             True,
             "Reservoir uid or name providing the volume reference",
             "res1",
+        ),
+        (
+            "volume",
+            _J_NUM,
+            False,
+            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
+            "(volume, slope, intercept) entry promoted into `segments[]` at "
+            "parse time.",
+            None,
+        ),
+        (
+            "slope",
+            _J_NUM,
+            False,
+            "Legacy single-segment slope [m³/s per hm³]; promoted into "
+            "`segments[]` together with `volume` / `intercept`.",
+            None,
+        ),
+        (
+            "intercept",
+            _J_NUM,
+            False,
+            "Legacy single-segment intercept [m³/s]; promoted into "
+            "`segments[]` together with `volume` / `slope`.",
+            None,
         ),
         (
             "segments",
@@ -1789,18 +2000,36 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
+            "volume",
+            _J_NUM,
+            False,
+            "Legacy single-segment shortcut: lower-bound volume [hm³] for the "
+            "(volume, slope, constant) entry promoted into `segments[]` at "
+            "parse time.",
+            None,
+        ),
+        (
+            "slope",
+            _J_NUM,
+            False,
+            "Legacy single-segment slope [MW/(m³/s)/hm³]; promoted into "
+            "`segments[]` together with `volume` / `constant`.",
+            None,
+        ),
+        (
+            "constant",
+            _J_NUM,
+            False,
+            "Legacy single-segment constant [MW/(m³/s)]; promoted into "
+            "`segments[]` together with `volume` / `slope`.",
+            None,
+        ),
+        (
             "segments",
             "JSON array",
             False,
             "Piecewise-linear efficiency segments: JSON array of "
             "{volume, slope, constant} objects",
-            None,
-        ),
-        (
-            "sddp_production_factor_update_skip",
-            _J_INT,
-            False,
-            "SDDP iterations between efficiency updates (default: 1)",
             None,
         ),
     ],
@@ -1909,6 +2138,14 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Soft kink point [m³/s] per-(stage, block). Below target: fcost "
             "penalty; above target: uvalue bonus/penalty. "
             "Aliases legacy `discharge`.",
+            None,
+        ),
+        (
+            "discharge",
+            _J_SCHED,
+            False,
+            "Legacy alias for `target`; normalized to `target` by the AMPL "
+            "naming-registry before LP build.",
             None,
         ),
         (
@@ -2193,6 +2430,45 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             False,
             "Monthly-indexed parameter [jan=0..dec=11]. Must be a 12-element "
             "array. Resolved using the stage's calendar month.",
+            None,
+        ),
+    ],
+    # ------------------------------------------------------------------
+    # System — free continuous decision variables (referenced by
+    # user constraints via `decision_variable("X").value`)
+    # ------------------------------------------------------------------
+    "decision_variable_array": [
+        ("uid", _J_INT, True, "Unique decision-variable identifier", 1),
+        (
+            "name",
+            _J_STR,
+            True,
+            "DecisionVariable name (referenced in PAMPL user-constraint "
+            'scripts as `decision_variable("name").value`).',
+            "dv1",
+        ),
+        ("active", _J_INT, False, "1 = active, 0 = inactive (default: 1)", None),
+        (
+            "lower_bound",
+            _J_NUM,
+            False,
+            "Lower bound on the LP column. Unset = free below (≥ -LP_INFINITY); "
+            "set to 0 to enforce a non-negative variable.",
+            None,
+        ),
+        (
+            "upper_bound",
+            _J_NUM,
+            False,
+            "Upper bound on the LP column. Unset = free above (≤ LP_INFINITY).",
+            None,
+        ),
+        (
+            "cost",
+            _J_NUM,
+            False,
+            "Per-MW objective contribution [$/MWh]. Scaled by block duration "
+            "via CostHelper::block_ecost so the units match `Generator.gcost`.",
             None,
         ),
     ],

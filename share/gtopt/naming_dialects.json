@@ -6,7 +6,6 @@
     {"class": "generator", "canonical": "pmin", "alt": "min_power",        "dialect": "gtopt"},
     {"class": "generator", "canonical": "pmin", "alt": "p_min_pu",         "dialect": "pypsa"},
     {"class": "generator", "canonical": "pmin", "alt": "min_p_mw",         "dialect": "pandapower"},
-    {"class": "generator", "canonical": "pmin", "alt": "Min Stable Level", "dialect": "plexos"},
     {"class": "generator", "canonical": "pmin", "alt": "GerMin",           "dialect": "sddp"},
     {"class": "generator", "canonical": "pmin", "alt": "PotMin",           "dialect": "plp"},
 
@@ -163,7 +162,6 @@
     {"class": "emission_zone", "canonical": "weight",   "alt": "CO2 Equivalent",   "dialect": "plexos"},
 
     {"class": "emission_source", "canonical": "rate",          "alt": "Production Rate", "dialect": "plexos"},
-    {"class": "emission_source", "canonical": "rate",          "alt": "TaxaEmissao",     "dialect": "sddp"},
     {"class": "emission_source", "canonical": "upstream_rate", "alt": "wtt_rate",        "dialect": "gtopt"},
     {"class": "emission_source", "canonical": "upstream_rate", "alt": "lifecycle_rate",  "dialect": "gtopt"},
 
@@ -179,8 +177,6 @@
     {"class": "generator", "canonical": "heat_rate_segments",   "alt": "Heat Rate Incr",          "dialect": "plexos"},
     {"class": "generator", "canonical": "heat_rate_segments",   "alt": "Heat Rate Function",      "dialect": "plexos"},
     {"class": "generator", "canonical": "heat_rate_segments",   "alt": "ConsumoEspecificoSeg",    "dialect": "sddp"},
-    {"class": "generator", "canonical": "emission_rate",        "alt": "Emission Production Rate","dialect": "plexos"},
-    {"class": "generator", "canonical": "emission_rate",        "alt": "TaxaEmissao",             "dialect": "sddp"},
     {"class": "generator", "canonical": "emission_rate",        "alt": "FactorEmision",           "dialect": "plp"},
 
     {"class": "fuel", "canonical": "emission_factors", "alt": "Emissions",               "dialect": "plexos"},
@@ -190,8 +186,6 @@
     {"class": "fuel", "canonical": "emission_factors", "alt": "FatorEmissaoCombustivel", "dialect": "sddp"},
     {"class": "fuel", "canonical": "emission_factors", "alt": "FactorEmisionCombustible","dialect": "plp"},
 
-    {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "Emission Production Rate","dialect": "plexos"},
-    {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "CO2 Production Rate",     "dialect": "plexos"},
     {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "Combustion Rate",         "dialect": "plexos"},
     {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "FatorEmissao",            "dialect": "sddp"},
     {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "Upstream Emission Rate",  "dialect": "plexos"},
@@ -199,7 +193,6 @@
     {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "wtt_rate",                "dialect": "gtopt"},
     {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "lifecycle_rate",          "dialect": "gtopt"},
 
-    {"class": "commitment", "canonical": "pmin",             "alt": "Min Stable Level",     "dialect": "plexos"},
     {"class": "commitment", "canonical": "pmin",             "alt": "Min Stable Factor",    "dialect": "plexos"},
     {"class": "commitment", "canonical": "pmin",             "alt": "min_power",            "dialect": "gtopt"},
     {"class": "commitment", "canonical": "pmin",             "alt": "PotMinTec",            "dialect": "plp"},
@@ -239,7 +232,6 @@
     {"class": "commitment", "canonical": "fixed_status",     "alt": "Commitment",           "dialect": "plexos"},
     {"class": "commitment", "canonical": "commitment_period","alt": "Commitment Period",    "dialect": "plexos"},
 
-    {"class": "simple_commitment", "canonical": "dispatch_pmin", "alt": "Min Stable Level", "dialect": "plexos"},
     {"class": "simple_commitment", "canonical": "must_run",      "alt": "Must Run",         "dialect": "plexos"},
 
     {"class": "battery", "canonical": "pmax_discharge", "alt": "Max Power Discharge",   "dialect": "plexos"},
@@ -249,7 +241,6 @@
     {"class": "battery", "canonical": "pmax_charge",    "alt": "Max Load",              "dialect": "plexos"},
     {"class": "battery", "canonical": "pmax_charge",    "alt": "p_nom_charge",          "dialect": "pypsa"},
     {"class": "battery", "canonical": "pmin_discharge", "alt": "Min Power Discharge",   "dialect": "plexos"},
-    {"class": "battery", "canonical": "pmin_discharge", "alt": "Min Stable Level",      "dialect": "plexos"},
     {"class": "battery", "canonical": "pmin_charge",    "alt": "Min Power Charge",      "dialect": "plexos"},
     {"class": "battery", "canonical": "pmin_charge",    "alt": "Min Load",              "dialect": "plexos"},
     {"class": "battery", "canonical": "commitment",     "alt": "Commitment Status",     "dialect": "plexos"},
@@ -302,13 +293,31 @@
     {"class": "decision_variable", "canonical": "cost",          "alt": "Cost",                  "dialect": "plexos"},
 
     {"class": "converter", "canonical": "commitment",       "alt": "Commitment Status",  "dialect": "plexos"},
-    {"class": "converter", "canonical": "conversion_rate",  "alt": "Conversion Efficiency","dialect": "plexos"}
+    {"class": "converter", "canonical": "conversion_rate",  "alt": "Conversion Efficiency","dialect": "plexos"},
+
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in ST Schedule", "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in MT Schedule", "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in LT Plan",     "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in PASA",        "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "expression", "alt": "LHS",                    "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "penalty",    "alt": "Penalty Price",          "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "name",       "alt": "Constraint",             "dialect": "plexos"}
   ],
 
   "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",
   "class_aliases": [
-    {"class": "flow_right",      "canonical": "target", "alt": "discharge",     "dialect": "gtopt-legacy"},
-    {"class": "flow_right",      "canonical": "uvalue", "alt": "use_value",     "dialect": "gtopt-legacy"},
-    {"class": "emission_source", "canonical": "rate",   "alt": "emission_rate", "dialect": "gtopt"}
+    {"class": "flow_right",       "canonical": "target",         "alt": "discharge",         "dialect": "gtopt-legacy"},
+    {"class": "flow_right",       "canonical": "uvalue",         "alt": "use_value",         "dialect": "gtopt-legacy"},
+    {"class": "emission_source",  "canonical": "rate",           "alt": "emission_rate",     "dialect": "gtopt"},
+
+    {"class": "generator",        "canonical": "pmin",           "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "commitment",       "canonical": "pmin",           "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "simple_commitment","canonical": "dispatch_pmin",  "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "battery",          "canonical": "pmin_discharge", "alt": "Min Stable Level",  "dialect": "plexos"},
+
+    {"class": "generator",        "canonical": "emission_rate",  "alt": "TaxaEmissao",       "dialect": "sddp"},
+    {"class": "emission_source",  "canonical": "rate",           "alt": "TaxaEmissao",       "dialect": "sddp"},
+
+    {"class": "generator",        "canonical": "emission_rate",  "alt": "Emission Production Rate", "dialect": "plexos"}
   ]
 }
