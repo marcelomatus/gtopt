@@ -20,6 +20,7 @@
 #include <daw/daw_read_file.h>
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
+#include <gtopt/cascade_progress.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/fmap.hpp>
@@ -490,6 +491,137 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     return m_cascade_opts_.level_array.size();
   }();
 
+  // ── Cascade checkpoint / resume bookkeeping ──
+  //
+  // Sidecar `cascade_progress.json` next to the per-level cut directories
+  // tracks which levels have finished.  When a previous run died mid-
+  // cascade, `--recover` (= `recovery_mode != none`) loads this file,
+  // identifies the first non-done level, and skips earlier ones by
+  // reusing their persisted cuts + state_targets — no LP rebuild for the
+  // completed prefix.
+  const std::filesystem::path progress_path = [&]() -> std::filesystem::path
+  {
+    if (m_base_opts_.cuts_output_file.empty()) {
+      return {};  // no output dir → checkpointing disabled
+    }
+    return std::filesystem::path(m_base_opts_.cuts_output_file).parent_path()
+        / "cascade_progress.json";
+  }();
+  const bool progress_enabled = !progress_path.empty();
+
+  CascadeProgress progress;
+  progress.run_id = std::format(
+      "{}", std::chrono::system_clock::now().time_since_epoch().count());
+  progress.levels.resize(m_cascade_opts_.level_array.size());
+  for (std::size_t i = 0; i < m_cascade_opts_.level_array.size(); ++i) {
+    auto& slot = progress.levels[i];
+    slot.index = i;
+    slot.name = std::string(
+        m_cascade_opts_.level_array[i].name.value_or(as_label("level", i)));
+  }
+
+  std::size_t resume_idx = 0;
+  std::vector<StateTarget> resumed_prev_targets;
+  std::string resume_inherited_cuts_file;  // → m_prev_cuts_file_
+  const bool recovery_enabled =
+      m_base_opts_.recovery_mode != RecoveryMode::none;
+  if (recovery_enabled && progress_enabled
+      && std::filesystem::exists(progress_path))
+  {
+    auto loaded = load_cascade_progress(progress_path);
+    if (loaded.has_value()) {
+      // Hydrate our in-memory progress with the persisted state, keyed by
+      // index.  Levels added/removed since the previous run are simply
+      // ignored: name+index drift is recovery's only safety net for now.
+      for (const auto& lp : loaded->levels) {
+        if (lp.index < progress.levels.size()
+            && progress.levels[lp.index].name == lp.name)
+        {
+          auto& slot = progress.levels[lp.index];
+          slot.status = lp.status;
+          slot.converged = lp.converged;
+          slot.iters = lp.iters;
+          slot.global_iter_after = lp.global_iter_after;
+          slot.cuts_file = lp.cuts_file;
+          slot.state_targets_file = lp.state_targets_file;
+        }
+      }
+      // First ACTIVE level that isn't `done`.  Inactive levels are
+      // configured-out, never counted as a resume target — otherwise an
+      // `[L0 done, L1 inactive, L2 done]` checkpoint would resume at L1,
+      // fall through to the inactive-skip, and then re-solve L2 from
+      // scratch.  If every active level is done, resume_idx == size() and
+      // the loop below exits without doing any work.
+      //
+      // `last_done_idx` walks alongside: it's the most recent active+done
+      // level whose state_targets/cuts_file we should feed into the
+      // resume level's transition.
+      resume_idx = progress.levels.size();
+      std::size_t last_done_idx = progress.levels.size();
+      for (std::size_t i = 0; i < progress.levels.size(); ++i) {
+        const auto& cfg = m_cascade_opts_.level_array[i];
+        if (!cfg.active.value_or(true)) {
+          continue;
+        }
+        if (progress.levels[i].status != CascadeLevelStatus::done) {
+          resume_idx = i;
+          break;
+        }
+        last_done_idx = i;
+      }
+      // Restore global_iter_index from the latest done level's checkpoint so
+      // future cuts/iterations land past every iter the previous run
+      // already consumed.
+      if (last_done_idx < progress.levels.size()) {
+        const auto& last_done = progress.levels[last_done_idx];
+        if (last_done.global_iter_after >= 0) {
+          global_iter_index = IterationIndex {last_done.global_iter_after};
+        }
+        if (!last_done.state_targets_file.empty()
+            && std::filesystem::exists(last_done.state_targets_file))
+        {
+          auto targets = load_state_targets(last_done.state_targets_file);
+          if (targets.has_value()) {
+            resumed_prev_targets = std::move(*targets);
+          } else {
+            SPDLOG_WARN(
+                "Cascade --recover: could not load state_targets '{}': {}",
+                last_done.state_targets_file,
+                targets.error().message);
+          }
+        }
+        if (!last_done.cuts_file.empty()
+            && std::filesystem::exists(last_done.cuts_file))
+        {
+          resume_inherited_cuts_file = last_done.cuts_file;
+        }
+      }
+      if (resume_idx >= progress.levels.size()) {
+        SPDLOG_INFO(
+            "Cascade --recover: all {} level(s) already complete — "
+            "nothing to do",
+            progress.levels.size());
+      } else {
+        SPDLOG_INFO(
+            "Cascade --recover: resuming from level [{}] (index {}/{}), "
+            "global_iter_index={}",
+            progress.levels[resume_idx].name,
+            resume_idx,
+            progress.levels.size(),
+            value_of(global_iter_index));
+      }
+    } else {
+      SPDLOG_WARN(
+          "Cascade --recover: progress file '{}' present but "
+          "unreadable: {} — cold start",
+          progress_path.string(),
+          loaded.error().message);
+    }
+  } else if (recovery_enabled && progress_enabled) {
+    SPDLOG_INFO("Cascade --recover: no checkpoint at '{}' — cold start",
+                progress_path.string());
+  }
+
   // Loop-scoped kappa carry-forward.  Captured BEFORE the per-level
   // ``current_solver.reset()`` at the end of each iteration, so the
   // next level can seed its solver's ``m_seed_max_kappa_`` with the
@@ -510,12 +642,57 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   // the convergence-safety pairing with ``min_iterations >= 2``.
   std::vector<SDDPMethod::PriorIterBounds> carry_bounds {};
 
+  // Seed the per-level transition state from the recovered checkpoint so
+  // the first resumed level (resume_idx) sees the same `prev_targets` /
+  // `m_prev_cuts_file_` it would have seen in the original run.  No-op
+  // when resume_idx == 0 (cold start).
+  if (!resumed_prev_targets.empty()) {
+    prev_targets = std::move(resumed_prev_targets);
+  }
+  if (!resume_inherited_cuts_file.empty()) {
+    m_prev_cuts_file_ = std::move(resume_inherited_cuts_file);
+  }
+
+  // Resolve the per-level subdirectory used for state_targets.json.
+  // Mirrors the path layout chosen for `level_opts.cuts_output_file`
+  // further down: intermediate levels write to `<base_dir>/<level_name>/`,
+  // the final level keeps `<base_dir>/` (back-compat).  Returns "" when
+  // no `cuts_output_file` is configured.
+  const auto state_targets_file_for = [&](std::size_t idx) -> std::string
+  {
+    if (m_base_opts_.cuts_output_file.empty()) {
+      return {};
+    }
+    const auto base_dir =
+        std::filesystem::path(m_base_opts_.cuts_output_file).parent_path();
+    const auto sub_name =
+        m_cascade_opts_.level_array[idx].name.value_or(as_label("level", idx));
+    const bool is_last = (idx == m_cascade_opts_.level_array.size() - 1);
+    const auto level_dir = is_last ? base_dir : base_dir / sub_name;
+    return (level_dir / "state_targets.json").string();
+  };
+
   for (std::size_t level_idx = 0;
        level_idx < m_cascade_opts_.level_array.size();
        ++level_idx)
   {
     const auto& level = m_cascade_opts_.level_array[level_idx];
     const auto level_name = level.name.value_or(as_label("level", level_idx));
+
+    // ── 0a. Skip already-completed level on --recover ──
+    // Cuts + state_targets were persisted by the previous run.  We rely
+    // on the disk artifacts for the transition into the resume level:
+    // `prev_targets` was already seeded above; cut inheritance points at
+    // the most recent done level's cuts file via `m_prev_cuts_file_`.
+    if (level_idx < resume_idx) {
+      SPDLOG_INFO(
+          "Cascade [{}]: skipping (already complete in checkpoint, "
+          "iters={}, converged={})",
+          level_name,
+          progress.levels[level_idx].iters,
+          progress.levels[level_idx].converged ? "yes" : "no");
+      continue;
+    }
 
     // ── 0. Skip inactive level ──
     // `active = false` disables the level entirely: no LP build, no solve,
@@ -643,6 +820,44 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // raise this further through std::max in initialize_solver.
     level_opts.iteration_offset_hint = global_iter_index;
 
+    // ── Resume: feed this level its own intra-level cuts checkpoint ──
+    // When `--recover` lands on level_idx == resume_idx, the previous
+    // run already persisted per-iteration cuts at
+    // `level_opts.cuts_output_file`. Point the SDDP solver's `cuts_input_file`
+    // at that path so its `initialize_solver` auto-loads the cuts and advances
+    // the iteration counter past every iter the previous run consumed — the
+    // saving continues seamlessly because `save_cuts_parquet` appends.
+    //
+    // We only override `cuts_input_file` when the user hasn't already
+    // supplied one (rare for cascade) and the level's own checkpoint
+    // exists on disk.
+    if (recovery_enabled && level_idx == resume_idx
+        && level_opts.cuts_input_file.empty()
+        && !level_opts.cuts_output_file.empty()
+        && std::filesystem::exists(level_opts.cuts_output_file))
+    {
+      level_opts.cuts_input_file = level_opts.cuts_output_file;
+      SPDLOG_INFO("Cascade [{}]: hot-starting from intra-level checkpoint '{}'",
+                  level_name,
+                  level_opts.cuts_input_file);
+    }
+
+    // Record the level's cuts file path in the progress object now (so a
+    // mid-solve crash leaves the next --recover with a working pointer
+    // even before the level marks itself done).
+    if (progress_enabled) {
+      progress.levels[level_idx].cuts_file = level_opts.cuts_output_file;
+      progress.levels[level_idx].state_targets_file =
+          state_targets_file_for(level_idx);
+      progress.levels[level_idx].status = CascadeLevelStatus::in_progress;
+      if (auto save = save_cascade_progress(progress, progress_path);
+          !save.has_value())
+      {
+        SPDLOG_WARN("Cascade: could not flush progress file '{}': {}",
+                    progress_path.string(),
+                    save.error().message);
+      }
+    }
     // Always create a fresh solver for each level, ensuring clean state.
     // Preserve the previous level's max kappa as an observability
     // baseline — CPLEX barrier without crossover may leave the new
@@ -938,6 +1153,17 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         .elapsed_s = level_elapsed,
         .cuts_added = total_cuts,
     });
+
+    // Mark this level as `done` in the checkpoint.  The actual flush to
+    // disk happens further below — AFTER state_targets are persisted —
+    // so a SIGKILL between the two writes leaves the checkpoint behind
+    // the disk state (recovery redoes a few iters), never ahead of it.
+    if (progress_enabled) {
+      auto& pslot = progress.levels[level_idx];
+      pslot.iters = iterations_reported;
+      pslot.converged = last.converged;
+      pslot.status = CascadeLevelStatus::done;
+    }
     SPDLOG_INFO(
         "Cascade [{}]: {} iters, lb={}, ub={}, "
         "gap={:.4g}{}, new_cuts={}, {:.3f}s{}",
@@ -966,6 +1192,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // it was — no iterations have been emitted on this level.
     if (!result->empty()) {
       global_iter_index = next(last.iteration_index);
+    }
+    if (progress_enabled) {
+      progress.levels[level_idx].global_iter_after =
+          static_cast<Index>(value_of(global_iter_index));
     }
 
     // ── 4. Check convergence ──
@@ -998,6 +1228,26 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         && has_active_successor)
     {
       prev_targets = collect_state_targets(*current_solver, *current_lp);
+
+      // Persist state_targets atomically so a `--recover` after this point
+      // can skip this level: load the targets from disk and re-enter the
+      // cascade at the successor level.  Must happen BEFORE the progress
+      // file's `done` flush — see the ordering invariant at the top of
+      // `solve()`.
+      if (progress_enabled) {
+        const auto st_path = state_targets_file_for(level_idx);
+        if (!st_path.empty()) {
+          auto save_res = save_state_targets(prev_targets, st_path);
+          if (save_res.has_value()) {
+            progress.levels[level_idx].state_targets_file = st_path;
+          } else {
+            SPDLOG_WARN("Cascade [{}]: could not save state_targets '{}': {}",
+                        level_name,
+                        st_path,
+                        save_res.error().message);
+          }
+        }
+      }
 
       // Pre-filter and serialize cuts to disk while the current LP is
       // still alive.  Doing this here (not at next-level start) lets us
@@ -1191,6 +1441,20 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         }
       } catch (...) {
         // Best-effort — same rationale as above.
+      }
+    }
+
+    // Flush progress AFTER cuts + state_targets have been written.  Order
+    // matters: a SIGKILL between (cuts/state_targets) and this rename
+    // leaves the checkpoint trailing the disk state — recovery redoes a
+    // few iters, never resumes past missing data.
+    if (progress_enabled) {
+      if (auto save = save_cascade_progress(progress, progress_path);
+          !save.has_value())
+      {
+        SPDLOG_WARN("Cascade: could not flush progress file '{}': {}",
+                    progress_path.string(),
+                    save.error().message);
       }
     }
   }
