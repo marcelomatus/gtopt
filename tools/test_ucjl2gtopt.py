@@ -231,13 +231,28 @@ def _read_solution_status(results_dir: Path) -> tuple[int | None, float | None]:
     return status, obj
 
 
-def _read_commitment_status(results_dir: Path, gen_uid: int) -> list[float]:
-    """Return the per-block status_sol values for the commitment whose uid matches.
+def _read_uid_column_csv(csv_path: Path, gen_uid: int) -> list[float]:
+    """Return the per-block values for a given uid from a single-cell
+    output CSV, transparently handling both layouts emitted by gtopt:
 
-    The output file lives at ``Commitment/status_sol_s0_p0.csv`` with one
-    column per commitment uid (header ``"uid:1","uid:2",...``).
+      * **wide** (legacy, `output_layout: "wide"`): one column per
+        uid with header ``"uid:N"``.  Pick the column and return
+        rows in file order.
+
+      * **long** (default since 2026-05-19, `output_layout: "long"`):
+        five columns ``(scenario, stage, block, uid, value)`` with
+        **exact-zero rows dropped**.  Filter on ``uid == gen_uid``
+        and return the matching ``value`` sequence in
+        ``(scenario, stage, block)`` order — *padding the all-zero
+        gaps* against the full set of ``(scenario, stage, block)``
+        tuples that appear in the file (for any uid).  This
+        restores wide-form semantics: a uid whose dispatch is
+        all-zero comes back as ``[0.0, 0.0, …]`` rather than ``[]``,
+        which is what the legacy assertions expect.
+
+    Empty list on missing file or unrecognised shape (matches the
+    legacy contract of the wide-only reader).
     """
-    csv_path = results_dir / "Commitment" / "status_sol_s0_p0.csv"
     if not csv_path.exists():
         return []
     with csv_path.open(encoding="utf-8") as fh:
@@ -245,11 +260,62 @@ def _read_commitment_status(results_dir: Path, gen_uid: int) -> list[float]:
     if len(rows) < 2:
         return []
     header = rows[0]
+
+    # Wide layout: header has a `uid:N` column for every present uid.
     target = f"uid:{gen_uid}"
-    if target not in header:
-        return []
-    idx = header.index(target)
-    return [float(r[idx]) for r in rows[1:]]
+    if target in header:
+        idx = header.index(target)
+        return [float(r[idx]) for r in rows[1:]]
+
+    # Long layout: header is `scenario, stage, block, uid, value`.
+    if "uid" in header and "value" in header:
+        scn_idx = header.index("scenario") if "scenario" in header else -1
+        stg_idx = header.index("stage") if "stage" in header else -1
+        blk_idx = header.index("block") if "block" in header else -1
+        uid_idx = header.index("uid")
+        val_idx = header.index("value")
+
+        def _row_key(r: list[str]) -> tuple[int, int, int]:
+            return (
+                int(float(r[scn_idx])) if scn_idx >= 0 and r[scn_idx] else 0,
+                int(float(r[stg_idx])) if stg_idx >= 0 and r[stg_idx] else 0,
+                int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 0,
+            )
+
+        # Collect the union of `(scenario, stage, block)` tuples seen
+        # in the file (insertion order preserved via dict).  This gives
+        # us the full grid the writer would have emitted under wide
+        # form.  All-zero rows are dropped per uid, but at least one
+        # uid in any given cell must be non-zero — otherwise gtopt
+        # wouldn't have produced any rows for that cell either.
+        all_keys: dict[tuple[int, int, int], None] = {}
+        uid_values: dict[tuple[int, int, int], float] = {}
+        for r in rows[1:]:
+            if not r[uid_idx] or not r[val_idx]:
+                continue
+            key = _row_key(r)
+            all_keys[key] = None
+            if int(float(r[uid_idx])) == gen_uid:
+                uid_values[key] = float(r[val_idx])
+
+        if not all_keys:
+            return []
+        return [uid_values.get(k, 0.0) for k in all_keys]
+
+    return []
+
+
+def _read_commitment_status(results_dir: Path, gen_uid: int) -> list[float]:
+    """Per-block ``status_sol`` values for the Commitment matching `gen_uid`.
+
+    Layout-aware via :func:`_read_uid_column_csv`.  Reads from
+    ``Commitment/status_sol_s0_p0.csv`` and returns the values
+    pinned to that uid, in block order, or `[]` when the file is
+    absent or the uid has no rows.
+    """
+    return _read_uid_column_csv(
+        results_dir / "Commitment" / "status_sol_s0_p0.csv", gen_uid
+    )
 
 
 def _solve(gtopt_bin: str, json_path: Path, tmp_run: Path) -> tuple[int, str]:
@@ -292,20 +358,13 @@ def _solve(gtopt_bin: str, json_path: Path, tmp_run: Path) -> tuple[int, str]:
 
 
 def _read_generation_dispatch(results_dir: Path, gen_uid: int) -> list[float]:
-    """Per-block generation MW for a given generator uid."""
-    csv_path = results_dir / "Generator" / "generation_sol_s0_p0.csv"
-    if not csv_path.exists():
-        return []
-    with csv_path.open(encoding="utf-8") as fh:
-        rows = list(csv.reader(fh))
-    if len(rows) < 2:
-        return []
-    header = rows[0]
-    target = f"uid:{gen_uid}"
-    if target not in header:
-        return []
-    idx = header.index(target)
-    return [float(r[idx]) for r in rows[1:]]
+    """Per-block generation MW for a given generator uid.
+
+    Layout-aware via :func:`_read_uid_column_csv`.
+    """
+    return _read_uid_column_csv(
+        results_dir / "Generator" / "generation_sol_s0_p0.csv", gen_uid
+    )
 
 
 def _load_ucjl_golden(stem: str) -> dict | None:
@@ -1654,16 +1713,36 @@ def test_real_tep_ieee24_solves_with_expansion(tmp_path: Path) -> None:
     assert (line_out / "capainst_sol_s0_p0.csv").is_file()
 
     # Sanity: ``capainst`` is finite (within ``[0, tmax]`` for every
-    # candidate) and ``expmod`` is in ``[0, 1]``.
+    # candidate) and ``expmod`` is in ``[0, 1]``.  Layout-aware: handles
+    # both `output_layout = wide` (cols `scenario, stage, block, uid:N…`)
+    # and the post-2026-05-19 default `output_layout = long` (cols
+    # `scenario, stage, block, uid, value`).
     with (line_out / "expmod_sol_s0_p0.csv").open(encoding="utf-8") as fh:
         rows = list(csv.reader(fh))
-    n_expansion_cols = len(rows[0]) - 3  # subtract scenario/stage/block
-    assert n_expansion_cols > 0, "no expansion columns emitted"
-    for value_str in rows[1][3:]:
-        v = float(value_str)
-        assert -1e-6 <= v <= 1.0 + 1e-6, (
-            f"expmod_sol = {v} outside [0, 1] — expansion bounds are wrong"
-        )
+    header = rows[0]
+    if "uid" in header and "value" in header:
+        # Long form: iterate the `value` column directly.  An empty
+        # `value` column is a VALID result under long: all expansion
+        # candidates have zero expmod and the writer drops them — the
+        # file existence check at line 1681 already pins that the
+        # expansion grid registered with the LP.  Only enforce the
+        # [0,1] bound on whatever non-zero values actually landed.
+        val_idx = header.index("value")
+        values = [float(r[val_idx]) for r in rows[1:] if r[val_idx] != ""]
+        for v in values:
+            assert -1e-6 <= v <= 1.0 + 1e-6, (
+                f"expmod_sol = {v} outside [0, 1] — expansion bounds are wrong"
+            )
+    else:
+        # Wide form: legacy path — every column after the prelude is an
+        # expansion candidate uid.
+        n_expansion_cols = len(header) - 3  # subtract scenario/stage/block
+        assert n_expansion_cols > 0, "no expansion columns emitted"
+        for value_str in rows[1][3:]:
+            v = float(value_str)
+            assert -1e-6 <= v <= 1.0 + 1e-6, (
+                f"expmod_sol = {v} outside [0, 1] — expansion bounds are wrong"
+            )
 
 
 # ---------------------------------------------------------------------------
