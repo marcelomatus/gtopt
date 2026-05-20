@@ -228,8 +228,25 @@ bool LineLP::add_to_lp(SystemContext& sc,
     auto& brow_a = lp.row_at(balance_rows_a.at(buid));
     auto& brow_b = lp.row_at(balance_rows_b.at(buid));
 
-    const auto [block_tmax_ab, block_tmax_ba] = sc.block_maxmin_at(
-        stage, block, tmax_ab, tmax_ba, stage_capacity, -stage_capacity);
+    // Both ``tmax_ab`` and ``tmax_ba`` are MAGNITUDES of the forward
+    // and reverse maximum flow respectively (both ≥ 0 by convention).
+    // Reading them via ``block_maxmin_at`` was a misuse — that helper
+    // treats its 4th argument as a ``min`` slot whose default also
+    // serves as a floor (``max(capacity_min, lmin_at)``), with the
+    // pre-existing call passing ``-stage_capacity``.  That made
+    // ``block_tmax_ba`` default to ``-DblMax`` for any line without
+    // explicit reverse capacity, which then propagated into
+    // ``line_losses.cpp:370`` as ``flowp.lowb = -block_tmax_ba = +DblMax``,
+    // a positive lower bound on a non-negative flow variable.  After
+    // Ruiz equilibration that landed at ``flowp >= 1.07e+20`` and made
+    // every multi-bus run with at least one unconstrained line
+    // (``enforce_limits=0`` in PLEXOS, ``tmax_ab/tmax_ba`` unset in
+    // the JSON) trip CPLEX presolve infeasibility.  Discovered while
+    // wiring the CEN PCP daily case (DATOS20260422) end-to-end.
+    const auto block_tmax_ab =
+        tmax_ab.at(stage.uid(), block.uid()).value_or(stage_capacity);
+    const auto block_tmax_ba =
+        tmax_ba.at(stage.uid(), block.uid()).value_or(stage_capacity);
     // ``tcost`` is per-(stage, block); read its block-specific value
     // and let CostHelper apply the per-block duration scaling.
     const auto block_tcost_phys =
