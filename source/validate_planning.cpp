@@ -617,6 +617,66 @@ void check_heat_rate(ValidationResult& result, const System& sys)
       }
     }
   }
+
+  // ── P2 fuel/heat-rate pairing (added 2026-05-20) ────────────────────
+  //
+  // The LP-side coefficient is
+  //   slope_cost_per_mwh = stage_fuel_price * heat_rate + block_gcost
+  // (see `source/generator_lp.cpp:138-153`).  When either factor is
+  // missing the code silently falls back to `block_gcost`, which is
+  // almost never the user's intent:
+  //
+  //   * fuel set, no heat_rate (and no heat_rate_segments)
+  //       → fuel_price coefficient drops to 0 → fuel cost ignored
+  //   * heat_rate (or heat_rate_segments) set, no fuel
+  //       → no per-fuel pricing applied → heat_rate ignored
+  //
+  // Both cases are flagged as warnings (not errors).  The LP still
+  // solves, but the resulting dispatch ignores half of the user's
+  // declared cost structure — better to surface the disagreement at
+  // the validation gate than to track it down post-solve.
+  for (const auto& gen : sys.generator_array) {
+    const bool has_fuel = gen.fuel.has_value();
+    const bool has_heat_rate =
+        gen.heat_rate.has_value() || !gen.heat_rate_segments.empty();
+    if (has_fuel && !has_heat_rate) {
+      result.warnings.push_back(std::format(
+          "Generator '{}': fuel='{}' set but no heat_rate or "
+          "heat_rate_segments — fuel price will be ignored at the LP "
+          "(per-MWh cost falls back to gcost only).  Set heat_rate or "
+          "heat_rate_segments to consume the fuel price.",
+          gen.name,
+          format_single_id(gen.fuel.value())));
+    } else if (has_heat_rate && !has_fuel) {
+      result.warnings.push_back(std::format(
+          "Generator '{}': heat_rate set but no fuel — heat_rate will "
+          "be ignored at the LP (per-MWh cost falls back to gcost only). "
+          "Set a fuel reference to consume the heat_rate.",
+          gen.name));
+    }
+  }
+
+  // Commitment has the same fuel + heat_rate_segments pairing.  A
+  // Commitment is the "thermal start-up + heat-rate" overlay applied
+  // to one or more Generators; the same `slope_cost_per_mwh` formula
+  // applies via `source/simple_commitment_lp.cpp` once the Generator
+  // resolves the Commitment.
+  for (const auto& cmt : sys.commitment_array) {
+    const bool has_fuel = cmt.fuel.has_value();
+    const bool has_heat_rate = !cmt.heat_rate_segments.empty();
+    if (has_fuel && !has_heat_rate) {
+      result.warnings.push_back(std::format(
+          "Commitment '{}': fuel='{}' set but no heat_rate_segments — "
+          "fuel price will be ignored.",
+          cmt.name,
+          format_single_id(cmt.fuel.value())));
+    } else if (has_heat_rate && !has_fuel) {
+      result.warnings.push_back(
+          std::format("Commitment '{}': heat_rate_segments set but no fuel — "
+                      "heat_rate will be ignored.",
+                      cmt.name));
+    }
+  }
 }
 
 // ── Positivity helpers ────────────────────────────────────────────────

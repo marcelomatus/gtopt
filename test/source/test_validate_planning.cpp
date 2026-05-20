@@ -1822,6 +1822,105 @@ TEST_CASE("validate_planning - ReservoirDischargeLimit refs")  // NOLINT
   }
 }
 
+// ── P2 fuel/heat-rate pairing warnings (added 2026-05-20) ────────────────────
+
+TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  Fuel f;
+  f.uid = Uid {1};
+  f.name = "gas";
+
+  SUBCASE("fuel set + heat_rate set → no warning")
+  {
+    auto p = make_minimal_planning();
+    p.system.fuel_array.push_back(f);
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.fuel = Uid {1};
+    gen.heat_rate = 8.0;
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    const auto pair_warns = std::ranges::count_if(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && (w.find("fuel will be ignored") != std::string::npos
+                  || w.find("heat_rate will be ignored") != std::string::npos);
+        });
+    CHECK(pair_warns == 0);
+  }
+  SUBCASE("fuel set + no heat_rate → warning about ignored fuel")
+  {
+    auto p = make_minimal_planning();
+    p.system.fuel_array.push_back(f);
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.fuel = Uid {1};
+    // No heat_rate, no heat_rate_segments
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());  // warnings don't fail validation
+    const auto found = std::ranges::any_of(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && w.find("fuel price will be ignored") != std::string::npos;
+        });
+    CHECK(found);
+  }
+  SUBCASE("heat_rate set + no fuel → warning about ignored heat_rate")
+  {
+    auto p = make_minimal_planning();
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.heat_rate = 8.0;
+    // No fuel reference
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());
+    const auto found = std::ranges::any_of(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && w.find("heat_rate will be ignored") != std::string::npos;
+        });
+    CHECK(found);
+  }
+  SUBCASE(
+      "neither fuel nor heat_rate set → no pairing warning (gcost only model)")
+  {
+    auto p = make_minimal_planning();
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    // No fuel, no heat_rate — gcost-only model is a valid configuration
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());
+    const auto pair_warns = std::ranges::count_if(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && (w.find("fuel will be ignored") != std::string::npos
+                  || w.find("heat_rate will be ignored") != std::string::npos);
+        });
+    CHECK(pair_warns == 0);
+  }
+}
+
 }  // namespace
 
 // NOLINTEND(bugprone-unchecked-optional-access)
