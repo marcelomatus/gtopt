@@ -119,6 +119,11 @@ from typing import Any
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Synthetic fuel name used to anchor piecewise heat-rate segments emitted
+# on Generator after the 16fbdde45 Commitment refactor.  Set Fuel.price=1
+# so heat_rate_segments[k] × 1.0 acts as the direct $/MWh slope cost.
+_UCJL_UNIT_FUEL_NAME = "_ucjl_unit"
+
 
 def _first_hour(value):
     """Reduce a UC.jl piecewise breakpoint to a scalar.
@@ -693,10 +698,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     commitment_array = []
     reserve_provision_array = []
     generator_profile_array = []
+    fuel_array: list[dict] = []
     gen_uid = 0
     commitment_uid = 0
     provision_uid = 0
     profile_uid = 0
+    # Shared synthetic Fuel for piecewise-cost gens. UC.jl's cost-curve
+    # slopes are already in $/MWh, so we link a Fuel with `price = 1.0`
+    # and let `generator_lp.cpp` multiply `heat_rate_segments[k] × 1.0`
+    # to recover the direct slope cost.
+    _ucjl_fuel_emitted = False
 
     for gname, gdata in uc_gens.items():
         bus_name = gdata.get("Bus")
@@ -891,17 +902,29 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             c_entry["startup_cost"] = float(startup_costs[0])
 
         # Piecewise heat-rate segmentation (when >=3 breakpoints).
-        # Pair the segments with ``fuel_cost = 1.0`` so gtopt's
-        # ``commitment_lp.cpp:500`` fires the piecewise cost path
-        # (the guard ``stage_fuel_cost > 0.0`` would otherwise leave
-        # the segments as bounds-only, ignoring per-segment slopes).
-        # ``noload_cost`` carries the cost-curve intercept so
-        # dispatching at pmin charges UC.jl's published $-at-pmin,
-        # matching the piecewise convention ``f(p) = c_pmin + Σ h_k δ_k``.
+        # After the 16fbdde45 Commitment refactor, piecewise cost segments
+        # live on **Generator** (not Commitment). gtopt's piecewise cost
+        # path (`generator_lp.cpp`) requires a fuel reference so the per-
+        # segment slope is multiplied by `Fuel.price`; we wire a shared
+        # `_ucjl_unit` Fuel with `price = 1.0` so the per-segment slopes
+        # carried in `heat_rate_segments` act as direct $/MWh costs.
+        # `noload_cost` stays on Commitment — it carries the cost-curve
+        # intercept paid only when the unit is committed and dispatching
+        # at pmin, matching ``f(p) = c_pmin + Σ h_k δ_k``.
         if pmax_segs and hr_segs:
-            c_entry["pmax_segments"] = pmax_segs
-            c_entry["heat_rate_segments"] = hr_segs
-            c_entry["fuel_cost"] = 1.0
+            gen_entry["pmax_segments"] = pmax_segs
+            gen_entry["heat_rate_segments"] = hr_segs
+            gen_entry["fuel"] = _UCJL_UNIT_FUEL_NAME
+            gen_entry["gcost"] = 0  # segments carry the slope cost
+            if not _ucjl_fuel_emitted:
+                fuel_array.append(
+                    {
+                        "uid": 1,
+                        "name": _UCJL_UNIT_FUEL_NAME,
+                        "price": 1.0,
+                    }
+                )
+                _ucjl_fuel_emitted = True
             if noload > 0.0:
                 c_entry["noload_cost"] = round(noload, 6)
 
@@ -1429,6 +1452,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         "system": {
             "name": os.path.splitext(os.path.basename(ucjl_path))[0],
             "bus_array": bus_array,
+            "fuel_array": fuel_array,
             "generator_array": generator_array,
             "demand_array": demand_array,
             "line_array": line_array,

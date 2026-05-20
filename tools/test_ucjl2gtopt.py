@@ -756,22 +756,26 @@ def test_real_case14_base_commitment_field_mapping(tmp_path: Path) -> None:
     proc = _run_converter(_VENDORED_CASE14_BASE, out)
     assert proc.returncode == 0, proc.stderr
 
-    commits = {
-        c["name"]: c for c in json.loads(out.read_text())["system"]["commitment_array"]
-    }
+    system = json.loads(out.read_text())["system"]
+    commits = {c["name"]: c for c in system["commitment_array"]}
+    gens = {g["name"]: g for g in system["generator_array"]}
 
-    g1 = commits["g1_uc"]
-    assert g1["generator"] == "g1"
-    assert g1["initial_status"] == 0.0
-    assert g1["initial_hours"] == 100.0
-    assert g1["hot_start_cost"] == 1000.0
-    assert g1["warm_start_cost"] == 1500.0
-    assert g1["cold_start_cost"] == 2000.0
-    assert g1["hot_start_time"] == 1.0
-    assert g1["cold_start_time"] == 3.0
-    # Piecewise heat-rate segmentation from the 4-breakpoint cost curve.
+    c1 = commits["g1_uc"]
+    assert c1["generator"] == "g1"
+    assert c1["initial_status"] == 0.0
+    assert c1["initial_hours"] == 100.0
+    assert c1["hot_start_cost"] == 1000.0
+    assert c1["warm_start_cost"] == 1500.0
+    assert c1["cold_start_cost"] == 2000.0
+    assert c1["hot_start_time"] == 1.0
+    assert c1["cold_start_time"] == 3.0
+    # Piecewise heat-rate segmentation moved to Generator after the
+    # 16fbdde45 Commitment refactor.  The slopes are paired with a
+    # `Fuel.price = 1.0` so they act as direct $/MWh segment costs.
+    g1 = gens["g1"]
     assert g1["pmax_segments"] == [110.0, 130.0, 135.0]
     assert g1["heat_rate_segments"] == [20.0, 30.0, 40.0]
+    assert g1["fuel"] == "_ucjl_unit"
 
     g2 = commits["g2_uc"]
     assert g2["min_up_time"] == 4
