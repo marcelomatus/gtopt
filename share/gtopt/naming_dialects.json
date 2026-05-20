@@ -161,7 +161,6 @@
     {"class": "emission_zone", "canonical": "weight",   "alt": "gwp",              "dialect": "gtopt"},
     {"class": "emission_zone", "canonical": "weight",   "alt": "CO2 Equivalent",   "dialect": "plexos"},
 
-    {"class": "emission_source", "canonical": "rate",          "alt": "Production Rate", "dialect": "plexos"},
     {"class": "emission_source", "canonical": "upstream_rate", "alt": "wtt_rate",        "dialect": "gtopt"},
     {"class": "emission_source", "canonical": "upstream_rate", "alt": "lifecycle_rate",  "dialect": "gtopt"},
 
@@ -318,6 +317,9 @@
     {"class": "generator",        "canonical": "emission_rate",  "alt": "TaxaEmissao",       "dialect": "sddp"},
     {"class": "emission_source",  "canonical": "rate",           "alt": "TaxaEmissao",       "dialect": "sddp"},
 
-    {"class": "generator",        "canonical": "emission_rate",  "alt": "Emission Production Rate", "dialect": "plexos"}
+    {"class": "generator",        "canonical": "emission_rate",  "alt": "Emission Production Rate", "dialect": "plexos"},
+
+    {"class": "emission_source",  "canonical": "rate",           "alt": "Production Rate",   "dialect": "plexos"},
+    {"class": "fuel",             "canonical": "emission_factors","alt": "Production Rate",  "dialect": "plexos"}
   ]
 }
