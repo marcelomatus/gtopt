@@ -1119,12 +1119,26 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # reservoirs, plus a sentinel ``1e+30`` on virtual storages like
         # ``L_Maule``.  Clamp the sentinel to a finite value so LP
         # coefficient ratios stay sane.
-        water_value_gwh = (
+        raw_water_value_gwh = (
             db.static_property("Storage", storage.object_id, "Water Value") or 0.0
         )
         # Sentinel 1e+30 indicates "never drain"; clamp to a high but
         # finite cost so the LP coefficient ratio stays bounded.
-        water_value_gwh = min(water_value_gwh, 1.0e6)
+        # Visible WARN so the clamp doesn't silently hide a real value
+        # (CEN PCP ships ~1e+30 on virtual storages like L_Maule;
+        # any other > 1e12 value would be a data anomaly worth surfacing).
+        water_value_gwh = raw_water_value_gwh
+        if water_value_gwh > 1.0e12:
+            logger.warning(
+                "Storage '%s' (uid=%s): Water Value %.3e $/GWh exceeds "
+                "1e12 ceiling — clamping to 1e12 (LP coefficient stability). "
+                "Inspect the input if this isn't the PLEXOS 1e+30 "
+                '"never drain" sentinel.',
+                name,
+                storage.object_id,
+                water_value_gwh,
+            )
+            water_value_gwh = 1.0e12  # pylint: disable=consider-using-min-builtin
         out.append(
             ReservoirSpec(
                 object_id=storage.object_id,
