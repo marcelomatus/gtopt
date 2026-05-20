@@ -619,6 +619,16 @@ def check_renewable_curtailment(
     )
 
     if not spill_energy_per_uid:
+        # Long-form output drops zero rows, so an empty spillover map means
+        # zero curtailment — emit the same INFO finding as the explicit
+        # all-zero wide-form case rather than returning silently.
+        findings.append(
+            Finding(
+                "renewable_curtailment",
+                "INFO",
+                "no renewable curtailment (all profiled generators at full output)",
+            )
+        )
         return findings, curtailment_data
 
     total_curtailment_energy = 0.0
