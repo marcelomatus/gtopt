@@ -669,9 +669,20 @@ void System::fold_legacy_emission_rate()
   }
   const auto zone_uid = zone_it->uid;
 
-  // ── Synthesize EmissionSource rows; clear legacy field ─────────────
+  // ── Synthesize EmissionSource rows ─────────────────────────────────
+  //
+  // Important: we DO NOT reset `gen.emission_rate` after folding.  A
+  // generator that also has `fuel` + `heat_rate_*` set carries TWO
+  // physical emission components — direct process / non-combustion
+  // (this field) and fuel combustion+upstream (synthesized by
+  // `expand_fuel_emission_sources`).  Both must accumulate as
+  // independent EmissionSource rows, not overwrite each other.
+  // Idempotency is preserved by skipping when an EmissionSource with
+  // the canonical legacy name already exists, so re-running the fold
+  // (e.g. after a `merge`) does not duplicate rows.
   auto src_uid = next_uid(emission_source_array);
   auto src_uids = build_uid_set(emission_source_array);
+  auto src_names = build_name_set(emission_source_array);
 
   for (auto& gen : generator_array) {
     if (!gen.emission_rate.has_value()) {
@@ -693,7 +704,13 @@ void System::fold_legacy_emission_rate()
           "per-block / file-backed rate.",
           gen.name,
           gen.uid);
-      // Leave the legacy field in place so a human can migrate it.
+      continue;
+    }
+
+    auto sname = as_label(gen.name, "co2_legacy");
+    // Idempotency: the legacy field is intentionally left populated,
+    // so without a name-dedup the second call would re-add the row.
+    if (src_names.contains(sname)) {
       continue;
     }
 
@@ -701,17 +718,16 @@ void System::fold_legacy_emission_rate()
       ++src_uid;
     }
     src_uids.insert(src_uid);
+    src_names.insert(sname);
 
     emission_source_array.push_back(EmissionSource {
         .uid = src_uid++,
-        .name = as_label(gen.name, "co2_legacy"),
+        .name = std::move(sname),
         .generator = OptSingleId {SingleId {gen.uid}},
         .zone = SingleId {zone_uid},
         .emission = SingleId {co2_uid},
         .rate = std::move(rate),
     });
-
-    gen.emission_rate.reset();  // idempotent — second call sees null
   }
 }
 
