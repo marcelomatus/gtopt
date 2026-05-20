@@ -189,7 +189,9 @@ TEST_CASE(
   //   - emission_array has a CO2 row
   //   - emission_zone_array has a default_co2 zone
   //   - emission_source_array has the synthesized source
-  //   - generator.emission_rate is cleared
+  //   - generator.emission_rate stays populated ("don't zero,
+  //     accumulate") so a co-existing fuel-derived EmissionSource
+  //     adds to (rather than replaces) the direct emission rate
   System sys;
   sys.generator_array = {{.uid = Uid {7},
                           .name = "ngcc",
@@ -216,12 +218,86 @@ TEST_CASE(
   REQUIRE(src.rate.has_value());
   CHECK(std::get<Real>(src.rate.value_or(Real {0.0})) == doctest::Approx(0.42));
 
-  // Legacy field cleared.
-  CHECK_FALSE(sys.generator_array.front().emission_rate.has_value());
+  // "Don't zero" — legacy field stays populated after the fold.
+  REQUIRE(sys.generator_array.front().emission_rate.has_value());
+  CHECK(std::get<Real>(sys.generator_array.front().emission_rate.value_or(0.0))
+        == doctest::Approx(0.42));
 
-  // Idempotent: second call is a no-op.
+  // Idempotent: name dedup short-circuits even though the legacy
+  // field is still populated.
   sys.fold_legacy_emission_rate();
   CHECK(sys.emission_source_array.size() == 1);
+}
+
+TEST_CASE(
+    "System::fold_legacy_emission_rate — direct + fuel-derived accumulate")  // NOLINT
+{
+  // A generator with BOTH a direct `emission_rate` AND a fuel that
+  // carries `combustion + upstream` factors should produce TWO
+  // independent EmissionSource rows after the planning pipeline runs.
+  // Together they sum at the EmissionZone cap — "accumulate, don't
+  // overwrite".
+  System sys;
+  // Pre-populate the CO₂ pollutant + covering zone explicitly so
+  // both `fuel.emission_factors[].emission` and `zone.emissions[].emission`
+  // resolve to the same `SingleId{Uid{...}}` form (avoids the
+  // Name-vs-Uid mismatch in `expand_fuel_emission_sources`'s
+  // `covers` predicate).
+  sys.emission_array = {Emission {.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {EmissionZone {
+      .uid = Uid {1},
+      .name = "global_co2",
+      .emissions = {{.emission = SingleId {Uid {1}}, .weight = 1.0}},
+  }};
+  sys.fuel_array = {Fuel {
+      .uid = Uid {1},
+      .name = "gas",
+      .price = 5.0,
+      .emission_factors = {{.emission = SingleId {Uid {1}},
+                            .combustion = OptTRealFieldSched {0.18},
+                            .upstream = OptTRealFieldSched {0.02}}},
+  }};
+  sys.generator_array = {Generator {
+      .uid = Uid {7},
+      .name = "ngcc",
+      .bus = Uid {1},
+      .gcost = 10.0,
+      .fuel = OptSingleId {SingleId {Uid {1}}},
+      .heat_rate = OptTBRealFieldSched {7.0},  // 7 GJ/MWh
+      .capacity = 100.0,
+      .emission_rate = 0.42,  // direct, non-combustion
+  }};
+
+  // Order matches PlanningLP::expand_pre_lp_passes(): fuel-derived
+  // sources first, then the legacy-rate fold.
+  sys.expand_fuel_emission_sources();  // 7 × (0.18 + 0.02) per MWh
+  sys.fold_legacy_emission_rate();  // reuses existing co2 + zone
+
+  REQUIRE(sys.emission_source_array.size() == 2);
+
+  const auto legacy = std::ranges::find_if(
+      sys.emission_source_array,
+      [](const EmissionSource& s) { return s.name.contains("co2_legacy"); });
+  const auto via_fuel = std::ranges::find_if(
+      sys.emission_source_array,
+      [](const EmissionSource& s) { return s.name.contains("via_fuel"); });
+  REQUIRE(legacy != sys.emission_source_array.end());
+  REQUIRE(via_fuel != sys.emission_source_array.end());
+
+  REQUIRE(legacy->rate.has_value());
+  CHECK(std::get<Real>(legacy->rate.value_or(0.0)) == doctest::Approx(0.42));
+
+  REQUIRE(via_fuel->rate.has_value());
+  CHECK(std::get<Real>(via_fuel->rate.value_or(0.0))
+        == doctest::Approx(7.0 * 0.18));
+  REQUIRE(via_fuel->upstream_rate.has_value());
+  CHECK(std::get<Real>(via_fuel->upstream_rate.value_or(0.0))
+        == doctest::Approx(7.0 * 0.02));
+
+  // Both passes are idempotent.
+  sys.fold_legacy_emission_rate();
+  sys.expand_fuel_emission_sources();
+  CHECK(sys.emission_source_array.size() == 2);
 }
 
 TEST_CASE(
