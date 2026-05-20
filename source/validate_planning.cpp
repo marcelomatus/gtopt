@@ -106,7 +106,19 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
         result, line.bus_b, sys.bus_array, "Line", line.name, "bus_b", "Bus");
   }
 
-  // Turbine.waterway -> Waterway (optional), Turbine.generator -> Generator
+  // Turbine.waterway -> Waterway, Turbine.flow -> Flow (alternative),
+  // Turbine.generator -> Generator (all paths require generator).
+  //
+  // Critical invariant: a turbine MUST carry an electrical generator
+  // and MUST connect to either a waterway or a flow.  Without the
+  // generator there is no MW output to dispatch; without a waterway
+  // or flow there is no water volume to convert.  Either omission
+  // produces a silently-broken LP — `TurbineLP::add_to_lp` logs
+  // a `WARN` and returns false, leaving the model with a registered
+  // turbine that contributes no constraints or columns.  Promote
+  // both omissions to errors at the validation gate so the user
+  // sees the problem before the solver burns CPU on a degenerate
+  // LP.
   for (const auto& turb : sys.turbine_array) {
     if (turb.waterway.has_value()) {
       check_ref(result,
@@ -116,6 +128,21 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
                 turb.name,
                 "waterway",
                 "Waterway");
+    }
+    if (turb.flow.has_value()) {
+      check_ref(result,
+                turb.flow.value(),
+                sys.flow_array,
+                "Turbine",
+                turb.name,
+                "flow",
+                "Flow");
+    }
+    if (!turb.waterway.has_value() && !turb.flow.has_value()) {
+      result.errors.push_back(std::format(
+          "Turbine '{}' has neither a waterway nor a flow reference set "
+          "(at least one is required to drive the water-to-power conversion)",
+          turb.name));
     }
     check_ref(result,
               turb.generator,

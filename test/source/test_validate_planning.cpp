@@ -480,6 +480,53 @@ TEST_CASE("validate_planning - turbine refs")  // NOLINT
     auto result = validate_planning(p);
     CHECK_FALSE(result.ok());
   }
+
+  SUBCASE("turbine with neither waterway nor flow is an error")
+  {
+    // Critical invariant added 2026-05-20: a turbine without any
+    // water-source reference (waterway OR flow) leaves the LP with
+    // no water-to-power conversion row.  `TurbineLP::add_to_lp` used
+    // to log a WARN and return false silently; the validation gate
+    // now elevates this to a hard error.
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_orphan";
+    turb.generator = Uid {1};
+    // waterway and flow both unset on purpose.
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    const auto found =
+        std::ranges::any_of(result.errors,
+                            [](const auto& msg)
+                            {
+                              return msg.find("t_orphan") != std::string::npos
+                                  && msg.find("waterway") != std::string::npos
+                                  && msg.find("flow") != std::string::npos;
+                            });
+    CHECK(found);
+  }
+
+  SUBCASE("turbine with flow only (no waterway) is valid")
+  {
+    // The `flow` field is the alternative water-source reference;
+    // setting it (without waterway) must NOT trigger the new
+    // "neither waterway nor flow" error.
+    Flow flw;
+    flw.uid = Uid {1};
+    flw.name = "f1";
+    flw.junction = Uid {1};
+    p.system.flow_array.push_back(flw);
+
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_flow_only";
+    turb.flow = Uid {1};
+    turb.generator = Uid {1};
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
 }
 
 TEST_CASE("ValidationResult - ok() semantics")  // NOLINT
