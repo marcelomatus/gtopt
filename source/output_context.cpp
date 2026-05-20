@@ -287,11 +287,38 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
   // identifier byte budget by 2-4× on the typical long-form table
   // before any encoding/compression runs.  See feedback message
   // 2026-05-19 from MM (`gtopt_2_years` ~1 GB output target).
+  // Value-column type specialization (2026-05-19):
+  //
+  //   * `round_digits ∈ [1, 7]` → store as `float` (4 bytes/value).
+  //     Float32's ~7 significant decimal digits cover any rounding
+  //     target in this range *exactly*; an explicit `round_to_digits`
+  //     is redundant because the cast to float already trims the
+  //     bottom mantissa bits to ~7-digit precision.  Halves the raw
+  //     value-column footprint before `BYTE_STREAM_SPLIT + zstd`
+  //     does its thing.
+  //
+  //   * `round_digits ≥ 8` → keep `double` (8 bytes/value) and
+  //     `round_to_digits` explicitly.  Float32 cannot represent 8+
+  //     decimals losslessly, so the user is asking for double-grade
+  //     precision and we honour it.
+  //
+  //   * `round_digits ≤ 0` → keep `double` with no rounding.  The
+  //     "no rounding, verify all digits" opt-out.
+  //
+  // Boolean below threads `use_float32` into the per-row loop and
+  // the column-type selector.  Implementation note: we keep the
+  // template `Type` parameter wired through for callers that want
+  // double explicitly (today every caller passes `double`), and
+  // overlay a runtime flag for the float32 specialization — adding
+  // a second template instantiation would double compile time on
+  // every TU that calls `make_field_arrays_long`.
+  const bool use_float32 = (round_digits >= 1 && round_digits <= 7);
   std::vector<uint16_t> long_scenario;
   std::vector<uint16_t> long_stage;
   std::vector<uint16_t> long_block;
   std::vector<uint16_t> long_uid;
   std::vector<Type> long_value;
+  std::vector<float> long_value_f32;
   // Optional null mask — only populated if any field carried valids.
   std::vector<bool> long_valid;
   bool any_invalid = false;
@@ -400,30 +427,62 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
       long_block.push_back(
           static_cast<uint16_t>(prelude_block.empty() ? 0 : prelude_block[i]));
       long_uid.push_back(static_cast<uint16_t>(uid_val));
-      // Round before storing so the BYTE_STREAM_SPLIT-encoded value
-      // column gets the maximum trailing-zero benefit from the
-      // codec (see `parquet_write_table`).
-      long_value.push_back(static_cast<Type>(
-          round_to_digits(static_cast<double>(v), round_digits)));
+      // Round in double-precision first, *then* narrow.  Float32 has
+      // ~7 *binary*-significant digits; that is not the same as a
+      // decimal-grid round.  Without the explicit round_to_digits
+      // step the float32 holds whatever 24-bit mantissa is closest
+      // to the full-precision double — the low mantissa bytes vary
+      // chaotically across consecutive samples and BYTE_STREAM_SPLIT
+      // cannot exploit a shared decimal alignment.  Rounding first
+      // lands every value on the requested decimal grid, then the
+      // cast picks the nearest float32 to that grid point.  Result:
+      // consecutive samples share many more high bits → better BSS
+      // compression.
+      const double rounded =
+          round_to_digits(static_cast<double>(v), round_digits);
+      if (use_float32) {
+        long_value_f32.push_back(static_cast<float>(rounded));
+      } else {
+        long_value.push_back(static_cast<Type>(rounded));
+      }
     }
   }
 
   (void)any_invalid;
   (void)long_valid;
 
+  // Note for future readers: we deliberately do NOT sort the
+  // accumulated rows.  The natural insertion order is already
+  // (uid, scenario, stage, block) — each outer field iteration
+  // emits one uid's worth of rows in the prelude's order, which is
+  // (scenario, stage, block).  That order is compression-friendly:
+  // long monotonic `uid` runs (3 600 rows per uid on the 2-year
+  // case), and within each uid block the `value` column is a
+  // single-scenario timeline (consecutive blocks have correlated
+  // dispatch → BSS finds shared high bytes).
+  //
+  // A re-sort by (uid, stage, block) was tried on 2026-05-19 and
+  // INCREASED the disk size from 265 MB to 274 MB on the 2-year
+  // case — that order interleaves scenarios within each (stage,
+  // block) slot, breaking the within-scenario value smoothness.
+  // If you ever consider re-introducing a sort, measure on a real
+  // case first; the natural order is the right one for this data.
+
   std::vector<ArrowField> fields {
       arrow::field("scenario", arrow::uint16()),
       arrow::field("stage", arrow::uint16()),
       arrow::field("block", arrow::uint16()),
       arrow::field("uid", arrow::uint16()),
-      arrow::field("value", ArrowTraits<Type>::type()),
+      arrow::field("value",
+                   use_float32 ? arrow::float32() : ArrowTraits<Type>::type()),
   };
   std::vector<ArrowArray> arrays {
       make_array<uint16_t>(long_scenario),
       make_array<uint16_t>(long_stage),
       make_array<uint16_t>(long_block),
       make_array<uint16_t>(long_uid),
-      make_array<Type>(long_value),
+      use_float32 ? make_array<float>(long_value_f32)
+                  : make_array<Type>(long_value),
   };
 
   return std::pair {std::move(fields), std::move(arrays)};

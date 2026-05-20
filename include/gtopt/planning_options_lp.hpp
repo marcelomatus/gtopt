@@ -518,14 +518,26 @@ public:
     return m_options_.output_layout.value_or(default_output_layout);
   }
 
-  /// Decimal places to keep on the on-disk value columns.  Default `8`
-  /// — small enough that `round(v, 8)` zeros the bottom ~24 bits of
-  /// the IEEE-754 mantissa on every value, which `BYTE_STREAM_SPLIT
-  /// + zstd` then compresses 3-5× better than the unrounded form.
-  /// `<= 0` disables rounding (full-precision output for bit-exact
-  /// reproducibility verification).  Bound to JSON
-  /// `output_round_decimals` and CLI `--output-round-decimals`.
-  static constexpr int default_output_round_decimals = 8;
+  /// Decimal places to keep on the on-disk value columns.
+  ///
+  /// Default `7` (since 2026-05-19) — triggers the **float32**
+  /// specialization in `make_field_arrays_long`.  Float32 has ~7
+  /// significant decimal digits, so rounding the double to 7
+  /// decimals first and then casting to float32 produces a lossless
+  /// (within float32 precision) representation that halves the raw
+  /// value-column byte budget.  Combined with `BYTE_STREAM_SPLIT +
+  /// zstd` this lands the 2-year case at ~265 MB (vs 305 MB at
+  /// double + d=8 + zstd; vs ~1 GB at the legacy wide + snappy
+  /// default).
+  ///
+  /// Values `1..7` → float32 storage.  Value `≥ 8` → double storage
+  /// with explicit `round_to_digits` (the "I need more than 7 decimal
+  /// digits" path).  Value `≤ 0` → no rounding, double storage (the
+  /// "verify all 15+ digits" opt-out).
+  ///
+  /// Bound to JSON `output_round_decimals` and CLI
+  /// `--output-round-decimals`.
+  static constexpr int default_output_round_decimals = 7;
   [[nodiscard]] constexpr auto output_round_decimals() const noexcept -> int
   {
     return m_options_.output_round_decimals.value_or(
