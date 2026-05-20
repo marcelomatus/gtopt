@@ -1201,6 +1201,27 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // ── 4. Check convergence ──
     if (last.converged) {
       if (level_idx == m_cascade_opts_.level_array.size() - 1) {
+        // Flush progress to disk before breaking — the post-loop flush at
+        // line ~1451 is skipped on this path, so without this an
+        // `--recover` after a happy-path converged cascade would see the
+        // final level still marked `in_progress` and re-solve it (the
+        // upstream save happened at level *entry* — `:852` — but the
+        // post-convergence `status = done` assignment at `:1165` only
+        // lives in memory).  Captured by the
+        // `test_cascade_recover.cpp` "final-level converges" assertion
+        // — synthesized sidecar there documents the historical
+        // pre-fix shape too.
+        if (progress_enabled) {
+          if (auto save = save_cascade_progress(progress, progress_path);
+              !save.has_value())
+          {
+            SPDLOG_WARN(
+                "Cascade: could not flush progress file '{}' "
+                "after final-level convergence: {}",
+                progress_path.string(),
+                save.error().message);
+          }
+        }
         break;  // converged at final level
       }
       // Converged at intermediate level — continue to next level
