@@ -16,13 +16,11 @@ from ._reader import (
     get_generator_profile_info,
     get_line_info,
     open_dataset,
-    read_table,
     streaming_pairwise_weighted_sum,
     streaming_sol_weighted_sum,
     streaming_sol_weighted_sum_per_uid,
     streaming_uid_stats,
     streaming_uid_sum,
-    streaming_uid_sum_per_col,
 )
 
 log = logging.getLogger(__name__)
