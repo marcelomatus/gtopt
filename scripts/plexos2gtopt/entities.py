@@ -188,6 +188,12 @@ class ReservoirSpec:
     eini: float = 0.0
     efin: float = 0.0
     water_value: float = 0.0
+    # True when PLEXOS shipped the 1e+30 "never drain" sentinel on
+    # `Water Value`.  The writer must then emit `efin = eini` as a HARD
+    # `vol_end >= eini` constraint and skip `efin_cost` entirely (the
+    # soft-slack path would let the LP buy out of the sentinel at the
+    # clamped price, which is exactly what the sentinel forbids).
+    never_drain: bool = False
     spill_penalty_per_mwh: float = 0.0
     inflow_profile: tuple[float, ...] = field(default_factory=tuple)
 
@@ -323,12 +329,22 @@ class UserConstraintSpec:
     :file:`include/gtopt/constraint_parser.hpp` consumes. ``penalty``
     is set when the PLEXOS constraint ships a ``Penalty Price``
     (turning the row into a soft constraint with a visible slack).
+
+    ``active`` (default ``None`` ⇒ unset ⇒ gtopt's default = active)
+    controls whether the constraint is enforced in the LP.  PLEXOS
+    contingency constraints (post-trip reserve allocations, N-1
+    security rows, etc.) are translated with ``active = False`` so
+    they ship in the JSON for inspection / future contingency
+    simulation but the monolithic deterministic LP skips them — they
+    would otherwise be infeasible-as-written because PLEXOS models
+    them with implicit slacks that only fire under simulated trips.
     """
 
     name: str
     expression: str
     penalty: float = 0.0
     description: str = ""
+    active: bool | None = None
 
 
 @dataclass(frozen=True)

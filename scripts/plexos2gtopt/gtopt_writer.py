@@ -513,7 +513,15 @@ def build_reservoir_array(
         # [MWh/hm³] = $/hm³.  gtopt's default mean_production_factor
         # is 5 MWh/hm³ (reservoir.hpp:96) so the multiplier is 5/1000 =
         # 0.005.  For PLEXOS default 10,000 $/GWh, efin_cost = 50 $/hm³.
-        if res.water_value > 0.0 and res.eini > 0.0 and "efin" not in entry:
+        #
+        # PLEXOS "never drain" sentinel (Water Value 1e+30) lands here
+        # as ``never_drain=True`` (water_value cleared to 0 by the
+        # parser).  Emit a HARD ``efin = eini`` constraint with no
+        # ``efin_cost`` slack — the LP must keep at least the initial
+        # volume, no buy-out at any finite price.
+        if res.never_drain and res.eini > 0.0 and "efin" not in entry:
+            entry["efin"] = res.eini
+        elif res.water_value > 0.0 and res.eini > 0.0 and "efin" not in entry:
             entry["efin"] = res.eini
             entry["efin_cost"] = res.water_value * 0.005
         # Activate gtopt's internal-drain mechanism on every reservoir.
@@ -750,6 +758,18 @@ def build_user_constraint_array(
             entry["penalty"] = penalty
         if c.description:
             entry["description"] = c.description
+        # PLEXOS contingency / N-1 security rows are translated with
+        # ``active = False`` by the parser (see
+        # ``_is_contingency_constraint``).  Pass through; gtopt's
+        # ``UserConstraintLP::add_to_lp`` gates on ``is_active(stage)``
+        # so the row ships in the JSON but the monolithic LP skips
+        # it.  ``None`` ⇒ leave the field unset ⇒ gtopt default
+        # (active).
+        # UserConstraint.active is `json_bool_null<OptBool>` (true/false),
+        # NOT `json_number_null<OptBool>` (0/1) — see
+        # include/gtopt/json/json_user_constraint.hpp.
+        if c.active is not None:
+            entry["active"] = bool(c.active)
         out.append(entry)
     return out
 

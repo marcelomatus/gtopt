@@ -337,6 +337,76 @@ def test_build_user_constraint_array_omits_zero_penalty() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Contingency / N-1 security classification
+# ---------------------------------------------------------------------------
+
+
+def test_is_contingency_constraint_matches_sd_name() -> None:
+    """``SD_<date>_*`` is a PLEXOS contingency naming convention."""
+    from plexos2gtopt.parsers import _is_contingency_constraint
+
+    assert _is_contingency_constraint("SD_2024091389_Charrua_Conce", [1.0], "<=", 100.0)
+    assert _is_contingency_constraint(
+        "SD_2025056008_ATR_Quillota(neg)", [1.0], ">=", 100.0
+    )
+
+
+def test_is_contingency_constraint_matches_n1_zone_suffix() -> None:
+    """N-1 reserve rows named ``<gen>_<ZONE>_(LW|RS)``."""
+    from plexos2gtopt.parsers import _is_contingency_constraint
+
+    assert _is_contingency_constraint("RALCO_U1_CTF_LW", [1.0], "<=", 100.0)
+    assert _is_contingency_constraint("RALCO_U2_CSF_RS", [1.0], "<=", 100.0)
+    assert _is_contingency_constraint("PEHUENCHE_CPF_LW", [1.0], "<=", 100.0)
+    # CPFN zone (Argentinian ISO subtree) — same `_<ZONE>_(LW|RS)` suffix.
+    assert _is_contingency_constraint("RALCO_U2_CPFN_LW", [1.0], "<=", 100.0)
+    # Zone-name-only constraints (CTF_DownMinProvision, CPFN_LW) do
+    # NOT match — they're "Min Provision" zone-level floors, not
+    # N-1 contingency rows.  The structural classifier catches them
+    # only when the coefficient pattern is infeasible-as-hard.
+    assert not _is_contingency_constraint("CTF_DownMinProvision", [1.0], "<=", 100.0)
+    assert not _is_contingency_constraint("CPFN_LW", [1.0], "<=", 100.0)
+
+
+def test_is_contingency_constraint_matches_structural_pattern() -> None:
+    """All-negative coefficients + ``>= positive RHS`` ⇒ contingency."""
+    from plexos2gtopt.parsers import _is_contingency_constraint
+
+    # Σ -provision ≥ 90 is infeasible-as-hard (LHS ≤ 0, RHS > 0).
+    assert _is_contingency_constraint("BENIGN_NAME", [-1.0, -1.0, -1.0], ">=", 90.0)
+
+
+def test_is_contingency_constraint_rejects_satisfiable_rows() -> None:
+    """Mixed signs / non-GE / negative RHS / no coefficients → not contingency."""
+    from plexos2gtopt.parsers import _is_contingency_constraint
+
+    # A single positive coefficient → LHS can grow → satisfiable.
+    assert not _is_contingency_constraint("BENIGN_NAME", [-1.0, +1.0], ">=", 90.0)
+    # Sense LE flips the feasibility argument.
+    assert not _is_contingency_constraint("BENIGN_NAME", [-1.0, -1.0], "<=", 90.0)
+    # Non-positive RHS makes ``Σ ≤ 0 ≥ 0`` satisfiable.
+    assert not _is_contingency_constraint("BENIGN_NAME", [-1.0, -1.0], ">=", 0.0)
+    # Empty coefficients → can't classify; default ⇒ not contingency.
+    assert not _is_contingency_constraint("BENIGN_NAME", [], ">=", 90.0)
+
+
+def test_build_user_constraint_array_emits_active_false() -> None:
+    """When ``UserConstraintSpec.active is False`` the writer emits
+    ``active: false`` so gtopt's UserConstraintLP skips the row in
+    the monolithic LP (gating on ``is_active``)."""
+    out = build_user_constraint_array(
+        (
+            UserConstraintSpec(name="X", expression="a <= b", active=False),
+            UserConstraintSpec(name="Y", expression="a <= b", active=True),
+            UserConstraintSpec(name="Z", expression="a <= b"),  # default None
+        )
+    )
+    assert out[0]["active"] is False
+    assert out[1]["active"] is True
+    assert "active" not in out[2]
+
+
+# ---------------------------------------------------------------------------
 # Fuel.Offtake expansion + Reserve Provision wiring
 # ---------------------------------------------------------------------------
 

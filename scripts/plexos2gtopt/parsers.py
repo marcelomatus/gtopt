@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
+import re
 from pathlib import Path
 
 from .entities import (
@@ -599,6 +600,9 @@ def _extract_fuel_co2_membership_rates(
             continue
         rows.sort(key=lambda r: r.data_id)
         rate = rows[0].value
+        # Drop PLEXOS ±1e+30 sentinel just like `static_property` does.
+        if abs(rate) >= 1.0e20:
+            continue
         if rate == 0.0:
             continue
         comb, up = out.get(mem.child_object_id, (0.0, 0.0))
@@ -1132,25 +1136,33 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # ``L_Maule``.  Clamp the sentinel to a finite value so LP
         # coefficient ratios stay sane.
         raw_water_value_gwh = (
-            db.static_property("Storage", storage.object_id, "Water Value") or 0.0
+            db.static_property(
+                "Storage", storage.object_id, "Water Value", keep_sentinel=True
+            )
+            or 0.0
         )
-        # Sentinel 1e+30 indicates "never drain"; clamp to a high but
-        # finite cost so the LP coefficient ratio stays bounded.
-        # Visible WARN so the clamp doesn't silently hide a real value
-        # (CEN PCP ships ~1e+30 on virtual storages like L_Maule;
-        # any other > 1e12 value would be a data anomaly worth surfacing).
+        # Sentinel >1e12 (PLEXOS uses 1e+30) indicates "never drain":
+        # the reservoir must keep at least its initial volume.  We do
+        # NOT clamp to a finite price (a finite efin_cost would let the
+        # LP buy out of the sentinel at that price — which is exactly
+        # what the sentinel forbids).  Instead we drop the water value
+        # entirely and set `never_drain=True`; the writer then emits
+        # `efin = eini` as a HARD `vol_end >= eini` constraint with no
+        # `efin_cost` slack.
         water_value_gwh = raw_water_value_gwh
+        never_drain = False
         if water_value_gwh > 1.0e12:
             logger.warning(
                 "Storage '%s' (uid=%s): Water Value %.3e $/GWh exceeds "
-                "1e12 ceiling — clamping to 1e12 (LP coefficient stability). "
-                "Inspect the input if this isn't the PLEXOS 1e+30 "
-                '"never drain" sentinel.',
+                "1e12 ceiling — treating as PLEXOS 1e+30 never-drain "
+                "sentinel: dropping water_value and emitting hard "
+                "`efin = eini` constraint (no efin_cost slack).",
                 name,
                 storage.object_id,
                 water_value_gwh,
             )
-            water_value_gwh = 1.0e12  # pylint: disable=consider-using-min-builtin
+            water_value_gwh = 0.0
+            never_drain = True
         out.append(
             ReservoirSpec(
                 object_id=storage.object_id,
@@ -1159,6 +1171,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 emax=emax,
                 eini=eini,
                 water_value=water_value_gwh,
+                never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
             )
         )
@@ -1320,7 +1333,6 @@ def _parse_res_requirement_csv(
     Returns ``{reserve_name -> 24-element profile}``.
     """
     import csv  # pylint: disable=import-outside-toplevel
-    import re  # pylint: disable=import-outside-toplevel
 
     hour_re = re.compile(r"H(\d+)")
     out: dict[str, list[float]] = {}
@@ -1525,8 +1537,11 @@ def extract_reserve_provisions(
                         if pid is None:
                             continue
                         for row in db.data_for(m.membership_id, pid):
-                            if row.value and row.value > pair_min:
-                                pair_min = row.value
+                            # Skip PLEXOS ±1e+30 sentinel ("unbounded")
+                            # — would otherwise force pair_min = 1e+30
+                            # and emit a meaningless huge urmin/drmin.
+                            if row.value and abs(row.value) < 1.0e20:
+                                pair_min = max(pair_min, row.value)
                     if pair_min <= 0.0:
                         continue
                     target = urmin_by_gen if direction == "up" else drmin_by_gen
@@ -1816,12 +1831,76 @@ def _format_coefficient(value: float, first: bool) -> str:
     return f" + {value:g} * "
 
 
+# Constraint-name patterns that identify PLEXOS contingency / N-1
+# security rows.  These are PLEXOS's post-trip reserve allocations:
+# their LHS is ``Σ -1·provision_X^dn`` over the gens that would have
+# to cover the contingency, and the RHS is the lost capacity.  In
+# PLEXOS the row is implicitly soft (only fires when the named
+# contingency is being simulated) — gtopt's monolithic LP has no
+# such concept, so emitting them as hard constraints turns the LP
+# infeasible (or, with a default UC penalty, burns the slack at the
+# unit price).  The converter marks them ``active = False`` so they
+# ship in the JSON but the LP skips them.  A future contingency
+# simulation can re-activate them per-scenario.
+_CONTINGENCY_NAME_PATTERNS = (
+    # PLEXOS security/contingency rows are dated and named after the
+    # tripped element (line, plant, transformer): SD_<date>_<who>.
+    re.compile(r"^SD_\d+_"),
+    # N-1 reserve allocation by zone & direction: <gen>_<ZONE>_LW or
+    # <gen>_<ZONE>_RS.  ZONE ∈ {CTF, CSF, CPF, CPFN, …}.
+    re.compile(r"_C(T|S|P)F[A-Z]*_(LW|RS)$"),
+)
+
+
+def _is_contingency_constraint(
+    name: str,
+    coefficients: list[float],
+    op: str,
+    rhs_val: float,
+) -> bool:
+    """Identify PLEXOS contingency / N-1 security constraints.
+
+    Two recognisers, OR-combined:
+      1. Name matches a known contingency pattern (``SD_<date>_*``
+         or ``*_<ZONE>_(LW|RS)``).
+      2. Structural: every coefficient is negative, ``op = ">="``,
+         and ``rhs > 0`` — the LHS is bounded above by 0 yet the row
+         demands ≥ ``rhs > 0``, infeasible-as-hard.  This catches
+         contingency rows that don't fit the naming heuristic.
+
+    The structural check intentionally requires ALL coefficients to
+    be ≤ 0 (not just "most"); a single positive coefficient means the
+    LHS can grow without bound and the constraint is satisfiable, so
+    don't mark it inactive.
+    """
+    for regex in _CONTINGENCY_NAME_PATTERNS:
+        if regex.search(name):
+            return True
+    if (
+        op == ">="
+        and rhs_val > 0.0
+        and coefficients
+        and all(c <= 0.0 for c in coefficients)
+    ):
+        return True
+    return False
+
+
 def _first_value(rows: list) -> float | None:
-    """Return the lowest-data_id value from a ``data_for`` result, or None."""
+    """Return the lowest-data_id value from a ``data_for`` result, or None.
+
+    Drops the PLEXOS ``±1E+30`` infinity sentinel — caller would treat
+    it as a real numeric bound and stamp it into the LP otherwise.
+    """
     if not rows:
         return None
     rows.sort(key=lambda r: r.data_id)
-    return rows[0].value
+    raw = rows[0].value
+    if raw is None:
+        return None
+    if abs(raw) >= 1.0e20:
+        return None
+    return raw
 
 
 def _build_membership_pair_index(
@@ -2102,6 +2181,10 @@ def extract_user_constraints(
         #       Commitment / ReserveProvision row would otherwise
         #       dangle the constraint reference.
         terms: list[str] = []
+        # Track every coefficient appended so we can classify the
+        # constraint as contingency after the build loop (signs +
+        # magnitudes are what determines feasibility).
+        coefficients: list[float] = []
         for parent_class, gtopt_class, accessor, name_tmpl, per_constr in direct_index:
             allowed_parent = (
                 emitted_names.get(parent_class) if emitted_names is not None else None
@@ -2129,6 +2212,7 @@ def extract_user_constraints(
                     continue
                 var_ref = f'{gtopt_class}("{ref_name}").{accessor}'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
+                coefficients.append(coeff)
 
         # 2. Fuel.Offtake expansion: a Fuel→Constraint coefficient ``α``
         #    becomes ``α × heat_rate(g) × generator(g).generation`` summed
@@ -2146,6 +2230,7 @@ def extract_user_constraints(
                 coeff = alpha * hr
                 var_ref = f'generator("{gen_name}").generation'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
+                coefficients.append(coeff)
 
         # 2b. Reserve.Provision expansion: α × Σ_g reserve_provision(
         #     "provision_<g>").<up|dn> over generators eligible for
@@ -2164,6 +2249,7 @@ def extract_user_constraints(
                     continue
                 var_ref = f'reserve_provision("{ref_name}").{direction}'
                 terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
+                coefficients.append(alpha)
 
         # 3. Derived-coefficient kinds (Capacity Factor / Generation
         #    Sent Out / Generation Curtailed / Available Capacity).
@@ -2172,6 +2258,7 @@ def extract_user_constraints(
         #    rescaling; flag the RHS-shift kinds since UserConstraint
         #    can't express a per-block RHS yet.
         gen_pmax_by_name = pmax_by_gen or {}
+        constraint_has_unsupported = False
         for parent_class, mode, prop_name, per_constr in derived_index:
             allowed_parent = (
                 emitted_names.get(parent_class) if emitted_names is not None else None
@@ -2201,18 +2288,52 @@ def extract_user_constraints(
                             prop_name,
                             parent_name,
                         )
+                    constraint_has_unsupported = True
                     continue
                 var_ref = f'generator("{parent_name}").generation'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
+                coefficients.append(coeff)
 
         if not terms:
             continue
+        # If ANY term was unsupported, skip the entire constraint
+        # rather than emit a partial form: a constraint missing key
+        # terms is no longer the constraint PLEXOS specified, and
+        # CEN PCP empirically produces infeasible LPs when the
+        # partial form survives (e.g. `ralco_u1_ctf_lw_constraint`
+        # demanded a reserve floor that only the dropped Units term
+        # could satisfy).  Emit a single info-level summary at the
+        # top-level extractor instead.
+        if constraint_has_unsupported:
+            logger.warning(
+                "constraint %s skipped — partial form left after "
+                "dropping unsupported PLEXOS coefficient(s); see prior "
+                "WARNs for the specific term(s)",
+                constr.name,
+            )
+            continue
         expression = "".join(terms) + f" {op} {rhs_val:g}"
+        # Classify PLEXOS contingency / N-1 security rows and ship
+        # them inactive: gtopt's UserConstraintLP gates on
+        # `is_active(stage)`, so the LP skips them while the JSON
+        # keeps the row for downstream tooling (and a future
+        # contingency simulator that re-enables them per scenario).
+        is_contingency = _is_contingency_constraint(
+            constr.name, coefficients, op, rhs_val
+        )
+        if is_contingency:
+            logger.info(
+                "constraint %s classified as PLEXOS contingency / "
+                "N-1 security row — emitting with active=False so "
+                "the monolithic LP skips it.",
+                constr.name,
+            )
         out.append(
             UserConstraintSpec(
                 name=constr.name,
                 expression=expression,
                 penalty=penalty_val if penalty_val and penalty_val > 0 else 0.0,
+                active=False if is_contingency else None,
             )
         )
     return tuple(out)

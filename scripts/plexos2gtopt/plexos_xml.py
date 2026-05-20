@@ -267,6 +267,7 @@ class PlexosDb:
         property_name: str,
         *,
         default: float = 0.0,
+        keep_sentinel: bool = False,
     ) -> float:
         """Convenience: look up a single-valued System-collection property.
 
@@ -274,6 +275,22 @@ class PlexosDb:
         object (the System collection ships the class-wide default,
         which we treat as "no override"). Multi-band rows collapse to
         the lowest ``data_id`` (smallest band index by convention).
+
+        PLEXOS ``±1E+30`` sentinel handling: a magnitude ≥ 1e20 means
+        "unbounded / unset" in PLEXOS (the value ``1.0E+30`` is hard-
+        coded as the infinity sentinel across virtually every PLEXOS
+        property — Max Flow, Min Rating, Max Response, Initial Hours
+        Down, Water Value, Offer Quantity, Offer Price, etc.).  Audit
+        of DATOS20260422 found 11,542 such rows across 14 distinct
+        properties.  Returning a literal 1e+30 would land on the LP
+        as a hard bound after equilibration scaling and trip CPLEX
+        presolve infeasibility.  Treat as the caller-provided
+        ``default`` instead — the caller can then apply property-
+        specific semantics (e.g. ``Max Flow`` → no thermal cap).
+
+        Pass ``keep_sentinel=True`` when the caller WANTS to see the
+        sentinel verbatim so it can apply a property-specific rule
+        (e.g. ``Water Value 1e+30`` → never-drain reservoir).
         """
         coll = self.collection_for("System", child_class)
         if coll is None:
@@ -288,7 +305,11 @@ class PlexosDb:
         if not rows:
             return default
         rows.sort(key=lambda r: r.data_id)
-        return rows[0].value
+        raw = rows[0].value
+        # PLEXOS infinity sentinel: |v| ≥ 1e20 means "unset / unbounded".
+        if not keep_sentinel and abs(raw) >= 1.0e20:
+            return default
+        return raw
 
 
 # ---------------------------------------------------------------------------

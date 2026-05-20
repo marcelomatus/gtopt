@@ -171,6 +171,160 @@ def _format_money(value: float) -> str:
     return f"${value:,.2f}"
 
 
+# Heuristic categorisation of PLEXOS-translated user-constraint names.
+# Each entry: (regex, label).  First match wins; unmatched names fall
+# into "other".  These cover the families gtopt translates from the
+# PLEXOS CEN PCP daily bundle — keep in sync with the bundle's actual
+# constraint naming if a future case ships a new family.
+_UC_CATEGORY_PATTERNS = (
+    (re.compile(r"^SD_\d+_"), "security/contingency"),
+    (re.compile(r"(Up|Dn|Down)?MinProvision$"), "reserve min provision"),
+    (re.compile(r"_CTF_(LW|RS)$|_CSF_(LW|RS)$|_CPF_(LW|RS)$"), "N-1 reserve"),
+    (re.compile(r"^Inertia"), "inertia commitment"),
+    (re.compile(r"priority\d*$"), "priority dispatch"),
+    (re.compile(r"min$"), "minimum dispatch"),
+    (re.compile(r"^Almacenamiento_"), "battery balance"),
+    (re.compile(r"_Order$"), "dispatch order"),
+    (re.compile(r"^DAM_|^DAR_"), "discharge limit"),
+)
+
+
+def _categorize_uc(name: str) -> str:
+    """Bucket a user-constraint name into a PLEXOS family.  Returns
+    ``"other"`` when no heuristic matches.
+    """
+    for regex, label in _UC_CATEGORY_PATTERNS:
+        if regex.search(name):
+            return label
+    return "other"
+
+
+def load_uc_penalty_breakdown(
+    case_dir: Path, penalty_per_unit: float
+) -> dict[str, dict]:
+    """Load gtopt's UserConstraint slack outputs and aggregate the
+    penalty cost per constraint.
+
+    Reads ``<case>/output/UserConstraint/{slack_sol, slack_pos_sol,
+    slack_neg_sol}.parquet`` (any subset that exists) and resolves
+    each ``uid`` to the constraint's name via the merged
+    ``output/planning.json``.  Returns
+    ``{name: {"penalty": ..., "category": ..., "uid": ...}}`` sorted by
+    descending penalty.  Missing files / empty parquet → empty dict.
+    """
+    # Local imports keep the Step-1 path's startup time low.
+    import json as _json
+
+    import pyarrow.parquet as _pq
+
+    plan_path = case_dir / "output" / "planning.json"
+    uid_to_name: dict[int, str] = {}
+    if plan_path.exists():
+        plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+        for uc in plan.get("system", {}).get("user_constraint_array", []):
+            uid_to_name[uc["uid"]] = uc.get("name", f"uc_{uc['uid']}")
+
+    uc_dir = case_dir / "output" / "UserConstraint"
+    if not uc_dir.exists():
+        return {}
+
+    by_uid: dict[int, float] = {}
+    for fname in (
+        "slack_sol.parquet",
+        "slack_pos_sol.parquet",
+        "slack_neg_sol.parquet",
+    ):
+        path = uc_dir / fname
+        if not path.exists():
+            continue
+        table = _pq.read_table(path).to_pandas()
+        if table.empty:
+            continue
+        # Each row carries the per-block slack magnitude; sum within a
+        # constraint (across scene, phase, stage, block) to a single
+        # MWh-equivalent slack, then price at the global UC penalty.
+        for uid, slack in table.groupby("uid")["value"].sum().items():
+            by_uid[int(uid)] = by_uid.get(int(uid), 0.0) + float(slack)
+
+    breakdown: dict[str, dict] = {}
+    for uid, total_slack in by_uid.items():
+        name = uid_to_name.get(uid, f"uid={uid}")
+        cost = total_slack * penalty_per_unit
+        breakdown[name] = {
+            "penalty": cost,
+            "category": _categorize_uc(name),
+            "uid": uid,
+            "slack": total_slack,
+        }
+
+    return dict(sorted(breakdown.items(), key=lambda kv: -kv[1]["penalty"]))
+
+
+def _render_uc_drilldown(
+    breakdown: dict[str, dict],
+    penalty_per_unit: float,
+    top_n: int,
+    console: Console,
+) -> None:
+    """Render the Step-2 user-constraint penalty breakdown."""
+    if not breakdown:
+        console.print(
+            "[dim]No user-constraint slack found "
+            "(gtopt UserConstraint dir empty or unknown penalty).[/dim]"
+        )
+        return
+
+    total = sum(item["penalty"] for item in breakdown.values())
+
+    # Aggregate by category for the family-level table.
+    by_cat: dict[str, float] = {}
+    for item in breakdown.values():
+        by_cat[item["category"]] = by_cat.get(item["category"], 0.0) + item["penalty"]
+    by_cat_sorted = sorted(by_cat.items(), key=lambda kv: -kv[1])
+
+    cat_table = Table(
+        title=(
+            f"User-constraint penalty by family (unit penalty ${penalty_per_unit:,.0f})"
+        )
+    )
+    cat_table.add_column("Family", style="bold")
+    cat_table.add_column("Total penalty", justify="right")
+    cat_table.add_column("Share", justify="right")
+    cat_table.add_column("# constraints", justify="right")
+    for cat, cost in by_cat_sorted:
+        share = 100.0 * cost / total if total else 0.0
+        count = sum(1 for item in breakdown.values() if item["category"] == cat)
+        cat_table.add_row(
+            cat,
+            _format_money(cost),
+            f"{share:5.1f}%",
+            str(count),
+        )
+    cat_table.add_row(
+        "[bold]TOTAL[/bold]",
+        _format_money(total),
+        "100.0%",
+        str(len(breakdown)),
+    )
+    console.print(cat_table)
+
+    top_table = Table(title=f"Top {top_n} offending constraints")
+    top_table.add_column("#", justify="right")
+    top_table.add_column("Constraint name", style="bold")
+    top_table.add_column("Family")
+    top_table.add_column("Penalty", justify="right")
+    top_table.add_column("Slack", justify="right")
+    for i, (name, item) in enumerate(list(breakdown.items())[:top_n], 1):
+        top_table.add_row(
+            str(i),
+            name,
+            item["category"],
+            _format_money(item["penalty"]),
+            f"{item['slack']:,.2f}",
+        )
+    console.print(top_table)
+
+
 def _render_report(
     plexos: dict[str, float],
     gtopt: dict[str, float] | None,
@@ -260,7 +414,9 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="compare_with_plexos",
         description=(
-            "Cost-totals scout (Step 1) for PLEXOS vs gtopt on the CEN PCP daily case."
+            "PLEXOS vs gtopt comparison scout (Step 1 cost totals + "
+            "Step 2 user-constraint penalty breakdown) for the CEN PCP "
+            "daily case."
         ),
     )
     parser.add_argument(
@@ -284,6 +440,27 @@ def make_parser() -> argparse.ArgumentParser:
             "path to a CEN PCP RES bundle (RES*.zip or RES*.zip.xz); "
             "the scout extracts the nested log automatically"
         ),
+    )
+    parser.add_argument(
+        "--uc-penalty",
+        type=float,
+        default=10000.0,
+        help=(
+            "per-unit slack penalty applied by gtopt to soft user "
+            "constraints (must match the `--default-uc-penalty` "
+            "passed to plexos2gtopt; default: 10000)"
+        ),
+    )
+    parser.add_argument(
+        "--top-uc",
+        type=int,
+        default=15,
+        help="number of top-offending user constraints to list (default: 15)",
+    )
+    parser.add_argument(
+        "--no-uc-drilldown",
+        action="store_true",
+        help="skip the Step-2 user-constraint penalty breakdown",
     )
     return parser
 
@@ -315,6 +492,16 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[yellow]gtopt side unavailable: {exc}[/yellow]")
 
     _render_report(plexos, gtopt, console)
+
+    if args.gtopt_case is not None and not args.no_uc_drilldown:
+        console.print()
+        try:
+            breakdown = load_uc_penalty_breakdown(args.gtopt_case, args.uc_penalty)
+        except (FileNotFoundError, ImportError, ValueError) as exc:
+            console.print(f"[yellow]UC drilldown unavailable: {exc}[/yellow]")
+        else:
+            _render_uc_drilldown(breakdown, args.uc_penalty, args.top_uc, console)
+
     return 0
 
 
