@@ -431,6 +431,7 @@ add_test(
 set_tests_properties(scripts-all-unit PROPERTIES
   COST 60
   FIXTURES_REQUIRED scripts-deps
+  PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
   LABELS "aggregate;script"
 )
 
@@ -623,6 +624,7 @@ if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
   set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES
     COST 30
     FIXTURES_REQUIRED scripts-deps
+    PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
     LABELS "integration;script;ucjl"
   )
 endif()
