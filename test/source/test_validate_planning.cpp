@@ -1623,6 +1623,205 @@ TEST_CASE("validate_planning - ReservoirSeepage refs")  // NOLINT
   }
 }
 
+// ── P1 referential checks added 2026-05-20 ──────────────────────────────────
+
+TEST_CASE("validate_planning - Battery refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("battery with valid bus passes")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("battery with invalid bus fails")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {999};
+    p.system.battery_array.push_back(bat);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("battery with valid source_generator passes")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    bat.source_generator = Uid {1};
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("battery with invalid source_generator fails")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    bat.source_generator = Uid {999};
+    p.system.battery_array.push_back(bat);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("battery with no bus or source_generator passes (standalone)")
+  {
+    // Neither optional FK is required at the validation gate — only
+    // *invalid* uids fail.  A battery without `bus` is a legacy raw-
+    // battery configuration where the user has wired the Converter
+    // explicitly; do not over-reject.
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - VolumeRight refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid reservoir ref passes")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.reservoir = Uid {999};
+    p.system.volume_right_array.push_back(vr);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("valid right_reservoir ref passes")
+  {
+    VolumeRight vr_parent;
+    vr_parent.uid = Uid {1};
+    vr_parent.name = "vr_parent";
+    vr_parent.reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr_parent);
+
+    VolumeRight vr_child;
+    vr_child.uid = Uid {2};
+    vr_child.name = "vr_child";
+    vr_child.right_reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr_child);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid right_reservoir fails")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.right_reservoir = Uid {999};
+    p.system.volume_right_array.push_back(vr);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("VolumeRight with no FKs passes (standalone right)")
+  {
+    // Both FKs are documented as optional; a standalone right with
+    // neither set is valid at the validation gate.  No silent failure
+    // because `volume_right_lp.cpp` gates each branch on
+    // `has_value()`.
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    p.system.volume_right_array.push_back(vr);
+    CHECK(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirDischargeLimit refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {1};
+    rdl.reservoir = Uid {1};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid waterway fails")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {999};
+    rdl.reservoir = Uid {1};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {1};
+    rdl.reservoir = Uid {999};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
 }  // namespace
 
 // NOLINTEND(bugprone-unchecked-optional-access)

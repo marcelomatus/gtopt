@@ -421,6 +421,89 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "reservoir",
               "Reservoir");
   }
+
+  // ── P1 referential checks added 2026-05-20 ────────────────────────
+  //
+  // Optional FKs that should still be VALIDATED when set.  Today an
+  // invalid `bus` or `reservoir` uid on these structs just silently
+  // produces a wrong dispatch because the lookup gates the
+  // corresponding LP branch on `has_value()` but never on lookup
+  // success.
+
+  // Battery.bus -> Bus (optional FK).  When set, `System::expand_batteries()`
+  // auto-generates the discharge Generator + charge Demand + Converter
+  // wired to this bus.  Invalid uid here leaves the expansion silently
+  // wired to a non-existent bus.
+  // Battery.source_generator -> Generator (optional FK).  When set,
+  // `expand_batteries()` creates an internal bus and re-routes the
+  // source generator to it.  Invalid uid → wrong internal-bus wiring.
+  for (const auto& bat : sys.battery_array) {
+    if (bat.bus.has_value()) {
+      check_ref(result,
+                bat.bus.value(),
+                sys.bus_array,
+                "Battery",
+                bat.name,
+                "bus",
+                "Bus");
+    }
+    if (bat.source_generator.has_value()) {
+      check_ref(result,
+                bat.source_generator.value(),
+                sys.generator_array,
+                "Battery",
+                bat.name,
+                "source_generator",
+                "Generator");
+    }
+  }
+
+  // VolumeRight.reservoir -> Reservoir (optional FK, consumptive source).
+  // VolumeRight.right_reservoir -> VolumeRight (optional FK, hierarchical
+  // parent / child volume balance).  Each branch in `volume_right_lp.cpp`
+  // gates on `has_value()` but never on lookup success; invalid uid =
+  // silent contribution to wrong reservoir or wrong parent right.
+  for (const auto& vr : sys.volume_right_array) {
+    if (vr.reservoir.has_value()) {
+      check_ref(result,
+                vr.reservoir.value(),
+                sys.reservoir_array,
+                "VolumeRight",
+                vr.name,
+                "reservoir",
+                "Reservoir");
+    }
+    if (vr.right_reservoir.has_value()) {
+      check_ref(result,
+                vr.right_reservoir.value(),
+                sys.volume_right_array,
+                "VolumeRight",
+                vr.name,
+                "right_reservoir",
+                "VolumeRight");
+    }
+  }
+
+  // ReservoirDischargeLimit.waterway -> Waterway, .reservoir -> Reservoir
+  // (both required).  The discharge-limit piecewise row binds the
+  // waterway's flow column to the reservoir's volume state — invalid
+  // FK on either side silently drops the constraint from the LP.
+  for (const auto& rdl : sys.reservoir_discharge_limit_array) {
+    check_ref(result,
+              rdl.waterway,
+              sys.waterway_array,
+              "ReservoirDischargeLimit",
+              rdl.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              rdl.reservoir,
+              sys.reservoir_array,
+              "ReservoirDischargeLimit",
+              rdl.name,
+              "reservoir",
+              "Reservoir");
+  }
 }
 
 /// Validate fuel/heat-rate schema rules: mutual exclusion (scalar vs
