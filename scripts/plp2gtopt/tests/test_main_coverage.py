@@ -261,7 +261,9 @@ class TestBuildOptions:
         assert opts["no_boundary_cuts"] is True
         assert opts["stationary_tol"] == 0.01
         assert opts["stationary_window"] == 5
-        assert opts["model_options"]["reserve_fail_cost"] == 500.0
+        # §11.10: legacy CLI name reserve_fail_cost maps to canonical
+        # gtopt key reserve_shortage_cost.
+        assert opts["model_options"]["reserve_shortage_cost"] == 500.0
         assert opts["model_options"]["use_line_losses"] is True
 
     def test_reservoir_energy_scale_parsing(self):

@@ -101,7 +101,6 @@
     {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "load_shedding",      "dialect": "pypsa"},
 
     {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "reserve_fail_cost",  "dialect": "gtopt-legacy"},
-    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "VoRS",                "dialect": "plexos"},
     {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
 
     {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
@@ -161,9 +160,6 @@
     {"class": "emission_zone", "canonical": "weight",   "alt": "gwp",              "dialect": "gtopt"},
     {"class": "emission_zone", "canonical": "weight",   "alt": "CO2 Equivalent",   "dialect": "plexos"},
 
-    {"class": "emission_source", "canonical": "upstream_rate", "alt": "wtt_rate",        "dialect": "gtopt"},
-    {"class": "emission_source", "canonical": "upstream_rate", "alt": "lifecycle_rate",  "dialect": "gtopt"},
-
     {"class": "emission_capture", "canonical": "rate", "alt": "capture_rate",        "dialect": "gtopt"},
     {"class": "emission_capture", "canonical": "rate", "alt": "Carbon Capture Rate", "dialect": "plexos"},
     {"class": "emission_capture", "canonical": "cost", "alt": "ccs_cost",            "dialect": "gtopt"},
@@ -189,8 +185,6 @@
     {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "FatorEmissao",            "dialect": "sddp"},
     {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "Upstream Emission Rate",  "dialect": "plexos"},
     {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "Upstream Production Rate","dialect": "plexos"},
-    {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "wtt_rate",                "dialect": "gtopt"},
-    {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "lifecycle_rate",          "dialect": "gtopt"},
 
     {"class": "commitment", "canonical": "pmin",             "alt": "Min Stable Factor",    "dialect": "plexos"},
     {"class": "commitment", "canonical": "pmin",             "alt": "min_power",            "dialect": "gtopt"},
@@ -256,7 +250,6 @@
 
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "Violation Cost",        "dialect": "plexos"},
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "Shortage Penalty",      "dialect": "plexos"},
-    {"class": "reserve_zone", "canonical": "urcost",     "alt": "VoRS",                  "dialect": "plexos"},
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "CustoFaltaReservaUp",   "dialect": "sddp"},
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "CostoFaltaReservaSubir","dialect": "plp"},
     {"class": "reserve_zone", "canonical": "drcost",     "alt": "Violation Cost Down",   "dialect": "plexos"},
@@ -320,6 +313,14 @@
     {"class": "generator",        "canonical": "emission_rate",  "alt": "Emission Production Rate", "dialect": "plexos"},
 
     {"class": "emission_source",  "canonical": "rate",           "alt": "Production Rate",   "dialect": "plexos"},
-    {"class": "fuel",             "canonical": "emission_factors","alt": "Production Rate",  "dialect": "plexos"}
+    {"class": "fuel",             "canonical": "emission_factors","alt": "Production Rate",  "dialect": "plexos"},
+
+    {"class": "emission_source",  "canonical": "upstream_rate",          "alt": "wtt_rate",        "dialect": "gtopt"},
+    {"class": "fuel",             "canonical": "upstream_emission_factor","alt": "wtt_rate",        "dialect": "gtopt"},
+    {"class": "emission_source",  "canonical": "upstream_rate",          "alt": "lifecycle_rate",  "dialect": "gtopt"},
+    {"class": "fuel",             "canonical": "upstream_emission_factor","alt": "lifecycle_rate",  "dialect": "gtopt"},
+
+    {"class": "model_options",    "canonical": "reserve_shortage_cost",  "alt": "VoRS",            "dialect": "plexos"},
+    {"class": "reserve_zone",     "canonical": "urcost",                 "alt": "VoRS",            "dialect": "plexos"}
   ]
 }

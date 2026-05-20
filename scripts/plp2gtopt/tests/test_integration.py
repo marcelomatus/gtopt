@@ -318,7 +318,8 @@ def test_min_bess_conversion(tmp_path):
     assert bat["bus"] == 1
     assert bat["pmax_discharge"] == pytest.approx(50.0)
     assert bat["pmax_charge"] == pytest.approx(50.0)
-    assert bat["gcost"] == pytest.approx(0.0)
+    # Battery.gcost was renamed to discharge_cost in commit e54b795a4.
+    assert bat["discharge_cost"] == pytest.approx(0.0)
 
     # No converter – auto-generated at LP construction time
     assert "converter_array" not in sys
@@ -397,7 +398,8 @@ def test_min_battery_conversion(tmp_path):
     assert bat["bus"] == 1
     assert bat["pmax_discharge"] == pytest.approx(50.0)
     assert bat["pmax_charge"] == pytest.approx(50.0)
-    assert bat["gcost"] == pytest.approx(0.0)
+    # Battery.gcost was renamed to discharge_cost in commit e54b795a4.
+    assert bat["discharge_cost"] == pytest.approx(0.0)
 
     # No converter – auto-generated at LP construction time
     assert "converter_array" not in sys
@@ -477,7 +479,8 @@ def test_min_ess_conversion(tmp_path):
     assert bat["bus"] == 1
     assert bat["pmax_discharge"] == pytest.approx(50.0)  # dcmax from plpess.dat
     assert bat["pmax_charge"] == pytest.approx(50.0)
-    assert bat["gcost"] == pytest.approx(0.0)
+    # Battery.gcost was renamed to discharge_cost in commit e54b795a4.
+    assert bat["discharge_cost"] == pytest.approx(0.0)
 
     # No converter – auto-generated at LP construction time
     assert "converter_array" not in sys

@@ -439,7 +439,7 @@ def test_build_options_defaults():
     assert opts["output_file"] == Path("output/output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
-    assert opts["compression"] == "snappy"
+    assert opts["compression"] == "lz4"
     assert opts["hydrologies"] == "all"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)

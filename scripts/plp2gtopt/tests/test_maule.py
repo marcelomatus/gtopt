@@ -59,10 +59,13 @@ class TestMauleParser:
         assert maule_config["v_comp_elec_max"] == pytest.approx(350.0)
 
     def test_initial_volumes(self, maule_config):
+        # Values from support/plp_2_years/plpmaulen.dat.xz (in 10^3 m3 → hm3):
+        # VGastoElecMenIni=0, VGastoElecAnuIni=184049, VGastoRiegoIni=133406,
+        # VCompElecIni=0.
         assert maule_config["v_gasto_elec_men_ini"] == pytest.approx(0.0)
-        assert maule_config["v_gasto_elec_anu_ini"] == pytest.approx(73.406)
-        assert maule_config["v_gasto_riego_ini"] == pytest.approx(420.488)
-        assert maule_config["v_comp_elec_ini"] == pytest.approx(10.5893)
+        assert maule_config["v_gasto_elec_anu_ini"] == pytest.approx(184.049)
+        assert maule_config["v_gasto_riego_ini"] == pytest.approx(133.406)
+        assert maule_config["v_comp_elec_ini"] == pytest.approx(0.0)
 
     def test_flow_limits(self, maule_config):
         assert maule_config["gasto_elec_men_max"] == pytest.approx(25.0)
@@ -72,9 +75,9 @@ class TestMauleParser:
     def test_monthly_modulation(self, maule_config):
         mod = maule_config["mod_elec_reserva"]
         assert len(mod) == 12
-        # First 6 months: 100%, last 6: 0%
-        assert mod[:6] == [100, 100, 100, 100, 100, 100]
-        assert mod[6:] == [0, 0, 0, 0, 0, 0]
+        # support/plp_2_years/plpmaulen.dat: 7 leading 100s, then 5 zeros.
+        assert mod[:7] == [100.0] * 7
+        assert mod[7:] == [0.0] * 5
 
     def test_armerillo_flag(self, maule_config):
         assert maule_config["descuenta_elec_armerillo"] is True

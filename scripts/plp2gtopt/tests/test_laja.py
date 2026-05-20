@@ -243,8 +243,11 @@ class TestLajaParser:
         assert usage[0] == pytest.approx(0.0)  # Apr
 
     def test_initial_rights(self, laja_config):
-        assert laja_config["ini_irr"] == pytest.approx(544)
-        assert laja_config["ini_elec"] == pytest.approx(277)
+        # Fixture support/plp_2_years/plplajam.dat.xz updated in 4a3264cc6
+        # (PLP 2-year case). The "Derechos iniciales" line in that file is
+        # `234 145 0 0`, so ini_irr=234 / ini_elec=145.
+        assert laja_config["ini_irr"] == pytest.approx(234)
+        assert laja_config["ini_elec"] == pytest.approx(145)
 
     def test_districts(self, laja_config):
         districts = laja_config["districts"]
@@ -499,16 +502,18 @@ class TestLajaWriter:
     def test_volume_rights_initial(self, laja_config):
         writer = LajaWriter(laja_config)
 
+        # Initial values come from `Derechos iniciales` line in
+        # support/plp_2_years/plplajam.dat (234 / 145 / 0 / 0).
         vol_irr = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
-        assert vol_irr["eini"] == pytest.approx(544)
+        assert vol_irr["eini"] == pytest.approx(234)
         assert vol_irr["emax"] == pytest.approx(5000)
 
         vol_elec = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_electrico"
         )
-        assert vol_elec["eini"] == pytest.approx(277)
+        assert vol_elec["eini"] == pytest.approx(145)
 
     def test_district_flow_rights(self, laja_config):
         writer = LajaWriter(laja_config)
