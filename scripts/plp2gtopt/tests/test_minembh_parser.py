@@ -105,7 +105,7 @@ def test_lookup_by_name(tmp_path):
 
 
 def test_parse_real_case():
-    """Parse the plp_case_2y fixture (3 reservoirs)."""
+    """Parse the plp_case_2y fixture (refreshed: 2 reservoirs)."""
     from plp2gtopt.compressed_open import resolve_compressed_path
 
     path = CASES_DIR / "plp_case_2y" / "plpminembh.dat"
@@ -116,11 +116,10 @@ def test_parse_real_case():
     parser = MinembhParser(path)
     # No central_parser → scale=1 (raw values)
     parser.parse()
-    assert parser.num_minembhs == 3
+    assert parser.num_minembhs == 2
     names = [e["name"] for e in parser.minembhs]
     assert "COLBUN" in names
     assert "RAPEL" in names
-    assert "CANUTILLAR" in names
 
 
 def test_parse_zero_stages_skipped(tmp_path):
