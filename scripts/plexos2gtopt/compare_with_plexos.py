@@ -389,6 +389,21 @@ def _render_report(
         return
     delta = gtopt["sum_obj"] - plexos_obj
     rel = 100.0 * delta / abs(plexos_obj)
+    # ⚠ Horizon-mismatch caveat: the CEN PCP daily bundle reports
+    # PLEXOS totals over its full 7-day PCP forward-look (4-stage
+    # MT chained schedule), whereas plexos2gtopt currently emits a
+    # 1-stage 24-block JSON.  A like-for-like cost diff must
+    # divide PLEXOS by ~7 (or extract day-1 only via
+    # cen2gtopt.pcp_solution.extract_property against the .accdb).
+    # Until that's wired into this scout, the raw Δ below is
+    # apples-to-oranges and the user must apply the 1/7 mental
+    # correction.  Tracked for follow-up.
+    console.print(
+        "[dim]⚠ Horizon caveat: PLEXOS log reports totals across "
+        "its full 7-day PCP forward-look; gtopt currently runs 1 day.  "
+        "Divide PLEXOS by ~7 for a per-day comparison until this "
+        "scout learns to extract per-day totals from the .accdb.[/dim]"
+    )
     if abs(rel) < 2.0:
         console.print(
             "[green]Within 2% of PLEXOS MIP — looks healthy. "
@@ -403,10 +418,12 @@ def _render_report(
         )
     else:
         console.print(
-            f"[yellow]gtopt costs < PLEXOS by {rel:+.1f}%.  "
-            "Expected when gtopt is LP-relaxed (LP ≤ MIP), but "
-            "delta > 5% suggests a missing cost component "
-            "(transport, emission tax, reserve cost).[/yellow]"
+            f"[yellow]gtopt costs < PLEXOS by {rel:+.1f}% (raw).  "
+            "After the horizon correction (PLEXOS/7 ≈ "
+            f"${plexos_obj / 7.0:,.0f}/day) the corrected delta is "
+            f"{100.0 * (gtopt['sum_obj'] - plexos_obj / 7.0) / (plexos_obj / 7.0):+.1f}%.  "
+            "Expected when gtopt is LP-relaxed vs PLEXOS MIP with "
+            "commitment / startup costs.[/yellow]"
         )
 
 
