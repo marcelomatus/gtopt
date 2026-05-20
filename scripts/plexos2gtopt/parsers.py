@@ -651,9 +651,16 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     membership_rates = _extract_fuel_co2_membership_rates(db)
     out: list[FuelSpec] = []
     for fuel in db.objects_of_class("Fuel"):
-        series = prices.get(fuel.name, [])
-        price = series[0] if series else 0.0
-        if price == 0.0:
+        # CSV-present (even explicit 0) takes precedence over t_data
+        # fallback.  ``fuel_price = 0`` is a legitimate value for
+        # biomass / biogas / geothermal / ERNC fuels in CEN PCP
+        # (~25 fuels in DATOS20260422 ship explicit Price = 0).
+        # Using ``dict.get(name, [0.0])[0]`` followed by
+        # ``if price == 0.0`` would silently overwrite those with
+        # the System→Fuels static-property default (often non-zero).
+        if fuel.name in prices:
+            price = prices[fuel.name][0]
+        else:
             # Fallback: XML-only schemas (RTS-96) ship the fuel
             # price as a static property on the System→Fuels collection.
             price = db.static_property("Fuel", fuel.object_id, "Price")
@@ -760,9 +767,13 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         # PLEXOS heat rate is in kJ/kWh (or kcal/kWh) and ships per-hour;
         # the daily PCP keeps a constant value, so first-period scalar
         # is the right collapse. VO&M is $/MWh, fuel-transport ditto.
-        hr_series = heat_rate_csv.get(gen.name, [])
-        heat_rate = hr_series[0] if hr_series else 0.0
-        if heat_rate == 0.0:
+        # CSV-present (even explicit 0) takes precedence over t_data
+        # fallback — see fuel-price comment above.  CEN PCP ships
+        # explicit heat_rate=0 for ~6 renewable generators (geothermal,
+        # solar thermal) where fuel consumption truly is zero.
+        if gen.name in heat_rate_csv:
+            heat_rate = heat_rate_csv[gen.name][0]
+        else:
             # PLEXOS heat-rate conventions, in order of preference:
             #  1. ``Heat Rate``       — single scalar (RTS-96, CEN PCP)
             #  2. ``Heat Rate Incr``  — linear marginal slope (118-Bus
@@ -775,27 +786,35 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 or db.static_property("Generator", gen.object_id, "Heat Rate Incr")
                 or db.static_property("Generator", gen.object_id, "Heat Rate Base")
             )
-        vom_series = vom_csv.get(gen.name, [])
-        vom = vom_series[0] if vom_series else 0.0
-        if vom == 0.0:
+        # VOM: CSV-present (even 0) takes precedence; only fall back to
+        # t_data when the generator is absent from the CSV.
+        if gen.name in vom_csv:
+            vom = vom_csv[gen.name][0]
+        else:
             vom = db.static_property("Generator", gen.object_id, "VO&M Charge")
         # Fuel transport charge ($/MWh): PLEXOS keys each row by the
         # ``<generator_name><fuel_name>`` concatenation (one row per gen
         # × fuel attachment).  Use the primary-fuel match — same fuel
         # the writer picks for gcost (``fuel_names[0]``).  Fall back to
         # exact gen.name (XML-only schemas with no fuel suffix).
+        #
+        # CSV-present (even explicit 0) honoured: the bundle ships a
+        # handful of explicit-0 transport rows (NUEVA_RENCA gas grades
+        # with no transport surcharge); a ``== 0.0 → fallback`` guard
+        # would let an unrelated gen.name-only row overwrite the
+        # intentional zero.
         fuel_transport = 0.0
+        fuel_transport_found = False
         if fuel_transport_csv:
             gen_fuel_names = fuel_map.get(gen.object_id, ())
             for fname in gen_fuel_names:
-                series = fuel_transport_csv.get(gen.name + fname)
-                if series:
-                    fuel_transport = series[0]
+                key = gen.name + fname
+                if key in fuel_transport_csv:
+                    fuel_transport = fuel_transport_csv[key][0]
+                    fuel_transport_found = True
                     break
-            if fuel_transport == 0.0:
-                series = fuel_transport_csv.get(gen.name)
-                if series:
-                    fuel_transport = series[0]
+            if not fuel_transport_found and gen.name in fuel_transport_csv:
+                fuel_transport = fuel_transport_csv[gen.name][0]
         # 118-Bus prices fuel per-generator instead of per-fuel.
         fuel_price_override = db.static_property(
             "Generator", gen.object_id, "Fuel Price"
