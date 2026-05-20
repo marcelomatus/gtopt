@@ -190,13 +190,14 @@ void System::expand_batteries()
     // Discharge generator: power injected into the external bus.
     //
     // ``pmax_discharge`` (TB) → ``Generator.pmax`` — per-(stage,
-    // block) operational ceiling.  ``pmin_discharge`` (TB) →
-    // ``Generator.pmin`` — HARD per-block floor; ConverterLP gates
-    // this via its commitment binary when ``Converter.commitment``
-    // is true.  The same per-unit value also flows into the synthesised
-    // ``Commitment.pmin`` below (single-source-of-truth in progress —
-    // once ConverterLP migrates to looking up u from CommitmentLP,
-    // the ``Generator.pmin`` here can collapse to 0).
+    // block) operational ceiling.  ``Generator.pmin`` stays unset
+    // (0) on purpose: the per-unit min stable level flows through
+    // the synthesised ``Commitment.pmin`` below, and ConverterLP
+    // looks up the resulting ``u_commit`` from CommitmentLP for
+    // both discharge and charge gating ("one true source for
+    // u_commit").  Putting a positive ``Generator.pmin`` here would
+    // re-introduce a hard always-on floor that conflicts with the
+    // commitment-conditional row ``gen ≥ Commitment.pmin × u``.
     //
     // ``Generator.capacity`` is left unset: the default capacity
     // sentinel is ``numeric_limits<double>::max()`` (unlimited), so
@@ -207,7 +208,6 @@ void System::expand_batteries()
         .uid = gen_uid++,
         .name = gen_name,
         .bus = *battery.bus,
-        .pmin = battery.pmin_discharge,
         .pmax = battery.pmax_discharge,
         .gcost = battery.discharge_cost,
     });

@@ -279,6 +279,104 @@ TEST_CASE("Converter.commitment lets battery idle (load=0 below lmin)")
   CHECK(std::isfinite(lp.get_obj_value_raw()));
 }
 
+TEST_CASE(  // NOLINT
+    "Converter.commitment reuses CommitmentLP u (no u_charge / u_discharge)")
+{
+  // With Battery.commitment=true AND pmin_discharge set, expand_batteries
+  // synthesizes a Commitment("uc_bat1_gen") whose CommitmentLP creates
+  // the per-block `status` (u_commit) columns.  ConverterLP must look
+  // that CommitmentLP up by generator_sid() and gate the charge-side
+  // demand with the SAME u_commit — NOT create separate `u_charge` /
+  // `u_discharge` cols.  This test verifies the "one true source for
+  // u_commit" wiring.
+  Battery battery {
+      .uid = Uid {1},
+      .name = "bat1",
+      .bus = Uid {1},
+      .input_efficiency = 0.95,
+      .output_efficiency = 0.95,
+      .emin = 0.0,
+      .emax = 100.0,
+      .pmax_charge = 10.0,
+      .pmax_discharge = 10.0,
+      .pmin_charge = 5.0,
+      .pmin_discharge = 2.0,
+      .discharge_cost = 1.0,
+      .commitment = true,
+  };
+  auto system = make_system(std::move(battery));
+  system.expand_batteries();
+
+  // Sanity: a Commitment row was synthesized for bat1_gen.
+  REQUIRE(system.commitment_array.size() == 1);
+  CHECK(system.commitment_array.front().name == "uc_bat1_gen");
+
+  // CommitmentLP::add_to_lp short-circuits on non-chronological
+  // stages, so this test uses a chronological 1-stage 2-block sim
+  // (rather than the file-level `make_two_block_simulation`, which
+  // defaults `.chronological = false`).
+  Simulation simulation {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1.0},
+              {.uid = Uid {2}, .duration = 1.0},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1},
+               .first_block = 0,
+               .count_block = 2,
+               .chronological = true},
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {0}},
+          },
+  };
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.col_with_names = true;
+  opts.lp_matrix_options.col_with_name_map = true;
+  PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(simulation, options);
+
+  LpMatrixOptions flat {};
+  flat.col_with_names = true;
+  flat.col_with_name_map = true;
+  SystemLP sys_lp(system, sim_lp, flat);
+
+  auto&& lp = sys_lp.linear_interface();
+  const auto rc = lp.resolve();
+  REQUIRE(rc.has_value());
+  REQUIRE(rc.value() == 0);
+
+  // Inspect col names: a CommitmentLP `status` col must exist for
+  // each block, and NO Converter `u_charge` / `u_discharge` cols
+  // should have been added.  Match on the substring `_status_`
+  // (CommitmentLP) and `_u_charge_` / `_u_discharge_` (Converter
+  // fallback) without anchoring the class-name prefix, since the
+  // exact col-name format depends on the LpMatrix flat options.
+  const auto& col_map = lp.col_name_map();
+  int n_status = 0;
+  int n_u_charge = 0;
+  int n_u_discharge = 0;
+  for (const auto& [name, idx] : col_map) {
+    (void)idx;
+    if (name.contains("status")) {
+      ++n_status;
+    }
+    if (name.contains("u_charge")) {
+      ++n_u_charge;
+    }
+    if (name.contains("u_discharge")) {
+      ++n_u_discharge;
+    }
+  }
+  CHECK(n_status == 2);  // one per block of the 1-stage 2-block sim
+  CHECK(n_u_charge == 0);
+  CHECK(n_u_discharge == 0);
+}
+
 TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
 {
   // When the floors are 0, the gating lower-row is omitted (col >= 0

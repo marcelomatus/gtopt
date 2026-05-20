@@ -528,8 +528,6 @@ void create_collections(const auto& system_context,
       make_collection<CapacityProfileLP>(ic, sys.capacity_profile_array);
   std::get<Collection<BatteryLP>>(colls) =
       make_collection<BatteryLP>(ic, sys.battery_array);
-  std::get<Collection<ConverterLP>>(colls) =
-      make_collection<ConverterLP>(ic, sys.converter_array);
   std::get<Collection<ReserveZoneLP>>(colls) =
       make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(colls) =
@@ -546,6 +544,12 @@ void create_collections(const auto& system_context,
       make_collection<CommitmentLP>(ic, sys.commitment_array);
   std::get<Collection<SimpleCommitmentLP>>(colls) =
       make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
+  // ConverterLP runs after CommitmentLP/SimpleCommitmentLP so the
+  // battery's synthesized u_commit columns (created by
+  // `expand_batteries`) are already stamped on the LP and can be
+  // reused for charge-side gating — "one true source for u_commit".
+  std::get<Collection<ConverterLP>>(colls) =
+      make_collection<ConverterLP>(ic, sys.converter_array);
   std::get<Collection<InertiaZoneLP>>(colls) =
       make_collection<InertiaZoneLP>(ic, sys.inertia_zone_array);
   std::get<Collection<InertiaProvisionLP>>(colls) =

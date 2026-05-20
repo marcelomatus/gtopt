@@ -242,6 +242,13 @@ public:
   /// Tuple of collections for all LP component types.
   /// `UserConstraintLP` is placed LAST so that user-constraint rows are
   /// added to the LP after all other elements whose columns they reference.
+  // NOTE: this tuple ordering governs the LP-construction order via
+  // `visit_elements`.  ConverterLP intentionally runs AFTER
+  // CommitmentLP / SimpleCommitmentLP so that the battery's
+  // synthesized u_commit columns (created by `expand_batteries`)
+  // are already stamped on the LP and reusable for charge-side
+  // gating — "one true source for u_commit".  Keep in sync with
+  // `lp_element_types_t` in `lp_element_types.hpp`.
   using collections_t = std::tuple<Collection<BusLP>,
                                    Collection<DemandLP>,
                                    Collection<GeneratorLP>,
@@ -250,7 +257,6 @@ public:
                                    Collection<DemandProfileLP>,
                                    Collection<CapacityProfileLP>,
                                    Collection<BatteryLP>,
-                                   Collection<ConverterLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,
@@ -259,6 +265,7 @@ public:
                                    Collection<EmissionSourceLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
+                                   Collection<ConverterLP>,
                                    Collection<InertiaZoneLP>,
                                    Collection<InertiaProvisionLP>,
                                    Collection<JunctionLP>,

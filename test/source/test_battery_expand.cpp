@@ -713,12 +713,21 @@ TEST_CASE("expand_batteries wires pmin_* onto synthetic gen/demand")  // NOLINT
 
   REQUIRE(system.generator_array.size() == 1);
   const auto& gen = system.generator_array.back();
-  // pmin_discharge → Generator.pmin (TB schedule)
-  REQUIRE(gen.pmin.has_value());
-  CHECK(std::get<Real>(gen.pmin.value_or(RealFieldSched2 {0.0})) == 2.0);
+  // Generator.pmin is intentionally unset on the synthesized discharge
+  // generator — `Commitment.pmin` carries the per-unit min stable
+  // level as a u-gated row, so the always-on `Generator.pmin` floor
+  // would clash with that conditional bound.  See
+  // `source/system.cpp::expand_batteries` for the rationale.
+  CHECK_FALSE(gen.pmin.has_value());
   // pmax_discharge → Generator.pmax
   REQUIRE(gen.pmax.has_value());
   CHECK(std::get<Real>(gen.pmax.value_or(RealFieldSched2 {0.0})) == 10.0);
+
+  // pmin_discharge → Commitment.pmin (synthesized for the discharge gen)
+  REQUIRE(system.commitment_array.size() == 1);
+  const auto& cmt = system.commitment_array.back();
+  REQUIRE(cmt.pmin.has_value());
+  CHECK(cmt.pmin.value_or(0.0) == doctest::Approx(2.0));
 
   REQUIRE(system.demand_array.size() == 1);
   const auto& dem = system.demand_array.back();

@@ -10,12 +10,14 @@
  */
 
 #include <gtopt/battery_lp.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 
 namespace gtopt
 {
@@ -126,26 +128,38 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
   // Conditional commitment: when ``Converter.commitment`` is set,
   // gate the synthetic charge ``Demand`` and discharge ``Generator``
-  // floors/ceilings with per-block binaries.  Mirrors UC.jl's
-  // ``Minimum charge/discharge rate (MW)`` semantics (the floor only
-  // fires when the battery is actively charging/discharging) and
-  // PLEXOS ``Battery.Commitment Status``.
+  // bounds with per-block binaries.  Mirrors PLEXOS
+  // ``Battery.Commitment Status``.
   //
-  // Approach: read the column bounds that ``GeneratorLP`` /
-  // ``DemandLP`` already stamped (block_pmax = uppb, block_pmin =
-  // lowb on the generation/load columns), then RESET the static
-  // lower bounds to 0 and emit C2-style rows
+  // "One true source for u_commit" — when the generator side has a
+  // CommitmentLP (always true for batteries via
+  // ``System::expand_batteries()`` synthesis), the discharge
+  // gating ``gen ≤ pmax × u`` / ``gen ≥ Commitment.pmin × u`` is
+  // already emitted by ``CommitmentLP::add_to_lp``.  ConverterLP
+  // then reuses that same ``u_commit`` column to gate the
+  // charge-side demand bounds — no duplicate ``u_discharge`` /
+  // ``u_charge`` cols are introduced.
   //
-  //     col − ub × u ≤ 0        (col_upper)
-  //     col − lb × u ≥ 0        (col_lower, only when lb > 0)
-  //
-  // so the bounds only fire when the corresponding binary u is 1.
-  // Default u ∈ [0, 1] continuous (LP relax — the cost-minimisation
-  // objective still drives binaries to extreme points at the solver
-  // because the inner Generator.gcost / Demand.fcost coefficients
-  // make any fractional u suboptimal); ``integer_commitment`` flips
-  // them to {0, 1} for a true MIP.
+  // Fallback (legacy, kept for non-synthesized cases): when no
+  // CommitmentLP matches the converter's generator, fall back to
+  // creating local ``u_charge`` / ``u_discharge`` binaries (integer
+  // by convention — the original ``Converter.commitment`` API).
   if (converter().commitment.value_or(false)) {
+    // Look up the CommitmentLP that points at this converter's
+    // discharge generator.  The synthesized commitment (uid named
+    // ``uc_<bat>_gen``) ``relax = true`` by default — fractional u
+    // is fine for an LP-only run.
+    const BIndexHolder<ColIndex>* shared_ucol = nullptr;
+    for (const auto& cmt : sc.elements<CommitmentLP>()) {
+      if (cmt.generator_sid() != generator_sid()) {
+        continue;
+      }
+      shared_ucol = cmt.find_status_cols(scenario, stage);
+      if (shared_ucol != nullptr) {
+        break;
+      }
+    }
+
     for (const auto& block : blocks) {
       const auto buid = block.uid();
       const auto block_ctx =
@@ -157,6 +171,51 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto block_lmin = lp.get_col_lowb(dcol);
       const auto block_lmax = lp.get_col_uppb(dcol);
 
+      // ── Shared-u_commit path ────────────────────────────────────
+      if (shared_ucol != nullptr) {
+        const auto uc_it = shared_ucol->find(buid);
+        if (uc_it == shared_ucol->end()) {
+          continue;
+        }
+        const auto ucol = uc_it->second;
+
+        // Discharge side is already gated by CommitmentLP via
+        // ``gen_upper`` / ``gen_lower`` rows; nothing to add here.
+        // Charge side: mirror the discharge gating onto the
+        // synthetic demand col using the same shared u_commit.
+        if (block_lmax > 0.0) {
+          lp.col_at(dcol).lowb = 0.0;
+          {
+            auto row =
+                SparseRow {
+                    .class_name = Element::class_name.full_name(),
+                    .constraint_name = ChargeUpperName,
+                    .variable_uid = uid(),
+                    .context = block_ctx,
+                }
+                    .less_equal(0.0);
+            row[dcol] = 1.0;
+            row[ucol] = -block_lmax;
+            static_cast<void>(lp.add_row(std::move(row)));
+          }
+          if (block_lmin > 0.0) {
+            auto row =
+                SparseRow {
+                    .class_name = Element::class_name.full_name(),
+                    .constraint_name = ChargeLowerName,
+                    .variable_uid = uid(),
+                    .context = block_ctx,
+                }
+                    .greater_equal(0.0);
+            row[dcol] = 1.0;
+            row[ucol] = -block_lmin;
+            static_cast<void>(lp.add_row(std::move(row)));
+          }
+        }
+        continue;
+      }
+
+      // ── Legacy fallback (no CommitmentLP) ──────────────────────
       // Discharge side: migrate ``Generator.pmin`` from a static col
       // floor to a u-gated row.  ``u_discharge`` exists only when the
       // discharge envelope is non-degenerate (pmax > 0).
@@ -200,9 +259,8 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
         }
       }
 
-      // Charge side: mirror the discharge gating onto the synthetic
-      // ``Demand.lmin`` / ``Demand.lmax``.  Same skip condition
-      // (lmax > 0); same migration of static lowb → u-gated row.
+      // Charge side fallback: mirror the discharge gating onto the
+      // synthetic ``Demand.lmin`` / ``Demand.lmax``.
       if (block_lmax > 0.0) {
         lp.col_at(dcol).lowb = 0.0;
         const auto u_chg = lp.add_col({
