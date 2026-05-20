@@ -896,7 +896,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
 
   if (opts.write_out) {
-    planning.options.write_out = parse_output_flags(*opts.write_out);
+    planning.options.write_out = parse_output_selection(*opts.write_out);
   }
 
   // CLI solver shortcuts → solver_options

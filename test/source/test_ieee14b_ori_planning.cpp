@@ -40,6 +40,7 @@ static constexpr std::string_view ieee14b_ori_json = R"(
       "annual_discount_rate": 0.0,
       "output_format": "csv",
       "output_compression": "uncompressed",
+      "output_layout": "wide",
       "model_options": {
         "use_single_bus": false,
         "use_kirchhoff": true,

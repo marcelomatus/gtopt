@@ -357,40 +357,52 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
 
   const auto pid = id();
+  // Primary dispatch + marginal-unit signal: kept on the default
+  // `solution` / `reduced_cost` gates — every downstream consumer
+  // (gtopt_marginal_units, gtopt_check_output, gtopt_compare,
+  // gtopt_results_summary) reads at least one of these.
   out.add_col_sol(cname, GenerationName, pid, generation_cols);
   out.add_col_cost(cname, GenerationName, pid, generation_cols);
-  out.add_row_dual(cname, CapacityName, pid, capacity_rows);
 
-  // Heat-rate piecewise slack primals + reduced costs.  One emission
-  // per segment; downstream tools can reconstruct per-segment
-  // dispatch from these.
+  // ── Extras (opt-in via `--write-out ...,extras:Generator`) ─────────
+  //
+  // The capacity-row dual is the shadow price on `gen <= pmax`; useful
+  // for capacity-expansion audits but unused by the dispatch /
+  // marginal-unit pipelines.  Heat-rate slack primals + reduced costs
+  // are per-segment piecewise diagnostics: marginal-unit attribution
+  // uses `srmc_sol` (kept under `solution` below), which already
+  // encodes the active segment's slope.  No current consumer reads
+  // either set.
+  out.add_row_dual_extras(cname, CapacityName, pid, capacity_rows);
   for (const auto& scols : heat_rate_slack_cols_) {
-    out.add_col_sol(cname, HeatRateSlackName, pid, scols);
-    out.add_col_cost(cname, HeatRateSlackName, pid, scols);
+    out.add_col_sol_extras(cname, HeatRateSlackName, pid, scols);
+    out.add_col_cost_extras(cname, HeatRateSlackName, pid, scols);
   }
 
   // ── PLEXOS-aligned per-MWh dispatch cost stack ($/MWh) ─────────────
   //
-  //   Generator/vom_cost_sol.parquet  — `gcost(stage, block)`,
-  //                                    matches PLEXOS `VOM Cost`.
-  //   Generator/fuel_cost_sol.parquet — `heat_rate · fuel.price`,
-  //                                    matches PLEXOS `Fuel Cost`.
-  //   Generator/srmc_sol.parquet      — VOM + Fuel = primary-segment
+  //   Generator/srmc_sol.parquet      — VOM + Fuel = active-segment
   //                                    cost coefficient on the
   //                                    `generation` column, matches
   //                                    PLEXOS `SRMC` (Short-Run
-  //                                    Marginal Cost).
+  //                                    Marginal Cost).  Used by
+  //                                    `gtopt_marginal_units` for
+  //                                    piecewise / time-varying SRMC
+  //                                    attribution.
+  //   Generator/vom_cost_sol.parquet  — `gcost(stage, block) · dispatch`
+  //                                    decomposition (PLEXOS `VOM Cost`).
+  //   Generator/fuel_cost_sol.parquet — `heat_rate · fuel.price · dispatch`
+  //                                    decomposition (PLEXOS `Fuel Cost`).
   //
-  // All values are physical $/MWh (Path A — computed from source
-  // schedules at `add_to_lp` time; no LP-scale un-wrapping needed).
-  // Emission cost is wired separately via EmissionZone.price on the
-  // `EmissionZone/production` column; reconstruct the full carbon-
-  // inclusive SRMC downstream by summing this `srmc_sol` with the
-  // per-block emission-zone marginal price scaled by the generator's
-  // weighted emission rate.
-  out.add_col_sol_values(cname, "vom_cost", pid, vom_cost_values_);
-  out.add_col_sol_values(cname, "fuel_cost", pid, fuel_cost_values_);
+  // VOM and fuel are demoted to `extras`: `srmc_sol` already gives the
+  // active-segment marginal cost (`srmc = vom + fuel`), and total
+  // operational cost is `srmc · dispatch · duration` — neither
+  // decomposition is needed by any current consumer.  Anyone who
+  // wants the accounting split opts in via `--write-out
+  // ...,extras:Generator`.  SRMC stays on the default `solution` gate.
   out.add_col_sol_values(cname, "srmc", pid, srmc_values_);
+  out.add_col_sol_values_extras(cname, "vom_cost", pid, vom_cost_values_);
+  out.add_col_sol_values_extras(cname, "fuel_cost", pid, fuel_cost_values_);
 
   return CapacityBase::add_to_output(out);
 }

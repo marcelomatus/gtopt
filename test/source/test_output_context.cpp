@@ -499,25 +499,25 @@ auto make_csv_system()
 }  // namespace
 
 TEST_CASE(
-    "OutputContext - CSV with default codec (snappy) writes plain "
+    "OutputContext - CSV with snappy codec falls back to plain "
     ".csv")  // NOLINT
 {
-  // The default `output_compression` is `snappy` (chosen for Parquet
-  // encode/decode speed).  Snappy is not a streaming codec the
-  // `csv_write_table` path supports, so for CSV format the writer
-  // falls back to uncompressed and produces plain `.csv` files.
-  // Users who want compressed CSV must explicitly opt in to a CSV-
-  // compatible codec (`zstd`, `gzip`).
+  // `snappy` is not a streaming codec the `csv_write_table` path
+  // supports, so when a user explicitly asks for CSV format + snappy
+  // compression the writer falls back to uncompressed `.csv`.  Test
+  // pins `snappy` explicitly because the post-2026-05-19 default
+  // `output_compression` is `zstd` — exercising the default would
+  // hit the `.csv.zst` branch covered by the next test.  This case
+  // documents the snappy fallback the codec table relies on.
   auto [system, simulation] = make_csv_system();
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_csv_default_snappy";
+      std::filesystem::temp_directory_path() / "gtopt_csv_snappy_fallback";
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  // output_compression not set → default `snappy` → for CSV format
-  // this falls through `csv_write_table` to the uncompressed path.
+  opts.output_compression = CompressionCodec::snappy;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -677,6 +677,14 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
   opts.output_compression = CompressionCodec::gzip;
+  // Pin `wide` — this test exercises the legacy single-row read path of
+  // `csv_read_table` on a `(scenario, stage, block, uid:N…)` CSV shard.
+  // Under the post-2026-05-19 `long` default the shape would be
+  // `(scenario, stage, block, uid, value)` with zero rows dropped, and
+  // the simple `make_csv_system` fixture has no non-zero dispatch, so
+  // a long-form CSV would be header-only and `num_rows() > 0` fails.
+  // Wide form emits one row per cell-tuple regardless.
+  opts.output_layout = OutputLayout::wide;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);

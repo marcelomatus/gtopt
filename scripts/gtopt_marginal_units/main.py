@@ -66,8 +66,19 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Identify marginal generating units and attribute the bus LMP "
             "and emission intensity. See "
-            "docs/scripts/gtopt_marginal_units_plan.md for the full design."
+            "docs/scripts/gtopt_marginal_units_plan.md for the full design.\n"
+            "\n"
+            "Recommended `gtopt` write_out for the source run:\n"
+            "    --write-out 'sol,dual,rc:Generator,Line'\n"
+            "Emits exactly the streams this tool consumes "
+            "(Generator/generation_sol, Generator/generation_cost, "
+            "Generator/srmc_sol, Bus/balance_dual, Junction/balance_dual, "
+            "Battery/energy_dual, Reservoir/water_value_dual, "
+            "Line/flowp_sol, Line/flown_sol, Demand/load_sol, "
+            "Demand/fail_sol) and skips the per-element reduced costs "
+            "no consumer reads — keeps the on-disk footprint lean."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--input-kind",
@@ -162,9 +173,10 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=True,
         help=(
-            "Require gtopt reduced-cost output (Generator/generation_cost, "
-            "Generator/srmc_sol) under --output. Re-run gtopt with "
-            "`--write-out sol,dual,rc` if missing. Default: on."
+            "Require gtopt reduced-cost output (Generator/generation_cost) "
+            "under --output. Recommended source-run flag: "
+            "`gtopt --write-out 'sol,dual,rc:Generator,Line'` — emits only "
+            "the streams this tool consumes. Default: on."
         ),
     )
     p.add_argument(

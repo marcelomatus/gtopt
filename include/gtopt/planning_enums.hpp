@@ -14,9 +14,12 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtopt/enum_option.hpp>
 
@@ -138,6 +141,48 @@ inline constexpr auto data_format_entries =
 [[nodiscard]] constexpr auto enum_entries(DataFormat /*tag*/) noexcept
 {
   return std::span {data_format_entries};
+}
+
+// --- OutputLayout ----------------------------------------------------------
+
+/**
+ * @brief On-disk layout for the per-(scene, phase) solution tables.
+ *
+ * `wide` (legacy) — one column per UID:
+ *   schema: (scenario, stage, block, uid:1, uid:2, …, uid:N)
+ *   one row per (stage, block).  Pays ~150 bytes of per-column
+ *   metadata for *every* uid in *every* partition file — on the
+ *   support/plp_2_years 1335-generator case that's ~110 KB of pure
+ *   parquet footer per file, ~46% of the on-disk footprint, and
+ *   the metadata cost grows linearly with the model size.
+ *
+ * `long` (default since 2026-05-19) — one row per non-zero cell:
+ *   schema: (scenario, stage, block, uid, value)
+ *   only 6 columns regardless of how many UIDs the model has.
+ *   Non-zero filtering exploits the typical 0.1 % cell density
+ *   directly — POC on plp_2_years measured 5-7× smaller files on
+ *   the heavy Generator streams and 2-3× on the LMP / line-flow
+ *   streams (1.0 GB → ~330 MB total).  Reading the long shape is
+ *   a single `Σ value GROUP BY uid` instead of iterating
+ *   `uid:*` columns; the streaming aggregators in
+ *   `scripts/gtopt_check_output/_reader.py` handle both forms
+ *   transparently.
+ */
+enum class OutputLayout : uint8_t
+{
+  wide = 0,  ///< One column per UID (legacy)
+  long_ = 1,  ///< Long form — non-zero-only (default, smaller disk)
+};
+
+inline constexpr auto output_layout_entries =
+    std::to_array<EnumEntry<OutputLayout>>({
+        {.name = "wide", .value = OutputLayout::wide},
+        {.name = "long", .value = OutputLayout::long_},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(OutputLayout /*tag*/) noexcept
+{
+  return std::span {output_layout_entries};
 }
 
 // --- CompressionCodec -------------------------------------------------------
@@ -371,7 +416,17 @@ enum class OutputFlags : uint8_t
   solution = 1U,
   dual = 2U,
   reduced_cost = 4U,
-  all = 7U,  // solution | dual | reduced_cost
+  /// Opt-in atom for streams that no current consumer reads but
+  /// that may be useful for future audits / debugging.  Today this
+  /// gates Generator's `capacity_dual`, `heat_rate_slack_sol/cost`,
+  /// `vom_cost_sol`, `fuel_cost_sol`; and Line's piecewise-segment
+  /// `flowp/flown` slices, `lossp/lossn_sol`,
+  /// `overloadp/overloadn_sol/cost`.  Default `write_out` is
+  /// `solution | dual | reduced_cost` (extras excluded); pass
+  /// `--write-out all` or `--write-out sol,dual,rc,extras` to opt
+  /// in.
+  extras = 8U,
+  all = 15U,  // solution | dual | reduced_cost | extras
 };
 
 [[nodiscard]] constexpr auto operator|(OutputFlags a, OutputFlags b) noexcept
@@ -418,6 +473,8 @@ inline constexpr auto output_flags_entries =
         {.name = "rcost", .value = OutputFlags::reduced_cost, .is_alias = true},
         {.name = "rc", .value = OutputFlags::reduced_cost, .is_alias = true},
         {.name = "cost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "extras", .value = OutputFlags::extras},
+        {.name = "extra", .value = OutputFlags::extras, .is_alias = true},
         {.name = "all", .value = OutputFlags::all},
     });
 
@@ -493,6 +550,237 @@ inline constexpr auto output_flags_entries =
   }
   if (has_flag(flags, OutputFlags::reduced_cost)) {
     append("reduced_cost");
+  }
+  return out;
+}
+
+/// Per-atom class-name allow-list layered on top of an `OutputFlags`
+/// bitmask.  An empty list for an atom means "no restriction — apply
+/// to every element class"; a non-empty list restricts that atom to
+/// the listed class `cname`s (`Generator`, `Bus`, `Line`, `Battery`,
+/// `Reservoir`, `Junction`, `Demand`, …, matching the strings each
+/// `*LP` class passes as the first argument to `add_col_sol` /
+/// `add_col_cost` / `add_row_dual`).
+///
+/// Syntax accepted by `parse_output_selection`:
+///
+///   - `sol,dual,rc`                       → all atoms, no scope
+///   - `sol,dual,rc:Generator,Line`        → rc only on Generator & Line
+///   - `sol:Generator,Line,dual:Bus,rc`    → mixed per-atom scopes
+///   - `all`                               → all atoms, no scope
+///   - `none`                              → no atoms
+///
+/// Class names appearing after a colon (or as bare tokens following a
+/// scoped atom) extend the *previous* atom's allow-list — that's how
+/// `sol,dual,rc:Generator,Line` parses (Generator + Line both belong
+/// to rc, not as new atoms).
+struct OutputSelection
+{
+  OutputFlags atoms {OutputFlags::none};
+  std::vector<std::string> sol_classes {};
+  std::vector<std::string> dual_classes {};
+  std::vector<std::string> rc_classes {};
+  std::vector<std::string> extra_classes {};
+
+  /// Construct with no atoms and no scope — matches a default
+  /// `OutputFlags::none`.
+  constexpr OutputSelection() noexcept = default;
+
+  /// Construct from a bare `OutputFlags` (no per-atom scope).  Used by
+  /// the compiled defaults and by tests that still think in terms of
+  /// the legacy bitmask only.
+  /* implicit */ constexpr OutputSelection(OutputFlags f) noexcept
+      : atoms {f}
+  {
+  }
+
+  /// True if the given atom is enabled AND, if a class scope is set
+  /// for that atom, `cname` appears in the allow-list.  Empty scope =
+  /// applies to every class.
+  [[nodiscard]] auto emits(OutputFlags atom,
+                           std::string_view cname) const noexcept -> bool
+  {
+    if (!has_flag(atoms, atom)) {
+      return false;
+    }
+    const auto& list = scope_const(atom);
+    if (list.empty()) {
+      return true;
+    }
+    for (const auto& allowed : list) {
+      if (allowed == cname) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Mutable accessor for the per-atom scope vector, used by the parser
+  /// to append class names.  Returns a reference to the vector for
+  /// the *single* atom bit; for aliases like `all` that expand to
+  /// multiple atoms, the caller distributes scope entries by walking
+  /// the individual bits.
+  [[nodiscard]] auto scope_mut(OutputFlags atom) noexcept
+      -> std::vector<std::string>&
+  {
+    switch (atom) {
+      case OutputFlags::solution:
+        return sol_classes;
+      case OutputFlags::dual:
+        return dual_classes;
+      case OutputFlags::reduced_cost:
+        return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
+      default:
+        // Aliases (`all`, `none`) and unknown bits never hit this path
+        // — the parser breaks them into atom-bit components first.
+        return rc_classes;
+    }
+  }
+
+  [[nodiscard]] auto scope_const(OutputFlags atom) const noexcept
+      -> const std::vector<std::string>&
+  {
+    switch (atom) {
+      case OutputFlags::solution:
+        return sol_classes;
+      case OutputFlags::dual:
+        return dual_classes;
+      case OutputFlags::reduced_cost:
+        return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
+      default:
+        return rc_classes;
+    }
+  }
+
+  [[nodiscard]] auto operator==(const OutputSelection&) const noexcept
+      -> bool = default;
+};
+
+/// Parse `OutputSelection` from a comma-separated specification.  See
+/// `OutputSelection`'s docstring for the full syntax.
+///
+/// Throws `std::invalid_argument` on:
+///   - unknown atom keyword (with a list of accepted names),
+///   - a class-name continuation that has no preceding atom (e.g.
+///     `Generator,sol` would error because `Generator` precedes any
+///     scoped atom).
+[[nodiscard]] inline auto parse_output_selection(std::string_view spec)
+    -> OutputSelection
+{
+  OutputSelection out;
+  // Track which atom bit(s) are currently accepting class-name
+  // continuations.  `solution | dual | reduced_cost` for aliases like
+  // `all` — class names following such an alias extend every atom's
+  // scope.  Zero (== OutputFlags::none) means "no scope context", so
+  // a bare class-name token without a preceding atom is an error.
+  OutputFlags scope_target = OutputFlags::none;
+
+  const auto distribute_scope = [&](OutputFlags target, std::string_view cls)
+  {
+    if (has_flag(target, OutputFlags::solution)) {
+      out.sol_classes.emplace_back(cls);
+    }
+    if (has_flag(target, OutputFlags::dual)) {
+      out.dual_classes.emplace_back(cls);
+    }
+    if (has_flag(target, OutputFlags::reduced_cost)) {
+      out.rc_classes.emplace_back(cls);
+    }
+  };
+
+  const auto is_sep = [](char c)
+  { return c == ',' || c == '|' || c == ' ' || c == '\t'; };
+
+  std::size_t pos = 0;
+  while (pos < spec.size()) {
+    while (pos < spec.size() && is_sep(spec[pos])) {
+      ++pos;
+    }
+    const auto start = pos;
+    while (pos < spec.size() && !is_sep(spec[pos])) {
+      ++pos;
+    }
+    if (start == pos) {
+      break;
+    }
+    const auto tok = spec.substr(start, pos - start);
+    const auto colon = tok.find(':');
+    const auto atom_part =
+        (colon == std::string_view::npos) ? tok : tok.substr(0, colon);
+    const auto inline_class = (colon == std::string_view::npos)
+        ? std::string_view {}
+        : tok.substr(colon + 1);
+
+    // Try parsing the leading word as an atom name (or alias).  We
+    // tolerate `all`/`none` which expand to multi-bit atom sets — the
+    // distribute_scope helper handles either case.
+    auto atom_opt = enum_from_name<OutputFlags>(atom_part);
+    if (atom_opt) {
+      out.atoms |= *atom_opt;
+      scope_target = *atom_opt;
+      if (!inline_class.empty()) {
+        distribute_scope(scope_target, inline_class);
+      }
+      continue;
+    }
+
+    // Not an atom — must be a class-name continuation of the most
+    // recent scoped atom.
+    if (scope_target == OutputFlags::none) {
+      throw std::invalid_argument(std::format(
+          "output_flags: unknown atom '{}' (or class-name continuation "
+          "with no preceding scoped atom)",
+          tok));
+    }
+    distribute_scope(scope_target, tok);
+  }
+  return out;
+}
+
+/// Render an `OutputSelection` back into its canonical
+/// comma-separated form (round-trip with `parse_output_selection`).
+[[nodiscard]] inline auto output_selection_to_string(const OutputSelection& sel)
+    -> std::string
+{
+  if (sel.atoms == OutputFlags::none) {
+    return "none";
+  }
+  const auto append_atom = [&](std::string& out,
+                               std::string_view name,
+                               const std::vector<std::string>& scope)
+  {
+    if (!out.empty()) {
+      out += ',';
+    }
+    out += name;
+    for (std::size_t i = 0; i < scope.size(); ++i) {
+      out += (i == 0) ? ':' : ',';
+      out += scope[i];
+    }
+  };
+
+  // When all three atoms are set AND none has a per-class scope we
+  // collapse to the keyword "all" for compactness.
+  const auto fully_unscoped = sel.atoms == OutputFlags::all
+      && sel.sol_classes.empty() && sel.dual_classes.empty()
+      && sel.rc_classes.empty();
+  if (fully_unscoped) {
+    return "all";
+  }
+
+  std::string out;
+  if (has_flag(sel.atoms, OutputFlags::solution)) {
+    append_atom(out, "solution", sel.sol_classes);
+  }
+  if (has_flag(sel.atoms, OutputFlags::dual)) {
+    append_atom(out, "dual", sel.dual_classes);
+  }
+  if (has_flag(sel.atoms, OutputFlags::reduced_cost)) {
+    append_atom(out, "reduced_cost", sel.rc_classes);
   }
   return out;
 }

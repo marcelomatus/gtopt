@@ -364,6 +364,31 @@ public:
     m_active_cuts_ = std::move(cuts);
   }
 
+  // ── Wholesale reset (used on end-of-life paths only) ────────────────────
+  //
+  // Drops every recorded mutation (`dynamic_cols`, `dynamic_rows`,
+  // `active_cuts`, `pending_*`) and frees the underlying container
+  // capacity.  Used by `LinearInterface::clear_replay()` on the
+  // post-write_out drop path — once a cell has been written, no
+  // future `reconstruct_backend()` will replay these records, so
+  // holding them is pure waste.  Recovery hot-starts that loaded
+  // tens of thousands of boundary cuts can free hundreds of MB per
+  // cell here.
+  //
+  // The replay flag itself is left unchanged because it is a transient
+  // marker used only by `ReplayGuard`; clearing it here would be
+  // surprising if the caller is mid-replay (the design contract is
+  // that `clear()` is only invoked on a non-replaying buffer).
+  void clear() noexcept
+  {
+    m_dynamic_cols_ = {};
+    m_dynamic_rows_ = {};
+    m_active_cuts_ = {};
+    m_pending_col_bounds_ = {};
+    m_pending_coeffs_ = {};
+    m_pending_rhs_ = {};
+  }
+
   // ── Replay flag (R6) + RAII guard ───────────────────────────────────────
 
   void set_replaying(bool v) noexcept { m_replaying_ = v; }

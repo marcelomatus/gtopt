@@ -239,6 +239,13 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   auto planning = make_3phase_hydro_planning();
   planning.options.output_directory = tmpdir.string();
   planning.options.output_format = DataFormat::parquet;
+  // Pin `wide` here — this test asserts on per-partition `num_rows()`
+  // counts (24 blocks × 3 scenarios = 72 rows in wide form).  Under
+  // the post-2026-05-19 `long` default the same data is sparse-filtered
+  // (zero rows dropped) so the row count is element- and solution-
+  // dependent rather than a clean cell-count.  The wide form is the
+  // right legacy match for this set of correctness assertions.
+  planning.options.output_layout = OutputLayout::wide;
   PlanningLP planning_lp(std::move(planning));
 
   // ── Two-level cascade.  Each level inherits `max_iters` from the

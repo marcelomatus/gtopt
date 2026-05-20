@@ -633,6 +633,27 @@ public:
   /// call when the LP is truly done.
   void clear_snapshot() noexcept { m_snapshot_holder_.clear(); }
 
+  /// Drop the cut replay journal in `m_replay_`.
+  ///
+  /// The replay buffer accumulates every dynamic column, every
+  /// dynamic / cut row, and every pending bound / coefficient / RHS
+  /// override applied to the LP since the last `load_flat`.  It exists
+  /// so that `reconstruct_backend()` can rebuild the in-memory backend
+  /// after a `release_backend()` cycle (cuts and overrides are replayed
+  /// onto the freshly-loaded flat LP).
+  ///
+  /// On the end-of-life drop path (post-write_out, no future
+  /// reconstruct) the journal is dead weight.  On recovery hot-starts
+  /// it can be sizeable — 36 800 loaded boundary cuts × ~45 cuts/cell
+  /// over 816 cells = several GiB of SparseRow records that never
+  /// replay again.  Calling this after the cell's parquet write
+  /// completes recovers that budget.
+  ///
+  /// Safe to call multiple times (idempotent).  Must NOT be called
+  /// while a `ReplayGuard` is active — the caller is responsible for
+  /// ensuring the cell is truly done.
+  void clear_replay() noexcept { m_replay_.clear(); }
+
   /// Install a flat LP snapshot **without** loading the backend.
   ///
   /// Used by `SystemLP::create_lp` when low-memory mode is enabled at

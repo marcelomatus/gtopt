@@ -23,7 +23,8 @@ TEST_CASE("OutputFlags - enum values and bitwise ops")  // NOLINT
   CHECK(std::to_underlying(OutputFlags::solution) == 1);
   CHECK(std::to_underlying(OutputFlags::dual) == 2);
   CHECK(std::to_underlying(OutputFlags::reduced_cost) == 4);
-  CHECK(std::to_underlying(OutputFlags::all) == 7);
+  CHECK(std::to_underlying(OutputFlags::extras) == 8);
+  CHECK(std::to_underlying(OutputFlags::all) == 15);
 
   const auto both = OutputFlags::solution | OutputFlags::dual;
   CHECK(has_flag(both, OutputFlags::solution));
@@ -59,9 +60,20 @@ TEST_CASE("parse_output_flags - combinations")  // NOLINT
 {
   CHECK(parse_output_flags("sol,dual")
         == (OutputFlags::solution | OutputFlags::dual));
-  CHECK(parse_output_flags("solution, dual, reduced_cost") == OutputFlags::all);
-  CHECK(parse_output_flags("sol|dual|rcost") == OutputFlags::all);
+  // Atomic-tuple parses to the OR of its atoms — NOT to `all`, which
+  // since the `extras` atom landed is `sol|dual|rc|extras`.
+  CHECK(parse_output_flags("solution, dual, reduced_cost")
+        == (OutputFlags::solution | OutputFlags::dual
+            | OutputFlags::reduced_cost));
+  CHECK(parse_output_flags("sol|dual|rcost")
+        == (OutputFlags::solution | OutputFlags::dual
+            | OutputFlags::reduced_cost));
+  CHECK(parse_output_flags("all") == OutputFlags::all);
   CHECK(parse_output_flags("dual,dual") == OutputFlags::dual);  // idempotent
+  CHECK(parse_output_flags("extras") == OutputFlags::extras);
+  CHECK(parse_output_flags("extra") == OutputFlags::extras);  // alias
+  CHECK(parse_output_flags("sol,extras")
+        == (OutputFlags::solution | OutputFlags::extras));
 }
 
 TEST_CASE("parse_output_flags - case-insensitive")  // NOLINT
@@ -95,19 +107,79 @@ TEST_CASE("output_flags_to_string - round-trip")  // NOLINT
   CHECK(parse_output_flags(output_flags_to_string(combined)) == combined);
 }
 
-TEST_CASE("PlanningOptionsLP::write_out - default is all")  // NOLINT
+TEST_CASE(
+    "PlanningOptionsLP::write_out - default is "
+    "sol,dual,rc:Generator,Line (extras excluded)")  // NOLINT
 {
+  // Default emits every primal + every dual unscoped, but restricts
+  // reduced costs to Generator + Line — the union of what every
+  // current consumer reads.  `extras` stays off by default.  Users
+  // who want every reduced cost on every class pass
+  // `--write-out sol,dual,rc` (no scope); those who want every
+  // stream including extras pass `--write-out all`.
   const PlanningOptions opts;
   const PlanningOptionsLP wrapper(opts);
-  CHECK(wrapper.write_out() == OutputFlags::all);
+  const auto sel = wrapper.write_out();
+  CHECK(sel.atoms
+        == (OutputFlags::solution | OutputFlags::dual
+            | OutputFlags::reduced_cost));
+  CHECK_FALSE(has_flag(sel.atoms, OutputFlags::extras));
+  CHECK(sel.sol_classes.empty());
+  CHECK(sel.dual_classes.empty());
+  REQUIRE(sel.rc_classes.size() == 2);
+  CHECK(sel.rc_classes[0] == "Generator");
+  CHECK(sel.rc_classes[1] == "Line");
+  CHECK(sel.extra_classes.empty());
+
+  // The default applies rc to Generator + Line but not to other classes.
+  CHECK(sel.emits(OutputFlags::reduced_cost, "Generator"));
+  CHECK(sel.emits(OutputFlags::reduced_cost, "Line"));
+  CHECK_FALSE(sel.emits(OutputFlags::reduced_cost, "Battery"));
+  CHECK_FALSE(sel.emits(OutputFlags::reduced_cost, "Demand"));
+  CHECK_FALSE(sel.emits(OutputFlags::reduced_cost, "Reservoir"));
+
+  // sol / dual are unscoped — apply to every class.
+  CHECK(sel.emits(OutputFlags::solution, "Battery"));
+  CHECK(sel.emits(OutputFlags::dual, "Junction"));
 }
 
 TEST_CASE("PlanningOptionsLP::write_out - explicit overrides")  // NOLINT
 {
   PlanningOptions opts;
-  opts.write_out = OutputFlags::solution | OutputFlags::dual;
+  opts.write_out = OutputSelection {OutputFlags::solution | OutputFlags::dual};
   const PlanningOptionsLP wrapper(opts);
-  CHECK(wrapper.write_out() == (OutputFlags::solution | OutputFlags::dual));
+  CHECK(wrapper.write_out().atoms
+        == (OutputFlags::solution | OutputFlags::dual));
+}
+
+TEST_CASE(
+    "PlanningOptionsLP::write_out - explicit `all` includes extras")  // NOLINT
+{
+  PlanningOptions opts;
+  opts.write_out = OutputSelection {OutputFlags::all};
+  const PlanningOptionsLP wrapper(opts);
+  CHECK(has_flag(wrapper.write_out().atoms, OutputFlags::extras));
+}
+
+TEST_CASE(
+    "parse_output_selection - scoped reduced_cost (`rc:Generator,Line`) "
+    "round-trips through `emits()`")  // NOLINT
+{
+  const auto sel = parse_output_selection("sol,dual,rc:Generator,Line");
+  CHECK(has_flag(sel.atoms, OutputFlags::solution));
+  CHECK(has_flag(sel.atoms, OutputFlags::dual));
+  CHECK(has_flag(sel.atoms, OutputFlags::reduced_cost));
+  CHECK_FALSE(has_flag(sel.atoms, OutputFlags::extras));
+
+  // rc only applies to the two named classes.
+  CHECK(sel.emits(OutputFlags::reduced_cost, "Generator"));
+  CHECK(sel.emits(OutputFlags::reduced_cost, "Line"));
+  CHECK_FALSE(sel.emits(OutputFlags::reduced_cost, "Battery"));
+  CHECK_FALSE(sel.emits(OutputFlags::reduced_cost, "Demand"));
+
+  // sol / dual are unscoped — apply to every class.
+  CHECK(sel.emits(OutputFlags::solution, "Battery"));
+  CHECK(sel.emits(OutputFlags::dual, "Junction"));
 }
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)

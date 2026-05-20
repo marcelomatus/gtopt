@@ -237,8 +237,16 @@ def _wide_to_long(
     uid_col: str,
     value_col: str,
 ) -> pd.DataFrame | None:
-    """Melt a (scenario, stage, block, uid:1, uid:2, …) gtopt frame
-    into long form (cell-key cols + uid_col + value_col).
+    """Melt a gtopt output frame into the canonical long form
+    (cell-key cols + uid_col + value_col).
+
+    Accepts both gtopt output layouts:
+
+    * ``output_layout=wide`` (legacy): one ``uid:N`` column per element;
+      we melt and split the column name to recover the uid.
+    * ``output_layout=long`` (default since 2026-05-19): the frame is
+      already long — we just rename ``uid``/``value`` to the caller's
+      names.
 
     Returns None if ``wide`` is None or empty.
     """
@@ -246,17 +254,25 @@ def _wide_to_long(
         return None
 
     key_cols = [c for c in ("scenario", "stage", "block") if c in wide.columns]
-    uid_cols = [c for c in wide.columns if c.startswith("uid:")]
-    if not uid_cols:
-        return None
 
-    melted = wide.melt(
-        id_vars=key_cols,
-        value_vars=uid_cols,
-        var_name=uid_col,
-        value_name=value_col,
-    )
-    melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
+    # Long-form sniff (matches the C++ writer in output_context.cpp).
+    if "uid" in wide.columns and "value" in wide.columns:
+        melted = wide[key_cols + ["uid", "value"]].rename(
+            columns={"uid": uid_col, "value": value_col}
+        )
+        melted[uid_col] = melted[uid_col].astype(int)
+    else:
+        uid_cols = [c for c in wide.columns if c.startswith("uid:")]
+        if not uid_cols:
+            return None
+
+        melted = wide.melt(
+            id_vars=key_cols,
+            value_vars=uid_cols,
+            var_name=uid_col,
+            value_name=value_col,
+        )
+        melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
     # Map gtopt's (scenario, stage, block) into the canonical cell key,
     # leaving (date_utc, hour) NA and tagging data_source="simulated".
     out = pd.DataFrame()
