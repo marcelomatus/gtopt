@@ -197,7 +197,17 @@ indent-style = "space"
 line-ending = "auto"
 
 [tool.pylint.main]
-# No additional main settings needed
+# pyarrow.compute is a C-extension module — its functions are exposed
+# dynamically, so pylint can't statically resolve `pc.max`, `pc.sum`,
+# `pc.multiply`, etc.  Tell pylint these members exist so it stops
+# emitting spurious E1101 no-member errors on pyarrow.compute calls.
+extension-pkg-allow-list = ["pyarrow.compute"]
+
+[tool.pylint.typecheck]
+# `pc.<func>` covers every pyarrow.compute function we actually use
+# (abs, max, min, sum, count, drop_null, multiply, less, …).  Matched
+# as a regex against the missing-attribute access.
+generated-members = ["pc\\..*"]
 
 [tool.pylint.format]
 max-line-length = 100
