@@ -37,6 +37,7 @@
 #include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
 #include <gtopt/solver_stats.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 #include <spdlog/spdlog.h>
@@ -662,7 +663,29 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
+  // The `out_sw` stopwatch only measures the final
+  // `PlanningLP::write_out()` flush + planning.json sidecar.  Under SDDP
+  // every per-cell parquet was already written during the forward pass
+  // (each iteration dispatches its own `SystemLP::write_out` calls to
+  // the cell pool), so by the time we get here there is nothing left
+  // to flush — `out_sw` reports a misleading 0.x s for runs that
+  // actually wrote gigabytes.  Print *both* numbers so the report is
+  // honest: the runner stopwatch, plus the process-wide cumulative
+  // per-cell write_out wall fed by `SystemLP::write_out`.
+  const auto cells = SystemLP::total_write_cells();
+  const auto cum_ms = SystemLP::total_write_ms();
+  if (cells > 0) {
+    spdlog::info(
+        "  Write output time {:.3f}s "
+        "(final flush; cumulative per-cell write_out wall {:.3f}s "
+        "across {} cells, avg {:.1f} ms/cell)",
+        out_sw.elapsed().count(),
+        cum_ms / 1000.0,
+        cells,
+        cum_ms / static_cast<double>(cells));
+  } else {
+    spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
+  }
   return {};
 }
 

@@ -207,6 +207,42 @@ def validate_solution_csv(output_dir: Path, *, allow_nonoptimal: bool) -> list[s
     return errors
 
 
+def _is_long_layout(df: pd.DataFrame) -> bool:
+    """Sniff gtopt's output layout from a DataFrame's columns.
+
+    Mirrors :func:`gtopt_check_output._reader.dataset_layout` but works on
+    an in-memory frame.  Returns ``True`` for the long-form schema
+    (``scenario, stage, block, uid, value``), ``False`` for the wide
+    form (``uid:N`` columns).
+    """
+    return "uid" in df.columns and "value" in df.columns
+
+
+def _long_form_values_for_uid(
+    df: pd.DataFrame, uid: int | str | None, name: str | None
+) -> pd.Series | None:
+    """Return the long-form ``value`` series filtered to a single
+    element.
+
+    The long form's ``uid`` column is integer-typed; the name keyword
+    is unused (long form does not carry the element name) but kept for
+    call-site symmetry with the wide-form ``_matches_uid`` path.
+    Returns ``None`` when neither argument resolves to an integer uid
+    (long form cannot match by name alone).
+    """
+    del name  # not available in long form
+    try:
+        uid_int = int(uid) if uid is not None else None
+    except (TypeError, ValueError):
+        return None
+    if uid_int is None:
+        return None
+    sub = df[df["uid"] == uid_int]
+    if sub.empty:
+        return None
+    return sub["value"].dropna()
+
+
 def validate_reservoir_efin(
     output_dir: Path, reservoirs: list[dict[str, Any]]
 ) -> list[str]:
@@ -230,13 +266,34 @@ def validate_reservoir_efin(
         return ["Reservoir/efin_sol.{parquet,csv} not found"]
 
     errors: list[str] = []
-    # The uid column name may be "uid:name:<n>" expanded by the writer;
-    # the long-form table has one value column per reservoir.  Walk the
-    # columns and match against each reservoir entry.
+    long_layout = _is_long_layout(df)
+    # Long-form: filter by `uid`.  Wide-form: walk uid:N / name:N columns.
     for rsv in reservoirs:
         uid = rsv.get("uid")
         emin = float(rsv.get("emin", 0.0))
         emax = float(rsv.get("emax", 0.0))
+        if long_layout:
+            series = _long_form_values_for_uid(df, uid, rsv.get("name"))
+            if series is None or series.empty:
+                # Long-form drops zero rows from the parquet, so a reservoir
+                # whose efin is identically zero across every (scene, phase,
+                # stage, block) cell legitimately produces zero rows here.
+                # Treat that as "all zeros" — fail only when 0.0 itself
+                # would escape the [emin, emax] bracket.
+                if 0.0 < emin - ENERGY_TOL or 0.0 > emax + ENERGY_TOL:
+                    errors.append(
+                        f"Reservoir/efin_sol[uid={uid}]: long-form layout "
+                        f"has no rows (implies all zeros), but 0 escapes "
+                        f"[{emin:.6g}, {emax:.6g}]"
+                    )
+                continue
+            lo, hi = series.min(), series.max()
+            if lo < emin - ENERGY_TOL or hi > emax + ENERGY_TOL:
+                errors.append(
+                    f"Reservoir/efin_sol[uid={uid}]: out of bounds — "
+                    f"[{lo:.6g}, {hi:.6g}] escapes [{emin:.6g}, {emax:.6g}]"
+                )
+            continue
         matching_cols = [
             c
             for c in df.columns
@@ -277,9 +334,26 @@ def validate_generator_generation(
         return ["Generator/generation_sol.{parquet,csv} not found"]
 
     errors: list[str] = []
+    long_layout = _is_long_layout(df)
     for gen in generators:
         uid = gen.get("uid")
         capacity = float(gen.get("capacity", 0.0))
+        if long_layout:
+            series = _long_form_values_for_uid(df, uid, gen.get("name"))
+            if series is None or series.empty:
+                # Some generators may be inactive — this is a warning, not a failure.
+                continue
+            lo, hi = series.min(), series.max()
+            if lo < -CAPACITY_TOL:
+                errors.append(
+                    f"Generator/generation_sol[uid={uid}]: negative value {lo:.6g}"
+                )
+            if hi > capacity + CAPACITY_TOL:
+                errors.append(
+                    f"Generator/generation_sol[uid={uid}]: {hi:.6g} exceeds capacity "
+                    f"{capacity:.6g}"
+                )
+            continue
         matching_cols = [
             c
             for c in df.columns
@@ -310,6 +384,19 @@ def validate_demand_fail(output_dir: Path) -> list[str]:
         return []  # not present on every case
 
     errors: list[str] = []
+    # Long-form: a single `value` column carries every demand uid's
+    # shortage; the min over the whole column is the floor that must
+    # respect the non-negativity tolerance.
+    if _is_long_layout(df):
+        series = df["value"].dropna()
+        if not series.empty:
+            lo = float(series.min())
+            if lo < -CAPACITY_TOL:
+                errors.append(
+                    f"Demand/fail_sol[value]: negative value {lo:.6g} (fail must be ≥ 0)"
+                )
+        return errors
+
     for col in df.columns:
         if col in ("scenario", "stage", "block", "scene", "phase"):
             continue
@@ -478,7 +565,23 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
             errors.append(f"golden element_samples[{i}]: {cls}/{stem} not found")
             continue
 
-        if value_col not in df.columns:
+        # Long-form rewrite: golden JSON pins ``value_column: "uid:N"``
+        # against the legacy wide schema; on the long-form file the same
+        # cell lives in the bare ``value`` column with an extra
+        # ``uid == N`` filter.  Translate the request transparently so
+        # the same golden file works for both layouts.
+        effective_value_col = value_col
+        effective_filter = dict(filt)
+        if _is_long_layout(df) and value_col.startswith("uid:"):
+            try:
+                uid_target = int(value_col.split(":", 1)[1])
+            except ValueError:
+                uid_target = None
+            if uid_target is not None:
+                effective_value_col = "value"
+                effective_filter["uid"] = uid_target
+
+        if effective_value_col not in df.columns:
             errors.append(
                 f"golden element_samples[{i}]: value_column {value_col!r} "
                 f"not in {cls}/{stem} "
@@ -490,7 +593,7 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
         # DataFrame columns; any key missing is a hard error (the golden
         # file is out of sync with the output schema).
         sub = df
-        for k, v in filt.items():
+        for k, v in effective_filter.items():
             if k not in sub.columns:
                 errors.append(
                     f"golden element_samples[{i}]: filter column {k!r} "
@@ -501,13 +604,32 @@ def validate_against_golden(output_dir: Path, golden_path: Path) -> list[str]:
             sub = sub[sub[k] == v]
         if sub is None:
             continue
+        long_layout = _is_long_layout(df)
         if sub.empty:
+            # Long-form drops zero rows from the parquet — a missing
+            # (scene, phase, stage, block, uid) row legitimately means
+            # the value is 0.0.  Only flag this as an error for wide
+            # layout, where a missing key would indicate genuinely
+            # absent data rather than a dropped-zero encoding.
+            if long_layout:
+                actual = 0.0
+                if not _close(
+                    actual, float(expected), abs_tol=abs_tol, rel_tol=rel_tol
+                ):
+                    errors.append(
+                        f"golden element_samples[{i}] "
+                        f"[{cls}/{stem} {filt} {value_col}]: "
+                        f"no rows match (long-form layout implies value=0.0), "
+                        f"expected {float(expected):.6g} "
+                        f"(abs_tol={abs_tol}, rel_tol={rel_tol})"
+                    )
+                continue
             errors.append(
                 f"golden element_samples[{i}]: no row matching {filt} in {cls}/{stem}"
             )
             continue
 
-        actual_series = sub[value_col].dropna()
+        actual_series = sub[effective_value_col].dropna()
         if actual_series.empty:
             errors.append(
                 f"golden element_samples[{i}] [{cls}/{stem} {filt} {value_col}]: "

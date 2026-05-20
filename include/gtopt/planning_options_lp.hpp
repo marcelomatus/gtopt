@@ -139,25 +139,30 @@ public:
   static constexpr DataFormat default_output_format = DataFormat::parquet;
   /** @brief Default compression codec for Parquet output files.
    *
-   *  `snappy` is the de-facto Spark / Arrow / Parquet default: very
-   *  fast encode + decode on the small Arrow buffers gtopt emits, and
-   *  every Parquet-consuming tool in the ecosystem reads it natively.
-   *  Use `output_compression: zstd` when archival ratio matters more
-   *  than encode time, or `output_compression: lz4` when downstream
-   *  consumers prefer the LZ4 frame format.
+   *  `zstd` since 2026-05-19 — empirically the best ratio × decode-speed
+   *  combo for the dense long-form value column produced by
+   *  `output_layout = long` (the matching default below).  On the
+   *  2-year case `zstd + long + BYTE_STREAM_SPLIT + round8` lands at
+   *  ~298 MB vs ~1 GB for `snappy + wide`.  All modern parquet readers
+   *  (Arrow ≥ 1.8, pandas, polars, duckdb, R `arrow`) read it natively.
+   *
+   *  Use `output_compression: snappy` when faster encode-side latency
+   *  matters more than archival ratio, or `output_compression: lz4`
+   *  when downstream consumers prefer the LZ4 frame format.
    *
    *  History: between 2026-05-18 and 2026-05-19 the default was
    *  briefly flipped to `lz4`, but `resolve_parquet_codec` was missing
    *  the `lz4` mapping — every column was silently written
-   *  UNCOMPRESSED.  The codec table is fixed and the default is back
-   *  to `snappy`, both behaviours that callers naturally expect.
+   *  UNCOMPRESSED.  The codec table was fixed; default flipped from
+   *  `snappy` to `zstd` once long-form + BYTE_STREAM_SPLIT made the
+   *  ratio win unambiguous.
    *
    *  `lp_compression` (LP debug files) keeps `zstd` as its default —
    *  those files are large textual dumps where the ratio matters and
    *  decode speed does not.
    */
   static constexpr CompressionCodec default_output_compression =
-      CompressionCodec::snappy;
+      CompressionCodec::zstd;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -471,6 +476,60 @@ public:
   [[nodiscard]] constexpr auto output_format_enum() const -> DataFormat
   {
     return m_options_.output_format.value_or(default_output_format);
+  }
+
+  /// On-disk layout for the per-(scene, phase) solution tables.
+  ///
+  /// Default `long` (since 2026-05-19) — 6-column non-zero-only shape
+  /// `(scenario, stage, block, uid, value)` with `uint16_t` keys and
+  /// a `BYTE_STREAM_SPLIT`-encoded value column.  Combined with the
+  /// matching `zstd` compression default, this produces a 3-7× smaller
+  /// on-disk footprint on the typical 0.1 %-dense gtopt output
+  /// (e.g. 1 GB → 298 MB on the 2-year case).
+  ///
+  /// Two distinct compatibility questions to keep separate:
+  ///
+  ///   1. **Parquet file readability** — universal.  pandas, polars,
+  ///      duckdb, R `arrow`, Spark all read the file natively; nothing
+  ///      special needs to be installed.
+  ///
+  ///   2. **Downstream script compatibility** — NOT universal.  A
+  ///      script that hard-codes `df.iloc[:, 3:].sum().sum()` (wide
+  ///      assumption) or `df.groupby("uid")["value"].sum()` (long
+  ///      assumption) only works on the matching shape.  Scripts that
+  ///      need to work with both must sniff the schema (`"value" in
+  ///      df.columns` → long; else wide) and branch accordingly — see
+  ///      `scripts/gtopt_check_output/_reader.py::dataset_layout` for
+  ///      the reference sniff.  Or pivot long → wide once at read
+  ///      time: `df.pivot_table(index=["scenario","stage","block"],
+  ///      columns="uid", values="value", fill_value=0.0)`.
+  ///
+  /// Set `output_layout: "wide"` to restore the legacy shape (one
+  /// column per `uid`) for callers that depend on it — notably the
+  /// `gtopt_compare` e2e harness, which still reads `uid:N` columns
+  /// directly.  Long-mode readers must sniff the schema (presence
+  /// of a bare `uid` column → long; presence of `uid:N` columns →
+  /// wide) and dispatch accordingly; see
+  /// `scripts/gtopt_check_output/_reader.py::dataset_layout` for the
+  /// reference implementation.
+  static constexpr OutputLayout default_output_layout = OutputLayout::long_;
+  [[nodiscard]] constexpr auto output_layout() const noexcept -> OutputLayout
+  {
+    return m_options_.output_layout.value_or(default_output_layout);
+  }
+
+  /// Decimal places to keep on the on-disk value columns.  Default `8`
+  /// — small enough that `round(v, 8)` zeros the bottom ~24 bits of
+  /// the IEEE-754 mantissa on every value, which `BYTE_STREAM_SPLIT
+  /// + zstd` then compresses 3-5× better than the unrounded form.
+  /// `<= 0` disables rounding (full-precision output for bit-exact
+  /// reproducibility verification).  Bound to JSON
+  /// `output_round_decimals` and CLI `--output-round-decimals`.
+  static constexpr int default_output_round_decimals = 8;
+  [[nodiscard]] constexpr auto output_round_decimals() const noexcept -> int
+  {
+    return m_options_.output_round_decimals.value_or(
+        default_output_round_decimals);
   }
 
   /**

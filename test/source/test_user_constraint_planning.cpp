@@ -725,6 +725,7 @@ static constexpr std::string_view single_bus_uc_raw_json = R"json(
       "annual_discount_rate": 0.1,
       "output_format": "csv",
       "output_compression": "uncompressed",
+      "output_layout": "wide",
       "model_options": {
         "use_single_bus": true,
         "scale_objective": 1,

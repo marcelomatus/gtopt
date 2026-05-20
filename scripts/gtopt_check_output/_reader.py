@@ -104,6 +104,27 @@ def dataset_uid_cols(dataset: pads.Dataset) -> list[str]:
     return [n for n in dataset.schema.names if n.startswith("uid:")]
 
 
+def dataset_layout(dataset: pads.Dataset) -> str:
+    """Sniff the on-disk schema of *dataset*.
+
+    Returns ``"long"`` when the dataset uses the 6-column
+    ``(scenario, stage, block, uid, value)`` layout introduced
+    2026-05-19 to shrink wide hive-partition outputs (set by
+    ``options.output_layout: "long"``).  Returns ``"wide"`` (the
+    historical default) when the dataset has one ``uid:N`` column per
+    element.  The sniff is purely schema-based — no rows are read.
+
+    Cheap test (`"uid" in dataset.schema.names`) instead of
+    ``dataset_uid_cols`` is intentional: a wide dataset always has at
+    least one ``uid:N`` column but never a bare ``uid`` column, and a
+    long dataset always has the bare ``uid`` column.
+    """
+    names = set(dataset.schema.names)
+    if "uid" in names and "value" in names:
+        return "long"
+    return "wide"
+
+
 def _scan_batches(dataset: pads.Dataset, columns: list[str] | None) -> Iterator:
     """Yield record batches; clamp to the columns we asked for so the
     scanner reads minimal data off disk."""
@@ -116,9 +137,23 @@ def _scan_batches(dataset: pads.Dataset, columns: list[str] | None) -> Iterator:
 def streaming_uid_sum(dataset: pads.Dataset | None) -> float:
     """Σ over every cell of every uid:* column, streaming per partition
     batch.  Used wherever the old code had ``_to_wide(df).sum().sum()``.
+
+    Layout-aware: dispatches to a long-form aggregator
+    (`scenario, stage, block, uid, value` schema) when the dataset was
+    written with `output_layout: "long"`.  The wide-form aggregator
+    iterates all `uid:N` columns; the long-form aggregator iterates the
+    single `value` column.  Result is identical because dropped zeros
+    are sum-invariant.
     """
     if dataset is None:
         return 0.0
+    if dataset_layout(dataset) == "long":
+        total = 0.0
+        for batch in _scan_batches(dataset, ["value"]):
+            s = pc.sum(batch["value"]).as_py()
+            if s is not None:
+                total += float(s)
+        return total
     cols = dataset_uid_cols(dataset)
     if not cols:
         return 0.0
@@ -134,11 +169,33 @@ def streaming_uid_sum(dataset: pads.Dataset | None) -> float:
 def streaming_uid_sum_per_col(
     dataset: pads.Dataset | None,
 ) -> dict[int, float]:
-    """Σ per uid column, keyed by integer uid.  Streaming."""
+    """Σ per uid column, keyed by integer uid.  Streaming.
+
+    Layout-aware: when the dataset is long-form, we group on the `uid`
+    column using `pyarrow.compute.hash_aggregate`-style reduction
+    (implemented here as a manual per-batch group-by because pyarrow's
+    public group-by API requires `Table.group_by(...)` which materialises
+    a full table).  When wide, we iterate `uid:N` columns.
+    """
     if dataset is None:
         return {}
+    if dataset_layout(dataset) == "long":
+        out: dict[int, float] = {}
+        for batch in _scan_batches(dataset, ["uid", "value"]):
+            # Group-by via a single pyarrow table aggregation per batch.
+            # Each batch is bounded by `scanner` (default 1 Mi rows) so
+            # the per-batch table never blows memory.
+            tbl = pa.table({"uid": batch["uid"], "value": batch["value"]})
+            grouped = tbl.group_by("uid").aggregate([("value", "sum")])
+            uids = grouped["uid"].to_pylist()
+            sums = grouped["value_sum"].to_pylist()
+            for u, s in zip(uids, sums):
+                if u is None or s is None:
+                    continue
+                out[int(u)] = out.get(int(u), 0.0) + float(s)
+        return out
     cols = dataset_uid_cols(dataset)
-    out: dict[int, float] = {int(c.split(":")[1]): 0.0 for c in cols}
+    out = {int(c.split(":")[1]): 0.0 for c in cols}
     for batch in _scan_batches(dataset, cols):
         for col in cols:
             s = pc.sum(batch[col]).as_py()
@@ -148,9 +205,20 @@ def streaming_uid_sum_per_col(
 
 
 def streaming_uid_abs_max(dataset: pads.Dataset | None) -> float:
-    """Max |value| across every uid:* cell.  Streaming."""
+    """Max |value| across every uid:* cell.  Streaming.
+
+    Layout-aware: long-form scans only the `value` column.
+    """
     if dataset is None:
         return 0.0
+    if dataset_layout(dataset) == "long":
+        m = 0.0
+        for batch in _scan_batches(dataset, ["value"]):
+            arr = pc.abs(batch["value"])
+            mx = pc.max(arr).as_py()
+            if mx is not None and mx > m:
+                m = float(mx)
+        return m
     cols = dataset_uid_cols(dataset)
     if not cols:
         return 0.0
@@ -170,9 +238,58 @@ def streaming_uid_stats(
     """Aggregate count / min / max / sum / mean / negative-count across
     every uid:* cell.  Mean is computed from sum / count to avoid
     needing a single-shot pyarrow ``mean`` over the whole table.
+
+    Layout-aware.  Note for long form: `count` measures the number of
+    non-zero rows actually present in the file — dropped zeros are not
+    counted, so the long-form `mean` is the conditional mean given
+    non-zero, not the population mean.  Wide form's `count` already
+    behaves the same way (nulls drop), so both forms report the same
+    statistic for any quantity that is "mostly zero" (which is the
+    target case for the long encoding).
     """
     if dataset is None:
         return {}
+    if dataset_layout(dataset) == "long":
+        n = 0
+        total = 0.0
+        mn = float("inf")
+        mx = float("-inf")
+        n_neg = 0
+        for batch in _scan_batches(dataset, ["value"]):
+            arr_clean = pc.drop_null(batch["value"])
+            cnt = pc.count(arr_clean).as_py() or 0
+            if cnt == 0:
+                continue
+            n += int(cnt)
+            s = pc.sum(arr_clean).as_py()
+            if s is not None:
+                total += float(s)
+            cur_min = pc.min(arr_clean).as_py()
+            if cur_min is not None and cur_min < mn:
+                mn = float(cur_min)
+            cur_max = pc.max(arr_clean).as_py()
+            if cur_max is not None and cur_max > mx:
+                mx = float(cur_max)
+            neg = pc.sum(pc.less(arr_clean, 0.0)).as_py()
+            if neg is not None:
+                n_neg += int(neg)
+        if n == 0:
+            return {
+                "count": 0,
+                "sum": 0.0,
+                "min": 0.0,
+                "max": 0.0,
+                "mean": 0.0,
+                "n_neg": 0,
+            }
+        return {
+            "count": n,
+            "sum": total,
+            "min": mn,
+            "max": mx,
+            "mean": total / n,
+            "n_neg": n_neg,
+        }
     cols = dataset_uid_cols(dataset)
     if not cols:
         return {}
@@ -218,11 +335,34 @@ def streaming_sol_weighted_sum_per_uid(
     block_durations: dict[int, float],
 ) -> dict[int, float]:
     """Σ over (s,t,b) of  value(s,t,b,uid) × duration(b) — per uid.
-    Returns ``{uid: total_energy_or_cost_for_that_uid}``.  Streaming."""
+    Returns ``{uid: total_energy_or_cost_for_that_uid}``.  Streaming.
+
+    Layout-aware: long-form path computes `value × duration[block]`
+    per row and then groups on `uid` (per-batch); wide-form path
+    iterates `uid:N` columns.
+    """
     if dataset is None:
         return {}
+    if dataset_layout(dataset) == "long":
+        out: dict[int, float] = {}
+        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
+            block_arr = batch["block"].to_pylist()
+            dur = [
+                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
+            ]
+            dur_arr = pa.array(dur, type=pa.float64())
+            weighted = pc.multiply(batch["value"].cast("float64"), dur_arr)
+            tbl = pa.table({"uid": batch["uid"], "weighted": weighted})
+            grouped = tbl.group_by("uid").aggregate([("weighted", "sum")])
+            uids = grouped["uid"].to_pylist()
+            sums = grouped["weighted_sum"].to_pylist()
+            for u, s in zip(uids, sums):
+                if u is None or s is None:
+                    continue
+                out[int(u)] = out.get(int(u), 0.0) + float(s)
+        return out
     cols = dataset_uid_cols(dataset)
-    out: dict[int, float] = {int(c.split(":")[1]): 0.0 for c in cols}
+    out = {int(c.split(":")[1]): 0.0 for c in cols}
     for batch in _scan_batches(dataset, cols + ["block"]):
         block_arr = batch["block"].to_pylist()
         dur = [block_durations.get(b if b is not None else 0, 1.0) for b in block_arr]
@@ -257,6 +397,55 @@ def streaming_pairwise_weighted_sum(
     """
     if dataset_a is None or dataset_b is None:
         return 0.0
+
+    # Long-form fast path: each row is `(scenario, stage, block, uid,
+    # value)`.  Join on `(scenario, stage, block, uid)` per fragment
+    # pair (both datasets share the hive partitioning, so paired
+    # fragments cover the same scene/phase), then sum
+    # `a.value × b.value × duration(block)`.
+    layout_a = dataset_layout(dataset_a)
+    layout_b = dataset_layout(dataset_b)
+    if layout_a == "long" and layout_b == "long":
+
+        def _path_key_long(frag) -> str:
+            path = str(frag.path)
+            idx = path.rfind(".parquet/")
+            return path[idx + len(".parquet/") :] if idx >= 0 else path
+
+        map_a = {_path_key_long(f): f for f in dataset_a.get_fragments()}
+        total = 0.0
+        for frag_b in dataset_b.get_fragments():
+            key = _path_key_long(frag_b)
+            frag_a = map_a.get(key)
+            if frag_a is None:
+                continue
+            tbl_a = frag_a.to_table(
+                columns=["scenario", "stage", "block", "uid", "value"]
+            )
+            tbl_b = frag_b.to_table(
+                columns=["scenario", "stage", "block", "uid", "value"]
+            )
+            if tbl_a.num_rows == 0 or tbl_b.num_rows == 0:
+                continue
+            # Inner-join on the composite key.  Use pandas for the
+            # join — pyarrow's `Table.join` is also available but
+            # requires Acero (not always present); pandas merge is
+            # universally available and the per-partition fragment is
+            # small (≤ a few million rows).
+            df_a = tbl_a.to_pandas()
+            df_b = tbl_b.to_pandas()
+            merged = df_a.merge(
+                df_b,
+                on=["scenario", "stage", "block", "uid"],
+                suffixes=("_a", "_b"),
+                how="inner",
+            )
+            if merged.empty:
+                continue
+            dur = merged["block"].map(lambda b: block_durations.get(int(b), 1.0))
+            total += float((merged["value_a"] * merged["value_b"] * dur).sum())
+        return total
+
     cols_a = set(dataset_uid_cols(dataset_a))
     cols_b = set(dataset_uid_cols(dataset_b))
     shared = sorted(cols_a & cols_b)
@@ -324,6 +513,36 @@ def streaming_sol_weighted_sum(
     """
     if dataset is None:
         return 0.0
+    if dataset_layout(dataset) == "long":
+        total = 0.0
+        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
+            block_arr = batch["block"].to_pylist()
+            dur = [
+                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
+            ]
+            dur_arr = pa.array(dur, type=pa.float64())
+            # Per-row coefficient: if `coef_per_uid` is None, treat
+            # every uid as 1.0 (pure energy / duration weighting).
+            # Otherwise look up the per-uid coef in Python — the per-
+            # batch length is at most a few million rows, well below
+            # any cost-meaningful threshold.
+            uid_arr = batch["uid"].to_pylist()
+            if coef_per_uid is None:
+                coef_arr = pa.array([1.0] * len(uid_arr), type=pa.float64())
+            else:
+                coef_arr = pa.array(
+                    [
+                        coef_per_uid.get(int(u), 0.0) if u is not None else 0.0
+                        for u in uid_arr
+                    ],
+                    type=pa.float64(),
+                )
+            prod = pc.multiply(batch["value"].cast("float64"), dur_arr)
+            weighted = pc.multiply(prod, coef_arr)
+            s = pc.sum(weighted).as_py()
+            if s is not None:
+                total += float(s)
+        return total
     cols = dataset_uid_cols(dataset)
     if not cols:
         return 0.0

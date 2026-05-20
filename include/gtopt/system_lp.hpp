@@ -476,6 +476,28 @@ public:
    */
   void write_out();
 
+  /// Process-wide write_out instrumentation.  These accumulate the
+  /// per-cell wall time and cell count across every `SystemLP::write_out`
+  /// call in the process — used by the runner to print an honest "total
+  /// per-cell write_out wall" line at the end of the run.
+  ///
+  /// **Why this exists**: the `Write output time X.Xs` line in the
+  /// runner only measures the final `PlanningLP::write_out()` flush.
+  /// Under SDDP every cell is written during the forward pass (each
+  /// iteration's `oc.write` is dispatched to a thread pool), so by the
+  /// time the final flush runs there is nothing left to write — the
+  /// "Write output time" line shows 0.x s for runs that actually wrote
+  /// gigabytes of parquet, confusingly.  This counter restores the real
+  /// number.
+  ///
+  /// Wall time semantics: this is *cumulative per-cell wall*, not
+  /// process wall.  Per-cell writes run in parallel under the cell
+  /// pool, so the wall clock spent in writes is `total_write_ms /
+  /// concurrency`.  The cumulative number is the useful one to compare
+  /// against other costs (e.g. cumulative solve time).
+  [[nodiscard]] static double total_write_ms() noexcept;
+  [[nodiscard]] static std::size_t total_write_cells() noexcept;
+
   /// True when `write_out()` has already emitted this cell's element
   /// tables (set by the SDDP simulation pass right after its final
   /// per-cell solve).  Callers that iterate every cell to write output
@@ -770,6 +792,34 @@ public:
   /// would throw out-of-range — production paths that reach this code
   /// after the drop must first call `rebuild_collections_if_needed()`.
   void clear_disposable_collections();
+
+  /// End-of-life drop for a cell whose parquet output is already on
+  /// disk and which will never see another LP touch (read, mutate, or
+  /// solve) in the process lifetime.  Strictly more aggressive than
+  /// `clear_disposable_collections()` + `release_backend()` +
+  /// `clear_snapshot()` because it also drops:
+  ///
+  ///   * The HasUpdateLP collections that `clear_disposable_collections()`
+  ///     deliberately preserves for subsequent `update_lp_for_phase`
+  ///     calls (~30 MB / cell on juan-scale).  Those calls will never
+  ///     happen on the write_out path.
+  ///   * The cut replay journal in `LinearInterface::m_replay_`.  On
+  ///     recovery hot-starts that loaded tens of thousands of cuts
+  ///     into the journal this is the dominant per-cell residue —
+  ///     several GiB on the 2-year case.
+  ///   * The cached primal/dual/reduced-cost vectors in `m_cache_`.
+  ///     No downstream consumer reads them after write_out.
+  ///
+  /// Must be called *after* `write_out()` completes for this cell.
+  /// The caller (typically `PlanningLP::write_out`'s `emit_cell`
+  /// closure) must have already invoked `release_backend()` and
+  /// `clear_snapshot()` — this method only adds drops; it does not
+  /// duplicate those calls.  Idempotent: safe to invoke multiple
+  /// times.  After this returns, the cell still has its scalar
+  /// metadata (UIDs, options, fingerprint) but any
+  /// `elements<X>()` / `get_col_sol()` access would now read from an
+  /// empty cache — production paths must avoid touching such cells.
+  void drop_for_write_out_done() noexcept;
 
   /// Forward accessor to the LP's cumulative solver counters.
   [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept

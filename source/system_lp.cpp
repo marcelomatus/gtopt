@@ -14,6 +14,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -636,6 +637,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<LineLP>(sim, sys.line_array);
   register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
+  register_element_names<CommitmentLP>(sim, sys.commitment_array);
   register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
   register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
   register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
@@ -814,6 +816,21 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 
 namespace gtopt
 {
+// Process-wide instrumentation for `SystemLP::write_out`.  Updated from
+// every cell's write path (parallel under the cell pool) and read once
+// at the end of the run by the LP runner.  See
+// `SystemLP::total_write_ms` (header) for the rationale and the wall
+// vs. cumulative-wall semantics.  Defined inside `namespace gtopt`
+// (not in the file-anonymous namespace at the top of this TU) so the
+// `SystemLP::write_out` body — which lives here — can name them
+// directly, and so the static-getter implementations at the bottom of
+// the file can reach the same storage.
+namespace
+{
+std::atomic<double> g_write_out_total_ms {0.0};  // NOLINT
+std::atomic<std::size_t> g_write_out_cells {0};  // NOLINT
+}  // namespace
+
 void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
 {
   // Inject scale_objective from planning options if not already set,
@@ -870,6 +887,62 @@ void SystemLP::clear_disposable_collections()
   //    `m_disposable_collections_built_` and trigger a full rebuild via
   //    `rebuild_collections_if_needed()` if false.
   m_disposable_collections_built_ = false;
+}
+
+void SystemLP::drop_for_write_out_done() noexcept
+{
+  // No-op under `LowMemoryMode::off` — the caller's invariant under
+  // off is "backend stays live, collections stay live", and the
+  // SDDP/cascade paths that drive off mode rely on it.  Also no-op
+  // on the "off" path because there's no per-cell memory pressure
+  // there to recover.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+    return;
+  }
+
+  // Drop the entire collection tuple — strictly more aggressive than
+  // `clear_disposable_collections()` because we also empty the
+  // HasUpdateLP types that the disposable variant preserves for
+  // `update_lp_for_phase`.  On the write_out-done path that future
+  // update will never happen, so the wrappers are pure waste.
+  //
+  // Use `std::apply` to walk every Collection<T> in the tuple and
+  // move-assign an empty Collection of the same type, freeing both
+  // the element vector and its capacity.
+  try {
+    std::apply(
+        [](auto&... colls)
+        {
+          const auto drop = [](auto& coll) noexcept
+          {
+            using CollT = std::remove_cvref_t<decltype(coll)>;
+            coll = CollT {};
+          };
+          (drop(colls), ...);
+        },
+        m_collections_);
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // `noexcept` contract — Collection move-assign is itself nothrow
+    // on every used type, but defend against future changes that
+    // could throw (e.g. allocator-aware move).  Best-effort: continue.
+  }
+  m_collections_built_ = false;
+  m_disposable_collections_built_ = false;
+
+  // Drop the cut replay journal.  On recovery hot-starts this is
+  // typically the largest residue per cell — see
+  // `LinearInterface::clear_replay` doc.
+  m_linear_interface_.clear_replay();
+
+  // Drop the cached primal/dual/reduced-cost vectors.  After
+  // `write_out()` ran, downstream code reads only the parquet on
+  // disk; no consumer needs `get_col_sol()` etc. on this cell.
+  m_linear_interface_.drop_cached_primal_only();
+
+  // Snapshot may already have been cleared by the caller's
+  // `clear_snapshot()`, but be idempotent — `clear()` on an empty
+  // holder is a no-op assignment.
+  m_linear_interface_.clear_snapshot();
 }
 
 void SystemLP::rebuild_collections_if_needed()
@@ -1247,6 +1320,9 @@ void SystemLP::write_out()
   oc.write();
   const auto t_write = clock::now();
 
+  const auto total_cell_ms =
+      std::chrono::duration<double, std::milli>(t_write - t_start).count();
+
   spdlog::trace(
       "SystemLP::write_out [scene={} phase={}]: "
       "rebuild_coll={:.1f}ms, OutputContext={:.1f}ms, "
@@ -1257,7 +1333,13 @@ void SystemLP::write_out()
       std::chrono::duration<double, std::milli>(t_oc - t_rebuild).count(),
       std::chrono::duration<double, std::milli>(t_visit - t_oc).count(),
       std::chrono::duration<double, std::milli>(t_write - t_visit).count(),
-      std::chrono::duration<double, std::milli>(t_write - t_start).count());
+      total_cell_ms);
+
+  // Feed the process-wide counters used by the runner's final
+  // "Write output time" report.  See `SystemLP::total_write_ms` doc
+  // for why the runner's own stopwatch is misleading under SDDP.
+  g_write_out_total_ms.fetch_add(total_cell_ms, std::memory_order_relaxed);
+  g_write_out_cells.fetch_add(1, std::memory_order_relaxed);
 
   // Write LP fingerprint if requested
   if (options().lp_fingerprint()) {
@@ -1426,6 +1508,19 @@ int SystemLP::update_lp()
   }
 
   return total;
+}
+
+// Static getters for the process-wide write_out counters defined in
+// the anonymous namespace.  Implemented here (rather than inline in
+// the header) so the atomics' definition stays in the .cpp TU.
+double SystemLP::total_write_ms() noexcept
+{
+  return g_write_out_total_ms.load(std::memory_order_relaxed);
+}
+
+std::size_t SystemLP::total_write_cells() noexcept
+{
+  return g_write_out_cells.load(std::memory_order_relaxed);
 }
 
 }  // namespace gtopt

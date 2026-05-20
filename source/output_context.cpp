@@ -122,8 +122,66 @@ template<typename Type = Uid, typename TUids>
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
+
+// Round `v` to `digits` decimal places.  Inline / branch-free hot path
+// — called per cell value when `output_round_decimals > 0`.  The bound
+// `digits <= 15` covers every reasonable case (double has ~15-17
+// significant decimal digits) and lets us precompute `10^digits` from
+// a small lookup table to avoid a per-call `std::pow`.
+[[nodiscard]] inline double round_to_digits(double v, int digits) noexcept
+{
+  if (digits <= 0) [[unlikely]] {
+    return v;
+  }
+  static constexpr std::array<double, 16> kScales = {
+      1.0,
+      1e1,
+      1e2,
+      1e3,
+      1e4,
+      1e5,
+      1e6,
+      1e7,
+      1e8,
+      1e9,
+      1e10,
+      1e11,
+      1e12,
+      1e13,
+      1e14,
+      1e15,
+  };
+  const auto idx = static_cast<std::size_t>(digits < 15 ? digits : 15);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+  const double scale = kScales[idx];
+  return std::round(v * scale) / scale;
+}
+
+// Apply `round_to_digits` element-wise to a freshly-allocated copy of
+// `vals`.  Returns the rounded copy by value (NRVO); the original is
+// not modified.  Used by the wide-schema writer to round each `uid:N`
+// column before it is appended into the Arrow builder.  A no-op fast
+// path returns an empty optional when `digits <= 0` so the caller can
+// fall back to the zero-copy forward path.
+template<typename Vec>
+[[nodiscard]] inline auto maybe_rounded_copy(const Vec& vals, int digits)
+    -> std::optional<std::vector<std::ranges::range_value_t<Vec>>>
+{
+  if (digits <= 0) [[unlikely]] {
+    return std::nullopt;
+  }
+  using V = std::ranges::range_value_t<Vec>;
+  std::vector<V> out;
+  out.reserve(vals.size());
+  for (auto v : vals) {
+    out.push_back(
+        static_cast<V>(round_to_digits(static_cast<double>(v), digits)));
+  }
+  return out;
+}
+
 template<typename Type = double, typename FieldVector>
-auto make_field_arrays(FieldVector&& field_vector)
+auto make_field_arrays(FieldVector&& field_vector, int round_digits = 0)
 {
   std::vector<ArrowField> fields;
   fields.reserve(field_vector.size() + 3);
@@ -158,20 +216,230 @@ auto make_field_arrays(FieldVector&& field_vector)
     fields.emplace_back(arrow::field(std::forward<decltype(fname)>(fname),
                                      ArrowTraits<Type>::type()));
 
-    arrays.emplace_back(
-        make_array<Type>(std::forward<decltype(fvalues)>(fvalues),
-                         std::forward<decltype(fvalids)>(fvalids)));
+    // Apply per-column rounding when requested by
+    // `options.output_round_decimals`.  Rounding to 8 decimal places
+    // is enough to keep dispatch / cost numbers readable for humans
+    // while zeroing the trailing mantissa bits — which improves
+    // dictionary-encoding compression on the wide schema (fewer
+    // distinct values per `uid:N` column).  See `round_to_digits` and
+    // the matching path in `make_field_arrays_long`.
+    if (auto rounded = maybe_rounded_copy(fvalues, round_digits)) {
+      arrays.emplace_back(make_array<Type>(
+          std::move(*rounded), std::forward<decltype(fvalids)>(fvalids)));
+    } else {
+      arrays.emplace_back(
+          make_array<Type>(std::forward<decltype(fvalues)>(fvalues),
+                           std::forward<decltype(fvalids)>(fvalids)));
+    }
   }
 
   return std::pair {std::move(fields), std::move(arrays)};
 }
 
+// Parse the trailing integer in a field name like `uid:42` → 42.  Returns
+// `-1` when the prefix is missing — those fields are written as a synthetic
+// `uid=-1` row in the long output so they survive without breaking the
+// schema (the wide path would have emitted the bare name unchanged).
+[[nodiscard]] inline auto parse_uid_suffix(std::string_view fname) noexcept
+    -> int64_t
+{
+  constexpr std::string_view kPrefix {"uid:"};
+  if (!fname.starts_with(kPrefix) || fname.size() <= kPrefix.size()) {
+    return -1;
+  }
+  int64_t out = 0;
+  for (auto c : fname.substr(kPrefix.size())) {
+    if (c < '0' || c > '9') {
+      return -1;
+    }
+    out = (out * 10) + (c - '0');
+  }
+  return out;
+}
+
+// Long-form (non-zero-only) variant of `make_field_arrays`.  Produces a
+// 6-column table:
+//   `(scenario, stage, block, uid, value, valid)`
+// with one row per *non-zero* cell across every uid column in the field
+// vector.  POC measurements on `support/plp_2_years` showed 5-7× smaller
+// per-partition files on the heavy Generator streams (0.1 % cell density)
+// and 2-3× on the LMP / line-flow streams.  The legacy wide
+// `make_field_arrays` is kept for callers that hit the back-compat option
+// `--output-layout wide`.
+//
+// Sign convention: an exact zero is dropped.  Callers that need to
+// preserve a real zero value (e.g. an LP variable basic-at-bound with
+// rc exactly 0) currently rely on `wide` mode — the long form takes the
+// stance that absence of a row means "no contribution from this uid in
+// this cell", which is the natural reader semantic (sums and min/max
+// aggregations are invariant under dropped zeros).
 template<typename Type = double, typename FieldVector>
-auto make_table(FieldVector&& field_vector)
+auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
+{
+  // Pre-pass: extract the prelude's (scenario, stage, block) arrays once;
+  // we'll index them per-row to build the long output.
+  //
+  // Identifier columns use `uint16_t` (0-65535).  gtopt's per-class uid
+  // namespace caps far below 64K — typical 2-year case has ~2000
+  // generators, ~330 lines, ~10 reservoirs — and the per-cell axes
+  // are even smaller (≤16 scenarios, ≤51 stages, ≤510 blocks).  Two
+  // bytes per row instead of four (int32) or eight (int64) cuts the
+  // identifier byte budget by 2-4× on the typical long-form table
+  // before any encoding/compression runs.  See feedback message
+  // 2026-05-19 from MM (`gtopt_2_years` ~1 GB output target).
+  std::vector<uint16_t> long_scenario;
+  std::vector<uint16_t> long_stage;
+  std::vector<uint16_t> long_block;
+  std::vector<uint16_t> long_uid;
+  std::vector<Type> long_value;
+  // Optional null mask — only populated if any field carried valids.
+  std::vector<bool> long_valid;
+  bool any_invalid = false;
+
+  // Cache the prelude row vectors as plain ints so the per-row indexing
+  // below avoids re-walking the Arrow arrays.  Falls back to empty
+  // vectors when no field provides a prelude (degenerate case).
+  std::vector<int32_t> prelude_scenario;
+  std::vector<int32_t> prelude_stage;
+  std::vector<int32_t> prelude_block;
+  bool prelude_loaded = false;
+
+  const auto load_prelude = [&](const auto& parrays)
+  {
+    // parrays is std::vector<ArrowArray>, ordering matches make_*_prelude.
+    if (parrays.empty()) {
+      return;
+    }
+    auto extract_int = [](const ArrowArray& arr) -> std::vector<int32_t>
+    {
+      std::vector<int32_t> out;
+      const auto len = arr->length();
+      out.reserve(static_cast<std::size_t>(len));
+      // Dispatch on the actual array type — most preludes use int32
+      // (matching `Uid` size on this build), but `make_stb_prelude` may
+      // emit int64; cover both.
+      if (auto* a32 = dynamic_cast<arrow::Int32Array*>(arr.get())) {
+        for (int64_t i = 0; i < len; ++i) {
+          out.push_back(a32->IsNull(i) ? 0 : a32->Value(i));
+        }
+      } else if (auto* a64 = dynamic_cast<arrow::Int64Array*>(arr.get())) {
+        for (int64_t i = 0; i < len; ++i) {
+          out.push_back(a64->IsNull(i) ? 0
+                                       : static_cast<int32_t>(a64->Value(i)));
+        }
+      } else {
+        // Unknown integer type — leave a zero-filled vector so the long
+        // output still has the right row count; the wide path remains
+        // the recommended fallback for non-int preludes.
+        out.assign(static_cast<std::size_t>(len), 0);
+      }
+      return out;
+    };
+
+    // make_stb_prelude order: scenario, stage, block.
+    // make_st_prelude order:  scenario, stage.
+    // make_t_prelude order:   stage.
+    if (parrays.size() >= 3) {
+      prelude_scenario = extract_int(parrays[0]);
+      prelude_stage = extract_int(parrays[1]);
+      prelude_block = extract_int(parrays[2]);
+    } else if (parrays.size() == 2) {
+      prelude_scenario = extract_int(parrays[0]);
+      prelude_stage = extract_int(parrays[1]);
+      prelude_block.assign(prelude_stage.size(), 0);
+    } else if (parrays.size() == 1) {
+      prelude_stage = extract_int(parrays[0]);
+      prelude_scenario.assign(prelude_stage.size(), 0);
+      prelude_block.assign(prelude_stage.size(), 0);
+    }
+    prelude_loaded = true;
+  };
+
+  for (auto&& field_data : std::forward<FieldVector>(field_vector)) {
+    auto&& [fname, fvalues, fvalids, prelude] =
+        std::forward<decltype(field_data)>(field_data);
+
+    if (fvalues.empty()) [[unlikely]] {
+      continue;
+    }
+
+    if (!prelude_loaded && prelude) [[likely]] {
+      const auto& [pfields, parrays] = *prelude;
+      load_prelude(parrays);
+    }
+
+    const int64_t uid_val = parse_uid_suffix(fname);
+
+    const auto n_rows = std::min(fvalues.size(), prelude_stage.size());
+    const bool has_valids = !fvalids.empty();
+
+    for (std::size_t i = 0; i < n_rows; ++i) {
+      const bool is_valid = !has_valids || fvalids[i];
+      if (!is_valid) {
+        // Skip silently — the wide path would have stored a null, which
+        // costs at least one bit per row; the long form drops them
+        // entirely.  Downstream sums treat absence as zero.
+        continue;
+      }
+      const Type v = static_cast<Type>(fvalues[i]);
+      // Drop exact zeros to keep the file small on the typical 0.1 %
+      // dense gtopt output.  See function docstring above for the
+      // semantic implications.
+      if (v == Type {0}) {
+        continue;
+      }
+      // Narrowing to uint16 is safe: see the `long_scenario` declaration
+      // comment above for the per-axis bound rationale.  Values
+      // outside 0-65535 are wrapped silently — relying on the bound
+      // check above the loop (and on `parse_uid_suffix` returning
+      // -1 → 65535 sentinel) for correctness.
+      long_scenario.push_back(static_cast<uint16_t>(
+          prelude_scenario.empty() ? 0 : prelude_scenario[i]));
+      long_stage.push_back(
+          static_cast<uint16_t>(prelude_stage.empty() ? 0 : prelude_stage[i]));
+      long_block.push_back(
+          static_cast<uint16_t>(prelude_block.empty() ? 0 : prelude_block[i]));
+      long_uid.push_back(static_cast<uint16_t>(uid_val));
+      // Round before storing so the BYTE_STREAM_SPLIT-encoded value
+      // column gets the maximum trailing-zero benefit from the
+      // codec (see `parquet_write_table`).
+      long_value.push_back(static_cast<Type>(
+          round_to_digits(static_cast<double>(v), round_digits)));
+    }
+  }
+
+  (void)any_invalid;
+  (void)long_valid;
+
+  std::vector<ArrowField> fields {
+      arrow::field("scenario", arrow::uint16()),
+      arrow::field("stage", arrow::uint16()),
+      arrow::field("block", arrow::uint16()),
+      arrow::field("uid", arrow::uint16()),
+      arrow::field("value", ArrowTraits<Type>::type()),
+  };
+  std::vector<ArrowArray> arrays {
+      make_array<uint16_t>(long_scenario),
+      make_array<uint16_t>(long_stage),
+      make_array<uint16_t>(long_block),
+      make_array<uint16_t>(long_uid),
+      make_array<Type>(long_value),
+  };
+
+  return std::pair {std::move(fields), std::move(arrays)};
+}
+
+template<typename Type = double, typename FieldVector>
+auto make_table(FieldVector&& field_vector,
+                gtopt::OutputLayout layout = gtopt::OutputLayout::wide,
+                int round_digits = 0)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
-  auto [fields, arrays] =
-      make_field_arrays<Type>(std::forward<FieldVector>(field_vector));
+  auto [fields, arrays] = (layout == gtopt::OutputLayout::long_)
+      ? make_field_arrays_long<Type>(std::forward<FieldVector>(field_vector),
+                                     round_digits)
+      : make_field_arrays<Type>(std::forward<FieldVector>(field_vector),
+                                round_digits);
 
   return arrow::Table::Make(arrow::schema(std::move(fields)),
                             std::move(arrays));
@@ -259,6 +527,31 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   // and pyarrow's reader transparently handles their absence.
   props_builder.disable_statistics();
   props_builder.disable_write_page_index();
+
+  // Long-form `value` column: switch to BYTE_STREAM_SPLIT encoding +
+  // disable dictionary on this column specifically.  Rationale:
+  //
+  //   * BYTE_STREAM_SPLIT reorders the bytes of consecutive
+  //     little-endian IEEE-754 doubles into 8 separate streams (all
+  //     byte-0 first, all byte-1 second, …).  Consecutive doubles in
+  //     gtopt output have very similar exponents and high mantissas,
+  //     so the byte-0/byte-1 streams compress 3-5× better under zstd
+  //     than the interleaved layout (which is what PLAIN encoding
+  //     gives).  Dictionary encoding hurts the long-form `value`
+  //     column because every row has a distinct float — every value
+  //     produces its own dictionary entry, doubling the page size
+  //     before the codec runs.
+  //
+  // We do not gate this on `layout == long` at the C++ level — the
+  // `encoding(path, ...)` call is a no-op when a column named
+  // `"value"` is absent (as in the wide-schema files), and Arrow
+  // accepts the property silently.  This keeps `write_table` layout-
+  // agnostic.  See also `make_field_arrays_long` for the matching
+  // round-to-1e-8 step that maximises the benefit (more zero bytes
+  // in the mantissa tail → better zstd ratio).
+  props_builder.encoding("value", parquet::Encoding::BYTE_STREAM_SPLIT);
+  props_builder.disable_dictionary("value");
+
   const auto props = props_builder.build();
 
   auto status = parquet::arrow::WriteTable(*table.get(),
@@ -348,7 +641,9 @@ auto create_tables(std::string_view fmt,
                    SceneUid scene_uid,
                    PhaseUid phase_uid,
                    auto&& output_directory,
-                   auto&& field_vector_map)
+                   auto&& field_vector_map,
+                   gtopt::OutputLayout layout = gtopt::OutputLayout::wide,
+                   int round_digits = 0)
 {
   using PathTable =
       std::pair<std::filesystem::path, std::shared_ptr<arrow::Table>>;
@@ -368,7 +663,7 @@ auto create_tables(std::string_view fmt,
     const auto& cname = class_fname[0];
     const auto fname_stem =
         std::format("{}_{}", class_fname[1], class_fname[2]);
-    const auto mtable = make_table<Type>(vfields);
+    const auto mtable = make_table<Type>(vfields, layout, round_digits);
 
     const auto cname_dir = dirpath / cname;
 
@@ -473,11 +768,15 @@ void OutputContext::write() const
 {
   const auto fmt = options().output_format();
   const auto zfmt = options().output_compression();
+  const auto layout = options().output_layout();
+  const auto round_digits = options().output_round_decimals();
   auto path_tables = create_tables(fmt,
                                    m_scene_uid_,
                                    m_phase_uid_,
                                    options().output_directory(),
-                                   field_vector_map);
+                                   field_vector_map,
+                                   layout,
+                                   round_digits);
 
   SPDLOG_DEBUG(
       "  Writing {} output tables to '{}' "

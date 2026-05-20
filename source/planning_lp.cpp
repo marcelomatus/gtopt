@@ -1516,6 +1516,12 @@ void PlanningLP::write_out()
     // `sddp_iteration.cpp::run_scene_simulation` cleanup).
     if (system.output_written()) {
       system.linear_interface().clear_snapshot();
+      // End-of-life drop: collections + replay journal + cached
+      // primal/dual.  See `SystemLP::drop_for_write_out_done` doc.
+      // Largest single saving on recovery hot-starts that loaded
+      // tens of thousands of cuts into `m_replay_` — those records
+      // never replay again past write_out.
+      system.drop_for_write_out_done();
       return;
     }
     // Fast path B: under any non-`off` low_memory mode, Phase 2a
@@ -1543,12 +1549,16 @@ void PlanningLP::write_out()
       // (status JSON, post-resolve aggregations) read cached scalars
       // from `m_cache_`, not the flat-LP snapshot.
       system.linear_interface().clear_snapshot();
+      // End-of-life drop — see comment on the fast-path-A clone above.
+      system.drop_for_write_out_done();
       return;
     }
     system.ensure_lp_built();
     system.write_out();
     system.release_backend();
     system.linear_interface().clear_snapshot();
+    // End-of-life drop — see comment on the fast-path-A clone above.
+    system.drop_for_write_out_done();
   };
 
   for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {

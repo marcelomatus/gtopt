@@ -886,6 +886,15 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
+    // Pin `wide` here: this test suite asserts the wide-form
+    // contract (one `uid:<uid>` column per element, no column at all
+    // for skipped elements).  The post-2026-05-19 default is `long`
+    // (5-column shape), under which the assertion `find_column("uid:1")
+    // < 0` doesn't apply — long form never emits a `uid:N` column, just
+    // a single `uid` column with row-level uid values.  The skipped-
+    // element invariant under long form is "no rows for the elided
+    // uid", not "no column" — a different test belongs there.
+    popts.output_layout = OutputLayout::wide;
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -1024,6 +1033,15 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
+    // Pin `wide` here: this test suite asserts the wide-form
+    // contract (one `uid:<uid>` column per element, no column at all
+    // for skipped elements).  The post-2026-05-19 default is `long`
+    // (5-column shape), under which the assertion `find_column("uid:1")
+    // < 0` doesn't apply — long form never emits a `uid:N` column, just
+    // a single `uid` column with row-level uid values.  The skipped-
+    // element invariant under long form is "no rows for the elided
+    // uid", not "no column" — a different test belongs there.
+    popts.output_layout = OutputLayout::wide;
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -1189,6 +1207,8 @@ TEST_CASE(  // NOLINT
   popts.model_options.demand_fail_cost = 10000.0;
   popts.output_directory = outdir.string();
   popts.output_format = DataFormat::parquet;
+  // Pin `wide` — see comment in the other tests of this file.
+  popts.output_layout = OutputLayout::wide;
 
   const PlanningOptionsLP options(popts);
   SimulationLP sim_lp(simulation, options);

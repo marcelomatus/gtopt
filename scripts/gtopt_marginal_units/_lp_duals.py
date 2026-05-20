@@ -190,17 +190,35 @@ def _read_long(
 ) -> Optional[pd.DataFrame]:
     """Read ``<output_dir>/<stem>.parquet`` and return its long-form
     melt. Returns ``None`` when the stem is absent or empty.
+
+    Handles both gtopt output layouts:
+
+    * ``output_layout=wide`` (legacy): one ``uid:N`` column per element;
+      we melt to long form.
+    * ``output_layout=long`` (default since 2026-05-19): already long —
+      we just rename ``uid``/``value`` to the caller's column names.
     """
-    wide = read_table(output_dir, stem)
-    if wide is None or wide.empty:
+    df = read_table(output_dir, stem)
+    if df is None or df.empty:
         return None
 
-    key_cols = [c for c in ("scenario", "stage", "block") if c in wide.columns]
-    uid_cols = [c for c in wide.columns if c.startswith("uid:")]
+    key_cols = [c for c in ("scenario", "stage", "block") if c in df.columns]
+
+    # Long-form sniff: a bare ``uid`` column with a ``value`` column is
+    # the long-output schema; never coexists with ``uid:N`` columns.
+    if "uid" in df.columns and "value" in df.columns:
+        sub = df[key_cols + ["uid", "value"]].rename(
+            columns={"uid": uid_col, "value": value_col}
+        )
+        sub[uid_col] = sub[uid_col].astype(int)
+        sub[value_col] = sub[value_col].astype(float)
+        return sub.reset_index(drop=True)
+
+    uid_cols = [c for c in df.columns if c.startswith("uid:")]
     if not uid_cols:
         return None
 
-    melted = wide.melt(
+    melted = df.melt(
         id_vars=key_cols,
         value_vars=uid_cols,
         var_name=uid_col,
