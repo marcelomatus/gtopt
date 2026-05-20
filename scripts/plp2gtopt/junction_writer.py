@@ -2434,7 +2434,11 @@ class JunctionWriter(BaseWriter):
             if isinstance(soft_emin, list):
                 for stage_idx, v in enumerate(soft_emin):
                     soft_emin_rows.append((stage_idx + 1, uid, float(v)))
-                reservoir["soft_emin"] = "soft_emin"  # FileSched reference
+                # Post-rewrite the inline `list[float]` to a FileSched
+                # reference string ("soft_emin").  The TypedDict shape
+                # is the pre-rewrite contract — silence mypy on this
+                # intentional in-place type change.
+                reservoir["soft_emin"] = "soft_emin"  # type: ignore[typeddict-item]
 
             soft_cost = reservoir.get("soft_emin_cost")
             if isinstance(soft_cost, list):
@@ -2445,7 +2449,7 @@ class JunctionWriter(BaseWriter):
                 # also all zeros and the upstream paths would not have
                 # set the list in the first place).
                 non_zero = next((float(c) for c in soft_cost if float(c) > 0), 0.0)
-                reservoir["soft_emin_cost"] = non_zero
+                reservoir["soft_emin_cost"] = non_zero  # type: ignore[typeddict-item]
 
         if not soft_emin_rows:
             return

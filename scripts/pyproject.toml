@@ -266,3 +266,12 @@ warn_unused_ignores = true
 warn_return_any = false
 disallow_untyped_defs = false
 exclude = ["tests/"]
+
+# pyarrow.compute exposes its functions through a dynamic dispatch
+# table that mypy can't statically resolve, generating spurious
+# `attr-defined` errors on every `pc.max`, `pc.sum`, etc. callsite.
+# Disable the check on the two modules that use `pc.*` directly so
+# unrelated `attr-defined` bugs elsewhere still surface.
+[[tool.mypy.overrides]]
+module = ["gtopt_check_output._reader", "gtopt_check_output._checks"]
+disable_error_code = ["attr-defined"]
