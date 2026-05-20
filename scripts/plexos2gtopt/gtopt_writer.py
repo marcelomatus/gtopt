@@ -305,16 +305,24 @@ def build_demand_array(demands: tuple[DemandSpec, ...]) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     for i, dem in enumerate(demands):
-        out.append(
-            {
-                "uid": i + 1,
-                "name": dem.name,
-                "bus": dem.bus_name,
-                # Inline lmax: gtopt expects [[stage_0_blocks], ...]; for the
-                # PCP single-stage horizon this is a 1×N matrix.
-                "lmax": [list(dem.lmax_profile)],
-            }
-        )
+        entry: dict[str, Any] = {
+            "uid": i + 1,
+            "name": dem.name,
+            "bus": dem.bus_name,
+            # Inline lmax: gtopt expects [[stage_0_blocks], ...]; for the
+            # PCP single-stage horizon this is a 1×N matrix.
+            "lmax": [list(dem.lmax_profile)],
+        }
+        # Per-Region VoLL → per-Demand fcost.  Honours the literature-
+        # audit fix that replaces the global ``max(VoLLs)`` collapse:
+        # each Demand picks up its serving Region's curtailment
+        # penalty natively; Demands without a matched Region inherit
+        # the global ``model_options.demand_fail_cost`` (which we now
+        # default to ``min(VoLLs)``).  fcost = 0 ⇒ omit the field so
+        # gtopt's default is used.
+        if dem.fcost > 0.0:
+            entry["fcost"] = dem.fcost
+        out.append(entry)
     return out
 
 

@@ -143,11 +143,20 @@ class LineSpec:
 
 @dataclass(frozen=True)
 class DemandSpec:
-    """A consumer attached to a bus (one per non-zero column in ``Nod_Load.csv``)."""
+    """A consumer attached to a bus (one per non-zero column in ``Nod_Load.csv``).
+
+    ``fcost`` is the demand-curtailment penalty (``$/MWh`` of unserved
+    energy) emitted on the gtopt ``Demand.fcost`` field.  When set it
+    overrides the global ``model_options.demand_fail_cost`` for this
+    Demand, letting per-Region PLEXOS ``Region.VoLL`` values surface
+    natively without the lossy ``max(VoLLs)`` collapse the converter
+    used to apply.
+    """
 
     name: str
     bus_name: str
     lmax_profile: tuple[float, ...] = field(default_factory=tuple)
+    fcost: float = 0.0
 
 
 @dataclass(frozen=True)

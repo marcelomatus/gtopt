@@ -493,6 +493,120 @@ def test_extract_demands(tmp_path: Path) -> None:
     by_bus = {d.bus_name: d for d in demands}
     assert by_bus["bus_north"].lmax_profile[0] == 50.0
     assert by_bus["bus_north"].lmax_profile[1] == 55.0
+    # Mini bundle has no Region collection → fcost defaults to 0
+    # (per-Region VoLL routing only fires when memberships exist).
+    assert by_bus["bus_north"].fcost == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Per-Region VoLL → per-Demand fcost routing (literature audit #3)
+# ---------------------------------------------------------------------------
+
+
+_REGION_VOLL_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>26</class_id><name>Region</name></t_class>
+  <t_class><class_id>33</class_id><name>System</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>22</class_id><name>bus_n</name>
+  </t_object>
+  <t_object>
+    <object_id>2</object_id><class_id>22</class_id><name>bus_s</name>
+  </t_object>
+  <t_object>
+    <object_id>3</object_id><class_id>22</class_id><name>bus_orphan</name>
+  </t_object>
+  <t_object>
+    <object_id>10</object_id><class_id>26</class_id><name>RegionNorth</name>
+  </t_object>
+  <t_object>
+    <object_id>11</object_id><class_id>26</class_id><name>RegionSouth</name>
+  </t_object>
+  <t_object>
+    <object_id>99</object_id><class_id>33</class_id><name>System</name>
+  </t_object>
+  <t_collection>
+    <collection_id>200</collection_id>
+    <parent_class_id>22</parent_class_id>
+    <child_class_id>26</child_class_id>
+    <name>Region</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>300</collection_id>
+    <parent_class_id>33</parent_class_id>
+    <child_class_id>26</child_class_id>
+    <name>Regions</name>
+  </t_collection>
+  <t_property>
+    <property_id>400</property_id>
+    <collection_id>300</collection_id>
+    <name>VoLL</name>
+  </t_property>
+  <!-- bus_n → RegionNorth (VoLL=1000), bus_s → RegionSouth (VoLL=500) -->
+  <t_membership>
+    <membership_id>500</membership_id>
+    <collection_id>200</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>501</membership_id>
+    <collection_id>200</collection_id>
+    <parent_object_id>2</parent_object_id>
+    <child_object_id>11</child_object_id>
+  </t_membership>
+  <!-- System → RegionNorth memberships carry the VoLL property -->
+  <t_membership>
+    <membership_id>600</membership_id>
+    <collection_id>300</collection_id>
+    <parent_object_id>99</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>601</membership_id>
+    <collection_id>300</collection_id>
+    <parent_object_id>99</parent_object_id>
+    <child_object_id>11</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>700</data_id><membership_id>600</membership_id>
+    <property_id>400</property_id><value>1000.0</value>
+  </t_data>
+  <t_data>
+    <data_id>701</data_id><membership_id>601</membership_id>
+    <property_id>400</property_id><value>500.0</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_demands_routes_per_region_voll(tmp_path: Path) -> None:
+    """Each Demand picks up its serving Region's VoLL as `fcost`.
+
+    Literature audit #3 (2026-05-20): the old converter collapsed
+    multi-Region VoLLs to ``max(VoLLs)`` and stamped it onto the
+    global ``demand_fail_cost``, overpricing curtailment in cheap
+    regions.  The fix routes each Region's VoLL onto the
+    corresponding Demand's ``fcost`` field and leaves the global
+    default as the conservative ``min(VoLLs)``.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_REGION_VOLL_XML)
+    _write_csv(
+        tmp_path,
+        "Nod_Load.csv",
+        "YEAR,MONTH,DAY,PERIOD,bus_n,bus_s,bus_orphan\n2026,1,1,1,100,200,50\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    demands = extract_demands(db, bundle)
+    by_bus = {d.bus_name: d for d in demands}
+    assert by_bus["bus_n"].fcost == 1000.0
+    assert by_bus["bus_s"].fcost == 500.0
+    # Orphan bus has no Region → fcost falls through to 0 (gtopt
+    # global ``model_options.demand_fail_cost`` then applies).
+    assert by_bus["bus_orphan"].fcost == 0.0
 
 
 def test_extract_batteries(tmp_path: Path) -> None:

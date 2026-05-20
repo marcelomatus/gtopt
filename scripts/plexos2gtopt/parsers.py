@@ -949,6 +949,44 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
     return tuple(out)
 
 
+def _bus_to_region_voll(db: PlexosDb) -> dict[str, float]:
+    """Return ``{bus_name -> Region.VoLL}`` ($/MWh of unserved energy).
+
+    Walks the Node→Region membership and reads each Region's ``VoLL``
+    static property.  Buses with no Region or whose Region has no VoLL
+    are absent from the result; the caller defaults them to the global
+    ``demand_fail_cost``.
+
+    Replaces the previous ``max(voll_values)`` collapse that mapped a
+    multi-Region system to one global penalty — per-Region routing is
+    PLEXOS's native shape (literature audit #3, 2026-05-20).
+    """
+    objs = db.object_by_id()
+    region_voll: dict[str, float] = {}
+    for region in db.objects_of_class("Region"):
+        v = db.static_property("Region", region.object_id, "VoLL")
+        if v and v > 0.0:
+            region_voll[region.name] = v
+
+    bus_voll: dict[str, float] = {}
+    node_region_coll = db.collection_for_named("Node", "Region", "Region")
+    if node_region_coll is None or not region_voll:
+        return bus_voll
+    for parent, children in db.parent_to_children(
+        node_region_coll.collection_id
+    ).items():
+        if not children or children[0] not in objs:
+            continue
+        bus = objs.get(parent)
+        if bus is None:
+            continue
+        region_name = objs[children[0]].name
+        voll = region_voll.get(region_name)
+        if voll is not None:
+            bus_voll[bus.name] = voll
+    return bus_voll
+
+
 def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...]:
     """One :class:`DemandSpec` per non-zero bus load.
 
@@ -959,7 +997,14 @@ def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...
        used by XML-only benchmarks like ``118-Bus.xml``. The value
        there is a single scalar that the writer broadcasts across the
        24-block horizon.
+
+    ``DemandSpec.fcost`` is populated from the Demand's bus → Region
+    → VoLL chain.  Each Demand picks up the curtailment penalty of
+    its serving Region; buses without a Region (or whose Region has
+    no VoLL) leave ``fcost = 0`` and fall back to the global
+    ``model_options.demand_fail_cost``.
     """
+    bus_voll = _bus_to_region_voll(db)
     if bundle.has("Nod_Load.csv"):
         load_by_bus = read_wide(bundle.csv("Nod_Load.csv"))
         out: list[DemandSpec] = []
@@ -969,6 +1014,7 @@ def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...
                     name=f"load_{bus_name}",
                     bus_name=bus_name,
                     lmax_profile=tuple(profile),
+                    fcost=bus_voll.get(bus_name, 0.0),
                 )
             )
         return tuple(out)
@@ -983,6 +1029,7 @@ def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...
                 name=f"load_{node.name}",
                 bus_name=node.name,
                 lmax_profile=(load,) * 24,
+                fcost=bus_voll.get(node.name, 0.0),
             )
         )
     return tuple(out_fallback)
@@ -2377,8 +2424,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     generators = extract_generators(db, bundle)
     fuels = extract_fuels(db, bundle)
     turbines = extract_turbines(db, bundle)
-    # PLEXOS Region.VoLL → demand_fail_cost.  Take the max across
-    # regions (conservative; CEN PCP has identical 467.19 on both).
+    # PLEXOS Region.VoLL → demand_fail_cost.
+    #
+    # Per-Region VoLLs are routed onto each ``Demand.fcost`` (via
+    # ``_bus_to_region_voll`` inside ``extract_demands``), preserving
+    # the per-Region granularity PLEXOS expresses.  This global value
+    # only serves as the fallback for Demands whose bus has no Region
+    # or whose Region has no VoLL — pick the MIN across all
+    # known VoLLs so the fallback errs on the conservative side
+    # (cheaper curtailment ⇒ LP can curtail; the per-Region override
+    # raises the price back to the right level for matched Demands).
+    # Prior behaviour was ``max(voll_values)``, which the literature
+    # audit flagged (2026-05-20) as overpricing curtailment in
+    # cheaper regions when VoLLs differed.
     bundle_spec = extract_bundle_spec(bundle)
     voll_values = []
     for region in db.objects_of_class("Region"):
@@ -2386,20 +2444,14 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         if v and v > 0.0:
             voll_values.append(v)
     if voll_values:
-        # Replace the default 1000.0 with the PLEXOS value (take max).
-        # gtopt has one global demand_fail_cost — when regions disagree,
-        # the max wins.  Surface that with a WARN so a multi-region case
-        # with diverging VoLLs doesn't silently round its cheapest
-        # regions up.  Future: per-Bus / per-Region demand_fail_cost
-        # would let us honour the full PLEXOS shape.
-        chosen = max(voll_values)
+        chosen = min(voll_values)
         if len(set(voll_values)) > 1:
-            logger.warning(
+            logger.info(
                 "PLEXOS Regions ship %d distinct VoLL values "
-                "(min=%.2f, max=%.2f) — gtopt has one global "
-                "`demand_fail_cost`; using the max (%.2f).  "
-                "Regions with a lower VoLL will not see their "
-                "lower curtailment price.",
+                "(min=%.2f, max=%.2f).  Per-Region values land on "
+                "each Demand's `fcost`; the global default falls "
+                "back to the min (%.2f) for Demands without a "
+                "matched Region.",
                 len(set(voll_values)),
                 min(voll_values),
                 max(voll_values),

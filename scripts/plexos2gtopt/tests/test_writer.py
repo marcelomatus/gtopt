@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from plexos2gtopt.entities import (
     BatterySpec,
+    DemandSpec,
     FuelSpec,
     GeneratorSpec,
     LineSpec,
 )
 from plexos2gtopt.gtopt_writer import (
     build_battery_array,
+    build_demand_array,
     build_fuel_array,
     build_generator_array,
     build_line_array,
@@ -207,3 +209,47 @@ def test_fuel_emission_factors_upstream_only() -> None:
     )
     out = build_fuel_array(fuels)
     assert out[0]["emission_factors"] == [{"emission": "co2", "upstream": 0.011}]
+
+
+# ---------------------------------------------------------------------------
+# Demand fcost (literature audit #3: per-Region VoLL → per-Demand fcost)
+# ---------------------------------------------------------------------------
+
+
+def test_demand_emits_fcost_when_set() -> None:
+    """``DemandSpec.fcost > 0`` lands on the JSON as ``fcost``.
+
+    Carries the per-Region VoLL that the parser routed onto this
+    Demand via ``_bus_to_region_voll``.  When unset (= 0.0) the field
+    is omitted so gtopt's global ``model_options.demand_fail_cost``
+    applies — matches PLEXOS Regions with no VoLL property.
+    """
+    out = build_demand_array(
+        (
+            DemandSpec(
+                name="load_north",
+                bus_name="bus_n",
+                lmax_profile=(100.0, 120.0),
+                fcost=1000.0,
+            ),
+            DemandSpec(
+                name="load_south",
+                bus_name="bus_s",
+                lmax_profile=(80.0, 90.0),
+                fcost=500.0,
+            ),
+            DemandSpec(
+                name="load_orphan",
+                bus_name="bus_o",
+                lmax_profile=(50.0,),
+                fcost=0.0,
+            ),
+        )
+    )
+    by_name = {d["name"]: d for d in out}
+    assert by_name["load_north"]["fcost"] == 1000.0
+    assert by_name["load_south"]["fcost"] == 500.0
+    # fcost = 0 → omit so gtopt's global default applies.
+    assert "fcost" not in by_name["load_orphan"]
+    # lmax still emitted as the 1×N matrix, regardless of fcost.
+    assert by_name["load_north"]["lmax"] == [[100.0, 120.0]]
