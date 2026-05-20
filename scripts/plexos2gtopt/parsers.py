@@ -1079,9 +1079,25 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # MONTH, DAY, PERIOD, VALUE. Period 1 = day-start SOC (percent).
         ini_soc_pct = read_long(bundle.csv("BESS_IniValue.csv"))
     out: list[BatterySpec] = []
+    skipped_aux = 0
     for batt in db.objects_of_class("Battery"):
         bus_name = bus_map.get(batt.object_id)
         if bus_name is None:
+            continue
+        # PLEXOS "_AUX" battery modeling artifacts: virtual buffers
+        # used by PLEXOS for some reserve / contingency mechanism we
+        # don't represent in gtopt.  Audit of DATOS20260422 found 5
+        # such batteries (BAT_DEL_DESIERTO_AUX, BAT_TOCOPILLA_AUX,
+        # BAT_MANZANO_FV_AUX, BAT_DON_HUMBERTO_FV_AUX,
+        # BAT_LA_CABANA_EO_AUX), all with the sentinel values
+        # ``Capacity = 99,999 MWh`` and ``Max Power = 1000 MW`` (vs
+        # the real CEN BESS units at 100-1300 MWh / 2 MW).  Left in
+        # the converted JSON they get freely dispatched (gcost=0) and
+        # produced ~30 GWh of fake generation on day 1, pushing the
+        # LP objective $1-2M below PLEXOS.  Drop them entirely; if a
+        # future bundle needs them, re-enable via a CLI flag.
+        if batt.name.endswith("_AUX"):
+            skipped_aux += 1
             continue
         # pull SOC bounds + power rating from t_data. CEN PCP only
         # ships symmetric Max Power, so charge/discharge limits share
@@ -1134,6 +1150,13 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 input_efficiency=charge_eff_pct / 100.0,
                 output_efficiency=discharge_eff_pct / 100.0,
             )
+        )
+    if skipped_aux:
+        logger.info(
+            "Dropped %d `_AUX` battery modeling artifact(s) (PLEXOS "
+            "virtual reserve buffers with 99,999 MWh / 1000 MW "
+            "sentinel ratings).",
+            skipped_aux,
         )
     return tuple(out)
 
