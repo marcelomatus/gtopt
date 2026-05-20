@@ -251,18 +251,9 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     }
   }
 
-  // Commitment.fuel -> Fuel (optional FK)
-  for (const auto& cmt : sys.commitment_array) {
-    if (cmt.fuel.has_value()) {
-      check_ref(result,
-                cmt.fuel.value(),
-                sys.fuel_array,
-                "Commitment",
-                cmt.name,
-                "fuel",
-                "Fuel");
-    }
-  }
+  // Commitment.fuel was removed on 2026-05-20.  Fuel FK validation
+  // for the dispatch-cost path now happens on Generator (see the
+  // Generator.fuel branch above).
 
   // ── P0 referential checks added 2026-05-20 ────────────────────────
   //
@@ -571,52 +562,9 @@ void check_heat_rate(ValidationResult& result, const System& sys)
     }
   }
 
-  // Commitment uses the same pmax_segments / heat_rate_segments shape.
-  for (const auto& cmt : sys.commitment_array) {
-    const bool has_pieces =
-        !cmt.heat_rate_segments.empty() || !cmt.pmax_segments.empty();
-    if (!has_pieces) {
-      continue;
-    }
-
-    if (cmt.pmax_segments.size() != cmt.heat_rate_segments.size()) {
-      result.errors.push_back(
-          std::format("Commitment '{}': `pmax_segments` (size {}) and "
-                      "`heat_rate_segments` (size {}) must have equal length.",
-                      cmt.name,
-                      cmt.pmax_segments.size(),
-                      cmt.heat_rate_segments.size()));
-    }
-
-    for (std::size_t k = 1; k < cmt.pmax_segments.size(); ++k) {
-      if (!(cmt.pmax_segments[k] > cmt.pmax_segments[k - 1])) {
-        result.errors.push_back(std::format(
-            "Commitment '{}': pmax_segments must be strictly increasing — "
-            "pmax_segments[{}] = {} is not > pmax_segments[{}] = {}.",
-            cmt.name,
-            k,
-            cmt.pmax_segments[k],
-            k - 1,
-            cmt.pmax_segments[k - 1]));
-        break;
-      }
-    }
-
-    for (std::size_t k = 1; k < cmt.heat_rate_segments.size(); ++k) {
-      if (!(cmt.heat_rate_segments[k] > cmt.heat_rate_segments[k - 1])) {
-        result.errors.push_back(std::format(
-            "Commitment '{}': heat_rate_segments must be strictly increasing "
-            "for the piecewise cost to be convex — heat_rate_segments[{}] = "
-            "{} is not > heat_rate_segments[{}] = {}.",
-            cmt.name,
-            k,
-            cmt.heat_rate_segments[k],
-            k - 1,
-            cmt.heat_rate_segments[k - 1]));
-        break;
-      }
-    }
-  }
+  // Commitment.pmax_segments / heat_rate_segments were removed on
+  // 2026-05-20.  The piecewise-curve validation above (on Generator)
+  // is the only path now.
 
   // ── P2 fuel/heat-rate pairing (added 2026-05-20) ────────────────────
   //
@@ -656,27 +604,9 @@ void check_heat_rate(ValidationResult& result, const System& sys)
     }
   }
 
-  // Commitment has the same fuel + heat_rate_segments pairing.  A
-  // Commitment is the "thermal start-up + heat-rate" overlay applied
-  // to one or more Generators; the same `slope_cost_per_mwh` formula
-  // applies via `source/simple_commitment_lp.cpp` once the Generator
-  // resolves the Commitment.
-  for (const auto& cmt : sys.commitment_array) {
-    const bool has_fuel = cmt.fuel.has_value();
-    const bool has_heat_rate = !cmt.heat_rate_segments.empty();
-    if (has_fuel && !has_heat_rate) {
-      result.warnings.push_back(std::format(
-          "Commitment '{}': fuel='{}' set but no heat_rate_segments — "
-          "fuel price will be ignored.",
-          cmt.name,
-          format_single_id(cmt.fuel.value())));
-    } else if (has_heat_rate && !has_fuel) {
-      result.warnings.push_back(
-          std::format("Commitment '{}': heat_rate_segments set but no fuel — "
-                      "heat_rate will be ignored.",
-                      cmt.name));
-    }
-  }
+  // Commitment.fuel / pmax_segments / heat_rate_segments were removed
+  // on 2026-05-20.  The dispatch-cost fuel + heat-rate pairing now
+  // lives entirely on Generator, validated above.
 }
 
 // ── Positivity helpers ────────────────────────────────────────────────

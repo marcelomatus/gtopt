@@ -22,6 +22,7 @@
 #include <gtopt/collection.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
 #include <gtopt/emission_lp.hpp>
@@ -123,6 +124,7 @@ static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
+static_assert(AddToLP<DecisionVariableLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -271,6 +273,7 @@ public:
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
                                    Collection<LngTerminalLP>,
+                                   Collection<DecisionVariableLP>,
                                    Collection<UserConstraintLP>>;
 
   /// @return The full collections tuple.

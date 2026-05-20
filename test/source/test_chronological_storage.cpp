@@ -429,7 +429,9 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "g_thermal",
           .bus = Uid {1},
-          .pmin = 10.0,
+          // pmin moved to Commitment.pmin (when-committed floor);
+          // Generator.pmin stays 0 so u=0 ⇒ p=0 is feasible.
+          .pmin = 0.0,
           .pmax = 100.0,
           .gcost = 40.0,
           .capacity = 100.0,
@@ -469,6 +471,7 @@ TEST_CASE(  // NOLINT
           .generator = Uid {1},
           .startup_cost = 200.0,
           .noload_cost = 5.0,
+          .pmin = 10.0,
           .initial_status = 0.0,
           .relax = true,
       },

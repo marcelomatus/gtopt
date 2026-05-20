@@ -495,7 +495,8 @@ bool ConstraintParser::Parser::is_element_type(const std::string& name)
       || name == "reserve_provision" || name == "reserve_zone"
       || name == "flow_right" || name == "volume_right"
       || name == "lng_terminal" || name == "fuel" || name == "emission_zone"
-      || name == "emission_source";
+      || name == "emission_source" || name == "commitment"
+      || name == "simple_commitment" || name == "decision_variable";
 }
 
 bool ConstraintParser::Parser::is_singleton_class(const std::string& name)

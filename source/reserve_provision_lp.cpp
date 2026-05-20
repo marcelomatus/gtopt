@@ -123,8 +123,18 @@ std::expected<void, Error> add_provision(
         continue;
       }
     }
+    // PLEXOS Min Provision floor — when set, clamp the provision col's
+    // lower bound to the per-block value.  This is an unconditional
+    // (always-on) floor: if the generator must always provide ≥urmin
+    // reserve, the LP solves through commitment_lp's gen-col linkage.
+    // Conditional-on-commitment behaviour (provision ≥ urmin × u) is
+    // a future refinement; v0 is the simpler always-on row that
+    // mirrors PLEXOS's "every committed unit must provide at least
+    // X MW" semantic on this gen.
+    const auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
 
     const auto prov_col = lp.add_col({
+        .lowb = block_rmin,
         .uppb = block_rmax.value(),
         .cost = CostHelper::block_ecost(scenario, stage, block, block_cost),
         .class_name = cname,
@@ -196,10 +206,12 @@ ReserveProvisionLP::Provision::Provision(const InputContext& ic,
                                          std::string_view cname,
                                          const Id& id,
                                          auto&& rmax,
+                                         auto&& rmin,
                                          auto&& rcost,
                                          auto&& rcapf,
                                          auto&& rprof)
     : max(ic, cname, id, std::forward<decltype(rmax)>(rmax))
+    , min(ic, cname, id, std::forward<decltype(rmin)>(rmin))
     , cost(ic, cname, id, std::forward<decltype(rcost)>(rcost))
     , capacity_factor(ic, cname, id, std::forward<decltype(rcapf)>(rcapf))
     , provision_factor(ic, cname, id, std::forward<decltype(rprof)>(rprof))
@@ -213,6 +225,7 @@ ReserveProvisionLP::ReserveProvisionLP(
          Element::class_name,
          id(),
          std::move(reserve_provision().urmax),
+         std::move(reserve_provision().urmin),
          std::move(reserve_provision().urcost),
          std::move(reserve_provision().ur_capacity_factor),
          std::move(reserve_provision().ur_provision_factor))
@@ -220,6 +233,7 @@ ReserveProvisionLP::ReserveProvisionLP(
          Element::class_name,
          id(),
          std::move(reserve_provision().drmax),
+         std::move(reserve_provision().drmin),
          std::move(reserve_provision().drcost),
          std::move(reserve_provision().dr_capacity_factor),
          std::move(reserve_provision().dr_provision_factor))

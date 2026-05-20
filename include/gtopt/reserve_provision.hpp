@@ -55,6 +55,21 @@ struct ReserveProvision
   OptTBRealFieldSched urmax {};  ///< Maximum up-reserve offer [MW]
   OptTBRealFieldSched drmax {};  ///< Maximum down-reserve offer [MW]
 
+  OptTBRealFieldSched urmin {};  ///< Minimum up-reserve provision floor [MW]
+                                 ///< per-(stage, block).  When set, gtopt
+                                 ///< adds the row ``provision_up >= urmin``
+                                 ///< on the LP, forcing the unit to commit
+                                 ///< at least ``urmin`` MW to up-reserve
+                                 ///< whenever the gen is on.  Mirrors
+                                 ///< PLEXOS's per-(Reserve, Generator)
+                                 ///< ``Min Provision`` / ``Min Spinning
+                                 ///< Provision`` / ``Min Replacement
+                                 ///< Provision`` properties.
+  OptTBRealFieldSched drmin {};  ///< Minimum down-reserve provision floor
+                                 ///< [MW] per-(stage, block).  Same
+                                 ///< semantics as ``urmin`` for the
+                                 ///< down-reserve column.
+
   OptTBRealFieldSched
       ur_capacity_factor {};  ///< Up-reserve capacity factor [p.u.] —
                               ///< per-(stage, block); accepts a scalar

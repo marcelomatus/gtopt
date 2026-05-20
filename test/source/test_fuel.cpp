@@ -546,37 +546,9 @@ TEST_CASE(  // NOLINT
   CHECK(found);
 }
 
-TEST_CASE(  // NOLINT
-    "Commitment validate — fuel UID not in fuel_array rejected")
-{
-  Planning p = make_minimal_planning();
-  p.system.generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-      },
-  };
-  p.system.commitment_array = {
-      {
-          .uid = Uid {1},
-          .name = "c_dangling_fuel",
-          .generator = Uid {1},
-          .fuel = Uid {77},
-      },
-  };
-
-  const auto result = validate_planning(p);
-  CHECK_FALSE(result.ok());
-  const bool found = std::ranges::any_of(result.errors,
-                                         [](const auto& e)
-                                         {
-                                           return e.contains("Commitment")
-                                               && e.contains("fuel")
-                                               && e.contains("Fuel");
-                                         });
-  CHECK(found);
-}
+// Commitment.fuel was removed on 2026-05-20 (dispatch cost lives on
+// Generator now).  The dangling-fuel-FK case is covered by the
+// Generator validate test above.
 
 // ── PAMPL parameter mappings (2026-05-17) ────────────────────────────
 //

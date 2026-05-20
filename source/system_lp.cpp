@@ -582,6 +582,13 @@ void create_collections(const auto& system_context,
   std::get<Collection<LngTerminalLP>>(colls) =
       make_collection<LngTerminalLP>(ic, sys.lng_terminal_array);
 
+  // DecisionVariableLP sits just before UserConstraintLP so its free
+  // columns are registered with the AMPL resolver before any user
+  // constraint that references ``decision_variable("X").value`` is
+  // assembled.
+  std::get<Collection<DecisionVariableLP>>(colls) =
+      make_collection<DecisionVariableLP>(ic, sys.decision_variable_array);
+
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =
@@ -631,6 +638,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<EmissionZoneLP>(sim, sys.emission_zone_array);
   register_element_names<EmissionSourceLP>(sim, sys.emission_source_array);
   register_element_names<FlowLP>(sim, sys.flow_array);
+  register_element_names<DecisionVariableLP>(sim, sys.decision_variable_array);
   register_element_names<FlowRightLP>(sim, sys.flow_right_array);
   register_element_names<FuelLP>(sim, sys.fuel_array);
   register_element_names<GeneratorLP>(sim, sys.generator_array);

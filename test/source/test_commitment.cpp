@@ -133,10 +133,9 @@ TEST_CASE("Commitment struct defaults")
   CHECK_FALSE(c.initial_hours.has_value());
   CHECK_FALSE(c.relax.has_value());
   CHECK_FALSE(c.must_run.has_value());
-  CHECK(c.pmax_segments.empty());
-  CHECK(c.heat_rate_segments.empty());
-  CHECK_FALSE(c.fuel_cost.has_value());
-  CHECK_FALSE(c.fuel_emission_factor.has_value());
+  // pmax_segments / heat_rate_segments / fuel_cost /
+  // fuel_emission_factor removed from Commitment on 2026-05-20 —
+  // moved to Generator.  See test_generator.cpp for the equivalents.
   CHECK_FALSE(c.hot_start_cost.has_value());
   CHECK_FALSE(c.warm_start_cost.has_value());
   CHECK_FALSE(c.cold_start_cost.has_value());
@@ -498,118 +497,12 @@ TEST_CASE("CommitmentLP ramp constraints limit dispatch change")
   CHECK(result.value() == 0);
 }
 
-TEST_CASE("Piecewise heat rate curve shifts dispatch cost")
-{
-  // One generator with 2-segment heat rate curve:
-  //   Segment 1: [0, 50] MW at heat_rate=8 GJ/MWh
-  //   Segment 2: [50, 100] MW at heat_rate=12 GJ/MWh
-  //   fuel_cost = 5 $/GJ
-  //   Effective: seg1 cost = 40 $/MWh, seg2 cost = 60 $/MWh
-  // Second generator: flat gcost=50 $/MWh, pmax=100
-  // Demand = 80 MW, single block.
-  // Optimal: g1 dispatches 50 (seg1 at 40) + 0 (seg2 at 60),
-  //          g2 dispatches 30 (at 50 < 60).
-
-  System sys;
-  sys.name = "heat_rate_test";
-  sys.bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-  };
-  sys.demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 80.0,
-      },
-  };
-  sys.generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .pmin = 0.0,
-          .pmax = 100.0,
-          .gcost = 0.0,  // overridden by heat rate segments
-          .capacity = 100.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "g2",
-          .bus = Uid {1},
-          .pmin = 0.0,
-          .pmax = 100.0,
-          .gcost = 50.0,
-          .capacity = 100.0,
-      },
-  };
-
-  sys.commitment_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1_uc",
-          .generator = Uid {1},
-          .initial_status = 1.0,
-          .relax = true,
-          .must_run = true,
-          .pmax_segments =
-              {
-                  50.0,
-                  100.0,
-              },
-          .heat_rate_segments =
-              {
-                  8.0,
-                  12.0,
-              },
-          .fuel_cost = 5.0,
-      },
-  };
-
-  Simulation simulation;
-  simulation.block_array = {
-      {
-          .uid = Uid {0},
-          .duration = 1.0,
-      },
-  };
-  simulation.stage_array = {
-      {
-          .uid = Uid {0},
-          .first_block = 0,
-          .count_block = 1,
-          .chronological = true,
-      },
-  };
-  simulation.scenario_array = {
-      {
-          .uid = Uid {0},
-      },
-  };
-
-  PlanningOptions popts;
-  popts.model_options.demand_fail_cost = 1000.0;
-  const PlanningOptionsLP options(popts);
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(sys, simulation_lp);
-
-  auto&& li = system_lp.linear_interface();
-  const auto result = li.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // g1 should dispatch 50 MW (all from seg1 at 40 $/MWh),
-  // g2 dispatches 30 MW at 50 $/MWh (cheaper than g1 seg2 at 60)
-  const auto sol = li.get_col_sol();
-  // Post-P0 layout: demand(0), then g1_seg/g2 cols (no `fail` col).
-  // The old sol[1] == 0.0 "no shedding" check pointed at the now-
-  // deleted fail col, so we drop it; demand fully served is implied
-  // by sol[0] == lmax.
-  CHECK(sol[0] == doctest::Approx(80.0));
-}
+// "Piecewise heat rate curve shifts dispatch cost" was DELETED on
+// 2026-05-20: Commitment.pmax_segments / heat_rate_segments /
+// fuel_cost were removed from the schema.  Piecewise heat-rate +
+// fuel cost now lives entirely on Generator (Generator.pmax_segments
+// / heat_rate_segments / fuel / Fuel.price) — see test_generator.cpp
+// for the equivalent test of the pure-LP convex-slack formulation.
 
 TEST_CASE("Commitment JSON round-trip with ramp fields")
 {
@@ -639,35 +532,11 @@ TEST_CASE("Commitment JSON round-trip with ramp fields")
   CHECK(c2.ramp_down.value_or(-1.0) == doctest::Approx(40.0));
 }
 
-TEST_CASE("Commitment JSON round-trip with heat rate segments")
-{
-  std::string_view json_str = R"({
-    "uid": 3,
-    "name": "coal_uc",
-    "generator": 7,
-    "initial_status": 1,
-    "relax": true,
-    "pmax_segments": [50.0, 80.0, 100.0],
-    "heat_rate_segments": [8.0, 10.0, 14.0],
-    "fuel_cost": 5.0
-  })";
-
-  const auto c = daw::json::from_json<Commitment>(json_str);
-  CHECK(c.uid == 3);
-  REQUIRE(c.pmax_segments.size() == 3);
-  CHECK(c.pmax_segments[0] == doctest::Approx(50.0));
-  CHECK(c.pmax_segments[2] == doctest::Approx(100.0));
-  REQUIRE(c.heat_rate_segments.size() == 3);
-  CHECK(c.heat_rate_segments[0] == doctest::Approx(8.0));
-  CHECK(c.heat_rate_segments[2] == doctest::Approx(14.0));
-  REQUIRE(c.fuel_cost.has_value());
-
-  // Round-trip
-  const auto json_out = daw::json::to_json(c);
-  const auto c2 = daw::json::from_json<Commitment>(json_out);
-  CHECK(c2.pmax_segments.size() == 3);
-  CHECK(c2.heat_rate_segments.size() == 3);
-}
+// "Commitment JSON round-trip with heat rate segments" was DELETED
+// on 2026-05-20: pmax_segments / heat_rate_segments / fuel_cost
+// were removed from Commitment.  See test_generator.cpp for the
+// equivalent JSON round-trip test on Generator (the new home for
+// piecewise heat-rate dispatch cost).
 
 TEST_CASE("CommitmentLP min up/down time constraints")
 {
@@ -690,12 +559,14 @@ TEST_CASE("CommitmentLP min up/down time constraints")
           .capacity = 80.0,
       },
   };
+  // g1 has a when-committed floor of 20 MW (carried on Commitment.pmin
+  // in each subcase below); Generator.pmin stays 0 so u=0 ⇒ p=0.
   sys.generator_array = {
       {
           .uid = Uid {1},
           .name = "g1",
           .bus = Uid {1},
-          .pmin = 20.0,
+          .pmin = 0.0,
           .pmax = 100.0,
           .gcost = 10.0,
           .capacity = 100.0,
@@ -759,6 +630,7 @@ TEST_CASE("CommitmentLP min up/down time constraints")
             .uid = Uid {1},
             .name = "g1_uc",
             .generator = Uid {1},
+            .pmin = 20.0,
             .min_up_time = 3.0,
             .min_down_time = 2.0,
             .initial_status = 1.0,
@@ -795,6 +667,7 @@ TEST_CASE("CommitmentLP min up/down time constraints")
             .uid = Uid {1},
             .name = "g1_uc",
             .generator = Uid {1},
+            .pmin = 20.0,
             .initial_status = 1.0,
             .relax = true,
         },
@@ -829,6 +702,7 @@ TEST_CASE("CommitmentLP min up/down time constraints")
             .uid = Uid {1},
             .name = "g1_uc",
             .generator = Uid {1},
+            .pmin = 20.0,
             .min_up_time = 3.0,
             .initial_status = 0.0,
             .relax = true,
@@ -1053,31 +927,11 @@ TEST_CASE("Commitment JSON round-trip with startup tiers")
   CHECK(c2.cold_start_time.value_or(-1.0) == doctest::Approx(8.0));
 }
 
-TEST_CASE("Commitment JSON round-trip with fuel_emission_factor")
-{
-  std::string_view json_str = R"({
-    "uid": 5,
-    "name": "gas_uc",
-    "generator": 3,
-    "initial_status": 1,
-    "pmax_segments": [50.0, 100.0],
-    "heat_rate_segments": [7.0, 10.0],
-    "fuel_cost": 4.0,
-    "fuel_emission_factor": 0.056
-  })";
-
-  const auto c = daw::json::from_json<Commitment>(json_str);
-  CHECK(c.uid == 5);
-  REQUIRE(c.fuel_emission_factor.has_value());
-  CHECK(std::get<Real>(c.fuel_emission_factor.value())
-        == doctest::Approx(0.056));
-
-  const auto json_out = daw::json::to_json(c);
-  const auto c2 = daw::json::from_json<Commitment>(json_out);
-  REQUIRE(c2.fuel_emission_factor.has_value());
-  CHECK(std::get<Real>(c2.fuel_emission_factor.value())
-        == doctest::Approx(0.056));
-}
+// "Commitment JSON round-trip with fuel_emission_factor" was
+// DELETED on 2026-05-20: fuel_emission_factor (and the rest of the
+// dispatch-cost fields) was removed from Commitment.  Per-fuel
+// emission rates now live on Fuel (and Generator.emission_rate
+// absorbs the per-MWh contribution at the GeneratorLP layer).
 
 TEST_CASE("Stage chronological field JSON")
 {
@@ -1245,9 +1099,10 @@ TEST_CASE("Relaxed UC allows p=0 when u=0 despite pmin>0")
 
   auto tc = TestCase::make_basic(true);
 
-  // g1: committed, expensive (gcost=50), pmin=20
+  // g1: committed, expensive (gcost=50).  Commitment.pmin=20 is the
+  // when-committed floor; Generator.pmin stays 0 so u=0 ⇒ p=0 is feasible.
   tc.system.generator_array[0].gcost = 50.0;
-  tc.system.generator_array[0].pmin = 20.0;
+  tc.system.generator_array[0].pmin = 0.0;
   // g2: cheap (gcost=10), pmin=0, large enough to cover all demand
   tc.system.generator_array[1].gcost = 10.0;
   tc.system.generator_array[1].pmin = 0.0;
@@ -1259,6 +1114,7 @@ TEST_CASE("Relaxed UC allows p=0 when u=0 despite pmin>0")
           .uid = Uid {1},
           .name = "g1_uc",
           .generator = Uid {1},
+          .pmin = 20.0,
           .initial_status = 1.0,
           .relax = true,  // LP relaxation: u ∈ [0,1]
       },
@@ -1431,9 +1287,11 @@ TEST_CASE("Initial min-up obligation prevents early shutdown")
 
   auto tc = TestCase::make_basic(true);
 
-  // g1: expensive, committed with initial_status=1, initial_hours=1
+  // g1: expensive, committed with initial_status=1, initial_hours=1.
+  // pmin moves onto Commitment (when-committed floor); Generator.pmin
+  // stays 0 so the optimizer can shut down (u=0 ⇒ p=0).
   tc.system.generator_array[0].gcost = 50.0;
-  tc.system.generator_array[0].pmin = 20.0;
+  tc.system.generator_array[0].pmin = 0.0;
   // g2: cheap, covers all demand
   tc.system.generator_array[1].gcost = 5.0;
   tc.system.generator_array[1].pmin = 0.0;
@@ -1445,6 +1303,7 @@ TEST_CASE("Initial min-up obligation prevents early shutdown")
           .uid = Uid {1},
           .name = "g1_uc",
           .generator = Uid {1},
+          .pmin = 20.0,
           .min_up_time = 3.0,
           .initial_status = 1.0,
           .initial_hours = 1.0,
@@ -1825,111 +1684,11 @@ TEST_CASE("Must-run forces minimum pmin generation")
   CHECK(obj == doctest::Approx(7400.0 / 1000.0));
 }
 
-TEST_CASE("Segment delta_k forced to zero when u=0")
-{
-  // g1: pmin=0, pmax=100, segments with very expensive heat rates.
-  // g2: pmin=0, pmax=100, gcost=5 (cheap).
-  // Demand=80, 1 block.  With relaxation, optimizer sets u=0 for g1
-  // → p=0 → all δ_k=0.  g2 dispatches all 80 MW.
-  // Cost = 5×80×1 = 400, scaled = 0.4.
-
-  System sys;
-  sys.name = "segment_zero_test";
-  sys.bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-  };
-  sys.demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = 80.0,
-      },
-  };
-  sys.generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .pmin = 0.0,
-          .pmax = 100.0,
-          .gcost = 0.0,
-          .capacity = 100.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "g2",
-          .bus = Uid {1},
-          .pmin = 0.0,
-          .pmax = 100.0,
-          .gcost = 5.0,
-          .capacity = 100.0,
-      },
-  };
-
-  sys.commitment_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1_uc",
-          .generator = Uid {1},
-          .initial_status = 1.0,
-          .relax = true,
-          .pmax_segments =
-              {
-                  50.0,
-                  100.0,
-              },
-          .heat_rate_segments =
-              {
-                  8.0,
-                  12.0,
-              },
-          .fuel_cost = 100.0,  // seg1=800, seg2=1200 $/MWh
-      },
-  };
-
-  Simulation simulation;
-  simulation.block_array = {
-      {
-          .uid = Uid {0},
-          .duration = 1.0,
-      },
-  };
-  simulation.stage_array = {
-      {
-          .uid = Uid {0},
-          .first_block = 0,
-          .count_block = 1,
-          .chronological = true,
-      },
-  };
-  simulation.scenario_array = {
-      {
-          .uid = Uid {0},
-      },
-  };
-
-  PlanningOptions popts;
-  popts.model_options.demand_fail_cost = 1000.0;
-  const PlanningOptionsLP options(popts);
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(sys, simulation_lp);
-
-  auto&& li = system_lp.linear_interface();
-  const auto result = li.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  const auto obj = li.get_obj_value_raw();
-  CHECK(obj == doctest::Approx(400.0 / 1000.0));
-
-  // g1 generation is 0
-  const auto sol = li.get_col_sol();
-  CHECK(sol[1] == doctest::Approx(0.0));
-}
+// "Segment delta_k forced to zero when u=0" was DELETED on
+// 2026-05-20 along with the rest of the Commitment piecewise
+// heat-rate path.  The equivalent check (no δ_k segments dispatched
+// when the generator is uncommitted) belongs in test_generator.cpp
+// against Generator.pmax_segments / heat_rate_segments.
 
 TEST_CASE("Startup and shutdown ramp limits first/last block")
 {
@@ -2359,7 +2118,8 @@ TEST_CASE(  // NOLINT
           .uid = Uid {1},
           .name = "g1",
           .bus = Uid {1},
-          .pmin = 30.0,
+          // pmin moves to Commitment.pmin (when-committed floor).
+          .pmin = 0.0,
           .pmax = 100.0,
           .gcost = 50.0,
           .capacity = 100.0,
@@ -2372,6 +2132,7 @@ TEST_CASE(  // NOLINT
           .generator = Uid {1},
           .startup_cost = 100.0,
           .shutdown_cost = 50.0,
+          .pmin = 30.0,
           .initial_status = 0.0,
       },
   };

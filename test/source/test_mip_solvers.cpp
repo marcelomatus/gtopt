@@ -237,7 +237,8 @@ TEST_CASE(  // NOLINT
               .uid = Uid {1},
               .name = "g1",
               .bus = Uid {1},
-              .pmin = 30.0,
+              // pmin moves to Commitment.pmin (when-committed floor).
+              .pmin = 0.0,
               .pmax = 100.0,
               .gcost = 50.0,
               .capacity = 100.0,
@@ -250,6 +251,7 @@ TEST_CASE(  // NOLINT
               .generator = Uid {1},
               .startup_cost = 100.0,
               .shutdown_cost = 50.0,
+              .pmin = 30.0,
               .initial_status = 0.0,
           },
       };

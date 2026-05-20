@@ -17,6 +17,7 @@
 #include <gtopt/json/json_capacity_profile.hpp>
 #include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_converter.hpp>
+#include <gtopt/json/json_decision_variable.hpp>
 #include <gtopt/json/json_demand.hpp>
 #include <gtopt/json/json_demand_profile.hpp>
 #include <gtopt/json/json_emission.hpp>
@@ -110,6 +111,9 @@ struct json_data_contract<System>
       json_array_null<"flow_right_array", Array<FlowRight>, FlowRight>,
       json_array_null<"volume_right_array", Array<VolumeRight>, VolumeRight>,
       json_array_null<"user_param_array", Array<UserParam>, UserParam>,
+      json_array_null<"decision_variable_array",
+                      Array<DecisionVariable>,
+                      DecisionVariable>,
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
@@ -152,6 +156,7 @@ struct json_data_contract<System>
                                  system.flow_right_array,
                                  system.volume_right_array,
                                  system.user_param_array,
+                                 system.decision_variable_array,
                                  system.user_constraint_array,
                                  system.user_constraint_file,
                                  system.user_constraint_files);

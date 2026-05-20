@@ -1485,6 +1485,19 @@ void PlanningLP::write_out()
   // still using every physical core).
   // Forward `--memory-limit` through the same path as every other
   // pool so the 60 GB RSS cap is honoured during write_out.
+  //
+  // History on cpu_factor (measured on 2-year case, Release build,
+  // gtopt_28 vs gtopt_29):
+  //   * 1.0 → per-cell wall 611 ms, write_out wall 27.5 s
+  //   * 1.5 → per-cell wall 1319 ms, write_out wall 50.6 s (2.16×
+  //     SLOWER per cell despite avg per-task CPU climbing from 55 %
+  //     → 95 %).  The extra concurrency hits the Arrow memory-pool /
+  //     parquet encoder contention noted in the 2026-05-12 comment
+  //     above on juan/IPLP and dominates the marginal parallelism
+  //     gain.  Confirmed that 1.0 is the sweet spot for this code
+  //     path: the per-task CPU "headroom" at 1.0 is I/O wait that
+  //     the parquet encoder uses internally — adding more pool
+  //     threads on top just queues them on Arrow's locks.
   auto pool = make_solver_work_pool(
       /*cpu_factor=*/1.0,
       /*cpu_threshold_override=*/0.0,

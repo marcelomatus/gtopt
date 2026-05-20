@@ -138,6 +138,7 @@ void System::expand_batteries()
   auto dem_uid = next_uid(demand_array);
   auto conv_uid = next_uid(converter_array);
   auto bus_uid = next_uid(bus_array);
+  auto cmt_uid = next_uid(commitment_array);
 
   for (auto& battery : battery_array) {
     if (!battery.bus.has_value()) {
@@ -190,8 +191,13 @@ void System::expand_batteries()
     //
     // ``pmax_discharge`` (TB) → ``Generator.pmax`` — per-(stage,
     // block) operational ceiling.  ``pmin_discharge`` (TB) →
-    // ``Generator.pmin`` — HARD per-block floor, mirroring UC.jl
-    // ``Minimum discharge rate (MW)`` and PLEXOS ``Min Generation``.
+    // ``Generator.pmin`` — HARD per-block floor; ConverterLP gates
+    // this via its commitment binary when ``Converter.commitment``
+    // is true.  The same per-unit value also flows into the synthesised
+    // ``Commitment.pmin`` below (single-source-of-truth in progress —
+    // once ConverterLP migrates to looking up u from CommitmentLP,
+    // the ``Generator.pmin`` here can collapse to 0).
+    //
     // ``Generator.capacity`` is left unset: the default capacity
     // sentinel is ``numeric_limits<double>::max()`` (unlimited), so
     // ``block_pmax = min(stage_capacity, pmax_at) = pmax_at``.  No
@@ -238,14 +244,19 @@ void System::expand_batteries()
         .fcost = std::move(dem_fcost),
     });
 
-    // Converter linking battery, generator, and demand.
-    //
-    // Propagates ``Battery.commitment`` / ``Battery.integer_commitment``
-    // onto the Converter so its ``add_to_lp`` adds per-block binaries
-    // ``u_charge`` / ``u_discharge`` that gate the synthetic
-    // ``Demand.{lmin,lmax}`` / ``Generator.{pmin,pmax}`` floors —
-    // converting them from HARD every-block bounds into CONDITIONAL
-    // "when active" bounds (UC.jl + PLEXOS semantics).
+    // Converter linking battery, generator, and demand.  The
+    // ``commitment`` flag still propagates (legacy path: ConverterLP
+    // generates its own u_charge / u_discharge binaries).  In
+    // parallel we now ALSO synthesise a ``Commitment`` element on
+    // ``<bat>_gen`` (see below) so the gen-side u is reachable via
+    // the standard CommitmentLP discovery — same machinery that
+    // already powers reserve / inertia / urmin-drmin gating for
+    // thermal units.  The single-source-of-truth migration (drop
+    // Converter.commitment, have ConverterLP look up the gen's
+    // CommitmentLP) is in progress; until that lands the duplication
+    // is harmless because ConverterLP only creates binaries when
+    // ``Converter.commitment = true``, and the legacy code path
+    // tests assume that semantic.
     converter_array.push_back(Converter {
         .uid = conv_uid++,
         .name = conv_name,
@@ -254,6 +265,46 @@ void System::expand_batteries()
         .demand = Name {dem_name},
         .commitment = battery.commitment,
     });
+
+    // Synthesise a Commitment for the battery's discharge generator
+    // when the battery carries any commitment-conditional data
+    // (``pmin_discharge``, ``pmin_charge``, or explicit
+    // ``Battery.commitment = true``).  The commitment owns the
+    // ``u`` variable that gates dispatch direction and reserve
+    // provision; ``Commitment.pmin`` carries the per-unit Min
+    // Discharge Level (PLEXOS ``Generator.Min Stable Level``
+    // semantics).  ``relax = true`` keeps the LP path LP-only;
+    // override via JSON for full MIP.
+    const bool needs_commitment = battery.commitment.value_or(false)
+        || battery.pmin_discharge.has_value()
+        || battery.pmin_charge.has_value();
+    if (needs_commitment) {
+      Commitment bat_commit {
+          .uid = cmt_uid++,
+          .name = "uc_" + gen_name,
+          .generator = Name {gen_name},
+          .relax = OptBool {true},
+      };
+      // Carry the discharge-side floor as the commitment pmin (the
+      // gen-side per-unit min stable level).  Charge-side gating is
+      // applied by ConverterLP using the same u column.
+      //
+      // ``Commitment.pmin`` is ``OptReal`` (scalar); ``pmin_discharge``
+      // is ``OptTBRealFieldSched`` (variant of scalar / 2D / file).
+      // Collapse to scalar only when the underlying variant holds a
+      // plain double — for the CEN PCP daily horizon all per-unit
+      // floors are scalars, so the lossy 2D / file branches don't
+      // need to be honoured here.  Per-block commitment pmin would
+      // need ``OptTBRealFieldSched Commitment.pmin`` instead.
+      if (battery.pmin_discharge.has_value()) {
+        if (const auto* scalar =
+                std::get_if<double>(&battery.pmin_discharge.value()))
+        {
+          bat_commit.pmin = OptReal {*scalar};
+        }
+      }
+      commitment_array.push_back(std::move(bat_commit));
+    }
 
     SPDLOG_TRACE(
         std::format("Expanded battery '{}': gen='{}' dem='{}' conv='{}'",
@@ -751,6 +802,7 @@ void System::merge(System&& sys)
   gtopt::merge(volume_right_array, std::move(sys.volume_right_array));
 
   gtopt::merge(user_param_array, std::move(sys.user_param_array));
+  gtopt::merge(decision_variable_array, std::move(sys.decision_variable_array));
   gtopt::merge(user_constraint_array, std::move(sys.user_constraint_array));
 
   if (sys.user_constraint_file.has_value()) {

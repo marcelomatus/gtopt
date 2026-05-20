@@ -28,6 +28,7 @@
 #include <gtopt/capacity_profile.hpp>
 #include <gtopt/commitment.hpp>
 #include <gtopt/converter.hpp>
+#include <gtopt/decision_variable.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/demand_profile.hpp>
 #include <gtopt/emission.hpp>
@@ -169,6 +170,10 @@ struct System
 
   // ── User parameters and constraints ─────────────────────────────────────
   Array<UserParam> user_param_array {};  ///< Named parameters for constraints
+  Array<DecisionVariable>
+      decision_variable_array {};  ///< Free continuous decision vars referenced
+                                   ///< by user constraints (PLEXOS DV maps
+                                   ///< here)
   Array<UserConstraint>
       user_constraint_array {};  ///< User-defined LP constraints
   OptName

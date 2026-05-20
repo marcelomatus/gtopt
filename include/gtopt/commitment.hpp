@@ -71,21 +71,32 @@ struct Commitment
 
   SingleId generator {unknown_uid};  ///< FK to the Generator
 
-  /// Optional FK to a `Fuel` element.  When set, the per-segment fuel
-  /// cost / emission factor are derived from
-  /// `Fuel.price × heat_rate_segment` and
-  /// `(Fuel.combustion_emission_factor + Fuel.upstream_emission_factor)
-  /// × heat_rate_segment`, replacing the legacy inline `fuel_cost` and
-  /// `fuel_emission_factor` schedules.  Aligns with PLEXOS's
-  /// `Generator.Fuel` and SDDP's `Combustível` reference patterns and
-  /// lets a single Fuel be shared across many committed generators.
-  /// When both `fuel` and `fuel_cost` are set, the Fuel ref wins and
-  /// CommitmentLP emits a build-time warning.
-  OptSingleId fuel {};
+  // ``fuel`` / ``pmax_segments`` / ``heat_rate_segments`` / ``fuel_cost``
+  // / ``fuel_emission_factor`` were removed from Commitment on
+  // 2026-05-20 — those fields are dispatch-cost properties of the
+  // *Generator*, not of the commitment binary.  Use
+  // ``Generator.fuel`` / ``Generator.pmax_segments`` /
+  // ``Generator.heat_rate_segments`` instead; ``GeneratorLP`` builds
+  // the piecewise cost as a pure-LP convex-slack formulation that
+  // works with or without a Commitment binary (see
+  // ``source/generator_lp.cpp:272+``).
 
   OptTRealFieldSched startup_cost {};  ///< Startup cost [$/start]
   OptTRealFieldSched shutdown_cost {};  ///< Shutdown cost [$/stop]
   OptReal noload_cost {};  ///< No-load cost when committed [$/hr]
+
+  /// Minimum stable level when committed [MW].  Distinct from
+  /// ``Generator.pmin`` (which is the *always-on* hard floor that
+  /// applies regardless of commitment).  When this field is set,
+  /// ``commitment_lp.cpp`` uses it as the per-unit minimum
+  /// (``gen ≥ pmin × u_commit``) and leaves ``Generator.pmin`` alone
+  /// as the unconditional dispatch floor.  Defaults to falling back
+  /// on ``lp.get_col_lowb(gcol)`` (legacy behaviour) when unset.
+  /// PLEXOS analogue: ``Generator.Min Stable Level`` is
+  /// commitment-conditional per the official Energy Exemplar docs,
+  /// so the plexos2gtopt converter writes Min Stable Level here
+  /// (not into Generator.pmin) and keeps Generator.pmin = 0.
+  OptReal pmin {};
 
   OptReal min_up_time {};  ///< Minimum up time [hours]
   OptReal min_down_time {};  ///< Minimum down time [hours]
@@ -121,33 +132,12 @@ struct Commitment
   /// remain at 15-minute resolution.  Default (nullopt) = one per block.
   OptReal commitment_period {};
 
-  /// @name Piecewise heat rate curve (PLEXOS "Heat Rate Function")
-  /// When both arrays are present, the generation range [Pmin, Pmax] is
-  /// decomposed into K segments with individual heat rates.
-  /// `pmax_segments` = [P̄₁, ..., P̄ₖ] cumulative power breakpoints [MW].
-  /// `heat_rate_segments` = [h₁, ..., hₖ] heat rate per segment
-  /// [`<fuel_unit>`/MWh] — unit matches the referenced `Fuel`'s price /
-  /// emission-factor unit (see `Fuel` "Unit-flexibility contract").
-  /// Segment k covers [P̄_{k-1}, P̄ₖ] where P̄₀ = Pmin.
-  ///
-  /// Effective per-segment generation cost (`$/MWh`):
-  ///   - When `fuel` is set: `Fuel.price(stage) × h_k`
-  ///   - Else (legacy): `fuel_cost(stage) × h_k`
-  /// Effective per-segment emission (`tCO₂/MWh`):
-  ///   - When `fuel` is set: `(Fuel.combustion_ef + Fuel.upstream_ef) × h_k`
-  ///   - Else (legacy): `fuel_emission_factor(stage) × h_k`
-  ///
-  /// `fuel_cost` and `fuel_emission_factor` are kept for back-compat
-  /// with pre-Fuel-entity JSON.  Prefer setting `fuel` on new models;
-  /// the inline schedules will eventually be deprecated.
-  /// @{
-  Array<Real> pmax_segments {};
-  Array<Real> heat_rate_segments {};
-  OptTRealFieldSched fuel_cost {};  ///< Legacy: fuel cost
-                                    ///< [$/`<fuel_unit>`], stage-schedulable
-  OptTRealFieldSched fuel_emission_factor {};  ///< Legacy: emission factor
-                                               ///< [tCO₂/`<fuel_unit>`]
-  /// @}
+  // Piecewise heat-rate curve (``pmax_segments`` /
+  // ``heat_rate_segments``) and the legacy ``fuel_cost`` /
+  // ``fuel_emission_factor`` schedules were removed from Commitment
+  // on 2026-05-20.  They are dispatch-cost properties belonging on
+  // ``Generator``; see the comment near ``generator`` above for
+  // migration guidance.
 
   /// @name Startup cost tiers (hot/warm/cold)
   /// When all five fields are present, the single startup_cost is replaced

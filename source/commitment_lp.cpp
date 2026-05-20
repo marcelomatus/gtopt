@@ -29,11 +29,6 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
           ic, Element::class_name, id(), std::move(object().startup_cost))
     , shutdown_cost_(
           ic, Element::class_name, id(), std::move(object().shutdown_cost))
-    , fuel_cost_(ic, Element::class_name, id(), std::move(object().fuel_cost))
-    , fuel_emission_factor_(ic,
-                            Element::class_name,
-                            id(),
-                            std::move(object().fuel_emission_factor))
     , fixed_status_(
           ic, Element::class_name, id(), std::move(object().fixed_status))
 {
@@ -84,40 +79,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto opt_startup_ramp = commitment().startup_ramp;
   const auto opt_shutdown_ramp = commitment().shutdown_ramp;
 
-  // Resolve piecewise heat rate curve
-  const auto& pmax_segs = commitment().pmax_segments;
-  const auto& hr_segs = commitment().heat_rate_segments;
-  const auto has_segments = !pmax_segs.empty() && !hr_segs.empty()
-      && pmax_segs.size() == hr_segs.size();
-
-  // Resolve fuel-related parameters.  When `Commitment.fuel` is set
-  // (PLEXOS-style FK), the price + emission factors come from the
-  // referenced Fuel element; the inline legacy schedules
-  // (`fuel_cost`, `fuel_emission_factor`) are ignored with a warning
-  // when both are present.  When `fuel` is unset, fall back to the
-  // legacy inline schedules (pre-2026-05 behaviour).
-  double stage_fuel_cost = 0.0;
-  if (commitment().fuel.has_value()) {
-    const auto& fuel_lp = sc.element<FuelLP>(FuelLPSId {*commitment().fuel});
-    stage_fuel_cost = fuel_lp.param_price(stage.uid()).value_or(0.0);
-    if (commitment().fuel_cost.has_value()
-        || commitment().fuel_emission_factor.has_value())
-    {
-      SPDLOG_WARN(
-          "Commitment uid={} has both `fuel` reference and legacy "
-          "`fuel_cost`/`fuel_emission_factor` schedules set — the "
-          "Fuel reference wins.  Remove the legacy schedules to "
-          "silence this warning.",
-          cuid);
-    }
-  } else if (has_segments) {
-    stage_fuel_cost = fuel_cost_.optval(stage.uid()).value_or(0.0);
-  }
-
-  // Pre-size per-segment column holders
-  if (has_segments && segment_cols_.empty()) {
-    segment_cols_.resize(pmax_segs.size());
-  }
+  // Resolve piecewise heat rate curve.
+  //
+  // DEPRECATED on Commitment.  Piecewise heat-rate-derived fuel cost
+  // Piecewise heat-rate + fuel-cost handling is OWNED by ``GeneratorLP``
+  // (source/generator_lp.cpp:272+).  ``Generator.pmax_segments`` +
+  // ``Generator.heat_rate_segments`` + ``Generator.fuel`` are wired
+  // there as a pure-LP convex-slack formulation that works with or
+  // without a Commitment binary.  CommitmentLP intentionally
+  // *DOES NOT* read those fields anymore — they were removed from
+  // the Commitment struct on 2026-05-20 (commitment.hpp).
 
   // Emission cost is no longer wired here — the per-pollutant tax
   // and cap live on `EmissionZone` (see `emission_zone_lp.cpp`),
@@ -194,9 +165,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   std::vector<ColIndex> period_vcol(nperiods);
   std::vector<ColIndex> period_wcol(nperiods);
 
-  // block_ucol maps EVERY block uid → its period's u column
+  // block_ucol / block_vcol / block_wcol map EVERY block uid → its
+  // period's u / v / w column. The per-block maps feed both the
+  // ramp / logic / gen-bound constraint rows and the AMPL variable
+  // registry (see end of this function), so user constraints can
+  // reference ``commitment("X").status`` / ``.startup`` / ``.shutdown``.
   BIndexHolder<ColIndex> block_ucol;
+  BIndexHolder<ColIndex> block_vcol;
+  BIndexHolder<ColIndex> block_wcol;
   map_reserve(block_ucol, blocks.size());
+  map_reserve(block_vcol, blocks.size());
+  map_reserve(block_wcol, blocks.size());
 
   ColIndex prev_ucol {};
   bool first_period = true;
@@ -257,11 +236,6 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     });
     ucols[rep_buid] = ucol;
 
-    // Map all blocks in this period to the same u column
-    for (size_t i = pstart; i < pend; ++i) {
-      block_ucol[blocks[i].uid()] = ucol;
-    }
-
     // ── Create v (startup) variable ──
     const auto v_cost = has_startup_tiers
         ? 0.0
@@ -295,6 +269,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     });
     wcols[rep_buid] = wcol;
     period_wcol[p] = wcol;
+
+    // Fan the u / v / w columns out across every block in this period
+    // so per-block constraint rows and AMPL accessors can resolve them.
+    for (size_t i = pstart; i < pend; ++i) {
+      const auto buid = blocks[i].uid();
+      block_ucol[buid] = ucol;
+      block_vcol[buid] = vcol;
+      block_wcol[buid] = wcol;
+    }
 
     // ── C1: Logic transition (per period) ──
     // u[p] - u[p-1] - v[p] + w[p] = 0
@@ -370,11 +353,36 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto wcol = period_wcol[pidx];
 
     const auto gen_pmax = lp.get_col_uppb(gcol);
-    const auto gen_pmin = lp.get_col_lowb(gcol);
+    // ── Resolve commitment-conditional pmin ──
+    // ``Commitment.pmin`` is the per-unit min stable level when
+    // committed (PLEXOS ``Generator.Min Stable Level`` semantics).
+    // It is INDEPENDENT from ``Generator.pmin``, the always-on hard
+    // floor that lives on the gen column's ``lowb``.  Both bounds
+    // remain in force; the LP enforces:
+    //   gen ≥ Generator.pmin                  (always, col bound)
+    //   gen ≥ Commitment.pmin × u             (conditional, row below)
+    // CommitmentLP must NOT modify ``Generator.pmin`` (the col
+    // ``lowb``) — that's the user's territory; only adds its own
+    // u-linked row.
+    //
+    // When ``Commitment.pmin`` is unset (legacy JSON written before
+    // the field existed), fall back on reading the col ``lowb`` so
+    // round-trip compatibility is preserved.  Legal as long as
+    // ``Generator.pmin ≤ Commitment.pmin``; values that violate
+    // that order are a user error (the LP still solves but the
+    // conditional pmin is irrelevant — dominated by the always-on
+    // floor).
+    const auto explicit_pmin = commitment().pmin;
+    const auto gen_pmin =
+        explicit_pmin.has_value() ? *explicit_pmin : lp.get_col_lowb(gcol);
 
     // ── C2: Generation upper bound: p - Pmax*u <= 0 ──
-    auto& gcol_ref = lp.col_at(gcol);
-    gcol_ref.lowb = 0.0;
+    //
+    // ``Generator.pmin`` (the gen col ``lowb``) is left untouched —
+    // it is an independent always-on floor, distinct from the
+    // commitment-conditional ``Commitment.pmin`` applied via the
+    // C2 row below.  Users wanting a purely-conditional pmin set
+    // ``Generator.pmin = 0`` and ``Commitment.pmin = desired floor``.
 
     {
       auto row =
@@ -458,75 +466,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       rdrows[buid] = lp.add_row(std::move(row));
     }
 
-    // ── Piecewise heat rate curve ──
-    //
-    // Segment costs are FUEL-ONLY here.  The per-pollutant tax (if
-    // any) is wired separately through `EmissionZoneLP` — its
-    // `production` bridge column is summed over generator dispatch
-    // segments via `EmissionSourceLP`-injected coefficients on
-    // `Emission/balance` rows.
-    if (has_segments && stage_fuel_cost > 0.0) {
-      gcol_ref.cost = 0.0;
-
-      // Build linking row: p - Pmin·u - Σ δ_k = 0
-      auto link_row =
-          SparseRow {
-              .class_name = cname,
-              .constraint_name = SegmentName,
-              .variable_uid = cuid,
-              .context = ctx,
-          }
-              .equal(0.0);
-      link_row[gcol] = 1.0;
-      link_row[ucol] = -gen_pmin;
-
-      double prev_breakpoint = gen_pmin;
-      for (const auto& [k, pmax_k] : enumerate<int>(pmax_segs)) {
-        const auto seg_width = pmax_k - prev_breakpoint;
-        if (seg_width <= 0.0) {
-          prev_breakpoint = pmax_k;
-          continue;
-        }
-
-        const auto seg_marginal = stage_fuel_cost * hr_segs[k];
-        const auto seg_cost =
-            CostHelper::block_ecost(scenario, stage, block, seg_marginal);
-
-        const auto seg_ctx =
-            make_block_context(scenario.uid(), stage.uid(), buid, k);
-
-        auto seg_col = lp.add_col({
-            .lowb = 0.0,
-            .uppb = seg_width,
-            .cost = seg_cost,
-            .class_name = cname,
-            .variable_name = SegmentName,
-            .variable_uid = cuid,
-            .context = seg_ctx,
-        });
-
-        // Segment bound: δ_k ≤ w_k·u
-        {
-          auto seg_bound_row =
-              SparseRow {
-                  .class_name = cname,
-                  .constraint_name = SegmentName,
-                  .variable_uid = cuid,
-                  .context = seg_ctx,
-              }
-                  .less_equal(0.0);
-          seg_bound_row[seg_col] = 1.0;
-          seg_bound_row[ucol] = -seg_width;
-          std::ignore = lp.add_row(std::move(seg_bound_row));
-        }
-
-        link_row[seg_col] = -1.0;
-        segment_cols_[k][st_key][buid] = seg_col;
-        prev_breakpoint = pmax_k;
-      }
-
-      segment_link_rows_[st_key][buid] = lp.add_row(std::move(link_row));
-    }
+    // Piecewise heat rate curve — NO LONGER built here.  ``GeneratorLP``
+    // owns the piecewise dispatch-cost formulation via convex slack
+    // columns (source/generator_lp.cpp:272+).  See the deprecation
+    // warning at the top of this function for migration guidance.
+    // The legacy Commitment.pmax_segments / heat_rate_segments fields
+    // are still parsed for back-compat but no longer wired into the
+    // LP from CommitmentLP — preventing double-counting if both the
+    // legacy Commitment-side and new Generator-side fields are
+    // populated.
 
     prev_block_ucol = ucol;
     prev_gcol = gcol;
@@ -569,9 +517,100 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           lp.set_coeff(*drow, ucol, -pmin);
           row.lowb = 0.0;
         }
+
+        // ── PLEXOS Min Provision linkage (urmin/drmin) ──
+        //
+        // ARCHITECTURAL DEBT (queued for refactor): per the
+        // "consumer pulls from owner" principle, this transform
+        // should live in ``ReserveProvisionLP::add_to_lp``, looking
+        // up the gen's CommitmentLP via ``sc.elements<CommitmentLP>()``
+        // and constructing the linkage row at provision creation time.
+        // Implementing that requires (a) reordering ``collections_t``
+        // so CommitmentLP precedes ReserveProvisionLP and (b) saving
+        // the original gen-col bounds before CommitmentLP resets
+        // ``gcol.lowb = 0`` (consumers like inertia_provision_lp.cpp
+        // and the dprov_row helper in reserve_provision_lp.cpp:298
+        // currently read ``lp.get_col_lowb(gcol)`` expecting the
+        // original pmin).  This block keeps the legacy "CommitmentLP
+        // transforms ReserveProvisionLP-owned rows" pattern that's
+        // already pre-existing (see the urmax/drmax × u transform
+        // a few lines above).
+        //
+        // ReserveProvisionLP::add_to_lp creates the provision column
+        // with ``lowb = urmin`` as a hard floor (when PLEXOS
+        // ``ReserveGenerators.Min Provision`` is set on the
+        // membership).  Per PLEXOS docs (ReserveGenerators.MinProvision)
+        // the floor is gated by ``Available Units`` — i.e. should
+        // collapse to 0 when the gen is not committed.  Here, since
+        // this gen has a commitment, transform the hard col-lowb
+        // into a conditional linkage row:
+        //   provision_col - urmin·u >= 0
+        // and reset the col lowb to 0 so the LP only enforces the
+        // floor when u = 1.
+        if (const auto up_col_opt =
+                rprov.lookup_up_provision_col(scenario, stage, buid))
+        {
+          const auto up_col = *up_col_opt;
+          auto& col = lp.col_at(up_col);
+          if (col.lowb > 0.0) {
+            const auto urmin = col.lowb;
+            auto urow =
+                SparseRow {
+                    .class_name = ReserveProvisionLP::Element::class_name,
+                    .constraint_name = "min_up_provision",
+                    .variable_uid = rprov.uid(),
+                    .context = make_block_context(
+                        scenario.uid(), stage.uid(), block.uid()),
+                }
+                    .greater_equal(0);
+            urow[up_col] = 1.0;
+            urow[ucol] = -urmin;
+            std::ignore = lp.add_row(std::move(urow));
+            col.lowb = 0.0;
+          }
+        }
+        if (const auto dn_col_opt =
+                rprov.lookup_dn_provision_col(scenario, stage, buid))
+        {
+          const auto dn_col = *dn_col_opt;
+          auto& col = lp.col_at(dn_col);
+          if (col.lowb > 0.0) {
+            const auto drmin = col.lowb;
+            auto drow =
+                SparseRow {
+                    .class_name = ReserveProvisionLP::Element::class_name,
+                    .constraint_name = "min_dn_provision",
+                    .variable_uid = rprov.uid(),
+                    .context = make_block_context(
+                        scenario.uid(), stage.uid(), block.uid()),
+                }
+                    .greater_equal(0);
+            drow[dn_col] = 1.0;
+            drow[ucol] = -drmin;
+            std::ignore = lp.add_row(std::move(drow));
+            col.lowb = 0.0;
+          }
+        }
       }
     }
   }
+
+  // Inertia/Reserve u_commit linkage: NOT done here.  Architectural
+  // principle (consumer pulls from owner): each provision LP class
+  // (ReserveProvisionLP, InertiaProvisionLP) should look up its
+  // generator's CommitmentLP and integrate the u_commit linkage in
+  // its OWN add_to_lp — keeps the responsibility close to the
+  // provision construction and avoids concentrating cross-class
+  // knowledge inside CommitmentLP.  This requires reordering
+  // ``collections_t`` so CommitmentLP precedes the provision LPs
+  // (so u_commit columns exist when consumers look them up).
+  //
+  // The legacy reserve-headroom block above (urmax × u, drmax × u,
+  // and the urmin/drmin x u floors) still lives here for back-compat
+  // and is on the deferred-refactor list.  Same for the Battery
+  // pmin_charge/discharge gating in ConverterLP — Battery LP should
+  // pull from Converter LP rather than have Converter own the
+  // binaries.
 
   // ── C6: Min up time (at period level) ──
   // Σ_{q=p}^{min(p+UT_periods-1,P)} u[q] ≥ UT_periods · v[p]
@@ -942,6 +981,24 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     ramp_down_rows_[st_key] = std::move(rdrows);
   }
 
+  // Register PAMPL-visible commitment columns so user constraints can
+  // reference ``commitment("X").status`` / ``.startup`` / ``.shutdown``.
+  // The block-keyed maps were populated above, fanning the period
+  // representative column across every block in the period.
+  static constexpr auto ampl_name = Element::class_name.snake_case();
+  if (!block_ucol.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, cuid, StatusName, scenario, stage, block_ucol);
+  }
+  if (!block_vcol.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, cuid, StartupName, scenario, stage, block_vcol);
+  }
+  if (!block_wcol.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, cuid, ShutdownName, scenario, stage, block_wcol);
+  }
+
   return true;
 }
 
@@ -964,11 +1021,10 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, RampUpName, pid, ramp_up_rows_);
   out.add_row_dual(cname, RampDownName, pid, ramp_down_rows_);
 
-  for (const auto& scols : segment_cols_) {
-    out.add_col_sol(cname, SegmentName, pid, scols);
-    out.add_col_cost(cname, SegmentName, pid, scols);
-  }
-  out.add_row_dual(cname, SegmentName, pid, segment_link_rows_);
+  // Segment col/row outputs moved to GeneratorLP::add_to_output —
+  // piecewise heat-rate slacks now live there alongside the gen
+  // columns they augment.
+
   out.add_row_dual(cname, MinUpTimeName, pid, min_up_time_rows_);
   out.add_row_dual(cname, MinDownTimeName, pid, min_down_time_rows_);
 

@@ -32,6 +32,7 @@ class BusLP;
 class CommitmentLP;
 class ConverterLP;
 class DemandLP;
+class DecisionVariableLP;
 class DemandProfileLP;
 class ReservoirDischargeLimitLP;
 class ReservoirSeepageLP;
@@ -106,6 +107,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       FlowRightLP,
                                       VolumeRightLP,
                                       LngTerminalLP,
+                                      DecisionVariableLP,
                                       UserConstraintLP>;
 
 /// Total number of LP element types.
