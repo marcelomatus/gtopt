@@ -883,12 +883,24 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         if units_profile is not None and not any(u > 0.0 for u in units_profile):
             # All-zero across the day = mothballed; PLEXOS would drop it.
             continue
-        units = int(units_profile[0]) if units_profile else 1
+        raw_units = int(units_profile[0]) if units_profile else 1
+        units = raw_units
         if units <= 0:
             # First-hour offline but back later — clamp to 1 so the
-            # daily LP can still dispatch the line. A per-block
+            # daily LP can still dispatch the line.  A per-block
             # tmax_ab matrix would honour the per-hour availability
             # exactly; not needed for the current daily PCP horizon.
+            # Visible WARN so the clamp doesn't hide a fully-offline
+            # line (PLEXOS would drop those at the top of this loop).
+            logger.warning(
+                "Line '%s' (uid=%s): hour-0 units=%d in profile — "
+                "clamping to 1 (LP needs a dispatchable line for the "
+                "daily horizon).  Inspect Units_Built / Commissioned "
+                "schedule if this isn't a transient first-hour outage.",
+                line.name,
+                line.object_id,
+                raw_units,
+            )
             units = 1
         tmax_series = max_rating.get(line.name, [])
         tmin_series = min_rating.get(line.name, [])
@@ -2231,6 +2243,24 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             voll_values.append(v)
     if voll_values:
         # Replace the default 1000.0 with the PLEXOS value (take max).
+        # gtopt has one global demand_fail_cost — when regions disagree,
+        # the max wins.  Surface that with a WARN so a multi-region case
+        # with diverging VoLLs doesn't silently round its cheapest
+        # regions up.  Future: per-Bus / per-Region demand_fail_cost
+        # would let us honour the full PLEXOS shape.
+        chosen = max(voll_values)
+        if len(set(voll_values)) > 1:
+            logger.warning(
+                "PLEXOS Regions ship %d distinct VoLL values "
+                "(min=%.2f, max=%.2f) — gtopt has one global "
+                "`demand_fail_cost`; using the max (%.2f).  "
+                "Regions with a lower VoLL will not see their "
+                "lower curtailment price.",
+                len(set(voll_values)),
+                min(voll_values),
+                max(voll_values),
+                chosen,
+            )
         bundle_spec = BundleSpec(
             bundle_date=bundle_spec.bundle_date,
             step_count=bundle_spec.step_count,
@@ -2238,7 +2268,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             day_beginning=bundle_spec.day_beginning,
             currency=bundle_spec.currency,
             bundle_name=bundle_spec.bundle_name,
-            demand_fail_cost=max(voll_values),
+            demand_fail_cost=chosen,
         )
     case = PlexosCase(
         bundle=bundle_spec,

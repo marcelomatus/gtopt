@@ -261,7 +261,15 @@ def build_line_array(lines: tuple[LineSpec, ...]) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
-        units = max(line.units, 1)
+        # Parser (`extract_lines`) already clamps hour-0 units to 1 and
+        # logs a WARN; this assert pins the invariant so the writer's
+        # branchless `tmax * units` math doesn't silently collapse a
+        # bad input to zero.
+        assert line.units >= 1, (
+            f"line '{line.name}' has units={line.units}; "
+            f"parser should have clamped this to 1 with a warning"
+        )
+        units = line.units
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": line.name,
