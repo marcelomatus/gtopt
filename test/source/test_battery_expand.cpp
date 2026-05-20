@@ -781,3 +781,110 @@ TEST_CASE(
   REQUIRE(system.converter_array.size() == 1);
   CHECK_FALSE(system.converter_array.back().commitment.has_value());
 }
+
+// ── Battery → Commitment synthesis uniqueness (2026-05-20) ──────────────
+//
+// `expand_batteries` synthesizes a single `Commitment("uc_<bat>_gen")`
+// whenever ANY of three triggers fires:
+//   * `Battery.pmin_discharge` set
+//   * `Battery.pmin_charge` set
+//   * `Battery.commitment = true`
+//
+// The 16fbdde45 refactor centralized this: one CommitmentLP owns the
+// `u_commit` column, both Generator (discharge) and Demand (charge)
+// share it via `find_status_cols`.  Pin that even when all three
+// triggers fire AT ONCE we still get exactly ONE synthesized
+// Commitment (no duplicates).  Catches the kind of regression that
+// would silently produce two competing `u` columns.
+
+TEST_CASE(
+    "expand_batteries — all 3 commitment triggers produce exactly "
+    "1 synthesized Commitment")  // NOLINT
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      Battery {
+          .uid = Uid {1},
+          .name = "bat",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .pmin_charge = 3.0,
+          .pmin_discharge = 2.0,
+          .discharge_cost = 1.0,
+          .commitment = OptBool {true},  // third trigger
+      },
+  };
+  system.expand_batteries();
+
+  // Exactly one synthesized Commitment, even though all three triggers
+  // fired.  Name is `uc_<gen_name>` = `uc_bat_gen`.
+  REQUIRE(system.commitment_array.size() == 1);
+  CHECK(system.commitment_array.front().name == "uc_bat_gen");
+  // Commitment.pmin carries the discharge-side floor.
+  CHECK(system.commitment_array.front().pmin.value_or(-1.0)
+        == doctest::Approx(2.0));
+  // Converter sees the same `commitment = true` flag.
+  REQUIRE(system.converter_array.size() == 1);
+  CHECK(system.converter_array.front().commitment.value_or(false) == true);
+}
+
+TEST_CASE(
+    "expand_batteries — zero commitment triggers → no synthesized "
+    "Commitment")  // NOLINT
+{
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      Battery {
+          .uid = Uid {1},
+          .name = "bat",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .discharge_cost = 1.0,
+          // No pmin_* and no commitment=true → no synthesis.
+      },
+  };
+  system.expand_batteries();
+  CHECK(system.commitment_array.empty());
+}
+
+TEST_CASE(
+    "expand_batteries — running twice does not duplicate the synthesized "
+    "Commitment")  // NOLINT
+{
+  // The expand pass is documented as idempotent.  Pin the idempotency
+  // for the synthesized Commitment too — a second pass must not
+  // re-emit a second `uc_<bat>_gen` entry.
+  System system;
+  system.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  system.battery_array = {
+      Battery {
+          .uid = Uid {1},
+          .name = "bat",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .pmax_charge = 10.0,
+          .pmax_discharge = 10.0,
+          .pmin_discharge = 2.0,
+          .discharge_cost = 1.0,
+      },
+  };
+  system.expand_batteries();
+  REQUIRE(system.commitment_array.size() == 1);
+  system.expand_batteries();
+  CHECK(system.commitment_array.size() == 1);
+}

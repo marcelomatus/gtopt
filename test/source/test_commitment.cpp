@@ -13,6 +13,7 @@
 #include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_model_options.hpp>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_stage.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/phase_range_set.hpp>
@@ -2224,6 +2225,104 @@ TEST_CASE(  // NOLINT
   CHECK(sol[*v1] == doctest::Approx(1.0).epsilon(1e-4));
   CHECK(sol[*v2] == doctest::Approx(0.0).epsilon(1e-4));
   CHECK(sol[*w2] == doctest::Approx(0.0).epsilon(1e-4));
+}
+
+// ── Legacy Commitment JSON rejection (2026-05-20) ──────────────────────────
+//
+// Commit 16fbdde45 removed `fuel`, `pmax_segments`, `heat_rate_segments`,
+// `fuel_cost`, `fuel_emission_factor` from the Commitment schema (they
+// moved to Generator).  A legacy JSON file that still carries any of
+// these keys must fail loudly under `StrictParsePolicy` — silently
+// accepting them would mean the user's piecewise heat-rate / fuel
+// configuration is being applied to the WRONG element (or not at all).
+// Pin the rejection here so a future "be lenient about unknown fields"
+// drift doesn't reopen the silent-failure window.
+
+TEST_CASE("Commitment JSON — legacy `fuel` field is rejected")  // NOLINT
+{
+  constexpr std::string_view legacy = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "fuel": "gas"
+  })";
+  CHECK_THROWS_AS(
+      (void)daw::json::from_json<Commitment>(legacy, StrictParsePolicy),
+      daw::json::json_exception);
+}
+
+TEST_CASE(
+    "Commitment JSON — legacy `pmax_segments` field is rejected")  // NOLINT
+{
+  constexpr std::string_view legacy = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "pmax_segments": [50, 100, 200]
+  })";
+  CHECK_THROWS_AS(
+      (void)daw::json::from_json<Commitment>(legacy, StrictParsePolicy),
+      daw::json::json_exception);
+}
+
+TEST_CASE(
+    "Commitment JSON — legacy `heat_rate_segments` field is rejected")  // NOLINT
+{
+  constexpr std::string_view legacy = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "heat_rate_segments": [8.0, 8.5, 9.0]
+  })";
+  CHECK_THROWS_AS(
+      (void)daw::json::from_json<Commitment>(legacy, StrictParsePolicy),
+      daw::json::json_exception);
+}
+
+TEST_CASE("Commitment JSON — legacy `fuel_cost` field is rejected")  // NOLINT
+{
+  constexpr std::string_view legacy = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "fuel_cost": 5.0
+  })";
+  CHECK_THROWS_AS(
+      (void)daw::json::from_json<Commitment>(legacy, StrictParsePolicy),
+      daw::json::json_exception);
+}
+
+TEST_CASE(
+    "Commitment JSON — legacy `fuel_emission_factor` field is rejected")  // NOLINT
+{
+  constexpr std::string_view legacy = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "fuel_emission_factor": 0.42
+  })";
+  CHECK_THROWS_AS(
+      (void)daw::json::from_json<Commitment>(legacy, StrictParsePolicy),
+      daw::json::json_exception);
+}
+
+TEST_CASE("Commitment JSON — `pmin` field accepted (new in 2026-05-20)")
+// NOLINT
+{
+  // `Commitment.pmin` was ADDED in 16fbdde45 as the "when-committed"
+  // floor (Generator.pmin remains the always-on floor).  Pin that the
+  // schema accepts it.  Round-trip is covered by the existing
+  // "Commitment JSON round-trip" test — we just assert parse-success
+  // here so a future schema edit doesn't accidentally remove it.
+  constexpr std::string_view minimal = R"({
+    "uid": 1,
+    "name": "thermal1_uc",
+    "generator": 10,
+    "pmin": 25.0
+  })";
+  const auto c = daw::json::from_json<Commitment>(minimal, StrictParsePolicy);
+  CHECK(c.uid == 1);
+  CHECK(c.pmin.value_or(-1.0) == doctest::Approx(25.0));
 }
 
 // NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
