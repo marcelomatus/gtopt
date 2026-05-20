@@ -184,16 +184,36 @@ TEST_CASE(  // NOLINT
     "AMPL dispatch registry — every class exposes a sum(class(all)) iterator")
 {
   static constexpr auto kClasses = std::to_array<std::string_view>({
-      "generator",     "demand",
-      "line",          "battery",
-      "reservoir",     "waterway",
-      "turbine",       "converter",
-      "junction",      "flow",
-      "flow_right",    "volume_right",
-      "seepage",       "reserve_provision",
-      "reserve_zone",  "bus",
-      "lng_terminal",  "fuel",
-      "emission_zone", "emission_source",
+      "generator",
+      "demand",
+      "line",
+      "battery",
+      "reservoir",
+      "waterway",
+      "turbine",
+      "converter",
+      "junction",
+      "flow",
+      "flow_right",
+      "volume_right",
+      "seepage",
+      "reserve_provision",
+      "reserve_zone",
+      "bus",
+      "lng_terminal",
+      "fuel",
+      "emission_zone",
+      "emission_source",
+      // Commitment + Inertia: each LP class registers PAMPL variables
+      // (status / startup / shutdown / req / provision) — the iter is
+      // needed so `sum(class(all).attribute)` can resolve them.
+      "commitment",
+      "simple_commitment",
+      "inertia_zone",
+      "inertia_provision",
+      // Free continuous decision variable referenced via
+      // `decision_variable("X").value`.
+      "decision_variable",
   });
 
   const PlanningOptionsLP options;
@@ -208,6 +228,117 @@ TEST_CASE(  // NOLINT
     CAPTURE(cls);
     CHECK(sc.find_ampl_iter(cls) != nullptr);
   }
+}
+
+TEST_CASE(  // NOLINT
+    "AMPL dispatch registry — drift detector: every System::*_array is "
+    "either registered or explicitly excluded")
+{
+  // Drift detector for new element classes.  Maintains a complete
+  // inventory of `Array<X> <name>_array` in `include/gtopt/system.hpp`,
+  // each paired with one of:
+  //
+  //   * a `snake_case` element name that MUST have a registered
+  //     `find_ampl_iter` (i.e. the class exposes PAMPL-visible
+  //     attributes), OR
+  //   * a `nullptr` to declare an *explicit* exclusion — the class
+  //     is intentionally not iterable via `sum(class(all).X)`
+  //     because it's a data carrier (profile schedule, parameter
+  //     scalar, file-list, …) with no AMPL attribute surface.
+  //
+  // When a new `Array<X>` lands in `System`, this test fails until
+  // the author either registers an iter OR documents the exclusion
+  // by adding an entry here.  Catches the kind of drift that left
+  // `DecisionVariable` un-iterable for several days in May 2026.
+  using Entry = std::pair<std::string_view, const char*>;
+  static constexpr auto kInventory = std::to_array<Entry>({
+      // ── Network ───────────────────────────────────────────────
+      {"bus_array", "bus"},
+      {"demand_array", "demand"},
+      {"generator_array", "generator"},
+      {"line_array", "line"},
+      // ── Profiles: data carriers, no AMPL attributes ───────────
+      {"generator_profile_array", nullptr},
+      {"demand_profile_array", nullptr},
+      {"capacity_profile_array", nullptr},
+      // ── Storage / converters ──────────────────────────────────
+      {"battery_array", "battery"},
+      {"converter_array", "converter"},
+      {"lng_terminal_array", "lng_terminal"},
+      // ── Reserves / inertia ────────────────────────────────────
+      {"reserve_zone_array", "reserve_zone"},
+      {"reserve_provision_array", "reserve_provision"},
+      {"inertia_zone_array", "inertia_zone"},
+      {"inertia_provision_array", "inertia_provision"},
+      // ── Fuel / emissions ──────────────────────────────────────
+      {"fuel_array", "fuel"},
+      // Emission is a parameter dictionary (uid, name, density).  No
+      // per-instance dispatch — explicitly excluded.
+      {"emission_array", nullptr},
+      {"emission_zone_array", "emission_zone"},
+      {"emission_source_array", "emission_source"},
+      // ── Commitment ────────────────────────────────────────────
+      {"commitment_array", "commitment"},
+      {"simple_commitment_array", "simple_commitment"},
+      // ── Hydro ─────────────────────────────────────────────────
+      {"junction_array", "junction"},
+      {"waterway_array", "waterway"},
+      {"flow_array", "flow"},
+      {"reservoir_array", "reservoir"},
+      // ReservoirSeepage's snake-case lookup uses "seepage" (legacy
+      // naming retained for backward compat with PAMPL bodies).
+      {"reservoir_seepage_array", "seepage"},
+      // ReservoirDischargeLimit, Pump, ReservoirProductionFactor:
+      // currently no per-instance PAMPL attribute surface.  If/when
+      // they sprout `.value` / `.flow` accessors callable from
+      // `sum(...)`, swap nullptr for the snake-case name and add
+      // an iter registration in `ampl_dispatch_registry.cpp`.
+      {"reservoir_discharge_limit_array", nullptr},
+      {"pump_array", nullptr},
+      {"reservoir_production_factor_array", nullptr},
+      {"turbine_array", "turbine"},
+      // ── Water rights ──────────────────────────────────────────
+      {"flow_right_array", "flow_right"},
+      {"volume_right_array", "volume_right"},
+      // ── User-defined ──────────────────────────────────────────
+      // UserParam is a scalar-parameter dictionary keyed by name (no
+      // iter); UserConstraint is the consumer side; user_constraint_files
+      // is just a path list.
+      {"user_param_array", nullptr},
+      {"decision_variable_array", "decision_variable"},
+      {"user_constraint_array", nullptr},
+  });
+
+  // Cross-check against `system.hpp` at compile time — if the file
+  // grows new `Array<X> <name>_array` entries that aren't in this
+  // inventory, downstream PAMPL resolution may break silently.  See
+  // `include/gtopt/system.hpp` line-by-line when this test fires.
+  const PlanningOptionsLP options;
+  const auto sim = make_single_block_simulation();
+  SimulationLP simulation_lp(sim, options);
+  simulation_lp.set_need_ampl_variables(/*v=*/true);
+  const System system = minimal_system_with_generator();
+  SystemLP system_lp(system, simulation_lp);
+  const auto& sc = system_lp.system_context();
+
+  for (const auto& [array_name, snake] : kInventory) {
+    CAPTURE(array_name);
+    if (snake == nullptr) {
+      continue;  // explicit exclusion — no assertion
+    }
+    CAPTURE(snake);
+    CHECK(sc.find_ampl_iter(snake) != nullptr);
+  }
+
+  // Cardinality pin: 34 arrays in System.hpp as of 2026-05-20.  When
+  // someone adds a new `Array<X>` they must extend the inventory
+  // above too (or the count moves, this assertion bites, and they
+  // learn to think about whether the new class needs an iter).
+  static_assert(kInventory.size() == 34,
+                "kInventory drifted vs include/gtopt/system.hpp — "
+                "every Array<X> in System must have an entry here, "
+                "either with a snake_case name (iter required) or "
+                "nullptr (explicit exclusion).");
 }
 
 TEST_CASE(  // NOLINT
