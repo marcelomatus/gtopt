@@ -1831,59 +1831,34 @@ def _format_coefficient(value: float, first: bool) -> str:
     return f" + {value:g} * "
 
 
-# Constraint-name patterns that identify PLEXOS contingency / N-1
-# security rows.  These are PLEXOS's post-trip reserve allocations:
-# their LHS is ``Σ -1·provision_X^dn`` over the gens that would have
-# to cover the contingency, and the RHS is the lost capacity.  In
-# PLEXOS the row is implicitly soft (only fires when the named
-# contingency is being simulated) — gtopt's monolithic LP has no
-# such concept, so emitting them as hard constraints turns the LP
-# infeasible (or, with a default UC penalty, burns the slack at the
-# unit price).  The converter marks them ``active = False`` so they
-# ship in the JSON but the LP skips them.  A future contingency
-# simulation can re-activate them per-scenario.
-_CONTINGENCY_NAME_PATTERNS = (
-    # PLEXOS security/contingency rows are dated and named after the
-    # tripped element (line, plant, transformer): SD_<date>_<who>.
-    re.compile(r"^SD_\d+_"),
-    # N-1 reserve allocation by zone & direction: <gen>_<ZONE>_LW or
-    # <gen>_<ZONE>_RS.  ZONE ∈ {CTF, CSF, CPF, CPFN, …}.
-    re.compile(r"_C(T|S|P)F[A-Z]*_(LW|RS)$"),
-)
-
-
 def _is_contingency_constraint(
-    name: str,
+    name: str,  # noqa: ARG001  # reserved for future name-based recognisers
     coefficients: list[float],
     op: str,
     rhs_val: float,
 ) -> bool:
-    """Identify PLEXOS contingency / N-1 security constraints.
+    """Defensive fallback detector for PLEXOS contingency rows.
 
-    Two recognisers, OR-combined:
-      1. Name matches a known contingency pattern (``SD_<date>_*``
-         or ``*_<ZONE>_(LW|RS)``).
-      2. Structural: every coefficient is negative, ``op = ">="``,
-         and ``rhs > 0`` — the LHS is bounded above by 0 yet the row
-         demands ≥ ``rhs > 0``, infeasible-as-hard.  This catches
-         contingency rows that don't fit the naming heuristic.
+    The PRIMARY source for "skip this constraint in the ST run" is
+    the PLEXOS ``Include in ST Schedule`` property (read in
+    ``extract_user_constraints`` and routed into
+    ``include_st_excluded``).  This helper exists ONLY for the
+    pathological case where a constraint is implicitly active in
+    PLEXOS (no explicit ``Include in ST Schedule = 0/-1``) yet its
+    coefficient structure is infeasible-as-hard.
 
-    The structural check intentionally requires ALL coefficients to
-    be ≤ 0 (not just "most"); a single positive coefficient means the
-    LHS can grow without bound and the constraint is satisfiable, so
-    don't mark it inactive.
+    Recogniser: every coefficient ≤ 0, ``op = ">="``, and
+    ``rhs > 0``.  The LHS is bounded above by 0 yet the row demands
+    ≥ ``rhs > 0`` — no feasible solution.  A single positive
+    coefficient means the LHS can grow without bound and the row is
+    satisfiable, so don't mark it inactive.
     """
-    for regex in _CONTINGENCY_NAME_PATTERNS:
-        if regex.search(name):
-            return True
-    if (
+    return bool(
         op == ">="
         and rhs_val > 0.0
         and coefficients
         and all(c <= 0.0 for c in coefficients)
-    ):
-        return True
-    return False
+    )
 
 
 def _first_value(rows: list) -> float | None:
@@ -2017,6 +1992,17 @@ def extract_user_constraints(
     prop_sense = db.property_by_name(sys_coll.collection_id, "Sense")
     prop_rhs = db.property_by_name(sys_coll.collection_id, "RHS")
     prop_penalty = db.property_by_name(sys_coll.collection_id, "Penalty Price")
+    # PLEXOS authoritative include-flag for the Short-Term Schedule
+    # (PRGdia = daily PCP).  When the bundle ships an explicit value
+    # of 0 or -1 on this property, the constraint is excluded from
+    # the ST run regardless of name or coefficient structure.  Audit
+    # of DATOS20260422: 1107/1218 constraints carry an explicit
+    # exclude (~91%).  Falling back to name/structure heuristics
+    # mis-classifies most of these (e.g. `ANTUCOmin`, `ANGOSTURAmaxramp`,
+    # `ANGmax` are operational rows, not contingency rows).
+    prop_include_st = db.property_by_name(
+        sys_coll.collection_id, "Include in ST Schedule"
+    )
     if prop_sense is None or prop_rhs is None:
         logger.debug("Sense / RHS properties absent; skipping user constraints")
         return ()
@@ -2025,6 +2011,30 @@ def extract_user_constraints(
     for m in db.memberships:
         if m.collection_id == sys_coll.collection_id:
             sys_mid_by_constr[m.child_object_id] = m.membership_id
+
+    # Pre-resolve the Include-in-ST-Schedule flag per constraint:
+    # {constr_object_id -> bool}.  Missing entries are implicitly
+    # active (PLEXOS default for the run stage).
+    include_st_excluded: set[int] = set()
+    if prop_include_st is not None:
+        for constr_oid, constr_mid in sys_mid_by_constr.items():
+            rows = db.data_for(constr_mid, prop_include_st)
+            if not rows:
+                continue
+            rows.sort(key=lambda r: r.data_id)
+            val = rows[0].value
+            # PLEXOS uses {-1, 0} for "exclude", positive (typically 1)
+            # for "include".  Sentinel-magnitude values land in
+            # exclude territory too — defensive.
+            if val is not None and val <= 0.0:
+                include_st_excluded.add(constr_oid)
+    if include_st_excluded:
+        logger.info(
+            "PLEXOS Constraint: %d/%d explicitly excluded via "
+            '"Include in ST Schedule"; emitting with active=False.',
+            len(include_st_excluded),
+            len(sys_mid_by_constr),
+        )
 
     objs = db.object_by_id()
 
@@ -2313,19 +2323,32 @@ def extract_user_constraints(
             )
             continue
         expression = "".join(terms) + f" {op} {rhs_val:g}"
-        # Classify PLEXOS contingency / N-1 security rows and ship
-        # them inactive: gtopt's UserConstraintLP gates on
-        # `is_active(stage)`, so the LP skips them while the JSON
-        # keeps the row for downstream tooling (and a future
-        # contingency simulator that re-enables them per scenario).
-        is_contingency = _is_contingency_constraint(
+        # PLEXOS-authoritative activation flag.  Two recognisers:
+        #   (a) ``Include in ST Schedule`` ∈ {-1, 0} ⇒ PLEXOS itself
+        #       excludes this constraint from the daily PCP run.
+        #       This is the authoritative source — 91% of CEN PCP
+        #       constraints carry this flag.
+        #   (b) Structural fallback: all coefficients ≤ 0, op = ">=",
+        #       rhs > 0.  Infeasible-as-hard — catches contingency
+        #       rows the bundle didn't tag with the include flag.
+        #       Should be rare on a healthy PLEXOS export.
+        is_excluded_by_plexos = constr.object_id in include_st_excluded
+        is_structurally_infeasible = _is_contingency_constraint(
             constr.name, coefficients, op, rhs_val
         )
-        if is_contingency:
+        is_inactive = is_excluded_by_plexos or is_structurally_infeasible
+        if is_excluded_by_plexos:
+            logger.debug(
+                "constraint %s excluded from ST run by PLEXOS "
+                "(Include in ST Schedule ≤ 0); emitting active=False.",
+                constr.name,
+            )
+        elif is_structurally_infeasible:
             logger.info(
-                "constraint %s classified as PLEXOS contingency / "
-                "N-1 security row — emitting with active=False so "
-                "the monolithic LP skips it.",
+                "constraint %s structurally infeasible-as-hard "
+                "(all coefficients ≤ 0, GE sense, positive RHS); "
+                "emitting active=False as a defensive fallback "
+                "(PLEXOS didn't tag it with Include in ST Schedule).",
                 constr.name,
             )
         out.append(
@@ -2333,7 +2356,7 @@ def extract_user_constraints(
                 name=constr.name,
                 expression=expression,
                 penalty=penalty_val if penalty_val and penalty_val > 0 else 0.0,
-                active=False if is_contingency else None,
+                active=False if is_inactive else None,
             )
         )
     return tuple(out)

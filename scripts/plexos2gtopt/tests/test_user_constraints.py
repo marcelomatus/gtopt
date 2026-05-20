@@ -341,31 +341,23 @@ def test_build_user_constraint_array_omits_zero_penalty() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_is_contingency_constraint_matches_sd_name() -> None:
-    """``SD_<date>_*`` is a PLEXOS contingency naming convention."""
+def test_is_contingency_constraint_ignores_name() -> None:
+    """The helper is structural-only — PRIMARY source for "skip in
+    monolithic LP" is PLEXOS's ``Include in ST Schedule`` property
+    (read upstream in ``extract_user_constraints`` and routed into
+    ``include_st_excluded``).  Name-pattern recognisers were
+    removed after audit showed they mis-classified operational
+    rows (``ANTUCOmin``, ``ANGOSTURAmaxramp``) as contingency rows.
+    Healthy coefficient structures stay active regardless of name.
+    """
     from plexos2gtopt.parsers import _is_contingency_constraint
 
-    assert _is_contingency_constraint("SD_2024091389_Charrua_Conce", [1.0], "<=", 100.0)
-    assert _is_contingency_constraint(
-        "SD_2025056008_ATR_Quillota(neg)", [1.0], ">=", 100.0
+    # PLEXOS-looking names with satisfiable coefficients pass through.
+    assert not _is_contingency_constraint(
+        "SD_2024091389_Charrua_Conce", [1.0], "<=", 100.0
     )
-
-
-def test_is_contingency_constraint_matches_n1_zone_suffix() -> None:
-    """N-1 reserve rows named ``<gen>_<ZONE>_(LW|RS)``."""
-    from plexos2gtopt.parsers import _is_contingency_constraint
-
-    assert _is_contingency_constraint("RALCO_U1_CTF_LW", [1.0], "<=", 100.0)
-    assert _is_contingency_constraint("RALCO_U2_CSF_RS", [1.0], "<=", 100.0)
-    assert _is_contingency_constraint("PEHUENCHE_CPF_LW", [1.0], "<=", 100.0)
-    # CPFN zone (Argentinian ISO subtree) — same `_<ZONE>_(LW|RS)` suffix.
-    assert _is_contingency_constraint("RALCO_U2_CPFN_LW", [1.0], "<=", 100.0)
-    # Zone-name-only constraints (CTF_DownMinProvision, CPFN_LW) do
-    # NOT match — they're "Min Provision" zone-level floors, not
-    # N-1 contingency rows.  The structural classifier catches them
-    # only when the coefficient pattern is infeasible-as-hard.
-    assert not _is_contingency_constraint("CTF_DownMinProvision", [1.0], "<=", 100.0)
-    assert not _is_contingency_constraint("CPFN_LW", [1.0], "<=", 100.0)
+    assert not _is_contingency_constraint("RALCO_U1_CTF_LW", [1.0], "<=", 100.0)
+    assert not _is_contingency_constraint("RALCO_U2_CSF_RS", [1.0], ">=", -100.0)
 
 
 def test_is_contingency_constraint_matches_structural_pattern() -> None:
