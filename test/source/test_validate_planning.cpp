@@ -1232,6 +1232,397 @@ TEST_CASE(  // NOLINT
   CHECK(piecewise_warns == 0);
 }
 
+// ── P0 referential checks added 2026-05-20 ──────────────────────────────────
+// One TEST_CASE per element class.  Each pins the new hard-error contract:
+// a broken FK (invalid uid or unset required FK) MUST fail validation.
+
+TEST_CASE("validate_planning - EmissionSource refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  Emission em;
+  em.uid = Uid {1};
+  em.name = "co2";
+  p.system.emission_array.push_back(em);
+
+  EmissionZone zone;
+  zone.uid = Uid {1};
+  zone.name = "ez1";
+  p.system.emission_zone_array.push_back(zone);
+
+  SUBCASE("valid refs pass")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.generator = Uid {1};
+    src.zone = Uid {1};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.generator = Uid {999};
+    src.zone = Uid {1};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid zone fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.zone = Uid {999};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid emission fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.zone = Uid {1};
+    src.emission = Uid {999};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - GeneratorProfile refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("valid ref passes")
+  {
+    GeneratorProfile gp;
+    gp.uid = Uid {1};
+    gp.name = "gp1";
+    gp.generator = Uid {1};
+    p.system.generator_profile_array.push_back(gp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    GeneratorProfile gp;
+    gp.uid = Uid {1};
+    gp.name = "gp1";
+    gp.generator = Uid {999};
+    p.system.generator_profile_array.push_back(gp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - DemandProfile refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Demand dem;
+  dem.uid = Uid {1};
+  dem.name = "d1";
+  dem.bus = Uid {1};
+  p.system.demand_array.push_back(dem);
+
+  SUBCASE("valid ref passes")
+  {
+    DemandProfile dp;
+    dp.uid = Uid {1};
+    dp.name = "dp1";
+    dp.demand = Uid {1};
+    p.system.demand_profile_array.push_back(dp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid demand fails")
+  {
+    DemandProfile dp;
+    dp.uid = Uid {1};
+    dp.name = "dp1";
+    dp.demand = Uid {999};
+    p.system.demand_profile_array.push_back(dp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReserveProvision refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  ReserveZone rz;
+  rz.uid = Uid {1};
+  rz.name = "rz1";
+  p.system.reserve_zone_array.push_back(rz);
+
+  SUBCASE("valid refs pass")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {1};
+    rp.reserve_zones = {SingleId {Uid {1}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {999};
+    rp.reserve_zones = {SingleId {Uid {1}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reserve_zones element fails")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {1};
+    rp.reserve_zones = {SingleId {Uid {999}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - InertiaProvision refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  InertiaZone iz;
+  iz.uid = Uid {1};
+  iz.name = "iz1";
+  p.system.inertia_zone_array.push_back(iz);
+
+  SUBCASE("valid refs pass")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {1};
+    ip.inertia_zones = {SingleId {Uid {1}}};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {999};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid inertia_zones element fails")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {1};
+    ip.inertia_zones = {SingleId {Uid {999}}};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - SimpleCommitment refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("valid ref passes")
+  {
+    SimpleCommitment sc;
+    sc.uid = Uid {1};
+    sc.name = "sc1";
+    sc.generator = Uid {1};
+    p.system.simple_commitment_array.push_back(sc);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    SimpleCommitment sc;
+    sc.uid = Uid {1};
+    sc.name = "sc1";
+    sc.generator = Uid {999};
+    p.system.simple_commitment_array.push_back(sc);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirProductionFactor refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Turbine turb;
+  turb.uid = Uid {1};
+  turb.name = "t1";
+  turb.waterway = Uid {1};
+  turb.generator = Uid {1};
+  p.system.turbine_array.push_back(turb);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {1};
+    rpf.reservoir = Uid {1};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid turbine fails")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {999};
+    rpf.reservoir = Uid {1};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {1};
+    rpf.reservoir = Uid {999};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirSeepage refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {1};
+    seep.reservoir = Uid {1};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid waterway fails")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {999};
+    seep.reservoir = Uid {1};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {1};
+    seep.reservoir = Uid {999};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
 }  // namespace
 
 // NOLINTEND(bugprone-unchecked-optional-access)

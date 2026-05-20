@@ -263,6 +263,164 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
                 "Fuel");
     }
   }
+
+  // ── P0 referential checks added 2026-05-20 ────────────────────────
+  //
+  // All of the following elements have foreign-key fields that used to
+  // be silently accepted at validation time and then either crashed at
+  // LP-build (when the lookup throws) or — worse — emitted a
+  // `SPDLOG_WARN` + `return false` from the *_lp.cpp ``add_to_lp``,
+  // leaving a registered element that contributes no constraints or
+  // columns to the LP.  Promote every such case to a hard validation
+  // error so the user sees the broken model before the solver runs.
+  // See the matching audit notes in `validate_planning - <element>` test
+  // SUBCASEs.
+
+  // EmissionSource: generator (optional), zone (required),
+  // emission (required).  `emission_source_lp.cpp:79` used to
+  // silently skip a source without a generator.
+  for (const auto& src : sys.emission_source_array) {
+    if (src.generator.has_value()) {
+      check_ref(result,
+                src.generator.value(),
+                sys.generator_array,
+                "EmissionSource",
+                src.name,
+                "generator",
+                "Generator");
+    }
+    check_ref(result,
+              src.zone,
+              sys.emission_zone_array,
+              "EmissionSource",
+              src.name,
+              "zone",
+              "EmissionZone");
+    check_ref(result,
+              src.emission,
+              sys.emission_array,
+              "EmissionSource",
+              src.name,
+              "emission",
+              "Emission");
+  }
+
+  // GeneratorProfile.generator -> Generator (required).
+  for (const auto& gp : sys.generator_profile_array) {
+    check_ref(result,
+              gp.generator,
+              sys.generator_array,
+              "GeneratorProfile",
+              gp.name,
+              "generator",
+              "Generator");
+  }
+
+  // DemandProfile.demand -> Demand (required).
+  for (const auto& dp : sys.demand_profile_array) {
+    check_ref(result,
+              dp.demand,
+              sys.demand_array,
+              "DemandProfile",
+              dp.name,
+              "demand",
+              "Demand");
+  }
+
+  // ReserveProvision.generator -> Generator (required).
+  // `reserve_zones` is an array of `ReserveZone` ids/names — each
+  // entry must resolve.
+  for (const auto& rp : sys.reserve_provision_array) {
+    check_ref(result,
+              rp.generator,
+              sys.generator_array,
+              "ReserveProvision",
+              rp.name,
+              "generator",
+              "Generator");
+    for (const auto& rz_id : rp.reserve_zones) {
+      check_ref(result,
+                rz_id,
+                sys.reserve_zone_array,
+                "ReserveProvision",
+                rp.name,
+                "reserve_zones",
+                "ReserveZone");
+    }
+  }
+
+  // InertiaProvision.generator -> Generator (required).
+  // `inertia_zones` is the analogous array reference.
+  for (const auto& ip : sys.inertia_provision_array) {
+    check_ref(result,
+              ip.generator,
+              sys.generator_array,
+              "InertiaProvision",
+              ip.name,
+              "generator",
+              "Generator");
+    for (const auto& iz_id : ip.inertia_zones) {
+      check_ref(result,
+                iz_id,
+                sys.inertia_zone_array,
+                "InertiaProvision",
+                ip.name,
+                "inertia_zones",
+                "InertiaZone");
+    }
+  }
+
+  // SimpleCommitment.generator -> Generator (required).
+  for (const auto& sc : sys.simple_commitment_array) {
+    check_ref(result,
+              sc.generator,
+              sys.generator_array,
+              "SimpleCommitment",
+              sc.name,
+              "generator",
+              "Generator");
+  }
+
+  // ReservoirProductionFactor.turbine -> Turbine,
+  //                         .reservoir -> Reservoir (both required).
+  // The production-factor row drives the water-to-MW LP coefficient;
+  // either invalid FK silently breaks SDDP dispatch.
+  for (const auto& rpf : sys.reservoir_production_factor_array) {
+    check_ref(result,
+              rpf.turbine,
+              sys.turbine_array,
+              "ReservoirProductionFactor",
+              rpf.name,
+              "turbine",
+              "Turbine");
+    check_ref(result,
+              rpf.reservoir,
+              sys.reservoir_array,
+              "ReservoirProductionFactor",
+              rpf.name,
+              "reservoir",
+              "Reservoir");
+  }
+
+  // ReservoirSeepage.waterway -> Waterway, .reservoir -> Reservoir
+  // (both required).  Seepage flow + reservoir-balance row depend on
+  // both FKs resolving.
+  for (const auto& seep : sys.reservoir_seepage_array) {
+    check_ref(result,
+              seep.waterway,
+              sys.waterway_array,
+              "ReservoirSeepage",
+              seep.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              seep.reservoir,
+              sys.reservoir_array,
+              "ReservoirSeepage",
+              seep.name,
+              "reservoir",
+              "Reservoir");
+  }
 }
 
 /// Validate fuel/heat-rate schema rules: mutual exclusion (scalar vs
