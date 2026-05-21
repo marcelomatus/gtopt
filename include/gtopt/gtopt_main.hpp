@@ -321,6 +321,13 @@ struct MainOptions
    * full semantics (input warn + output JSON rename). */
   std::optional<std::string> naming_dialect {};
 
+  /** @brief Target relative MIP optimality gap (CLI shortcut).
+   *
+   * Bound to the CLI flag `--mip-gap <value>`.  Forwards to
+   * `solver_options.mip_gap`; see the docstring there for backend
+   * mapping (CPLEX EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap). */
+  std::optional<double> mip_gap {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *

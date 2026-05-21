@@ -424,6 +424,35 @@ TEST_CASE(
   CHECK(planning.options.model_options.continuous_phases.value() == "all");
 }
 
+TEST_CASE(
+    "apply_cli_options(MainOptions) - --mip-gap sets solver_options.mip_gap")
+{
+  // The CLI shortcut must land at `solver_options.mip_gap` so the
+  // existing backend wiring (CPLEX EPGAP / HiGHS mip_rel_gap / Gurobi
+  // MIPGap, each guarded by `*gap > 0`) picks it up uniformly.
+  Planning planning {};
+  apply_cli_options(planning, MainOptions {.mip_gap = 0.01});
+
+  REQUIRE(planning.options.solver_options.mip_gap.has_value());
+  CHECK(planning.options.solver_options.mip_gap.value()
+        == doctest::Approx(0.01));
+}
+
+TEST_CASE(
+    "apply_cli_options(MainOptions) - --mip-gap overrides JSON "
+    "solver_options.mip_gap")
+{
+  // CLI wins over JSON when both are set, consistent with --no-mip.
+  Planning planning {};
+  planning.options.solver_options.mip_gap = 0.05;
+
+  apply_cli_options(planning, MainOptions {.mip_gap = 0.001});
+
+  REQUIRE(planning.options.solver_options.mip_gap.has_value());
+  CHECK(planning.options.solver_options.mip_gap.value()
+        == doctest::Approx(0.001));
+}
+
 // ---- Tests for make_lp_matrix_options ----
 
 TEST_CASE("make_lp_matrix_options - defaults when both nullopt")

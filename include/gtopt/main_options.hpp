@@ -367,6 +367,15 @@ template<typename T>
        "(see naming_dialects.json for the authoritative list).  "
        "Shorthand for --set model_options.naming_dialect=<name>.")
       //
+      ("mip-gap",
+       po::value<double>(),
+       "Target relative MIP optimality gap (e.g. 0.01 = 1 %); ignored on "
+       "continuous LPs.  Shorthand for "
+       "--set solver_options.mip_gap=<value>.  Backend mapping: "
+       "CPLEX CPX_PARAM_EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap.  Pair "
+       "with --time-limit to bound MIP wall-clock when the gap target "
+       "is loose.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -835,6 +844,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.model_options.naming_dialect = opts.naming_dialect;
   }
 
+  if (opts.mip_gap.has_value()) {
+    // CLI shortcut wins over any prior JSON setting — `--set
+    // solver_options.mip_gap=…` is still available for full control,
+    // but the bespoke flag is uniformly authoritative when both fire.
+    planning.options.solver_options.mip_gap = opts.mip_gap;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1063,6 +1079,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .no_scale = get_opt<bool>(vm, "no-scale"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
+      .mip_gap = get_opt<double>(vm, "mip-gap"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1352,6 +1369,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.no_scale, defaults.no_scale);
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
+  merge(opts.mip_gap, defaults.mip_gap);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
