@@ -389,8 +389,39 @@ def build_line_array(
         # the noise of PLEXOS's own approximation.
         if line.resistance > 0.0:
             entry["resistance"] = line.resistance
-            entry["line_losses_mode"] = "piecewise"
-            entry["loss_segments"] = 3
+            # Voltage chosen for unit consistency, NOT physical V.
+            # gtopt's loss formula is `P_loss = R · f² / V²`.  We
+            # have R in p.u. on a 100 MVA base and f in MW.  For the
+            # output to come out in MW we need V² = S_base = 100,
+            # so the per-unit-of-V is V = √S_base = 10.  This is the
+            # standard p.u.→engineering-unit trick: setting voltage =
+            # √S_base makes the per-unit R produce MW-valued losses
+            # without forcing every flow variable to be carried in
+            # p.u.  Independently confirmed by sanity-check on the
+            # northern corridor Capricornio110->LaNegra110:
+            #   R = 0.0554 p.u., f_max ≈ 175 MW
+            #   P_loss = 0.0554 × 175² / 100 ≈ 17 MW at max flow
+            #   (~10% loss, in line with PLEXOS's 1.96 GWh / week
+            #    on that line)
+            entry["voltage"] = 10.0  # √S_base, S_base = 100 MVA
+            # Loss mode: piecewise with 3 segments ONLY for lines
+            # with an enforced capacity (EL=2 → tmax_ab present).
+            # Lines with PLEXOS Enforce Limits ∈ {0, 1} have no
+            # tmax_ab in the bundle (gtopt treats them as +∞) and
+            # cannot be assigned a piecewise loss curve — the
+            # segments would be unbounded.  Mapping them to linear
+            # losses with a synthetic anchor (e.g. Lin_MaxRating)
+            # produces unbounded losses when actual flow exceeds the
+            # rating (a normal occurrence when the cap isn't
+            # enforced): λ × |f| diverges from the physical
+            # quadratic.  Cleaner to leave EL=0/1 lines lossless
+            # than to model them with the wrong shape.  Net effect:
+            # ~51 of 317 lines carry piecewise losses on CEN PCP
+            # 2026-04-22 (the EL=2 set covers the most binding
+            # international and inter-zonal interconnections).
+            if "tmax_ab" in entry:
+                entry["line_losses_mode"] = "piecewise"
+                entry["loss_segments"] = 3
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
