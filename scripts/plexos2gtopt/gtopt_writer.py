@@ -374,6 +374,23 @@ def build_line_array(
                 )
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
+        # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +
+        # piecewise loss mode.  PLEXOS-CEN ships R in per-unit on
+        # the system MVA base (same convention as Reactance), and
+        # uses its built-in PWL approximation of the quadratic loss
+        # curve P_loss = R · f² / V² with the default number of
+        # tranches.  Mirror that with gtopt's ``piecewise`` mode
+        # (single-direction PWL — Macedo et al. 2011) using 3
+        # segments per line.  3 is a sane compromise between LP
+        # size (3 extra variables + 1 loss-track row per block per
+        # line) and accuracy — the PWL error vs the exact
+        # quadratic at flow = f_max scales as 1/K, so 3 segments
+        # cap the max error at ~17% of f_max, which is well within
+        # the noise of PLEXOS's own approximation.
+        if line.resistance > 0.0:
+            entry["resistance"] = line.resistance
+            entry["line_losses_mode"] = "piecewise"
+            entry["loss_segments"] = 3
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
