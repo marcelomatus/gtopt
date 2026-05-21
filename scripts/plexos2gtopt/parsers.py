@@ -338,13 +338,24 @@ _DERIVED_COEFFS: tuple[tuple[str, str, str, str], ...] = (
         "Ramp Down Coefficient",
         "unsupported_rhs_shift",
     ),
-    # Battery Reserve Units Coefficient has no LP counterpart at all in
-    # gtopt (no commitment binary on Battery) — drop with a WARNING.
+    # Battery Reserve Units Coefficient: gtopt has no
+    # ``battery_commitment("X").status`` AMPL accessor at the
+    # UserConstraint expression level (the LP backend manages
+    # u_charge / u_discharge internally on the Battery LP).
+    # Pragmatic fix: forward the term to the **synthetic
+    # ``<battery>_gen`` Generator** that gtopt's
+    # ``system.cpp::expand_batteries`` auto-creates as the
+    # battery's discharge path — that generator carries a
+    # standard ``Commitment`` object (uid ``uc_<battery>_gen``)
+    # and exposes ``.status``, ``.startup``, ``.shutdown`` via
+    # the existing ``commitment("X").status`` AMPL accessor.
+    # Mode ``forward_to_battery_gen_commit`` emits
+    # ``α × commitment("uc_<battery_name>_gen").status``.
     (
         "Battery",
         "Constraints",
         "Reserve Units Coefficient",
-        "unsupported_rhs_shift",
+        "forward_to_battery_gen_commit",
     ),
 )
 
@@ -1302,6 +1313,38 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         pmin_discharge = (
             db.static_property("Battery", batt.object_id, "Min Discharge Level") or 0.0
         )
+        # Drop infeasible charge/discharge minima — PLEXOS-CEN
+        # occasionally ships ``Min Charge Level > Max Power`` on
+        # small placeholder batteries (e.g. BAT_DEL_DESIERTO:
+        # max_power=2, min_charge=2.32; BAT_TOCOPILLA: max_power=2,
+        # min_charge=2.5).  The downstream gtopt expander creates a
+        # synthetic ``<bat>_dem`` Demand with ``lmax = pmax_charge``,
+        # ``lmin = pmin_charge`` — when ``lmin > lmax`` the LP must
+        # hit fail for the whole horizon (lmax=2 MW, lmin=2.32 MW
+        # → 0.32 MW of phantom unserved demand every block ×
+        # 111 blocks × 168 h = ~7.6 GWh "ghost unserved" on the
+        # CEN PCP daily bundle).  Set the bad pmin → 0 to mirror
+        # the plp2gtopt convention (synthetic battery demand has
+        # ``lmax`` only, ``lmin = 0``, no ``fcost``).
+        if pmin_charge > max_power > 0.0:
+            logger.warning(
+                "Battery '%s': Min Charge Level %.2f MW > Max Power "
+                "%.2f MW — dropping pmin_charge (matches plp2gtopt: "
+                "synthetic <bat>_dem keeps lmax only, lmin = 0).",
+                batt.name,
+                pmin_charge,
+                max_power,
+            )
+            pmin_charge = 0.0
+        if pmin_discharge > max_power > 0.0:
+            logger.warning(
+                "Battery '%s': Min Discharge Level %.2f MW > Max Power "
+                "%.2f MW — dropping pmin_discharge.",
+                batt.name,
+                pmin_discharge,
+                max_power,
+            )
+            pmin_discharge = 0.0
         out.append(
             BatterySpec(
                 object_id=batt.object_id,
@@ -3335,9 +3378,21 @@ def extract_user_constraints(
                         coefficients.append(coeff)
                     # available_capacity: pure RHS — no LHS term to emit.
                     continue
+                elif mode == "forward_to_battery_gen_commit":
+                    # Battery.Reserve Units → forward to the
+                    # auto-synthesised ``<battery>_gen`` Generator's
+                    # Commitment.  ``system.cpp::expand_batteries``
+                    # creates this Commitment object with uid
+                    # ``uc_<battery_name>_gen``; the
+                    # ``commitment("X").status`` AMPL accessor
+                    # exists and is exact.
+                    var_ref = f'commitment("uc_{parent_name}_gen").status'
+                    terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
+                    coefficients.append(alpha)
+                    continue
                 else:
-                    # unsupported_rhs_shift (Ramp Up/Down, Battery
-                    # Reserve Units) — log once per (constraint, kind)
+                    # unsupported_rhs_shift (Ramp Up/Down) — log once
+                    # per (constraint, kind)
                     key = f"{constr.name}::{prop_name}"
                     if key not in unsupported_rhs_shift_warns:
                         unsupported_rhs_shift_warns.add(key)

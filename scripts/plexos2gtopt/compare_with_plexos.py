@@ -436,6 +436,72 @@ def compute_plexos_energy_totals(
     }
 
 
+def _sum_consumer_demand_field_mwh(
+    case_dir: Path,
+    bundle: dict,
+    durations: dict[int, float],
+    parquet_rel: str,
+) -> float:
+    """Sum a ``Demand/<field>_sol`` parquet restricted to **real
+    consumer demands** (uids ≤ max input demand uid).
+
+    Filters out the synthetic ``<bat>_dem`` Demand objects that
+    gtopt's ``expand_batteries`` (C++ ``system.cpp``) appends to the
+    demand_array at LP-build time.  Used for both ``load_sol``
+    (consumer served energy) and ``fail_sol`` (consumer unserved
+    energy) — without the filter both rows double-count the
+    battery charging path (the synthetic demand's load_sol equals
+    the battery's finp_sol).
+    """
+    import pyarrow.parquet as pq
+
+    f = case_dir / "output" / parquet_rel
+    if not f.exists():
+        return 0.0
+    consumer_uids = {int(d["uid"]) for d in bundle["system"].get("demand_array", [])}
+    if not consumer_uids:
+        return 0.0
+    df = pq.read_table(f).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
+    mask = df["uid"].astype(int).isin(consumer_uids)
+    return float((df.loc[mask, "value"] * df.loc[mask, "duration"]).sum())
+
+
+def _sum_consumer_fail_mwh(
+    case_dir: Path,
+    bundle: dict,
+    durations: dict[int, float],
+) -> float:
+    """Sum ``Demand/fail_sol`` MWh restricted to **real consumer demands**.
+
+    gtopt's ``expand_batteries`` (C++ ``system.cpp``) auto-instantiates
+    a synthetic ``<bat>_dem`` Demand per Battery, with
+    ``fcost = 0`` by design — the LP is intentionally free to leave
+    those demands unserved (i.e. the battery simply doesn't charge
+    that block).  The fail_sol parquet pools real consumer fail AND
+    those synthetic battery fails together; the synthetics
+    overwhelm the real numbers (~7.5 GWh on CEN PCP) and turn the
+    unserved-MWh metric into noise.
+
+    Filter by uid range: bundle's input ``demand_array`` covers
+    uids 1…N (N=127 on CEN PCP).  Synthetic ``<bat>_dem`` entries
+    are appended by gtopt at uid > N.  Sum only fail rows where
+    uid ≤ N.
+    """
+    import pyarrow.parquet as pq
+
+    f = case_dir / "output" / "Demand" / "fail_sol.parquet"
+    if not f.exists():
+        return 0.0
+    consumer_uids = {int(d["uid"]) for d in bundle["system"].get("demand_array", [])}
+    if not consumer_uids:
+        return 0.0
+    df = pq.read_table(f).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
+    mask = df["uid"].astype(int).isin(consumer_uids)
+    return float((df.loc[mask, "value"] * df.loc[mask, "duration"]).sum())
+
+
 def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     """Sum gtopt's per-block MW dispatch into MWh using bundle's
     block durations.  Reads parquet directly via pyarrow (already a
@@ -498,8 +564,26 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
         )
 
     gen_total = _sum_mwh("Generator/generation_sol.parquet")
-    load_total = _sum_mwh("Demand/load_sol.parquet")
-    fail_total = _sum_mwh("Demand/fail_sol.parquet")
+    # ``Demand/load_sol.parquet`` pools real-consumer served load AND
+    # the synthetic ``<bat>_dem`` load (= battery charging, double-
+    # counted with Battery/finp_sol).  Filter out the synthetic
+    # rows so the consumer-demand metric is apples-to-apples with
+    # PLEXOS Node.Load.
+    load_total = _sum_consumer_demand_field_mwh(
+        case_dir, bundle, durations, "Demand/load_sol.parquet"
+    )
+    # ``Demand/fail_sol.parquet`` aggregates BOTH real-consumer
+    # demand failure AND the synthetic ``<bat>_dem`` Demand objects
+    # gtopt's ``expand_batteries`` auto-instantiates (uid > max
+    # bundle demand uid).  Those synthetic demands have ``fcost=0``
+    # by design — the LP is FREE to leave them unserved (i.e. the
+    # battery just doesn't charge), so their "fail" is normal
+    # behaviour, not a demand-shortage signal.  Filter them out
+    # so the unserved-MWh metric reflects only real consumer
+    # demand failure.
+    fail_total = _sum_consumer_demand_field_mwh(
+        case_dir, bundle, durations, "Demand/fail_sol.parquet"
+    )
     batt_charge = _sum_mwh("Battery/finp_sol.parquet")
     batt_discharge = _sum_mwh("Battery/fout_sol.parquet")
     # Implicit transmission losses: gtopt doesn't write a per-line
