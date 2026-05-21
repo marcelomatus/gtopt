@@ -558,8 +558,8 @@ def _render_srmc_compare(
     gtopt_unit: dict[str, tuple[float, float]],
     console: Console,
     *,
-    top_n: int = 20,
-    min_avg_mwh: float = 1000.0,
+    top_n: int = 30,
+    min_avg_mwh: float = 0.0,
 ) -> None:
     """Step 4 — per-unit SRMC + dispatch comparison.
 
@@ -651,6 +651,182 @@ def _render_srmc_compare(
         "trace to missing constraints (fuel offtake caps, "
         "transmission, reserves) rather than wrong unit costs.[/dim]"
     )
+
+
+def compute_plexos_per_bus_lmp(
+    accdb_path: Path,
+) -> dict[str, float]:
+    """Per-bus time-weighted average LMP from PLEXOS .accdb.
+
+    Returns ``{node_name → avg_lmp_$/MWh}`` using prop 1412 "Price"
+    on the Node collection (collection_id=281), weighted by
+    t_phase_3 block durations.
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+    total_hours = sum(durations.values())
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+    key_obj: dict[int, int] = {}
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid == 1412 and mid in mem_child:
+            key_obj[kid] = mem_child[mid]
+
+    by_bus: dict[str, dict[int, float]] = collections.defaultdict(dict)
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        oid = key_obj.get(kid)
+        if oid is None:
+            continue
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        by_bus[name][pid_period] = val
+
+    out: dict[str, float] = {}
+    for name, periods in by_bus.items():
+        weighted = sum(v * durations.get(p, 0) for p, v in periods.items())
+        if total_hours > 0:
+            out[name] = weighted / total_hours
+    return out
+
+
+def compute_gtopt_per_bus_lmp(
+    case_dir: Path,
+) -> dict[str, float]:
+    """Per-bus time-weighted average LMP from gtopt
+    ``Bus/balance_dual.parquet``.
+
+    Returns ``{bus_name → avg_lmp_$/MWh}`` averaged over the 168 h
+    horizon (Σ value·duration / Σ duration).  Bus names come from
+    the bundle JSON's bus_array.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid = {int(b["uid"]): b["name"] for b in bundle["system"]["bus_array"]}
+    total_hours = sum(durations.values())
+
+    lmp_path = case_dir / "output" / "Bus" / "balance_dual.parquet"
+    if not lmp_path.exists():
+        return {}
+    df = pq.read_table(lmp_path).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations)
+    df["name"] = df["uid"].astype(int).map(name_by_uid)
+
+    out: dict[str, float] = {}
+    for name, sub in df.groupby("name", observed=True):
+        weighted = (sub["value"] * sub["duration"]).sum()
+        if total_hours > 0:
+            out[str(name)] = float(weighted / total_hours)
+    return out
+
+
+def _render_lmp_compare(
+    plexos_bus: dict[str, float],
+    gtopt_bus: dict[str, float],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 5 — per-bus LMP (locational marginal price) comparison.
+
+    Two sub-tables:
+      1. Top N buses by |Δ LMP| (in both PLEXOS and gtopt).
+      2. Bus-coverage summary (counts of present-on-both, only-PLEXOS,
+         only-gtopt).
+    """
+    common = set(plexos_bus) & set(gtopt_bus)
+    plexos_only = set(plexos_bus) - common
+    gtopt_only = set(gtopt_bus) - common
+
+    rows = []
+    for n in common:
+        p = plexos_bus[n]
+        g = gtopt_bus[n]
+        rows.append((n, p, g, g - p))
+    rows.sort(key=lambda r: abs(r[3]), reverse=True)
+
+    t = Table(
+        title=(
+            f"Per-bus LMP comparison (Step 5) — top {top_n} buses "
+            f"by |Δ LMP|  (common buses: {len(common)}, "
+            f"PLEXOS-only: {len(plexos_only)}, gtopt-only: {len(gtopt_only)})"
+        ),
+    )
+    t.add_column("Bus", style="bold")
+    t.add_column("PLEXOS $/MWh", justify="right")
+    t.add_column("gtopt $/MWh", justify="right")
+    t.add_column("Δ $/MWh", justify="right")
+    t.add_column("Δ %", justify="right")
+    for name, p, g, d in rows[:top_n]:
+        pct = (100.0 * d / p) if p else 0.0
+        t.add_row(
+            name,
+            f"{p:>10.2f}",
+            f"{g:>10.2f}",
+            f"{d:>+8.2f}",
+            f"{pct:>+6.1f}%",
+        )
+    console.print(t)
+
+    # Summary line: mean and median diffs
+    if rows:
+        deltas = [r[3] for r in rows]
+        import statistics
+
+        console.print(
+            f"[dim]LMP diff over {len(rows)} common buses: "
+            f"mean Δ = {statistics.mean(deltas):+.2f} $/MWh, "
+            f"median Δ = {statistics.median(deltas):+.2f} $/MWh, "
+            f"mean |Δ| = {statistics.mean(abs(d) for d in deltas):.2f}, "
+            f"P90 |Δ| = "
+            f"{sorted(abs(d) for d in deltas)[int(0.9 * len(deltas))]:.2f}.  "
+            f"LMP = time-weighted average ∫λ dt / Σ dt over the 168 h "
+            f"horizon.[/dim]"
+        )
 
 
 def _render_solution_compare(
@@ -1074,6 +1250,9 @@ def main(argv: list[str] | None = None) -> int:
                 # Step 4 — per-unit SRMC + dispatch
                 plexos_unit = compute_plexos_per_unit_srmc(accdb_path)
                 gtopt_unit = compute_gtopt_per_unit_srmc(args.gtopt_case)
+                # Step 5 — per-bus LMP
+                plexos_bus = compute_plexos_per_bus_lmp(accdb_path)
+                gtopt_bus = compute_gtopt_per_bus_lmp(args.gtopt_case)
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:
@@ -1085,8 +1264,11 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_unit and gtopt_unit:
                 console.print()
                 _render_srmc_compare(plexos_unit, gtopt_unit, console)
+            if plexos_bus and gtopt_bus:
+                console.print()
+                _render_lmp_compare(plexos_bus, gtopt_bus, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
-            console.print(f"[yellow]Step 3/4 skipped: {exc}[/yellow]")
+            console.print(f"[yellow]Step 3/4/5 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
