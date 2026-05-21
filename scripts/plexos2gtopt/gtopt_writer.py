@@ -289,13 +289,24 @@ def _needs_virtual_fuel(generators: tuple[GeneratorSpec, ...]) -> bool:
     )
 
 
-def build_line_array(lines: tuple[LineSpec, ...]) -> list[dict[str, Any]]:
+def build_line_array(
+    lines: tuple[LineSpec, ...],
+    *,
+    block_layout: tuple[tuple[int, ...], ...] = (),
+) -> list[dict[str, Any]]:
     """One line entry per :class:`LineSpec`.
 
     gtopt's `Line` carries forward/reverse capacity as ``tmax_ab`` /
     ``tmax_ba`` (both non-negative MW). PLEXOS' ``Lin_MinRating.csv``
     ships the reverse-flow limit as a negative number; we flip the
     sign and multiply by the parallel-line count.
+
+    When :attr:`LineSpec.tmax_ab_profile` carries a non-constant
+    per-hour profile (DLR — Dynamic Line Rating), the writer
+    aggregates that profile to ``block_layout`` and emits
+    ``tmax_ab`` as a ``[[per-block]]`` matrix so the LP honours the
+    higher daytime rating block-by-block.  Constant profiles
+    collapse to the scalar (peak) tmax_ab.
     """
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
@@ -321,10 +332,36 @@ def build_line_array(lines: tuple[LineSpec, ...]) -> list[dict[str, Any]]:
         # as before — gtopt has no voltage-threshold construct so
         # EL=1 is conservatively treated as enforced.
         if line.enforce_limits != 0:
-            entry["tmax_ab"] = line.tmax_ab * units
-            entry["tmax_ba"] = (
-                abs(line.tmin_ab) * units if line.tmin_ab else line.tmax_ab * units
-            )
+            # Determine if we have a non-constant DLR profile.  When
+            # ``min(profile) != max(profile)`` the rating varies
+            # across the horizon — emit a per-block matrix.  When
+            # constant, fall back to the scalar.
+            ab_profile = line.tmax_ab_profile
+            ba_profile = line.tmin_ab_profile
+
+            if ab_profile and min(ab_profile) != max(ab_profile):
+                profile = (
+                    _aggregate_to_blocks(ab_profile, block_layout, reducer="mean")
+                    if block_layout
+                    else list(ab_profile)
+                )
+                entry["tmax_ab"] = [[v * units for v in profile]]
+            else:
+                entry["tmax_ab"] = line.tmax_ab * units
+
+            if ba_profile and min(ba_profile) != max(ba_profile):
+                # Reverse-direction profile: PLEXOS Min Flow is negative,
+                # gtopt tmax_ba is positive — take abs() before scaling.
+                profile = (
+                    _aggregate_to_blocks(ba_profile, block_layout, reducer="mean")
+                    if block_layout
+                    else list(ba_profile)
+                )
+                entry["tmax_ba"] = [[abs(v) * units for v in profile]]
+            else:
+                entry["tmax_ba"] = (
+                    abs(line.tmin_ab) * units if line.tmin_ab else line.tmax_ab * units
+                )
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
@@ -1250,7 +1287,10 @@ def build_planning(
             ),
             block_layout=case.bundle.block_layout,
         ),
-        "line_array": build_line_array(case.lines),
+        "line_array": build_line_array(
+            case.lines,
+            block_layout=case.bundle.block_layout,
+        ),
         "demand_array": build_demand_array(
             case.demands,
             block_layout=case.bundle.block_layout,

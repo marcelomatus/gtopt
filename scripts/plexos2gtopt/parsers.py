@@ -980,13 +980,29 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
     """
     endpoints = _line_bus_endpoints(db)
 
+    # Use the full n_days × 24 horizon with PLEXOS's carry-forward
+    # semantics — DLR (Dynamic Line Rating) corridors like
+    # LoAguirre500->Polpaico500 ship sparse rows (period 1, 7, 24)
+    # where period N's value applies through period N+1's row.
+    # Without ``fill_forward`` and ``n_days``, the legacy
+    # ``[period-1 only]`` slice silently picks the lowest (overnight)
+    # rating and bottlenecks the 500-kV interconnections to ~half
+    # their daytime capacity.
     max_rating: dict[str, list[float]] = (
-        read_long(bundle.csv("Lin_MaxRating.csv"))
+        read_long(
+            bundle.csv("Lin_MaxRating.csv"),
+            n_days=bundle.n_days,
+            fill_forward=True,
+        )
         if bundle.has("Lin_MaxRating.csv")
         else {}
     )
     min_rating: dict[str, list[float]] = (
-        read_long(bundle.csv("Lin_MinRating.csv"))
+        read_long(
+            bundle.csv("Lin_MinRating.csv"),
+            n_days=bundle.n_days,
+            fill_forward=True,
+        )
         if bundle.has("Lin_MinRating.csv")
         else {}
     )
@@ -1032,8 +1048,13 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
             units = 1
         tmax_series = max_rating.get(line.name, [])
         tmin_series = min_rating.get(line.name, [])
-        tmax = tmax_series[0] if tmax_series else 0.0
-        tmin = tmin_series[0] if tmin_series else 0.0
+        # Scalar tmax/tmin: use MAX of the per-hour profile so the LP
+        # gets the peak capacity (binding only when the profile is
+        # variant; if invariant, max == period-1).  We still pass the
+        # full profile through to the writer, which honours it block-
+        # by-block when it actually varies.
+        tmax = max(tmax_series) if tmax_series else 0.0
+        tmin = min(tmin_series) if tmin_series else 0.0
         if tmax <= 0.0:
             # Fallback: XML-only schemas ship Max Flow on the
             # System→Lines collection.
@@ -1064,6 +1085,8 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 bus_to=t_name,
                 tmax_ab=tmax,
                 tmin_ab=tmin,
+                tmax_ab_profile=tuple(tmax_series),
+                tmin_ab_profile=tuple(tmin_series),
                 units=units,
                 reactance=reactance,
                 wheeling_charge=wheeling,

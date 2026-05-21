@@ -144,6 +144,14 @@ class LineSpec:
     bus_to: str
     tmax_ab: float = 0.0
     tmin_ab: float = 0.0
+    # Optional per-hour profile (length = bundle.n_days × 24) for
+    # DLR (Dynamic Line Rating) corridors whose Lin_MaxRating.csv ships
+    # different ratings per period (e.g. LoAguirre500->Polpaico500: 900
+    # MW overnight, 2078 MW for periods 7-23).  When non-empty, the
+    # writer aggregates this to per-block tmax_ab and falls back to the
+    # scalar above only if the profile is invariant.
+    tmax_ab_profile: tuple[float, ...] = ()
+    tmin_ab_profile: tuple[float, ...] = ()
     # PLEXOS Enforce Limits (0=Never, 1=Voltage, 2=Always) controls
     # whether the LP applies thermal limits.  Per the Energy Exemplar
     # docs (Line.EnforceLimits): "0=Never → line thermal limits are

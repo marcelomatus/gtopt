@@ -40,6 +40,7 @@ def read_long(
     periods: int = DEFAULT_PERIODS,
     n_days: int = 1,
     day_offset: int = 0,
+    fill_forward: bool = False,
 ) -> dict[str, list[float]]:
     """Parse a long-format CEN CSV into ``{name -> [v_t1, v_t2, …]}``.
 
@@ -53,6 +54,14 @@ def read_long(
             in :func:`read_wide`.  ``n_days = 1`` (default) keeps the
             legacy per-day behaviour.
         day_offset: 0-indexed offset of the first day to extract.
+        fill_forward: If True, undefined slots (no row in the CSV)
+            inherit the value of the last defined earlier slot.  This
+            matches PLEXOS's "value carries forward until the next
+            defined period" semantics — required for DLR (Dynamic
+            Line Rating) sparse files like ``Lin_MaxRating.csv``
+            that ship only the periods where the rating changes
+            (e.g. periods 1, 7, 24 each day).  When False (default,
+            legacy behaviour) undefined slots stay 0.0.
 
     Returns:
         Dict keyed by ``NAME``; values are lists of length
@@ -61,6 +70,9 @@ def read_long(
     """
     out_len = periods * n_days
     out: dict[str, list[float]] = {}
+    # Defined-slot bookkeeping for fill_forward: track which (name, slot)
+    # actually had a row in the CSV so we can fill the gaps later.
+    defined: dict[str, list[bool]] = {}
     day_keys_seen: dict[tuple[str, str, str], int] = {}
     with Path(path).open("r", encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -98,6 +110,26 @@ def read_long(
             slot = day_idx * periods + (period - 1)
             series = out.setdefault(name, [0.0] * out_len)
             series[slot] = value
+            if fill_forward:
+                defined.setdefault(name, [False] * out_len)[slot] = True
+
+    if fill_forward:
+        # Forward-fill: each undefined slot inherits the most recent
+        # defined slot to its left.  Leading undefined slots (no
+        # defined predecessor) stay at 0.0 — caller's problem if that
+        # matters.
+        for name, series in out.items():
+            flags = defined.get(name)
+            if not flags:
+                continue
+            last_defined = 0.0
+            seen_first = False
+            for i in range(out_len):
+                if flags[i]:
+                    last_defined = series[i]
+                    seen_first = True
+                elif seen_first:
+                    series[i] = last_defined
     return out
 
 
