@@ -194,6 +194,47 @@ def _format_money(value: float) -> str:
 #                                                  do NOT × duration)
 
 
+# ============================================================
+# PLEXOS solution-database property IDs (t_property.property_id)
+# ------------------------------------------------------------
+# Centralised so the comparison code self-documents and the
+# Region.Load vs Node.Load scoping risk is impossible to repeat.
+# Confirmed against CEN PCP DATOS20260422 (see
+# ~/.claude/.../memory/feedback_plexos_demand_scope.md).
+#
+# Collection-2 (Generator class) primary props:
+PLEXOS_PROP_GENERATOR_GENERATION = 2  # MW per period
+PLEXOS_PROP_GENERATOR_GENCOST = 119  # $ per block (already integrated)
+PLEXOS_PROP_GENERATOR_SRMC = 137  # $/MWh per period
+#
+# Collection-80 (Battery class) primary props:
+PLEXOS_PROP_BATTERY_LOAD = 521  # MW charging
+PLEXOS_PROP_BATTERY_CHARGING = 523  # MW (named "Charging")
+PLEXOS_PROP_BATTERY_DISCHARGING = 524  # MW (named "Discharging")
+#
+# Collection-80 (Storage) volume props:
+PLEXOS_PROP_STORAGE_SOC = 518  # GWh / m³ per period
+PLEXOS_PROP_STORAGE_INITIAL_VOLUME = 645
+PLEXOS_PROP_STORAGE_END_VOLUME = 646
+#
+# Collection-200 (Region) — system-level aggregates:
+PLEXOS_PROP_REGION_LOAD = 966  # GROSS demand: consumer + batt + losses
+PLEXOS_PROP_REGION_GENERATION = 970  # gross injection (matches Region.Load)
+PLEXOS_PROP_REGION_LOSSES = 997  # transmission losses (MW)
+#
+# Collection-281 (Node) — per-node aggregates:
+PLEXOS_PROP_NODE_LOAD = 1373  # consumer demand only (apples-to-apples
+#                              vs gtopt's demand_array)
+PLEXOS_PROP_NODE_GENERATION = 1377
+PLEXOS_PROP_NODE_PRICE = 1412  # LMP $/MWh
+#
+# Collection-303 (Line / transmission):
+PLEXOS_PROP_LINE_FLOW = 1462  # MW
+PLEXOS_PROP_LINE_EXPORT_LIMIT = 1465  # MW positive-direction cap
+PLEXOS_PROP_LINE_IMPORT_LIMIT = 1466  # MW negative-direction cap
+# ============================================================
+
+
 def _read_plexos_table(
     accdb_path: Path,
     table: str,
@@ -373,11 +414,23 @@ def compute_plexos_energy_totals(
             if r.get("key_id", "").isdigit() and int(r["key_id"]) in kset
         )
 
+    # Demand scope:  ``load_mwh`` is PLEXOS prop 1373 Node.Load —
+    # consumer demand only — to make an apples-to-apples comparison
+    # with gtopt's ``demand_array`` (which is also consumer-only;
+    # batteries live in a separate Battery object, losses are zero
+    # under DC OPF).  Region.Load (prop 966) is the GROSS load
+    # including battery charging + transmission losses — comparing
+    # gtopt against that shows a phantom 7-8% deficit that is a
+    # definitional artifact, not a data error.  See
+    # ~/.claude/.../memory/feedback_plexos_demand_scope.md.
     return {
-        "load_mwh": _energy_mwh(966),  # Region Load
-        "gen_mwh": _energy_mwh(970),  # Region Generation
-        "gen_unit_mwh": _energy_mwh(2),  # Generator-class Generation
-        "gen_cost_usd": _block_sum(119),  # Generation Cost (block-$)
+        "load_mwh": _energy_mwh(PLEXOS_PROP_NODE_LOAD),
+        "load_region_mwh": _energy_mwh(PLEXOS_PROP_REGION_LOAD),
+        "battery_load_mwh": _energy_mwh(PLEXOS_PROP_BATTERY_LOAD),
+        "losses_mwh": _energy_mwh(PLEXOS_PROP_REGION_LOSSES),
+        "gen_mwh": _energy_mwh(PLEXOS_PROP_REGION_GENERATION),
+        "gen_unit_mwh": _energy_mwh(PLEXOS_PROP_GENERATOR_GENERATION),
+        "gen_cost_usd": _block_sum(PLEXOS_PROP_GENERATOR_GENCOST),
         "block_count": len(durations),
         "hours_covered": sum(durations.values()),
     }
@@ -517,7 +570,10 @@ def compute_plexos_per_unit_srmc(
         except (KeyError, ValueError):
             continue
         prop = key_prop.get(kid)
-        if prop not in (2, 137):
+        if prop not in (
+            PLEXOS_PROP_GENERATOR_GENERATION,
+            PLEXOS_PROP_GENERATOR_SRMC,
+        ):
             continue
         oid = key_obj.get(kid)
         if oid is None:
@@ -526,9 +582,9 @@ def compute_plexos_per_unit_srmc(
         if name is None:
             continue
         slot = by_unit_period[name][pid_period]
-        if prop == 2:
+        if prop == PLEXOS_PROP_GENERATOR_GENERATION:
             slot["mw"] = val
-        elif prop == 137:
+        elif prop == PLEXOS_PROP_GENERATOR_SRMC:
             slot["srmc"] = val
 
     out: dict[str, tuple[float, float]] = {}
@@ -741,7 +797,7 @@ def compute_plexos_per_bus_lmp(
             pid = int(k["property_id"])
         except ValueError:
             continue
-        if pid == 1412 and mid in mem_child:
+        if pid == PLEXOS_PROP_NODE_PRICE and mid in mem_child:
             key_obj[kid] = mem_child[mid]
 
     by_bus: dict[str, dict[int, float]] = collections.defaultdict(dict)
@@ -938,13 +994,25 @@ def compute_plexos_per_line(
             pid = int(k["property_id"])
         except ValueError:
             continue
-        if pid in (1462, 1465, 1466) and mid in mem_child:
+        if (
+            pid
+            in (
+                PLEXOS_PROP_LINE_FLOW,
+                PLEXOS_PROP_LINE_EXPORT_LIMIT,
+                PLEXOS_PROP_LINE_IMPORT_LIMIT,
+            )
+            and mid in mem_child
+        ):
             key_meta[kid] = (mem_child[mid], pid)
 
     by_line: dict[str, dict[str, list[tuple[int, float]]]] = collections.defaultdict(
         lambda: collections.defaultdict(list)
     )
-    pid_field = {1462: "flow", 1465: "max_flow", 1466: "min_flow"}
+    pid_field = {
+        PLEXOS_PROP_LINE_FLOW: "flow",
+        PLEXOS_PROP_LINE_EXPORT_LIMIT: "max_flow",
+        PLEXOS_PROP_LINE_IMPORT_LIMIT: "min_flow",
+    }
     for r in data0:
         try:
             kid = int(r["key_id"])
@@ -1504,7 +1572,15 @@ def compute_plexos_reservoir_volumes(
             pid = int(k["property_id"])
         except ValueError:
             continue
-        if pid in (645, 646, 518) and mid in mem_child:
+        if (
+            pid
+            in (
+                PLEXOS_PROP_STORAGE_INITIAL_VOLUME,
+                PLEXOS_PROP_STORAGE_END_VOLUME,
+                PLEXOS_PROP_STORAGE_SOC,
+            )
+            and mid in mem_child
+        ):
             key_meta[kid] = (mem_child[mid], pid)
 
     by_res: dict[str, dict[int, list[tuple[int, float]]]] = collections.defaultdict(
@@ -1530,12 +1606,20 @@ def compute_plexos_reservoir_volumes(
     for name, props in by_res.items():
         entry = {"eini": 0.0, "efin": 0.0, "vol_avg": 0.0}
         # Initial Volume: take period-1 value (constant property)
-        if 645 in props and props[645]:
-            entry["eini"] = props[645][0][1]
-        if 646 in props and props[646]:
-            entry["efin"] = props[646][-1][1]  # last period
-        if 518 in props:
-            weighted = sum(v * durations.get(p, 0) for p, v in props[518])
+        if (
+            PLEXOS_PROP_STORAGE_INITIAL_VOLUME in props
+            and props[PLEXOS_PROP_STORAGE_INITIAL_VOLUME]
+        ):
+            entry["eini"] = props[PLEXOS_PROP_STORAGE_INITIAL_VOLUME][0][1]
+        if (
+            PLEXOS_PROP_STORAGE_END_VOLUME in props
+            and props[PLEXOS_PROP_STORAGE_END_VOLUME]
+        ):
+            entry["efin"] = props[PLEXOS_PROP_STORAGE_END_VOLUME][-1][1]
+        if PLEXOS_PROP_STORAGE_SOC in props:
+            weighted = sum(
+                v * durations.get(p, 0) for p, v in props[PLEXOS_PROP_STORAGE_SOC]
+            )
             if total_hours > 0:
                 entry["vol_avg"] = weighted / total_hours
         out[name] = entry
@@ -1701,7 +1785,10 @@ def compute_plexos_battery_operation(
             pid = int(k["property_id"])
         except ValueError:
             continue
-        if pid in (523, 524) and mid in mem_child:
+        if (
+            pid in (PLEXOS_PROP_BATTERY_CHARGING, PLEXOS_PROP_BATTERY_DISCHARGING)
+            and mid in mem_child
+        ):
             key_meta[kid] = (mem_child[mid], pid)
 
     by_bat: dict[str, dict[int, list[tuple[int, float]]]] = collections.defaultdict(
@@ -1725,8 +1812,14 @@ def compute_plexos_battery_operation(
 
     out: dict[str, dict[str, float]] = {}
     for name, props in by_bat.items():
-        charge = sum(v * durations.get(p, 0) for p, v in props.get(523, []))
-        discharge = sum(v * durations.get(p, 0) for p, v in props.get(524, []))
+        charge = sum(
+            v * durations.get(p, 0)
+            for p, v in props.get(PLEXOS_PROP_BATTERY_CHARGING, [])
+        )
+        discharge = sum(
+            v * durations.get(p, 0)
+            for p, v in props.get(PLEXOS_PROP_BATTERY_DISCHARGING, [])
+        )
         out[name] = {
             "charge_mwh": charge,
             "discharge_mwh": discharge,
