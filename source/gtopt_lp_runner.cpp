@@ -36,6 +36,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
+#include <gtopt/solve_outcome.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -578,21 +579,6 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
 }
 
 /// Run the solver and return whether an optimal solution was found.
-/// Outcome of `run_solver`.  Three-state so the caller can distinguish
-/// "save what we have" cases (partial progress on time-limit, MIP gap
-/// reached without optimal, SDDP / cascade aborted by sentinel) from
-/// hard failures with nothing useful to persist.
-enum class SolveOutcome : std::uint8_t
-{
-  Optimal,  ///< Solver returned an optimal solution — full write_out.
-  Partial,  ///< Solver did NOT reach optimal but the cell holds a
-            ///< usable solution (time-limit, gap, sentinel stop).
-            ///< Caller should still attempt write_out so the user
-            ///< inspects last-known progress.
-  Failed,  ///< Hard failure (infeasibility, internal error, bad input).
-           ///< write_out would either error or emit garbage; skip it.
-};
-
 [[nodiscard]] SolveOutcome run_solver(PlanningLP& planning_lp)
 {
   const spdlog::stopwatch solve_sw;
@@ -617,19 +603,16 @@ enum class SolveOutcome : std::uint8_t
   // / kappa rows, so the operator sees a single coherent
   // Solution-statistics block.
 
-  if (result.has_value()) {
-    return SolveOutcome::Optimal;
+  // Classification lives in `gtopt/solve_outcome.hpp` so the tri-state
+  // dispatch (Optimal / Partial / Failed) is also reachable from
+  // unit tests without standing up a real solver.
+  const auto outcome = classify_solve_outcome(result);
+  if (outcome == SolveOutcome::Optimal) {
+    return outcome;
   }
 
   const auto& err = result.error();
-  // `SolverError` is the soft-error band: time-limit reached with a
-  // feasible incumbent, MIP gap target met but optimal not proven,
-  // SDDP / cascade interrupted by `sentinel_file` after some
-  // iterations completed.  In every case the cell still carries a
-  // valid solution we can dump via `write_out`.  Every other code
-  // (`InternalError`, `InvalidInput`, …) is a hard failure where
-  // write_out would either throw or emit garbage — skip it.
-  const bool is_partial = (err.code == ErrorCode::SolverError);
+  const bool is_partial = (outcome == SolveOutcome::Partial);
 
   const auto msg = std::format(
       "Solver did not find an optimal solution: "
