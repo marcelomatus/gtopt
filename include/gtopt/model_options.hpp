@@ -149,6 +149,26 @@ struct ModelOptions
   /// `--set model_options.continuous_phases="all"`.
   OptName continuous_phases {};
 
+  /// Name of the naming dialect to enforce on input and output.
+  ///
+  /// When set, the alias→canonical canonicalization (input) emits a
+  /// once-per-alias warning whenever an input key matches an alias whose
+  /// `dialect` tag differs from this value — useful for catching
+  /// mixed-dialect input.  The reverse output rename (canonical → alias)
+  /// is also driven by this field: the JSON writer rewrites canonical
+  /// keys to the chosen dialect's aliases when emitting `planning.json`
+  /// (parquet column rename is deferred to a follow-up).
+  ///
+  /// Recognised values are the `dialect` tags in
+  /// `share/gtopt/naming_dialects.json` (e.g. `"gtopt"`, `"plp"`,
+  /// `"sddp"`, `"plexos"`, `"pypsa"`, `"pandapower"`).  Unset (default)
+  /// preserves the pre-feature behaviour: every alias is accepted on
+  /// input, every key is emitted in canonical form on output.
+  ///
+  /// Settable via `--naming-dialect <name>` or
+  /// `--set model_options.naming_dialect=<name>`.
+  OptName naming_dialect {};
+
   /// Whether to enforce the per-stage `emin` floor as a HARD lower bound
   /// on the reservoir's stage-end volume (`efin =
   /// reservoir_energy_<last_block>`) and on the stage-start volume
@@ -190,6 +210,7 @@ struct ModelOptions
     merge_opt(state_violation_cost, opts.state_violation_cost);
     merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
     merge_opt(continuous_phases, opts.continuous_phases);
+    merge_opt(naming_dialect, opts.naming_dialect);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
   }
 
@@ -205,7 +226,8 @@ struct ModelOptions
         || demand_fail_cost.has_value() || reserve_shortage_cost.has_value()
         || hydro_spill_cost.has_value() || hydro_use_value.has_value()
         || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
-        || continuous_phases.has_value() || strict_storage_emin.has_value();
+        || continuous_phases.has_value() || naming_dialect.has_value()
+        || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -235,6 +257,7 @@ struct ModelOptions
         && covers_opt(state_violation_cost, other.state_violation_cost)
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(continuous_phases, other.continuous_phases)
+        && covers_opt(naming_dialect, other.naming_dialect)
         && covers_opt(strict_storage_emin, other.strict_storage_emin);
   }
 };

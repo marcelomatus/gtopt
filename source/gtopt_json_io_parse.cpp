@@ -39,7 +39,8 @@ Planning parse_planning_json(std::string_view json_content)
 
 std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
-    const std::optional<std::string>& input_directory)
+    const std::optional<std::string>& input_directory,
+    std::string_view enforce_dialect)
 {
   const spdlog::stopwatch sw;
   Planning my_planning;
@@ -84,7 +85,8 @@ std::expected<Planning, std::string> parse_planning_files(
       // pre-canonicalisation source) causes that walk to segfault when
       // the canonicalisation shifted byte offsets — see the
       // `BAT_ALICANTO` reproducer on `support/plp_2_years`.
-      const auto canonical = canonicalize_json_keys(json_result.value());
+      const auto canonical =
+          canonicalize_json_keys(json_result.value(), enforce_dialect);
       try {
         auto plan =
             daw::json::from_json<Planning>(canonical, StrictParsePolicy);

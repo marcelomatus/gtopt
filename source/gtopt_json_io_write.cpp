@@ -16,6 +16,7 @@
 
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_planning.hpp>
+#include <gtopt/json_canonicalize.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -44,7 +45,16 @@ std::expected<void, std::string> write_json_output(const Planning& planning,
   }
 
   try {
-    jfile << daw::json::to_json(planning) << '\n';
+    auto json_text = daw::json::to_json(planning);
+    // Output rename: when `model_options.naming_dialect` is set,
+    // rewrite canonical object keys to the dialect's aliases.  Empty
+    // dialect short-circuits to a verbatim copy inside
+    // `decanonicalize_json_keys`, so the no-feature path stays cheap.
+    const auto& dialect_opt = planning.options.model_options.naming_dialect;
+    if (dialect_opt.has_value() && !dialect_opt->empty()) {
+      json_text = decanonicalize_json_keys(json_text, *dialect_opt);
+    }
+    jfile << json_text << '\n';
   } catch (const daw::json::json_exception& ex) {
     return std::unexpected(
         std::format("JSON serialization error for file '{}': {}",

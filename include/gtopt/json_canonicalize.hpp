@@ -56,7 +56,37 @@ class NamesRegistry;
 [[nodiscard]] std::string canonicalize_json_keys(std::string_view json_text,
                                                  const NamesRegistry& registry);
 
+/// Same as above, plus drive the input warn pass: when
+/// `enforce_dialect` is non-empty and an alias's source dialect tag in
+/// the registry differs from it, emit a once-per-alias `spdlog::warn`.
+/// Empty preserves the pre-feature silent behaviour.
+[[nodiscard]] std::string canonicalize_json_keys(
+    std::string_view json_text,
+    const NamesRegistry& registry,
+    std::string_view enforce_dialect);
+
 /// Convenience overload using the process-wide singleton.
 [[nodiscard]] std::string canonicalize_json_keys(std::string_view json_text);
+
+/// Convenience overload using the process-wide singleton + dialect enforcement.
+[[nodiscard]] std::string canonicalize_json_keys(
+    std::string_view json_text, std::string_view enforce_dialect);
+
+/// Rewrite every canonical object-key in `json_text` to its alias in
+/// `dialect` using `registry`.  Inverse of `canonicalize_json_keys`.
+/// Keys without a matching `(canonical, dialect)` entry are left
+/// unchanged so a partial dialect coverage degrades gracefully.
+///
+/// `dialect` empty makes the function a verbatim copy.  Mirrors the
+/// safety properties of `canonicalize_json_keys`: only object-key
+/// quoted strings are considered.
+[[nodiscard]] std::string decanonicalize_json_keys(
+    std::string_view json_text,
+    const NamesRegistry& registry,
+    std::string_view dialect);
+
+/// Convenience overload using the process-wide singleton.
+[[nodiscard]] std::string decanonicalize_json_keys(std::string_view json_text,
+                                                   std::string_view dialect);
 
 }  // namespace gtopt

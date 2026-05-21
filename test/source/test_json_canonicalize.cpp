@@ -149,3 +149,62 @@ TEST_CASE(
   const auto out = canonicalize_json_keys(R"({"marginal_cost": 25.5})");
   CHECK(out == R"({"gcost": 25.5})");
 }
+
+TEST_CASE(
+    "canonicalize_json_keys — enforce_dialect still canonicalizes")  // NOLINT
+{
+  // The warn-only enforcement does NOT block the rewrite; alias keys
+  // from any dialect are still folded to canonical so strict daw::json
+  // parsing continues to succeed.  The dialect mismatch only surfaces
+  // through `spdlog::warn` (not captured here — assert the rewrite).
+  const NamesRegistry r {kDict};
+
+  const auto out = canonicalize_json_keys(
+      R"({"max_power": 100, "Max Capacity": 50})", r, "gtopt");
+  CHECK(out == R"({"pmax": 100, "pmax": 50})");
+}
+
+TEST_CASE(
+    "canonicalize_json_keys — empty enforce_dialect = silent legacy")  // NOLINT
+{
+  const NamesRegistry r {kDict};
+  // Same input as the previous case but with empty dialect: no warning
+  // and output is the same canonicalized form.
+  const auto out = canonicalize_json_keys(
+      R"({"Max Capacity": 50})", r, /*enforce_dialect=*/"");
+  CHECK(out == R"({"pmax": 50})");
+}
+
+TEST_CASE("decanonicalize_json_keys — canonical -> alias rewrite")  // NOLINT
+{
+  const NamesRegistry r {kDict};
+
+  SUBCASE("single canonical key rewritten to plexos alias")
+  {
+    const auto out = decanonicalize_json_keys(R"({"pmax": 100})", r, "plexos");
+    CHECK(out == R"({"Max Capacity": 100})");
+  }
+
+  SUBCASE("keys without a matching (canonical, dialect) pair stay verbatim")
+  {
+    // `pmax` has a plexos alias, but `pmin` and `gcost` do not in the
+    // test dictionary; only `pmax` is rewritten.
+    const auto out = decanonicalize_json_keys(
+        R"({"pmax": 100, "pmin": 5, "gcost": 50})", r, "plexos");
+    CHECK(out == R"({"Max Capacity": 100, "pmin": 5, "gcost": 50})");
+  }
+
+  SUBCASE("empty dialect short-circuits to verbatim")
+  {
+    const std::string input = R"({"pmax": 100, "gcost": 50})";
+    CHECK(decanonicalize_json_keys(input, r, "") == input);
+  }
+
+  SUBCASE("round-trip: canonical -> alias -> canonical")
+  {
+    const std::string canonical = R"({"pmax": 100, "gcost": 50})";
+    const auto plexos_form = decanonicalize_json_keys(canonical, r, "gtopt");
+    const auto back = canonicalize_json_keys(plexos_form, r);
+    CHECK(back == canonical);
+  }
+}

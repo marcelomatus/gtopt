@@ -224,3 +224,66 @@ TEST_CASE(
     CHECK(r.canonical_for("copper_plate").value_or("") == "use_single_bus");
   }
 }
+
+TEST_CASE("NamesRegistry — dialect_for + alias_for round-trip")  // NOLINT
+{
+  // Mini registry covering several dialects for the same canonical.
+  // Verifies both directions of the dialect lookup path used by the
+  // --naming-dialect feature: input warn (`dialect_for`) and output
+  // rename (`alias_for`).
+  constexpr std::string_view dict = R"json(
+{
+  "version": 1,
+  "aliases": [
+    {"class": "generator", "canonical": "pmax", "alt": "max_power",     "dialect": "gtopt"},
+    {"class": "generator", "canonical": "pmax", "alt": "Max Capacity",  "dialect": "plexos"},
+    {"class": "generator", "canonical": "pmax", "alt": "GerMax",        "dialect": "sddp"},
+    {"class": "generator", "canonical": "pmax", "alt": "p_max_pu",      "dialect": "pypsa"}
+  ]
+}
+)json";
+
+  const NamesRegistry r {dict};
+
+  SUBCASE("dialect_for returns the dialect tag")
+  {
+    CHECK(r.dialect_for("max_power").value_or("") == "gtopt");
+    CHECK(r.dialect_for("Max Capacity").value_or("") == "plexos");
+    CHECK(r.dialect_for("GerMax").value_or("") == "sddp");
+    CHECK(r.dialect_for("p_max_pu").value_or("") == "pypsa");
+  }
+
+  SUBCASE("dialect_for returns nullopt for unknown aliases")
+  {
+    CHECK_FALSE(r.dialect_for("not_an_alias").has_value());
+    // `pmax` itself is canonical, not an alias — no dialect entry.
+    CHECK_FALSE(r.dialect_for("pmax").has_value());
+  }
+
+  SUBCASE("alias_for picks the alias matching the requested dialect")
+  {
+    CHECK(r.alias_for("pmax", "gtopt").value_or("") == "max_power");
+    CHECK(r.alias_for("pmax", "plexos").value_or("") == "Max Capacity");
+    CHECK(r.alias_for("pmax", "sddp").value_or("") == "GerMax");
+    CHECK(r.alias_for("pmax", "pypsa").value_or("") == "p_max_pu");
+  }
+
+  SUBCASE("alias_for returns nullopt for unknown (canonical, dialect)")
+  {
+    CHECK_FALSE(r.alias_for("pmax", "no_such_dialect").has_value());
+    CHECK_FALSE(r.alias_for("not_canonical", "gtopt").has_value());
+  }
+
+  SUBCASE("round-trip: canonical -> alias -> canonical")
+  {
+    // Pick an alias via `alias_for(canonical, dialect)`, then verify
+    // `canonical_for(alias)` brings us back.  Pins the data-symmetry
+    // invariant of `build_from_json`.
+    for (const auto* d : {"gtopt", "plexos", "sddp", "pypsa"}) {
+      const auto alias = r.alias_for("pmax", d);
+      REQUIRE(alias.has_value());
+      CHECK(r.canonical_for(*alias).value_or("") == "pmax");
+      CHECK(r.dialect_for(*alias).value_or("") == d);
+    }
+  }
+}

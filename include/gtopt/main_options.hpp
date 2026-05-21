@@ -355,6 +355,18 @@ template<typename T>
        "gives a lower bound on the true MIP optimum but loses on/off "
        "semantics.")
       //
+      ("naming-dialect",
+       po::value<std::string>(),
+       "enforce a specific naming dialect for input + output.  On "
+       "input: emits a once-per-alias warning when a JSON key matches "
+       "an alias whose `dialect` tag in "
+       "share/gtopt/naming_dialects.json differs from <name>.  On "
+       "output: rewrites canonical keys to the dialect's aliases when "
+       "emitting `planning.json` (parquet column rename is a follow-up).  "
+       "Recognised values: gtopt, plp, sddp, plexos, pypsa, pandapower "
+       "(see naming_dialects.json for the authoritative list).  "
+       "Shorthand for --set model_options.naming_dialect=<name>.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -819,6 +831,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.model_options.continuous_phases = OptName {"all"};
   }
 
+  if (opts.naming_dialect.has_value()) {
+    planning.options.model_options.naming_dialect = opts.naming_dialect;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1046,6 +1062,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .threads = get_opt<int>(vm, "threads"),
       .no_scale = get_opt<bool>(vm, "no-scale"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
+      .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1334,6 +1351,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.no_scale, defaults.no_scale);
   merge(opts.no_mip, defaults.no_mip);
+  merge(opts.naming_dialect, defaults.naming_dialect);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
