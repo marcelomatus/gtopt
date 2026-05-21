@@ -811,8 +811,20 @@ class JunctionWriter(BaseWriter):
         # in plpvrebemb.dat.  Without this the LP would have a free spillway
         # on every non-rebalse reservoir; PLP charges every spill with at
         # least CVert (typically a small but non-zero number, ~0.01).
+        #
+        # Under ``--auto-water-fail-cost`` (default on since 2026-05-11) the
+        # legitimate water-shortfall pricing is set by
+        # ``WaterValueResolver`` on Reservoir.efin_cost / soft_emin_cost /
+        # FlowRight.fail_cost (anchored on the case's own falla.gcost), and
+        # the CVert symmetry-breaker becomes pure LP-kappa noise — a $0.010
+        # coefficient sitting next to $500–$10 000 anchors widens the matrix
+        # range and produces spurious binding-bound duals on degenerate
+        # spillways.  Drop it in that mode so the spill arc is free of
+        # cost; the soft-storage anchors dominate any LP arbitrage.
         cvert_default: Optional[float] = None
-        if self.plpmat_parser is not None:
+        if self.plpmat_parser is not None and not bool(
+            self.options.get("auto_water_fail_cost")
+        ):
             cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
             if cvert > 0.0:
                 cvert_default = cvert

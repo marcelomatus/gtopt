@@ -1281,15 +1281,17 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         block_layout = getattr(bundle, "block_layout", ())
         if block_layout and (emin_series or emax_series):
             n_blocks = len(block_layout)
-            # Only the END-OF-WEEK (last day) operational bound is
-            # honoured.  Earlier daily floors over-constrained the
-            # LP for reservoirs without a non-physical-inflow
-            # safety valve (L_Maule blocks 82/97, day-1 spikes on
-            # other reservoirs).  Block 0 always uses the static
-            # physical floor + ``eini``; the only tight handoff
-            # the parser emits is the last block of the last day.
+            # End-of-day-1 + end-of-week operational bounds are
+            # honoured (block 23 / block N-1 for a 7-day case).
+            # Mid-week daily floors (blocks 43/56/70/82/97) are
+            # skipped — they over-constrain L_Maule which has no
+            # non-physical-inflow safety valve.  Block 0 always
+            # uses the static physical floor + ``eini``; the day-1
+            # and last-day handoffs pin the trajectory at the two
+            # boundaries PLEXOS values most.
+            first_day_eod = 24
             last_day_eod = bundle.n_days * 24
-            allowed_eod_hours = {last_day_eod}
+            allowed_eod_hours = {first_day_eod, last_day_eod}
             emin_per_block: list[float] = []
             emax_per_block: list[float] = []
             for intervals in block_layout:
@@ -1418,6 +1420,8 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
 def extract_waterways(
     db: PlexosDb,
     bundle: PlexosBundle | None = None,
+    forced_targets_out: list[tuple[str, str, float]] | None = None,
+    ocean_sources_out: set[str] | None = None,
 ) -> tuple[WaterwaySpec, ...]:
     """One :class:`WaterwaySpec` per PLEXOS Waterway object.
 
@@ -1454,7 +1458,41 @@ def extract_waterways(
     out: list[WaterwaySpec] = []
     pinned_count = 0
     synthetic_sinks: list[str] = []
+    # ``Vert_*`` spillways are redirected to a synthetic
+    # ``<source>_ocean`` drain junction (mirrors PLP's terminal /
+    # vrebemb-as-sink topology).  Collected here so the caller can
+    # synthesise the matching drain junctions with ``drain = True``;
+    # without the redirect, PLEXOS spillways would route into the
+    # downstream reservoir's storage row and the LP could discharge
+    # one reservoir to relieve pressure on the next, which is not
+    # physical.  Routing to an ocean drain removes that arbitrage
+    # path and matches PLP's "spill leaves the basin" convention.
+    synthetic_ocean_sources: set[str] = set()
+    # Collected here, returned via the ``synthetic_flow_right_targets``
+    # attribute on the returned tuple.  Each entry is
+    # ``(name_hint, source_junction, target_value_m3s)`` for a
+    # downstream-pinned forced flow we want to soften via FlowRight.
+    synthetic_flow_right_targets: list[tuple[str, str, float]] = []
+    # Waterways to drop entirely.  ``Vert_ELTORO`` is the operator-
+    # controlled spillway from ELTORO → POLCURA in the Laja cascade.
+    # Leaving it in lets the LP drain ELTORO from eini=12,155 hm³ down
+    # to ~31 hm³ over the week (pushing water through POLCURA →
+    # Post_Antuco → RUCUE → LAJA_I, where the pass-through buffer
+    # absorbs it for free) — verified in v21 phantom-storage audit.
+    # PLEXOS doesn't activate this spillway in practice because Water
+    # Value keeps ELTORO close to its initial state; we drop it
+    # entirely to mirror that behaviour without re-introducing Water
+    # Value pricing.
+    SKIP_WATERWAYS: frozenset[str] = frozenset({"Vert_ELTORO"})
     for ww in db.objects_of_class("Waterway"):
+        if ww.name in SKIP_WATERWAYS:
+            logger.info(
+                "extract_waterways: dropping %s (operator-controlled "
+                "spillway; PLEXOS keeps it at zero via Water Value, "
+                "we drop it to prevent free phantom-storage drain).",
+                ww.name,
+            )
+            continue
         fs = p2c_from.get(ww.object_id, [])
         ts = p2c_to.get(ww.object_id, [])
         f_name = objs[fs[0]].name if fs and fs[0] in objs else None
@@ -1477,6 +1515,27 @@ def extract_waterways(
         if t_name is None and f_name is not None and has_forced:
             t_name = f"{ww.name}_sink"
             synthetic_sinks.append(t_name)
+        # Redirect every operator-controlled spillway to a per-source
+        # ocean drain.  PLEXOS routes ``Vert_PANGUE`` to ANGOSTURA
+        # (next reservoir), but in the LP that lets the spillway
+        # column relieve pressure on the downstream storage balance
+        # — an arbitrage path PLP doesn't have (PLP's ``_ver`` arcs
+        # land on a ``<central>_ocean`` drain when the source is
+        # vrebemb-as-sink, otherwise the next central explicitly).
+        # We use the ocean drain uniformly here so spilling never
+        # benefits a downstream reservoir; preserves mass leaving
+        # the basin without coupling the two storage rows.
+        #
+        # ``Vert_*_GNL_INF`` spillways are dropped entirely — their
+        # source Storage is an LNG gas-import accounting artifact
+        # (see extract_reservoirs), filtered out of ``reservoir_array``
+        # and ``junction_array``; emitting the spillway would leave a
+        # waterway dangling at a non-existent source.
+        if ww.name.startswith("Vert_") and f_name is not None:
+            if f_name.endswith("_GNL_INF"):
+                continue
+            t_name = f"{f_name}_ocean"
+            synthetic_ocean_sources.add(f_name)
         if f_name is None or t_name is None:
             logger.debug(
                 "waterway %s missing endpoint(s) (from=%s to=%s); skipping",
@@ -1494,29 +1553,33 @@ def extract_waterways(
         # high-cost arcs.
         fcost_raw = db.static_property("Waterway", ww.object_id, "Max Flow Penalty")
         fcost = fcost_raw if fcost_raw and fcost_raw > 0.0 else 0.0
-        # Pin the forced-flow column.  We only pin when the profile is
-        # non-zero AND constant — the CEN PCP day-1 file ships Filt_*
-        # / Caudal_Eco_* / Riego_* as constants across the 168-block
-        # horizon, so a scalar fmin=fmax suffices.  Time-varying
-        # forced flows would require a per-block profile in
-        # WaterwaySpec (deferred — only B_Maule in the current
-        # bundle, which is a natural reservoir inflow, not a forced
-        # outflow).
-        if has_forced:
-            csv_min, csv_max = min(forced), max(forced)
-            if csv_max - csv_min < 1.0e-6:
-                fmin = csv_min
-                fmax = csv_max
-                pinned_count += 1
-            else:
-                logger.warning(
-                    "waterway %s: Hydro_WaterFlows.csv profile is non-constant "
-                    "(min=%.3f max=%.3f) — scalar fmin=fmax pinning skipped; "
-                    "per-block forced-flow profile not yet supported",
-                    ww.name,
-                    csv_min,
-                    csv_max,
-                )
+        # CONVERT to FlowRight: forced-flow waterways
+        # (``Filt_*`` / ``Caudal_Eco_*`` / ``Riego_*`` / ``Ext_Maule``,
+        # any Hydro_WaterFlows.csv-pinned arc) are encoded as
+        # FlowRight at the SOURCE junction with the soft delivery
+        # target priced at the global ``hydro_spill_cost`` penalty
+        # ($10/m³ × 3600 = $36,000/(m³/s)/h shortfall).  The
+        # FlowRight's bypass column carries water through to the
+        # downstream (when the source has a ``Vert_*`` spillway the
+        # writer auto-resolves ``bypass_junction``).
+        #
+        # We DROP the original Waterway entirely so we don't double-
+        # count the flow path: the FlowRight's ``flow_col`` consumes
+        # at the source and the inline ``bypass_col`` delivers to the
+        # downstream.  Keeping the parallel Waterway would let the LP
+        # arbitrage between two equivalent paths (it'd pick whichever
+        # had the lower fcost) and would inflate the matrix range
+        # with redundant rows.
+        forced_target = max(forced) if has_forced else 0.0
+        if has_forced and forced_target > 0.0:
+            pinned_count += 1
+            if f_name is not None:
+                synthetic_flow_right_targets.append((ww.name, f_name, forced_target))
+                if forced_targets_out is not None:
+                    forced_targets_out.append((ww.name, f_name, forced_target))
+            # Skip emitting the Waterway — the FlowRight handles the
+            # path inline.
+            continue
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -1530,9 +1593,11 @@ def extract_waterways(
         )
     if pinned_count:
         logger.info(
-            "extract_waterways: pinned fmin=fmax on %d waterway(s) from "
-            "Hydro_WaterFlows.csv forced-flow columns (filtration / seepage / "
-            "irrigation extraction).",
+            "extract_waterways: converted %d forced-flow waterway(s) from "
+            "Hydro_WaterFlows.csv to FlowRight (Caudal_Eco_* / Filt_* / "
+            "Riego_* / Ext_Maule); the Waterway is dropped and the soft "
+            "delivery target is carried on a FlowRight at the source "
+            "junction at hydro_spill_cost ($10/m³).",
             pinned_count,
         )
     if synthetic_sinks:
@@ -1543,7 +1608,35 @@ def extract_waterways(
             len(synthetic_sinks),
             ", ".join(synthetic_sinks),
         )
+    if synthetic_ocean_sources:
+        logger.info(
+            "extract_waterways: redirected %d Vert_* spillway(s) to per-source "
+            "ocean drain(s) (<source>_ocean, drain=True) so spillage cannot "
+            "relieve pressure on downstream storage rows; sources: %s",
+            len(synthetic_ocean_sources),
+            ", ".join(sorted(synthetic_ocean_sources)),
+        )
+    if ocean_sources_out is not None:
+        ocean_sources_out.update(synthetic_ocean_sources)
     return tuple(out)
+
+
+def _is_sink_junction(name: str) -> bool:
+    """Return True for junctions that are meant to absorb water leaving
+    the basin:
+      * ``Riego_*_sink`` — irrigation diversions,
+      * ``Filt_*_sink`` — filtration / seepage outflows,
+      * any synthetic 1-ended forced-outflow target generated by
+        :func:`extract_waterways`,
+      * ``<reservoir>_ocean`` — synthetic ocean drain receiving
+        every ``Vert_*`` operator-controlled spillway.
+
+    These nodes need ``Junction.drain = True`` so the LP balance row
+    accepts a free pass-through column; without it the equality
+    constraint would force inflow = 0 and the forced flow would
+    become infeasible.
+    """
+    return name.endswith("_sink") or name.endswith("_ocean")
 
 
 def extract_junctions(
@@ -1563,13 +1656,25 @@ def extract_junctions(
     Reservoir list (so they don't become free phantom buffers in
     the LP) but their Junction node is kept so waterway endpoints
     that reference them stay valid.  Duplicates are de-duplicated.
+
+    Junctions whose name ends in ``_sink`` (synthetic 1-ended
+    forced-outflow targets + ``Riego_*_sink`` / ``Filt_*_sink``
+    diversion / seepage outlets) are emitted with
+    ``drain = True`` — the LP needs a free pass-through column on
+    those nodes' balance row so the forced flow has somewhere to
+    go.  Reservoir-side ``_sink`` nodes get the same treatment
+    (the zero-storage Reservoir co-located at the sink junction
+    can never accumulate, but the junction's balance constraint
+    still has to absorb the inflow).
     """
     seen = {r.name for r in reservoirs}
-    out: list[JunctionSpec] = [JunctionSpec(name=r.name) for r in reservoirs]
+    out: list[JunctionSpec] = [
+        JunctionSpec(name=r.name, drain=_is_sink_junction(r.name)) for r in reservoirs
+    ]
     for name in extra_junction_names:
         if name and name not in seen:
             seen.add(name)
-            out.append(JunctionSpec(name=name))
+            out.append(JunctionSpec(name=name, drain=_is_sink_junction(name)))
     return tuple(out)
 
 
@@ -1687,51 +1792,23 @@ def extract_flows(
                 ", ".join(sorted(dropped)),
             )
 
-    # PLEXOS-style "Non-physical Inflow Penalty" → gtopt soft Flow
-    # slack at the reservoir's junction.  When a Storage carries a
-    # positive ``Non-physical Inflow Penalty`` property, PLEXOS lets
-    # the LP inject virtual water at that penalty cost so the storage
-    # balance closes even under tight forced flows / reserve
-    # obligations.  We emit one ``nphi_<storage>`` FlowSpec per such
-    # storage with:
-    #   * ``discharge_profile`` flat at a generous cap (5000 m³/s,
-    #     larger than any plausible single-reservoir slack).  When
-    #     the writer pairs this with ``Flow.fcost`` set, gtopt's
-    #     ``flow_lp.cpp`` relaxes the column to ``[0, discharge]``
-    #     instead of forcing equality.
-    #   * ``fcost = <PLEXOS penalty>`` so the slack column pays
-    #     the PLEXOS-equivalent per-unit cost only when activated.
-    # CEN PCP 2026-04-22 carries this on 7 major reservoirs
-    # (CANUTILLAR / CIPRESES / COLBUN / ELTORO / PEHUENCHE / RALCO /
-    # RAPEL) at 25,200 $/(m³/s)/h.
-    target_len = 24 * bundle.n_days
-    nphi_cap = 5000.0
-    nphi_count = 0
-    for storage in db.objects_of_class("Storage"):
-        if known_junctions and storage.name not in known_junctions:
-            continue
-        penalty = db.static_property(
-            "Storage", storage.object_id, "Non-physical Inflow Penalty"
-        )
-        if not penalty or penalty <= 0.0:
-            continue
-        out.append(
-            FlowSpec(
-                name=f"nphi_{storage.name}",
-                junction_name=storage.name,
-                discharge_profile=tuple([nphi_cap] * target_len),
-                fcost=float(penalty),
-            )
-        )
-        nphi_count += 1
-    if nphi_count:
-        logger.info(
-            "extract_flows: emitted %d non-physical inflow slack Flow(s) "
-            "(PLEXOS Storage 'Non-physical Inflow Penalty' → soft Flow "
-            "fcost; cap = %.0f m³/s).",
-            nphi_count,
-            nphi_cap,
-        )
+    # PLEXOS-style "Non-physical Inflow Penalty" slack Flows are
+    # DISABLED.  PLEXOS uses these to let the LP inject virtual water
+    # at a penalty cost so the storage balance closes under tight
+    # forced flows / reserve obligations — useful in PLEXOS to keep
+    # demonstration scenarios feasible, but in gtopt they would mask
+    # genuine infeasibilities and let the LP buy its way out of
+    # cascade constraints at a fixed cost.  Operators rely on the
+    # native infeasibility signal to catch model bugs (mis-aligned
+    # forced flows, broken hydro chains, irrigation over-commitments),
+    # so we surface the infeasibility instead of papering over it.
+    #
+    # The legacy emission read ``Non-physical Inflow Penalty`` off
+    # each Storage and produced one ``nphi_<storage>`` FlowSpec with a
+    # 5000 m³/s cap at the published penalty (25,200 $/(m³/s)/h on
+    # the 2026-04-22 CEN PCP bundle).  Restore by reverting this
+    # block if a future use case genuinely needs the slack — but
+    # prefer fixing the root infeasibility first.
     return tuple(out)
 
 
@@ -2300,6 +2377,60 @@ def extract_hydro_discharge_user_constraints(
         "from Hydro_AntucoBounds.csv + Generator→Constraint memberships",
         len(out),
     )
+    return tuple(out)
+
+
+def _synthesise_pinned_flow_rights(
+    forced_waterway_targets: list[tuple[str, str, float]],
+    known_junction_names: frozenset[str],
+) -> tuple[FlowRightSpec, ...]:
+    """Convert pinned forced-flow waterways into soft FlowRights.
+
+    For each ``(name, source_junction, target_m3s)`` triplet captured
+    by ``extract_waterways`` (Filt_Laja / Filt_Inv / Filt_Colb /
+    Caudal_Eco_Ralco / Riego_RUCUE etc.), emit a FlowRight at the
+    SOURCE junction with:
+
+      * ``target = target_m3s``  (the operational delivery target)
+      * ``fcost  = 36,000 $/(m³/s)/h``  (= $10/m³ × 3600 — mirrors
+        PLP's ``hydro_fail_cost = 10 $/m³`` convention; converts
+        per-volume to per-flow-per-hour units the LP expects)
+      * ``fmax  = 10 × target``  (large enough to also serve as a
+        spill outlet when upstream has surplus — FlowRight's column
+        drains the junction, so any flow above target is overflow)
+
+    The paired Waterway still exists with its operational ``fmax``
+    cap but no longer hard-pins ``fmin``, so the LP gets a soft
+    delivery requirement priced at the unserved cost instead of an
+    infeasibility when upstream is short.
+    """
+    # User-pinned literal fcost — see project's irrigation default.
+    # Emitted as-is on each synthesised FlowRight (no internal
+    # ×3600 conversion).
+    fcost_per_cumec_hour = 10.0
+    out: list[FlowRightSpec] = []
+    for name, source_junction, target in forced_waterway_targets:
+        if source_junction not in known_junction_names:
+            continue
+        out.append(
+            FlowRightSpec(
+                name=f"pinned_{name}",
+                junction_name=source_junction,
+                purpose="forced_flow",
+                fmin=0.0,
+                fmax=target * 10.0,  # allow spill above target
+                target=target,  # soft kink point — required for fcost
+                fcost=fcost_per_cumec_hour,
+            )
+        )
+    if out:
+        logger.info(
+            "_synthesise_pinned_flow_rights: emitted %d FlowRight(s) "
+            "from pinned forced-flow waterways at $%.0f/(m³/s·h) "
+            "shortfall penalty ($10/m³).",
+            len(out),
+            fcost_per_cumec_hour,
+        )
     return tuple(out)
 
 
@@ -3094,7 +3225,10 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     # via the 1:1 mapping in extract_junctions) so the waterway has
     # a valid LP-side destination and the writer's automatic
     # ``spillway_cost`` drain absorbs the forced flow.
-    waterways = extract_waterways(db, bundle)
+    forced_waterway_targets: list[tuple[str, str, float]] = []
+    waterways = extract_waterways(
+        db, bundle, forced_targets_out=forced_waterway_targets
+    )
     # Two distinct "extra junction" sources:
     #   1. PLEXOS Storage objects that ``extract_reservoirs``
     #      filtered out as pass-through nodes (B_*, Post_*, ISLA,
@@ -3109,7 +3243,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     #      forced flow has somewhere to go.
     plexos_storage_names = {s.name for s in db.objects_of_class("Storage")}
     reservoir_names = {r.name for r in reservoirs}
-    dropped_passthrough = plexos_storage_names - reservoir_names
+    # ``_GNL_INF`` storages were already filtered from ``reservoirs`` by
+    # ``extract_reservoirs`` (LNG gas-import accounting artifacts, not
+    # water — see e763f39d1).  They have no Waterway / Turbine /
+    # Generator memberships referencing them, so they don't need a
+    # Junction either — emitting one leaves orphan nodes in
+    # ``junction_array`` (the LP balance constraint then forces them
+    # to receive zero flow forever, which is correct but wasteful).
+    # Strip them here so they vanish from the topology entirely.
+    dropped_passthrough = {
+        n
+        for n in (plexos_storage_names - reservoir_names)
+        if not n.endswith("_GNL_INF")
+    }
     sink_names_seen: set[str] = set()
     extra_sinks: list[ReservoirSpec] = []
     for ww in waterways:
@@ -3143,6 +3289,39 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     generators = extract_generators(db, bundle)
     fuels = extract_fuels(db, bundle)
     turbines = extract_turbines(db, bundle)
+
+    # Drop turbines whose generator has ``pmax = 0`` (unit out of
+    # service for the whole horizon — e.g. ``EL_TORO_U1`` in the
+    # 2026-04-22 CEN PCP bundle).  The downstream writer would
+    # otherwise synthesise an unbounded zero-cost penstock
+    # ``penstock_<unit>`` that the LP exploits as a FREE drain pipe
+    # from the upstream reservoir (gen col is skipped at every
+    # block since pmax=0, so the ``gen = pf × flow`` equality is
+    # never installed and the waterway's fmax=+inf carries any
+    # volume the LP wants at zero cost).  Concretely: EL_TORO_U1
+    # in v22 let the LP push ~12,000 hm³ from ELTORO into POLCURA
+    # and downstream pass-through buffers, defeating the
+    # discharge_ELTOROmax UC and producing the nphi_ELTORO
+    # phantom-drain artefact.  Filtering at parse time keeps both
+    # the turbine_array and the synthetic penstock_<unit>
+    # waterway out of the JSON.
+    def _gen_max_pmax(g: GeneratorSpec) -> float:
+        if g.pmax_profile:
+            return max(g.pmax_profile, default=0.0)
+        return g.pmax or 0.0
+
+    inactive_gens = frozenset(g.name for g in generators if _gen_max_pmax(g) <= 0.0)
+    if inactive_gens:
+        dropped_turbs = tuple(t for t in turbines if t.generator_name in inactive_gens)
+        if dropped_turbs:
+            logger.info(
+                "extract_turbines: dropped %d turbine(s) whose generator "
+                "has pmax = 0 across the horizon (would otherwise create "
+                "an unbounded zero-cost penstock drain): %s",
+                len(dropped_turbs),
+                ", ".join(t.generator_name for t in dropped_turbs),
+            )
+        turbines = tuple(t for t in turbines if t.generator_name not in inactive_gens)
     # PLEXOS Region.VoLL → demand_fail_cost.
     #
     # Per-Region VoLLs are routed onto each ``Demand.fcost`` (via
@@ -3210,7 +3389,10 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             ),
         ),
         commitments=extract_commitments(db, bundle, generators, fuels),
-        flow_rights=extract_flow_rights(bundle, turbines, known_junction_names),
+        flow_rights=_synthesise_pinned_flow_rights(
+            forced_waterway_targets, known_junction_names
+        )
+        + extract_flow_rights(bundle, turbines, known_junction_names),
         decision_variables=extract_decision_variables(db),
     )
 

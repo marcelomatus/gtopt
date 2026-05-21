@@ -642,27 +642,24 @@ def build_reservoir_array(
         # PLEXOS's marginal Water Value (the correct mapping).
         _ = res.water_value
         _ = res.never_drain
-        # Activate gtopt's internal-drain mechanism on every reservoir.
-        # storage_lp.hpp gates the drain column on ``drain_cost.has_value()``
-        # and defaults the per-block upper bound to ``DblMax`` when
-        # capacity is unset — i.e. setting just the cost gives an
-        # unbounded "spill-to-sea" valve, no separate spillway_capacity
-        # field needed.
+        # Reservoir-internal drain is DISABLED by default, matching PLP's
+        # convention: spillage leaves the basin via an explicit ``Vert_*``
+        # Waterway routed to a ``<source>_ocean`` drain junction (added by
+        # :func:`extract_waterways` + :func:`_is_sink_junction`), not via
+        # an internal ``spillway_cost`` column on the storage balance row.
+        # The previous default ($1000/MWh internal drain on every
+        # reservoir) gave the LP two equivalent escape paths and let it
+        # arbitrage between them under degeneracy.
+        #
+        # When PLEXOS does ship a per-storage ``Spill Penalty`` (currently
+        # unset across CEN PCP), the extractor populates
+        # ``spill_penalty_per_mwh`` and we honour it here.  Otherwise the
+        # field is omitted and ``storage_lp.cpp`` skips the drain column.
         if res.spill_penalty_per_mwh > 0.0:
-            # Reserved branch — currently never taken because the
-            # PLEXOS extractor leaves ``spill_penalty_per_mwh`` at 0
-            # (PLEXOS Storage "Spill Penalty" property is unset across
-            # CEN PCP).  When the parser starts reading it, the
-            # conversion is: gtopt ``spillway_cost`` is per-(m³/s)/h,
-            # PLEXOS reports per-MWh — multiply by the global default
-            # productibility (DESIGN.md §6).
+            # gtopt ``spillway_cost`` is per-(m³/s)/h, PLEXOS reports
+            # per-MWh — multiply by the global default productibility
+            # (DESIGN.md §6).
             entry["spillway_cost"] = res.spill_penalty_per_mwh * DEFAULT_FP_MED
-        else:
-            # Default branch (taken for ALL reservoirs in CEN PCP v0).
-            # 1000 is high enough that the LP only spills as a last
-            # resort (e.g. CANUTILLAR with natural inflow but no
-            # downstream Waterway).
-            entry["spillway_cost"] = 1000.0
         out.append(entry)
     return out
 
@@ -713,6 +710,7 @@ def build_turbine_array(
     turbines: tuple[TurbineSpec, ...],
     waterways: tuple[WaterwaySpec, ...] = (),
     extra_waterways: list[dict[str, Any]] | None = None,
+    generators: tuple[GeneratorSpec, ...] = (),
 ) -> list[dict[str, Any]]:
     """One Turbine per :class:`TurbineSpec`.
 
@@ -753,6 +751,21 @@ def build_turbine_array(
         ww_by_name[w.name] = w
         if w.storage_from and w.storage_from not in ww_by_from:
             ww_by_from[w.storage_from] = w.name
+
+    # Per-generator peak pmax (max across stages / blocks).  Used to
+    # cap the synthetic penstock ``fmax`` at ``pmax_peak / pf`` so
+    # the waterway can't carry more water than the unit could
+    # physically discharge at its nameplate.  Closes the v22 leak
+    # where ``EL_TORO_U1`` (pmax_profile range [0, 113.4]) had its
+    # gen column skipped at the zero-pmax blocks, leaving the
+    # penstock unbounded and letting ELTORO drain ~12,000 hm³
+    # through it.
+    def _peak_pmax(g: GeneratorSpec) -> float:
+        if g.pmax_profile:
+            return max(g.pmax_profile, default=0.0)
+        return g.pmax or 0.0
+
+    gen_peak_pmax: dict[str, float] = {g.name: _peak_pmax(g) for g in generators}
     out: list[dict[str, Any]] = []
     skipped: list[str] = []
     synthesised_count = 0
@@ -781,14 +794,25 @@ def build_turbine_array(
         # the turbine to the original PLEXOS waterway.
         if extra_waterways is not None:
             penstock_name = f"penstock_{t.generator_name}"
-            extra_waterways.append(
-                {
-                    "uid": 0,  # patched in build_planning
-                    "name": penstock_name,
-                    "junction_a": t.reservoir_name,
-                    "junction_b": downstream,
-                }
-            )
+            penstock_entry: dict[str, Any] = {
+                "uid": 0,  # patched in build_planning
+                "name": penstock_name,
+                "junction_a": t.reservoir_name,
+                "junction_b": downstream,
+            }
+            # Cap the synthetic penstock's flow at the unit's peak
+            # discharge capacity ``pmax / pf``.  Without this cap
+            # the waterway is unbounded; at blocks where the
+            # generator's pmax is 0 the turbine_conversion row is
+            # skipped (no gen col → no `gen = pf × flow` equality)
+            # and the LP can push arbitrary water through the
+            # penstock for free.  pmax_peak is taken across the
+            # whole horizon — per-block fmax profiles would be
+            # tighter but require WaterwaySpec schema work.
+            pmax_peak = gen_peak_pmax.get(t.generator_name, 0.0)
+            if pmax_peak > 0.0 and t.production_factor > 0.0:
+                penstock_entry["fmax"] = pmax_peak / t.production_factor
+            extra_waterways.append(penstock_entry)
             synthesised_count += 1
             waterway_ref = penstock_name
         else:
@@ -1068,6 +1092,11 @@ def build_flow_right_array(
             entry["fmin"] = fr.fmin
         if fr.fmax > 0.0:
             entry["fmax"] = fr.fmax
+        # Soft kink point — only meaningful when paired with fcost
+        # and/or uvalue.  Required for the LP-side ``fail_col`` /
+        # ``excess_col`` slack machinery to activate.
+        if fr.target > 0.0:
+            entry["target"] = fr.target
         # fcost is OptTBRealFieldSched (same shape as Demand.fcost):
         # broadcast the scalar across the horizon as a [[stage_blocks]]
         # matrix when set.
@@ -1243,7 +1272,10 @@ def build_planning(
         # build_turbine_array for the rationale).
         "waterway_array": (waterway_array := build_waterway_array(case.waterways)),
         "turbine_array": build_turbine_array(
-            case.turbines, case.waterways, extra_waterways=waterway_array
+            case.turbines,
+            case.waterways,
+            extra_waterways=waterway_array,
+            generators=case.generators,
         ),
         "flow_array": build_flow_array(
             case.flows,

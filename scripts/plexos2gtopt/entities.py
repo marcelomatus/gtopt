@@ -427,6 +427,13 @@ class FlowRightSpec:
     purpose: str = "irrigation"
     fmin: float = 0.0  # >0 = enforce lower bound
     fmax: float = 0.0  # >0 = enforce upper bound
+    # Soft kink point [m³/s].  When >0, the LP layer
+    # (``flow_right_lp.cpp``) penalises any flow BELOW ``target`` at
+    # ``fcost`` and rewards any flow ABOVE ``target`` at ``uvalue``.
+    # When zero/unset, the column degenerates to a plain hard band
+    # ``[fmin, fmax]`` with no fcost activation — so ``target`` must
+    # be set for any soft-pin behaviour.
+    target: float = 0.0
     # Per-(stage, block) slack-violation penalty in $/(m³/s)/h. The
     # writer broadcasts this scalar across the 24-block horizon when
     # emitting the FlowRight; matches gtopt's
