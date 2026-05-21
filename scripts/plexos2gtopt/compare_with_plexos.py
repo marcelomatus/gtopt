@@ -829,6 +829,343 @@ def _render_lmp_compare(
         )
 
 
+def compute_plexos_per_line(
+    accdb_path: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-line **total absolute energy transferred** and limits from
+    PLEXOS .accdb.
+
+    Returns ``{line_name → {energy_mwh, max_flow, min_flow, active}}``:
+
+      * ``energy_mwh`` = Σ |MW_block| × duration_block_h over all 111
+        blocks.  Uses absolute value so positive- and negative-direction
+        flows DON'T cancel — a line carrying ±500 MW alternating shows
+        as ~84 GWh transferred over a 168-h week, not ~0.
+      * ``max_flow`` / ``min_flow`` = time-weighted average of
+        prop 709 / 710 (PLEXOS MW limits).
+      * ``active`` = 1.0 if the line has any flow data on prop 708
+        (energy > 0 OR limit set), 0.0 if PLEXOS didn't even
+        ship a Flow series for the line — the closest signal we have
+        for "in service this period" from the solution database.
+
+    Uses PLEXOS Line collection (collection_id=303) properties:
+       1462 Flow          (MW per line per period)
+       1465 Export Limit  (MW positive-direction cap)
+       1466 Import Limit  (MW negative-direction cap)
+    Note: PLEXOS uses Import/Export Limit (signed by direction)
+    while gtopt uses (tmax_ab, tmax_ba) — we map Export → max_flow
+    and -Import → min_flow to match the gtopt sign convention.
+    Collection 101 is Waterways (hydro), 303 is the transmission
+    Line proper — picking 101 here returns waterway flows by
+    mistake.
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+    total_hours = sum(durations.values())
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+    key_meta: dict[int, tuple[int, int]] = {}  # key_id -> (oid, pid)
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid in (1462, 1465, 1466) and mid in mem_child:
+            key_meta[kid] = (mem_child[mid], pid)
+
+    by_line: dict[str, dict[str, list[tuple[int, float]]]] = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )
+    pid_field = {1462: "flow", 1465: "max_flow", 1466: "min_flow"}
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        meta = key_meta.get(kid)
+        if meta is None:
+            continue
+        oid, pid = meta
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        by_line[name][pid_field[pid]].append((pid_period, val))
+
+    out: dict[str, dict[str, float]] = {}
+    for name, fields in by_line.items():
+        entry: dict[str, float] = {
+            "energy_mwh": 0.0,
+            "max_flow": 0.0,
+            "min_flow": 0.0,
+            "active": 0.0,
+        }
+        for fname, rows in fields.items():
+            if fname == "flow":
+                # Total absolute energy transferred (non-cancelling).
+                entry["energy_mwh"] = sum(abs(v) * durations.get(p, 0) for p, v in rows)
+                entry["active"] = 1.0 if rows else 0.0
+            elif fname == "min_flow":
+                # PLEXOS Import Limit is published as a positive MW
+                # value (max amount in the negative direction); flip
+                # sign so it matches gtopt's signed convention
+                # min_flow = -fmax_ba.
+                weighted = sum(v * durations.get(p, 0) for p, v in rows)
+                if total_hours > 0:
+                    entry[fname] = -weighted / total_hours
+            else:
+                # max_flow: time-weighted average in MW.
+                weighted = sum(v * durations.get(p, 0) for p, v in rows)
+                if total_hours > 0:
+                    entry[fname] = weighted / total_hours
+        out[name] = entry
+    return out
+
+
+def compute_gtopt_per_line(
+    case_dir: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-line total absolute energy + capacity + active-flag from
+    gtopt parquet + bundle.
+
+    Returns ``{line_name → {energy_mwh, max_flow, min_flow, active}}``:
+      * ``energy_mwh`` = Σ |MW_block| × duration_block_h (non-cancelling
+        across positive/negative flow directions).
+      * ``max_flow`` =  fmax  (bundle JSON, time-mean of tmax_ab list /
+                         scalar; positive direction)
+      * ``min_flow`` = -fmax_ba (negative-direction limit, sign-flipped
+                         to match PLEXOS Min Flow convention).
+      * ``active`` = bundle's ``active`` field if present, else 1.0
+        (lines with active=0/False are not in service this period).
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid: dict[int, str] = {}
+    limits: dict[str, dict[str, float]] = {}
+
+    def _scalar_or_first(v: object) -> float:
+        """tmax fields can be scalar, list, or nested list-of-list
+        (per-block profile).  Return a representative scalar."""
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, list):
+            # Flatten if nested
+            flat: list[float] = []
+            stack = [v]
+            while stack:
+                cur = stack.pop()
+                for x in cur:
+                    if isinstance(x, list):
+                        stack.append(x)
+                    else:
+                        flat.append(float(x))
+            return sum(flat) / len(flat) if flat else 0.0
+        return 0.0
+
+    active_by_name: dict[str, float] = {}
+    for ll in bundle["system"]["line_array"]:
+        name_by_uid[int(ll["uid"])] = ll["name"]
+        fmax_ab = _scalar_or_first(ll.get("tmax_ab", 0.0))
+        fmax_ba = _scalar_or_first(ll.get("tmax_ba", fmax_ab))
+        limits[ll["name"]] = {
+            "max_flow": fmax_ab,
+            "min_flow": -fmax_ba,
+        }
+        # gtopt's ``active`` is either an int 0/1 or omitted (defaults
+        # to 1 = in service).  Coerce both to a 0.0/1.0 float so the
+        # comparison renderer can subtract uniformly.
+        raw_active = ll.get("active", 1)
+        if isinstance(raw_active, list) and raw_active:
+            raw_active = raw_active[0]
+        try:
+            active_by_name[ll["name"]] = 1.0 if float(raw_active) != 0.0 else 0.0
+        except (TypeError, ValueError):
+            active_by_name[ll["name"]] = 1.0
+
+    flow_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
+    energy_mwh: dict[str, float] = {}
+    if flow_path.exists():
+        df = pq.read_table(flow_path).to_pandas()
+        df["duration"] = df["block"].astype(int).map(durations)
+        df["name"] = df["uid"].astype(int).map(name_by_uid)
+        for name, sub in df.groupby("name", observed=True):
+            # Σ |MW| × duration — total energy transferred (sign-blind)
+            energy_mwh[str(name)] = float((sub["value"].abs() * sub["duration"]).sum())
+
+    out: dict[str, dict[str, float]] = {}
+    for name, lim in limits.items():
+        out[name] = {
+            "energy_mwh": energy_mwh.get(name, 0.0),
+            "max_flow": lim["max_flow"],
+            "min_flow": lim["min_flow"],
+            "active": active_by_name.get(name, 1.0),
+        }
+    return out
+
+
+def _render_line_compare(
+    plexos_line: dict[str, dict[str, float]],
+    gtopt_line: dict[str, dict[str, float]],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 6 — per-line energy + limit + active comparison.
+
+    Three sub-tables:
+      1. Top N lines by |Δ total energy transferred (MWh)| over the
+         168 h horizon.  Uses Σ |MW|·dt so positive- and
+         negative-direction flows do NOT cancel — gives a true
+         "how much did this corridor work" measure.
+      2. Top N lines where max_flow limits differ — indicates a
+         bundle capacity mismatch.
+      3. Lines whose active-status differs: PLEXOS solved with the
+         line in service but gtopt's bundle has ``active=0`` (or
+         vice versa).  Empty when both agree on every line.
+    """
+    common = set(plexos_line) & set(gtopt_line)
+    plexos_only = set(plexos_line) - common
+    gtopt_only = set(gtopt_line) - common
+
+    energy_rows = []
+    limit_rows = []
+    active_mismatch = []
+    for n in common:
+        p = plexos_line[n]
+        g = gtopt_line[n]
+        p_e = p.get("energy_mwh", 0.0)
+        g_e = g.get("energy_mwh", 0.0)
+        p_max = p.get("max_flow", 0.0)
+        g_max = g.get("max_flow", 0.0)
+        p_act = p.get("active", 1.0)
+        g_act = g.get("active", 1.0)
+        energy_rows.append((n, p_e, g_e, g_e - p_e, p_max, g_max))
+        limit_rows.append((n, p_max, g_max, g_max - p_max))
+        if p_act != g_act:
+            active_mismatch.append((n, p_act, g_act))
+
+    energy_rows.sort(key=lambda r: abs(r[3]), reverse=True)
+    limit_rows.sort(key=lambda r: abs(r[3]), reverse=True)
+
+    # (1) Energy-transferred differences
+    t1 = Table(
+        title=(
+            f"Per-line ENERGY comparison (Step 6) — top {top_n} by "
+            f"|Δ Σ|MW|·dt|  (common: {len(common)}, "
+            f"PLEXOS-only: {len(plexos_only)}, gtopt-only: {len(gtopt_only)})"
+        ),
+    )
+    t1.add_column("Line", style="bold")
+    t1.add_column("PLEXOS MWh", justify="right")
+    t1.add_column("gtopt MWh", justify="right")
+    t1.add_column("Δ MWh", justify="right")
+    t1.add_column("Δ %", justify="right")
+    t1.add_column("PLEXOS max", justify="right")
+    t1.add_column("gtopt max", justify="right")
+    for n, p_e, g_e, d_e, p_m, g_m in energy_rows[:top_n]:
+        pct = (100.0 * d_e / p_e) if p_e else 0.0
+        t1.add_row(
+            n,
+            f"{p_e:>11,.0f}",
+            f"{g_e:>11,.0f}",
+            f"{d_e:>+10,.0f}",
+            f"{pct:>+6.1f}%",
+            f"{p_m:>9.1f}",
+            f"{g_m:>9.1f}",
+        )
+    console.print(t1)
+
+    # (2) Limit differences
+    t2 = Table(
+        title=(f"Per-line LIMIT comparison (Step 6b) — top {top_n} by |Δ max_flow|"),
+    )
+    t2.add_column("Line", style="bold")
+    t2.add_column("PLEXOS Max", justify="right")
+    t2.add_column("gtopt Max", justify="right")
+    t2.add_column("Δ Max", justify="right")
+    t2.add_column("Δ %", justify="right")
+    nonzero = [r for r in limit_rows if abs(r[3]) > 1e-6][:top_n]
+    if not nonzero:
+        t2.add_row("(all limits match within 1e-6)", "", "", "", "")
+    else:
+        for n, p_m, g_m, d_m in nonzero:
+            pct = (100.0 * d_m / p_m) if p_m else 0.0
+            t2.add_row(
+                n,
+                f"{p_m:>9.1f}",
+                f"{g_m:>9.1f}",
+                f"{d_m:>+8.1f}",
+                f"{pct:>+6.1f}%",
+            )
+    console.print(t2)
+
+    # (3) Active-status mismatch
+    t3 = Table(
+        title=(
+            f"Per-line ACTIVE status — {len(active_mismatch)} mismatch(es) "
+            f"of {len(common)} common lines"
+        ),
+    )
+    t3.add_column("Line", style="bold")
+    t3.add_column("PLEXOS active", justify="right")
+    t3.add_column("gtopt active", justify="right")
+    if not active_mismatch:
+        t3.add_row("(all lines agree on in-service status)", "", "")
+    else:
+        for n, p_a, g_a in active_mismatch[:top_n]:
+            t3.add_row(n, f"{p_a:>3.0f}", f"{g_a:>3.0f}")
+    console.print(t3)
+
+    if energy_rows:
+        deltas = [r[3] for r in energy_rows]
+        import statistics
+
+        console.print(
+            f"[dim]Energy stats over {len(energy_rows)} common lines: "
+            f"mean Δ = {statistics.mean(deltas):+.0f} MWh, "
+            f"median Δ = {statistics.median(deltas):+.0f} MWh, "
+            f"mean |Δ| = {statistics.mean(abs(d) for d in deltas):.0f}, "
+            f"P90 |Δ| = "
+            f"{sorted(abs(d) for d in deltas)[int(0.9 * len(deltas))]:.0f}.  "
+            f"Energy = Σ|MW|·dt over 168 h (non-cancelling).[/dim]"
+        )
+
+
 def _render_solution_compare(
     plexos_tot: dict[str, float],
     gtopt_tot: dict[str, float],
@@ -1253,6 +1590,9 @@ def main(argv: list[str] | None = None) -> int:
                 # Step 5 — per-bus LMP
                 plexos_bus = compute_plexos_per_bus_lmp(accdb_path)
                 gtopt_bus = compute_gtopt_per_bus_lmp(args.gtopt_case)
+                # Step 6 — per-line energy + limits + active
+                plexos_line = compute_plexos_per_line(accdb_path)
+                gtopt_line = compute_gtopt_per_line(args.gtopt_case)
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:
@@ -1267,8 +1607,11 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_bus and gtopt_bus:
                 console.print()
                 _render_lmp_compare(plexos_bus, gtopt_bus, console)
+            if plexos_line and gtopt_line:
+                console.print()
+                _render_line_compare(plexos_line, gtopt_line, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
-            console.print(f"[yellow]Step 3/4/5 skipped: {exc}[/yellow]")
+            console.print(f"[yellow]Step 3/4/5/6 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
