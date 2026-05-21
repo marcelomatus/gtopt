@@ -22,13 +22,16 @@ _gtopt()
 
     case "$prev" in
         --solver)
-            COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
+            COMPREPLY=( $(compgen -W "cplex gurobi highs mindopt cbc clp" -- "$cur") )
             return ;;
         --check-solvers)
-            COMPREPLY=( $(compgen -W "clp cbc cplex highs" -- "$cur") )
+            COMPREPLY=( $(compgen -W "cplex gurobi highs mindopt cbc clp" -- "$cur") )
             return ;;
-        --low-memory)
-            COMPREPLY=( $(compgen -W "off snapshot compress" -- "$cur") )
+        --memory-saving|--low-memory)
+            COMPREPLY=( $(compgen -W "off compress rebuild" -- "$cur") )
+            return ;;
+        --naming-dialect|--list-dialects)
+            COMPREPLY=( $(compgen -W "gtopt plp sddp plexos pypsa pandapower" -- "$cur") )
             return ;;
         --output-format|-f|--input-format|-F)
             COMPREPLY=( $(compgen -W "parquet csv" -- "$cur") )
@@ -37,10 +40,16 @@ _gtopt()
             COMPREPLY=( $(compgen -W "zstd gzip lz4 snappy uncompressed none brotli bzip2 xz lzo auto" -- "$cur") )
             return ;;
         --sddp-elastic-mode)
-            COMPREPLY=( $(compgen -W "none forward backward both" -- "$cur") )
+            COMPREPLY=( $(compgen -W "chinneck iis single_cut cut multi_cut" -- "$cur") )
             return ;;
         --algorithm|-a)
             COMPREPLY=( $(compgen -W "default primal dual barrier" -- "$cur") )
+            return ;;
+        --aperture-chunk-size)
+            COMPREPLY=( $(compgen -W "auto 0 1 2 4 8 16 -1" -- "$cur") )
+            return ;;
+        --write-out)
+            COMPREPLY=( $(compgen -W "all none solution sol dual reduced_cost rcost rc" -- "$cur") )
             return ;;
         --system-file|-s|--lp-file|-l|--json-file|-j|--trace-log|-T|\
         --cut-directory|--log-directory)
@@ -52,7 +61,8 @@ _gtopt()
         --sddp-num-apertures|--matrix-eps|-e|--threads|-t|\
         --sddp-max-iterations|--sddp-min-iterations|\
         --sddp-convergence-tol|--sddp-elastic-penalty|--lp-coeff-ratio|\
-        --memory-limit|--cpu-factor)
+        --memory-limit|--memory-quota|--cpu-factor|--cpu-quota|\
+        --mip-gap|--time-limit)
             return ;;
         --build-mode)
             COMPREPLY=( $(compgen -W "serial scene-parallel full-parallel direct-parallel" -- "$cur") )
@@ -70,15 +80,18 @@ _gtopt()
             --lp-file -l --matrix-eps -e
             --lp-only -c --lp-debug --lp-compression --lp-coeff-ratio
             --json-file -j
-            --stats -S --trace-log -T
-            --algorithm -a --threads -t
+            --stats -S --trace-log -T --async-logger --no-async-logger
+            --algorithm -a --threads -t --time-limit
             --use-single-bus -b --use-kirchhoff -k
-            --sddp-num-apertures --sddp-max-iterations --sddp-min-iterations
+            --no-scale --no-mip --no-presolve --no-crossover --mip-gap
+            --naming-dialect --list-dialects
+            --sddp-num-apertures --aperture-chunk-size --recover
+            --sddp-max-iterations --sddp-min-iterations
             --sddp-convergence-tol --sddp-elastic-penalty
             --sddp-elastic-mode
-            --cut-directory --log-directory
-            --low-memory --memory-limit --cpu-factor --build-mode
-            --recover"
+            --cut-directory --log-directory --write-out
+            --memory-saving --memory-limit --memory-quota
+            --cpu-factor --cpu-quota --build-mode"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
     else
         _filedir
