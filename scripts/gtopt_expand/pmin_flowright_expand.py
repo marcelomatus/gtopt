@@ -278,51 +278,86 @@ def _scale_pmin(
 _DRAIN_UID_OFFSET: int = 100_000
 
 
-def _ensure_spillway(
+def _ensure_bypass_target_junction(
     system: dict[str, Any],
     junction: str,
-    name: str,
     uid: int,
-) -> None:
-    waterways: list[dict[str, Any]] = system.setdefault("waterway_array", [])
+) -> str:
+    """Ensure a ``<junction>_spill`` drain junction exists; return its name.
+
+    The bypass column on a FlowRight contributes +1 to this junction's
+    balance row.  Without ``drain = True`` the balance constraint would
+    force the bypass column to 0 (pure consumer back-pressure), so the
+    drain flag is what lets the bypass actually absorb excess water.
+    Idempotent: re-uses the existing junction when already present.
+    """
     ocean_name = f"{junction}_spill"
-    sid = _DRAIN_UID_OFFSET + uid
     junctions = system.setdefault("junction_array", [])
-    if not any(j.get("name") == ocean_name for j in junctions if isinstance(j, dict)):
-        junctions.append({"uid": sid + 1, "name": ocean_name})
-    waterways.append(
-        {
-            "uid": sid,
-            "name": f"{name}_spill_{sid}",
-            "junction_a": junction,
-            "junction_b": ocean_name,
-            "fmin": 0.0,
-        }
+    for j in junctions:
+        if isinstance(j, dict) and j.get("name") == ocean_name:
+            # Heal latent state: older runs created this junction without
+            # `drain = True` so any inflow was force-zeroed by the
+            # balance constraint.  Set it now so the bypass column on
+            # the FlowRight can actually absorb water.
+            if not j.get("drain"):
+                j["drain"] = True
+            return ocean_name
+    junctions.append(
+        {"uid": _DRAIN_UID_OFFSET + uid + 1, "name": ocean_name, "drain": True}
     )
+    return ocean_name
 
 
-def ensure_drain_for_flowrights(system: dict[str, Any]) -> int:
-    """Create spillway at every soft FlowRight junction lacking an outlet."""
+def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
+    """Wire each soft FlowRight to an inline bypass drain.
+
+    Walks ``flow_right_array`` and, for every soft FlowRight (one with
+    a ``fcost`` slack), sets ``bypass_junction`` / ``bypass_cost = 0``
+    pointing at a per-junction ``<junction>_spill`` drain (created on
+    demand, marked ``drain = True``).  The LP layer
+    (``flow_right_lp.cpp``) then adds an inline bypass column priced
+    at 0 (free pass-through) that contributes -1 to the FlowRight's
+    own junction balance and +1 to the drain junction's — preserving
+    mass conservation without inserting a parallel synthetic waterway
+    into ``waterway_array``.
+
+    Returns the number of FlowRights that gained an inline bypass.
+    Idempotent on FlowRights that already declare ``bypass_junction``.
+    """
     flow_rights = system.get("flow_right_array", [])
     if not flow_rights:
         return 0
-    created = 0
+    wired = 0
     for fr in flow_rights:
+        if not isinstance(fr, dict):
+            continue
         # Post-2026-05 the soft-FlowRight key is `fcost`; accept the
         # legacy `fail_cost` for read-only checks against fixtures
         # written by older versions of plp2gtopt.
         if "fcost" not in fr and "fail_cost" not in fr:
             continue
+        if fr.get("bypass_junction"):
+            continue  # user / writer already set an explicit target
         j = fr.get("junction")
         if not isinstance(j, str) or not j:
             continue
-        before = len(system.get("waterway_array", []))
-        _ensure_spillway(
-            system, str(j), str(fr.get("name", "fr")), int(fr.get("uid", 0))
+        ocean_name = _ensure_bypass_target_junction(
+            system, str(j), int(fr.get("uid", 0))
         )
-        if len(system.get("waterway_array", [])) > before:
-            created += 1
-    return created
+        fr["bypass_junction"] = ocean_name
+        # Free pass-through: the LP only routes flow through the bypass
+        # when the FlowRight's consumptive cap would otherwise be
+        # exceeded.  Set a non-zero ``bypass_cost`` to prefer
+        # consumption (the FlowRight's ``flow_col``) over the spill.
+        fr["bypass_cost"] = 0.0
+        wired += 1
+    return wired
+
+
+# Backwards-compat alias for any external caller (none in-tree as of
+# 2026-05) — the old name described the underlying mechanism that no
+# longer creates a parallel waterway.
+ensure_drain_for_flowrights = ensure_bypass_for_flowrights
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +514,13 @@ def expand_pmin_flowright(
         # ``g >= pmin`` on every block.
         generator["pmin"] = 0.0
 
+        # Inline bypass: wire the FlowRight to a per-junction drain so
+        # the LP has a pressure-release path when the consumption cap
+        # binds.  Replaces the pre-35d3bdb8a synthetic parallel
+        # ``_spill`` waterway with the inline mechanism added to
+        # ``flow_right_lp.cpp``.
+        bypass_junction = _ensure_bypass_target_junction(system, junction_b, uid)
+
         flow_right: dict[str, Any] = {
             "uid": uid,
             "name": f"{central_name}{_FLOW_RIGHT_SUFFIX}",
@@ -486,15 +528,10 @@ def expand_pmin_flowright(
             "junction": junction_b,
             "direction": _FLOW_RIGHT_DIRECTION,
             "discharge": discharge,
+            "bypass_junction": bypass_junction,
+            "bypass_cost": 0.0,
         }
         flow_rights.append(flow_right)
-
-        _ensure_spillway(
-            system,
-            junction_b,
-            f"{central_name}{_FLOW_RIGHT_SUFFIX}",
-            uid,
-        )
 
         uid += 1
         converted += 1
