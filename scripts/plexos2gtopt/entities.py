@@ -158,6 +158,22 @@ class LineSpec:
     # scalar above only if the profile is invariant.
     tmax_ab_profile: tuple[float, ...] = ()
     tmin_ab_profile: tuple[float, ...] = ()
+    # PLEXOS exposes TWO rating tiers per line:
+    #   * Max Flow (pid 1880) — steady-state / continuous rating;
+    #     this is what ``Lin_MaxRating.csv`` actually ships
+    #     (despite the misleading filename) and what fills
+    #     ``tmax_ab`` above.
+    #   * Max Rating (pid 1882) — short-term / emergency rating
+    #     used by PLEXOS for scheduling-time exceedances.  Lives
+    #     only in the input XML t_data (no CSV mirror).  Typically
+    #     1.5-2× Max Flow on the CEN PCP bundle (e.g. Capricornio110
+    #     ->LaNegra110: Max Flow=76 MW, Max Rating=137 MW).
+    # The writer feeds these two into gtopt's soft/hard limit pair:
+    #   * tmax_ab          ← Max Rating   (emergency hard cap)
+    #   * tmax_normal_ab   ← Max Flow     (steady-state soft cap)
+    #   * overload_penalty ← default ($/MWh, applied between the two)
+    max_rating: float = 0.0
+    min_rating: float = 0.0
     # PLEXOS Enforce Limits (0=Never, 1=Voltage, 2=Always) controls
     # whether the LP applies thermal limits.  Per the Energy Exemplar
     # docs (Line.EnforceLimits): "0=Never → line thermal limits are

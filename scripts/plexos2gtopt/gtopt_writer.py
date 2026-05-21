@@ -326,26 +326,22 @@ def build_line_array(
             "bus_b": line.bus_to,
         }
         # PLEXOS Enforce Limits:
-        #   0 = Never enforce thermal limit (drop cap, gtopt → +inf)
-        #   1 = Voltage-conditional (enforce ONLY when voltage is
-        #       binding; in the CEN PCP daily PRGdia run voltage
-        #       constraints are pre-resolved via the network model,
-        #       so EL=1 lines are NOT enforced in the actual solve.
-        #       Empirical evidence: Capricornio110->LaNegra110 has
-        #       EL=1 with Export Limit 76 MW, yet PLEXOS solves with
-        #       flow ≈ 175 MW (period 1) — the limit isn't enforced.
-        #       Treating EL=1 as a hard cap was bottlenecking the
-        #       LaNegra/AltoNorte110 corridor and causing 10 GWh of
-        #       phantom demand failure that PLEXOS doesn't see.)
-        #   2 = Always enforce (emit hard cap)
-        # gtopt has no voltage-threshold construct, so we collapse to:
-        #   EL ∈ {0, 1} → drop cap (let LP run with no enforcement)
-        #   EL == 2    → emit hard tmax_ab / tmax_ba
+        #   0 = Never enforce  → drop cap (gtopt → +∞)
+        #   1 = Voltage-conditional → empirically NOT enforced in
+        #       the PRGdia daily solve.  Capricornio110->LaNegra110
+        #       (EL=1) ships Export Limit 76 MW yet PLEXOS Flow goes
+        #       up to 204.67 MW with Hours Congested = 0 — PLEXOS
+        #       doesn't consider the cap binding under EL=1.  Match
+        #       that by dropping the cap entirely (let gtopt run
+        #       unbounded on EL=1 lines).
+        #   2 = Always enforce → hard cap.
+        # Max Rating (pid 1882) considered as a soft/hard pair, but
+        # data-quality check flagged sentinel values (e.g.
+        # Antofag110->Desalant110 at 110 kV claims Max Rating
+        # 1000 MW = 17.5× Max Flow — physically implausible).  Until
+        # a sentinel-filter lands, keep Max Flow as the single hard
+        # cap on EL=2 lines and ignore the Max Rating uplift.
         if line.enforce_limits >= 2:
-            # Determine if we have a non-constant DLR profile.  When
-            # ``min(profile) != max(profile)`` the rating varies
-            # across the horizon — emit a per-block matrix.  When
-            # constant, fall back to the scalar.
             ab_profile = line.tmax_ab_profile
             ba_profile = line.tmin_ab_profile
 
@@ -360,8 +356,6 @@ def build_line_array(
                 entry["tmax_ab"] = line.tmax_ab * units
 
             if ba_profile and min(ba_profile) != max(ba_profile):
-                # Reverse-direction profile: PLEXOS Min Flow is negative,
-                # gtopt tmax_ba is positive — take abs() before scaling.
                 profile = (
                     _aggregate_to_blocks(ba_profile, block_layout, reducer="mean")
                     if block_layout
@@ -421,7 +415,7 @@ def build_line_array(
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
                 entry["line_losses_mode"] = "piecewise"
-                entry["loss_segments"] = 3
+                entry["loss_segments"] = 2
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
