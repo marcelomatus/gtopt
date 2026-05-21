@@ -1166,6 +1166,645 @@ def _render_line_compare(
         )
 
 
+def _render_unit_generation_compare(
+    plexos_unit: dict[str, tuple[float, float]],
+    gtopt_unit: dict[str, tuple[float, float]],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 4b — per-generator total generation MWh, sorted by
+    |Δ MWh|.  Companion to Step 4 (which sorts by Δ SRMC).
+    """
+    all_names = set(plexos_unit) | set(gtopt_unit)
+    rows = []
+    for n in all_names:
+        p_mwh, _ = plexos_unit.get(n, (0.0, 0.0))
+        g_mwh, _ = gtopt_unit.get(n, (0.0, 0.0))
+        rows.append((n, p_mwh, g_mwh, g_mwh - p_mwh))
+    rows.sort(key=lambda r: abs(r[3]), reverse=True)
+
+    t = Table(
+        title=(f"Per-generator DISPATCH comparison (Step 4b) — top {top_n} by |Δ MWh|"),
+    )
+    t.add_column("Unit", style="bold")
+    t.add_column("PLEXOS MWh", justify="right")
+    t.add_column("gtopt MWh", justify="right")
+    t.add_column("Δ MWh", justify="right")
+    t.add_column("Δ %", justify="right")
+    for name, p, g, d in rows[:top_n]:
+        pct = (100.0 * d / p) if p else 0.0
+        t.add_row(
+            name,
+            f"{p:>11,.0f}",
+            f"{g:>11,.0f}",
+            f"{d:>+11,.0f}",
+            f"{pct:>+6.1f}%",
+        )
+    console.print(t)
+    import statistics
+
+    deltas = [r[3] for r in rows]
+    if deltas:
+        console.print(
+            f"[dim]Dispatch stats over {len(rows)} generators: "
+            f"mean |Δ| = {statistics.mean(abs(d) for d in deltas):,.0f} MWh, "
+            f"P90 |Δ| = "
+            f"{sorted(abs(d) for d in deltas)[int(0.9 * len(deltas))]:,.0f} "
+            f"MWh, total |Δ| = "
+            f"{sum(abs(d) for d in deltas):,.0f} MWh.[/dim]"
+        )
+
+
+# ------------------------------------------------------------------
+# Step 7 — Generation by technology + Step 8 reservoir trajectories
+# + Step 9 battery operation
+# ------------------------------------------------------------------
+
+
+def _plexos_name_to_category(accdb_path: Path) -> dict[str, str]:
+    """Return ``{generator_name → PLEXOS category name}``.
+
+    PLEXOS t_object.category_id → t_category.name.  Categories on the
+    CEN PCP daily bundle include "Solar Farms", "Wind Farms",
+    "Hydro Gen Group A/B/C", "Thermal Gen N. Zone", "Thermal Gen
+    S. Zone", "Termicas Ficticias".  Used to classify gtopt
+    generators by joining on name (gtopt's bundle doesn't preserve
+    category).
+    """
+    import csv
+    import io
+    import subprocess
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    cats = _dump("t_category")
+    objs = _dump("t_object")
+    cat_by_id = {int(c["category_id"]): c.get("name", "?") for c in cats}
+    out: dict[str, str] = {}
+    for o in objs:
+        if o.get("class_id") != "2":  # Generator
+            continue
+        try:
+            cid = int(o.get("category_id") or 0)
+        except ValueError:
+            continue
+        out[o["name"]] = cat_by_id.get(cid, "Uncategorized")
+    return out
+
+
+def _classify_tech(category: str) -> str:
+    """Bucket a PLEXOS-style category into a coarse technology label.
+
+    Returns one of: ``thermal``, ``hydro``, ``solar``, ``wind``,
+    ``other``.
+    """
+    if not category:
+        return "other"
+    c = category.lower()
+    if "solar" in c or "fv" in c or "csp" in c:
+        return "solar"
+    if "wind" in c or "eolic" in c or "eolico" in c:
+        return "wind"
+    if "hydro" in c or "hidro" in c:
+        return "hydro"
+    if "thermal" in c or "termic" in c:
+        return "thermal"
+    return "other"
+
+
+def compute_plexos_generation_by_technology(
+    accdb_path: Path,
+) -> dict[str, float]:
+    """PLEXOS total generation MWh per technology bucket.
+
+    Uses prop 2 (Generator class Generation) summed per-unit ×
+    block duration, then bucketed by PLEXOS category name.
+    """
+    per_unit = compute_plexos_per_unit_srmc(accdb_path)
+    cat_by_name = _plexos_name_to_category(accdb_path)
+    out: dict[str, float] = {}
+    for name, (mwh, _srmc) in per_unit.items():
+        tech = _classify_tech(cat_by_name.get(name, ""))
+        out[tech] = out.get(tech, 0.0) + mwh
+    return out
+
+
+def compute_gtopt_generation_by_technology(
+    case_dir: Path,
+    *,
+    accdb_path: Path | None = None,
+) -> dict[str, float]:
+    """gtopt total generation MWh per technology bucket.
+
+    Reads ``Generator/generation_sol.parquet`` directly (NOT joined
+    with SRMC — hydro / renewable units with ``gcost=0`` don't ship
+    a per-block SRMC and would be silently dropped by an inner-join).
+
+    Classifies each dispatched unit via PLEXOS category (preferred,
+    when an .accdb is supplied) or a name-pattern heuristic
+    (BAT_* / _FV / _EO / _U[N] suffix) fallback.
+    """
+    import json
+    import re
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid = {
+        int(g["uid"]): g["name"] for g in bundle["system"]["generator_array"]
+    }
+
+    gen_path = case_dir / "output" / "Generator" / "generation_sol.parquet"
+    if not gen_path.exists():
+        return {}
+
+    df = pq.read_table(gen_path).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations)
+    df["mwh"] = df["value"] * df["duration"]
+    df["name"] = df["uid"].astype(int).map(name_by_uid)
+
+    cat_by_name: dict[str, str] = {}
+    if accdb_path is not None:
+        cat_by_name = _plexos_name_to_category(accdb_path)
+
+    def _name_to_tech(name: str) -> str:
+        if name in cat_by_name:
+            return _classify_tech(cat_by_name[name])
+        # Heuristic fallback.
+        if name.startswith("BAT_"):
+            return "battery"
+        if "_FV" in name or "_CS" in name:
+            return "solar"
+        if "_EO" in name or "_EOL" in name:
+            return "wind"
+        if re.search(r"_U\d+$", name):
+            return "hydro"
+        return "thermal"
+
+    out: dict[str, float] = {}
+    for name, sub in df.groupby("name", observed=True):
+        tech = _name_to_tech(str(name))
+        out[tech] = out.get(tech, 0.0) + float(sub["mwh"].sum())
+    return out
+
+
+def _render_technology_compare(
+    plexos_tech: dict[str, float],
+    gtopt_tech: dict[str, float],
+    console: Console,
+) -> None:
+    """Step 7 — generation by technology bucket."""
+    techs = sorted(set(plexos_tech) | set(gtopt_tech))
+    table = Table(
+        title="Generation by technology (Step 7) — duration-weighted MWh",
+    )
+    table.add_column("Technology", style="bold")
+    table.add_column("PLEXOS MWh", justify="right")
+    table.add_column("gtopt MWh", justify="right")
+    table.add_column("Δ (g − p)", justify="right")
+    table.add_column("Δ %", justify="right")
+    table.add_column("PLEXOS share", justify="right")
+    table.add_column("gtopt share", justify="right")
+
+    p_total = sum(plexos_tech.values()) or 1.0
+    g_total = sum(gtopt_tech.values()) or 1.0
+    for tech in techs:
+        p = plexos_tech.get(tech, 0.0)
+        g = gtopt_tech.get(tech, 0.0)
+        d = g - p
+        pct = (100.0 * d / p) if p else 0.0
+        table.add_row(
+            tech,
+            f"{p:>13,.0f}",
+            f"{g:>13,.0f}",
+            f"{d:>+13,.0f}",
+            f"{pct:>+6.1f}%",
+            f"{100 * p / p_total:>5.1f}%",
+            f"{100 * g / g_total:>5.1f}%",
+        )
+    table.add_row(
+        "TOTAL",
+        f"{sum(plexos_tech.values()):>13,.0f}",
+        f"{sum(gtopt_tech.values()):>13,.0f}",
+        f"{sum(gtopt_tech.values()) - sum(plexos_tech.values()):>+13,.0f}",
+        f"{100 * (sum(gtopt_tech.values()) - sum(plexos_tech.values())) / sum(plexos_tech.values()):>+6.1f}%"
+        if plexos_tech
+        else "—",
+        "100.0%",
+        "100.0%",
+    )
+    console.print(table)
+
+
+def compute_plexos_reservoir_volumes(
+    accdb_path: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-reservoir Initial/End Volume + average Volume from PLEXOS.
+
+    Returns ``{reservoir_name → {eini, efin, vol_avg}}``.  Uses
+    PLEXOS Storage class props 645 Initial Volume, 646 End Volume,
+    519 Available SoC (proxy for instantaneous volume).
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+    total_hours = sum(durations.values())
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+    # Storage props in PLEXOS:
+    #   645 = Initial Volume
+    #   646 = End Volume
+    # SoC tracking: prop 518 (per-period instantaneous volume)
+    key_meta: dict[int, tuple[int, int]] = {}
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid in (645, 646, 518) and mid in mem_child:
+            key_meta[kid] = (mem_child[mid], pid)
+
+    by_res: dict[str, dict[int, list[tuple[int, float]]]] = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        meta = key_meta.get(kid)
+        if meta is None:
+            continue
+        oid, pid = meta
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        by_res[name][pid].append((pid_period, val))
+
+    out: dict[str, dict[str, float]] = {}
+    for name, props in by_res.items():
+        entry = {"eini": 0.0, "efin": 0.0, "vol_avg": 0.0}
+        # Initial Volume: take period-1 value (constant property)
+        if 645 in props and props[645]:
+            entry["eini"] = props[645][0][1]
+        if 646 in props and props[646]:
+            entry["efin"] = props[646][-1][1]  # last period
+        if 518 in props:
+            weighted = sum(v * durations.get(p, 0) for p, v in props[518])
+            if total_hours > 0:
+                entry["vol_avg"] = weighted / total_hours
+        out[name] = entry
+    return out
+
+
+def compute_gtopt_reservoir_volumes(
+    case_dir: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-reservoir Initial/End Volume + average from gtopt parquets.
+
+    Reads ``Reservoir/eini_sol.parquet`` and ``Reservoir/efin_sol.parquet``;
+    name resolution via bundle JSON's ``reservoir_array``.  ``vol_avg``
+    is the duration-weighted average of efin (end-of-block volume)
+    since gtopt doesn't write a separate "instantaneous" series.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid: dict[int, str] = {
+        int(r["uid"]): r["name"] for r in bundle["system"].get("reservoir_array", [])
+    }
+    total_hours = sum(durations.values()) or 1.0
+
+    def _read(rel: str) -> dict[int, list[tuple[int, float, float]]]:
+        f = case_dir / "output" / "Reservoir" / rel
+        if not f.exists():
+            return {}
+        df = pq.read_table(f).to_pandas()
+        df["duration"] = df["block"].astype(int).map(durations).fillna(0)
+        out: dict[int, list[tuple[int, float, float]]] = {}
+        for uid, sub in df.groupby("uid", observed=True):
+            out[int(uid)] = list(
+                zip(sub["block"], sub["value"], sub["duration"], strict=False)
+            )
+        return out
+
+    eini = _read("eini_sol.parquet")
+    efin = _read("efin_sol.parquet")
+
+    out: dict[str, dict[str, float]] = {}
+    for uid, name in name_by_uid.items():
+        entry = {"eini": 0.0, "efin": 0.0, "vol_avg": 0.0}
+        if uid in eini and eini[uid]:
+            entry["eini"] = float(eini[uid][0][1])
+        if uid in efin and efin[uid]:
+            entry["efin"] = float(efin[uid][-1][1])
+            # Duration-weighted average of efin (end-of-block volume).
+            weighted = sum(v * d for _, v, d in efin[uid])
+            entry["vol_avg"] = weighted / total_hours
+        out[name] = entry
+    return out
+
+
+def _render_reservoir_compare(
+    plexos_res: dict[str, dict[str, float]],
+    gtopt_res: dict[str, dict[str, float]],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 8 — per-reservoir initial/end/average volume comparison."""
+    common = sorted(set(plexos_res) & set(gtopt_res))
+    rows = []
+    for name in common:
+        p = plexos_res[name]
+        g = gtopt_res[name]
+        rows.append(
+            (
+                name,
+                p.get("eini", 0.0),
+                g.get("eini", 0.0),
+                p.get("efin", 0.0),
+                g.get("efin", 0.0),
+                abs(g.get("efin", 0.0) - p.get("efin", 0.0)),
+            )
+        )
+    rows.sort(key=lambda r: r[5], reverse=True)
+
+    t = Table(
+        title=(
+            f"Reservoir trajectory (Step 8) — top {top_n} by |Δ efin|  "
+            f"(common: {len(common)}, "
+            f"PLEXOS-only: {len(set(plexos_res) - set(gtopt_res))}, "
+            f"gtopt-only: {len(set(gtopt_res) - set(plexos_res))})"
+        ),
+    )
+    t.add_column("Reservoir", style="bold")
+    t.add_column("PLEXOS eini", justify="right")
+    t.add_column("gtopt eini", justify="right")
+    t.add_column("PLEXOS efin", justify="right")
+    t.add_column("gtopt efin", justify="right")
+    t.add_column("Δ efin", justify="right")
+    for name, p_i, g_i, p_f, g_f, _ in rows[:top_n]:
+        t.add_row(
+            name,
+            f"{p_i:>10,.1f}",
+            f"{g_i:>10,.1f}",
+            f"{p_f:>10,.1f}",
+            f"{g_f:>10,.1f}",
+            f"{g_f - p_f:>+10,.1f}",
+        )
+    console.print(t)
+    console.print(
+        "[dim]Volumes in PLEXOS native units (typically GWh for "
+        "storages, m³ for waterways).  PLEXOS eini = prop 645 "
+        "Initial Volume, efin = prop 646 End Volume.  gtopt: "
+        "Reservoir/eini_sol[first block] and efin_sol[last block].[/dim]"
+    )
+
+
+def compute_plexos_battery_operation(
+    accdb_path: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-battery total charge / discharge MWh from PLEXOS .accdb.
+
+    Returns ``{battery_name → {charge_mwh, discharge_mwh,
+    net_mwh, eini, efin}}``.  Uses Battery-class properties
+    523 Charging (MW load), 524 Discharging (MW gen), and the
+    Storage props 645 Initial / 646 End Volume.
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+    # Battery props: 523 Charging, 524 Discharging
+    key_meta: dict[int, tuple[int, int]] = {}
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid in (523, 524) and mid in mem_child:
+            key_meta[kid] = (mem_child[mid], pid)
+
+    by_bat: dict[str, dict[int, list[tuple[int, float]]]] = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        meta = key_meta.get(kid)
+        if meta is None:
+            continue
+        oid, pid = meta
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        by_bat[name][pid].append((pid_period, val))
+
+    out: dict[str, dict[str, float]] = {}
+    for name, props in by_bat.items():
+        charge = sum(v * durations.get(p, 0) for p, v in props.get(523, []))
+        discharge = sum(v * durations.get(p, 0) for p, v in props.get(524, []))
+        out[name] = {
+            "charge_mwh": charge,
+            "discharge_mwh": discharge,
+            "net_mwh": discharge - charge,
+        }
+    return out
+
+
+def compute_gtopt_battery_operation(
+    case_dir: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-battery total charge / discharge MWh from gtopt parquets.
+
+    Reads ``Battery/finp_sol.parquet`` (charging MW) and
+    ``Battery/fout_sol.parquet`` (discharging MW), duration-weighted.
+    Returns ``{name → {charge_mwh, discharge_mwh, net_mwh}}``.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid: dict[int, str] = {
+        int(b["uid"]): b["name"] for b in bundle["system"].get("battery_array", [])
+    }
+
+    def _sum_mwh(rel: str) -> dict[str, float]:
+        f = case_dir / "output" / "Battery" / rel
+        if not f.exists():
+            return {}
+        df = pq.read_table(f).to_pandas()
+        df["duration"] = df["block"].astype(int).map(durations).fillna(0)
+        df["name"] = df["uid"].astype(int).map(name_by_uid)
+        out: dict[str, float] = {}
+        for name, sub in df.groupby("name", observed=True):
+            out[str(name)] = float((sub["value"] * sub["duration"]).sum())
+        return out
+
+    charge = _sum_mwh("finp_sol.parquet")
+    discharge = _sum_mwh("fout_sol.parquet")
+
+    out: dict[str, dict[str, float]] = {}
+    for name in set(charge) | set(discharge):
+        c = charge.get(name, 0.0)
+        d = discharge.get(name, 0.0)
+        out[name] = {
+            "charge_mwh": c,
+            "discharge_mwh": d,
+            "net_mwh": d - c,
+        }
+    return out
+
+
+def _render_battery_compare(
+    plexos_bat: dict[str, dict[str, float]],
+    gtopt_bat: dict[str, dict[str, float]],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 9 — per-battery charge / discharge MWh comparison."""
+    common = sorted(set(plexos_bat) & set(gtopt_bat))
+    rows = []
+    for name in common:
+        p = plexos_bat[name]
+        g = gtopt_bat[name]
+        rows.append(
+            (
+                name,
+                p.get("charge_mwh", 0.0),
+                g.get("charge_mwh", 0.0),
+                p.get("discharge_mwh", 0.0),
+                g.get("discharge_mwh", 0.0),
+            )
+        )
+    # Sort by total absolute throughput diff
+    rows.sort(
+        key=lambda r: abs((r[2] - r[1]) + (r[4] - r[3])),
+        reverse=True,
+    )
+
+    t = Table(
+        title=(
+            f"Battery operation (Step 9) — top {top_n} by |Δ throughput|  "
+            f"(common: {len(common)}, "
+            f"PLEXOS-only: {len(set(plexos_bat) - set(gtopt_bat))}, "
+            f"gtopt-only: {len(set(gtopt_bat) - set(plexos_bat))})"
+        ),
+    )
+    t.add_column("Battery", style="bold")
+    t.add_column("PLEXOS charge", justify="right")
+    t.add_column("gtopt charge", justify="right")
+    t.add_column("PLEXOS disch", justify="right")
+    t.add_column("gtopt disch", justify="right")
+    for name, p_c, g_c, p_d, g_d in rows[:top_n]:
+        t.add_row(
+            name,
+            f"{p_c:>10,.0f}",
+            f"{g_c:>10,.0f}",
+            f"{p_d:>10,.0f}",
+            f"{g_d:>10,.0f}",
+        )
+    console.print(t)
+    # System totals
+    p_charge = sum(b.get("charge_mwh", 0.0) for b in plexos_bat.values())
+    g_charge = sum(b.get("charge_mwh", 0.0) for b in gtopt_bat.values())
+    p_disch = sum(b.get("discharge_mwh", 0.0) for b in plexos_bat.values())
+    g_disch = sum(b.get("discharge_mwh", 0.0) for b in gtopt_bat.values())
+    console.print(
+        f"[dim]System totals: PLEXOS charge {p_charge:,.0f} MWh / "
+        f"discharge {p_disch:,.0f} MWh.  gtopt charge {g_charge:,.0f} / "
+        f"discharge {g_disch:,.0f} MWh.[/dim]"
+    )
+
+
 def _render_solution_compare(
     plexos_tot: dict[str, float],
     gtopt_tot: dict[str, float],
@@ -1593,6 +2232,17 @@ def main(argv: list[str] | None = None) -> int:
                 # Step 6 — per-line energy + limits + active
                 plexos_line = compute_plexos_per_line(accdb_path)
                 gtopt_line = compute_gtopt_per_line(args.gtopt_case)
+                # Step 7 — generation by technology
+                plexos_tech = compute_plexos_generation_by_technology(accdb_path)
+                gtopt_tech = compute_gtopt_generation_by_technology(
+                    args.gtopt_case, accdb_path=accdb_path
+                )
+                # Step 8 — reservoir trajectories
+                plexos_res = compute_plexos_reservoir_volumes(accdb_path)
+                gtopt_res = compute_gtopt_reservoir_volumes(args.gtopt_case)
+                # Step 9 — battery operation
+                plexos_bat = compute_plexos_battery_operation(accdb_path)
+                gtopt_bat = compute_gtopt_battery_operation(args.gtopt_case)
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:
@@ -1604,14 +2254,25 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_unit and gtopt_unit:
                 console.print()
                 _render_srmc_compare(plexos_unit, gtopt_unit, console)
+                console.print()
+                _render_unit_generation_compare(plexos_unit, gtopt_unit, console)
             if plexos_bus and gtopt_bus:
                 console.print()
                 _render_lmp_compare(plexos_bus, gtopt_bus, console)
             if plexos_line and gtopt_line:
                 console.print()
                 _render_line_compare(plexos_line, gtopt_line, console)
+            if plexos_tech and gtopt_tech:
+                console.print()
+                _render_technology_compare(plexos_tech, gtopt_tech, console)
+            if plexos_res and gtopt_res:
+                console.print()
+                _render_reservoir_compare(plexos_res, gtopt_res, console)
+            if plexos_bat and gtopt_bat:
+                console.print()
+                _render_battery_compare(plexos_bat, gtopt_bat, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
-            console.print(f"[yellow]Step 3/4/5/6 skipped: {exc}[/yellow]")
+            console.print(f"[yellow]Step 3-9 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
