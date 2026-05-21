@@ -501,6 +501,11 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
         "gen_mwh": _sum_mwh("Generator/generation_sol.parquet"),
         "load_mwh": _sum_mwh("Demand/load_sol.parquet"),
         "fail_mwh": _sum_mwh("Demand/fail_sol.parquet"),
+        # BESS charging (counted on PLEXOS side as Region.Load - Node.Load
+        # contribution, here pulled out as a separate row so the demand
+        # comparison stays apples-to-apples on consumer load).
+        "battery_charge_mwh": _sum_mwh("Battery/finp_sol.parquet"),
+        "battery_discharge_mwh": _sum_mwh("Battery/fout_sol.parquet"),
         "op_cost_usd": op_cost,
         "block_count": len(block_array),
         "hours_covered": sum(durations.values()),
@@ -1983,7 +1988,29 @@ def _render_solution_compare(
         gtopt_tot["hours_covered"],
         "{:>14,.0f}",
     )
-    _row("Demand [MWh]", plexos_tot["load_mwh"], gtopt_tot["load_mwh"])
+    # Consumer demand (Node.Load on PLEXOS side, demand_array on gtopt
+    # side).  See feedback_plexos_demand_scope.md for why this is
+    # Node.Load not Region.Load.
+    _row(
+        "Consumer demand [MWh]",
+        plexos_tot["load_mwh"],
+        gtopt_tot["load_mwh"],
+    )
+    # BESS (Battery Energy Storage System) charging counted separately
+    # — on the PLEXOS side it's bundled into Region.Load; on the gtopt
+    # side it lives in the Battery object's ``finp_sol`` parquet.
+    _row(
+        "BESS charging [MWh]",
+        plexos_tot.get("battery_load_mwh", 0.0),
+        gtopt_tot.get("battery_charge_mwh", 0.0),
+    )
+    # Transmission losses — PLEXOS reports them, gtopt's DC OPF
+    # doesn't model losses so this is always 0 on the gtopt side.
+    _row(
+        "Transmission losses [MWh]",
+        plexos_tot.get("losses_mwh", 0.0),
+        0.0,
+    )
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
     _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
 
