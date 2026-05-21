@@ -246,12 +246,19 @@ def test_writer_reservoir_emits_efin_and_scost() -> None:
     assert "spillway_capacity" not in out[0]
 
 
-def test_writer_reservoir_default_spillway_when_no_penalty() -> None:
-    """Reservoirs without a PLEXOS spill penalty still get a fallback spillway.
+def test_writer_reservoir_no_spillway_when_no_penalty() -> None:
+    """Reservoirs without a PLEXOS spill penalty must NOT get a default
+    internal spillway_cost — spillage is routed via the explicit
+    ``Vert_*`` Waterway → ``<source>_ocean`` drain junction
+    instead.
 
-    Without this, terminal hydro plants (CANUTILLAR, RAPEL, ANGOSTURA)
-    overflow ``emax`` from natural inflow and the LP is presolve-infeasible.
-    The drain column's upper bound defaults to DblMax in gtopt.
+    The previous default ($1000/MWh internal drain on every
+    reservoir) gave the LP two equivalent escape paths and let it
+    arbitrage between them under degeneracy.  When PLEXOS does
+    ship a per-storage ``Spill Penalty``, the extractor populates
+    ``spill_penalty_per_mwh`` and the writer honours it; otherwise
+    the field is omitted and ``storage_lp.cpp`` skips the drain
+    column entirely.
     """
     reservoirs = (
         ReservoirSpec(
@@ -262,7 +269,7 @@ def test_writer_reservoir_default_spillway_when_no_penalty() -> None:
         ),
     )
     out = build_reservoir_array(reservoirs)
-    assert out[0]["spillway_cost"] == 1000.0
+    assert "spillway_cost" not in out[0]
     assert "spillway_capacity" not in out[0]
 
 

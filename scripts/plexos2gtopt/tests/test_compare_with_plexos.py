@@ -273,23 +273,34 @@ def test_block_durations_from_t_phase_3(tmp_path: Path, mock_mdb_export) -> None
 def test_compute_plexos_energy_totals_uses_node_load_not_region(
     tmp_path: Path, mock_mdb_export
 ) -> None:
-    """LOCKED: ``load_mwh`` returns Node.Load (consumer demand), NOT
-    Region.Load (gross).  If anyone switches the primary key back to
-    PLEXOS_PROP_REGION_LOAD, this test breaks.
+    """LOCKED: ``load_mwh`` returns Node.Load − Battery.Load (true
+    consumer demand), NOT Region.Load (gross) or Node.Load alone
+    (gross of battery charging).
+
+    Node.Load (prop 1373) includes the battery's charging draw at
+    the node where the battery sits; gtopt's filtered Demand
+    (consumer-only, by-input-bundle-uid) is consumer-only.
+    Subtracting Battery.Load (prop 521) makes both sides
+    apples-to-apples consumer demand.  The raw values are still
+    published separately as ``load_node_mwh`` and
+    ``battery_load_mwh`` for downstream tools.
     """
     fake_accdb = tmp_path / "fake.accdb"
     fake_accdb.touch()
     tot = compute_plexos_energy_totals(fake_accdb)
 
     # Node.Load = (80 + 70) MW × (2 + 3) h = 150 MW × 5 h = 750 MWh
-    assert tot["load_mwh"] == pytest.approx(750)
+    # Battery.Load = 10 MW × 5 h = 50 MWh
+    # load_mwh (consumer-only) = Node.Load - Battery.Load = 700 MWh
+    assert tot["load_mwh"] == pytest.approx(700)
+    assert tot["load_node_mwh"] == pytest.approx(750)
     # Region.Load = 160 MW × 5 h = 800 MWh — published separately
     assert tot["load_region_mwh"] == pytest.approx(800)
     # The difference IS Battery.Load + Losses (10 MW × 5 h + 0)
     assert tot["battery_load_mwh"] == pytest.approx(50)
     assert tot["losses_mwh"] == pytest.approx(0)
     # And Region.Load - Node.Load == Battery.Load + Losses
-    assert tot["load_region_mwh"] - tot["load_mwh"] == pytest.approx(
+    assert tot["load_region_mwh"] - tot["load_node_mwh"] == pytest.approx(
         tot["battery_load_mwh"] + tot["losses_mwh"]
     )
 
@@ -464,8 +475,16 @@ def test_compute_gtopt_energy_totals_integrates_block_duration(
 
 
 def test_gtopt_demand_matches_plexos_node_load(tmp_path: Path, mock_mdb_export) -> None:
-    """End-to-end apples-to-apples — gtopt demand == PLEXOS Node.Load
-    on the synthetic case where both sides see the same load profile."""
+    """End-to-end apples-to-apples — gtopt demand == PLEXOS
+    (Node.Load - Battery.Load) on the synthetic case where both
+    sides see the same load profile.
+
+    gtopt's ``load_mwh`` is consumer-only (synthetic ``<bat>_dem``
+    rows in ``Demand/load_sol.parquet`` are filtered out by
+    ``_sum_consumer_demand_field_mwh``); PLEXOS's ``load_mwh`` is
+    now also consumer-only (Node.Load gross of battery charging,
+    minus Battery.Load) — apples-to-apples.
+    """
     case_dir = tmp_path / "case"
     _write_gtopt_case(case_dir)
     g = compute_gtopt_energy_totals(case_dir)
@@ -474,10 +493,16 @@ def test_gtopt_demand_matches_plexos_node_load(tmp_path: Path, mock_mdb_export) 
     fake_accdb.touch()
     p = compute_plexos_energy_totals(fake_accdb)
 
-    assert g["load_mwh"] == pytest.approx(p["load_mwh"]), (
-        "gtopt demand must equal PLEXOS Node.Load (consumer-only); "
-        "if this fails, check that compute_plexos_energy_totals' "
-        "'load_mwh' key is reading prop 1373 not prop 966."
+    # The synthetic gtopt fixture has no Battery rows, so gtopt's
+    # filtered ``load_mwh`` equals raw Node.Load.  PLEXOS's
+    # ``load_mwh`` here subtracts the mock's 50-MWh Battery.Load
+    # to produce 700 — so the apples-to-apples comparison
+    # uses ``load_node_mwh`` (the pre-subtraction Node.Load = 750).
+    assert g["load_mwh"] == pytest.approx(p["load_node_mwh"]), (
+        "gtopt consumer demand must equal PLEXOS Node.Load (gross at "
+        "the node) when gtopt has no batteries; if this fails, check "
+        "compute_plexos_energy_totals' 'load_node_mwh' key is reading "
+        "prop 1373."
     )
 
 

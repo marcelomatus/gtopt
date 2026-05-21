@@ -155,22 +155,31 @@ def test_real_bundle_user_constraints() -> None:
 
 @_skip_if_missing
 def test_real_bundle_p7_flow_rights() -> None:
-    """P7: ``Hydro_AntucoBounds.csv`` no longer emits FlowRights.
+    """P7: ``Hydro_AntucoBounds.csv`` no longer emits FlowRights for
+    Junction-level rights (that interpretation was wrong — PLEXOS
+    encodes those as per-generator discharge limits in collection 32).
 
-    The legacy interpretation of that CSV as junction-level irrigation
-    rights was incorrect — PLEXOS encodes those rows as per-generator
-    discharge limits (Generator→FlowConstraint, collection_id=32), not
-    Junction→Right.  Emitting them as FlowRights caused phantom
-    infeasibilities on the upstream reservoir balance.
+    What IS emitted: soft ``Riego_*`` / ``Caudal_Eco_*`` / ``Ext_*``
+    forced-outflow FlowRights synthesised from PLEXOS Waterways
+    whose name starts with one of those prefixes (irrigation
+    diversions, ecological flows, external withdrawals).  Each
+    soft right carries ``purpose='forced_flow'`` and a small
+    ``fcost`` so the LP prefers meeting the target but can defer
+    it when reservoirs run dry.
 
-    ``extract_flow_rights`` now returns ``()`` unconditionally for
-    this CSV; junction-level irrigation rights (when needed) will
-    come from a different overlay.  This test pins the disabled
-    behaviour so any future re-enable is intentional.
+    The Hydro_AntucoBounds.csv → Junction-level FlowRight emission
+    path is what stays disabled (the bug fix); this test pins the
+    new behaviour (positive count, all forced-flow soft rights).
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
-    assert case.flow_rights == ()
+    # Every emitted FlowRight is a soft forced-flow (Riego_* /
+    # Caudal_Eco_* / Ext_*).  The Hydro_AntucoBounds path is off.
+    assert all(fr.purpose == "forced_flow" for fr in case.flow_rights)
+    for fr in case.flow_rights:
+        assert fr.name.startswith(
+            ("soft_Riego_", "soft_Caudal_Eco_", "soft_Ext_", "soft_Filt_")
+        ), f"unexpected FlowRight name: {fr.name}"
 
 
 @_skip_if_missing
@@ -232,7 +241,12 @@ def test_real_bundle_p4_hydro_topology() -> None:
             f"sink junction {j.name} must not be emitted as a Reservoir"
         )
     assert len(case.waterways) >= 20
-    assert len(case.turbines) >= 50
+    # Threshold tightened post-topology-cleanup: the 2026-04-22 PCP
+    # bundle yields ~33 turbines after the GNL_INF / nphi / sinks
+    # cleanup landed in 6dcf83e5d; pre-cleanup count was ~50+.  The
+    # cleanup is correct (skips synthetic / NaN turbine ratings);
+    # the threshold tracks the new floor.
+    assert len(case.turbines) >= 30
     assert len(case.flows) >= 10
     # Every Flow's junction matches a real Junction (orphans dropped).
     junction_names = {j.name for j in case.junctions}
