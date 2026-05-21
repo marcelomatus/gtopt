@@ -56,6 +56,13 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
   if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
     highs.setOptionValue("primal_feasibility_tolerance", *feps);
   }
+  // Target relative MIP optimality gap.  HiGHS exposes both
+  // `mip_rel_gap` and `mip_abs_gap`; we expose the relative form (the
+  // industry default and what every other backend uses).  Ignored for
+  // continuous LPs.
+  if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+    highs.setOptionValue("mip_rel_gap", *gap);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     highs.setOptionValue("time_limit", *tl);
   }
