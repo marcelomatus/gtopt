@@ -305,6 +305,15 @@ struct MainOptions
    * leaves unset). */
   std::optional<bool> no_scale {};
 
+  /** @brief LP-relax every phase (`continuous_phases = "all"`).
+   *
+   * Bound to the CLI flag `--no-mip`.  When set, every integer / binary
+   * variable becomes continuous regardless of phase configuration —
+   * useful for quick LP smoke tests on cases that would otherwise solve
+   * a MIP (commitment, segment-based costs, etc.).  Equivalent to
+   * `--set model_options.continuous_phases=all`. */
+  std::optional<bool> no_mip {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *
