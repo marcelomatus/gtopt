@@ -1004,17 +1004,30 @@ def _render_lmp_compare(
     plexos_only = set(plexos_bus) - common
     gtopt_only = set(gtopt_bus) - common
 
-    rows = []
+    # PLEXOS publishes LMP = 0 on many uncongested buses
+    # (typically the solution database omits the marginal price on
+    # buses where the LP didn't need one).  Those collide as
+    # "Δ = +gtopt_LMP, +0.0%" rows that dominate the top-N table
+    # and bury the actually-divergent buses.  Sort common buses
+    # into two groups: PLEXOS-priced (|p| > 0.01) and
+    # PLEXOS-zero, render PLEXOS-priced first.
+    rows: list[tuple[str, float, float, float]] = []
+    zero_rows: list[tuple[str, float, float, float]] = []
     for n in common:
         p = plexos_bus[n]
         g = gtopt_bus[n]
-        rows.append((n, p, g, g - p))
+        if abs(p) < 0.01:
+            zero_rows.append((n, p, g, g - p))
+        else:
+            rows.append((n, p, g, g - p))
     rows.sort(key=lambda r: abs(r[3]), reverse=True)
+    zero_rows.sort(key=lambda r: abs(r[3]), reverse=True)
 
     t = Table(
         title=(
             f"Per-bus LMP comparison (Step 5) — top {top_n} buses "
             f"by |Δ LMP|  (common buses: {len(common)}, "
+            f"PLEXOS-priced: {len(rows)}, PLEXOS-zero: {len(zero_rows)}, "
             f"PLEXOS-only: {len(plexos_only)}, gtopt-only: {len(gtopt_only)})"
         ),
     )
@@ -2461,12 +2474,32 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the Step-2 user-constraint penalty breakdown",
     )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=180,
+        help=(
+            "console / Rich table width (default: 180).  CEN PCP line names "
+            "(e.g. 'Colbun220->PNegro220') and thermal-variant unit names "
+            "(e.g. 'KELAR-TG1+TG2+TV_GNL_E') push past the default 80-120 "
+            "terminal width; widening to 180+ keeps the leftmost name "
+            "column from ellipsis-truncating."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = make_parser().parse_args(argv)
-    console = Console()
+    # Force a wide console so long line / unit names (e.g.
+    # ``Colbun220->PNegro220`` and ``KELAR-TG1+TG2+TV_GNL_E``)
+    # aren't auto-truncated to ``Colbun2…`` / ``KELAR-…``.  Rich's
+    # default detects the terminal width (often 80-120 chars) and
+    # ellipsis-truncates the leftmost name column to fit; on the
+    # CEN PCP comparison the row labels are the diagnostic value,
+    # so we widen well past the right-justified numeric columns
+    # to avoid hiding them.
+    console = Console(width=args.width)
 
     log_path: Path
     if args.plexos_log is not None:
