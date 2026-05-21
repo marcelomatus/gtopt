@@ -344,6 +344,13 @@ struct MainOptions
    * `LinearInterface::ensure_duals()` triggers in SDDP. */
   std::optional<bool> no_crossover {};
 
+  /** @brief Per-solve time limit in seconds (CLI shortcut).
+   *
+   * Bound to the CLI flag `--time-limit <seconds>`.  Forwards to
+   * `solver_options.time_limit`.  Applied to every LP / MIP solve;
+   * the solver aborts when wall-clock exceeds the limit. */
+  std::optional<double> time_limit {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *
