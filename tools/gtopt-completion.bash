@@ -83,7 +83,7 @@ _gtopt()
             --stats -S --trace-log -T --async-logger --no-async-logger
             --algorithm -a --threads -t --time-limit
             --use-single-bus -b --use-kirchhoff -k
-            --no-scale --no-mip --no-presolve --no-crossover --mip-gap
+            --no-scale --no-mip --mip-gap
             --naming-dialect --list-dialects
             --sddp-num-apertures --aperture-chunk-size --recover
             --sddp-max-iterations --sddp-min-iterations

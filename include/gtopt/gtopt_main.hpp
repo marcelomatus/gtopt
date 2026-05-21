@@ -328,22 +328,6 @@ struct MainOptions
    * mapping (CPLEX EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap). */
   std::optional<double> mip_gap {};
 
-  /** @brief Disable LP presolve at the solver layer (CLI shortcut).
-   *
-   * Bound to the CLI flag `--no-presolve`.  Forwards to
-   * `solver_options.presolve = false`.  See the docstring on the
-   * struct field for the SDDP cell-replay rationale. */
-  std::optional<bool> no_presolve {};
-
-  /** @brief Disable barrier crossover (CLI shortcut).
-   *
-   * Bound to the CLI flag `--no-crossover`.  Forwards to
-   * `solver_options.crossover = false`.  Only meaningful with the
-   * barrier algorithm — see the struct-field docstring for full
-   * semantics including the on-demand crossover that
-   * `LinearInterface::ensure_duals()` triggers in SDDP. */
-  std::optional<bool> no_crossover {};
-
   /** @brief Per-solve time limit in seconds (CLI shortcut).
    *
    * Bound to the CLI flag `--time-limit <seconds>`.  Forwards to
