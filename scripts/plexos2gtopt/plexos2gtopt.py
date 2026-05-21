@@ -128,6 +128,12 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 # extract the full horizon PLEXOS solved over.
                 max_iv = max(iv for blk in block_layout for iv in blk)
                 bundle.n_days = (max_iv + 23) // 24
+                # Also attach the layout onto the loader bundle so
+                # ``extract_reservoirs`` can size per-block emin/emax
+                # profiles (BundleSpec is constructed AFTER
+                # extract_case so the layout isn't otherwise visible
+                # there).
+                bundle.block_layout = block_layout
                 logger.info(
                     "horizon-mode=plexos: %d blocks across %d days "
                     "(loaded from PLEXOS solution)",

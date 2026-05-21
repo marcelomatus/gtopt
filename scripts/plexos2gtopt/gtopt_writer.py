@@ -598,9 +598,18 @@ def build_reservoir_array(
             "junction": res.name,  # co-located junction (same name)
             "eini": res.eini,
         }
-        if res.emin > 0.0:
+        # Per-block profile takes precedence over the scalar — emitted
+        # as the inline ``[[per-block]]`` matrix gtopt's ``Reservoir``
+        # accepts for ``OptTBRealFieldSched`` fields.  Used for the
+        # PLEXOS "static (physical) emin*/emax* in the first N-1
+        # blocks + operational tight bound on the last block" pattern.
+        if res.emin_profile:
+            entry["emin"] = [list(res.emin_profile)]
+        elif res.emin > 0.0:
             entry["emin"] = res.emin
-        if res.emax > 0.0:
+        if res.emax_profile:
+            entry["emax"] = [list(res.emax_profile)]
+        elif res.emax > 0.0:
             entry["emax"] = res.emax
         if res.efin > 0.0:
             entry["efin"] = res.efin

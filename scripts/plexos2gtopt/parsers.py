@@ -1193,12 +1193,12 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
     # ``Hydro_InitialVolume.csv`` is LONG format (NAME column), so it
     # still uses ``read_long``.
     emax_csv = (
-        read_wide(bundle.csv("Hydro_MaxVolume.csv"))
+        read_wide(bundle.csv("Hydro_MaxVolume.csv"), n_days=bundle.n_days)
         if bundle.has("Hydro_MaxVolume.csv")
         else {}
     )
     emin_csv = (
-        read_wide(bundle.csv("Hydro_MinVolume.csv"))
+        read_wide(bundle.csv("Hydro_MinVolume.csv"), n_days=bundle.n_days)
         if bundle.has("Hydro_MinVolume.csv")
         else {}
     )
@@ -1228,15 +1228,104 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         emax_series = emax_csv.get(name, [])
         emin_series = emin_csv.get(name, [])
         eini_series = eini_csv.get(name, [])
-        emax = emax_series[0] if emax_series else 0.0
-        emin = emin_series[0] if emin_series else 0.0
+        # Per-day CSV values: take the MAX (for emin) / MIN (for
+        # emax) within each 24-slot day window.  CEN PCP
+        # ``Hydro_MinVolume.csv`` ships end-of-day floors via
+        # ``PERIOD=24`` rows (e.g. ELTORO has its 12,079 hm³
+        # end-of-week floor in slot 167, all other slots 0), so a
+        # simple slot-0 sample misses every binding value.
+        # ``max`` and ``min`` correctly pick the binding edge
+        # regardless of which PERIOD the CSV uses for each day.
+        per_day_emin = [
+            max(emin_series[d * 24 : (d + 1) * 24], default=0.0)
+            for d in range(bundle.n_days)
+        ]
+        per_day_emax_raw = [
+            [v for v in emax_series[d * 24 : (d + 1) * 24] if v > 0.0]
+            for d in range(bundle.n_days)
+        ]
+        per_day_emax = [min(chunk) if chunk else 0.0 for chunk in per_day_emax_raw]
+        static_emax = (
+            db.static_property("Storage", storage.object_id, "Max Volume") or 0.0
+        )
+        static_emin = (
+            db.static_property("Storage", storage.object_id, "Min Volume") or 0.0
+        )
+        # Scalar fallbacks (legacy code paths that don't see profiles):
+        # take the binding CSV value (max for emin, min for emax) and
+        # fall back to static when CSV is empty/zero.
+        emax = min(emax_series) if emax_series else static_emax
+        emin = max(emin_series) if emin_series else static_emin
         eini = eini_series[0] if eini_series else 0.0
         if emax == 0.0:
-            emax = db.static_property("Storage", storage.object_id, "Max Volume")
+            emax = static_emax
         if emin == 0.0:
-            emin = db.static_property("Storage", storage.object_id, "Min Volume")
+            emin = static_emin
         if eini == 0.0:
             eini = db.static_property("Storage", storage.object_id, "Initial Volume")
+        # ── Build per-block emin/emax profile ─────────────────────────
+        # PLEXOS shape: ``Hydro_*Volume.csv`` ships operational
+        # floors / caps at SPECIFIC end-of-day hours (slot 23, 47,
+        # …, 167 for a 7-day week).  We verified for ELTORO that
+        # PLEXOS binds the floor EXACTLY at those hours.
+        #
+        # Conservative pass: only honour the FIRST-day and LAST-day
+        # end-of-day floors / caps (hour 24 and hour ``n_days * 24``).
+        # Mid-week end-of-day spikes are skipped — they over-
+        # constrained v17 for reservoirs lacking an nphi safety
+        # valve (e.g. L_Maule blocks 82/97 hitting 7,969 with only
+        # 175 hm³ headroom).  Block 0 always uses the static
+        # physical floor / cap.
+        emin_profile: tuple[float, ...] = ()
+        emax_profile: tuple[float, ...] = ()
+        block_layout = getattr(bundle, "block_layout", ())
+        if block_layout and (emin_series or emax_series):
+            n_blocks = len(block_layout)
+            # Only the END-OF-WEEK (last day) operational bound is
+            # honoured.  Earlier daily floors over-constrained the
+            # LP for reservoirs without a non-physical-inflow
+            # safety valve (L_Maule blocks 82/97, day-1 spikes on
+            # other reservoirs).  Block 0 always uses the static
+            # physical floor + ``eini``; the only tight handoff
+            # the parser emits is the last block of the last day.
+            last_day_eod = bundle.n_days * 24
+            allowed_eod_hours = {last_day_eod}
+            emin_per_block: list[float] = []
+            emax_per_block: list[float] = []
+            for intervals in block_layout:
+                # 1-indexed hour intervals → 0-indexed CSV slot;
+                # only consider hours that match one of our allowed
+                # end-of-day boundaries (first / last day).
+                csv_emin_in_block = [
+                    emin_series[h - 1]
+                    for h in intervals
+                    if h in allowed_eod_hours
+                    and 0 < h <= len(emin_series)
+                    and emin_series[h - 1] > 0.0
+                ]
+                csv_emax_in_block = [
+                    emax_series[h - 1]
+                    for h in intervals
+                    if h in allowed_eod_hours
+                    and 0 < h <= len(emax_series)
+                    and emax_series[h - 1] > 0.0
+                ]
+                emin_per_block.append(
+                    max([static_emin] + csv_emin_in_block)
+                    if csv_emin_in_block
+                    else static_emin
+                )
+                emax_per_block.append(
+                    min([static_emax] + csv_emax_in_block)
+                    if csv_emax_in_block and static_emax > 0.0
+                    else static_emax
+                )
+            # Only emit the profile when it actually varies across
+            # blocks (otherwise the scalar emin/emax suffices).
+            if len(set(emin_per_block)) > 1:
+                emin_profile = tuple(emin_per_block)
+            if len(set(emax_per_block)) > 1:
+                emax_profile = tuple(emax_per_block)
         # PLEXOS Spill Penalty ($/MWh) — controlled-spill cost.  Per the
         # Energy Exemplar docs (Storage.MaxSpill page) ``Max Spill`` is
         # the per-storage spillway capacity to "the sea" with default
@@ -1287,6 +1376,21 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             )
             water_value_gwh = 0.0
             never_drain = True
+        # ── Pass-through PLEXOS Storage objects ─────────────────
+        # CEN PCP "Storage" entries that are topology-only nodes
+        # (bocatomas ``B_*``, ``Post_*``, run-of-river intakes,
+        # ``LAJA_I``) ship every volume / water-value property at
+        # 0.  We KEEP them as zero-storage Reservoirs (rather than
+        # filtering them out) so the writer's automatic
+        # ``spillway_cost=1000`` drain absorbs any net inflow at
+        # the junction — matches the v10 behaviour and avoids the
+        # under-constrained-drain infeasibility v17/v18/v19 hit
+        # when these nodes were promoted to bare Junctions.  The
+        # ``Post_Pangue accumulated 43k hm³`` artifact is acceptable
+        # for now: the drain cost ($1000/m³/s·h) is high enough
+        # that the LP only drains as a last resort, and the
+        # accumulated volume in a zero-emax reservoir is a
+        # reporting artifact, not a real cost.
         out.append(
             ReservoirSpec(
                 object_id=storage.object_id,
@@ -1297,6 +1401,8 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 water_value=water_value_gwh,
                 never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
+                emin_profile=emin_profile,
+                emax_profile=emax_profile,
             )
         )
     if skipped_lng:
@@ -1442,15 +1548,29 @@ def extract_waterways(
 
 def extract_junctions(
     reservoirs: tuple[ReservoirSpec, ...],
+    extra_junction_names: tuple[str, ...] = (),
 ) -> tuple[JunctionSpec, ...]:
-    """Synthesise one Junction per Reservoir.
+    """Synthesise one Junction per Reservoir + per extra junction name.
 
     gtopt requires explicit Junction nodes; PLEXOS folds the
     storage+topology concept into a single Storage object. We emit
     one Junction per Reservoir with the same name (the Reservoir
     JSON binding accepts a ``junction`` ref by name).
+
+    ``extra_junction_names`` covers PLEXOS Storage objects that have
+    no real storage (pass-through nodes like ``Post_Pangue``,
+    ``B_C_Isla``, ``LAJA_I``, etc.) — these are dropped from the
+    Reservoir list (so they don't become free phantom buffers in
+    the LP) but their Junction node is kept so waterway endpoints
+    that reference them stay valid.  Duplicates are de-duplicated.
     """
-    return tuple(JunctionSpec(name=r.name) for r in reservoirs)
+    seen = {r.name for r in reservoirs}
+    out: list[JunctionSpec] = [JunctionSpec(name=r.name) for r in reservoirs]
+    for name in extra_junction_names:
+        if name and name not in seen:
+            seen.add(name)
+            out.append(JunctionSpec(name=name))
+    return tuple(out)
 
 
 def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, ...]:
@@ -2975,14 +3095,29 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     # a valid LP-side destination and the writer's automatic
     # ``spillway_cost`` drain absorbs the forced flow.
     waterways = extract_waterways(db, bundle)
-    existing_storage_names = {r.name for r in reservoirs}
+    # Two distinct "extra junction" sources:
+    #   1. PLEXOS Storage objects that ``extract_reservoirs``
+    #      filtered out as pass-through nodes (B_*, Post_*, ISLA,
+    #      LAJA_I, CURILLINQUE, etc.).  These need Junctions for
+    #      waterway endpoints but NOT Reservoirs — emitting them
+    #      as zero-storage Reservoirs would let the LP accumulate
+    #      unbounded phantom volume (writer omits ``emax`` when 0).
+    #   2. Genuinely synthetic sinks created by ``extract_waterways``
+    #      for 1-ended forced-outflow waterways (``<name>_sink``)
+    #      — these MUST be zero-storage Reservoirs with the
+    #      writer's automatic ``spillway_cost`` drain so the
+    #      forced flow has somewhere to go.
+    plexos_storage_names = {s.name for s in db.objects_of_class("Storage")}
+    reservoir_names = {r.name for r in reservoirs}
+    dropped_passthrough = plexos_storage_names - reservoir_names
     sink_names_seen: set[str] = set()
     extra_sinks: list[ReservoirSpec] = []
     for ww in waterways:
         for endpoint in (ww.storage_from, ww.storage_to):
             if (
                 endpoint
-                and endpoint not in existing_storage_names
+                and endpoint not in reservoir_names
+                and endpoint not in plexos_storage_names
                 and endpoint not in sink_names_seen
             ):
                 sink_names_seen.add(endpoint)
@@ -3000,7 +3135,9 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 )
     if extra_sinks:
         reservoirs = reservoirs + tuple(extra_sinks)
-    junctions = extract_junctions(reservoirs)
+    junctions = extract_junctions(
+        reservoirs, extra_junction_names=tuple(sorted(dropped_passthrough))
+    )
     known_junction_names = frozenset(j.name for j in junctions)
     reserves = extract_reserves(db, bundle)
     generators = extract_generators(db, bundle)

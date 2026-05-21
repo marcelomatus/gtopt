@@ -222,6 +222,16 @@ class ReservoirSpec:
     # clamped price, which is exactly what the sentinel forbids).
     never_drain: bool = False
     spill_penalty_per_mwh: float = 0.0
+    # Optional per-block emin/emax profiles (length = n_blocks).  When
+    # set, the writer emits the inline ``[[per-block]]`` matrix instead
+    # of the scalar ``emin`` / ``emax`` fields.  Used by PLEXOS-style
+    # "tight at boundaries, loose interior" reservoir bounds: block 0
+    # and block N-1 carry the operational ``Hydro_*Volume.csv`` floor/
+    # cap for that day; interior blocks carry the static (physical)
+    # ``Min Volume`` / ``Max Volume`` so the LP has free dispatch
+    # space mid-week.  Empty tuple ⇒ scalar fallback.
+    emin_profile: tuple[float, ...] = field(default_factory=tuple)
+    emax_profile: tuple[float, ...] = field(default_factory=tuple)
     inflow_profile: tuple[float, ...] = field(default_factory=tuple)
 
 
