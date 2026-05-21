@@ -82,7 +82,7 @@ def test_generator_unknown_fuel_does_not_crash() -> None:
 
 
 def test_line_uses_tmax_ba_for_reverse() -> None:
-    """build_line_array converts negative tmin → positive tmax_ba."""
+    """build_line_array converts negative tmin → positive tmax_ba (EL=2)."""
     lines = (
         LineSpec(
             object_id=1,
@@ -93,6 +93,7 @@ def test_line_uses_tmax_ba_for_reverse() -> None:
             tmin_ab=-150.0,
             units=1,
             reactance=0.12,
+            enforce_limits=2,  # explicit hard cap; EL=1 is unenforced
         ),
     )
     out = build_line_array(lines)
@@ -102,7 +103,7 @@ def test_line_uses_tmax_ba_for_reverse() -> None:
 
 
 def test_line_units_scales_capacity() -> None:
-    """Parallel-line count multiplies both ratings."""
+    """Parallel-line count multiplies both ratings (EL=2)."""
     lines = (
         LineSpec(
             object_id=2,
@@ -112,6 +113,7 @@ def test_line_units_scales_capacity() -> None:
             tmax_ab=100.0,
             tmin_ab=-100.0,
             units=2,
+            enforce_limits=2,  # explicit hard cap; EL=1 is unenforced
         ),
     )
     out = build_line_array(lines)
