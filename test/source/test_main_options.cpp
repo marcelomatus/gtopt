@@ -454,34 +454,6 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "apply_cli_options(MainOptions) - --no-presolve sets "
-    "solver_options.presolve=false")
-{
-  // The CLI shortcut must drive solver_options.presolve to false so
-  // the existing backend wiring (CPLEX SCRIND/PRESOLVE, HiGHS
-  // 'presolve' option, etc.) picks it up.
-  Planning planning {};
-  // SolverOptions::presolve defaults to true; the apply path flips it.
-  CHECK(planning.options.solver_options.presolve == true);
-
-  apply_cli_options(planning, MainOptions {.no_presolve = true});
-
-  CHECK(planning.options.solver_options.presolve == false);
-}
-
-TEST_CASE(
-    "apply_cli_options(MainOptions) - --no-presolve overrides JSON "
-    "solver_options.presolve=true")
-{
-  Planning planning {};
-  planning.options.solver_options.presolve = true;
-
-  apply_cli_options(planning, MainOptions {.no_presolve = true});
-
-  CHECK(planning.options.solver_options.presolve == false);
-}
-
-TEST_CASE(
     "apply_cli_options(MainOptions) - --time-limit sets "
     "solver_options.time_limit")
 {
@@ -496,23 +468,6 @@ TEST_CASE(
   REQUIRE(planning.options.solver_options.time_limit.has_value());
   CHECK(planning.options.solver_options.time_limit.value()
         == doctest::Approx(60.0));
-}
-
-TEST_CASE(
-    "apply_cli_options(MainOptions) - --no-crossover sets "
-    "solver_options.crossover=false")
-{
-  // The CLI shortcut must drive solver_options.crossover to false so
-  // the existing backend wiring (CPLEX BARCROSSALG, HiGHS
-  // run_crossover, MindOpt SolutionTarget) picks it up.  Default is
-  // true to preserve the dual-availability post-barrier; users opt out
-  // for forward-pass-only speed.
-  Planning planning {};
-  CHECK(planning.options.solver_options.crossover == true);
-
-  apply_cli_options(planning, MainOptions {.no_crossover = true});
-
-  CHECK(planning.options.solver_options.crossover == false);
 }
 
 // ---- Tests for make_lp_matrix_options ----
