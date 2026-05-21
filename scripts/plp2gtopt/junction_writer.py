@@ -468,6 +468,13 @@ class JunctionWriter(BaseWriter):
         # ``to_json_array`` so the user can see how many spurious bounds
         # were dropped — improves LP scaling.
         self._plp_no_limit_count: int = 0
+        # Counter for waterway emissions skipped because PLP shipped
+        # ``VertMax = 0`` (or otherwise ended up with fmin = fmax = 0).
+        # The corresponding LP column would be hard-pinned to zero and
+        # collapsed by solver presolve; dropping it at emission time
+        # keeps the Waterway parquet honest and removes false-positive
+        # validator noise.  Logged once at end of ``to_json_array``.
+        self._dead_zero_waterway_count: int = 0
         # Gen waterways of transit centrals (``bus = 0``) that have
         # plpmance.dat per-stage flow envelopes.  These centrals have
         # no generator entry to consume Generator/pmin.parquet, so we
@@ -510,8 +517,29 @@ class JunctionWriter(BaseWriter):
         objective gets ``fcost · waterway_flow · block_duration`` per
         block.  Used to model PLP's ``qrb`` (rebalse) penalty on `_ver`
         arcs from ``plpvrebemb.dat``.
+
+        Dead-zero suppression: when both ``fmin`` and ``fmax`` are
+        explicitly ``0.0`` the waterway column is hard-pinned to 0
+        (the solver's presolve would collapse it anyway).  PLP
+        encodes this for centrals with ``VertMax = 0`` ("no spill
+        allowed") — e.g. ``FILT_CIPRESES_ver_7_8`` on the CEN65
+        2-year case.  Skip the emission entirely so the JSON doesn't
+        ship LP no-ops that confuse the validator and bloat the
+        Waterway parquet count without contributing a single row to
+        the LP.
         """
         if target_id == 0:
+            return None
+
+        if fmax == 0.0 and (fmin or 0.0) == 0.0:
+            self._dead_zero_waterway_count += 1
+            _logger.debug(
+                "skipping dead-zero waterway '%s_%d_%d' "
+                "(fmin = fmax = 0; PLP VertMax = 0)",
+                source_name,
+                source_id,
+                target_id,
+            )
             return None
 
         self._waterway_counter += 1
@@ -596,6 +624,8 @@ class JunctionWriter(BaseWriter):
         self._plp_no_limit_count = 0
         # Reset vrebemb-as-sink counter for this conversion run.
         self._vrebemb_as_sink_count = 0
+        # Reset dead-zero waterway suppression counter for this run.
+        self._dead_zero_waterway_count = 0
         # Log precedence interaction once: ``--drop-spillway-waterway``
         # suppresses every ``_ver`` arc, so ``--vrebemb-as-sink`` is a
         # no-op when both flags are on.
@@ -678,6 +708,14 @@ class JunctionWriter(BaseWriter):
                 "--vrebemb-as-sink: routed %d vrebemb-listed centrals' "
                 "_ver to synthetic ocean drain (fcost dropped)",
                 self._vrebemb_as_sink_count,
+            )
+
+        if self._dead_zero_waterway_count > 0:
+            _logger.info(
+                "Suppressed %d dead-zero waterway(s) (PLP VertMax = 0 — "
+                "the LP column would be pinned to 0 and collapsed by "
+                "solver presolve anyway).",
+                self._dead_zero_waterway_count,
             )
 
         return [cast(Dict[str, Any], system)]
