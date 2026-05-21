@@ -1208,8 +1208,23 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         else {}
     )
     out: list[ReservoirSpec] = []
+    skipped_lng = 0
     for storage in db.objects_of_class("Storage"):
         name = storage.name
+        # CEN PCP misuses PLEXOS Storage to model "infinite LNG fuel
+        # supply" via a ``<terminal>_GNL_INF`` naming convention (GNL =
+        # Gas Natural Licuado, INF = unbounded).  These are NOT water
+        # reservoirs — every volume / inflow / water-value property
+        # ships at 0, they have no Waterway / Turbine / Generator
+        # memberships referencing them, and they only exist as a
+        # PLEXOS bookkeeping artifact for gas import accounting at
+        # Mejillones / Quintero LNG terminals.  Emitting them as
+        # gtopt Reservoirs creates dead all-zero rows and a paired
+        # orphan Junction; drop them at the source so the JSON stays
+        # clean.
+        if name.endswith("_GNL_INF"):
+            skipped_lng += 1
+            continue
         emax_series = emax_csv.get(name, [])
         emin_series = emin_csv.get(name, [])
         eini_series = eini_csv.get(name, [])
@@ -1283,6 +1298,13 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
             )
+        )
+    if skipped_lng:
+        logger.info(
+            "extract_reservoirs: dropped %d PLEXOS Storage object(s) with "
+            "`_GNL_INF` suffix (LNG gas-import accounting artifacts, not "
+            "water reservoirs).",
+            skipped_lng,
         )
     return tuple(out)
 
