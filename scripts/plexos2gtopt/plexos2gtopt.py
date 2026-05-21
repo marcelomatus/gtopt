@@ -100,7 +100,63 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
     input_path = Path(raw_input)
 
     with locate_bundle(input_path) as bundle:
+        # Resolve horizon mode + day count + block layout.
+        horizon_mode = options.get("horizon_mode") or "plexos"
+        horizon_days_opt = options.get("horizon_days")
+        block_layout: tuple[tuple[int, ...], ...] = ()
+
+        if horizon_mode == "plexos":
+            # Try to find the .accdb sibling and read t_phase_3.
+            accdb_path = options.get("plexos_solution_accdb")
+            if accdb_path is None:
+                from .plexos_block_layout import auto_discover_res_zip
+
+                res_zip = auto_discover_res_zip(input_path)
+                if res_zip is not None:
+                    from .plexos_block_layout import (
+                        load_block_layout_from_res_zip,
+                    )
+
+                    block_layout = load_block_layout_from_res_zip(res_zip)
+            elif Path(accdb_path).suffix == ".accdb":
+                from .plexos_block_layout import load_block_layout_from_accdb
+
+                block_layout = load_block_layout_from_accdb(Path(accdb_path))
+
+            if block_layout:
+                # n_days = ceil(max_interval / 24) so the CSV readers
+                # extract the full horizon PLEXOS solved over.
+                max_iv = max(iv for blk in block_layout for iv in blk)
+                bundle.n_days = (max_iv + 23) // 24
+                logger.info(
+                    "horizon-mode=plexos: %d blocks across %d days "
+                    "(loaded from PLEXOS solution)",
+                    len(block_layout),
+                    bundle.n_days,
+                )
+            else:
+                # Fallback: PLEXOS_Param.xml band counts.  Honored
+                # implicitly by the existing day-1 path (no aggregation).
+                bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
+                logger.warning(
+                    "horizon-mode=plexos: no .accdb available, falling "
+                    "back to %d-day uniform hourly blocks.",
+                    bundle.n_days,
+                )
+        else:  # hourly
+            bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
+
         case = extract_case(bundle)
+        # The block layout (if any) rides on the bundle_spec so the
+        # writer can pick it up.  ``extract_case`` already populated
+        # the bundle_spec; we patch the layout in.
+        if block_layout:
+            from dataclasses import replace as _dc_replace
+
+            case = _dc_replace(
+                case,
+                bundle=_dc_replace(case.bundle, block_layout=block_layout),
+            )
         output_dir, output_file, planning_name = _resolve_output_paths(
             input_path,
             options.get("output_dir"),

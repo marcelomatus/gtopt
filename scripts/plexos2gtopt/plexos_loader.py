@@ -58,6 +58,14 @@ class PlexosBundle:
     root: Path
     source: Path
     _cleanup: tempfile.TemporaryDirectory[str] | None = None
+    # Horizon length in days for the converted simulation.  ``1``
+    # (default) keeps the legacy day-1 PCP behaviour; ``7``
+    # reconstructs the full CEN PCP forward-look week as 168 hourly
+    # blocks in a single stage.  Extractors that read time-varying
+    # CSVs (Nod_Load, Lin_Units, Lin_Max/MinRating, Gen_Rating,
+    # Hydro_WaterFlows, …) honour this via :func:`plexos_csv.read_wide`
+    # / :func:`read_long`'s ``n_days`` parameter.
+    n_days: int = 1
 
     @property
     def xml_path(self) -> Path:

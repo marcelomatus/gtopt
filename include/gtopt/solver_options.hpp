@@ -122,6 +122,22 @@ struct SolverOptions
    */
   bool crossover {true};
 
+  /** @brief Path to a backend-native parameter file applied before the
+   *  fields above (so the typed gtopt fields keep priority on conflict).
+   *
+   *  Backend mapping:
+   *  - CPLEX: ``CPXreadcopyparam(env, path)`` — reads the standard
+   *    CPLEX ``.prm`` format (one ``CPX_PARAM_<NAME> <value>`` pair
+   *    per line, ``#`` for comments).  Lets users pin the full ~150
+   *    CPLEX parameter surface without growing this struct further.
+   *  - HiGHS / MindOpt / CLP: ignored (each has its own native parser
+   *    that we may wire later via the same field).
+   *
+   *  Unset (``nullopt``, default) ⇒ no file is read, backend defaults
+   *  apply as before.
+   */
+  std::optional<std::string> param_file {};
+
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
    *  When a solve returns non-optimal, the solver cycles through
@@ -171,6 +187,7 @@ struct SolverOptions
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
     merge_opt(memory_emphasis, other.memory_emphasis);
+    merge_opt(param_file, other.param_file);
   }
 
   /**

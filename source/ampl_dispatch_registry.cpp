@@ -49,6 +49,7 @@
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <gtopt/user_constraint_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
@@ -412,6 +413,15 @@ std::optional<double> es_param_upstream_rate(const SystemContext& sc,
       .param_upstream_rate(s);
 }
 
+// UserConstraint
+std::optional<double> uc_param_rhs(const SystemContext& sc,
+                                   Uid uid,
+                                   StageUid s,
+                                   BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<UserConstraintLP> {uid}).param_rhs(s, b);
+}
+
 /// Class iterator: walks `sc.elements<LP>()` and emits every element's
 /// uid to the supplied captureless callback.  One instantiation per LP
 /// class that participates in `sum(class(all)...)`.
@@ -503,6 +513,11 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   sim.register_ampl_param(emission_source_cls, "rate", &es_param_rate);
   sim.register_ampl_param(
       emission_source_cls, "upstream_rate", &es_param_upstream_rate);
+
+  // UserConstraint: per-(stage, block) RHS override accessible from
+  // other constraints' expressions as `user_constraint("X").rhs`.
+  constexpr auto user_constraint_cls = UserConstraint::class_name.snake_case();
+  sim.register_ampl_param(user_constraint_cls, "rhs", &uc_param_rhs);
 }
 
 void register_ampl_iterator_dispatchers(SimulationLP& sim)
@@ -560,6 +575,10 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
   // `decision_variable("X").value` from PAMPL constraints.
   sim.register_ampl_iter(DecisionVariable::class_name.snake_case(),
                          &iter_class<DecisionVariableLP>);
+  // UserConstraint: enables `sum(user_constraint(all).rhs)` and other
+  // class-level iteration patterns over user constraints.
+  sim.register_ampl_iter(UserConstraint::class_name.snake_case(),
+                         &iter_class<UserConstraintLP>);
 }
 
 }  // namespace gtopt

@@ -401,8 +401,10 @@ template<typename T>
        "shorthand for --set model_options.use_kirchhoff=<bool>")  //
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
-       "save per-(scene, phase) LP files for every SDDP pass selected by "
-       "sddp_options.lp_debug_passes; shorthand for --set lp_debug=true")  //
+       "save LP debug files to log_directory: a single monolithic.lp for "
+       "the monolithic solver, or one per-(scene, phase) LP file for every "
+       "SDDP pass selected by sddp_options.lp_debug_passes; shorthand for "
+       "--set lp_debug=true")  //
       ("lp-compression",
        po::value<std::string>(),
        "compression codec for LP debug files: gzip | zstd | none "

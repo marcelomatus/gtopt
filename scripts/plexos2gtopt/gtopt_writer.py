@@ -93,7 +93,7 @@ def build_options(
 def build_simulation(
     bundle: BundleSpec,
     *,
-    block_count: int = DEFAULT_BLOCK_COUNT,
+    block_count: int | None = None,
     block_duration_h: float = DEFAULT_BLOCK_DURATION_H,
 ) -> dict[str, Any]:
     """Emit the (1 scenario × 1 stage × N blocks) chronological skeleton.
@@ -102,8 +102,36 @@ def build_simulation(
     simulation block needs only ``block_array``, ``stage_array``,
     ``scenario_array``. Scenes and phases are inferred by the solver
     when absent (single scene, single phase).
+
+    When ``block_count`` is unset the function derives it from
+    ``bundle.block_layout`` (PLEXOS-native mode — each block's
+    duration = ``len(intervals_in_block)`` hours) or from
+    ``bundle.n_days × bundle.step_count`` (hourly mode, 168-block week
+    when ``n_days = 7``).  An explicit ``block_count`` overrides both.
     """
-    _ = bundle  # reserved for future use (bundle date stamps, calendar tags)
+    if block_count is None:
+        if bundle.block_layout:
+            block_array = [
+                {"uid": k + 1, "duration": float(len(intervals))}
+                for k, intervals in enumerate(bundle.block_layout)
+            ]
+            block_count = len(block_array)
+            stage_array = [
+                {
+                    "uid": 1,
+                    "first_block": 0,
+                    "count_block": block_count,
+                    "active": 1,
+                    "chronological": True,
+                }
+            ]
+            scenario_array = [{"uid": 1, "probability_factor": 1.0}]
+            return {
+                "block_array": block_array,
+                "stage_array": stage_array,
+                "scenario_array": scenario_array,
+            }
+        block_count = bundle.step_count * bundle.n_days
     block_array = [
         {"uid": h + 1, "duration": block_duration_h} for h in range(block_count)
     ]
@@ -151,6 +179,8 @@ def build_generator_array(
     generators: tuple[GeneratorSpec, ...],
     fuels: tuple[FuelSpec, ...] = (),
     generators_with_commitment: frozenset[str] = frozenset(),
+    *,
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One generator entry per :class:`GeneratorSpec`.
 
@@ -231,9 +261,17 @@ def build_generator_array(
         # When the per-hour rating profile actually varies (renewable
         # availability, scheduled maintenance) emit the profile as a
         # [[stage_blocks]] matrix so the LP honours it block-by-block.
-        # Constant profiles collapse to the scalar max.
+        # Constant profiles collapse to the scalar max.  Under
+        # ``--horizon-mode plexos`` the 168-hour profile is aggregated
+        # to 111 block-mean values to line up with the simulation's
+        # block_array.
         if gen.pmax_profile and (max(gen.pmax_profile) != min(gen.pmax_profile)):
-            entry["pmax"] = [list(gen.pmax_profile)]
+            profile = (
+                _aggregate_to_blocks(gen.pmax_profile, block_layout, reducer="mean")
+                if block_layout
+                else list(gen.pmax_profile)
+            )
+            entry["pmax"] = [profile]
         else:
             entry["pmax"] = gen.pmax
         out.append(entry)
@@ -296,22 +334,76 @@ def build_line_array(lines: tuple[LineSpec, ...]) -> list[dict[str, Any]]:
     return out
 
 
-def build_demand_array(demands: tuple[DemandSpec, ...]) -> list[dict[str, Any]]:
+def _aggregate_to_blocks(
+    hourly: tuple[float, ...] | list[float],
+    block_layout: tuple[tuple[int, ...], ...],
+    *,
+    reducer: str = "mean",
+) -> list[float]:
+    """Collapse an ``n_days × 24``-element hourly profile to one value
+    per PLEXOS block, using the layout's interval lists.
+
+    ``block_layout[k]`` is the 1-indexed hourly intervals that
+    constitute block ``k``.  ``hourly[i]`` is the value at 0-indexed
+    hour ``i`` (so interval ``j`` → ``hourly[j - 1]``).
+
+    Supported reducers:
+      * ``mean`` — time-average (right for demand, hydro inflow,
+        renewable capacity).
+      * ``min`` — most restrictive (right for line capacity, units).
+      * ``max`` — least restrictive (rare; e.g. headroom).
+      * ``sum`` — total energy / count.
+    """
+    if not block_layout:
+        return list(hourly)
+    out: list[float] = []
+    n = len(hourly)
+    for intervals in block_layout:
+        vals = [hourly[iv - 1] for iv in intervals if 1 <= iv <= n]
+        if not vals:
+            out.append(0.0)
+            continue
+        if reducer == "min":
+            out.append(min(vals))
+        elif reducer == "max":
+            out.append(max(vals))
+        elif reducer == "sum":
+            out.append(sum(vals))
+        else:  # mean
+            out.append(sum(vals) / len(vals))
+    return out
+
+
+def build_demand_array(
+    demands: tuple[DemandSpec, ...],
+    *,
+    block_layout: tuple[tuple[int, ...], ...] = (),
+) -> list[dict[str, Any]]:
     """One demand entry per :class:`DemandSpec`, with inline ``lmax`` matrix.
 
     The PCP daily horizon fits comfortably inline (127 demands × 24
     blocks ≈ 24 kB of JSON); Parquet sidecar emission would only pay
     off for multi-stage horizons.
+
+    When ``block_layout`` is non-empty (``--horizon-mode plexos``) the
+    hourly profile is aggregated to one value per block (mean over the
+    block's hourly intervals) so the demand vector lines up with the
+    PLEXOS-shaped block_array.
     """
     out: list[dict[str, Any]] = []
     for i, dem in enumerate(demands):
+        profile = (
+            _aggregate_to_blocks(dem.lmax_profile, block_layout, reducer="mean")
+            if block_layout
+            else list(dem.lmax_profile)
+        )
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": dem.name,
             "bus": dem.bus_name,
             # Inline lmax: gtopt expects [[stage_0_blocks], ...]; for the
             # PCP single-stage horizon this is a 1×N matrix.
-            "lmax": [list(dem.lmax_profile)],
+            "lmax": [profile],
         }
         # Per-Region VoLL → per-Demand fcost.  Honours the literature-
         # audit fix that replaces the global ``max(VoLLs)`` collapse:
@@ -527,11 +619,20 @@ def build_reservoir_array(
         # parser).  Emit a HARD ``efin = eini`` constraint with no
         # ``efin_cost`` slack — the LP must keep at least the initial
         # volume, no buy-out at any finite price.
-        if res.never_drain and res.eini > 0.0 and "efin" not in entry:
-            entry["efin"] = res.eini
-        elif res.water_value > 0.0 and res.eini > 0.0 and "efin" not in entry:
-            entry["efin"] = res.eini
-            entry["efin_cost"] = res.water_value * 0.005
+        # PLEXOS does NOT ship an explicit end-of-horizon volume target;
+        # it ships only ``Water Value`` ($/GWh, a per-unit opportunity
+        # cost on dispatched water).  Mapping PLEXOS Water Value into
+        # gtopt's ``efin``/``efin_cost`` target/penalty pair was an
+        # over-constraint: setting ``efin = eini`` forced the LP to
+        # refill every reservoir to its initial volume, which natural
+        # inflows over a 7-day horizon (e.g. ELTORO at ~11 hm³/week vs
+        # eini ≈ 12,154 hm³) physically cannot cover.  ``efin`` is
+        # therefore left UNSET for every reservoir.  PLEXOS Water Value
+        # is currently unmodeled at the gtopt level — TODO: add a
+        # per-block ``extraction_cost`` field on ``Reservoir`` mirroring
+        # PLEXOS's marginal Water Value (the correct mapping).
+        _ = res.water_value
+        _ = res.never_drain
         # Activate gtopt's internal-drain mechanism on every reservoir.
         # storage_lp.hpp gates the drain column on ``drain_cost.has_value()``
         # and defaults the per-block upper bound to ``DblMax`` when
@@ -602,6 +703,7 @@ def build_waterway_array(
 def build_turbine_array(
     turbines: tuple[TurbineSpec, ...],
     waterways: tuple[WaterwaySpec, ...] = (),
+    extra_waterways: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """One Turbine per :class:`TurbineSpec`.
 
@@ -613,38 +715,96 @@ def build_turbine_array(
     ``Turbine uid=…: no waterway or flow reference`` and the turbine's
     LP rows are empty.
 
-    Turbines without a matching waterway are still emitted with just
-    ``main_reservoir`` (gtopt logs a warning but does not fail).  v0
-    does not synthesise a downstream Waterway when PLEXOS omits one.
+    PLEXOS ``Vert_*`` Waterways are *spillways* (vertimiento — bypass
+    water that wastes potential energy) priced with a per-flow penalty
+    (CEN PCP uses ``fcost=3.6 $/(m³/s)/h``).  Turbines must NOT route
+    through the spillway; they need their own zero-cost penstock from
+    the reservoir to the downstream junction.  This routine therefore
+    **synthesizes a fresh penstock waterway per turbine** with
+    ``fcost=0`` (no spill penalty on turbine flow) and connects each
+    turbine to its own private penstock.  The original PLEXOS
+    Waterways are left untouched in the JSON and continue to model
+    physical spillage / scheduled bypass flows independently.
+
+    Side-effect: ``extra_waterways`` receives one new entry per
+    eligible turbine.  Without this, multi-unit plants like ANTUCO
+    (U1/U2), MACHICURA (U1/U2), PEHUENCHE (U1/U2), etc. would all
+    share the spillway and the per-turbine ``gen = waterway_flow``
+    equations would force ``gen_u1 = gen_u2 = …``, infeasible when
+    the units' commitment pmin / pmax differ.
+
+    Turbines without a downstream waterway (terminal hydro plants like
+    CANUTILLAR / RAPEL / ANGOSTURA + thermal pseudo-turbines on gas
+    Storage) are dropped with a summary log line; gtopt's validator
+    rejects a Turbine that references neither a Waterway nor a Flow.
     """
     ww_by_from: dict[str, str] = {}
+    ww_by_name: dict[str, WaterwaySpec] = {}
     for w in waterways:
+        ww_by_name[w.name] = w
         if w.storage_from and w.storage_from not in ww_by_from:
             ww_by_from[w.storage_from] = w.name
     out: list[dict[str, Any]] = []
     skipped: list[str] = []
+    synthesised_count = 0
     for t in turbines:
-        ww = ww_by_from.get(t.reservoir_name)
-        if ww is None:
-            # gtopt's planning validator rejects a Turbine without
-            # either a Waterway or a Flow reference (no way to drive
-            # the water-to-power conversion).  PLEXOS terminal hydro
-            # plants (CANUTILLAR, RAPEL, ANGOSTURA U1/U2/U3) plus the
-            # thermal false-turbine artefacts (ATA-TG_GNL_*, ...) all
-            # land here.  Drop them with a single summary log line
-            # rather than emit invalid entries.
+        # Prefer PLEXOS Tail Storage when shipped: that's the canonical
+        # downstream junction the turbine discharges into, which may
+        # differ from the spillway's tail (e.g. a turbine may discharge
+        # into a regulation pond while the Vert_* spillway routes to a
+        # different downstream junction).  Only fall back to the
+        # spillway's storage_to when Tail Storage is absent.
+        downstream: str | None = t.tail_reservoir_name
+        if downstream is None or downstream == t.reservoir_name:
+            downstream_ww_name = ww_by_from.get(t.reservoir_name)
+            if downstream_ww_name is not None:
+                original = ww_by_name.get(downstream_ww_name)
+                if original is not None and original.storage_to is not None:
+                    downstream = original.storage_to
+        if downstream is None:
             skipped.append(t.generator_name)
             continue
+        # When ``extra_waterways`` is provided (build_planning call
+        # site), synthesise a per-turbine zero-cost penstock so each
+        # gen has its own ``waterway_flow_*`` variable and never
+        # shares the PLEXOS spillway.  Without an extras list (legacy
+        # callers / unit tests), keep the legacy behaviour of linking
+        # the turbine to the original PLEXOS waterway.
+        if extra_waterways is not None:
+            penstock_name = f"penstock_{t.generator_name}"
+            extra_waterways.append(
+                {
+                    "uid": 0,  # patched in build_planning
+                    "name": penstock_name,
+                    "junction_a": t.reservoir_name,
+                    "junction_b": downstream,
+                }
+            )
+            synthesised_count += 1
+            waterway_ref = penstock_name
+        else:
+            waterway_ref = ww_by_from.get(t.reservoir_name) or ""
+            if not waterway_ref:
+                skipped.append(t.generator_name)
+                continue
         entry: dict[str, Any] = {
             "uid": len(out) + 1,
             "name": f"turbine_{t.generator_name}",
             "generator": t.generator_name,
             "main_reservoir": t.reservoir_name,
-            "waterway": ww,
+            "waterway": waterway_ref,
         }
         if t.production_factor > 0.0:
             entry["production_factor"] = t.production_factor
         out.append(entry)
+    if synthesised_count:
+        logger.info(
+            "build_turbine_array: synthesised %d zero-cost per-turbine "
+            "penstock waterways (one per turbine, leaving the PLEXOS "
+            "Vert_*/Ext_*/Filt_*/Caudal_* spillways untouched as "
+            "physical spillage paths).",
+            synthesised_count,
+        )
     if skipped:
         logger.info(
             "build_turbine_array: dropped %d turbines with no Waterway link "
@@ -657,20 +817,33 @@ def build_turbine_array(
     return out
 
 
-def build_flow_array(flows: tuple[FlowSpec, ...]) -> list[dict[str, Any]]:
-    """One Flow per :class:`FlowSpec`, broadcasting the 24-block profile.
+def build_flow_array(
+    flows: tuple[FlowSpec, ...],
+    *,
+    block_layout: tuple[tuple[int, ...], ...] = (),
+) -> list[dict[str, Any]]:
+    """One Flow per :class:`FlowSpec`, broadcasting the per-block profile.
 
     gtopt's ``Flow.discharge`` is a per-(scene, stage, block) shape.
-    For the daily PCP horizon we emit a single (1×1×24) matrix.
+    For the daily PCP horizon we emit a single (1×1×N) matrix.
+
+    Under ``--horizon-mode plexos`` the hourly inflow profile is
+    aggregated to one value per block (mean over the block's hourly
+    intervals) so the matrix lines up with the block_array.
     """
     out: list[dict[str, Any]] = []
     for i, f in enumerate(flows):
+        profile = (
+            _aggregate_to_blocks(f.discharge_profile, block_layout, reducer="mean")
+            if block_layout
+            else list(f.discharge_profile)
+        )
         out.append(
             {
                 "uid": i + 1,
                 "name": f.name,
                 "junction": f.junction_name,
-                "discharge": [[list(f.discharge_profile)]],
+                "discharge": [[profile]],
             }
         )
     return out
@@ -678,6 +851,8 @@ def build_flow_array(flows: tuple[FlowSpec, ...]) -> list[dict[str, Any]]:
 
 def build_reserve_zone_array(
     reserves: tuple[ReserveSpec, ...],
+    block_count: int = DEFAULT_BLOCK_COUNT,
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One ``ReserveZone`` per :class:`ReserveSpec` with a populated profile.
 
@@ -691,17 +866,40 @@ def build_reserve_zone_array(
     Reserve Provision Coefficients (CEN PCP CFRS_* / CFRR_* etc.)
     would crash LP assembly when the zone has no system-level
     requirement.
+
+    ``block_count`` controls the per-stage profile length (24 for the
+    legacy 1-day case, 24*``n_days`` for hourly multi-day, or
+    ``len(block_layout)`` for PLEXOS-native aggregated runs).  When a
+    non-empty ``block_layout`` is supplied, hourly profiles are
+    aggregated to one value per layout block using the mean reducer
+    (requirements are MW levels, not energies, so averaging the hours
+    inside the block matches the gtopt block-level constraint).
     """
-    zero_profile = [0.0] * DEFAULT_BLOCK_COUNT
+    target_len = len(block_layout) if block_layout else block_count
+    zero_profile = [0.0] * target_len
     out: list[dict[str, Any]] = []
     for i, rsv in enumerate(reserves):
         entry: dict[str, Any] = {"uid": i + 1, "name": rsv.name}
-        entry["urreq"] = (
-            [list(rsv.ur_requirement)] if rsv.ur_requirement else [zero_profile]
-        )
-        entry["drreq"] = (
-            [list(rsv.dr_requirement)] if rsv.dr_requirement else [zero_profile]
-        )
+
+        def _shape(profile: tuple[float, ...]) -> list[float]:
+            if not profile:
+                return zero_profile
+            hourly = list(profile)
+            if block_layout:
+                return _aggregate_to_blocks(hourly, block_layout, reducer="mean")
+            if len(hourly) == target_len:
+                return hourly
+            # Tile (single-day pattern repeats) or truncate to fit.
+            if len(hourly) > 0 and target_len % len(hourly) == 0:
+                return hourly * (target_len // len(hourly))
+            # Last resort: pad with zeros so the LP never reads past
+            # the array end.
+            padded = hourly[:target_len]
+            padded.extend([0.0] * (target_len - len(padded)))
+            return padded
+
+        entry["urreq"] = [_shape(rsv.ur_requirement)]
+        entry["drreq"] = [_shape(rsv.dr_requirement)]
         # Shortage-penalty costs ($/MWh) emit only when non-zero — gtopt
         # treats the unset OptTBRealFieldSched as "no penalty", matching
         # PLEXOS semantics for Reserves that ship VoRS=-1 (sentinel).
@@ -738,6 +936,8 @@ def build_user_constraint_array(
     constraints: tuple[UserConstraintSpec, ...],
     *,
     default_penalty: float | None = None,
+    block_count: int = DEFAULT_BLOCK_COUNT,
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One ``UserConstraint`` per :class:`UserConstraintSpec`.
 
@@ -751,7 +951,28 @@ def build_user_constraint_array(
     single unsatisfiable row makes the whole LP infeasible.  Setting
     e.g. ``--default-uc-penalty 10000`` keeps the LP feasible and
     surfaces per-constraint slack violations in the solver output.
+
+    When a spec's ``rhs_profile`` is non-empty, it is shaped to the
+    horizon's per-stage block count (using ``block_layout`` for
+    PLEXOS-native aggregation when supplied) and emitted as the
+    gtopt ``user_constraint.rhs`` TB-schedule field, overriding the
+    scalar parsed from the inline ``<op> NUMBER`` tail of
+    ``expression`` at every (stage, block).
     """
+    target_len = len(block_layout) if block_layout else block_count
+
+    def _shape_profile(profile: tuple[float, ...]) -> list[float]:
+        hourly = list(profile)
+        if block_layout:
+            return _aggregate_to_blocks(hourly, block_layout, reducer="mean")
+        if len(hourly) == target_len:
+            return hourly
+        if len(hourly) > 0 and target_len % len(hourly) == 0:
+            return hourly * (target_len // len(hourly))
+        padded = hourly[:target_len]
+        padded.extend([0.0] * (target_len - len(padded)))
+        return padded
+
     out: list[dict[str, Any]] = []
     for i, c in enumerate(constraints):
         entry: dict[str, Any] = {
@@ -766,24 +987,20 @@ def build_user_constraint_array(
             entry["penalty"] = penalty
         if c.description:
             entry["description"] = c.description
-        # PLEXOS contingency / N-1 security rows are translated with
-        # ``active = False`` by the parser (see
-        # ``_is_contingency_constraint``).  Pass through; gtopt's
-        # ``UserConstraintLP::add_to_lp`` gates on ``is_active(stage)``
-        # so the row ships in the JSON but the monolithic LP skips
-        # it.  ``None`` ⇒ leave the field unset ⇒ gtopt default
-        # (active).
-        # UserConstraint.active is `json_bool_null<OptBool>` (true/false),
-        # NOT `json_number_null<OptBool>` (0/1) — see
-        # include/gtopt/json/json_user_constraint.hpp.
         if c.active is not None:
             entry["active"] = bool(c.active)
+        if c.rhs_profile:
+            entry["rhs"] = [_shape_profile(c.rhs_profile)]
         out.append(entry)
     return out
 
 
 def build_flow_right_array(
     flow_rights: tuple[FlowRightSpec, ...],
+    block_count: int = DEFAULT_BLOCK_COUNT,
+    block_layout: tuple[tuple[int, ...], ...] = (),
+    extra_waterways: list[dict[str, Any]] | None = None,
+    waterways: tuple[WaterwaySpec, ...] = (),
 ) -> list[dict[str, Any]]:
     """One ``FlowRight`` per :class:`FlowRightSpec` with a resolved junction.
 
@@ -791,8 +1008,33 @@ def build_flow_right_array(
     FlowRight requires a junction reference to apply. The drop is
     logged once when the parser resolves them, so the writer stays
     quiet.
+
+    ``block_count`` / ``block_layout`` define the per-stage profile
+    length so the broadcast ``fcost`` row matches the simulation
+    horizon.  Without this gtopt's ``FieldSched`` lookup would read
+    past the end of a 24-element row on multi-day runs.
+
+    **Synthetic bypass waterway per FlowRight**: gtopt's ``FlowRight``
+    is an OUTFLOW that consumes water at ``junction``.  When the
+    upstream junction balance receives more water than the irrigation
+    + existing spillways can absorb, the LP cannot dump the excess
+    anywhere and becomes infeasible.  We therefore add one synthetic
+    spill waterway per FlowRight that routes from the FlowRight's
+    junction to the SAME downstream as the first existing ``Vert_*``
+    spillway from that junction.  The synthetic waterway carries no
+    cost (zero ``fcost``) so the LP only uses it as a last-resort
+    pressure release.  When no existing spillway is found we skip
+    the bypass — those FlowRights stay on the existing topology.
     """
+    target_len = len(block_layout) if block_layout else block_count
+    # Map: junction → first downstream of any existing Vert_* waterway
+    spill_downstream: dict[str, str] = {}
+    for w in waterways:
+        if w.storage_from and w.storage_to and w.name.startswith("Vert_"):
+            if w.storage_from not in spill_downstream:
+                spill_downstream[w.storage_from] = w.storage_to
     out: list[dict[str, Any]] = []
+    synth = 0
     for i, fr in enumerate(flow_rights):
         if fr.junction_name is None:
             continue
@@ -807,11 +1049,31 @@ def build_flow_right_array(
         if fr.fmax > 0.0:
             entry["fmax"] = fr.fmax
         # fcost is OptTBRealFieldSched (same shape as Demand.fcost):
-        # broadcast the scalar across the 24-block horizon as a
-        # [[stage_blocks]] matrix when set.
+        # broadcast the scalar across the horizon as a [[stage_blocks]]
+        # matrix when set.
         if fr.fcost > 0.0:
-            entry["fcost"] = [[fr.fcost] * DEFAULT_BLOCK_COUNT]
+            entry["fcost"] = [[fr.fcost] * target_len]
         out.append(entry)
+        # Synthetic bypass: pressure-release path from the FlowRight's
+        # junction to the existing Vert_* downstream.
+        downstream = spill_downstream.get(fr.junction_name)
+        if extra_waterways is not None and downstream is not None:
+            extra_waterways.append(
+                {
+                    "uid": 0,  # patched in build_planning
+                    "name": f"bypass_{fr.name}",
+                    "junction_a": fr.junction_name,
+                    "junction_b": downstream,
+                }
+            )
+            synth += 1
+    if synth:
+        logger.info(
+            "build_flow_right_array: synthesised %d zero-cost bypass "
+            "waterways (one per FlowRight) to provide a pressure-release "
+            "outflow when the irrigation cap binds the junction balance.",
+            synth,
+        )
     return out
 
 
@@ -893,39 +1155,21 @@ def build_reserve_provision_array(
             entry["urmax"] = p.urmax
         if p.drmax > 0.0:
             entry["drmax"] = p.drmax
-        # urmin / drmin emission: gtopt's ``commitment_lp.cpp`` (lines
-        # 585-640) transforms the hard col-lowb into the conditional
-        # row ``provision - urmin·u >= 0`` when the gen has a
-        # Commitment.  Mirror PLEXOS "Min Provision × Available Units"
-        # gating.  Drop when urmin > urmax (PLEXOS data inconsistency
-        # — gen pmax too small to honour the floor; e.g. AGUAS_BLANCAS
-        # at 1.827 MW vs 10 MW floor → drop, LP leaves provision in
-        # [0, urmax]).
-        urmin_eff = p.urmin
-        drmin_eff = p.drmin
-        if urmin_eff > 0.0 and p.urmax > 0.0 and urmin_eff > p.urmax:
-            logger.warning(
-                "reserve_provision %s: urmin (%.3f MW) > urmax "
-                "(%.3f MW) — PLEXOS Min Provision exceeds gen pmax; "
-                "dropping urmin so the LP leaves provision in [0, urmax].",
-                entry["name"],
-                urmin_eff,
-                p.urmax,
-            )
-            urmin_eff = 0.0
-        if drmin_eff > 0.0 and p.drmax > 0.0 and drmin_eff > p.drmax:
-            logger.warning(
-                "reserve_provision %s: drmin (%.3f MW) > drmax "
-                "(%.3f MW) — dropping drmin.",
-                entry["name"],
-                drmin_eff,
-                p.drmax,
-            )
-            drmin_eff = 0.0
-        if urmin_eff > 0.0:
-            entry["urmin"] = urmin_eff
-        if drmin_eff > 0.0:
-            entry["drmin"] = drmin_eff
+        # PLEXOS "Min Provision" is a hard floor on reserve provision
+        # that PLEXOS itself gates on the generator being COMMITTED in
+        # the block.  gtopt's ``reserve_provision_lp.cpp`` does NOT
+        # apply such gating; setting ``urmin``/``drmin`` ships them as
+        # ``provision >= urmin`` for every block, regardless of unit
+        # status.  When the LP wants the unit dispatched below ``urmin``
+        # (or off entirely while the unit is "available"), the floor
+        # collides with ``provision <= gen`` and the LP becomes
+        # infeasible (observed on EL_TORO_U4 block 32 in CEN PCP 7d).
+        # Drop ``urmin``/``drmin`` until gtopt supports commitment-
+        # conditional reserve provision floors — PLEXOS Min Provision
+        # is currently unmodeled.  Reserve provision stays in
+        # ``[0, urmax]`` / ``[0, drmax]``.
+        _ = p.urmin
+        _ = p.drmin
         out.append(entry)
     return out
 
@@ -965,29 +1209,62 @@ def build_planning(
             generators_with_commitment=frozenset(
                 c.generator_name for c in case.commitments
             ),
+            block_layout=case.bundle.block_layout,
         ),
         "line_array": build_line_array(case.lines),
-        "demand_array": build_demand_array(case.demands),
+        "demand_array": build_demand_array(
+            case.demands,
+            block_layout=case.bundle.block_layout,
+        ),
         "battery_array": build_battery_array(case.batteries),
         "fuel_array": fuel_array,
         "junction_array": build_junction_array(case.junctions),
         "reservoir_array": build_reservoir_array(case.reservoirs),
-        "waterway_array": build_waterway_array(case.waterways),
-        "turbine_array": build_turbine_array(case.turbines, case.waterways),
-        "flow_array": build_flow_array(case.flows),
-        "reserve_zone_array": build_reserve_zone_array(case.reserves),
+        # Order matters: build the waterway list first, then let
+        # build_turbine_array APPEND any per-unit clone waterways it
+        # synthesises for multi-unit plants (see docstring on
+        # build_turbine_array for the rationale).
+        "waterway_array": (waterway_array := build_waterway_array(case.waterways)),
+        "turbine_array": build_turbine_array(
+            case.turbines, case.waterways, extra_waterways=waterway_array
+        ),
+        "flow_array": build_flow_array(
+            case.flows,
+            block_layout=case.bundle.block_layout,
+        ),
+        "reserve_zone_array": build_reserve_zone_array(
+            case.reserves,
+            block_count=DEFAULT_BLOCK_COUNT * case.bundle.n_days,
+            block_layout=case.bundle.block_layout,
+        ),
         "reserve_provision_array": build_reserve_provision_array(
             case.reserve_provisions
         ),
         "commitment_array": build_commitment_array(case.commitments),
-        "flow_right_array": build_flow_right_array(case.flow_rights),
+        "flow_right_array": build_flow_right_array(
+            case.flow_rights,
+            block_count=DEFAULT_BLOCK_COUNT * case.bundle.n_days,
+            block_layout=case.bundle.block_layout,
+            extra_waterways=waterway_array,
+            waterways=case.waterways,
+        ),
         "decision_variable_array": build_decision_variable_array(
             case.decision_variables
         ),
         "user_constraint_array": build_user_constraint_array(
-            case.user_constraints, default_penalty=default_uc_penalty
+            case.user_constraints,
+            default_penalty=default_uc_penalty,
+            block_count=DEFAULT_BLOCK_COUNT * case.bundle.n_days,
+            block_layout=case.bundle.block_layout,
         ),
     }
+    # Assign sequential UIDs to any per-unit waterway clones that
+    # `build_turbine_array` appended with placeholder uid=0.
+    next_ww_uid = max((w.get("uid", 0) for w in waterway_array), default=0) + 1
+    for w in waterway_array:
+        if w.get("uid", 0) == 0:
+            w["uid"] = next_ww_uid
+            next_ww_uid += 1
     # Drop empty arrays so the planning JSON stays compact and the
     # downstream JSON validator does not complain about empty schemas.
     system = {k: v for k, v in system.items() if v not in ((), [], {}) or k == "name"}

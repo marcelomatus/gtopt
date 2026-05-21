@@ -8,25 +8,30 @@
 
 #pragma once
 
+#include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
+#include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/user_constraint.hpp>
 
 namespace daw::json
 {
 
+using gtopt::OptTBRealFieldSched;
 using gtopt::UserConstraint;
 
 template<>
 struct json_data_contract<UserConstraint>
 {
-  using type = json_member_list<json_number<"uid", Uid>,
-                                json_string<"name", Name>,
-                                json_bool_null<"active", OptBool>,
-                                json_string<"expression", Name>,
-                                json_string_null<"description", OptName>,
-                                json_string_null<"constraint_type", OptName>,
-                                json_number_null<"penalty", OptReal>,
-                                json_string_null<"penalty_class", OptName>>;
+  using type = json_member_list<
+      json_number<"uid", Uid>,
+      json_string<"name", Name>,
+      json_bool_null<"active", OptBool>,
+      json_string<"expression", Name>,
+      json_string_null<"description", OptName>,
+      json_string_null<"constraint_type", OptName>,
+      json_number_null<"penalty", OptReal>,
+      json_string_null<"penalty_class", OptName>,
+      json_variant_null<"rhs", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   [[nodiscard]] constexpr static auto to_json_data(UserConstraint const& uc)
   {
@@ -37,7 +42,8 @@ struct json_data_contract<UserConstraint>
                                  uc.description,
                                  uc.constraint_type,
                                  uc.penalty,
-                                 uc.penalty_class);
+                                 uc.penalty_class,
+                                 uc.rhs);
   }
 };
 

@@ -937,13 +937,25 @@ auto PlanningLP::create_systems(System& system,
 
   // Propagate low-memory hint from planning options into flat_opts so
   // SystemLP::create_lp can branch on it.  SDDP and cascade methods both
-  // honor `sddp_options.low_memory_mode`; the monolithic method leaves
-  // it at `off`.  When non-`off`, SystemLP defers the initial load_flat
-  // and the backend is reconstructed lazily on first use, saving one
-  // full backend population per (scene, phase).
-  if (resolved_opts.low_memory_mode == LowMemoryMode::off) {
+  // honor `sddp_options.low_memory_mode`; the monolithic method is
+  // single-solve per (scene, phase) so the lazy-rebuild path adds cost
+  // (extra backend reconstruct + decompress) without the iteration
+  // amortisation that justifies it under SDDP.  Force `off` for
+  // monolithic regardless of any user override, warning when the
+  // override is dropped.
+  {
     const auto method = options.method_type_enum();
-    if (method == MethodType::sddp || method == MethodType::cascade) {
+    if (method == MethodType::monolithic) {
+      if (resolved_opts.low_memory_mode != LowMemoryMode::off) {
+        SPDLOG_WARN(
+            "  low_memory={} requested but ignored for monolithic mode "
+            "(single solve per cell, no amortisation) — forcing off",
+            enum_name(resolved_opts.low_memory_mode));
+        resolved_opts.low_memory_mode = LowMemoryMode::off;
+      }
+    } else if (resolved_opts.low_memory_mode == LowMemoryMode::off
+               && (method == MethodType::sddp || method == MethodType::cascade))
+    {
       resolved_opts.low_memory_mode = options.sddp_low_memory();
       resolved_opts.memory_codec = options.sddp_memory_codec();
     }
@@ -1325,9 +1337,32 @@ auto PlanningLP::create_systems(System& system,
 
 void PlanningLP::write_lp(const std::string& filename) const
 {
+  // Strip a trailing ".lp" so the filename we hand to the backend
+  // (which always appends ".lp") never produces "name.lp_scene_0_phase_0.lp"
+  // when callers — and the gtopt CLI doc — naturally write the extension.
+  auto stem = filename;
+  if (stem.size() >= 3 && stem.compare(stem.size() - 3, 3, ".lp") == 0) {
+    stem.erase(stem.size() - 3);
+  }
+
+  // Count cells: monolithic has exactly one (scene, phase), in which
+  // case the `_scene_0_phase_0` decoration is noise.  SDDP needs it
+  // to disambiguate the many cells it dumps under one stem.
+  std::size_t n_cells = 0;
+  for (auto&& phase_systems : m_systems_) {
+    n_cells += phase_systems.size();
+    if (n_cells > 1) {
+      break;
+    }
+  }
+
   for (auto&& phase_systems : m_systems_) {
     for (auto&& system : phase_systems) {
-      auto result = system.write_lp(filename);
+      const auto result = n_cells == 1
+          ? system.linear_interface().write_lp(stem)
+          : system.write_lp(stem)
+                .transform([](auto&&) {})
+                .transform_error([](auto&& e) { return e; });
       if (!result) {
         spdlog::warn("{}", result.error().message);
         return;

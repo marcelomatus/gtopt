@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <numeric>
 #include <stdexcept>
@@ -113,6 +114,29 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
 /// (live in-place tweaks).
 void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
 {
+  // Read the user-supplied .prm file FIRST so the typed gtopt fields
+  // below win on conflict.  ``CPXreadcopyparam`` parses the standard
+  // CPLEX parameter format (``CPX_PARAM_<NAME> <value>`` one per
+  // line, ``#`` for comments) — same files written by CPLEX's
+  // ``CPXwriteparam`` and consumed by PLEXOS via
+  // ``PLEXOS_SolverParam.xml``.  Lets users pin the full ~150-knob
+  // CPLEX surface without expanding ``SolverOptions``.
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
+    if (rc != 0) {
+      std::fprintf(
+          stderr,
+          "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
+          "subsequent gtopt parameter sets may not have taken effect.\n",
+          opts.param_file->c_str(),
+          rc);
+    } else {
+      std::fprintf(stderr,
+                   "[CPLEX] INFO: read parameter file '%s'\n",
+                   opts.param_file->c_str());
+    }
+  }
+
   if (opts.threads > 0) {
     CPXsetintparam(env, CPX_PARAM_THREADS, opts.threads);
   }
@@ -1410,24 +1434,51 @@ void CplexSolverBackend::clear_log_filename()
 void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
                                     const std::vector<std::string>& row_names)
 {
-  // Set column names — copy to mutable buffer because older CPLEX APIs
-  // declare the name parameter as char** (non-const).
-  for (int i = 0; std::cmp_less(i, col_names.size()); ++i) {
-    if (!col_names[static_cast<size_t>(i)].empty()) {
-      std::string name_buf = col_names[static_cast<size_t>(i)];
-      auto* name_ptr = name_buf.data();
-      CPXchgcolname(m_env_lp_.env(), m_env_lp_.lp(), 1, &i, &name_ptr);
+  // CPXchgcolname / CPXchgrowname walk an internal CPLEX name table on
+  // every call, so the previous per-column / per-row loop became O(N^2)
+  // and on 7-day CEN PCP cases (~330k cols) spent multiple minutes
+  // entirely inside CPLEX before `write_lp` could even open the file.
+  // Fix: pack non-empty (index, name) pairs into a single bulk-array
+  // call.  Empty entries are skipped to preserve the previous "leave
+  // unnamed columns blank" behaviour.
+  auto push =
+      [&](const std::vector<std::string>& names, auto chg_fn, const char* kind)
+  {
+    std::vector<int> indices;
+    std::vector<char*> name_ptrs;
+    std::vector<std::string> name_bufs;
+    indices.reserve(names.size());
+    name_ptrs.reserve(names.size());
+    name_bufs.reserve(names.size());
+    for (size_t i = 0; i < names.size(); ++i) {
+      if (names[i].empty()) {
+        continue;
+      }
+      name_bufs.emplace_back(names[i]);
+      indices.push_back(static_cast<int>(i));
     }
-  }
+    name_ptrs.resize(name_bufs.size());
+    for (size_t k = 0; k < name_bufs.size(); ++k) {
+      name_ptrs[k] = name_bufs[k].data();
+    }
+    if (indices.empty()) {
+      return;
+    }
+    const int status = chg_fn(m_env_lp_.env(),
+                              m_env_lp_.lp(),
+                              static_cast<int>(indices.size()),
+                              indices.data(),
+                              name_ptrs.data());
+    if (status != 0) {
+      std::fprintf(stderr,
+                   "CPLEX: bulk %s rename failed with status %d\n",
+                   kind,
+                   status);
+    }
+  };
 
-  // Set row names
-  for (int i = 0; std::cmp_less(i, row_names.size()); ++i) {
-    if (!row_names[static_cast<size_t>(i)].empty()) {
-      std::string name_buf = row_names[static_cast<size_t>(i)];
-      auto* name_ptr = name_buf.data();
-      CPXchgrowname(m_env_lp_.env(), m_env_lp_.lp(), 1, &i, &name_ptr);
-    }
-  }
+  push(col_names, &CPXchgcolname, "column");
+  push(row_names, &CPXchgrowname, "row");
 }
 
 void CplexSolverBackend::write_lp(const char* filename)

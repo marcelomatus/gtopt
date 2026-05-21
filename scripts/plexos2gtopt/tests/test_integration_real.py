@@ -296,6 +296,14 @@ def test_real_bundle_convert_emits_valid_planning(tmp_path: Path) -> None:
             "output_dir": tmp_path,
             "output_file": out_file,
             "use_single_bus": True,
+            # Pin the legacy 24-block layout: the default is now
+            # ``--horizon-mode plexos`` which would auto-discover the
+            # adjacent RES bundle and emit the 111-block PLEXOS layout.
+            # This test asserts the shape of the simulation block; keep
+            # the single-day baseline for it and add a separate test
+            # for the multi-day PLEXOS-native layout below.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     assert out_file.is_file()
@@ -335,6 +343,9 @@ def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:
             "output_dir": tmp_path,
             "output_file": out_file,
             "use_single_bus": True,
+            # Pin the legacy 24-block layout for this LP-only smoke test.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     gtopt = _gtopt_binary()
@@ -362,6 +373,8 @@ def test_real_bundle_dc_opf_solves(tmp_path: Path) -> None:
             "output_dir": tmp_path,
             "output_file": out_file,
             # No use_single_bus override → multi-bus, use_kirchhoff=true.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     planning = json.loads(out_file.read_text())

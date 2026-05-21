@@ -24,6 +24,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/field_sched.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 
@@ -104,6 +105,28 @@ struct UserConstraint
                        ///< columns.  See "Soft constraints" above.
   OptName penalty_class {};  ///< Penalty unit hint: "raw" (default) or
                              ///< "hydro_flow".  See `PenaltyClass`.
+
+  /// Per-(stage, block) override of the constraint's RHS.
+  ///
+  /// When set, the scalar RHS implied by the inline ``<op> NUMBER``
+  /// at the end of ``expression`` is replaced by ``rhs.optval(stage,
+  /// block)`` for every LP row instantiated from this constraint.
+  /// Blocks where the schedule returns ``std::nullopt`` fall back to
+  /// the expression's parsed scalar so legacy JSON keeps working.
+  ///
+  /// Accepts the full ``OptTBRealFieldSched`` payload shape:
+  ///
+  /// - **scalar** (``double``): broadcast to every (stage, block).
+  /// - **T-schedule** (one value per stage): broadcast across blocks.
+  /// - **TB matrix** (``[[stage_blocks]]``): per-(stage, block).
+  /// - **string**: name of a parquet field providing the per-block
+  ///   profile (resolved via ``input_directory``); also doubles as the
+  ///   AMPL parameter name exported for ``user_constraint("X").rhs``
+  ///   references in other constraints' expressions.
+  ///
+  /// PLEXOS PATTERN / Constraint_RHS profiles map cleanly onto this
+  /// field via plexos2gtopt's writer.
+  OptTBRealFieldSched rhs {};
 };
 
 }  // namespace gtopt

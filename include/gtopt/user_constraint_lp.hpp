@@ -36,6 +36,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/schedule.hpp>
 #include <gtopt/user_constraint.hpp>
 
 namespace gtopt
@@ -70,6 +71,17 @@ public:
   [[nodiscard]] constexpr auto&& user_constraint(this auto&& self) noexcept
   {
     return self.object();
+  }
+
+  /// PAMPL parameter accessor for `user_constraint("X").rhs` references
+  /// in other constraints' expressions.  Returns the per-(stage, block)
+  /// override when the schedule is set and resolves at that key;
+  /// otherwise ``std::nullopt`` so the call site can fall back to the
+  /// expression's scalar.
+  [[nodiscard]] auto param_rhs(StageUid s, BlockUid b) const
+      -> std::optional<Real>
+  {
+    return m_rhs_.optval(s, b);
   }
 
   /**
@@ -119,6 +131,14 @@ private:
   /// for soft `EQUAL` constraints (the `−` half of the absolute-value
   /// relaxation).  Empty for one-sided soft constraints.
   STBIndexHolder<ColIndex> m_slack_neg_cols_ {};
+  /// Per-(stage, block) override for the constraint's RHS.  When the
+  /// underlying ``UserConstraint`` ships a ``rhs`` field, this schedule
+  /// stores the resolved per-(stage, block) values; ``add_to_lp``
+  /// consults it via ``m_rhs_.optval(stage, block)`` and only falls
+  /// back to the expression's parsed scalar when the schedule returns
+  /// ``std::nullopt`` for that key.  Empty (``has_value() == false``)
+  /// when the source ``UserConstraint`` left ``rhs`` unset.
+  OptTBRealSched m_rhs_ {};
 };
 
 // Pin the data-struct constant value so an accidental rename of the

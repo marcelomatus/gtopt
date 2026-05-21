@@ -672,6 +672,7 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     , m_scale_type_(enum_from_name<ConstraintScaleType>(
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
+    , m_rhs_(ic, Element::class_name, id(), std::move(object().rhs))
 {
   // Parse `penalty_class` at construction so the hot per-block loop can
   // dispatch on a plain enum.  An unrecognised value is a hard error —
@@ -810,6 +811,25 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     // Move parameter terms to the RHS: vars + params [op] rhs
     // becomes vars [op] rhs - params
     auto adjusted_expr = expr;
+    // ``UserConstraint.rhs`` (TB-schedule field on the source object,
+    // stored in ``m_rhs_``) overrides the scalar parsed from the inline
+    // ``<op> NUMBER`` at the tail of ``expression``.  When the schedule
+    // returns ``std::nullopt`` for the current (stage, block) — or when
+    // the source ``UserConstraint`` left ``rhs`` unset entirely — we
+    // keep the expression's scalar.  Scalar JSON RHS therefore stays
+    // backward-compatible (a ``double`` constant on the schedule is
+    // simply a per-cell value matching the expression's scalar).
+    if (m_rhs_.has_value()) {
+      if (const auto rhs_override = m_rhs_.optval(stage.uid(), block.uid())) {
+        adjusted_expr.rhs = *rhs_override;
+        if (adjusted_expr.lower_bound) {
+          *adjusted_expr.lower_bound = *rhs_override;
+        }
+        if (adjusted_expr.upper_bound) {
+          *adjusted_expr.upper_bound = *rhs_override;
+        }
+      }
+    }
     adjusted_expr.rhs -= param_shift;
     if (adjusted_expr.lower_bound) {
       *adjusted_expr.lower_bound -= param_shift;

@@ -109,6 +109,48 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--horizon-mode",
+        choices=("plexos", "hourly"),
+        default="plexos",
+        help=(
+            "block-layout mode.  ``plexos`` (default) reproduces "
+            "PLEXOS's exact block distribution from the solution "
+            "``.accdb`` (``t_phase_3`` table) — for CEN PCP daily "
+            "that's 111 blocks over 7 days with [24, 20, 13, 14, 12, "
+            "15, 13] per day.  Falls back to uniform daily blocks "
+            "from ``PLEXOS_Param.xml`` band counts when no .accdb is "
+            "available.  ``hourly`` emits ``--horizon-days × 24`` "
+            "uniform hourly blocks (168 for a full week) with no "
+            "aggregation."
+        ),
+    )
+    parser.add_argument(
+        "--horizon-days",
+        type=int,
+        default=None,
+        choices=range(1, 8),
+        metavar="N",
+        help=(
+            "number of consecutive days to convert (1-7).  In "
+            "``--horizon-mode hourly`` defaults to 1 (legacy "
+            "behaviour).  In ``--horizon-mode plexos`` the day count "
+            "is derived from the PLEXOS solution and this flag is "
+            "ignored."
+        ),
+    )
+    parser.add_argument(
+        "--plexos-solution-accdb",
+        type=Path,
+        default=None,
+        help=(
+            "path to the PLEXOS solution ``.accdb`` (used to extract "
+            "the block layout under ``--horizon-mode plexos``).  When "
+            "omitted, the converter auto-discovers a sibling "
+            "``RES<date>.zip[.xz]`` next to the input bundle and "
+            "extracts the nested .accdb from it."
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -150,6 +192,9 @@ def main(argv: list[str] | None = None) -> None:
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
         "default_uc_penalty": args.default_uc_penalty,
+        "horizon_mode": args.horizon_mode,
+        "horizon_days": args.horizon_days,
+        "plexos_solution_accdb": args.plexos_solution_accdb,
     }
 
     if args.show_info:

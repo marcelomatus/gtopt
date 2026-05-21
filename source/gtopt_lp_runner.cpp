@@ -779,16 +779,37 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       planning_lp.build_all_lps_eagerly();
     }
 
+    // --lp-debug in monolithic mode used to be a silent no-op: the
+    // SDDP per-(scene, phase) `LpDebugWriter` is never instantiated,
+    // and `write_lp` only fired when an explicit `--lp-file` path was
+    // provided.  Mirror the SDDP behaviour by writing a single
+    // `<log_directory>/monolithic.lp` dump whenever the user asked
+    // for `lp_debug` without supplying an explicit file path.
+    const bool monolithic_lp_debug = opts.lp_debug.value_or(false)
+        && planning_lp.options().method_type_enum() == MethodType::monolithic
+        && !opts.lp_file.has_value();
+
     if (opts.lp_file) {
       planning_lp.write_lp(opts.lp_file.value());
+    } else if (monolithic_lp_debug) {
+      const auto log_dir = planning_lp.options().log_directory();
+      std::error_code ec;
+      std::filesystem::create_directories(log_dir, ec);
+      const auto lp_path =
+          (std::filesystem::path(log_dir) / "monolithic.lp").string();
+      spdlog::info("lp_debug (monolithic): writing LP to {}", lp_path);
+      planning_lp.write_lp(lp_path);
     }
 
     if (do_stats) {
       log_lp_coefficient_stats(planning_lp);
     }
 
+    // Short-circuit: under `--lp-only`, exit once the LP file is on
+    // disk and the coefficient histogram has been printed.  Stats
+    // remain enabled — only the downstream solver setup is skipped.
     if (want_lp_only) {
-      spdlog::info("lp_only: all LP matrices built, skipping solve");
+      spdlog::info("lp_only: LP written, skipping solve");
       return 0;
     }
 

@@ -290,14 +290,21 @@ _RESERVE_PROVISION_EXPANSION = (
 #     ``α / (pmax)`` on the generation column.  ``duration_h`` is
 #     absorbed when the user-constraint is per-block (the duration is
 #     constant within the block).
-#   - ``"unsupported_rhs_shift"``: PLEXOS ``Generation Curtailed`` =
-#     ``(Capacity × cf) − generation`` and ``Available Capacity`` =
-#     ``Capacity × cf`` rewrite both LHS and RHS. UserConstraint's
-#     grammar accepts only scalar RHS, so we cannot honour the shift
-#     without per-block RHS support (a small gtopt-side feature gap).
-#     Coefficients of these kinds are logged at WARNING and dropped
-#     from the LHS; the constraint may still emit if it carries any
-#     directly-supported coefficient.
+#   - ``"curtailed"``: PLEXOS ``Generation Curtailed`` =
+#     ``(Capacity × cf) − generation``.  LHS gets ``-α × gen``;
+#     RHS gets the per-block shift ``+α × Capacity × cf[block]``
+#     where ``Capacity × cf[block]`` reads from ``Gen_Rating.csv``
+#     (the per-block ``pmax_profile``).  Requires the gtopt
+#     ``UserConstraint.rhs`` TB-schedule feature.
+#   - ``"available_capacity"``: PLEXOS ``Available Capacity`` =
+#     ``Capacity × cf``.  Pure RHS contribution (no LHS term);
+#     RHS gets ``+α × Capacity × cf[block]`` per block.  Same
+#     TB-schedule requirement as ``curtailed``.
+#   - ``"unsupported_rhs_shift"``: cross-block (ramp) and
+#     battery-reserve-units coefficients that gtopt's UserConstraint
+#     cannot express today — neither the LHS (gtopt has no
+#     ``generator.ramp_up`` accessor) nor any per-block
+#     reformulation is available.  Dropped with a WARNING.
 _DERIVED_COEFFS: tuple[tuple[str, str, str, str], ...] = (
     ("Generator", "Constraints", "Generation Sent Out Coefficient", "sent_out"),
     ("Generator", "Constraints", "Capacity Factor Coefficient", "per_capacity"),
@@ -305,13 +312,13 @@ _DERIVED_COEFFS: tuple[tuple[str, str, str, str], ...] = (
         "Generator",
         "Constraints",
         "Generation Curtailed Coefficient",
-        "unsupported_rhs_shift",
+        "curtailed",
     ),
     (
         "Generator",
         "Constraints",
         "Available Capacity Coefficient",
-        "unsupported_rhs_shift",
+        "available_capacity",
     ),
     # Ramp Up/Down Coefficient references the inter-block ramp delta
     # (gen(t) - gen(t-1)). gtopt models ramps via Commitment constraints
@@ -395,6 +402,7 @@ def extract_bundle_spec(bundle: PlexosBundle) -> BundleSpec:
         step_type=step_type,
         day_beginning=day_beginning,
         bundle_name=name,
+        n_days=bundle.n_days,
     )
 
 
@@ -710,7 +718,9 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
     fuel_map = _gen_fuel_map(db)
 
     pmax_profiles: dict[str, list[float]] = (
-        read_long(bundle.csv("Gen_Rating.csv")) if bundle.has("Gen_Rating.csv") else {}
+        read_long(bundle.csv("Gen_Rating.csv"), n_days=bundle.n_days)
+        if bundle.has("Gen_Rating.csv")
+        else {}
     )
     pmin_profiles: dict[str, list[float]] = (
         read_long(bundle.csv("Gen_MinStableLevel.csv"))
@@ -1024,8 +1034,9 @@ def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...
     ``model_options.demand_fail_cost``.
     """
     bus_voll = _bus_to_region_voll(db)
+    n_days = bundle.n_days
     if bundle.has("Nod_Load.csv"):
-        load_by_bus = read_wide(bundle.csv("Nod_Load.csv"))
+        load_by_bus = read_wide(bundle.csv("Nod_Load.csv"), n_days=n_days)
         out: list[DemandSpec] = []
         for bus_name, profile in load_by_bus.items():
             out.append(
@@ -1047,7 +1058,7 @@ def extract_demands(db: PlexosDb, bundle: PlexosBundle) -> tuple[DemandSpec, ...
             DemandSpec(
                 name=f"load_{node.name}",
                 bus_name=node.name,
-                lmax_profile=(load,) * 24,
+                lmax_profile=(load,) * (24 * n_days),
                 fcost=bus_voll.get(node.name, 0.0),
             )
         )
@@ -1331,36 +1342,75 @@ def extract_junctions(
     return tuple(JunctionSpec(name=r.name) for r in reservoirs)
 
 
-def extract_turbines(db: PlexosDb, _bundle: PlexosBundle) -> tuple[TurbineSpec, ...]:
+def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, ...]:
     """One :class:`TurbineSpec` per Generator with a Head Storage link.
 
     PLEXOS encodes the turbine-to-reservoir relationship via the
-    Generator→Storage "Head Storage" collection. We populate
-    ``production_factor`` (MW per m³/s) from t_data fallback —
-    ``Hydro_EfficiencyIncr.csv`` carries the same on the CSV side but
-    is keyed by storage, not generator, so the t_data path on the
-    Generator System collection is more direct.
+    Generator→Storage "Head Storage" collection.  When PLEXOS also
+    ships a "Tail Storage" link, capture it so the writer can
+    synthesise a per-turbine penstock with the right downstream
+    junction (Head→Tail) instead of cloning the spillway path.
+
+    ``production_factor`` (MW per m³/s) comes from PLEXOS's
+    ``"Efficiency Incr"`` t_data on the System→Generator collection.
+    CEN PCP ships this for 40 hydro units (e.g. ``ANTUCO_U1 = 1.6``,
+    ``ANGOSTURA_U1 = 0.43``).  When the t_data path is empty we fall
+    back to ``Hydro_EfficiencyIncr.csv`` (same per-Generator schema).
+    The historical ``"Production Rate"`` name is a PLEXOS export
+    artefact that does NOT exist in CEN PCP — looking for it produced
+    a silent 0 on every turbine, defaulting to gtopt's PF = 1 MW/m³/s
+    (which is right for ANTUCO but wrong by 2-3× for ANGOSTURA and
+    many other plants).
     """
     head_coll = db.collection_for_named("Generator", "Storage", "Head Storage")
     if head_coll is None:
         return ()
+    tail_coll = db.collection_for_named("Generator", "Storage", "Tail Storage")
+    tail_by_gen: dict[int, str] = {}
     objs = db.object_by_id()
+    if tail_coll is not None:
+        for m in db.memberships_of(tail_coll.collection_id):
+            res_obj = objs.get(m.child_object_id)
+            if res_obj is not None:
+                tail_by_gen[m.parent_object_id] = res_obj.name
+
+    # CSV fallback: Hydro_EfficiencyIncr.csv keyed by generator name.
+    csv_pf: dict[str, float] = {}
+    if bundle.has("Hydro_EfficiencyIncr.csv"):
+        try:
+            csv_pf_raw = read_long(
+                bundle.csv("Hydro_EfficiencyIncr.csv"),
+                n_days=bundle.n_days,
+            )
+            for k, vals in csv_pf_raw.items():
+                if vals:
+                    nonzero = [v for v in vals if v > 0.0]
+                    if nonzero:
+                        csv_pf[k] = nonzero[0]
+        except (OSError, ValueError) as exc:
+            logger.debug("Hydro_EfficiencyIncr.csv fallback failed: %s", exc)
+
     out: list[TurbineSpec] = []
     for m in db.memberships_of(head_coll.collection_id):
         gen_obj = objs.get(m.parent_object_id)
         res_obj = objs.get(m.child_object_id)
         if gen_obj is None or res_obj is None:
             continue
-        # Production factor: try the t_data ``Production Rate`` /
-        # ``Head Loss Coefficient`` properties on the Generator System
-        # collection; CEN PCP omits this for many units, leaving us at
-        # zero. The writer falls back to the global default.
-        pf = db.static_property("Generator", gen_obj.object_id, "Production Rate")
+        # Prefer ``Hydro_EfficiencyIncr.csv`` (the real engineering
+        # values, e.g. ANTUCO_U1=1.6, ANGOSTURA_U1=0.43).  PLEXOS's
+        # ``"Efficiency Incr"`` t_data ships a placeholder ``1.0`` for
+        # every hydro generator in CEN PCP — using it directly would
+        # give every turbine a 1 MW per m³/s conversion, wrong by 2-3×
+        # for many plants.
+        pf = csv_pf.get(gen_obj.name)
+        if pf is None or pf <= 0.0:
+            pf = db.static_property("Generator", gen_obj.object_id, "Efficiency Incr")
         out.append(
             TurbineSpec(
                 generator_name=gen_obj.name,
                 reservoir_name=res_obj.name,
                 production_factor=pf,
+                tail_reservoir_name=tail_by_gen.get(gen_obj.object_id),
             )
         )
     return tuple(out)
@@ -1386,7 +1436,7 @@ def extract_flows(
     _ = db  # reserved for future use (per-Storage Flow scaling factor)
     if not bundle.has("Hydro_WaterFlows.csv"):
         return ()
-    inflows = read_wide(bundle.csv("Hydro_WaterFlows.csv"))
+    inflows = read_wide(bundle.csv("Hydro_WaterFlows.csv"), n_days=bundle.n_days)
     out: list[FlowSpec] = []
     dropped: list[str] = []
     for storage_name, profile in inflows.items():
@@ -1411,7 +1461,9 @@ def extract_flows(
 
 
 def _parse_res_requirement_csv(
-    path: Path, reserve_names: frozenset[str]
+    path: Path,
+    reserve_names: frozenset[str],
+    n_days: int = 1,
 ) -> dict[str, list[float]]:
     """Parse ``Res_Requirement.csv``'s ``NAME, PATTERN, VALUE`` layout.
 
@@ -1419,7 +1471,13 @@ def _parse_res_requirement_csv(
     PATTERN ``"DO_d,Hh"`` is parsed for ``Hh`` (1..24). Day-of-week
     field ``DO_d`` is ignored — CEN PCP is a daily run.
 
-    Returns ``{reserve_name -> 24-element profile}``.
+    Returns ``{reserve_name -> (24*n_days)-element profile}``.  The
+    24-hour daily pattern is replicated ``n_days`` times so the per-
+    block requirement matches the LP's horizon; without this gtopt's
+    ``FieldSched::optval`` would read past the end of the array for
+    blocks beyond day 0 — observed as ``2.83e+256`` lower bounds on
+    ``reservezone_drequirement_12_<scene>_<stage>_<block>`` columns on
+    the 7-day CEN PCP case.
     """
     import csv  # pylint: disable=import-outside-toplevel
 
@@ -1444,6 +1502,9 @@ def _parse_res_requirement_csv(
                 continue
             series = out.setdefault(name, [0.0] * 24)
             series[hour - 1] = value
+    if n_days > 1:
+        for k, daily in out.items():
+            out[k] = list(daily) * n_days
     return out
 
 
@@ -1464,7 +1525,9 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
     csv_profiles: dict[str, list[float]] = {}
     if bundle.has("Res_Requirement.csv"):
         csv_profiles = _parse_res_requirement_csv(
-            bundle.csv("Res_Requirement.csv"), reserve_names
+            bundle.csv("Res_Requirement.csv"),
+            reserve_names,
+            n_days=bundle.n_days,
         )
 
     # Pull the Reserve→Generator membership for eligibility.
@@ -1801,17 +1864,42 @@ def extract_flow_rights(
     turbines: tuple[TurbineSpec, ...],
     known_junctions: frozenset[str] = frozenset(),
 ) -> tuple[FlowRightSpec, ...]:
-    """Parse ``Hydro_AntucoBounds.csv`` (Laja irrigation envelope) into FlowRights.
+    """Disabled — ``Hydro_AntucoBounds.csv`` entries are NOT junction-level
+    irrigation rights.
 
-    The CSV ships per-day rows for names like ``ANTUCOmin`` / ``ANTUCOmax`` /
-    ``ELTOROmax`` — the suffix selects fmin vs fmax. We collapse to the
-    first matching row per name (single-day PCP horizon) and resolve
-    the junction via the Generator→Head Storage mapping in
-    ``turbines`` (e.g. ``ANTUCO*`` → POLCURA junction).
+    The PLEXOS DB shows ``ANTUCOmax`` / ``ANTUCOmin`` / ``ELTOROmax``
+    objects with **Generator → FlowConstraint** memberships (coll_id=32)
+    — they are **per-generator turbine discharge** constraints binding the
+    SUM of multiple turbine flows on a single hydro plant (e.g.
+    ``ANTUCOmax = 63 m³/s`` caps the COMBINED discharge of ANTUCO_U1 +
+    ANTUCO_U2).  Modelling them as FlowRights on the upstream reservoir
+    introduces a phantom water-rights consumer at the junction that
+    has no PLEXOS basis.
 
-    Flow rights whose junction cannot be resolved are emitted with
-    ``junction_name=None`` and a debug log; the writer drops them
-    rather than dangle them against non-existent junctions.
+    The correct gtopt encoding is a **UserConstraint** with expression
+    ``(1/pf_i) * generator(i).generation`` summed over the bound's
+    member generators, bounded by the CSV value.  That mapping is a
+    TODO; for now we emit no FlowRights from this CSV so the LP isn't
+    biased by the wrong abstraction.  Real junction-level irrigation
+    rights (if any) would come from a different source.
+    """
+    _ = bundle, turbines, known_junctions
+    return ()
+
+
+def _extract_flow_rights_legacy_misclassified(
+    bundle: PlexosBundle,
+    turbines: tuple[TurbineSpec, ...],
+    known_junctions: frozenset[str] = frozenset(),
+) -> tuple[FlowRightSpec, ...]:
+    """Legacy mis-classified FlowRight extractor — kept for reference.
+
+    ``Hydro_AntucoBounds.csv`` ships per-day rows for names like
+    ``ANTUCOmin`` / ``ANTUCOmax`` / ``ELTOROmax`` — but these are
+    PER-GENERATOR DISCHARGE LIMITS in PLEXOS, not junction-level water
+    rights.  Emitting them as FlowRights on the upstream reservoir
+    caused phantom infeasibilities; see ``extract_flow_rights``
+    docstring for the proper UserConstraint reformulation.
     """
     import csv  # pylint: disable=import-outside-toplevel
 
@@ -2041,6 +2129,7 @@ def extract_user_constraints(
     emitted_names: dict[str, frozenset[str]] | None = None,
     heat_rate_by_gen: dict[str, float] | None = None,
     pmax_by_gen: dict[str, float] | None = None,
+    pmax_profiles_by_gen: dict[str, tuple[float, ...]] | None = None,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -2284,6 +2373,25 @@ def extract_user_constraints(
         # constraint as contingency after the build loop (signs +
         # magnitudes are what determines feasibility).
         coefficients: list[float] = []
+        # Per-block RHS shift bookkeeping — accumulated from both the
+        # Fuel.Offtake daily-to-block budget split AND the derived
+        # Curtailed / Available Capacity coefficients below.  Hoisted
+        # to the top of the per-constraint scope so all downstream
+        # sections can append to it.
+        gen_pmax_by_name = pmax_by_gen or {}
+        gen_pmax_profiles = pmax_profiles_by_gen or {}
+        rhs_shift_per_block: list[float] = []
+
+        def _shift_at(idx: int) -> float:
+            while idx >= len(rhs_shift_per_block):
+                rhs_shift_per_block.append(0.0)
+            return rhs_shift_per_block[idx]
+
+        def _set_shift(idx: int, value: float) -> None:
+            while idx >= len(rhs_shift_per_block):
+                rhs_shift_per_block.append(0.0)
+            rhs_shift_per_block[idx] = value
+
         for parent_class, gtopt_class, accessor, name_tmpl, per_constr in direct_index:
             allowed_parent = (
                 emitted_names.get(parent_class) if emitted_names is not None else None
@@ -2315,10 +2423,22 @@ def extract_user_constraints(
 
         # 2. Fuel.Offtake expansion: a Fuel→Constraint coefficient ``α``
         #    becomes ``α × heat_rate(g) × generator(g).generation`` summed
-        #    over every Generator g that consumes that Fuel.
+        #    over every Generator g that consumes that Fuel.  The PLEXOS
+        #    constraint RHS is a CUMULATIVE budget (Day / Week / Month
+        #    depending on name); CEN PCP daily case is exclusively
+        #    "Day" — see the 257-vs-0 name-bucket distribution.  gtopt's
+        #    UserConstraint is per-block, so we approximate the daily
+        #    cumulative cap by emitting a TB-schedule ``rhs`` of
+        #    ``rhs_val / blocks_per_day`` for each block.  Under uniform
+        #    dispatch this sums to exactly ``rhs_val`` per day; under
+        #    non-uniform dispatch the per-block cap is conservatively
+        #    tight (LP will not exceed ``rhs_val/blocks_per_day`` in
+        #    any single hour).  Stage-level cumulative constraints
+        #    would be the principled fix when gtopt grows that surface.
         allowed_gens = (
             emitted_names.get("Generator") if emitted_names is not None else None
         )
+        is_fuel_offtake = False
         for fuel_name, alpha in fuel_offtake_index.get(constr.object_id, ()):
             for gen_name in fuel_to_gens.get(fuel_name, ()):
                 if allowed_gens is not None and gen_name not in allowed_gens:
@@ -2330,6 +2450,32 @@ def extract_user_constraints(
                 var_ref = f'generator("{gen_name}").generation'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
                 coefficients.append(coeff)
+                is_fuel_offtake = True
+
+        # When this constraint had any fuel-offtake LHS contribution,
+        # convert the scalar daily cap into a per-block budget so
+        # ``rhs[block] = rhs_val / blocks_per_day``.  The block count
+        # comes from the longest profile we've seen so far in
+        # ``rhs_shift_per_block`` (populated by curtailed /
+        # available_capacity above) or — when no profile is available
+        # yet — from a representative generator's pmax_profile length.
+        if is_fuel_offtake:
+            horizon = max(
+                len(rhs_shift_per_block),
+                next(
+                    (len(p) for p in gen_pmax_profiles.values() if p),
+                    24,
+                ),
+            )
+            blocks_per_day = 24
+            per_block_rhs = rhs_val / blocks_per_day
+            # Subtract from the current per-block RHS so the final
+            # emitted profile is ``rhs_val_per_block`` rather than the
+            # daily total.  ``shift = rhs_val - per_block_rhs`` for
+            # every block.
+            shift = rhs_val - per_block_rhs
+            for idx in range(horizon):
+                _set_shift(idx, _shift_at(idx) + shift)
 
         # 2b. Reserve.Provision expansion: α × Σ_g reserve_provision(
         #     "provision_<g>").<up|dn> over generators eligible for
@@ -2356,7 +2502,6 @@ def extract_user_constraints(
         #    — translate to a Generation Coefficient with appropriate
         #    rescaling; flag the RHS-shift kinds since UserConstraint
         #    can't express a per-block RHS yet.
-        gen_pmax_by_name = pmax_by_gen or {}
         constraint_has_unsupported = False
         for parent_class, mode, prop_name, per_constr in derived_index:
             allowed_parent = (
@@ -2375,14 +2520,45 @@ def extract_user_constraints(
                     if pmax <= 0.0:
                         continue
                     coeff = alpha / pmax
+                elif mode in ("curtailed", "available_capacity"):
+                    # Per-block RHS shift via UserConstraint.rhs TB
+                    # schedule.  ``Capacity × cf[block]`` is the
+                    # generator's per-block ``pmax_profile`` value
+                    # (Gen_Rating.csv).  When the profile is missing,
+                    # fall back to the scalar ``pmax`` broadcast across
+                    # the horizon.
+                    profile = gen_pmax_profiles.get(parent_name)
+                    fallback_pmax = gen_pmax_by_name.get(parent_name, 0.0)
+                    if not profile and fallback_pmax <= 0.0:
+                        continue
+                    horizon = (
+                        len(profile) if profile else max(1, len(rhs_shift_per_block))
+                    )
+                    for idx in range(horizon):
+                        cap_cf = profile[idx] if profile else fallback_pmax
+                        _set_shift(idx, _shift_at(idx) + alpha * cap_cf)
+                    if mode == "curtailed":
+                        # α × (Capacity × cf − gen) ⇒ LHS gets −α × gen,
+                        # RHS already received the +α × cap_cf shift
+                        # above.
+                        coeff = -alpha
+                        var_ref = f'generator("{parent_name}").generation'
+                        terms.append(
+                            _format_coefficient(coeff, first=not terms) + var_ref
+                        )
+                        coefficients.append(coeff)
+                    # available_capacity: pure RHS — no LHS term to emit.
+                    continue
                 else:
-                    # unsupported_rhs_shift — log once per (constraint, kind)
+                    # unsupported_rhs_shift (Ramp Up/Down, Battery
+                    # Reserve Units) — log once per (constraint, kind)
                     key = f"{constr.name}::{prop_name}"
                     if key not in unsupported_rhs_shift_warns:
                         unsupported_rhs_shift_warns.add(key)
                         logger.warning(
-                            "constraint %s drops %s on %s — RHS shift not "
-                            "expressible in scalar-RHS UserConstraint",
+                            "constraint %s drops %s on %s — coefficient "
+                            "kind has no gtopt LHS counterpart and no "
+                            "per-block RHS reformulation",
                             constr.name,
                             prop_name,
                             parent_name,
@@ -2440,12 +2616,20 @@ def extract_user_constraints(
                 "(PLEXOS didn't tag it with Include in ST Schedule).",
                 constr.name,
             )
+        # Per-block effective RHS = scalar_rhs − Σ(α × Capacity × cf[t]).
+        # Build the schedule only when at least one curtailed /
+        # available_capacity coefficient contributed; otherwise leave
+        # ``rhs_profile`` empty so the writer keeps the inline scalar.
+        rhs_profile_tuple: tuple[float, ...] = ()
+        if any(abs(s) > 0.0 for s in rhs_shift_per_block):
+            rhs_profile_tuple = tuple(rhs_val - shift for shift in rhs_shift_per_block)
         out.append(
             UserConstraintSpec(
                 name=constr.name,
                 expression=expression,
                 penalty=penalty_val if penalty_val and penalty_val > 0 else 0.0,
                 active=False if is_inactive else None,
+                rhs_profile=rhs_profile_tuple,
             )
         )
     return tuple(out)
@@ -2507,6 +2691,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             currency=bundle_spec.currency,
             bundle_name=bundle_spec.bundle_name,
             demand_fail_cost=chosen,
+            n_days=bundle_spec.n_days,
         )
     case = PlexosCase(
         bundle=bundle_spec,
@@ -2578,6 +2763,9 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     }
     heat_rate_by_gen = {g.name: g.heat_rate for g in case.generators if g.heat_rate}
     pmax_by_gen_for_uc = {g.name: g.pmax for g in case.generators if g.pmax > 0}
+    pmax_profiles_by_gen = {
+        g.name: g.pmax_profile for g in case.generators if g.pmax_profile
+    }
     case = dataclasses.replace(
         case,
         user_constraints=extract_user_constraints(
@@ -2586,6 +2774,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             emitted_names=emitted_names,
             heat_rate_by_gen=heat_rate_by_gen,
             pmax_by_gen=pmax_by_gen_for_uc,
+            pmax_profiles_by_gen=pmax_profiles_by_gen,
         ),
     )
     logger.info(

@@ -42,6 +42,24 @@ class BundleSpec:
     # Defaults to 1000 (gtopt's traditional default) when PLEXOS leaves
     # VoLL unset / inconsistent across regions.
     demand_fail_cost: float = 1000.0
+    # Horizon length in days.  ``1`` (default) keeps the legacy day-1
+    # PCP behaviour; ``7`` reconstructs the full CEN PCP forward-look
+    # week.  All time-varying CSV readers
+    # (:func:`plexos_csv.read_wide` / :func:`read_long`) are widened
+    # via their ``n_days`` parameter; the simulation emits
+    # ``n_days × step_count`` hourly blocks in the ``hourly`` mode.
+    n_days: int = 1
+    # Block layout for the PLEXOS-native mode.  Empty tuple ⇒ emit
+    # ``n_days × step_count`` uniform hourly blocks (``hourly`` mode).
+    # Non-empty ⇒ each inner tuple is the 1-indexed hourly intervals
+    # that constitute one block, in calendar order.  CEN PCP daily
+    # produces 111 blocks across 7 days; ``len(block_layout) == 111``,
+    # ``sum(len(b) for b in block_layout) == 168``.  Quantities are
+    # aggregated per block in the writer: ``mean`` for time-average
+    # values (demand, hydro inflow), ``min`` for capacity (line units,
+    # availability), and the block duration = ``len(intervals)``
+    # hours.
+    block_layout: tuple[tuple[int, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -248,11 +266,19 @@ class TurbineSpec:
     gtopt has an explicit Turbine entity that references both the
     Generator (for power output on the electrical bus) and the
     upstream Reservoir (``main_reservoir``) for water balance.
+
+    ``tail_reservoir_name`` captures PLEXOS's *Tail Storage* link when
+    present — the downstream reservoir / junction the turbine
+    discharges into.  Used by the writer to synthesise a per-turbine
+    penstock with correct junctions when the PLEXOS spillway
+    (``Vert_*``) routes to a different downstream than the turbine
+    tailrace.
     """
 
     generator_name: str
     reservoir_name: str
     production_factor: float = 0.0  # MW per m³/s (Hydro_EfficiencyIncr fp_med)
+    tail_reservoir_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -354,6 +380,14 @@ class UserConstraintSpec:
     penalty: float = 0.0
     description: str = ""
     active: bool | None = None
+    # Per-block RHS override.  When supplied, gets serialised to the
+    # gtopt-side ``user_constraint.rhs`` TB-schedule field and overrides
+    # the scalar parsed from the inline ``<op> NUMBER`` tail of
+    # ``expression``.  Empty tuple ⇒ no override (legacy scalar-RHS
+    # behaviour).  Multi-day cases must already match the writer's
+    # ``block_count`` / ``block_layout`` (24-element daily patterns
+    # are tiled by ``n_days`` upstream).
+    rhs_profile: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
