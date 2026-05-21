@@ -1071,6 +1071,12 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         # per-unit (system MVA base, gtopt-agnostic). Wheeling charge
         # is $/MWh.
         reactance = db.static_property("Line", line.object_id, "Reactance")
+        # PLEXOS Resistance (pid 1888): per-unit on the system MVA
+        # base.  Drives gtopt's piecewise loss model
+        # `P_loss = R · f² / V²` — emit verbatim, the writer turns
+        # on the piecewise mode with a small fixed number of
+        # segments to mirror PLEXOS's default loss linearisation.
+        resistance = db.static_property("Line", line.object_id, "Resistance")
         wheeling = db.static_property("Line", line.object_id, "Wheeling Charge")
         # PLEXOS Enforce Limits: 0=Never, 1=Voltage, 2=Always.  Defaults
         # to 1 ("enforce") when the property is unset to stay safe on
@@ -1089,6 +1095,7 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 tmin_ab_profile=tuple(tmin_series),
                 units=units,
                 reactance=reactance,
+                resistance=resistance,
                 wheeling_charge=wheeling,
                 enforce_limits=enforce_limits,
             )

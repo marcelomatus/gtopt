@@ -144,6 +144,12 @@ class LineSpec:
     bus_to: str
     tmax_ab: float = 0.0
     tmin_ab: float = 0.0
+    # Series resistance in per-unit (same unit basis as ``reactance``).
+    # Used by the writer to emit a ``resistance`` field on the Line
+    # entry so gtopt's piecewise loss model can compute the
+    # K-segment loss curve `P_loss = R · f² / V²`.  Zero or unset →
+    # no losses on this line (matches gtopt's default).
+    resistance: float = 0.0
     # Optional per-hour profile (length = bundle.n_days × 24) for
     # DLR (Dynamic Line Rating) corridors whose Lin_MaxRating.csv ships
     # different ratings per period (e.g. LoAguirre500->Polpaico500: 900
