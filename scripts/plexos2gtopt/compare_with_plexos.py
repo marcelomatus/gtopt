@@ -194,6 +194,56 @@ def _format_money(value: float) -> str:
 #                                                  do NOT × duration)
 
 
+def _read_plexos_table(
+    accdb_path: Path,
+    table: str,
+    *,
+    case_dir: Path | None = None,
+) -> str:
+    """Return the CSV text for ``table`` from a PLEXOS .accdb.
+
+    Tries three sources in order:
+      1. ``case_dir / "plexos_cache" / "<table>.csv.zst"`` — the
+         pre-extracted cache plexos2gtopt drops during conversion.
+         Decompressed via the ``zstd -d`` CLI (avoids hard
+         python-zstandard dep).
+      2. ``<accdb_dir> / "plexos_cache" / "<table>.csv.zst"``
+         when the .accdb itself is under a cached layout.
+      3. Live ``mdb-export <accdb> <table>`` fallback — slow,
+         used when the cache is absent or unreadable.
+
+    Returns the raw CSV text (headers + rows) ready to pass into
+    ``csv.DictReader(io.StringIO(...))``.
+    """
+    import subprocess
+
+    candidates: list[Path] = []
+    if case_dir is not None:
+        candidates.append(case_dir / "plexos_cache" / f"{table}.csv.zst")
+    if accdb_path is not None:
+        candidates.append(accdb_path.parent / "plexos_cache" / f"{table}.csv.zst")
+
+    for cache in candidates:
+        if not cache.exists():
+            continue
+        try:
+            proc = subprocess.run(
+                ["zstd", "-d", "-q", "-c", str(cache)],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=60,
+            )
+            return proc.stdout
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            # Cache file is corrupt or zstd unavailable — fall through
+            # to the live extraction below.
+            continue
+
+    # Live fallback.
+    return subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+
+
 def _plexos_block_durations_from_accdb(
     accdb_path: Path,
 ) -> dict[int, int]:

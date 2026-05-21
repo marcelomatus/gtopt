@@ -122,27 +122,19 @@ def load_block_layout_from_accdb(
     return layout
 
 
-def load_block_layout_from_res_zip(
-    res_zip_path: Path,
-) -> tuple[tuple[int, ...], ...]:
-    """Auto-extract the nested ``.accdb`` from a ``RES*.zip[.xz]`` and
-    delegate to :func:`load_block_layout_from_accdb`.
+def extract_accdb_from_res_zip(res_zip_path: Path) -> Path | None:
+    """Unpack the nested ``.accdb`` from a ``RES*.zip[.xz]`` bundle.
 
-    CEN PCP RES bundles ship the .accdb at:
-        ``Model <name> Solution/Model <name> Solution.accdb``
-    inside the outer zip, optionally wrapped in a .xz layer.
-
-    Returns the loaded layout, or an empty tuple if extraction or
-    parsing fails (and logs the reason at WARNING).  The extracted
-    .accdb lives in a tempfile.mkdtemp directory that is intentionally
-    NOT cleaned up — the file is large and re-extraction across runs
+    Returns the resolved path on success or ``None`` on any failure
+    (and logs the reason at WARNING).  The extracted .accdb lives
+    in a tempfile.mkdtemp directory that is intentionally NOT
+    cleaned up — the file is large and re-extraction across runs
     is expensive; ``/tmp`` cleanup is good enough.
     """
     if not res_zip_path.exists():
         logger.warning("RES bundle not found: %s", res_zip_path)
-        return ()
+        return None
 
-    # Optional .xz layer: peel it into a plain .zip
     scratch = Path(tempfile.mkdtemp(prefix="plexos_layout_"))
     plain_zip = res_zip_path
     if res_zip_path.suffix == ".xz":
@@ -152,9 +144,8 @@ def load_block_layout_from_res_zip(
                 dst.write(src.read())
         except (lzma.LZMAError, OSError) as exc:
             logger.warning("could not decompress %s: %s", res_zip_path, exc)
-            return ()
+            return None
 
-    accdb_name: str | None
     try:
         with zipfile.ZipFile(plain_zip) as zf:
             accdb_name = next(
@@ -163,13 +154,123 @@ def load_block_layout_from_res_zip(
             )
             if accdb_name is None:
                 logger.warning("no .accdb found in %s", res_zip_path)
-                return ()
+                return None
             zf.extract(accdb_name, scratch)
     except (zipfile.BadZipFile, OSError) as exc:
         logger.warning("could not open %s: %s", plain_zip, exc)
-        return ()
+        return None
 
-    return load_block_layout_from_accdb(scratch / accdb_name)
+    return scratch / accdb_name
+
+
+def load_block_layout_from_res_zip(
+    res_zip_path: Path,
+) -> tuple[tuple[int, ...], ...]:
+    """Auto-extract the nested ``.accdb`` from a ``RES*.zip[.xz]`` and
+    delegate to :func:`load_block_layout_from_accdb`.
+
+    CEN PCP RES bundles ship the .accdb at:
+        ``Model <name> Solution/Model <name> Solution.accdb``
+    inside the outer zip, optionally wrapped in a .xz layer.
+    """
+    accdb_path = extract_accdb_from_res_zip(res_zip_path)
+    if accdb_path is None:
+        return ()
+    return load_block_layout_from_accdb(accdb_path)
+
+
+#: PLEXOS solution-database tables that downstream comparison tools
+#: (chiefly :mod:`compare_with_plexos`) repeatedly read via
+#: ``mdb-export`` shell-out — slow (each pass costs ~1-3 s of CSV
+#: serialization).  When plexos2gtopt extracts the .accdb anyway to
+#: read t_phase_3, we mirror these tables as zstd-compressed CSVs
+#: into ``<output_dir>/plexos_cache/`` so later compare runs read
+#: the cache directly without re-invoking ``mdb-export``.  The
+#: cache key is the .accdb path; if the user re-downloads a fresh
+#: solution the cache is silently invalidated by the new path.
+_CACHED_PLEXOS_TABLES = (
+    "t_key",
+    "t_data_0",
+    "t_membership",
+    "t_object",
+    "t_property",
+    "t_category",
+    "t_class",
+    "t_phase_3",
+    "t_period_0",
+    "t_unit",
+)
+
+
+def cache_plexos_tables(
+    accdb_path: Path,
+    output_dir: Path,
+    *,
+    tables: tuple[str, ...] = _CACHED_PLEXOS_TABLES,
+) -> Path | None:
+    """Dump key PLEXOS solution tables to a zstd-compressed CSV
+    cache for fast re-reads by downstream tools.
+
+    Writes one ``<table>.csv.zst`` per requested table to
+    ``output_dir / "plexos_cache"``.  Returns the cache dir path
+    on success, ``None`` on any failure (mdb-tools missing, accdb
+    unreadable, output dir not writable, etc).
+
+    Skips tables that are already present in the cache dir AND
+    newer than the source .accdb — incremental re-cache is a no-op
+    on warm runs.
+    """
+    if not _have_mdb_tools():
+        logger.warning(
+            "mdb-export not found; skipping plexos_cache dump for %s",
+            accdb_path,
+        )
+        return None
+    if not accdb_path.exists():
+        return None
+
+    cache_dir = output_dir / "plexos_cache"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning("cannot create %s: %s", cache_dir, exc)
+        return None
+
+    src_mtime = accdb_path.stat().st_mtime
+    for table in tables:
+        out_path = cache_dir / f"{table}.csv.zst"
+        if out_path.exists() and out_path.stat().st_mtime >= src_mtime:
+            # Cache is fresh; skip re-extraction.
+            continue
+        try:
+            result = subprocess.run(
+                ["mdb-export", str(accdb_path), table],
+                capture_output=True,
+                text=False,
+                check=True,
+                timeout=300,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            logger.warning("mdb-export %s failed: %s", table, exc)
+            continue
+        # zstd-compress the CSV bytes via subprocess to avoid a hard
+        # Python-side zstandard dep (the project already ships zstd
+        # binaries through apt — see CLAUDE.md ``apt install zstd``).
+        try:
+            proc = subprocess.run(
+                ["zstd", "-q", "-f", "-19", "-o", str(out_path)],
+                input=result.stdout,
+                capture_output=True,
+                check=True,
+                timeout=120,
+            )
+            _ = proc  # silence "unused" lint
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            logger.warning("zstd compress %s failed: %s", table, exc)
+            continue
+
+    logger.info("wrote PLEXOS cache to %s (%d tables)", cache_dir, len(tables))
+    return cache_dir
 
 
 def auto_discover_res_zip(input_bundle: Path) -> Path | None:

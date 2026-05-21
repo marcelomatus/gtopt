@@ -32,9 +32,9 @@ and ``--validate`` are wired today; full conversion is in development
 
 _EPILOG = """\
 Examples:
-  plexos2gtopt --info  support/plexos/DATOS20260422.zip.xz
-  plexos2gtopt --validate support/plexos
-  plexos2gtopt -i support/plexos/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
+  plexos2gtopt --info  support/plexos_pcp_2026-04-22/DATOS20260422.zip.xz
+  plexos2gtopt --validate support/plexos_pcp_2026-04-22
+  plexos2gtopt -i support/plexos_pcp_2026-04-22/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
 """
 
 

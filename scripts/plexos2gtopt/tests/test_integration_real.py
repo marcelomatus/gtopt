@@ -30,7 +30,10 @@ from plexos2gtopt.plexos_loader import locate_bundle
 
 
 REAL_BUNDLE = (
-    Path(__file__).resolve().parents[3] / "support" / "plexos" / "DATOS20260422.zip.xz"
+    Path(__file__).resolve().parents[3]
+    / "support"
+    / "plexos_pcp_2026-04-22"
+    / "DATOS20260422.zip.xz"
 )
 
 

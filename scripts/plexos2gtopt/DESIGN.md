@@ -11,7 +11,7 @@ for PSR-SDDP. Same CLI ergonomics, same JSON + Parquet output, same
 
 - **In:** one CEN PCP daily PLEXOS bundle (`PLEXOS{YYYYMMDD}.zip` or
   its two inner zips `DATOS{date}.zip[.xz]` + `RES{date}.zip[.xz]`)
-  vendored at `support/plexos/`.
+  vendored at `support/plexos_pcp_2026-04-22/`.
 - **Out:** one gtopt planning JSON containing
   - 1 `scenario`, 1 `scene`, 1 `phase`, 1 `stage` (the operational day)
   - 24 chronological `block` entries of `duration: 1.0` h
@@ -287,7 +287,7 @@ plexos2gtopt INPUT [-o OUTPUT_DIR] [-l LOG_LEVEL]
 - A `RES{date}.zip[.xz]` solution archive (rejected for v0 — convert
   uses inputs only; comparing solutions is `gtopt_compare`'s job).
 
-Output dir inference: `support/plexos/PLEXOS20260422.zip` →
+Output dir inference: `support/plexos_pcp_2026-04-22/PLEXOS20260422.zip` →
 `gtopt_PLEXOS20260422/`.
 
 ## 8. Test plan
