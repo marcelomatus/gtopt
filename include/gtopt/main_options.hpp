@@ -196,6 +196,13 @@ template<typename T>
        po::value<std::string>().implicit_value(""),
        "run the LinearInterface test suite against all solvers, or a specific "
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
+      ("list-dialects",
+       po::value<std::string>().implicit_value(""),
+       "list the entries in share/gtopt/naming_dialects.json (and the "
+       "matching units from share/gtopt/unit_dialects.json) then exit.  "
+       "Without an argument, dumps every (canonical, dialect, alias, "
+       "unit) row.  With an argument, filters by that dialect name "
+       "(e.g. --list-dialects plexos).")  //
       ("solver",
        po::value<std::string>(),
        "LP/MIP solver backend: cplex, gurobi, highs, mindopt, cbc, clp "
