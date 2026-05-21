@@ -406,6 +406,17 @@ template<typename T>
        "with --time-limit to bound MIP wall-clock when the gap target "
        "is loose.")
       //
+      ("time-limit",
+       po::value<double>(),
+       "Per-solve time limit in seconds (0 = no limit).  Shorthand for "
+       "--set solver_options.time_limit=<value>.  Applied to every LP / "
+       "MIP solve the backend issues (forward + backward passes in "
+       "SDDP, every aperture clone in cascade); the solver aborts the "
+       "current solve when wall-clock exceeds the limit.  Backend "
+       "mapping: CPLEX TILIM, HiGHS time_limit, Gurobi TimeLimit, "
+       "MindOpt MAX_TIME, CLP setMaximumSeconds.  Callers should check "
+       "`is_optimal()` after solve to detect timeouts.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -894,6 +905,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.solver_options.crossover = false;
   }
 
+  if (opts.time_limit.has_value()) {
+    // CLI wins over JSON, same pattern as --mip-gap.  0 means "no
+    // limit" — the SolverOptions::time_limit field is optional so we
+    // pass the raw value through; backends apply only when *value > 0.
+    planning.options.solver_options.time_limit = opts.time_limit;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1125,6 +1143,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .no_presolve = get_opt<bool>(vm, "no-presolve"),
       .no_crossover = get_opt<bool>(vm, "no-crossover"),
+      .time_limit = get_opt<double>(vm, "time-limit"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1417,6 +1436,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.mip_gap, defaults.mip_gap);
   merge(opts.no_presolve, defaults.no_presolve);
   merge(opts.no_crossover, defaults.no_crossover);
+  merge(opts.time_limit, defaults.time_limit);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);

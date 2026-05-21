@@ -482,6 +482,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+    "apply_cli_options(MainOptions) - --time-limit sets "
+    "solver_options.time_limit")
+{
+  // The CLI shortcut drives solver_options.time_limit so every
+  // backend's per-solve wall-clock guard picks it up.  Backends apply
+  // only when *value > 0; we pass the user's value through verbatim.
+  Planning planning {};
+  CHECK_FALSE(planning.options.solver_options.time_limit.has_value());
+
+  apply_cli_options(planning, MainOptions {.time_limit = 60.0});
+
+  REQUIRE(planning.options.solver_options.time_limit.has_value());
+  CHECK(planning.options.solver_options.time_limit.value()
+        == doctest::Approx(60.0));
+}
+
+TEST_CASE(
     "apply_cli_options(MainOptions) - --no-crossover sets "
     "solver_options.crossover=false")
 {
