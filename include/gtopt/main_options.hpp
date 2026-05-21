@@ -198,8 +198,11 @@ template<typename T>
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
       ("solver",
        po::value<std::string>(),
-       "LP solver backend: cplex, highs, cbc, clp "
-       "(default: auto-detect by priority cplex > highs > cbc > clp)")  //
+       "LP/MIP solver backend: cplex, gurobi, highs, mindopt, cbc, clp "
+       "(default: auto-detect by priority "
+       "cplex > highs > mindopt > cbc > clp).  "
+       "Use --solvers to list backends compiled into the current build.")
+      //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -344,10 +347,13 @@ template<typename T>
        po::value<bool>().implicit_value(/*v=*/true),
        "LP-relax every phase (all binary / integer variables become "
        "continuous).  Shorthand for "
-       "`--set model_options.continuous_phases=all`.  Useful for quick "
-       "LP-only smoke tests on cases that would otherwise solve a MIP "
-       "(commitment, segment-based costs, etc.); the relaxation gives a "
-       "lower bound on the true MIP optimum but loses on/off semantics.")
+       "`--set model_options.continuous_phases=all`.  Applied at LP "
+       "assembly time via SimulationLP, so the relaxation is uniform "
+       "across the monolithic, SDDP, and cascade methods.  Useful for "
+       "quick LP-only smoke tests on cases that would otherwise solve a "
+       "MIP (commitment, segment-based costs, etc.); the relaxation "
+       "gives a lower bound on the true MIP optimum but loses on/off "
+       "semantics.")
       //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
@@ -398,11 +404,12 @@ template<typename T>
       ("output-compression,C",
        po::value<std::string>(),
        "Parquet output compression codec: lz4 | snappy | zstd | gzip | none "
-       "(default: lz4); shorthand for --set output_compression=<codec>")  //
+       "(default: zstd); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
        "copper-plate (single-bus) mode: ignore network topology and line "
-       "limits; shorthand for --set model_options.use_single_bus=true")  //
+       "limits; shorthand for --set model_options.use_single_bus=<bool> "
+       "(default when flag is given without value: true)")  //
       ("use-kirchhoff,k",
        po::value<bool>().implicit_value(/*v=*/true),
        "apply DC-OPF Kirchhoff voltage-angle constraints (default: true); "
@@ -412,7 +419,8 @@ template<typename T>
        "save LP debug files to log_directory: a single monolithic.lp for "
        "the monolithic solver, or one per-(scene, phase) LP file for every "
        "SDDP pass selected by sddp_options.lp_debug_passes; shorthand for "
-       "--set lp_debug=true")  //
+       "--set lp_debug=<bool> (default when flag is given without "
+       "value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
        "compression codec for LP debug files: gzip | zstd | none "
@@ -446,11 +454,11 @@ template<typename T>
       ("sddp-min-iterations",
        po::value<int>(),
        "minimum SDDP iterations before convergence is considered "
-       "(default: 2); shorthand for --set "
+       "(default: 1); shorthand for --set "
        "sddp_options.min_iterations=<n>")  //
       ("sddp-convergence-tol",
        po::value<double>(),
-       "relative gap tolerance for SDDP convergence (default: 1e-4); "
+       "relative gap tolerance for SDDP convergence (default: 0.01); "
        "shorthand for --set sddp_options.convergence_tol=<eps>")  //
       ("sddp-elastic-penalty",
        po::value<double>(),
