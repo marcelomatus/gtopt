@@ -420,10 +420,16 @@ class TestPminFlowRightCli:
 class TestEnsureBypassForFlowrights:
     """Bypass-wiring helper for soft FlowRights."""
 
-    def test_soft_flow_right_gets_inline_bypass_junction(self) -> None:
-        """A FlowRight with ``fcost`` gets ``bypass_junction``/``bypass_cost``."""
+    def test_soft_flow_right_reuses_existing_ocean_drain(self) -> None:
+        """A FlowRight with ``fcost`` reuses a sibling ``_ocean`` drain
+        when one is already present in the topology (the typical case
+        when plp2gtopt's ocean-fallback created it for a terminal
+        central)."""
         system = {
-            "junction_array": [{"uid": 1, "name": "RALCO"}],
+            "junction_array": [
+                {"uid": 1, "name": "PANGUE_DS"},
+                {"uid": 2, "name": "PANGUE_DS_ocean", "drain": True},
+            ],
             "flow_right_array": [
                 {
                     "uid": 10,
@@ -436,15 +442,19 @@ class TestEnsureBypassForFlowrights:
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 1
         fr = system["flow_right_array"][0]
-        assert fr["bypass_junction"] == "PANGUE_DS_spill"
+        assert fr["bypass_junction"] == "PANGUE_DS_ocean"
         assert fr["bypass_cost"] == 0.0
 
-    def test_synthetic_drain_junction_is_marked_drain_true(self) -> None:
-        """The ``<j>_spill`` target is added with ``drain = True``.
-
-        Without ``drain = True`` the balance constraint on the spill
-        junction would force the bypass column to 0 — defeating the
-        whole point of the pressure-release path.
+    def test_soft_flow_right_skips_bypass_when_no_drain_available(self) -> None:
+        """When the FlowRight's source junction has no sibling drain
+        (no ``_ocean`` from plp2gtopt's ocean fallback, no legacy
+        ``_spill`` from an older run), the helper LEAVES
+        ``bypass_junction`` unset and does NOT synthesise a new drain
+        at the source.  Adding a free drain to a real cascade
+        junction would let the LP shed upstream water through a
+        no-cost outflow path; the FlowRight's kink slack
+        (``fail_b`` × ``fcost``) already absorbs non-delivery on its
+        own.
         """
         system = {
             "junction_array": [{"uid": 1, "name": "RALCO"}],
@@ -457,12 +467,15 @@ class TestEnsureBypassForFlowrights:
                 }
             ],
         }
-        ensure_bypass_for_flowrights(system)
-        drain_junctions = [
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 0
+        fr = system["flow_right_array"][0]
+        assert "bypass_junction" not in fr
+        # No synthetic ``_spill`` drain was added.
+        spill_junctions = [
             j for j in system["junction_array"] if j["name"] == "RALCO_spill"
         ]
-        assert len(drain_junctions) == 1
-        assert drain_junctions[0]["drain"] is True
+        assert spill_junctions == []
 
     def test_no_synthetic_parallel_waterway_emitted(self) -> None:
         """``waterway_array`` is not mutated — the bypass column lives
@@ -523,10 +536,15 @@ class TestEnsureBypassForFlowrights:
         fr = system["flow_right_array"][0]
         assert "bypass_junction" not in fr
 
-    def test_shares_drain_junction_across_multiple_flowrights(self) -> None:
-        """Two FlowRights on the same junction share one ``<j>_spill``."""
+    def test_shares_ocean_drain_across_multiple_flowrights(self) -> None:
+        """Two FlowRights on the same junction share a single sibling
+        ``<j>_ocean`` drain (the ocean comes from plp2gtopt's ocean
+        fallback for terminal centrals)."""
         system = {
-            "junction_array": [{"uid": 1, "name": "RALCO"}],
+            "junction_array": [
+                {"uid": 1, "name": "RALCO"},
+                {"uid": 2, "name": "RALCO_ocean", "drain": True},
+            ],
             "flow_right_array": [
                 {"uid": 10, "name": "fr1", "junction": "RALCO", "fcost": 100.0},
                 {"uid": 11, "name": "fr2", "junction": "RALCO", "fcost": 200.0},
@@ -534,20 +552,29 @@ class TestEnsureBypassForFlowrights:
         }
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 2
-        spills = [j for j in system["junction_array"] if j["name"] == "RALCO_spill"]
-        assert len(spills) == 1
-        assert spills[0]["drain"] is True
+        # Both FlowRights point at the same ocean drain.
+        targets = {fr["bypass_junction"] for fr in system["flow_right_array"]}
+        assert targets == {"RALCO_ocean"}
+        # No synthetic ``_spill`` drain was added.
+        assert all(j["name"] != "RALCO_spill" for j in system["junction_array"])
 
     def test_legacy_alias_still_callable(self) -> None:
-        """``ensure_drain_for_flowrights`` keeps the same behaviour."""
+        """``ensure_drain_for_flowrights`` is preserved as an alias and
+        returns the same count regardless of the underlying behaviour."""
         system_a = {
-            "junction_array": [],
+            "junction_array": [
+                {"uid": 1, "name": "J"},
+                {"uid": 2, "name": "J_ocean", "drain": True},
+            ],
             "flow_right_array": [
                 {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
             ],
         }
         system_b = {
-            "junction_array": [],
+            "junction_array": [
+                {"uid": 1, "name": "J"},
+                {"uid": 2, "name": "J_ocean", "drain": True},
+            ],
             "flow_right_array": [
                 {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
             ],
@@ -556,3 +583,4 @@ class TestEnsureBypassForFlowrights:
         b = ensure_drain_for_flowrights(system_b)
         assert a == b == 1
         assert system_a == system_b
+        assert system_a["flow_right_array"][0]["bypass_junction"] == "J_ocean"

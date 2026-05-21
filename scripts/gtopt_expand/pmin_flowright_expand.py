@@ -65,7 +65,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 _logger = logging.getLogger(__name__)
 
@@ -282,34 +282,44 @@ def _ensure_bypass_target_junction(
     system: dict[str, Any],
     junction: str,
     uid: int,
-) -> str:
-    """Ensure a drain junction exists for the bypass column; return its name.
+) -> Optional[str]:
+    """Resolve a drain junction for the FlowRight bypass column.
 
     The bypass column on a FlowRight contributes +1 to this junction's
-    balance row.  Without ``drain = True`` the balance constraint would
-    force the bypass column to 0 (pure consumer back-pressure), so the
-    drain flag is what lets the bypass actually absorb excess water.
+    balance row, so the target must be a drain — otherwise the balance
+    constraint would force the bypass column to 0.
 
     Resolution order (idempotent, no extra junctions when avoidable):
 
       1. If a sibling ``<junction>_ocean`` drain already exists in
          ``junction_array``, REUSE it.  Terminal embalse / serie /
-         pasada centrals already get one synthesised by plp2gtopt's
+         pasada centrals get one synthesised by plp2gtopt's
          ``_process_central`` ocean-fallback, and the FlowRight's
-         bypass column only needs *some* drain to land in — sharing
-         the existing ocean junction avoids emitting a parallel
-         ``<junction>_spill`` drain that duplicates the function.
-      2. Else if a ``<junction>_spill`` drain already exists, reuse
-         it (legacy idempotence — older runs created this name).
-      3. Else, synthesise a new ``<junction>_spill`` drain.
+         bypass only needs *some* drain to land in.
+      2. Else if a ``<junction>_spill`` drain already exists (legacy
+         idempotence — older runs created this name), reuse it.
+      3. Else, return ``None``: skip the bypass column entirely.
 
-    On the CEN65 ``plp_2_years`` case this collapses ``ANGOSTURA_spill
-    → ANGOSTURA_ocean`` (PANGUE_pmin_as_flow_right bypass),
-    ``RIEGZACO_spill → RIEGZACO_ocean`` (ANTUCO_pmin_as_flow_right
-    bypass), and ``RieSur123SCDZ_spill → RieSur123SCDZ_ocean``
-    (MACHICURA_pmin_as_flow_right bypass) — 3 redundant ``_spill``
-    drains dropped, no behavioural change because both ``<x>_ocean``
-    and ``<x>_spill`` are drain-only sinks with identical LP roles.
+         Rationale: gtopt's ``flow_right_lp.cpp:665-707`` only emits
+         the inline bypass column when ``bypass_junction`` is set;
+         without it the FlowRight reduces to the standard kink shape
+         (``flow_b − excess_b + fail_b = target``) where ``fail_b``
+         already absorbs unmet delivery at the ``fcost`` penalty —
+         the bypass adds nothing physically meaningful (it's a
+         pure-balance slack from the source to a drain at zero cost)
+         that the kink doesn't already provide.  Synthesising a
+         dedicated ``<junction>_spill`` drain at a non-terminal
+         cascade node carries the LMAULE-class risk of letting the
+         LP shed upstream water through a free outflow path, so we
+         prefer to drop the bypass than to introduce a free drain
+         column at a real cascade junction.
+
+    On the CEN65 ``plp_2_years`` case the change drops 4 surviving
+    ``_spill`` Junctions (RUCATAYO_spill, ANTUCO_spill, PANGUE_spill,
+    B_M_Isla_spill) — the affected FlowRights still enforce their
+    pmin target via the kink slack ``fail_b`` × ``fcost`` (which
+    plp2gtopt sets to a non-zero value when synthesising
+    ``*_pmin_as_flow_right``).
     """
     junctions = system.setdefault("junction_array", [])
 
@@ -321,35 +331,34 @@ def _ensure_bypass_target_junction(
         if j.get("name") == ocean_existing and j.get("drain"):
             return ocean_existing
 
-    # Step 2 & 3: legacy <junction>_spill (reuse or create).
+    # Step 2: reuse legacy <junction>_spill if a prior run already
+    # created it (back-compat with stored cases).
     spill_name = f"{junction}_spill"
     for j in junctions:
         if isinstance(j, dict) and j.get("name") == spill_name:
-            # Heal latent state: older runs created this junction without
-            # `drain = True` so any inflow was force-zeroed by the
-            # balance constraint.  Set it now so the bypass column on
-            # the FlowRight can actually absorb water.
             if not j.get("drain"):
                 j["drain"] = True
             return spill_name
-    junctions.append(
-        {"uid": _DRAIN_UID_OFFSET + uid + 1, "name": spill_name, "drain": True}
-    )
-    return spill_name
+
+    # Step 3: don't synthesise a new drain — let the FlowRight fall
+    # back to its kink-only enforcement.
+    del uid  # was used for the spill UID offset; no longer needed
+    return None
 
 
 def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
-    """Wire each soft FlowRight to an inline bypass drain.
+    """Wire each soft FlowRight to an inline bypass drain when one is
+    available.
 
     Walks ``flow_right_array`` and, for every soft FlowRight (one with
-    a ``fcost`` slack), sets ``bypass_junction`` / ``bypass_cost = 0``
-    pointing at a per-junction ``<junction>_spill`` drain (created on
-    demand, marked ``drain = True``).  The LP layer
-    (``flow_right_lp.cpp``) then adds an inline bypass column priced
-    at 0 (free pass-through) that contributes -1 to the FlowRight's
-    own junction balance and +1 to the drain junction's — preserving
-    mass conservation without inserting a parallel synthetic waterway
-    into ``waterway_array``.
+    an ``fcost`` slack), tries to reuse an existing ``<junction>_ocean``
+    drain (or legacy ``<junction>_spill``) as ``bypass_junction``.  If
+    neither exists, the FlowRight is left WITHOUT a ``bypass_junction``
+    — ``flow_right_lp.cpp:665-707`` then skips the bypass column and
+    the FlowRight relies on its kink-side ``fail_b`` × ``fcost``
+    machinery alone to absorb non-delivery.  This avoids synthesising
+    free-drain columns at real cascade junctions, which would otherwise
+    let the LP shed upstream water through a no-cost outflow path.
 
     Returns the number of FlowRights that gained an inline bypass.
     Idempotent on FlowRights that already declare ``bypass_junction``.
@@ -374,6 +383,14 @@ def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
         ocean_name = _ensure_bypass_target_junction(
             system, str(j), int(fr.get("uid", 0))
         )
+        if ocean_name is None:
+            # No drain available and we intentionally don't synthesise
+            # one at a non-terminal cascade junction.  Leave
+            # ``bypass_junction`` unset; the FlowRight falls back to
+            # its kink-only enforcement (``flow_b − excess_b + fail_b
+            # = target_b`` with ``fail_b`` × ``fcost`` absorbing
+            # non-delivery).
+            continue
         fr["bypass_junction"] = ocean_name
         # Free pass-through: the LP only routes flow through the bypass
         # when the FlowRight's consumptive cap would otherwise be
