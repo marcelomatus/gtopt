@@ -12,6 +12,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/sparse_col.hpp>
 #include <gtopt/system_context.hpp>
 
 namespace gtopt
@@ -41,6 +42,17 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
   map_reserve(dcols, blocks.size());
 
   const bool add_drain_col = drain();
+  // Optional Junction fields ``drain_capacity`` / ``drain_cost`` let
+  // plp2gtopt / plexos2gtopt encode PLP's ``VertMax`` / ``CVert``
+  // (and PLEXOS's ``Storage.Max Spill`` / ``Spill Penalty``)
+  // directly on the central's own junction, collapsing the legacy
+  // synthetic ``<central>_ocean`` Junction + ``_ver`` Waterway pair
+  // into a single ``Junction{drain: true, drain_capacity,
+  // drain_cost}`` row.  Defaults (uppb = +∞, cost = 0) preserve the
+  // legacy free-drain behaviour for junctions that don't carry the
+  // new fields.
+  const double drain_uppb = junction().drain_capacity.value_or(DblMax);
+  const double drain_cost = junction().drain_cost.value_or(0.0);
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
@@ -56,6 +68,8 @@ bool JunctionLP::add_to_lp(const SystemContext& sc,
     // Add drain column if needed
     if (add_drain_col) {
       const auto dcol = lp.add_col({
+          .uppb = drain_uppb,
+          .cost = drain_cost,
           .class_name = Element::class_name.full_name(),
           .variable_name = DrainName,
           .variable_uid = uid(),
