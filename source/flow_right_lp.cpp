@@ -661,6 +661,51 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     }
   }
 
+  // Optional pass-through bypass.  When ``bypass_junction`` is set,
+  // emit one ``bypass_X`` column per block, contribute it negatively
+  // to ``junction``'s balance (water leaves the source junction
+  // alongside the consumption flow) and positively to
+  // ``bypass_junction``'s balance (water arrives downstream).  Only
+  // active for per-block / stage_average modes; stage_uniform is
+  // typically used for steady environmental releases that don't need
+  // a pass-through alternative.
+  const auto& bypass_ref = flow_right().bypass_junction;
+  if (bypass_ref.has_value() && mode != FlowMode::stage_uniform
+      && flow_right().junction.has_value())
+  {
+    const JunctionLPSId src_sid(*flow_right().junction);
+    const JunctionLPSId dst_sid(*bypass_ref);
+    const auto& src_lp = sc.element(src_sid);
+    const auto& dst_lp = sc.element(dst_sid);
+    const auto& src_brows = src_lp.balance_rows_at(scenario, stage);
+    const auto& dst_brows = dst_lp.balance_rows_at(scenario, stage);
+    const Real bypass_cost_raw = flow_right().bypass_cost.value_or(0.0);
+
+    for (auto&& block : blocks) {
+      const auto buid = block.uid();
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), buid);
+      const Real bypass_cost_cf = bypass_cost_raw != 0.0
+          ? CostHelper::block_ecost(scenario, stage, block, bypass_cost_raw)
+          : 0.0;
+      const auto bypass_col = lp.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = LinearProblem::DblMax,
+          .cost = bypass_cost_cf,
+          .class_name = cname,
+          .variable_name = BypassName,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
+      if (auto src_it = src_brows.find(buid); src_it != src_brows.end()) {
+        lp.row_at(src_it->second)[bypass_col] = -1.0;
+      }
+      if (auto dst_it = dst_brows.find(buid); dst_it != dst_brows.end()) {
+        lp.row_at(dst_it->second)[bypass_col] = +1.0;
+      }
+    }
+  }
+
   return true;
 }
 

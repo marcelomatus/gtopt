@@ -1183,13 +1183,22 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
     System→Storages collection covers XML-only schemas that ship
     volumes inline.
     """
+    # CEN PCP ships Hydro_MaxVolume / Hydro_MinVolume in WIDE format
+    # (YEAR, MONTH, DAY, PERIOD, then one column per Storage).  The
+    # static ``Max Volume`` / ``Min Volume`` t_data fallback covers
+    # most reservoirs but NOT ``L_Maule`` (Lago Maule, ~17,601 hm³)
+    # — without reading the WIDE CSV that reservoir is silently
+    # downscaled to ``emax = 0``, collapsing its storage column and
+    # leaking ~3,000 GWh of dispatchable hydro from the LP.
+    # ``Hydro_InitialVolume.csv`` is LONG format (NAME column), so it
+    # still uses ``read_long``.
     emax_csv = (
-        read_long(bundle.csv("Hydro_MaxVolume.csv"))
+        read_wide(bundle.csv("Hydro_MaxVolume.csv"))
         if bundle.has("Hydro_MaxVolume.csv")
         else {}
     )
     emin_csv = (
-        read_long(bundle.csv("Hydro_MinVolume.csv"))
+        read_wide(bundle.csv("Hydro_MinVolume.csv"))
         if bundle.has("Hydro_MinVolume.csv")
         else {}
     )
@@ -1558,10 +1567,16 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
     # PLEXOS reserve-shortage penalty is exposed under one of several
     # property names depending on PLEXOS version / template.  Probe the
     # canonical name first, then a documented set of fallbacks; CEN PCP
-    # uses ``VoRS`` (Value of Reserve Shortage).  Values <= 0 are
-    # treated as "unset" / sentinel (PLEXOS uses ``-1`` to mean "use
-    # system default / disabled") and folded to ``0.0`` so the LP row
-    # stays unpenalised rather than rewarding shortage.
+    # uses ``VoRS`` (Value of Reserve Shortage).
+    #
+    # Sentinel handling: PLEXOS uses ``VoRS = -1`` to mean "make the
+    # reserve constraint HARD" (no shortage admissible — the constraint
+    # is enforced as an equality on the requirement column with no
+    # slack variable, and the dual on the binding equality IS the
+    # implicit reserve cost).  We map that to gtopt's "hard" form by
+    # leaving ``urcost``/``drcost`` at ``0.0``; the writer omits the
+    # field, and ``reserve_zone_lp.cpp`` then fixes the requirement
+    # column to ``lowb = uppb = block_rreq`` — no slack added.
     violation_cost_props = (
         "Violation Cost",
         "Shortage Penalty",
@@ -1573,20 +1588,48 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
     for rsv in reserves_objs:
         profile = csv_profiles.get(rsv.name, [])
         is_down = rsv.name.endswith("_LW")
+        # PLEXOS ``Min Provision`` is a STATIC constant floor (MW) on the
+        # provided reserve, distinct from the time-varying CSV profile.
+        # CPF zones and most BESS zones carry only this static floor —
+        # without folding it into the requirement RHS those zones get
+        # zero reserve and PLEXOS's $0.65M reserve cost is unreproducible.
+        min_provision = (
+            db.static_property("Reserve", rsv.object_id, "Min Provision") or 0.0
+        )
+        # Build the requirement profile: per-block max(csv_value, min_provision).
+        # When the CSV is absent the requirement is a flat
+        # ``min_provision``; when the CSV is present each hour gets the
+        # max of the two so the static floor still binds even on the
+        # low-requirement hours that ``Res_Requirement.csv`` reports.
+        target_len = 24 * bundle.n_days
+        if profile:
+            requirement = tuple(max(float(v), min_provision) for v in profile)
+        elif min_provision > 0.0:
+            requirement = tuple([min_provision] * target_len)
+        else:
+            requirement = ()
         ur_req: tuple[float, ...] = ()
         dr_req: tuple[float, ...] = ()
-        if profile:
+        if requirement:
             if is_down:
-                dr_req = tuple(profile)
+                dr_req = requirement
             else:
-                ur_req = tuple(profile)
+                ur_req = requirement
         plexos_type_raw = db.static_property("Reserve", rsv.object_id, "Type")
         plexos_type = int(plexos_type_raw) if plexos_type_raw else 0
         type_tag = type_tag_map.get(plexos_type, "other")
         violation_cost = 0.0
         for prop_name in violation_cost_props:
             val = db.static_property("Reserve", rsv.object_id, prop_name)
-            if val and val > 0.0:
+            if val is None:
+                continue
+            if val == -1.0:
+                # PLEXOS "use default / hard" sentinel — leave the
+                # shortage cost at 0 so the writer omits the field and
+                # the LP fixes the requirement column with no slack.
+                violation_cost = 0.0
+                break
+            if val > 0.0:
                 violation_cost = float(val)
                 break
         # PLEXOS Type 4 = Regulation Lower (down reserve); everything
@@ -1859,6 +1902,141 @@ def extract_commitments(
     return tuple(out)
 
 
+def extract_hydro_discharge_user_constraints(
+    db: PlexosDb,
+    bundle: PlexosBundle,
+    turbines: tuple[TurbineSpec, ...],
+    generators: tuple[GeneratorSpec, ...] = (),
+) -> tuple[UserConstraintSpec, ...]:
+    """Build PLEXOS ``<plant>min`` / ``<plant>max`` discharge constraints.
+
+    ``Hydro_AntucoBounds.csv`` ships per-day rows for objects named
+    ``ANTUCOmin`` / ``ANTUCOmax`` / ``ELTOROmax`` whose PLEXOS class is
+    ``Constraint`` (NOT a junction-level water right).  Each constraint
+    has ``Generator → Constraint`` memberships listing the units whose
+    DISCHARGE (m³/s, not MW) the constraint bounds.  The proper gtopt
+    encoding is a per-block ``UserConstraint`` summing
+    ``(1/pf_i) × generator(i).generation`` over the member units, with
+    operator chosen by the ``min`` / ``max`` suffix.
+
+    Without these constraints in the LP, multi-unit hydro plants are
+    free to dispatch beyond their combined penstock capacity — that's
+    why our previous LP cost was ~$5 M lower than the PLEXOS MIP.
+    """
+    import csv  # pylint: disable=import-outside-toplevel
+
+    if not bundle.has("Hydro_AntucoBounds.csv"):
+        return ()
+
+    # Per-name first-seen RHS value (the CSV ships one row per day;
+    # collapse to the first value because gtopt's scalar RHS is shared
+    # across blocks unless the new TB-schedule rhs is used).
+    rhs_by_name: dict[str, float] = {}
+    with Path(bundle.csv("Hydro_AntucoBounds.csv")).open(
+        "r", encoding="utf-8", newline=""
+    ) as fh:
+        for row in csv.reader(fh):
+            if not row or not row[0] or row[0] == "NAME":
+                continue
+            name = row[0]
+            if name in rhs_by_name:
+                continue
+            try:
+                rhs_by_name[name] = float(row[5])
+            except (ValueError, IndexError):
+                continue
+
+    if not rhs_by_name:
+        return ()
+
+    # Map from generator name → production_factor (MW per m³/s).  When
+    # unset the LP defaults to 1, so the constraint converts gen → flow
+    # at a 1:1 ratio which is wrong for most plants but better than
+    # dropping the constraint outright.
+    pf_by_gen: dict[str, float] = {}
+    for t in turbines:
+        if t.production_factor and t.production_factor > 0.0:
+            pf_by_gen[t.generator_name] = float(t.production_factor)
+
+    # Generators are dispatchable iff their pmax is positive at EVERY
+    # block — gtopt drops gen columns at blocks where the per-block
+    # pmax_profile entry is 0 (out-of-service hour), and any
+    # UserConstraint referencing a column that disappears for some
+    # block fails its row build with "element is missing or inactive".
+    # Partial-availability units (e.g. ELTORO_U1 with 13 non-zero out
+    # of 111 blocks) are therefore EXCLUDED — losing precision but
+    # keeping the constraint emittable.  Promoting partial gens into
+    # the constraint would require a gtopt-side "always-emit zero-
+    # bounded columns" change.
+    dispatchable: set[str] = set()
+    for g in generators:
+        if g.pmax_profile:
+            if all(v > 0.0 for v in g.pmax_profile):
+                dispatchable.add(g.name)
+        elif g.pmax and g.pmax > 0.0:
+            dispatchable.add(g.name)
+
+    # PLEXOS Generator → Constraint memberships (coll_id=32 in CEN PCP).
+    coll = db.collection_for_named("Generator", "Constraint", "Constraints")
+    if coll is None:
+        return ()
+    objs = db.object_by_id()
+    members_by_constraint: dict[str, list[str]] = {}
+    for m in db.memberships_of(coll.collection_id):
+        gen_obj = objs.get(m.parent_object_id)
+        cstr_obj = objs.get(m.child_object_id)
+        if gen_obj is None or cstr_obj is None:
+            continue
+        if cstr_obj.name not in rhs_by_name:
+            continue
+        if dispatchable and gen_obj.name not in dispatchable:
+            continue
+        members_by_constraint.setdefault(cstr_obj.name, []).append(gen_obj.name)
+
+    out: list[UserConstraintSpec] = []
+    for cstr_name, rhs in rhs_by_name.items():
+        members = members_by_constraint.get(cstr_name, [])
+        if not members:
+            logger.debug(
+                "discharge constraint %s has RHS=%g but no Generator members; "
+                "skipping (likely not parsed in this bundle)",
+                cstr_name,
+                rhs,
+            )
+            continue
+        # Sense from the name suffix — case-sensitive on the trailing
+        # "min"/"max" segment to match PLEXOS naming.
+        lname = cstr_name.lower()
+        if lname.endswith("max"):
+            op = "<="
+        elif lname.endswith("min"):
+            op = ">="
+        else:
+            # Mid-name "min"/"max" or unknown suffix: skip.
+            continue
+        terms: list[str] = []
+        for gen_name in sorted(set(members)):
+            pf = pf_by_gen.get(gen_name, 1.0)
+            coeff = 1.0 / pf
+            sign = " - " if coeff < 0 else (" + " if terms else "")
+            terms.append(f'{sign}{coeff:.6g} * generator("{gen_name}").generation')
+        expression = "".join(terms) + f" {op} {rhs:g}"
+        out.append(
+            UserConstraintSpec(
+                name=f"discharge_{cstr_name}",
+                expression=expression,
+                penalty=0.0,
+                description=f"PLEXOS Constraint {cstr_name} — Σ (gen/pf) {op} {rhs}",
+            )
+        )
+    logger.info(
+        "extract_hydro_discharge_user_constraints: emitted %d discharge UCs "
+        "from Hydro_AntucoBounds.csv + Generator→Constraint memberships",
+        len(out),
+    )
+    return tuple(out)
+
+
 def extract_flow_rights(
     bundle: PlexosBundle,
     turbines: tuple[TurbineSpec, ...],
@@ -1984,13 +2162,12 @@ def _extract_flow_rights_legacy_misclassified(
                 junction_name=junction,
                 fmin=fmin,
                 fmax=fmax,
-                # Soft-cap penalty matching the global irrigation
-                # default (see ``feedback_irrigation_design`` memory:
-                # ``hydro_fail_cost=10 $/m³``). PLEXOS doesn't ship a
-                # per-bound slack cost; this default lets the LP
-                # relax irrigation envelopes when truly infeasible
-                # rather than crashing the solve.
-                fcost=10.0,
+                # No hardcoded shortfall penalty: PLEXOS doesn't ship
+                # one, so we leave ``fcost = 0`` and the writer omits
+                # the field — the LP enforces the bounds hard.  A
+                # caller wanting a soft cap can set
+                # ``model_options.hydro_fail_cost`` instead.
+                fcost=0.0,
             )
         )
     return tuple(out)
@@ -2766,16 +2943,20 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     pmax_profiles_by_gen = {
         g.name: g.pmax_profile for g in case.generators if g.pmax_profile
     }
+    base_ucs = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names=emitted_names,
+        heat_rate_by_gen=heat_rate_by_gen,
+        pmax_by_gen=pmax_by_gen_for_uc,
+        pmax_profiles_by_gen=pmax_profiles_by_gen,
+    )
+    hydro_ucs = extract_hydro_discharge_user_constraints(
+        db, bundle, case.turbines, case.generators
+    )
     case = dataclasses.replace(
         case,
-        user_constraints=extract_user_constraints(
-            db,
-            bundle,
-            emitted_names=emitted_names,
-            heat_rate_by_gen=heat_rate_by_gen,
-            pmax_by_gen=pmax_by_gen_for_uc,
-            pmax_profiles_by_gen=pmax_profiles_by_gen,
-        ),
+        user_constraints=tuple(base_ucs) + tuple(hydro_ucs),
     )
     logger.info(
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "

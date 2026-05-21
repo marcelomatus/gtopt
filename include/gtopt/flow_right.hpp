@@ -177,6 +177,39 @@ struct FlowRight
   /// flow column upper bound to min(fmax, rule_value).
   /// This implements PLP cushion zone logic (Laja/Maule).
   std::optional<RightBoundRule> bound_rule {};
+
+  /// Optional pass-through downstream junction.  When set, the
+  /// FlowRight is no longer a pure 1-junction consumer: any water
+  /// at ``junction`` that the (potentially capped) ``flow`` column
+  /// cannot or does not consume can flow through an auxiliary
+  /// ``bypass`` column to ``bypass_junction`` instead.  This models
+  /// PLEXOS-style irrigation rights / hydro discharge envelopes
+  /// where the river continues downstream after the irrigation
+  /// point, regardless of how much (or little) is consumed by the
+  /// right itself.
+  ///
+  /// LP shape per (scene, stage, block):
+  ///   * the existing ``flow_col`` column still represents the
+  ///     consumption side (bounded by ``[fmin, fmax]`` and the
+  ///     target/fcost/uvalue kink) — its sign in the source
+  ///     junction's balance is negative (water leaves the basin),
+  ///   * a new ``bypass_col`` column is added (free, non-negative,
+  ///     priced at ``bypass_cost·cf`` so it's only used when needed)
+  ///     contributing negatively to ``junction``'s balance and
+  ///     positively to ``bypass_junction``'s balance — preserving
+  ///     mass conservation.
+  ///
+  /// Without this field the FlowRight remains a pure consumer
+  /// (backward-compatible).
+  OptSingleId bypass_junction {};
+
+  /// Per-unit cost on the bypass column ($/m³/s·h).  Defaults to 0
+  /// (free pass-through, used freely by the LP whenever water
+  /// otherwise has nowhere to go).  Set a small positive value to
+  /// prefer consumption (``flow_col``) over pass-through, or a
+  /// large value to make the bypass a last-resort pressure release.
+  /// Only meaningful when ``bypass_junction`` is set.
+  OptReal bypass_cost {};
 };
 
 }  // namespace gtopt

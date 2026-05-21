@@ -44,23 +44,24 @@ using gtopt::RightBoundRule;
 /// back-compat with existing fixtures.
 struct FlowRightConstructor
 {
-  [[nodiscard]] FlowRight operator()(
-      Uid uid,
-      Name name,
-      OptActive active,
-      OptName purpose,
-      OptSingleId junction,
-      OptInt direction,
-      OptTBRealFieldSched fmin,
-      OptTBRealFieldSched fmax,
-      OptTBRealFieldSched target,
-      OptTBRealFieldSched discharge,
-      OptName flow_mode,
-      OptBool use_average,
-      OptTBRealFieldSched fcost,
-      OptTBRealFieldSched uvalue,
-      OptReal priority,
-      std::optional<RightBoundRule> bound_rule) const
+  [[nodiscard]] FlowRight operator()(Uid uid,
+                                     Name name,
+                                     OptActive active,
+                                     OptName purpose,
+                                     OptSingleId junction,
+                                     OptInt direction,
+                                     OptTBRealFieldSched fmin,
+                                     OptTBRealFieldSched fmax,
+                                     OptTBRealFieldSched target,
+                                     OptTBRealFieldSched discharge,
+                                     OptName flow_mode,
+                                     OptBool use_average,
+                                     OptTBRealFieldSched fcost,
+                                     OptTBRealFieldSched uvalue,
+                                     OptReal priority,
+                                     std::optional<RightBoundRule> bound_rule,
+                                     OptSingleId bypass_junction,
+                                     OptReal bypass_cost) const
   {
     // Back-compat alias: `discharge` is the legacy name of `target`.
     // Setting both is a JSON error — pick one.
@@ -89,6 +90,8 @@ struct FlowRightConstructor
         .uvalue = std::move(uvalue),
         .priority = priority,
         .bound_rule = std::move(bound_rule),
+        .bypass_junction = std::move(bypass_junction),
+        .bypass_cost = bypass_cost,
     };
   }
 };
@@ -116,7 +119,9 @@ struct json_data_contract<FlowRight>
       json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"uvalue", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"priority", OptReal>,
-      json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
+      json_class_null<"bound_rule", std::optional<RightBoundRule>>,
+      json_variant_null<"bypass_junction", OptSingleId, jvtl_SingleId>,
+      json_number_null<"bypass_cost", OptReal>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
   {
@@ -139,7 +144,9 @@ struct json_data_contract<FlowRight>
                                  fr.fcost,
                                  fr.uvalue,
                                  fr.priority,
-                                 fr.bound_rule);
+                                 fr.bound_rule,
+                                 fr.bypass_junction,
+                                 fr.bypass_cost);
   }
 };
 }  // namespace daw::json
