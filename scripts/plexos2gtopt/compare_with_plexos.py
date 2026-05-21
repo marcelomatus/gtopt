@@ -404,6 +404,255 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     }
 
 
+def compute_plexos_per_unit_srmc(
+    accdb_path: Path,
+) -> dict[str, tuple[float, float]]:
+    """Per-unit dispatch-weighted average SRMC from PLEXOS .accdb.
+
+    Returns ``{unit_name → (total_MWh, dispatch_weighted_avg_srmc_$/MWh)}``.
+
+    Uses:
+      * prop 2   "Generation"  (MW per unit per period — for weighting)
+      * prop 137 "SRMC"        ($/MWh per unit per period)
+      * t_phase_3 period→duration map
+
+    Units that never dispatch (Σ MWh = 0) are dropped — their SRMC is
+    undefined.
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    # Resolve (key_id → unit_name) by walking key.membership_id →
+    # member.child_object_id → object.name.  Built once, used twice
+    # (Generation + SRMC).
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+    key_obj: dict[int, int] = {}
+    key_prop: dict[int, int] = {}
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if mid in mem_child:
+            key_obj[kid] = mem_child[mid]
+            key_prop[kid] = pid
+
+    # Per-(unit_name, period_id) accumulation.
+    by_unit_period: dict[str, dict[int, dict[str, float]]] = collections.defaultdict(
+        lambda: collections.defaultdict(lambda: {"mw": 0.0, "srmc": 0.0})
+    )
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        prop = key_prop.get(kid)
+        if prop not in (2, 137):
+            continue
+        oid = key_obj.get(kid)
+        if oid is None:
+            continue
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        slot = by_unit_period[name][pid_period]
+        if prop == 2:
+            slot["mw"] = val
+        elif prop == 137:
+            slot["srmc"] = val
+
+    out: dict[str, tuple[float, float]] = {}
+    for name, periods in by_unit_period.items():
+        total_mwh = 0.0
+        weighted_srmc = 0.0
+        for pid_period, v in periods.items():
+            dur = durations.get(pid_period, 0)
+            mwh = v["mw"] * dur
+            total_mwh += mwh
+            weighted_srmc += v["srmc"] * mwh
+        if total_mwh > 0:
+            out[name] = (total_mwh, weighted_srmc / total_mwh)
+    return out
+
+
+def compute_gtopt_per_unit_srmc(
+    case_dir: Path,
+) -> dict[str, tuple[float, float]]:
+    """Per-unit dispatch-weighted average SRMC from gtopt parquet output.
+
+    Returns ``{unit_name → (total_MWh, dispatch_weighted_avg_srmc)}``
+    by joining ``Generator/generation_sol.parquet`` ×
+    ``Generator/srmc_sol.parquet`` on the (scene, phase, scenario,
+    stage, block, uid) key and weighting by per-block duration.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid = {
+        int(g["uid"]): g["name"] for g in bundle["system"]["generator_array"]
+    }
+
+    gen_path = case_dir / "output" / "Generator" / "generation_sol.parquet"
+    srmc_path = case_dir / "output" / "Generator" / "srmc_sol.parquet"
+    if not (gen_path.exists() and srmc_path.exists()):
+        return {}
+
+    gen = pq.read_table(gen_path).to_pandas()
+    srmc = pq.read_table(srmc_path).to_pandas()
+    key_cols = ["scene", "phase", "scenario", "stage", "block", "uid"]
+    merged = gen.merge(srmc, on=key_cols, suffixes=("_mw", "_srmc"))
+    merged["duration"] = merged["block"].astype(int).map(durations)
+    merged["mwh"] = merged["value_mw"] * merged["duration"]
+    merged["name"] = merged["uid"].astype(int).map(name_by_uid)
+
+    out: dict[str, tuple[float, float]] = {}
+    grouped = merged.groupby("name", observed=True)
+    for name, df in grouped:
+        if name is None:
+            continue
+        total_mwh = df["mwh"].sum()
+        if total_mwh <= 0:
+            continue
+        weighted_srmc = (df["value_srmc"] * df["mwh"]).sum() / total_mwh
+        out[str(name)] = (float(total_mwh), float(weighted_srmc))
+    return out
+
+
+def _render_srmc_compare(
+    plexos_unit: dict[str, tuple[float, float]],
+    gtopt_unit: dict[str, tuple[float, float]],
+    console: Console,
+    *,
+    top_n: int = 20,
+    min_avg_mwh: float = 1000.0,
+) -> None:
+    """Step 4 — per-unit SRMC + dispatch comparison.
+
+    Three sub-tables:
+      1. Units dispatched in BOTH, sorted by |SRMC delta|.
+      2. Top PLEXOS-dispatched units that gtopt skips (dispatch
+         mis-selection, not cost error).
+      3. Top gtopt-dispatched units that PLEXOS skips (the
+         "fake cheap" / under-constrained pickups).
+    """
+    all_names = set(plexos_unit) | set(gtopt_unit)
+    rows = []
+    for n in all_names:
+        p_mwh, p_srmc = plexos_unit.get(n, (0.0, 0.0))
+        g_mwh, g_srmc = gtopt_unit.get(n, (0.0, 0.0))
+        rows.append((n, p_mwh, p_srmc, g_mwh, g_srmc))
+
+    # (1) Both dispatched
+    both = [
+        (n, p_m, p_s, g_m, g_s) for n, p_m, p_s, g_m, g_s in rows if p_m > 1 and g_m > 1
+    ]
+    both.sort(key=lambda r: abs(r[4] - r[2]), reverse=True)
+    both_filtered = [r for r in both if (r[1] + r[3]) / 2 >= min_avg_mwh]
+
+    t1 = Table(
+        title=(
+            f"Per-unit SRMC comparison (Step 4) — top {top_n} co-dispatched "
+            f"units by |Δ SRMC| (avg MWh ≥ {min_avg_mwh:g})"
+        ),
+    )
+    t1.add_column("Unit", style="bold")
+    t1.add_column("PLEXOS $/MWh", justify="right")
+    t1.add_column("gtopt $/MWh", justify="right")
+    t1.add_column("Δ $/MWh", justify="right")
+    t1.add_column("Δ %", justify="right")
+    t1.add_column("PLEXOS MWh", justify="right")
+    t1.add_column("gtopt MWh", justify="right")
+    for n, p_m, p_s, g_m, g_s in both_filtered[:top_n]:
+        delta = g_s - p_s
+        pct = (100.0 * delta / p_s) if p_s else 0.0
+        t1.add_row(
+            n,
+            f"{p_s:>10.2f}",
+            f"{g_s:>10.2f}",
+            f"{delta:>+8.2f}",
+            f"{pct:>+6.1f}%",
+            f"{p_m:>10,.0f}",
+            f"{g_m:>10,.0f}",
+        )
+    if len(both_filtered) > top_n:
+        t1.caption = f"… and {len(both_filtered) - top_n} more co-dispatched units."
+    console.print(t1)
+
+    # (2) PLEXOS-only
+    plexos_only = [(n, p_m, p_s) for n, p_m, p_s, g_m, _ in rows if p_m > 1 and g_m < 1]
+    plexos_only.sort(key=lambda r: r[1], reverse=True)
+    t2 = Table(
+        title=(
+            f"PLEXOS dispatches, gtopt does NOT — top {top_n} by MWh "
+            f"({len(plexos_only)} units total)"
+        ),
+    )
+    t2.add_column("Unit", style="bold")
+    t2.add_column("PLEXOS MWh", justify="right")
+    t2.add_column("PLEXOS $/MWh", justify="right")
+    for n, p_m, p_s in plexos_only[:top_n]:
+        t2.add_row(n, f"{p_m:>10,.0f}", f"{p_s:>10.2f}")
+    console.print(t2)
+
+    # (3) gtopt-only
+    gtopt_only = [(n, g_m, g_s) for n, p_m, _, g_m, g_s in rows if g_m > 1 and p_m < 1]
+    gtopt_only.sort(key=lambda r: r[1], reverse=True)
+    t3 = Table(
+        title=(
+            f"gtopt dispatches, PLEXOS does NOT — top {top_n} by MWh "
+            f"({len(gtopt_only)} units total)"
+        ),
+    )
+    t3.add_column("Unit", style="bold")
+    t3.add_column("gtopt MWh", justify="right")
+    t3.add_column("gtopt $/MWh", justify="right")
+    for n, g_m, g_s in gtopt_only[:top_n]:
+        t3.add_row(n, f"{g_m:>10,.0f}", f"{g_s:>10.2f}")
+    console.print(t3)
+    console.print(
+        "[dim]SRMC = dispatch-weighted average $/MWh per unit.  "
+        "Matching values in column 1 vs 2 confirm gcost is published "
+        "correctly; large dispatch differences (table 2/3) usually "
+        "trace to missing constraints (fuel offtake caps, "
+        "transmission, reserves) rather than wrong unit costs.[/dim]"
+    )
+
+
 def _render_solution_compare(
     plexos_tot: dict[str, float],
     gtopt_tot: dict[str, float],
@@ -819,8 +1068,12 @@ def main(argv: list[str] | None = None) -> int:
                 accdb_path = _extract_accdb_from_res_zip(
                     args.plexos_res_zip, Path(tmpdir)
                 )
+                # Step 3 — system totals (demand, gen, op cost)
                 plexos_tot = compute_plexos_energy_totals(accdb_path)
                 gtopt_tot = compute_gtopt_energy_totals(args.gtopt_case)
+                # Step 4 — per-unit SRMC + dispatch
+                plexos_unit = compute_plexos_per_unit_srmc(accdb_path)
+                gtopt_unit = compute_gtopt_per_unit_srmc(args.gtopt_case)
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:
@@ -829,8 +1082,11 @@ def main(argv: list[str] | None = None) -> int:
                     "duration-weighted totals (missing .accdb or "
                     "gtopt parquets).[/yellow]"
                 )
+            if plexos_unit and gtopt_unit:
+                console.print()
+                _render_srmc_compare(plexos_unit, gtopt_unit, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
-            console.print(f"[yellow]Step 3 skipped: {exc}[/yellow]")
+            console.print(f"[yellow]Step 3/4 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
