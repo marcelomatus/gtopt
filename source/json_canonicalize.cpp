@@ -12,6 +12,7 @@
 
 #include <gtopt/json_canonicalize.hpp>
 #include <gtopt/names_registry.hpp>
+#include <gtopt/unit_registry.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -167,13 +168,41 @@ std::string canonicalize_json_keys(std::string_view json_text,
                 {
                   const std::string alias_key {content};
                   if (warned_aliases.insert(alias_key).second) {
-                    spdlog::warn(
-                        "naming-dialect: input alias '{}' belongs to dialect "
-                        "'{}' but --naming-dialect is '{}' (canonical: '{}')",
-                        content,
-                        *alias_dialect,
-                        enforce_dialect,
-                        *canonical);
+                    // Escalate to error when the per-dialect unit
+                    // registry confirms the two dialects disagree on
+                    // the unit of this canonical — the numeric value
+                    // in the JSON almost certainly needs a conversion
+                    // the user did not perform.  Falls back to a
+                    // plain warn when units are unknown or ambiguous.
+                    const auto& units = UnitRegistry::instance();
+                    const auto src_unit = units.class_agnostic_unit_for(
+                        *canonical, *alias_dialect);
+                    const auto tgt_unit = units.class_agnostic_unit_for(
+                        *canonical, enforce_dialect);
+                    if (src_unit.has_value() && tgt_unit.has_value()
+                        && *src_unit != *tgt_unit)
+                    {
+                      spdlog::error(
+                          "naming-dialect: UNIT MISMATCH on input alias "
+                          "'{}' (dialect '{}', unit '{}') vs "
+                          "--naming-dialect '{}' (unit '{}') for canonical "
+                          "'{}' — the value will be parsed as-is; manual "
+                          "conversion required",
+                          content,
+                          *alias_dialect,
+                          *src_unit,
+                          enforce_dialect,
+                          *tgt_unit,
+                          *canonical);
+                    } else {
+                      spdlog::warn(
+                          "naming-dialect: input alias '{}' belongs to dialect "
+                          "'{}' but --naming-dialect is '{}' (canonical: '{}')",
+                          content,
+                          *alias_dialect,
+                          enforce_dialect,
+                          *canonical);
+                    }
                   }
                 }
               }

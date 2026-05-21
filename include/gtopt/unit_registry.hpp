@@ -73,6 +73,20 @@ public:
     return unit_for(class_name, canonical, "gtopt");
   }
 
+  /// Class-agnostic lookup: returns the single unit string if every
+  /// registered `(class, canonical, dialect)` entry for the
+  /// `(canonical, dialect)` pair agrees on the same unit.  Returns
+  /// nullopt when the canonical has no entries in the given dialect,
+  /// or when distinct entries disagree on the unit.
+  ///
+  /// Used by `canonicalize_json_keys` where the alias rewrite is
+  /// class-blind — the JSON tokeniser does not know which element type
+  /// the key belongs to.  Ambiguity (multiple classes, different units)
+  /// is treated as "skip the unit-mismatch warning" rather than a hard
+  /// error so the rewrite path stays robust.
+  [[nodiscard]] std::optional<std::string_view> class_agnostic_unit_for(
+      std::string_view canonical, std::string_view dialect) const noexcept;
+
   /// Number of (class, canonical, dialect) entries the registry holds.
   [[nodiscard]] std::size_t size() const noexcept { return m_units_.size(); }
 

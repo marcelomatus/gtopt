@@ -96,6 +96,68 @@ TEST_CASE(
 }
 
 TEST_CASE(
+    "UnitRegistry — class_agnostic_unit_for collapses agreeing classes")  // NOLINT
+{
+  // When every registered entry for a (canonical, dialect) pair
+  // resolves to the same unit, the class-agnostic accessor can drop
+  // the class dimension cleanly.  That is the input-warn path's
+  // happy case: canonicalize_json_keys knows the canonical and the
+  // dialect but not the element type.
+  constexpr std::string_view dict = R"json(
+{
+  "version": 1,
+  "units": [
+    {"class": "generator", "canonical": "pmax", "dialect": "gtopt",  "unit": "MW"},
+    {"class": "battery",   "canonical": "pmax", "dialect": "gtopt",  "unit": "MW"},
+    {"class": "reservoir", "canonical": "emax", "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "emax", "dialect": "plp",    "unit": "hm3"}
+  ]
+}
+)json";
+
+  const UnitRegistry r {std::string_view {dict}};
+
+  SUBCASE("agreeing classes — returns the single unit")
+  {
+    CHECK(r.class_agnostic_unit_for("pmax", "gtopt").value_or("") == "MW");
+    CHECK(r.class_agnostic_unit_for("emax", "gtopt").value_or("") == "Mm3");
+    CHECK(r.class_agnostic_unit_for("emax", "plp").value_or("") == "hm3");
+  }
+
+  SUBCASE("unknown canonical — nullopt")
+  {
+    CHECK_FALSE(r.class_agnostic_unit_for("not_a_field", "gtopt").has_value());
+  }
+
+  SUBCASE("unknown dialect — nullopt")
+  {
+    CHECK_FALSE(
+        r.class_agnostic_unit_for("pmax", "no_such_dialect").has_value());
+  }
+}
+
+TEST_CASE(
+    "UnitRegistry — class_agnostic_unit_for returns nullopt on disagreement")  // NOLINT
+{
+  // Two classes register the same canonical name under the same
+  // dialect but with different units — the accessor must refuse to
+  // pick one over the other (no class context means no way to
+  // disambiguate).  Caller falls back to the dialect-only warning.
+  constexpr std::string_view dict = R"json(
+{
+  "version": 1,
+  "units": [
+    {"class": "generator", "canonical": "cost", "dialect": "gtopt", "unit": "USD/MWh"},
+    {"class": "fuel",      "canonical": "cost", "dialect": "gtopt", "unit": "USD/MMBtu"}
+  ]
+}
+)json";
+
+  const UnitRegistry r {std::string_view {dict}};
+  CHECK_FALSE(r.class_agnostic_unit_for("cost", "gtopt").has_value());
+}
+
+TEST_CASE(
     "UnitRegistry — singleton ships with gtopt's unit_dialects.json")  // NOLINT
 {
   // The compiled-in fallback parses cleanly and covers the canonical
