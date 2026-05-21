@@ -3773,6 +3773,66 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 ", ".join(t.generator_name for t in dropped_turbs),
             )
         turbines = tuple(t for t in turbines if t.generator_name not in inactive_gens)
+
+    # Demote pure-pondage / pure-tailrace Reservoirs to Junction-only.
+    #
+    # PLEXOS models every cascade balance / tailrace point as a Storage
+    # object (B_C_Isla, B_M_Isla, B_Maule, Post_Antuco, Post_Isla, …),
+    # even when the point has no storage capacity in real life — water
+    # arrives and leaves within the same hour.  ``extract_reservoirs``
+    # faithfully emits them as ReservoirSpec(eini=0, emin=0, emax=0, …),
+    # but the resulting LP carries one redundant balance row and one
+    # unbounded ``vol_t`` variable per block for each such "reservoir".
+    # On the CEN PCP 2026-04-22 bundle that's 8 spurious storage
+    # blocks (B_C_Isla, B_M_Isla, B_Maule, Post_Antuco, Post_Isla,
+    # Post_Machicura, Post_Pangue, Post_Quilleco — every other unbounded
+    # Storage is the head of a turbine and stays a Reservoir).
+    #
+    # A Reservoir qualifies for demotion when ALL of:
+    #   - every volume / cost / penalty / profile field is zero / empty,
+    #   - it is not a turbine ``main_reservoir`` reference (would break
+    #     the turbine.head_storage lookup at JSON load),
+    #   - it is not the PLEXOS 1e+30 ``never_drain`` sentinel.
+    # ``tail_reservoir_name`` references stay valid because the writer
+    # uses them only as a junction-name string for the synthetic
+    # ``penstock_*`` waterway's ``junction_b``.  Waterway endpoint
+    # references resolve through the Junction list — also unchanged.
+    main_reservoir_refs = frozenset(
+        t.reservoir_name for t in turbines if t.reservoir_name
+    )
+
+    def _is_pure_pondage(r: ReservoirSpec) -> bool:
+        return (
+            r.emin == 0.0
+            and r.emax == 0.0
+            and r.efin == 0.0
+            and r.water_value == 0.0
+            and r.spill_penalty_per_mwh == 0.0
+            and not r.never_drain
+            and not r.emin_profile
+            and not r.emax_profile
+            and not r.inflow_profile
+            and r.name not in main_reservoir_refs
+        )
+
+    pondage_names = tuple(sorted(r.name for r in reservoirs if _is_pure_pondage(r)))
+    if pondage_names:
+        logger.info(
+            "extract_case: demoted %d pondage/tailrace Reservoir(s) to "
+            "Junction-only (no bounds, no water-value, not referenced "
+            "as a turbine main_reservoir): %s",
+            len(pondage_names),
+            ", ".join(pondage_names),
+        )
+        reservoirs = tuple(r for r in reservoirs if r.name not in pondage_names)
+        extra_junction_names = tuple(
+            sorted(set(extra_junction_names).union(pondage_names))
+        )
+        junctions = extract_junctions(
+            reservoirs, extra_junction_names=extra_junction_names
+        )
+        known_junction_names = frozenset(j.name for j in junctions)
+
     # PLEXOS Region.VoLL → demand_fail_cost.
     #
     # Per-Region VoLLs are routed onto each ``Demand.fcost`` (via
