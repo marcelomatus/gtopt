@@ -248,6 +248,14 @@
     {"class": "line", "canonical": "reactance",       "alt": "Reactance",          "dialect": "plexos"},
     {"class": "line", "canonical": "reactance",       "alt": "x",                  "dialect": "pypsa"},
 
+    {"class": "bus", "canonical": "voltage", "alt": "v_nom",           "dialect": "pypsa"},
+    {"class": "bus", "canonical": "voltage", "alt": "vn_kv",           "dialect": "pandapower"},
+    {"class": "bus", "canonical": "voltage", "alt": "Nominal Voltage", "dialect": "plexos"},
+    {"class": "bus", "canonical": "voltage", "alt": "Voltage",         "dialect": "plexos"},
+    {"class": "bus", "canonical": "name",    "alt": "Node",            "dialect": "plexos"},
+    {"class": "bus", "canonical": "name",    "alt": "Barra",           "dialect": "plp"},
+    {"class": "bus", "canonical": "name",    "alt": "Sistema",         "dialect": "sddp"},
+
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "Violation Cost",        "dialect": "plexos"},
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "Shortage Penalty",      "dialect": "plexos"},
     {"class": "reserve_zone", "canonical": "urcost",     "alt": "CustoFaltaReservaUp",   "dialect": "sddp"},

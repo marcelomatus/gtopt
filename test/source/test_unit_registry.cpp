@@ -15,8 +15,8 @@ constexpr std::string_view kDict = R"json(
     {"class": "generator", "canonical": "pmax",  "dialect": "plexos", "unit": "MW"},
     {"class": "generator", "canonical": "pmax",  "dialect": "sddp",   "unit": "MW"},
     {"class": "generator", "canonical": "gcost", "dialect": "gtopt",  "unit": "USD/MWh"},
-    {"class": "reservoir", "canonical": "vmax",  "dialect": "gtopt",  "unit": "Mm3"},
-    {"class": "reservoir", "canonical": "vmax",  "dialect": "plp",    "unit": "hm3"},
+    {"class": "reservoir", "canonical": "emax",  "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "emax",  "dialect": "plp",    "unit": "hm3"},
     {"class": "waterway",  "canonical": "fmax",  "dialect": "gtopt",  "unit": "m3/s"},
     {"class": "line",      "canonical": "lossfactor", "dialect": "gtopt", "unit": ""}
   ]
@@ -41,8 +41,8 @@ TEST_CASE("UnitRegistry — basic (class, canonical, dialect) lookup")  // NOLIN
     // The whole point of the per-dialect index: PLP and gtopt agree on
     // the canonical name but disagree on the unit.  A future
     // unit-mismatch warning under --naming-dialect relies on this.
-    CHECK(r.unit_for("reservoir", "vmax", "gtopt").value_or("") == "Mm3");
-    CHECK(r.unit_for("reservoir", "vmax", "plp").value_or("") == "hm3");
+    CHECK(r.unit_for("reservoir", "emax", "gtopt").value_or("") == "Mm3");
+    CHECK(r.unit_for("reservoir", "emax", "plp").value_or("") == "hm3");
   }
 
   SUBCASE("dimensionless entries return an empty string, not nullopt")
