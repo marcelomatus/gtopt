@@ -141,13 +141,28 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     bundle.n_days,
                 )
             else:
-                # Fallback: PLEXOS_Param.xml band counts.  Honored
-                # implicitly by the existing day-1 path (no aggregation).
-                bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
-                logger.warning(
-                    "horizon-mode=plexos: no .accdb available, falling "
-                    "back to %d-day uniform hourly blocks.",
-                    bundle.n_days,
+                # No silent fallback.  ``--horizon-mode plexos`` means the
+                # caller wants the EXACT block grouping PLEXOS solved
+                # over (typically 111 chronological blocks for the CEN
+                # PCP daily week).  Falling back to uniform-hourly here
+                # would silently produce a bundle that solves a
+                # different problem than PLEXOS (e.g. 168 hourly vs 111
+                # variable-duration blocks) and any downstream
+                # comparison (objective, dispatch, LMP) becomes
+                # meaningless.  Make the failure explicit so the user
+                # can either supply ``--plexos-solution-accdb`` or
+                # opt-in to uniform-hourly via ``--horizon-mode hourly``.
+                raise FileNotFoundError(
+                    "plexos2gtopt: --horizon-mode=plexos requires the "
+                    "PLEXOS solution .accdb to recover the t_phase_3 "
+                    "block grouping, but none was found.  Either:\n"
+                    "  - pass --plexos-solution-accdb /path/to/Model "
+                    "PRGdia_Full_Definitivo Solution.accdb, or\n"
+                    "  - place RES<DATE>.zip[.xz] next to the input "
+                    "DATOS<DATE>.zip[.xz] so auto-discovery finds it, "
+                    "or\n"
+                    "  - opt-in to uniform-hourly explicitly with "
+                    "--horizon-mode hourly --horizon-days N."
                 )
         else:  # hourly
             bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
