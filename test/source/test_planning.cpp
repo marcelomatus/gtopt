@@ -1,5 +1,8 @@
+#include <cstdint>
 #include <filesystem>
+#include <format>
 #include <string_view>
+#include <system_error>
 
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
@@ -9,6 +12,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <unistd.h>
 
 #include "fixture_helpers.hpp"
 #include "log_capture.hpp"
@@ -253,17 +257,34 @@ TEST_CASE("PlanningLP - Write LP file")
   // Create planning_lp
   const PlanningLP planning_lp(planning, flat_options);
 
+  // Use a tmpdir-based stem so the on-disk artifact does not depend on
+  // the test process's cwd and cannot collide with sibling tests
+  // running in parallel under `ctest -j20`.
+  const auto tmpdir = std::filesystem::temp_directory_path()
+      / std::format("gtopt_test_write_lp_{}",
+                    static_cast<std::int64_t>(::getpid()));
+  std::filesystem::create_directories(tmpdir);
+  const auto stem = tmpdir / "test_planning";
+
   // Test writing LP file
-  planning_lp.write_lp("test_planning");
+  planning_lp.write_lp(stem.string());
 
-  // Check if the file was created
-  const std::string lp_file = "test_planning_scene_0_phase_0.lp";
-  const bool file_exists = std::filesystem::exists(lp_file);
+  // `write_lp` uses one of two naming conventions depending on the
+  // cell count:
+  //   * single (scene, phase) cell → `<stem>.lp` (no per-cell suffix
+  //     because it would just be noise on a monolithic case).
+  //   * multiple cells → `<stem>_scene_<uid>_phase_<uid>.lp` per cell.
+  // This fixture has one cell, but we accept either form so the test
+  // is robust to future LP-naming changes.
+  const std::filesystem::path lp_file_single = stem.string() + ".lp";
+  const std::filesystem::path lp_file_per_cell =
+      stem.string() + "_scene_0_phase_0.lp";
+  const bool file_exists = std::filesystem::exists(lp_file_single)
+      || std::filesystem::exists(lp_file_per_cell);
 
-  // Clean up the file if it exists
-  if (file_exists) {
-    std::filesystem::remove(lp_file);
-  }
+  // Clean up the per-test scratch dir whether or not the file exists.
+  std::error_code ec;
+  std::filesystem::remove_all(tmpdir, ec);
 
   // Verify the file was created
   CHECK(file_exists);
@@ -475,7 +496,16 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   // Create planning_lp
   PlanningLP planning_lp(planning, flat_options);
 
-  planning_lp.write_lp("test_planning_lp_write_only");
+  // Use a tmpdir-based stem so the on-disk artifact does not depend on
+  // the test process's cwd and cannot collide with sibling tests
+  // running in parallel under `ctest -j20`.
+  const auto tmpdir = std::filesystem::temp_directory_path()
+      / std::format("gtopt_test_write_only_{}",
+                    static_cast<std::int64_t>(::getpid()));
+  std::filesystem::create_directories(tmpdir);
+  const auto stem = tmpdir / "test_planning_lp_write_only";
+
+  planning_lp.write_lp(stem.string());
   // Run the LP (should only create LP model, not solve)
 
   auto result = planning_lp.resolve();
@@ -483,14 +513,17 @@ TEST_CASE("PlanningLP - Run with write_only flag")
   // Check that we got a successful result
   REQUIRE(result.has_value());
 
-  // Check if the file was created
-  const std::string lp_file = "test_planning_lp_write_only_scene_0_phase_0.lp";
-  const bool file_exists = std::filesystem::exists(lp_file);
+  // Same dual naming convention as the "Write LP file" test above:
+  // single-cell skips the per-cell suffix, multi-cell appends it.
+  const std::filesystem::path lp_file_single = stem.string() + ".lp";
+  const std::filesystem::path lp_file_per_cell =
+      stem.string() + "_scene_0_phase_0.lp";
+  const bool file_exists = std::filesystem::exists(lp_file_single)
+      || std::filesystem::exists(lp_file_per_cell);
 
-  // Clean up the file if it exists
-  if (file_exists) {
-    std::filesystem::remove(lp_file);
-  }
+  // Clean up the per-test scratch dir whether or not the file exists.
+  std::error_code ec;
+  std::filesystem::remove_all(tmpdir, ec);
 
   // Verify the file was created
   CHECK(file_exists);
