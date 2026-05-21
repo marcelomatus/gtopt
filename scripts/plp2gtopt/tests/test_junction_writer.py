@@ -1248,11 +1248,20 @@ class _MockWaterValueResolver:
 
 
 def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
-    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost)."""
+    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost).
+
+    With both ``spillway_cost`` and ``spillway_capacity`` collapsed to 0
+    the drain teleport contributes nothing to the LP, so
+    ``_spillway_fields`` omits both keys entirely (gtopt's
+    ``storage_lp.cpp`` only creates the drain column when
+    ``spillway_cost`` is set; with the field absent no column is
+    allocated, saving one LP variable per (scene, stage, block) per
+    reservoir that the LP would have presolved away).
+    """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 0.0}
+    assert fields == {}
 
 
 def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
@@ -1274,12 +1283,17 @@ def test_spillway_cost_unchanged_when_resolver_inactive():
 def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
     """--vrebemb-as-sink alone (without --auto-water-fail-cost) also zeros
     the drain-teleport spillway_cost for vrebemb centrals.  Aligns with
-    the flag's design intent of dropping every vrebemb-derived cost."""
+    the flag's design intent of dropping every vrebemb-derived cost.
+
+    The zero-cost / zero-capacity combination triggers the no-op
+    omission described on the ``--auto-water-fail-cost`` test above:
+    no LP column is created (gtopt drops the drain when
+    ``spillway_cost`` is absent).
+    """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._vrebemb_as_sink = True
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields["spillway_cost"] == 0.0
-    assert fields["spillway_capacity"] == 0.0
+    assert fields == {}
 
 
 def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():

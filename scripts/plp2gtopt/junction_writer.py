@@ -1414,7 +1414,6 @@ class JunctionWriter(BaseWriter):
                 "emin": 0.0,
                 "emax": vmax,
                 "capacity": vmax,
-                "annual_loss": 0.0,
                 "daily_cycle": True,
             }
             system["reservoir_array"].append(cast(Reservoir, ror_reservoir))
@@ -1576,7 +1575,6 @@ class JunctionWriter(BaseWriter):
                 #   missing-field case falls back to the legacy 6000 —
                 #   an explicit VertMax=0 must be honoured).
                 **self._spillway_fields(central_name, central),
-                "annual_loss": 0.0,
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
             if spill_junction_name is not None:
@@ -1698,8 +1696,24 @@ class JunctionWriter(BaseWriter):
         if rebalse_cost is not None:
             # Drain teleport is disabled — the physical ``_ver`` arc
             # (open + costed) carries the spill in its place.
+            #
+            # Omission rule: when BOTH spillway_cost and spillway_capacity
+            # collapse to 0 (the default path under
+            # ``--auto-water-fail-cost`` / ``--vrebemb-as-sink``), the
+            # drain teleport contributes nothing to the LP — gtopt's
+            # ``storage_lp.cpp`` only adds the drain column when
+            # ``spillway_cost`` is set, so omitting both keys avoids
+            # emitting one redundant ``drain`` column per (scene, stage,
+            # block) that the LP would presolve away anyway.  When
+            # ``spillway_cost`` carries a real ``Costo de Rebalse``
+            # value (``zero_vrebemb_spillway`` is False), keep both
+            # fields so the round-trip stays faithful to the legacy
+            # behaviour.
+            cost = 0.0 if zero_vrebemb_spillway else rebalse_cost
+            if cost == 0.0:
+                return {}
             return {
-                "spillway_cost": 0.0 if zero_vrebemb_spillway else rebalse_cost,
+                "spillway_cost": cost,
                 "spillway_capacity": 0.0,
             }
 

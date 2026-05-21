@@ -261,7 +261,7 @@ def test_happy_path_explicit_list(tmp_path: Path):
     assert ra["emin"] == 0.0
     assert ra["emax"] == 1.25
     assert ra["capacity"] == 1.25
-    assert ra["annual_loss"] == 0.0
+    assert "annual_loss" not in ra  # zero, intentionally omitted
     assert ra["daily_cycle"] is True
 
     rb = _find_ror(system, "CentB")
