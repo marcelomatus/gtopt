@@ -1077,6 +1077,37 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         # on the piecewise mode with a small fixed number of
         # segments to mirror PLEXOS's default loss linearisation.
         resistance = db.static_property("Line", line.object_id, "Resistance")
+        # PLEXOS Max Rating (pid 1882) / Min Rating (pid 1883) —
+        # short-term / emergency limits, typically 1.5-2× Max Flow.
+        # Carry through to LineSpec so the writer can pair with
+        # Max Flow as (soft, hard) thresholds.
+        #
+        # Sentinel filter: PLEXOS-CEN ships sentinel "no-constraint"
+        # values on a handful of lines (e.g. Antofag110->Desalant110
+        # at 110 kV has Max Rating = 1000 MW = 17.5× Max Flow,
+        # physically impossible).  Realistic emergency-rating
+        # uplifts on Chilean transmission stay below ~2-3× for
+        # lines; transformers can legitimately hit 7-8× via thermal
+        # short-term overload (Jadresic500->Jadresic220 at 7.5× is
+        # plausible — oil-cooled HV transformers carry significant
+        # overload capacity for minutes-to-hours).  Reject any
+        # Max Rating > 8× Max Flow as a sentinel; keep the rest.
+        max_rating_static = (
+            db.static_property("Line", line.object_id, "Max Rating") or 0.0
+        )
+        min_rating_static = (
+            db.static_property("Line", line.object_id, "Min Rating") or 0.0
+        )
+        if tmax > 0.0 and max_rating_static > 8.0 * tmax:
+            logger.debug(
+                "Line %s: Max Rating %.0f > 8x Max Flow %.0f — "
+                "treating as sentinel, ignoring uplift",
+                line.name,
+                max_rating_static,
+                tmax,
+            )
+            max_rating_static = 0.0
+            min_rating_static = 0.0
         wheeling = db.static_property("Line", line.object_id, "Wheeling Charge")
         # PLEXOS Enforce Limits: 0=Never, 1=Voltage, 2=Always.  Defaults
         # to 1 ("enforce") when the property is unset to stay safe on
@@ -1093,6 +1124,8 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 tmin_ab=tmin,
                 tmax_ab_profile=tuple(tmax_series),
                 tmin_ab_profile=tuple(tmin_series),
+                max_rating=float(max_rating_static),
+                min_rating=float(min_rating_static),
                 units=units,
                 reactance=reactance,
                 resistance=resistance,
