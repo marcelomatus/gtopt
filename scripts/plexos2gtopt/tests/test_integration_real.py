@@ -212,17 +212,42 @@ def test_real_bundle_p4_hydro_topology() -> None:
     """P4: hydro extractors populate reservoir/waterway/junction/turbine/flow.
 
     Sanity-check the CEN PCP bundle exposes the expected hydro shapes:
-    ~28 storage-bearing Reservoirs (PLEXOS pass-through Storages and
-    synthetic ``*_sink`` / ``*_ocean`` drain endpoints are NOT emitted
-    as Reservoirs — they live in ``junction_array`` only with
-    ``drain = True``), ~70 Junctions (one per Reservoir plus the
-    extra sink/ocean/pass-through nodes), ~28 Waterways, 77 hydro
-    turbines, ~23 inflow time-series, and every Flow's junction
-    matching a real Junction (no orphans).
+    ~20 storage-bearing Reservoirs (PLEXOS pass-through Storages,
+    pure pondage / tailrace points with all bounds at zero and not
+    referenced as a turbine main_reservoir, and synthetic
+    ``*_sink`` / ``*_ocean`` drain endpoints are all emitted as
+    Junction-only nodes — never as Reservoirs), ~51 Junctions
+    (one per Reservoir plus the extra pondage / sink / ocean /
+    pass-through nodes), ~28 Waterways, 77 hydro turbines,
+    ~23 inflow time-series, and every Flow's junction matching a
+    real Junction (no orphans).
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
-    assert len(case.reservoirs) >= 25
+    assert len(case.reservoirs) >= 18
+    # No pondage / tailrace Reservoir should remain: every kept
+    # Reservoir must carry at least one binding volume / cost field.
+    for r in case.reservoirs:
+        has_bound = (
+            r.emin > 0
+            or r.emax > 0
+            or r.efin > 0
+            or r.water_value > 0
+            or r.never_drain
+            or r.spill_penalty_per_mwh > 0
+            or r.emin_profile
+            or r.emax_profile
+            or r.inflow_profile
+        )
+        # Tolerate the pure-eini case ONLY when the Reservoir is the
+        # head of a turbine — series-hydro Reservoirs (CURILLINQUE,
+        # ISLA, …) still need a ReservoirSpec so Turbine main_reservoir
+        # references resolve.
+        turbine_head = r.name in {t.reservoir_name for t in case.turbines}
+        assert has_bound or turbine_head, (
+            f"unbounded Reservoir {r.name!r} survives but is not a "
+            f"turbine main_reservoir — should have been demoted to Junction"
+        )
     # Junction count >= reservoir count: every Reservoir gets a co-located
     # Junction, plus extra Junctions for PLEXOS pass-through Storage and
     # synthetic ``*_sink`` / ``*_ocean`` drain endpoints.
