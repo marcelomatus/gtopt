@@ -321,22 +321,24 @@ _DERIVED_COEFFS: tuple[tuple[str, str, str, str], ...] = (
         "available_capacity",
     ),
     # Ramp Up/Down Coefficient references the inter-block ramp delta
-    # (gen(t) - gen(t-1)). gtopt models ramps via Commitment constraints
-    # but does not expose ``ramp_up``/``ramp_down`` as an AMPL accessor.
-    # Volume is tiny in CEN PCP (~9 rows total), so the v0 policy is the
-    # same as the RHS-shift kinds: log a WARNING once per
-    # (constraint, kind) and drop the term.
+    # ``α × (gen(t) − gen(t−1))``.  gtopt now exposes the prior-block
+    # generation via the ``generator("X").generation_prev`` AMPL
+    # accessor (resolved by ``element_column_resolver.cpp`` against
+    # the chronological block sequence on the active StageLP;
+    # first-block boundary case treats the prior dispatch as 0 /
+    # cold start).  Emit BOTH terms in mode ``ramp_delta`` below:
+    # ``+α × generation`` and ``−α × generation_prev``.
     (
         "Generator",
         "Constraints",
         "Ramp Up Coefficient",
-        "unsupported_rhs_shift",
+        "ramp_delta",
     ),
     (
         "Generator",
         "Constraints",
         "Ramp Down Coefficient",
-        "unsupported_rhs_shift",
+        "ramp_delta",
     ),
     # Battery Reserve Units Coefficient: gtopt has no
     # ``battery_commitment("X").status`` AMPL accessor at the
@@ -3390,9 +3392,29 @@ def extract_user_constraints(
                     terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
                     coefficients.append(alpha)
                     continue
+                elif mode == "ramp_delta":
+                    # Inter-block ramp constraint:
+                    #   α × (gen(t) − gen(t−1)) ≤ rhs
+                    # gtopt's UC parser recognises a trailing ``_prev``
+                    # on the attribute name; ``element_column_resolver``
+                    # strips it and looks up the SAME class+uid+base-
+                    # attribute at the immediately preceding block in
+                    # the chronological stage.  First-block boundary
+                    # falls through to ``resolve_single_param`` which
+                    # treats prior gen as 0 (cold start), so the
+                    # ``−α × generation_prev`` term vanishes cleanly
+                    # at t=0.
+                    cur_ref = f'generator("{parent_name}").generation'
+                    prev_ref = f'generator("{parent_name}").generation_prev'
+                    terms.append(_format_coefficient(alpha, first=not terms) + cur_ref)
+                    coefficients.append(alpha)
+                    terms.append(_format_coefficient(-alpha, first=False) + prev_ref)
+                    coefficients.append(-alpha)
+                    continue
                 else:
-                    # unsupported_rhs_shift (Ramp Up/Down) — log once
-                    # per (constraint, kind)
+                    # Reserved for future cross-block coefficient kinds
+                    # that can't be reformulated.  No active mode lands
+                    # here today.
                     key = f"{constr.name}::{prop_name}"
                     if key not in unsupported_rhs_shift_warns:
                         unsupported_rhs_shift_warns.add(key)
