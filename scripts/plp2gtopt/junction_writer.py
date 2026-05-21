@@ -475,6 +475,14 @@ class JunctionWriter(BaseWriter):
         # keeps the Waterway parquet honest and removes false-positive
         # validator noise.  Logged once at end of ``to_json_array``.
         self._dead_zero_waterway_count: int = 0
+        # Counter + name list for ``_ver`` spillway arcs dropped in the
+        # post-pass that collapses the parallel-arc duplicate when a
+        # ``filt_*`` seepage waterway shares the same (junction_a,
+        # junction_b) pair (e.g. ELTORO_ver_37_38 ⇄ filt_ELTORO_37_38
+        # both routing to ABANICO).  Reported via ``_logger.info`` at
+        # the end of ``to_json_array``.
+        self._seepage_redundant_spillway_count: int = 0
+        self._seepage_redundant_spillway_names: list[str] = []
         # Gen waterways of transit centrals (``bus = 0``) that have
         # plpmance.dat per-stage flow envelopes.  These centrals have
         # no generator entry to consume Generator/pmin.parquet, so we
@@ -626,6 +634,9 @@ class JunctionWriter(BaseWriter):
         self._vrebemb_as_sink_count = 0
         # Reset dead-zero waterway suppression counter for this run.
         self._dead_zero_waterway_count = 0
+        # Reset seepage-redundant-spillway suppression state for this run.
+        self._seepage_redundant_spillway_count = 0
+        self._seepage_redundant_spillway_names = []
         # Log precedence interaction once: ``--drop-spillway-waterway``
         # suppresses every ``_ver`` arc, so ``--vrebemb-as-sink`` is a
         # no-op when both flags are on.
@@ -647,6 +658,36 @@ class JunctionWriter(BaseWriter):
                 self._referenced_junctions.add(hid)
             if ver > 0:
                 self._referenced_junctions.add(ver)
+
+        # Build the set of (source_central_id, target_central_id) pairs that
+        # WILL be covered by a seepage waterway emitted later by
+        # ``_process_seepages_filemb`` / ``_process_seepages``.  Used by
+        # ``_process_central`` to short-circuit emission of an operationally
+        # redundant ``_ver`` spillway arc whose endpoints coincide with the
+        # upcoming seepage arc (e.g. ELTORO on the CEN65 2-year case: PLP's
+        # ``ser_ver = ABANICO`` matches the plpfilemb seepage target
+        # ``ABANICO`` exactly, so without this guard the LP gets two
+        # parallel free arcs ELTORO → ABANICO).  The seepage arc is the
+        # PLP-faithful one (its piecewise volume function carries the
+        # forced flow); the spillway arc has nothing left to contribute
+        # under ``--auto-water-fail-cost`` defaults.
+        self._seepage_target_pairs: set[tuple[int, int]] = set()
+        if self.filemb_parser and central_parser:
+            for entry in self.filemb_parser.seepages:
+                src = central_parser.get_central_by_name(entry["embalse"])
+                dst = central_parser.get_central_by_name(entry["central"])
+                if src is not None and dst is not None:
+                    self._seepage_target_pairs.add(
+                        (int(src["number"]), int(dst["number"]))
+                    )
+        elif self.cenfi_parser and central_parser:
+            for entry in self.cenfi_parser.seepages:
+                src = central_parser.get_central_by_name(entry["name"])
+                dst = central_parser.get_central_by_name(entry["reservoir"])
+                if src is not None and dst is not None:
+                    self._seepage_target_pairs.add(
+                        (int(src["number"]), int(dst["number"]))
+                    )
 
         # Process central plants
         for central in items:
@@ -716,6 +757,16 @@ class JunctionWriter(BaseWriter):
                 "the LP column would be pinned to 0 and collapsed by "
                 "solver presolve anyway).",
                 self._dead_zero_waterway_count,
+            )
+
+        if self._seepage_redundant_spillway_count > 0:
+            _logger.info(
+                "Suppressed %d _ver spillway arc(s) whose endpoints "
+                "coincide with a filt_* seepage waterway and carry no "
+                "extra constraint (operationally-redundant parallel "
+                "free arc): %s",
+                self._seepage_redundant_spillway_count,
+                ", ".join(self._seepage_redundant_spillway_names),
             )
 
         return [cast(Dict[str, Any], system)]
@@ -965,6 +1016,13 @@ class JunctionWriter(BaseWriter):
         # fallback.  The ``drain = True`` flag set on the central's
         # own junction below absorbs surplus water in place of the
         # missing arc.
+        # ``seepage_covers_spillway``: set True only when the
+        # default-branch (in-network ``_ver``) emission is suppressed
+        # because a parallel ``filt_*`` seepage waterway covers the
+        # same endpoints AND the ``_ver`` carries no extra constraint.
+        # The ocean-fallback further down consults this flag to avoid
+        # synthesising a new ``<central>_ocean`` arc as a substitute.
+        seepage_covers_spillway = False
         if self._drop_spillway_waterway:
             ver_waterway: Optional[Waterway] = None
         elif self._vrebemb_as_sink and in_vrebemb and central.get("ser_ver", 0) > 0:
@@ -1010,14 +1068,55 @@ class JunctionWriter(BaseWriter):
             )
             self._vrebemb_as_sink_count += 1
         else:
-            ver_waterway = self._create_waterway(
-                central_name + "_ver",
-                central_id,
-                central["ser_ver"],
-                vert_fmin,
-                vert_fmax,
-                fcost=vert_fcost,
+            # Suppress the ``_ver`` spillway arc when:
+            #  - PLP's ``ser_ver`` target coincides with the seepage
+            #    target for this central (pre-computed
+            #    ``self._seepage_target_pairs`` from plpfilemb / plpcenfi
+            #    BEFORE central processing), AND
+            #  - the spillway arc would carry no LP-side constraint of
+            #    its own (no fmin floor, no finite fmax, no fcost).
+            # The seepage waterway emitted later by
+            # ``_process_seepages_filemb`` / ``_process_seepages`` is
+            # the PLP-faithful one (its piecewise volume function drives
+            # the forced flow); a parallel free spillway adds no LP
+            # information and gives the LP two indistinguishable
+            # columns between the same junctions.  On the CEN65
+            # 2-year case this catches ELTORO_ver_37_38 ⇄
+            # filt_ELTORO_37_38 (both routing to ABANICO).
+            ser_ver = int(central.get("ser_ver", 0) or 0)
+            seepage_dup = (central_id, ser_ver) in self._seepage_target_pairs
+            ver_unconstrained = (
+                (vert_fmin or 0.0) <= 0.0
+                and (vert_fmax is None or math.isinf(vert_fmax))
+                and (vert_fcost is None or vert_fcost <= 0.0)
             )
+            if seepage_dup and ver_unconstrained:
+                self._seepage_redundant_spillway_count += 1
+                self._seepage_redundant_spillway_names.append(
+                    f"{central_name}_ver_{central_id}_{ser_ver}"
+                )
+                # The seepage waterway emitted later carries the
+                # PLP-faithful forced flow for this central; the
+                # ``seepage_covers_spillway`` flag (consumed by the
+                # ocean-fallback below) prevents us from trading a
+                # ``_ver → downstream`` arc for a ``_ver → ocean`` arc
+                # + a synthetic ``<central>_ocean`` junction (net
+                # WORSE topology).  The reservoir's ``efin_cost`` /
+                # ``soft_emin_cost`` soft penalties under
+                # ``--auto-water-fail-cost`` already provide the
+                # storage-level safety valve that the ocean spillway
+                # used to backstop.
+                ver_waterway = None
+                seepage_covers_spillway = True
+            else:
+                ver_waterway = self._create_waterway(
+                    central_name + "_ver",
+                    central_id,
+                    central["ser_ver"],
+                    vert_fmin,
+                    vert_fmax,
+                    fcost=vert_fcost,
+                )
 
         # **Spillway ocean fallback** — when ``ser_ver = 0`` AND the
         # central has a positive ``VertMax``, PLP routes excess water
@@ -1038,6 +1137,7 @@ class JunctionWriter(BaseWriter):
         if (
             ver_waterway is None
             and not self._drop_spillway_waterway
+            and not seepage_covers_spillway
             and central_type in ("embalse", "serie", "pasada")
         ):
             vert_max_for_spill = central.get("vert_max", 0.0) or 0.0
