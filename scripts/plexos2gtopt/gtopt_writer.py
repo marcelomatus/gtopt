@@ -761,12 +761,23 @@ def build_junction_array(
 
 def build_waterway_array(
     waterways: tuple[WaterwaySpec, ...],
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One Waterway per :class:`WaterwaySpec` with both endpoints valid.
 
     PLEXOS Storage From / Storage To names map directly to gtopt's
     ``junction_a`` / ``junction_b`` since our junction naming mirrors
     the source Storage names.
+
+    When ``ww.forced_flow_profile`` carries a non-constant per-hour
+    series, both ``fmin`` and ``fmax`` are emitted as per-block
+    matrices (``[[v_b0, v_b1, ...]]``) computed by aggregating the
+    hourly profile onto the active ``block_layout`` (mean reducer,
+    preserving units and the constant-pin semantics of the original
+    PLEXOS forced flow).  Without this matrix path, pinning
+    ``fmin = fmax = max(profile)`` uniformly produced phantom water
+    at B_Maule on the CEN PCP daily bundle — see the docstring on
+    :class:`WaterwaySpec.forced_flow_profile` for the diagnosis.
     """
     out: list[dict[str, Any]] = []
     for i, ww in enumerate(waterways):
@@ -778,10 +789,20 @@ def build_waterway_array(
             "junction_a": ww.storage_from,
             "junction_b": ww.storage_to,
         }
-        if ww.fmax > 0.0:
-            entry["fmax"] = ww.fmax
-        if ww.fmin > 0.0:
-            entry["fmin"] = ww.fmin
+        profile = ww.forced_flow_profile
+        if profile and min(profile) != max(profile):
+            per_block = (
+                _aggregate_to_blocks(profile, block_layout, reducer="mean")
+                if block_layout
+                else list(profile)
+            )
+            entry["fmin"] = [per_block]
+            entry["fmax"] = [per_block]
+        else:
+            if ww.fmax > 0.0:
+                entry["fmax"] = ww.fmax
+            if ww.fmin > 0.0:
+                entry["fmin"] = ww.fmin
         if ww.fcost > 0.0:
             entry["fcost"] = ww.fcost
         out.append(entry)
@@ -1355,7 +1376,11 @@ def build_planning(
         # build_turbine_array APPEND any per-unit clone waterways it
         # synthesises for multi-unit plants (see docstring on
         # build_turbine_array for the rationale).
-        "waterway_array": (waterway_array := build_waterway_array(case.waterways)),
+        "waterway_array": (
+            waterway_array := build_waterway_array(
+                case.waterways, block_layout=case.bundle.block_layout
+            )
+        ),
         "turbine_array": build_turbine_array(
             case.turbines,
             case.waterways,
