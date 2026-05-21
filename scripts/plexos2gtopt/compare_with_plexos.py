@@ -423,10 +423,20 @@ def compute_plexos_energy_totals(
     # gtopt against that shows a phantom 7-8% deficit that is a
     # definitional artifact, not a data error.  See
     # ~/.claude/.../memory/feedback_plexos_demand_scope.md.
+    # PLEXOS Node.Load (1373) is GROSS-of-battery-charging: it
+    # includes the battery's charging draw at the node where the
+    # battery sits.  gtopt's ``Demand/load_sol`` (filtered to
+    # input-bundle uids) is consumer-only — the battery's charge
+    # path lives in the Battery object's ``finp_sol``.  Compute a
+    # ``load_consumer_mwh`` = Node.Load − Battery.Load for an
+    # apples-to-apples consumer-demand comparison.
+    node_load = _energy_mwh(PLEXOS_PROP_NODE_LOAD)
+    battery_load = _energy_mwh(PLEXOS_PROP_BATTERY_LOAD)
     return {
-        "load_mwh": _energy_mwh(PLEXOS_PROP_NODE_LOAD),
+        "load_mwh": max(0.0, node_load - battery_load),
+        "load_node_mwh": node_load,
         "load_region_mwh": _energy_mwh(PLEXOS_PROP_REGION_LOAD),
-        "battery_load_mwh": _energy_mwh(PLEXOS_PROP_BATTERY_LOAD),
+        "battery_load_mwh": battery_load,
         "losses_mwh": _energy_mwh(PLEXOS_PROP_REGION_LOSSES),
         "gen_mwh": _energy_mwh(PLEXOS_PROP_REGION_GENERATION),
         "gen_unit_mwh": _energy_mwh(PLEXOS_PROP_GENERATOR_GENERATION),
