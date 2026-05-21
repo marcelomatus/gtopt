@@ -179,6 +179,26 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         else:  # hourly
             bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
 
+        # Dump the PLEXOS solution-tables cache BEFORE running
+        # ``extract_case`` so that solution-side extractors (in
+        # particular ``extract_fuel_offtake_caps`` which reads the
+        # FueMaxOff* Constraint RHS values) can find the data.
+        # When no .accdb is available, the cache step is a no-op
+        # and the fuel-cap extractor falls through to "no caps".
+        if resolved_accdb is not None:
+            from .plexos_block_layout import cache_plexos_tables
+
+            output_dir_for_cache, _, _ = _resolve_output_paths(
+                input_path,
+                options.get("output_dir"),
+                options.get("output_file"),
+                options.get("name"),
+            )
+            output_dir_for_cache.mkdir(parents=True, exist_ok=True)
+            cache_dir = cache_plexos_tables(resolved_accdb, output_dir_for_cache)
+            bundle.accdb_path = resolved_accdb
+            bundle.accdb_cache_dir = cache_dir
+
         case = extract_case(bundle)
         # The block layout (if any) rides on the bundle_spec so the
         # writer can pick it up.  ``extract_case`` already populated
@@ -210,16 +230,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         output_dir.mkdir(parents=True, exist_ok=True)
         write_planning(planning, output_file)
 
-        # Dump PLEXOS solution tables to the output dir for downstream
-        # comparison tools (compare_with_plexos) to consume without
-        # re-shelling out to mdb-export on every invocation.  The
-        # cache lives at ``<output_dir>/plexos_cache/`` and is keyed
-        # by the .accdb file mtime — re-runs against the same .accdb
-        # are no-ops.
-        if resolved_accdb is not None:
-            from .plexos_block_layout import cache_plexos_tables
-
-            cache_plexos_tables(resolved_accdb, output_dir)
+        # Cache was already dumped before ``extract_case`` (see
+        # the pre-extract block) so the fuel-offtake-caps extractor
+        # could read it; nothing more to do here.
 
         logger.info(
             "converted %s -> %s "
