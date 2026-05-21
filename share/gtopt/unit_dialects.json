@@ -101,6 +101,56 @@
     {"class": "reserve_provision","canonical": "dmax",        "dialect": "gtopt", "unit": "MW"},
 
     {"class": "block",     "canonical": "duration",       "dialect": "gtopt",  "unit": "h"},
-    {"class": "stage",     "canonical": "discount_factor","dialect": "gtopt",  "unit": ""}
+    {"class": "stage",     "canonical": "discount_factor","dialect": "gtopt",  "unit": ""},
+
+    {"class": "bus",       "canonical": "voltage",        "dialect": "gtopt",      "unit": "kV"},
+    {"class": "bus",       "canonical": "voltage",        "dialect": "plexos",     "unit": "kV"},
+    {"class": "bus",       "canonical": "voltage",        "dialect": "pypsa",      "unit": "kV"},
+    {"class": "bus",       "canonical": "voltage",        "dialect": "pandapower", "unit": "kV"},
+    {"class": "bus",       "canonical": "reference_theta","dialect": "gtopt",      "unit": "rad"},
+
+    {"class": "generator", "canonical": "annual_capcost", "dialect": "gtopt",  "unit": "USD/MW/year"},
+    {"class": "generator", "canonical": "annual_capcost", "dialect": "plexos", "unit": "USD/kW/year"},
+    {"class": "generator", "canonical": "annual_derating","dialect": "gtopt",  "unit": "1/year"},
+    {"class": "generator", "canonical": "capmax",         "dialect": "gtopt",  "unit": "MW"},
+    {"class": "generator", "canonical": "capmax",         "dialect": "pypsa",  "unit": "MW"},
+    {"class": "generator", "canonical": "lifetime",       "dialect": "gtopt",  "unit": "year"},
+    {"class": "generator", "canonical": "lifetime",       "dialect": "pypsa",  "unit": "year"},
+
+    {"class": "battery",   "canonical": "annual_capcost", "dialect": "gtopt",  "unit": "USD/MWh/year"},
+    {"class": "battery",   "canonical": "capmax",         "dialect": "gtopt",  "unit": "MWh"},
+    {"class": "battery",   "canonical": "lifetime",       "dialect": "gtopt",  "unit": "year"},
+
+    {"class": "line",      "canonical": "annual_capcost", "dialect": "gtopt",  "unit": "USD/MW/year"},
+    {"class": "line",      "canonical": "annual_derating","dialect": "gtopt",  "unit": "1/year"},
+    {"class": "line",      "canonical": "lifetime",       "dialect": "gtopt",  "unit": "year"},
+
+    {"class": "commitment", "canonical": "cold_start_cost", "dialect": "plexos","unit": "USD"},
+    {"class": "commitment", "canonical": "warm_start_cost", "dialect": "plexos","unit": "USD"},
+    {"class": "commitment", "canonical": "hot_start_cost",  "dialect": "plexos","unit": "USD"},
+
+    {"class": "emission_source", "canonical": "rate",     "dialect": "gtopt",   "unit": "tCO2/MWh"},
+    {"class": "emission_source", "canonical": "rate",     "dialect": "plexos",  "unit": "kg/MMBtu"},
+    {"class": "emission_source", "canonical": "rate",     "dialect": "sddp",    "unit": "tCO2/MWh"},
+    {"class": "emission",        "canonical": "cap",      "dialect": "plexos",  "unit": "tCO2"},
+    {"class": "emission",        "canonical": "cap_cost", "dialect": "plexos",  "unit": "USD/tCO2"},
+    {"class": "emission",        "canonical": "weight",   "dialect": "gtopt",   "unit": ""},
+
+    {"class": "fuel",      "canonical": "annual_capcost",          "dialect": "gtopt", "unit": "USD/MWh"},
+    {"class": "fuel",      "canonical": "upstream_emission_factor","dialect": "gtopt", "unit": "tCO2/MMBtu"},
+
+    {"class": "demand",    "canonical": "annual_capcost", "dialect": "gtopt",  "unit": "USD/MW/year"},
+
+    {"class": "reserve_zone","canonical": "urreq",        "dialect": "gtopt",  "unit": "MW"},
+    {"class": "reserve_zone","canonical": "drreq",        "dialect": "gtopt",  "unit": "MW"},
+    {"class": "reserve_zone","canonical": "urcost",       "dialect": "gtopt",  "unit": "USD/MWh"},
+    {"class": "reserve_zone","canonical": "drcost",       "dialect": "gtopt",  "unit": "USD/MWh"},
+
+    {"class": "inertia_zone","canonical": "requirement",  "dialect": "gtopt",  "unit": "MW.s"},
+    {"class": "inertia_zone","canonical": "requirement",  "dialect": "plexos", "unit": "MW.s"},
+
+    {"class": "reservoir", "canonical": "efin",           "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "efin",           "dialect": "plp",    "unit": "hm3"},
+    {"class": "reservoir", "canonical": "efin",           "dialect": "sddp",   "unit": "hm3"}
   ]
 }
