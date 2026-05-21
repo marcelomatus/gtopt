@@ -66,6 +66,19 @@ class PlexosBundle:
     # Hydro_WaterFlows, …) honour this via :func:`plexos_csv.read_wide`
     # / :func:`read_long`'s ``n_days`` parameter.
     n_days: int = 1
+    # Optional .accdb path (the PLEXOS solution database alongside
+    # the input bundle).  When set, downstream extractors can read
+    # solution-side data not present in the input XML — currently
+    # ``FueMaxOff*`` Constraint RHS values (see
+    # ``plexos_block_layout.extract_fuel_offtake_caps``).  Populated
+    # by ``plexos2gtopt.convert_plexos_bundle`` after auto-discovery
+    # of the sibling ``RES*.zip[.xz]``.
+    accdb_path: Path | None = None
+    # Optional path to the PLEXOS cache dir written by
+    # ``cache_plexos_tables`` — when set, extractors can read the
+    # zstd-compressed CSV mirrors of the .accdb tables directly,
+    # avoiding repeat ``mdb-export`` calls.
+    accdb_cache_dir: Path | None = None
 
     @property
     def xml_path(self) -> Path:

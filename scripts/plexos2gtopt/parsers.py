@@ -3498,6 +3498,148 @@ def extract_user_constraints(
     return tuple(out)
 
 
+def _build_fuel_offtake_caps_ucs(
+    bundle: PlexosBundle,
+    case: PlexosCase,
+) -> tuple[UserConstraintSpec, ...]:
+    """Synthesise UserConstraintSpec entries for PLEXOS ``FueMaxOff*``
+    weekly/daily fuel-offtake caps.
+
+    PLEXOS-CEN-PCP creates these constraints at solve time (they live
+    ONLY in the solution ``.accdb``) and they cap the total offtake
+    ``Σ_g heat_rate(g) × generation(g)`` over a week or a day per fuel
+    name.  Without them, gtopt's LP exploits multi-band fuel contracts
+    (e.g. ``Gas_Kelar_GN_A/B/C/D``) as if every band were unlimited,
+    routing ~150 GWh of cheap thermal that PLEXOS-MIP would block —
+    closing ~$15 M of the operational-cost gap on the CEN PCP daily
+    week.
+
+    Approach:
+      1. Read the per-fuel weekly / daily cap totals from the
+         ``.accdb`` cache (``extract_fuel_offtake_caps``).  Returns
+         ``{fuel_name: (cap, scope_hours)}`` where the cap is in
+         PLEXOS fuel units (typically GWh thermal).
+      2. Build ``fuel_to_gens`` and per-gen heat-rate maps from the
+         already-parsed ``case.generators`` (one Generator can list
+         multiple fuels via ``GeneratorSpec.fuel_names``).
+      3. For each capped fuel, emit ONE per-block UserConstraint
+         with LHS ``Σ heat_rate(g) × generator(g).generation`` and
+         RHS ``cap × block_duration / scope_hours`` (uniform per-
+         block decomposition — conservative w.r.t. PLEXOS, which
+         allows peak-vs-off-peak shaping within the scope).
+
+    Returns an empty tuple when no cache is available, no caps were
+    extracted, or no generator references the capped fuel.
+    """
+    if bundle.accdb_cache_dir is None or not bundle.accdb_cache_dir.is_dir():
+        return ()
+    from .plexos_block_layout import extract_fuel_offtake_caps
+
+    caps = extract_fuel_offtake_caps(bundle.accdb_cache_dir)
+    if not caps:
+        return ()
+
+    # Build the (fuel_name → list[(gen_name, heat_rate)]) inverse
+    # index from the already-parsed generators.  When a generator
+    # uses N fuels, its heat_rate is shared across all of them.
+    # Skip generators with pmax = 0 — PLEXOS-CEN ships alternate-
+    # fuel-mode variants (e.g. ``ATA-TG2A_GNL_E`` carrying only the
+    # fuel reference for ATA-TG2A under GNL_E gas tier) that gtopt's
+    # GeneratorLP omits from the AMPL element registry because they
+    # have no dispatch column.  Referencing them here would yield a
+    # strict-mode "cannot resolve element reference" error at LP
+    # construction.
+    fuel_to_gens: dict[str, list[tuple[str, float]]] = {}
+    for g in case.generators:
+        if not g.fuel_names or g.heat_rate <= 0.0 or g.pmax <= 0.0:
+            continue
+        # Skip generators whose per-block pmax profile drops to 0
+        # in any block — gtopt's GeneratorLP omits the LP column on
+        # zero-pmax blocks and strict-mode UC resolution then fails
+        # with "missing or inactive" on the very first such block.
+        # These are PLEXOS startup-staged / alternate-fuel-mode
+        # variants that only become dispatchable mid-horizon; the
+        # cap LHS slightly under-counts them but the constraint
+        # still binds on the always-dispatchable variants.
+        if g.pmax_profile and any(p <= 0.0 for p in g.pmax_profile):
+            continue
+        for fuel_name in g.fuel_names:
+            fuel_to_gens.setdefault(fuel_name, []).append((g.name, g.heat_rate))
+
+    # Per-block durations: when a block_layout is present, the
+    # per-block hours sum to ``scope_hours``; otherwise assume
+    # uniform 1h blocks across the full horizon.
+    block_layout = bundle.block_layout if hasattr(bundle, "block_layout") else ()
+    if block_layout:
+        block_durations = tuple(float(len(intervals)) for intervals in block_layout)
+        horizon_hours = float(sum(block_durations))
+    else:
+        block_durations = ()
+        horizon_hours = float(24 * bundle.n_days)
+
+    out: list[UserConstraintSpec] = []
+    for fuel_name, (cap, scope_hours) in caps.items():
+        gens = fuel_to_gens.get(fuel_name)
+        if not gens:
+            continue
+        # Skip caps that would never bind: cap >= sum of every
+        # generator's pmax × scope (i.e., the LP couldn't reach
+        # the cap even running flat-out).  Saves LP rows.
+        if cap >= 1e15:
+            continue
+
+        # Build LHS terms.  Skip generators without a positive
+        # heat_rate (renewables / hydro with explicit heat=0).
+        terms: list[str] = []
+        for gname, heat in gens:
+            coef = heat
+            terms.append(
+                _format_coefficient(coef, first=not terms)
+                + f'generator("{gname}").generation'
+            )
+        if not terms:
+            continue
+
+        # Per-block RHS decomposition: each block carries
+        # ``cap × duration / scope`` of the weekly/daily budget.
+        if block_durations:
+            rhs_profile = tuple(cap * (d / scope_hours) for d in block_durations)
+            # The scalar baked into the expression is the average
+            # (matches the rhs_profile when the layout is uniform).
+            scalar_rhs = (
+                cap
+                * (horizon_hours / max(scope_hours, 1.0))
+                / max(len(block_durations), 1)
+            )
+        else:
+            rhs_profile = ()
+            scalar_rhs = (
+                cap
+                * (horizon_hours / max(scope_hours, 1.0))
+                / max(int(horizon_hours), 1)
+            )
+
+        # ``_format_coefficient`` already emits the inter-term `` + ``
+        # / `` - `` prefix for non-first terms, so concat without
+        # an extra separator.  Using ``" + ".join(terms)`` would
+        # produce ``X +  + Y`` (double-plus) and break the parser.
+        expression = "".join(terms) + f" <= {scalar_rhs:.6f}"
+        out.append(
+            UserConstraintSpec(
+                name=f"FueMaxOff_{fuel_name}",
+                expression=expression,
+                rhs_profile=rhs_profile,
+            )
+        )
+    if out:
+        logger.info(
+            "synthesised %d FueMaxOff* UserConstraint(s) from solution .accdb "
+            "(weekly/daily fuel-offtake caps; per-block uniform decomposition)",
+            len(out),
+        )
+    return tuple(out)
+
+
 def extract_case(bundle: PlexosBundle) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
@@ -3751,9 +3893,14 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators
     )
+    # Solution-side FueMaxOff* weekly/daily caps.  Synthesised only
+    # when the .accdb cache is available (``--horizon-mode plexos``
+    # branch caches it before ``extract_case`` runs); otherwise this
+    # extractor returns an empty tuple and nothing is appended.
+    fuel_offtake_ucs = _build_fuel_offtake_caps_ucs(bundle, case)
     case = dataclasses.replace(
         case,
-        user_constraints=tuple(base_ucs) + tuple(hydro_ucs),
+        user_constraints=tuple(base_ucs) + tuple(hydro_ucs) + tuple(fuel_offtake_ucs),
     )
     logger.info(
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "

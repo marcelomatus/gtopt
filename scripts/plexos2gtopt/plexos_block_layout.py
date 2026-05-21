@@ -273,6 +273,161 @@ def cache_plexos_tables(
     return cache_dir
 
 
+def _read_cached_csv(cache_dir: Path, table: str) -> list[dict[str, str]] | None:
+    """Read a zstd-compressed cache file written by ``cache_plexos_tables``.
+
+    Returns ``None`` when the file is missing or unreadable; otherwise
+    returns the parsed CSV as a list-of-dicts (one per row).
+    """
+    import csv
+    import io
+
+    path = cache_dir / f"{table}.csv.zst"
+    if not path.is_file():
+        return None
+    try:
+        proc = subprocess.run(
+            ["zstd", "-dc", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+    ) as exc:
+        logger.warning("zstd -dc %s failed: %s", path, exc)
+        return None
+    return list(csv.DictReader(io.StringIO(proc.stdout)))
+
+
+def extract_fuel_offtake_caps(
+    cache_dir: Path,
+) -> dict[str, tuple[float, float]] | None:
+    """Read PLEXOS ``FueMaxOff*`` Constraint RHS values from the cached
+    solution tables.
+
+    PLEXOS-CEN-PCP creates ``FueMaxOffWeek_<fuel>`` and
+    ``FueMaxOffDay_<fuel>`` Constraint objects ONLY in the solution
+    ``.accdb`` (the constraints are synthesised by PLEXOS at solve
+    time from contractual data that isn't in the input
+    ``DBSEN_PRGDIARIO.xml``).  These constraints cap the total fuel
+    offtake (Σ_g heat_rate(g) × generation(g)) over a week or a day
+    per fuel.
+
+    Reads:
+      - ``t_object`` to find ``FueMaxOff*`` Constraint objects.
+      - ``t_membership`` (collection 54: Fuel→Constraints) to map
+        each constraint to its specific Fuel.
+      - ``t_property``/``t_key``/``t_data_0`` to read the per-block
+        decomposed RHS (property id ``RHS``, typically 3073) and
+        sum it into the total weekly/daily cap.
+
+    Returns a mapping ``{fuel_name: (cap_value, scope_hours)}`` where
+    ``scope_hours`` is 168 for Week-scoped constraints, 24 for
+    Day-scoped, and ``cap_value`` is the SUM of the per-block RHS
+    over the horizon (in PLEXOS fuel units — typically GWh thermal
+    or TJ).  When ``cache_dir`` is missing or any table can't be
+    read, returns ``None``.
+    """
+    objects = _read_cached_csv(cache_dir, "t_object")
+    classes = _read_cached_csv(cache_dir, "t_class")
+    members = _read_cached_csv(cache_dir, "t_membership")
+    keys = _read_cached_csv(cache_dir, "t_key")
+    data0 = _read_cached_csv(cache_dir, "t_data_0")
+    props = _read_cached_csv(cache_dir, "t_property")
+    if any(t is None for t in (objects, classes, members, keys, data0, props)):
+        return None
+
+    # Locate the "Constraint" class id and the "RHS" property id.
+    cls_id_constraint = next(
+        (c["class_id"] for c in classes if c["name"] == "Constraint"), None
+    )
+    rhs_prop_ids = {p["property_id"] for p in props if p.get("name") == "RHS"}
+    if cls_id_constraint is None or not rhs_prop_ids:
+        return None
+
+    obj_name = {o["object_id"]: o["name"] for o in objects}
+
+    # Constraint objects whose name starts with ``FueMaxOff``.
+    fue_constraints: dict[str, tuple[str, float]] = {}
+    for o in objects:
+        if o.get("class_id") != cls_id_constraint:
+            continue
+        name = o.get("name", "") or ""
+        if not name.startswith(("FueMaxOffWeek_", "FueMaxOffDay_")):
+            continue
+        scope_hours = 168.0 if name.startswith("FueMaxOffWeek_") else 24.0
+        fue_constraints[o["object_id"]] = (name, scope_hours)
+
+    if not fue_constraints:
+        return {}
+
+    # Fuel→Constraint memberships (collection 54): parent=Fuel,
+    # child=Constraint.  Group by constraint oid to find the
+    # capped fuel.
+    constraint_to_fuel: dict[str, str] = {}
+    for m in members:
+        if m.get("child_object_id") in fue_constraints:
+            parent_name = obj_name.get(m.get("parent_object_id", ""))
+            if parent_name:
+                constraint_to_fuel[m["child_object_id"]] = parent_name
+
+    # Map (constraint_oid → set of key_ids with RHS property).
+    # Memberships involving the constraint span multiple collections
+    # (System→Constraints, Fuel→Constraints); we accept ANY membership
+    # whose either endpoint is the constraint's oid.
+    constraint_mid: dict[str, set[str]] = {}
+    for m in members:
+        oid_p = m.get("parent_object_id", "")
+        oid_c = m.get("child_object_id", "")
+        mid = m.get("membership_id", "")
+        if oid_p in fue_constraints:
+            constraint_mid.setdefault(oid_p, set()).add(mid)
+        if oid_c in fue_constraints:
+            constraint_mid.setdefault(oid_c, set()).add(mid)
+
+    rhs_key_to_constraint: dict[str, str] = {}
+    for k in keys:
+        if k.get("property_id") in rhs_prop_ids:
+            mid = k.get("membership_id", "")
+            for cid, mset in constraint_mid.items():
+                if mid in mset:
+                    rhs_key_to_constraint[k["key_id"]] = cid
+                    break
+
+    # Sum per-block RHS values per constraint.
+    rhs_sum: dict[str, float] = {}
+    for d in data0:
+        kid = d.get("key_id", "")
+        if kid in rhs_key_to_constraint:
+            try:
+                v = float(d.get("value", "0"))
+            except ValueError:
+                continue
+            cid = rhs_key_to_constraint[kid]
+            rhs_sum[cid] = rhs_sum.get(cid, 0.0) + v
+
+    # Build the final {fuel_name: (cap, scope_hours)} mapping.  When
+    # multiple constraints reference the same fuel (Day + Week), keep
+    # the TIGHTER cap (the smaller per-hour rate).
+    result: dict[str, tuple[float, float]] = {}
+    for cid, (_, scope_h) in fue_constraints.items():
+        fuel = constraint_to_fuel.get(cid)
+        cap = rhs_sum.get(cid)
+        if not fuel or cap is None or cap <= 0.0:
+            continue
+        existing = result.get(fuel)
+        # Compare in per-hour terms (cap / scope) so Day vs Week are
+        # apples-to-apples.
+        if existing is None or (cap / scope_h) < (existing[0] / existing[1]):
+            result[fuel] = (cap, scope_h)
+
+    return result
+
+
 def auto_discover_res_zip(input_bundle: Path) -> Path | None:
     """Look for a sibling ``RES*.zip[.xz]`` matching the bundle date.
 
