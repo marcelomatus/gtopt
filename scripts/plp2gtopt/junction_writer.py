@@ -770,16 +770,21 @@ class JunctionWriter(BaseWriter):
         #
         # Three regimes:
         #
-        # 0. ``--drop-spillway-waterway`` (default True): the entire
+        # 0. ``--drop-spillway-waterway`` (default False — opt-in;
+        #    flipped from True after the 2026-04-28 gtopt_iplp
+        #    investigation pinned the SDDP elastic-cut degeneracy at
+        #    LMAULE/ELTORO on this regime).  When enabled, the entire
         #    ``_ver`` topology is suppressed — no waterway is created
         #    in either the in-network or synthetic-ocean path, no
         #    ``rebalse_cost``/``CVert`` fcost is attached, and the
         #    central's own junction is marked ``drain = True`` further
         #    down so the LP can shed any excess water through the
         #    junction instead of an explicit arc.  All spillover
-        #    becomes a free loss to the ocean.  Set to False
-        #    (``--no-drop-spillway-waterway``) to fall through to one
-        #    of the two PLP-faithful regimes below.
+        #    becomes a free loss to the ocean.  The default (False)
+        #    falls through to one of the two PLP-faithful regimes
+        #    below; flip with ``--drop-spillway-waterway`` only when
+        #    LP scaling outweighs routing fidelity for the case at
+        #    hand and the LMAULE-class degeneracy is not in play.
         #
         # 1. Reservoir IS in plpvrebemb.dat (``Costo de Rebalse`` defined).
         #    PLP exposes a stage-level ``qrb`` rebalse var (uncapped,
@@ -916,11 +921,12 @@ class JunctionWriter(BaseWriter):
         # this still creates exactly one drain — same as before.
         synthetic_drain_uid: Optional[int] = None
 
-        # ``--drop-spillway-waterway`` (default True): when enabled, do
-        # not emit any ``_ver`` waterway — neither the in-network arc
-        # to ``ser_ver`` nor the synthetic-ocean fallback.  The
-        # ``drain = True`` flag set on the central's own junction
-        # below absorbs surplus water in place of the missing arc.
+        # ``--drop-spillway-waterway`` (default False — opt-in):
+        # when enabled, do not emit any ``_ver`` waterway — neither
+        # the in-network arc to ``ser_ver`` nor the synthetic-ocean
+        # fallback.  The ``drain = True`` flag set on the central's
+        # own junction below absorbs surplus water in place of the
+        # missing arc.
         if self._drop_spillway_waterway:
             ver_waterway: Optional[Waterway] = None
         elif self._vrebemb_as_sink and in_vrebemb and central.get("ser_ver", 0) > 0:
@@ -1222,13 +1228,15 @@ class JunctionWriter(BaseWriter):
         # otherwise be unbalanced; everything else relies on PLP-style
         # explicit balance through the gen / ver arcs.
         #
-        # ``--drop-spillway-waterway``: when on (default), the spillway
-        # arc has been suppressed above so the central's own junction
-        # must absorb any surplus water itself.  Force ``drain = True``
-        # for the embalse / serie / pasada types that previously got a
-        # ``_ver`` arc — the gen waterway alone can't always discharge
-        # the inflow + storage release.  Centrals of other types keep
-        # the standard "drain only when truly isolated" rule.
+        # ``--drop-spillway-waterway``: when on (opt-in; default is
+        # False as of the 2026-04-28 LMAULE / ELTORO fix), the
+        # spillway arc has been suppressed above so the central's
+        # own junction must absorb any surplus water itself.  Force
+        # ``drain = True`` for the embalse / serie / pasada types
+        # that previously got a ``_ver`` arc — the gen waterway
+        # alone can't always discharge the inflow + storage release.
+        # Centrals of other types keep the standard "drain only
+        # when truly isolated" rule.
         if self._drop_spillway_waterway and central_type in (
             "embalse",
             "serie",
