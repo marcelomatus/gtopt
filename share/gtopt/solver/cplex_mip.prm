@@ -1,35 +1,29 @@
 CPLEX Parameter File Version 22.1.0.0
 # Optimised for the CEN PCP daily PLEXOS-derived MIP (~2.5M cols / 4M rows,
-# ~300K binaries for commitment).  Targets fast incumbent + 0.1% gap.
+# ~300K binaries for commitment).  Targets fast incumbent + 1% gap.
 # ---------------------------------------------------------------------
 # Parallel / threads
 CPX_PARAM_THREADS                                20
 CPX_PARAM_PARALLELMODE                           -1
 # ---------------------------------------------------------------------
 # Termination tolerances
-CPX_PARAM_EPGAP                                  0.001
+CPX_PARAM_EPGAP                                  0.01
 CPX_PARAM_EPAGAP                                 1e-06
 CPX_PARAM_EPINT                                  1e-06
 CPX_PARAM_EPRHS                                  1e-06
 CPX_PARAM_EPOPT                                  1e-06
 # ---------------------------------------------------------------------
-# Root LP relaxation: barrier with crossover (matches PLEXOS LPMETHOD 4)
-CPX_PARAM_LPMETHOD                               4
-CPX_PARAM_BARALG                                 3
-CPX_PARAM_BARORDER                               3
-CPX_PARAM_BARCROSSALG                            -1
-CPX_PARAM_STARTALG                               4
-CPX_PARAM_SUBALG                                 2
+# LP method: dual simplex at root + MIP nodes.  Barrier+crossover at the
+# CEN PCP MIP scale (~580K rows after presolve) does not parallelise well
+# — 20-thread barrier+crossover root LP takes ~159 s vs ~109 s on 4
+# threads, and the crossover phase is effectively single-threaded.
+# Dual simplex is single-threaded but typically faster on warm-started
+# / sparse LPs at this size, and the MIP cut + B&B phase still uses all
+# CPXPARAM_Threads.
 # ---------------------------------------------------------------------
-# Preprocessing / scaling
-CPX_PARAM_PREIND                                 1
-CPX_PARAM_SCAIND                                 1
-CPX_PARAM_PRELINEAR                              1
-CPX_PARAM_REDUCE                                 3
-CPX_PARAM_AGGIND                                 -1
-CPX_PARAM_PRESLVND                               1
-CPX_PARAM_PROBE                                  2
-CPX_PARAM_REPEATPRESOLVE                         3
+CPX_PARAM_LPMETHOD                               2
+CPX_PARAM_STARTALG                               2
+CPX_PARAM_SUBALG                                 2
 # ---------------------------------------------------------------------
 # B&B search strategy
 CPX_PARAM_MIPSEARCH                              1
@@ -69,7 +63,12 @@ CPX_PARAM_NODEFILEIND                            3
 CPX_PARAM_WORKMEM                                12288
 CPX_PARAM_TRELIM                                 12288
 # ---------------------------------------------------------------------
-# Display
-CPX_PARAM_MIPDISPLAY                             4
-CPX_PARAM_BARDISPLAY                             2
-CPX_PARAM_SIMDISPLAY                             2
+# Display — verbose for MIP B&B, quiet for LP iterations
+CPX_PARAM_MIPDISPLAY                             5
+CPX_PARAM_BARDISPLAY                             1
+CPX_PARAM_SIMDISPLAY                             1
+CPX_PARAM_SIFTDISPLAY                            1
+CPX_PARAM_NETDISPLAY                             1
+CPX_PARAM_CONFLICTDISPLAY                        1
+CPX_PARAM_MIPINTERVAL                            1
+CPX_PARAM_PARAMDISPLAY                           1

@@ -114,29 +114,6 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
 /// (live in-place tweaks).
 void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
 {
-  // Read the user-supplied .prm file FIRST so the typed gtopt fields
-  // below win on conflict.  ``CPXreadcopyparam`` parses the standard
-  // CPLEX parameter format (``CPX_PARAM_<NAME> <value>`` one per
-  // line, ``#`` for comments) — same files written by CPLEX's
-  // ``CPXwriteparam`` and consumed by PLEXOS via
-  // ``PLEXOS_SolverParam.xml``.  Lets users pin the full ~150-knob
-  // CPLEX surface without expanding ``SolverOptions``.
-  if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
-    if (rc != 0) {
-      std::fprintf(
-          stderr,
-          "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
-          "subsequent gtopt parameter sets may not have taken effect.\n",
-          opts.param_file->c_str(),
-          rc);
-    } else {
-      std::fprintf(stderr,
-                   "[CPLEX] INFO: read parameter file '%s'\n",
-                   opts.param_file->c_str());
-    }
-  }
-
   if (opts.threads > 0) {
     CPXsetintparam(env, CPX_PARAM_THREADS, opts.threads);
   }
@@ -226,6 +203,32 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   // that lets CPLEX fall back to `./cplex.log` (and `clone1.log` /
   // `clone2.log` after `CPXcloneprob`) in the cwd of any caller that
   // bumps log_level without configuring a destination.
+
+  // Apply the user-supplied .prm file LAST so its values OVERRIDE
+  // everything gtopt set above.  ``CPXreadcopyparam`` parses the
+  // standard CPLEX parameter format (``CPX_PARAM_<NAME> <value>``
+  // one per line, ``#`` for comments) — same files written by
+  // CPLEX's ``CPXwriteparam`` and consumed by PLEXOS via
+  // ``PLEXOS_SolverParam.xml``.  Parameters NOT mentioned in the
+  // .prm file keep the gtopt-set value (or CPLEX's own default if
+  // gtopt didn't set them either).  Putting the read here means
+  // the user gets PRECISELY what they wrote, no fight from gtopt's
+  // typed defaults like ``threads`` or ``LPMethod``.
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
+    if (rc != 0) {
+      std::fprintf(stderr,
+                   "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
+                   "fell back to gtopt-set defaults.\n",
+                   opts.param_file->c_str(),
+                   rc);
+    } else {
+      std::fprintf(stderr,
+                   "[CPLEX] INFO: read parameter file '%s' (its values "
+                   "override the gtopt defaults set above)\n",
+                   opts.param_file->c_str());
+    }
+  }
 }
 
 /// Enable CPLEX file logging with the provided basename + level.  When
@@ -1367,7 +1370,7 @@ SolverOptions CplexSolverBackend::optimal_options() const
 {
   return {
       .algorithm = LPAlgo::barrier,
-      .threads = 4,
+      .threads = 0,
       .presolve = true,
       .scaling = SolverScaling::automatic,
       .max_fallbacks = 2,

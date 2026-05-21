@@ -240,6 +240,7 @@ struct SolverOptions
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
     merge_opt(memory_emphasis, user.memory_emphasis);
+    merge_opt(param_file, user.param_file);
   }
 };
 
