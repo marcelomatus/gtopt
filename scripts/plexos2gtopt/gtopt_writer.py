@@ -1014,17 +1014,18 @@ def build_flow_right_array(
     horizon.  Without this gtopt's ``FieldSched`` lookup would read
     past the end of a 24-element row on multi-day runs.
 
-    **Synthetic bypass waterway per FlowRight**: gtopt's ``FlowRight``
-    is an OUTFLOW that consumes water at ``junction``.  When the
-    upstream junction balance receives more water than the irrigation
-    + existing spillways can absorb, the LP cannot dump the excess
-    anywhere and becomes infeasible.  We therefore add one synthetic
-    spill waterway per FlowRight that routes from the FlowRight's
-    junction to the SAME downstream as the first existing ``Vert_*``
-    spillway from that junction.  The synthetic waterway carries no
-    cost (zero ``fcost``) so the LP only uses it as a last-resort
-    pressure release.  When no existing spillway is found we skip
-    the bypass — those FlowRights stay on the existing topology.
+    **Inline bypass via FlowRight.bypass_junction**: gtopt's
+    ``FlowRight`` LP class supports a pass-through column priced at
+    ``bypass_cost·cf`` that contributes -1 to ``junction`` and +1 to
+    ``bypass_junction`` (see ``flow_right_lp.cpp``).  When a
+    ``FlowRightSpec`` declares ``bypass_junction``, the writer emits
+    that on the JSON entry — the LP layer adds the pressure-release
+    flow inline rather than via a parallel synthetic Waterway.  When
+    no ``bypass_junction`` is set on the spec, we auto-resolve one
+    from the topology: the first existing ``Vert_*`` spillway's
+    downstream from the FlowRight's junction.  This preserves the
+    pre-feature pressure-release semantics without polluting the
+    Waterway array with synthetic ``bypass_*`` rows.
     """
     target_len = len(block_layout) if block_layout else block_count
     # Map: junction → first downstream of any existing Vert_* waterway
@@ -1034,7 +1035,8 @@ def build_flow_right_array(
             if w.storage_from not in spill_downstream:
                 spill_downstream[w.storage_from] = w.storage_to
     out: list[dict[str, Any]] = []
-    synth = 0
+    bypassed = 0
+    _ = extra_waterways  # kept for API compatibility; no longer mutated
     for i, fr in enumerate(flow_rights):
         if fr.junction_name is None:
             continue
@@ -1053,26 +1055,23 @@ def build_flow_right_array(
         # matrix when set.
         if fr.fcost > 0.0:
             entry["fcost"] = [[fr.fcost] * target_len]
+        # Inline bypass: explicit override wins, otherwise auto-resolve
+        # from existing Vert_* topology.  bypass_cost = 0 is the
+        # legacy default (free pass-through, used only when the cap
+        # binds), preserving prior behaviour.
+        bypass_to = fr.bypass_junction or spill_downstream.get(fr.junction_name)
+        if bypass_to is not None:
+            entry["bypass_junction"] = bypass_to
+            if fr.bypass_cost > 0.0:
+                entry["bypass_cost"] = fr.bypass_cost
+            bypassed += 1
         out.append(entry)
-        # Synthetic bypass: pressure-release path from the FlowRight's
-        # junction to the existing Vert_* downstream.
-        downstream = spill_downstream.get(fr.junction_name)
-        if extra_waterways is not None and downstream is not None:
-            extra_waterways.append(
-                {
-                    "uid": 0,  # patched in build_planning
-                    "name": f"bypass_{fr.name}",
-                    "junction_a": fr.junction_name,
-                    "junction_b": downstream,
-                }
-            )
-            synth += 1
-    if synth:
+    if bypassed:
         logger.info(
-            "build_flow_right_array: synthesised %d zero-cost bypass "
-            "waterways (one per FlowRight) to provide a pressure-release "
-            "outflow when the irrigation cap binds the junction balance.",
-            synth,
+            "build_flow_right_array: emitted %d FlowRight(s) with "
+            "inline bypass_junction (pressure-release via FlowRight LP "
+            "instead of synthetic parallel Waterway).",
+            bypassed,
         )
     return out
 

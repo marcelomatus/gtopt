@@ -152,33 +152,22 @@ def test_real_bundle_user_constraints() -> None:
 
 @_skip_if_missing
 def test_real_bundle_p7_flow_rights() -> None:
-    """P7: Laja irrigation envelope yields 3 FlowRight overlays.
+    """P7: ``Hydro_AntucoBounds.csv`` no longer emits FlowRights.
 
-    Hydro_AntucoBounds.csv ships ANTUCOmin/max + ELTOROmax. Both
-    ANTUCO bounds bind to POLCURA (Head Storage of the ANTUCO
-    turbines) and the ELTORO bound binds directly to the ELTORO
-    reservoir.
+    The legacy interpretation of that CSV as junction-level irrigation
+    rights was incorrect — PLEXOS encodes those rows as per-generator
+    discharge limits (Generator→FlowConstraint, collection_id=32), not
+    Junction→Right.  Emitting them as FlowRights caused phantom
+    infeasibilities on the upstream reservoir balance.
+
+    ``extract_flow_rights`` now returns ``()`` unconditionally for
+    this CSV; junction-level irrigation rights (when needed) will
+    come from a different overlay.  This test pins the disabled
+    behaviour so any future re-enable is intentional.
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
-    assert len(case.flow_rights) >= 3
-    by_name = {fr.name: fr for fr in case.flow_rights}
-    assert "irrigation_ANTUCOmin" in by_name
-    assert "irrigation_ANTUCOmax" in by_name
-    assert "irrigation_ELTOROmax" in by_name
-    # ANTUCO bounds route to POLCURA (upstream reservoir).
-    assert by_name["irrigation_ANTUCOmin"].junction_name == "POLCURA"
-    assert by_name["irrigation_ANTUCOmax"].junction_name == "POLCURA"
-    # ELTORO matches its own reservoir directly.
-    assert by_name["irrigation_ELTOROmax"].junction_name == "ELTORO"
-    # Min vs max split correctly.
-    assert by_name["irrigation_ANTUCOmin"].fmin > 0
-    assert by_name["irrigation_ANTUCOmin"].fmax == 0
-    assert by_name["irrigation_ANTUCOmax"].fmax > 0
-    assert by_name["irrigation_ANTUCOmax"].fmin == 0
-    # All Laja FlowRights carry the soft-cap penalty default
-    # (matches feedback_irrigation_design 10 $/m³).
-    assert all(fr.fcost == 10.0 for fr in case.flow_rights)
+    assert case.flow_rights == ()
 
 
 @_skip_if_missing
@@ -228,9 +217,14 @@ def test_real_bundle_p4_hydro_topology() -> None:
         assert flow.junction_name in junction_names, (
             f"orphan Flow junction: {flow.junction_name}"
         )
-    # Every Turbine's reservoir matches a real Reservoir.
+    # Every Turbine's reservoir matches a real Reservoir.  ``*_GNL_INF``
+    # reservoirs are dropped upstream (they are LNG gas-import artifacts,
+    # not water reservoirs — see e763f39d1) so the turbines that still
+    # reference them are expected orphans; skip them here.
     reservoir_names = {r.name for r in case.reservoirs}
     for turbine in case.turbines:
+        if turbine.reservoir_name and turbine.reservoir_name.endswith("_GNL_INF"):
+            continue
         assert turbine.reservoir_name in reservoir_names
     # Every Waterway's endpoints map to junctions.
     for ww in case.waterways:

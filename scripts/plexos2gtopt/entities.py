@@ -411,6 +411,16 @@ class FlowRightSpec:
     # emitting the FlowRight; matches gtopt's
     # ``OptTBRealFieldSched`` shape (same as ``Demand.fcost``).
     fcost: float = 0.0
+    # Optional pass-through downstream junction.  When set, the
+    # writer emits ``FlowRight.bypass_junction`` / ``bypass_cost`` on
+    # the JSON entry — the LP layer (``flow_right_lp.cpp``) then adds
+    # a per-block bypass column priced at ``bypass_cost·cf`` that
+    # contributes -1 to ``junction_name``'s balance and +1 to
+    # ``bypass_junction``'s, replacing the legacy synthetic
+    # ``bypass_<name>`` Waterway pressure-release path.  Pure consumer
+    # behaviour is preserved when this is left at None.
+    bypass_junction: str | None = None
+    bypass_cost: float = 0.0
 
 
 @dataclass(frozen=True)
