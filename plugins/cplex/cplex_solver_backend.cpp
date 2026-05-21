@@ -155,6 +155,15 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
     CPXsetdblparam(env, CPX_PARAM_EPRHS, *feps);
   }
+  // Target relative MIP optimality gap (CPLEX `CPX_PARAM_EPGAP`).
+  // Continuous LPs ignore the parameter so we can apply it
+  // unconditionally — `*gap > 0` guards against a misconfigured zero
+  // that would mean "no gap tolerance" and could starve CPLEX of an
+  // exit condition on poorly-scaled MIPs.  Apply BEFORE the algorithm
+  // switch so a barrier override does not silently drop it.
+  if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+    CPXsetdblparam(env, CPX_PARAM_EPGAP, *gap);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     CPXsetdblparam(env, CPX_PARAM_TILIM, *tl);
   }
