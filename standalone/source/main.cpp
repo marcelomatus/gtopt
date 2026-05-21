@@ -118,6 +118,23 @@ int main(int argc, char** argv)
     gtopt case.json --set sddp_options.max_iterations=200 \
                     --set sddp_options.convergence_tol=1e-5
 
+  MIP-aware solve with a 1 % gap target and 10-minute wall-clock cap:
+    gtopt case.json --mip-gap 0.01 --time-limit 600
+
+  Quick LP-only smoke test on a MIP case (relaxes commitment binaries
+  to continuous; gives a lower bound on the true MIP optimum):
+    gtopt case.json --no-mip
+
+  Enforce a naming dialect on input + output JSON (warns on
+  cross-dialect aliases at parse time, renames canonical keys to the
+  dialect's aliases at write time):
+    gtopt case.json --naming-dialect plp
+
+  Discover what aliases / units each dialect uses (no run, just
+  prints the registry table — pipe to grep / awk to filter):
+    gtopt --list-dialects
+    gtopt --list-dialects plexos
+
 Outputs
 =======
 
