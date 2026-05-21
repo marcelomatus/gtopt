@@ -171,6 +171,304 @@ def _format_money(value: float) -> str:
     return f"${value:,.2f}"
 
 
+# ------------------------------------------------------------------
+# Step 3 — Per-solution comparison (demand, generation, op cost)
+# ------------------------------------------------------------------
+#
+# Both PLEXOS .accdb and gtopt parquet store per-block MW (instantaneous)
+# values, NOT per-block MWh.  Each block has a variable duration (1..8 h
+# on CEN PCP daily-week; mapped to PLEXOS's t_phase_3 layout).  True
+# energy in MWh = sum_{block}(MW_block × duration_block_h).  Without
+# duration weighting any comparison is off by the factor (avg-block-
+# duration).  This is the calculation the Step 1 cost-totals
+# section pointedly does NOT do, and the user-frustrating root cause
+# of the apparent 40-50% demand-and-gen mismatch.
+#
+# PLEXOS bookkeeping (verified via t_unit + t_property on
+# CEN PCP DATOS20260422):
+#   prop 966 / 970  Region Load / Generation      unit = MW (interval)
+#   prop 2          Generator-class Generation    unit = MW (interval)
+#   prop 119        Generator Generation Cost     unit = $  (block-$,
+#                                                  NOT $/h — already
+#                                                  block-integrated;
+#                                                  do NOT × duration)
+
+
+def _plexos_block_durations_from_accdb(
+    accdb_path: Path,
+) -> dict[int, int]:
+    """Return ``{period_id → duration_h}`` from ``t_phase_3``.
+
+    Each row of ``t_phase_3`` says "calendar hour ``interval_id``
+    belongs to LP block ``period_id``".  Counting rows per period_id
+    gives the block duration in hours.
+
+    Returns ``{}`` when ``mdb-export`` is unavailable or ``t_phase_3``
+    is missing — caller should fall back to assuming 1h blocks.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["mdb-export", str(accdb_path), "t_phase_3"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        # mdb-export missing or accdb unreadable.
+        raise RuntimeError(f"cannot read t_phase_3 from {accdb_path}: {exc}") from exc
+
+    import csv
+    import io
+    import collections
+
+    counts: dict[int, int] = collections.Counter()
+    reader = csv.DictReader(io.StringIO(result.stdout))
+    for row in reader:
+        # PLEXOS calls them period_id in this table; one row per
+        # (period_id, interval_id) pair.
+        try:
+            counts[int(row["period_id"])] += 1
+        except (KeyError, ValueError):
+            continue
+    return dict(counts)
+
+
+def _extract_accdb_from_res_zip(res_zip: Path, scratch: Path) -> Path:
+    """Unzip the outer + inner RES so we get the .accdb file.
+
+    Returns the resolved path to the unpacked .accdb.  Same two-level
+    unzip pattern as :func:`find_plexos_log_in_res_bundle`.
+    """
+    import lzma
+
+    outer_zip = res_zip
+    if res_zip.suffix == ".xz":
+        outer_zip = scratch / res_zip.with_suffix("").name
+        with lzma.open(res_zip, "rb") as fin, outer_zip.open("wb") as fout:
+            fout.write(fin.read())
+
+    with zipfile.ZipFile(outer_zip) as outer:
+        nested = next(
+            (n for n in outer.namelist() if n.endswith(".accdb")),
+            None,
+        )
+        if nested is None:
+            raise FileNotFoundError(f"no .accdb inside {outer_zip}")
+        outer.extract(nested, scratch)
+        return scratch / nested
+
+
+def compute_plexos_energy_totals(
+    accdb_path: Path,
+) -> dict[str, float]:
+    """Read PLEXOS Region.Load / Region.Generation / Generator.GenCost
+    and return duration-weighted system totals.
+
+    Returns ``{}`` if the .accdb can't be read.
+    """
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        import csv
+        import io
+
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = {int(r["membership_id"]): r for r in _dump("t_membership")}
+
+    # property_id → set of key_id
+    key_by_prop: dict[int, set[int]] = {}
+    for r in keys:
+        try:
+            pid = int(r["property_id"])
+            kid = int(r["key_id"])
+        except ValueError:
+            continue
+        key_by_prop.setdefault(pid, set()).add(kid)
+
+    def _energy_mwh(prop_id: int) -> float:
+        kset = key_by_prop.get(prop_id, set())
+        total = 0.0
+        for r in data0:
+            try:
+                kid = int(r["key_id"])
+            except ValueError:
+                continue
+            if kid not in kset:
+                continue
+            try:
+                period = int(r["period_id"])
+                value = float(r["value"])
+            except (KeyError, ValueError):
+                continue
+            total += value * durations.get(period, 0)
+        return total
+
+    def _block_sum(prop_id: int) -> float:
+        """Unweighted per-block sum.  Use for already-integrated $
+        properties like prop 119 (Generation Cost)."""
+        kset = key_by_prop.get(prop_id, set())
+        return sum(
+            float(r["value"])
+            for r in data0
+            if r.get("key_id", "").isdigit() and int(r["key_id"]) in kset
+        )
+
+    return {
+        "load_mwh": _energy_mwh(966),  # Region Load
+        "gen_mwh": _energy_mwh(970),  # Region Generation
+        "gen_unit_mwh": _energy_mwh(2),  # Generator-class Generation
+        "gen_cost_usd": _block_sum(119),  # Generation Cost (block-$)
+        "block_count": len(durations),
+        "hours_covered": sum(durations.values()),
+    }
+
+
+def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
+    """Sum gtopt's per-block MW dispatch into MWh using bundle's
+    block durations.  Reads parquet directly via pyarrow (already a
+    transitive dep of gtopt).
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    # 1. Bundle JSON → block uid → duration_h.  Bundle filename
+    #    convention is either ``plexos_bundle.json`` (legacy) or
+    #    ``<stem>.json`` (current plexos2gtopt output).  Look for
+    #    either.
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue  # gtopt's writer copies; not the source bundle
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(
+            f"no PLEXOS-source JSON found in {case_dir} "
+            "(looked for *.json, ignored planning.json)"
+        )
+
+    bundle = json.loads(bundle_path.read_text())
+    block_array = bundle["simulation"]["block_array"]
+    durations = {int(b["uid"]): float(b.get("duration", 1.0)) for b in block_array}
+
+    def _sum_mwh(rel_path: str) -> float:
+        # gtopt writes parquet as a **partitioned directory**
+        # (``scene=0/phase=0/...``), so ``f`` is a directory not a
+        # file.  ``pq.read_table`` handles both layouts transparently.
+        f = case_dir / "output" / rel_path
+        if not f.exists():
+            return 0.0
+        tbl = pq.read_table(f, columns=["block", "value"])
+        df = tbl.to_pandas()
+        df["duration"] = df["block"].astype(int).map(durations)
+        return float((df["value"] * df["duration"]).sum())
+
+    # Operational cost computed from per-unit dispatch and per-unit
+    # SRMC (short-run marginal cost in $/MWh):
+    #   op_cost = sum_{u, b} (gen[u,b] MW) × (srmc[u,b] $/MWh) × dur[b] h
+    # Both files have key columns (scene, phase, scenario, stage,
+    # block, uid).  Inner-join keeps only (unit, block) pairs that
+    # appear in both — i.e. units with non-zero dispatch and a known
+    # marginal cost.
+    op_cost = 0.0
+    gen_path = case_dir / "output" / "Generator" / "generation_sol.parquet"
+    srmc_path = case_dir / "output" / "Generator" / "srmc_sol.parquet"
+    if gen_path.exists() and srmc_path.exists():
+        key = ["scene", "phase", "scenario", "stage", "block", "uid"]
+        gen_df = pq.read_table(gen_path).to_pandas()
+        srmc_df = pq.read_table(srmc_path).to_pandas()
+        merged = gen_df.merge(srmc_df, on=key, suffixes=("_mw", "_srmc"))
+        merged["duration"] = merged["block"].astype(int).map(durations)
+        op_cost = float(
+            (merged["value_mw"] * merged["value_srmc"] * merged["duration"]).sum()
+        )
+
+    return {
+        "gen_mwh": _sum_mwh("Generator/generation_sol.parquet"),
+        "load_mwh": _sum_mwh("Demand/load_sol.parquet"),
+        "fail_mwh": _sum_mwh("Demand/fail_sol.parquet"),
+        "op_cost_usd": op_cost,
+        "block_count": len(block_array),
+        "hours_covered": sum(durations.values()),
+    }
+
+
+def _render_solution_compare(
+    plexos_tot: dict[str, float],
+    gtopt_tot: dict[str, float],
+    console: Console,
+) -> None:
+    """Step 3 table: solution-level MWh + operational $ comparison."""
+    table = Table(
+        title=("Solution totals — PLEXOS vs gtopt (Step 3 duration-weighted MWh)"),
+    )
+    table.add_column("Metric", style="bold")
+    table.add_column("PLEXOS", justify="right")
+    table.add_column("gtopt", justify="right")
+    table.add_column("Δ (g − p)", justify="right")
+    table.add_column("Δ %", justify="right")
+
+    def _row(label: str, p: float, g: float, fmt: str = "{:>14,.1f}") -> None:
+        delta = g - p
+        rel = (100.0 * delta / p) if p else 0.0
+        table.add_row(
+            label,
+            fmt.format(p),
+            fmt.format(g),
+            fmt.format(delta),
+            f"{rel:+.2f}%",
+        )
+
+    _row(
+        "Block count", plexos_tot["block_count"], gtopt_tot["block_count"], "{:>14,.0f}"
+    )
+    _row(
+        "Hours covered",
+        plexos_tot["hours_covered"],
+        gtopt_tot["hours_covered"],
+        "{:>14,.0f}",
+    )
+    _row("Demand [MWh]", plexos_tot["load_mwh"], gtopt_tot["load_mwh"])
+    _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
+    _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
+
+    # Operational cost: PLEXOS via prop 119 (block-$ already
+    # integrated); gtopt via Σ(gen × srmc × duration).  Same intent
+    # — total operational dispatch $.
+    p_cost = plexos_tot.get("gen_cost_usd", 0.0)
+    g_cost = gtopt_tot.get("op_cost_usd", 0.0)
+    delta_cost = g_cost - p_cost
+    rel_cost = (100.0 * delta_cost / p_cost) if p_cost else 0.0
+    table.add_row(
+        "Operational $ (∫gen·srmc dt)",
+        _format_money(p_cost),
+        _format_money(g_cost),
+        _format_money(delta_cost),
+        f"{rel_cost:+.2f}%",
+    )
+
+    console.print(table)
+    console.print(
+        "[dim]Demand/Gen are duration-weighted ∫MW dt across the "
+        "111-block PLEXOS layout (block durations from t_phase_3).  "
+        "PLEXOS GenCost is per-block $-integrated already (no "
+        "duration weighting).  Step 4 (TBD): per-generator dispatch "
+        "diff + per-bus LMP diff.[/dim]"
+    )
+
+
 # Heuristic categorisation of PLEXOS-translated user-constraint names.
 # Each entry: (regex, label).  First match wins; unmatched names fall
 # into "other".  These cover the families gtopt translates from the
@@ -509,6 +807,31 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[yellow]gtopt side unavailable: {exc}[/yellow]")
 
     _render_report(plexos, gtopt, console)
+
+    # ----- Step 3: duration-weighted solution totals -----
+    # Both sides must have the .accdb (PLEXOS) and the gtopt
+    # outputs.  We need the .accdb to recover the per-block duration
+    # from t_phase_3 — same source plexos2gtopt uses to lay out the
+    # bundle's block_array.
+    if args.gtopt_case is not None and args.plexos_res_zip is not None:
+        console.print()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                accdb_path = _extract_accdb_from_res_zip(
+                    args.plexos_res_zip, Path(tmpdir)
+                )
+                plexos_tot = compute_plexos_energy_totals(accdb_path)
+                gtopt_tot = compute_gtopt_energy_totals(args.gtopt_case)
+            if plexos_tot and gtopt_tot:
+                _render_solution_compare(plexos_tot, gtopt_tot, console)
+            else:
+                console.print(
+                    "[yellow]Step 3 skipped: could not compute "
+                    "duration-weighted totals (missing .accdb or "
+                    "gtopt parquets).[/yellow]"
+                )
+        except (FileNotFoundError, RuntimeError, ImportError) as exc:
+            console.print(f"[yellow]Step 3 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
