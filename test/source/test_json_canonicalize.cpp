@@ -175,6 +175,25 @@ TEST_CASE(
   CHECK(out == R"({"pmax": 50})");
 }
 
+TEST_CASE(
+    "canonicalize_json_keys — singleton: dialect mismatch on reservoir.emax")  // NOLINT
+{
+  // Integration smoke against the real `share/gtopt/naming_dialects.json`
+  // + `share/gtopt/unit_dialects.json` singletons.  Asserts the
+  // canonicalization output only (the unit-mismatch escalation lives
+  // in the spdlog stream and is not captured here) but exercises the
+  // full registry-loading + dialect-tagging + unit-lookup pipeline.
+  //
+  // Input: a PLP-flavoured `VolMax` key under `--naming-dialect=gtopt`.
+  // - naming_dialects.json maps VolMax → emax (reservoir, plp).
+  // - unit_dialects.json has emax/gtopt=Mm3 and emax/plp=hm3.
+  // The canonicalize pass should rewrite the key to `emax` and, in
+  // the spdlog stream, emit the UNIT MISMATCH error for hm3 vs Mm3.
+  const auto out = canonicalize_json_keys(R"({"VolMax": 1500})",
+                                          /*enforce_dialect=*/"gtopt");
+  CHECK(out == R"({"emax": 1500})");
+}
+
 TEST_CASE("decanonicalize_json_keys — canonical -> alias rewrite")  // NOLINT
 {
   const NamesRegistry r {kDict};

@@ -152,6 +152,32 @@ std::optional<std::string_view> UnitRegistry::unit_for(
   return std::string_view {it->second};
 }
 
+std::optional<std::string_view> UnitRegistry::class_agnostic_unit_for(
+    std::string_view canonical, std::string_view dialect) const noexcept
+{
+  // Walk every entry (small dictionary, O(N) is fine).  Two passes
+  // would also work but a single sweep with an early-divergence break
+  // is simpler.  Treat the empty string as a real value: a canonical
+  // that is dimensionless in one dialect but kV in another is a
+  // mismatch, not "compatible".
+  std::optional<std::string_view> found;
+  for (const auto& [key, unit] : m_units_) {
+    const auto& [k_class, k_canonical, k_dialect] = key;
+    if (k_canonical != canonical || k_dialect != dialect) {
+      continue;
+    }
+    const std::string_view u {unit};
+    if (!found.has_value()) {
+      found = u;
+    } else if (*found != u) {
+      // Distinct classes disagree on the unit for this canonical name —
+      // caller cannot resolve without class context.
+      return std::nullopt;
+    }
+  }
+  return found;
+}
+
 std::optional<std::filesystem::path> find_units_file()
 {
   namespace fs = std::filesystem;
