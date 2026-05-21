@@ -284,7 +284,6 @@ def compute_plexos_energy_totals(
 
     keys = _dump("t_key")
     data0 = _dump("t_data_0")
-    members = {int(r["membership_id"]): r for r in _dump("t_membership")}
 
     # property_id → set of key_id
     key_by_prop: dict[int, set[int]] = {}
