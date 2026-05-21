@@ -115,8 +115,9 @@ TEST_CASE("Flow with vector discharge schedule")
   };
   flow.discharge = schedule;
 
-  auto* vec_ptr =
-      std::get_if<std::vector<std::vector<std::vector<Real>>>>(&flow.discharge);
+  REQUIRE(flow.discharge.has_value());
+  auto* vec_ptr = std::get_if<std::vector<std::vector<std::vector<Real>>>>(
+      &*flow.discharge);
   REQUIRE(vec_ptr != nullptr);
   CHECK(vec_ptr->size() == 2);
   CHECK((*vec_ptr)[0][0][0] == doctest::Approx(100.0));
@@ -132,7 +133,8 @@ TEST_CASE("Flow with file schedule")
   flow.name = "file_inflow";
   flow.discharge = std::string {"inflow_data"};
 
-  auto* file_ptr = std::get_if<std::string>(&flow.discharge);
+  REQUIRE(flow.discharge.has_value());
+  auto* file_ptr = std::get_if<std::string>(&*flow.discharge);
   REQUIRE(file_ptr != nullptr);
   CHECK(*file_ptr == "inflow_data");
 }

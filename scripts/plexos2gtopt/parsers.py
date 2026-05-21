@@ -1544,29 +1544,73 @@ def extract_flows(
     Junctions, so the writer drops them when ``known_junctions`` is
     populated. Pass an empty set to keep every column for diagnostics.
     """
-    _ = db  # reserved for future use (per-Storage Flow scaling factor)
-    if not bundle.has("Hydro_WaterFlows.csv"):
-        return ()
-    inflows = read_wide(bundle.csv("Hydro_WaterFlows.csv"), n_days=bundle.n_days)
     out: list[FlowSpec] = []
-    dropped: list[str] = []
-    for storage_name, profile in inflows.items():
-        if known_junctions and storage_name not in known_junctions:
-            dropped.append(storage_name)
+    if bundle.has("Hydro_WaterFlows.csv"):
+        inflows = read_wide(bundle.csv("Hydro_WaterFlows.csv"), n_days=bundle.n_days)
+        dropped: list[str] = []
+        for storage_name, profile in inflows.items():
+            if known_junctions and storage_name not in known_junctions:
+                dropped.append(storage_name)
+                continue
+            out.append(
+                FlowSpec(
+                    name=f"inflow_{storage_name}",
+                    junction_name=storage_name,
+                    discharge_profile=tuple(profile),
+                )
+            )
+        if dropped:
+            logger.debug(
+                "Hydro_WaterFlows.csv dropped %d inflow columns with no matching "
+                "Storage/Junction: %s",
+                len(dropped),
+                ", ".join(sorted(dropped)),
+            )
+
+    # PLEXOS-style "Non-physical Inflow Penalty" → gtopt soft Flow
+    # slack at the reservoir's junction.  When a Storage carries a
+    # positive ``Non-physical Inflow Penalty`` property, PLEXOS lets
+    # the LP inject virtual water at that penalty cost so the storage
+    # balance closes even under tight forced flows / reserve
+    # obligations.  We emit one ``nphi_<storage>`` FlowSpec per such
+    # storage with:
+    #   * ``discharge_profile`` flat at a generous cap (5000 m³/s,
+    #     larger than any plausible single-reservoir slack).  When
+    #     the writer pairs this with ``Flow.fcost`` set, gtopt's
+    #     ``flow_lp.cpp`` relaxes the column to ``[0, discharge]``
+    #     instead of forcing equality.
+    #   * ``fcost = <PLEXOS penalty>`` so the slack column pays
+    #     the PLEXOS-equivalent per-unit cost only when activated.
+    # CEN PCP 2026-04-22 carries this on 7 major reservoirs
+    # (CANUTILLAR / CIPRESES / COLBUN / ELTORO / PEHUENCHE / RALCO /
+    # RAPEL) at 25,200 $/(m³/s)/h.
+    target_len = 24 * bundle.n_days
+    nphi_cap = 5000.0
+    nphi_count = 0
+    for storage in db.objects_of_class("Storage"):
+        if known_junctions and storage.name not in known_junctions:
+            continue
+        penalty = db.static_property(
+            "Storage", storage.object_id, "Non-physical Inflow Penalty"
+        )
+        if not penalty or penalty <= 0.0:
             continue
         out.append(
             FlowSpec(
-                name=f"inflow_{storage_name}",
-                junction_name=storage_name,
-                discharge_profile=tuple(profile),
+                name=f"nphi_{storage.name}",
+                junction_name=storage.name,
+                discharge_profile=tuple([nphi_cap] * target_len),
+                fcost=float(penalty),
             )
         )
-    if dropped:
-        logger.debug(
-            "Hydro_WaterFlows.csv dropped %d inflow columns with no matching "
-            "Storage/Junction: %s",
-            len(dropped),
-            ", ".join(sorted(dropped)),
+        nphi_count += 1
+    if nphi_count:
+        logger.info(
+            "extract_flows: emitted %d non-physical inflow slack Flow(s) "
+            "(PLEXOS Storage 'Non-physical Inflow Penalty' → soft Flow "
+            "fcost; cap = %.0f m³/s).",
+            nphi_count,
+            nphi_cap,
         )
     return tuple(out)
 

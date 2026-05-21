@@ -288,11 +288,22 @@ class FlowSpec:
     gtopt's ``Flow`` class is a per-(scene, stage, block) discharge
     pushed into a Junction; we map per-PLEXOS-Storage inflow profiles
     to one Flow per Junction. Inflow units are m³/s.
+
+    When ``fcost > 0`` the writer emits gtopt ``Flow.fcost`` so the
+    LP column relaxes from the default hard ``flow = discharge``
+    equality to a soft, costed slack column (unbounded above,
+    ``[0, +inf)`` with penalty ``fcost``).  Used by the PLEXOS
+    "Non-physical Inflow Penalty" → gtopt slack mapping: the
+    reservoir gets a per-junction inflow slack the LP only activates
+    when balance can't otherwise close.  ``discharge_profile`` is
+    typically left empty for slack flows since the upper bound is
+    intentionally uncapped.
     """
 
     name: str
     junction_name: str
     discharge_profile: tuple[float, ...] = field(default_factory=tuple)
+    fcost: float = 0.0
 
 
 @dataclass(frozen=True)

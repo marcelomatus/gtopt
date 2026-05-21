@@ -308,9 +308,12 @@ inline auto make_Nscene_2reservoir_planning(std::size_t n_scenes) -> Planning
   // 3D array; in the latter case the original helper builds it with a
   // single scenario, so we duplicate it n_scenes-1 more times.
   for (auto& flow : planning.system.flow_array) {
+    if (!flow.discharge.has_value()) {
+      continue;
+    }
     if (auto* sched3d =
             std::get_if<std::vector<std::vector<std::vector<double>>>>(
-                &flow.discharge);
+                &*flow.discharge);
         sched3d != nullptr && !sched3d->empty())
     {
       const auto base = sched3d->front();

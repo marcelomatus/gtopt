@@ -119,7 +119,19 @@ public:
       const StageLP& stage) const;
 
 private:
-  STBRealSched discharge;
+  /// Resolved per-(scene, stage, block) discharge schedule.  Now
+  /// optional — when ``Flow.discharge`` is unset and ``fcost`` is
+  /// set, the LP column upper bound defaults to ``DblMax``
+  /// (unbounded above) so non-physical inflow slacks need only
+  /// provide the penalty cost, not a cap.
+  OptSTBRealSched discharge;
+  /// Resolved per-(stage, block) flow penalty schedule.  Empty when
+  /// ``Flow.fcost`` is unset — the LP then keeps the legacy hard
+  /// ``lowb = uppb = discharge`` semantics.  When populated, the LP
+  /// column relaxes to ``lowb = 0, uppb = discharge`` and the
+  /// per-block cost ``fcost · cost_factor`` is applied so the LP
+  /// pays for the slack only when the junction balance demands it.
+  OptTBRealSched fcost;
   STBIndexHolder<ColIndex> flow_cols;
 };
 

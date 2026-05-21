@@ -15,6 +15,7 @@
 #include <functional>
 #include <optional>
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -26,6 +27,7 @@ namespace gtopt
 FlowLP::FlowLP(const Flow& pflow, const InputContext& ic)
     : ObjectLP<Flow>(pflow)
     , discharge(ic, Element::class_name, id(), std::move(flow().discharge))
+    , fcost(ic, Element::class_name, id(), std::move(flow().fcost))
 {
 }
 
@@ -57,13 +59,28 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
-    //  adding flow variable
-    const auto block_discharge =
+    // ``discharge`` is OPTIONAL — when set, the column is FORCED to
+    // exactly ``discharge`` (legacy hard equality, regardless of
+    // ``fcost``).  When unset, the column is a free slack ``[0,
+    // +inf)`` priced at ``fcost`` so the LP only activates it when
+    // the junction balance demands it.  ``fcost`` itself is also
+    // optional — when neither field is set, no LP column is emitted.
+    const auto block_discharge_opt =
         discharge.at(scenario.uid(), stage.uid(), block.uid());
+    const auto block_fcost = fcost.optval(stage.uid(), buid);
+    if (!block_discharge_opt.has_value() && !block_fcost.has_value()) {
+      continue;
+    }
+    const double block_lowb = block_discharge_opt.value_or(0.0);
+    const double block_uppb = block_discharge_opt.value_or(DblMax);
+    const double block_cost = block_fcost.has_value()
+        ? CostHelper::block_ecost(scenario, stage, block, *block_fcost)
+        : 0.0;
 
     const auto fcol = lp.add_col({
-        .lowb = block_discharge,
-        .uppb = block_discharge,
+        .lowb = block_lowb,
+        .uppb = block_uppb,
+        .cost = block_cost,
         .class_name = Element::class_name.full_name(),
         .variable_name = FlowName,
         .variable_uid = uid(),

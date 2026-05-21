@@ -838,14 +838,23 @@ def build_flow_array(
             if block_layout
             else list(f.discharge_profile)
         )
-        out.append(
-            {
-                "uid": i + 1,
-                "name": f.name,
-                "junction": f.junction_name,
-                "discharge": [[profile]],
-            }
-        )
+        entry: dict[str, Any] = {
+            "uid": i + 1,
+            "name": f.name,
+            "junction": f.junction_name,
+        }
+        # Non-physical inflow slacks (``fcost > 0``) carry NO
+        # ``discharge`` at all — gtopt's optional ``Flow.discharge``
+        # defaults the column upper bound to ``+inf`` (``DblMax``),
+        # which is exactly what we want for a costed slack the LP
+        # only activates as needed.  Regular natural inflows keep
+        # the per-block profile so the forced equality
+        # ``flow = discharge`` reflects the actual hourly inflow.
+        if f.fcost > 0.0:
+            entry["fcost"] = f.fcost
+        else:
+            entry["discharge"] = [[profile]]
+        out.append(entry)
     return out
 
 
