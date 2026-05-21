@@ -57,6 +57,14 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
   if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
     MDOsetdblparam(env, MDO_DBL_PAR_IPM_GAP_TOLERANCE, *beps);
   }
+  // Target relative MIP optimality gap.  MindOpt uses
+  // `MDO_DBL_PAR_MIP_GAP_REL` (relative); the absolute counterpart
+  // `MDO_DBL_PAR_MIP_GAP_ABS` is intentionally not exposed — every
+  // other backend in gtopt uses the relative gap as the user-facing
+  // knob.  Ignored on continuous LPs.
+  if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+    MDOsetdblparam(env, MDO_DBL_PAR_MIP_GAP_REL, *gap);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     MDOsetdblparam(env, MDO_DBL_PAR_MAX_TIME, *tl);
   }
