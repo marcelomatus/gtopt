@@ -578,7 +578,22 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
 }
 
 /// Run the solver and return whether an optimal solution was found.
-[[nodiscard]] bool run_solver(PlanningLP& planning_lp)
+/// Outcome of `run_solver`.  Three-state so the caller can distinguish
+/// "save what we have" cases (partial progress on time-limit, MIP gap
+/// reached without optimal, SDDP / cascade aborted by sentinel) from
+/// hard failures with nothing useful to persist.
+enum class SolveOutcome : std::uint8_t
+{
+  Optimal,  ///< Solver returned an optimal solution — full write_out.
+  Partial,  ///< Solver did NOT reach optimal but the cell holds a
+            ///< usable solution (time-limit, gap, sentinel stop).
+            ///< Caller should still attempt write_out so the user
+            ///< inspects last-known progress.
+  Failed,  ///< Hard failure (infeasibility, internal error, bad input).
+           ///< write_out would either error or emit garbage; skip it.
+};
+
+[[nodiscard]] SolveOutcome run_solver(PlanningLP& planning_lp)
 {
   const spdlog::stopwatch solve_sw;
 
@@ -603,18 +618,25 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   // Solution-statistics block.
 
   if (result.has_value()) {
-    return true;
+    return SolveOutcome::Optimal;
   }
 
   const auto& err = result.error();
-  // Use warn for non-optimal (e.g. time-limit with feasible incumbent),
-  // error only for hard failures such as infeasibility.
+  // `SolverError` is the soft-error band: time-limit reached with a
+  // feasible incumbent, MIP gap target met but optimal not proven,
+  // SDDP / cascade interrupted by `sentinel_file` after some
+  // iterations completed.  In every case the cell still carries a
+  // valid solution we can dump via `write_out`.  Every other code
+  // (`InternalError`, `InvalidInput`, …) is a hard failure where
+  // write_out would either throw or emit garbage — skip it.
+  const bool is_partial = (err.code == ErrorCode::SolverError);
+
   const auto msg = std::format(
       "Solver did not find an optimal solution: "
       "{} (code={})",
       err.message,
       static_cast<int>(err.code));
-  if (err.code == ErrorCode::SolverError) {
+  if (is_partial) {
     spdlog::warn(msg);
   } else {
     spdlog::error(msg);
@@ -634,7 +656,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       eps_str(solver_opts.feasible_eps),
       eps_str(solver_opts.barrier_eps),
       solver_opts.log_level);
-  return false;
+  return is_partial ? SolveOutcome::Partial : SolveOutcome::Failed;
 }
 
 /// Write solution output and save planning JSON to the output directory.
@@ -815,22 +837,48 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
 
     // Solve the LP
     spdlog::info("=== System optimization ===");
-    const bool optimal = run_solver(planning_lp);
+    const auto outcome = run_solver(planning_lp);
+    const bool optimal = (outcome == SolveOutcome::Optimal);
 
     if (do_stats) {
       log_post_solve_stats(planning_lp, optimal);
     }
 
-    if (!optimal) {
-      return 1;
+    if (outcome == SolveOutcome::Failed) {
+      return 1;  // hard failure — nothing useful to persist
     }
 
-    // Write solution output
+    if (outcome == SolveOutcome::Partial) {
+      // Time-limit, MIP gap, or sentinel-stop: the cell still holds a
+      // feasible (or near-feasible) solution from the last successful
+      // iteration / forward pass.  Persist whatever the cells have so
+      // the operator can inspect / resume / use the partial result.
+      // SDDP + cascade also produced their per-iter cut + state files
+      // via `save_per_iteration` / `cascade_progress.json`; those
+      // already on-disk artifacts complement the per-element parquets
+      // written below.
+      spdlog::warn(
+          "=== Writing PARTIAL output ===  the solver returned a "
+          "non-optimal solution (time-limit / gap / sentinel-stop); "
+          "what follows is the last-known feasible state.");
+    }
+
+    // Write solution output (runs for both Optimal and Partial).
     if (auto wr = write_solution_output(planning_lp); !wr) {
+      // Soften the failure mode under Partial: a write_out error on a
+      // partial cell is not fatal — the user already has the SDDP cuts
+      // and cascade progress file from earlier in the run.
+      if (outcome == SolveOutcome::Partial) {
+        spdlog::warn(
+            "Partial write_out failed: {} — earlier-iteration "
+            "artifacts (cuts, progress file) are unaffected.",
+            wr.error());
+        return 1;
+      }
       return std::unexpected(std::move(wr.error()));
     }
 
-    return 0;
+    return optimal ? 0 : 1;
 
   } catch (const std::exception& ex) {
     return std::unexpected(
