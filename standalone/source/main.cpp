@@ -1,5 +1,6 @@
 #include <format>
 #include <iostream>
+#include <set>
 #include <string>
 
 #include <gtopt/check_solvers.hpp>
@@ -244,6 +245,33 @@ record — `--quiet` further silences the log file too.
           get_opt<std::string>(vm, "list-dialects").value_or("");
       const auto& names = gtopt::NamesRegistry::instance();
       const auto& units = gtopt::UnitRegistry::instance();
+
+      // Single forward sweep through the per-alias index also gives us
+      // the set of registered dialect names — we use it for an
+      // unknown-filter error so `--list-dialects mistype` does not
+      // print zero rows silently.
+      std::set<std::string> known_dialects;
+      for (const auto& [canonical, aliases] : names.canonical_to_aliases()) {
+        for (const auto& alias : aliases) {
+          if (const auto d = names.dialect_for(alias); d.has_value()) {
+            known_dialects.emplace(*d);
+          }
+        }
+      }
+      if (!filter.empty() && !known_dialects.contains(filter)) {
+        std::cerr << std::format(
+            "ERROR: --list-dialects: unknown dialect '{}'.  Known "
+            "dialects: ",
+            filter);
+        bool first = true;
+        for (const auto& d : known_dialects) {
+          std::cerr << (first ? "" : ", ") << d;
+          first = false;
+        }
+        std::cerr << '\n';
+        return 1;
+      }
+
       std::cout << "# canonical\tdialect\talias\tunit\n";
       std::size_t printed = 0;
       for (const auto& [canonical, aliases] : names.canonical_to_aliases()) {
@@ -261,9 +289,11 @@ record — `--quiet` further silences the log file too.
       }
       if (filter.empty()) {
         std::cout << std::format(
-            "\n# {} rows ({} canonicals, names from {}, units from {})\n",
+            "\n# {} rows ({} canonicals, {} dialects, names from {}, "
+            "units from {})\n",
             printed,
             names.canonical_to_aliases().size(),
+            known_dialects.size(),
             names.source_path().has_value() ? names.source_path()->string()
                                             : std::string("<built-in>"),
             units.source_path().has_value() ? units.source_path()->string()
