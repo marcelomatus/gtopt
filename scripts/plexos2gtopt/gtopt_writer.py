@@ -325,13 +325,23 @@ def build_line_array(
             "bus_a": line.bus_from,
             "bus_b": line.bus_to,
         }
-        # PLEXOS Enforce Limits = 0 ("Never") means thermal limits are
-        # not enforced — the LP should treat the line as having no cap.
-        # Drop tmax_ab/tmax_ba so gtopt defaults to +inf.  For EL=1
-        # (Voltage-conditional) and EL=2 (Always), emit the hard cap
-        # as before — gtopt has no voltage-threshold construct so
-        # EL=1 is conservatively treated as enforced.
-        if line.enforce_limits != 0:
+        # PLEXOS Enforce Limits:
+        #   0 = Never enforce thermal limit (drop cap, gtopt → +inf)
+        #   1 = Voltage-conditional (enforce ONLY when voltage is
+        #       binding; in the CEN PCP daily PRGdia run voltage
+        #       constraints are pre-resolved via the network model,
+        #       so EL=1 lines are NOT enforced in the actual solve.
+        #       Empirical evidence: Capricornio110->LaNegra110 has
+        #       EL=1 with Export Limit 76 MW, yet PLEXOS solves with
+        #       flow ≈ 175 MW (period 1) — the limit isn't enforced.
+        #       Treating EL=1 as a hard cap was bottlenecking the
+        #       LaNegra/AltoNorte110 corridor and causing 10 GWh of
+        #       phantom demand failure that PLEXOS doesn't see.)
+        #   2 = Always enforce (emit hard cap)
+        # gtopt has no voltage-threshold construct, so we collapse to:
+        #   EL ∈ {0, 1} → drop cap (let LP run with no enforcement)
+        #   EL == 2    → emit hard tmax_ab / tmax_ba
+        if line.enforce_limits >= 2:
             # Determine if we have a non-constant DLR profile.  When
             # ``min(profile) != max(profile)`` the rating varies
             # across the horizon — emit a per-block matrix.  When
