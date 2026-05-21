@@ -164,12 +164,25 @@ class Waterway(TypedDict, total=False):
     fcost: float
 
 
-class Junction(TypedDict):
-    """Represents a node in the hydro system."""
+class _JunctionRequired(TypedDict):
+    """Required fields for Junction (always present)."""
 
     uid: int
     name: str
     drain: bool
+
+
+class Junction(_JunctionRequired, total=False):
+    """Represents a node in the hydro system.
+
+    ``drain_capacity`` and ``drain_cost`` are optional (default +∞ / 0
+    on the C++ side) and carry PLP's ``VertMax`` / ``CVert`` onto the
+    junction-level drain column when the central's spillway target is
+    the ocean — see ``JunctionLP::add_to_lp``.
+    """
+
+    drain_capacity: float
+    drain_cost: float
 
 
 class _FlowRequired(TypedDict):
@@ -1118,22 +1131,42 @@ class JunctionWriter(BaseWriter):
                     fcost=vert_fcost,
                 )
 
-        # **Spillway ocean fallback** — when ``ser_ver = 0`` AND the
-        # central has a positive ``VertMax``, PLP routes excess water
-        # via the per-block spillway variable (uncapped within
-        # ``VertMax``).  The previous gtopt implementation translated
-        # ``ser_ver = 0`` as "no spillway" and relied on the
-        # junction's ``drain = True`` to absorb the missing water.
-        # That free-drain shortcut was removed (it caused LMAULE to
-        # drain 657 → 0 in p1) — but legitimate spillage paths now
-        # need an explicit physical outlet.  Mirror the ``ser_hid =
-        # 0`` ocean-fallback below: synthesise (or reuse) the shared
-        # ocean junction and emit a ``_ver`` waterway with
-        # ``fmax = VertMax`` so excess water can leave the system the
-        # same way PLP allows.  Symptom on juan/gtopt_iplp: LA_HIGUERA
-        # (``ser_ver = 0``, ``VertMax = 9967``, gen pmax = 0 at p1
-        # via plpmance) had no spillway path → upstream affluent
-        # 7.2 m³/s couldn't be discharged → infeasible.
+        # **Spillway ocean fallback** — when ``ser_ver = 0`` AND PLP
+        # would route excess water "to the ocean", encode the spill
+        # capacity + cost directly on the central's own junction via
+        # the new ``drain_capacity`` / ``drain_cost`` fields instead
+        # of synthesising a ``<central>_ocean`` Junction and a
+        # connecting ``_ver`` Waterway.  Two encodings produce the
+        # same LP — the per-block drain column on ``JunctionLP`` is
+        # added with ``uppb = drain_capacity`` and ``cost =
+        # drain_cost``, matching the legacy ``Waterway.fmax`` /
+        # ``Waterway.fcost`` on the synthetic spillway arc — but the
+        # junction-level form saves one Junction + one Waterway per
+        # terminal central and removes the LMAULE-class unbounded-
+        # drain risk because ``drain_capacity`` ports the PLP
+        # ``VertMax`` cap onto the LP-side drain column directly.
+        #
+        # Two PLP paths motivate this branch when ``ser_ver = 0``:
+        #
+        #   (a) ``VertMax > 0``: use ``drain_capacity = VertMax`` and
+        #       the ``CVert`` default cost on ``drain_cost`` — the
+        #       per-block spill cap matches PLP's plpcnfce VertMax
+        #       field.  Original LA_HIGUERA case.
+        #
+        #   (b) Central is in plpvrebemb.dat (``in_vrebemb`` /
+        #       ``rebalse_cost is not None``): PLP's per-stage
+        #       rebalse aggregator ``qrb`` is uncapped, so set
+        #       ``drain_capacity`` to None (unbounded) and put
+        #       ``rebalse_cost`` on ``drain_cost`` — the LP can spill
+        #       arbitrary surplus at the rebalse penalty.  CANUTILLAR
+        #       (in plpvrebemb, ``ser_ver = 0``, ``VertMax = 0``)
+        #       previously went infeasible at p1 when affluent
+        #       (126.3 m³/s) exceeded gen cap (85.1 m³/s); the
+        #       junction-drain replacement keeps the spill path open
+        #       with the same cost.
+        junction_drain_from_spill = False
+        junction_drain_capacity: Optional[float] = None
+        junction_drain_cost: Optional[float] = None
         if (
             ver_waterway is None
             and not self._drop_spillway_waterway
@@ -1141,94 +1174,45 @@ class JunctionWriter(BaseWriter):
             and central_type in ("embalse", "serie", "pasada")
         ):
             vert_max_for_spill = central.get("vert_max", 0.0) or 0.0
-            # Two paths trigger the synthetic ``<central>_spill``
-            # ocean junction + ``_ver`` waterway fallback when
-            # ``ser_ver = 0``:
-            #
-            #   (a) ``VertMax > 0``: use ``fmax = VertMax`` and the
-            #       ``CVert`` default cost — the per-block spill
-            #       cap matches what PLP's plpcnfce VertMax field
-            #       describes.  Original LA_HIGUERA case.
-            #
-            #   (b) Central is in plpvrebemb.dat (``in_vrebemb`` /
-            #       ``rebalse_cost is not None``): PLP's per-stage
-            #       rebalse aggregator ``qrb`` is uncapped, so emit
-            #       ``fmax = +1e30`` with ``fcost = rebalse_cost``
-            #       so the LP can spill arbitrary surplus while
-            #       paying the rebalse penalty.  CANUTILLAR
-            #       (in plpvrebemb, ``ser_ver = 0``, ``VertMax = 0``)
-            #       had no spill path before this branch and went
-            #       infeasible at p1 when the affluent (126.3 m³/s)
-            #       exceeded the gen cap (85.1 m³/s).
             spill_fmax: Optional[float] = None
             spill_fcost: Optional[float] = None
             if in_vrebemb:
                 spill_fmax = math.inf
                 spill_fcost = rebalse_cost
                 if self._vrebemb_as_sink:
-                    # ``--vrebemb-as-sink`` (opt-in): even on the
-                    # ``ser_ver = 0`` synthetic-ocean fallback path
-                    # (LMAULE / RAPEL / CANUTILLAR / COLBUN —
-                    # already ocean-routed today), keep fmax at
-                    # +Infinity (sink-bound, no physical cap) and
-                    # drop the per-flow rebalse cost.  Matches PLP's
-                    # qrb-to-sink semantics without introducing the
-                    # cap-arbitrage fictitious-water path the legacy
-                    # ``ser_ver > 0`` mode exposed.
+                    # ``--vrebemb-as-sink`` (opt-in): keep fmax at
+                    # +∞ (sink-bound, no physical cap) and drop the
+                    # per-flow rebalse cost.  Matches PLP's
+                    # qrb-to-sink semantics.
                     spill_fmax = math.inf
                     spill_fcost = None
                     self._vrebemb_as_sink_count += 1
             elif vert_max_for_spill > 0.0:
-                # Same PLP "no limit" sentinel handling as the gen+ver
-                # paths above: VertMax >= 9000 m³/s means "unbounded",
-                # so use ``math.inf`` (sanitised to 1e30 at JSON write
-                # time) instead of baking the literal sentinel into the
-                # LP upper bound.
+                # PLP "no limit" sentinel — VertMax ≥ 9000 m³/s means
+                # "unbounded"; map to None so JunctionLP uses its +∞
+                # default rather than baking the sentinel into the
+                # LP upper bound and inflating coefficient kappa.
                 if _is_plp_no_limit(float(vert_max_for_spill)):
                     self._plp_no_limit_count += 1
                     spill_fmax = math.inf
                 else:
                     spill_fmax = float(vert_max_for_spill)
                 spill_fcost = cvert_default
-            # Emit the spill arc to the synthetic ocean drain when we
-            # have either a capped fmax (legacy paths) OR the
-            # ``--vrebemb-as-sink`` redirect (which intentionally drops
-            # both fmax and fcost on vrebemb-listed centrals).
             emit_spill = spill_fmax is not None or (
                 self._vrebemb_as_sink and in_vrebemb
             )
             if emit_spill:
-                if synthetic_drain_uid is None:
-                    self._ocean_junction_counter += 1
-                    synthetic_drain_uid = (
-                        _OCEAN_UID_OFFSET + self._ocean_junction_counter
-                    )
-                    drain_name = f"{central_name}_ocean"
-                    drain_junction = {
-                        "uid": synthetic_drain_uid,
-                        "name": drain_name,
-                        "drain": True,
-                    }
-                    system["junction_array"].append(cast(Junction, drain_junction))
-                    self._junction_names[synthetic_drain_uid] = drain_name
-                    _logger.debug(
-                        "Created shared ocean drain junction '%s' (uid=%d) "
-                        "for central '%s' (VertMax=%g, vrebemb=%s) — "
-                        "spill path",
-                        drain_name,
-                        synthetic_drain_uid,
-                        central_name,
-                        vert_max_for_spill,
-                        in_vrebemb,
-                    )
-                ver_waterway = self._create_waterway(
-                    central_name + "_ver",
-                    central_id,
-                    synthetic_drain_uid,
-                    central.get("vert_min", 0.0),
-                    spill_fmax,
-                    fcost=spill_fcost,
-                )
+                # Surface as junction-drain instead of ocean+waterway.
+                # ``+∞`` capacity maps to None so JunctionLP's default
+                # (DblMax / solver infinity) applies — the JSON field
+                # is omitted and Junction.drain_capacity stays at
+                # default-empty.  ``cost`` 0 / None is also omitted
+                # via the value_or(0.0) default in JunctionLP.
+                if spill_fmax is not None and math.isfinite(spill_fmax):
+                    junction_drain_capacity = float(spill_fmax)
+                if spill_fcost is not None and spill_fcost > 0.0:
+                    junction_drain_cost = float(spill_fcost)
+                junction_drain_from_spill = True
 
         # For embalse/serie/pasada centrals with ser_hid=0, complete the
         # missing generation waterway outlet by routing it to the shared
@@ -1361,25 +1345,33 @@ class JunctionWriter(BaseWriter):
         # p27/p28 collapsed once this drain was removed.
         #
         # New rule: drain is enabled ONLY when there is NO physical
-        # outlet (``gen_waterway is None and ver_waterway is None``).
-        # That covers truly isolated centrals where the network would
-        # otherwise be unbalanced; everything else relies on PLP-style
-        # explicit balance through the gen / ver arcs.
+        # outlet (``gen_waterway is None and ver_waterway is None``),
+        # OR when the spillway-ocean fallback above chose to encode
+        # the spill capacity on this junction instead of synthesising
+        # a separate ``<central>_ocean`` Junction + ``_ver`` Waterway
+        # (``junction_drain_from_spill`` flag).
         #
-        # ``--drop-spillway-waterway``: when on (opt-in; default is
-        # False as of the 2026-04-28 LMAULE / ELTORO fix), the
-        # spillway arc has been suppressed above so the central's
-        # own junction must absorb any surplus water itself.  Force
-        # ``drain = True`` for the embalse / serie / pasada types
-        # that previously got a ``_ver`` arc — the gen waterway
-        # alone can't always discharge the inflow + storage release.
-        # Centrals of other types keep the standard "drain only
-        # when truly isolated" rule.
+        # In the spill-encoded-as-junction-drain case we also forward
+        # the ``drain_capacity`` (= PLP ``VertMax``) and ``drain_cost``
+        # (= ``CVert`` / ``Costo de Rebalse``) onto the Junction so
+        # gtopt's ``JunctionLP::add_to_lp`` builds the per-block drain
+        # column with the right ``uppb`` and ``cost`` — preserving the
+        # LMAULE / ELTORO storage-release cap that the legacy
+        # ocean-Waterway arc carried via ``fmax`` / ``fcost``.
+        #
+        # ``--drop-spillway-waterway`` (opt-in, default False since the
+        # 2026-04-28 LMAULE / ELTORO fix): the spillway arc has been
+        # suppressed above so the central's own junction must absorb
+        # any surplus water itself.  Force ``drain = True`` for the
+        # embalse / serie / pasada types that previously got a
+        # ``_ver`` arc.
         if self._drop_spillway_waterway and central_type in (
             "embalse",
             "serie",
             "pasada",
         ):
+            drain = True
+        elif junction_drain_from_spill:
             drain = True
         else:
             drain = gen_waterway is None and ver_waterway is None
@@ -1388,6 +1380,11 @@ class JunctionWriter(BaseWriter):
             "name": central_name,
             "drain": drain,
         }
+        if junction_drain_from_spill:
+            if junction_drain_capacity is not None:
+                junction["drain_capacity"] = junction_drain_capacity
+            if junction_drain_cost is not None:
+                junction["drain_cost"] = junction_drain_cost
         system["junction_array"].append(junction)
 
         # Promote to a daily-cycle reservoir when the central appears in

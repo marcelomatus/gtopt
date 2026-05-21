@@ -234,16 +234,23 @@ def test_pasada_in_hydro_mode_drain_on_source():
 
 
 def test_legacy_mode_emits_ver_waterway_and_no_drain():
-    """Sanity: ``drop_spillway_waterway = False`` restores the ``_ver`` arc."""
+    """``drop_spillway_waterway = False`` keeps the in-network spillway
+    arc; for ``ser_ver = 0`` the spillway is now encoded on
+    ``Junction.drain_capacity`` / ``drain_cost`` instead of a synthetic
+    ``_ver → <central>_ocean`` arc (the C++ ``Junction.drain``-capacity
+    patch collapses that pair losslessly).
+    """
     cent = _serie("CentA", 1, ser_hid=0, ser_ver=0, vert_max=50.0)
     system = _run([cent], drop=False)
 
     ver_arcs = [w for w in system["waterway_array"] if "_ver_" in w["name"]]
-    assert len(ver_arcs) == 1, "legacy mode must emit exactly one _ver arc"
+    # No ``_ver`` arc remains — the spillway capacity now rides on the
+    # source junction's drain column.
+    assert ver_arcs == []
     junctions = {j["name"]: j for j in system["junction_array"]}
-    # The legacy rule: drain=True ONLY when both gen and ver are absent;
-    # here both exist (gen→ocean, ver→ocean), so the source is NOT a drain.
-    assert junctions["CentA"]["drain"] is False
+    src = junctions["CentA"]
+    assert src["drain"] is True
+    assert src["drain_capacity"] == 50.0
 
 
 # ---------------------------------------------------------------------------
