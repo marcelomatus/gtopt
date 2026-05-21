@@ -131,6 +131,10 @@ def test_118_bus_full_convert(tmp_path: Path) -> None:
             "input_bundle": bundle_dir,
             "output_dir": out_dir,
             "output_file": out_file,
+            # Synthetic IEEE 118-bus has no CEN PCP solution .accdb;
+            # use uniform-hourly explicitly.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     planning = json.loads(out_file.read_text())
@@ -172,6 +176,10 @@ def test_118_bus_solves_with_gtopt(tmp_path: Path) -> None:
             "input_bundle": bundle_dir,
             "output_dir": out_dir,
             "output_file": out_file,
+            # Synthetic IEEE 118-bus has no CEN PCP solution .accdb;
+            # use uniform-hourly explicitly.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     gtopt = _gtopt_binary()

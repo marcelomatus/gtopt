@@ -417,7 +417,17 @@ def test_convert_requires_input_bundle() -> None:
 def test_convert_inferred_output_dir(tmp_path: Path) -> None:
     """When ``output_dir`` is absent, the converter writes to ``gtopt_<stem>/``."""
     bundle_dir = _make_dir_bundle(tmp_path)
-    rc = convert_plexos_bundle({"input_bundle": bundle_dir})
+    # Synthetic empty bundle has no PLEXOS solution .accdb to recover
+    # the t_phase_3 block layout from, so opt into the uniform-hourly
+    # mode explicitly — exercises the output_dir inference path
+    # without needing a real CEN PCP solution database.
+    rc = convert_plexos_bundle(
+        {
+            "input_bundle": bundle_dir,
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
+        }
+    )
     # Returns 0 for an empty-topology bundle (no CRITICAL findings).
     assert rc == 0
     inferred = bundle_dir.parent / f"gtopt_{bundle_dir.name}"

@@ -179,6 +179,10 @@ def test_118_bus_piecewise_end_to_end(tmp_path: Path) -> None:
             "input_bundle": bundle_dir,
             "output_dir": out_dir,
             "output_file": out_file,
+            # Synthetic IEEE 118-bus has no CEN PCP solution .accdb;
+            # use uniform-hourly explicitly.
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
         }
     )
     planning = json.loads(out_file.read_text())
