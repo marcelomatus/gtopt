@@ -453,6 +453,34 @@ TEST_CASE(
         == doctest::Approx(0.001));
 }
 
+TEST_CASE(
+    "apply_cli_options(MainOptions) - --no-presolve sets "
+    "solver_options.presolve=false")
+{
+  // The CLI shortcut must drive solver_options.presolve to false so
+  // the existing backend wiring (CPLEX SCRIND/PRESOLVE, HiGHS
+  // 'presolve' option, etc.) picks it up.
+  Planning planning {};
+  // SolverOptions::presolve defaults to true; the apply path flips it.
+  CHECK(planning.options.solver_options.presolve == true);
+
+  apply_cli_options(planning, MainOptions {.no_presolve = true});
+
+  CHECK(planning.options.solver_options.presolve == false);
+}
+
+TEST_CASE(
+    "apply_cli_options(MainOptions) - --no-presolve overrides JSON "
+    "solver_options.presolve=true")
+{
+  Planning planning {};
+  planning.options.solver_options.presolve = true;
+
+  apply_cli_options(planning, MainOptions {.no_presolve = true});
+
+  CHECK(planning.options.solver_options.presolve == false);
+}
+
 // ---- Tests for make_lp_matrix_options ----
 
 TEST_CASE("make_lp_matrix_options - defaults when both nullopt")
