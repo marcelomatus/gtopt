@@ -304,3 +304,45 @@ def test_auto_discover_res_zip_returns_none_when_missing(
     datos = tmp_path / "DATOS20260422.zip.xz"
     datos.write_bytes(b"")
     assert auto_discover_res_zip(datos) is None
+
+
+# ---------------------------------------------------------------------------
+# T5: read_long fill_forward carries the last defined value across gaps
+# ---------------------------------------------------------------------------
+
+
+def test_read_long_fill_forward_carries_value(tmp_path: Path) -> None:
+    """PLEXOS DLR files ship sparse rows: period N's value carries
+    forward until the next defined period.  ``fill_forward=True``
+    mirrors that semantic; ``fill_forward=False`` (default) leaves
+    gaps at 0.0 — the legacy behaviour that produced overnight
+    rating drops for Dynamic Line Rating corridors when only
+    period-1 had a row.
+    """
+    csv_path = tmp_path / "Lin_MaxRating.csv"
+    csv_path.write_text(
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "line_ns,2026,1,1,1,1,500\n"
+        "line_ns,2026,1,1,7,1,600\n"
+    )
+    out = read_long(csv_path, fill_forward=True, periods=24)
+    series = out["line_ns"]
+    assert len(series) == 24
+    # Period 1 value lands at slot 0.
+    assert series[0] == 500.0
+    # Slots 1..5 inherit period-1's value via carry-forward.
+    assert series[1] == 500.0
+    assert series[5] == 500.0
+    # Period 7 (slot 6) hits 600; the new value carries forward from there.
+    assert series[6] == 600.0
+    assert series[7] == 600.0
+    assert series[23] == 600.0
+
+    # fill_forward=False keeps the legacy gap-as-zero behaviour.
+    out2 = read_long(csv_path, fill_forward=False, periods=24)
+    series2 = out2["line_ns"]
+    assert series2[0] == 500.0
+    # Gaps stay 0 without the forward-fill.
+    assert series2[1] == 0.0
+    assert series2[5] == 0.0
+    assert series2[6] == 600.0

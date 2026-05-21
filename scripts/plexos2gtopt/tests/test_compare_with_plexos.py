@@ -537,3 +537,203 @@ def test_compute_gtopt_generation_by_technology_heuristic_fallback(
     # match BAT_* / _FV / _EO / _U[N]).
     tech = compute_gtopt_generation_by_technology(case_dir, accdb_path=None)
     assert tech == pytest.approx({"thermal": 750.0})
+
+
+# ----------------------------------------------------------------
+# T8: _read_plexos_table prefers the pre-extracted cache over live
+# mdb-export shell-out
+# ----------------------------------------------------------------
+
+
+def _write_zstd_cache(case_dir: Path, table: str, payload: str) -> None:
+    """Materialise ``case_dir/plexos_cache/<table>.csv.zst`` from text."""
+    import shutil
+    import subprocess
+
+    cache_dir = case_dir / "plexos_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    raw = cache_dir / f"{table}.csv"
+    raw.write_text(payload, encoding="utf-8")
+    zst = cache_dir / f"{table}.csv.zst"
+    # zstd CLI: -q quiet, -f overwrite, -o output, input last.
+    subprocess.run(
+        ["zstd", "-q", "-f", "-o", str(zst), str(raw)],
+        check=True,
+    )
+    raw.unlink()
+    # Sanity guard: the helper is gated by shutil.which("zstd") at
+    # call-site, but if the binary disappeared between checks we'd
+    # silently end up with a missing cache and the test would pass
+    # for the wrong reason.
+    assert zst.exists(), "zstd CLI did not produce the cache file"
+    _ = shutil  # keep the import live for the sanity guard above
+
+
+def test_read_plexos_table_cache_hit_preferred_over_mdb_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``case_dir/plexos_cache/<table>.csv.zst`` exists, the live
+    ``mdb-export`` shell-out is bypassed entirely.
+
+    Locks the cache fast-path so a refactor can't silently re-shell
+    to mdb-export on every comparison invocation — which on the CEN
+    PCP scale (~10× tables × 100s of MB each) turns a 5-second
+    comparison into a 5-minute one.
+    """
+    import shutil
+
+    if shutil.which("zstd") is None:
+        pytest.skip("zstd CLI not available")
+
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    payload = "interval_id,period_id\n1,1\n2,1\n3,2\n"
+    _write_zstd_cache(case_dir, "t_key", payload)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("mdb-export must NOT be invoked when the cache is present")
+
+    monkeypatch.setattr("subprocess.check_output", _boom)
+
+    fake_accdb = tmp_path / "fake.accdb"
+    fake_accdb.touch()
+    from plexos2gtopt.compare_with_plexos import _read_plexos_table
+
+    out = _read_plexos_table(fake_accdb, "t_key", case_dir=case_dir)
+    assert out == payload
+
+
+def test_read_plexos_table_cache_miss_falls_through_to_mdb_export(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No ``plexos_cache`` directory ⇒ the live ``mdb-export`` shell-
+    out IS invoked.  Mirror-image of the cache-hit test above."""
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    sentinel_csv = "key_id,property_id\n42,99\n"
+    calls: list[list[str]] = []
+
+    def _capture(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return sentinel_csv
+
+    monkeypatch.setattr("subprocess.check_output", _capture)
+    fake_accdb = tmp_path / "fake.accdb"
+    fake_accdb.touch()
+    from plexos2gtopt.compare_with_plexos import _read_plexos_table
+
+    out = _read_plexos_table(fake_accdb, "t_key", case_dir=case_dir)
+    assert out == sentinel_csv
+    # Exactly one shell-out, targeting the requested table.
+    assert len(calls) == 1
+    assert calls[0][0] == "mdb-export"
+    assert calls[0][-1] == "t_key"
+
+
+# ----------------------------------------------------------------
+# T9: _sum_consumer_demand_field_mwh filters synthetic <bat>_dem uids
+# ----------------------------------------------------------------
+
+
+def test_sum_consumer_demand_excludes_synthetic_battery_uids(
+    tmp_path: Path,
+) -> None:
+    """gtopt's C++ ``expand_batteries`` appends synthetic ``<bat>_dem``
+    Demand rows at LP-build time (uid > max input demand uid).  The
+    field-sum helper MUST restrict to the bundle's declared
+    ``demand_array`` uids — otherwise the synthetic demand's load
+    (which equals the battery's finp) gets double-counted into
+    consumer demand.
+
+    Audit: without the filter, a single 1000-MW battery synthetic
+    demand alone added ~7.6 GWh of phantom "consumer" demand on
+    the CEN PCP daily week, masking the real demand-vs-PLEXOS gap.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from plexos2gtopt.compare_with_plexos import _sum_consumer_demand_field_mwh
+
+    case_dir = tmp_path / "case"
+    out_dir = case_dir / "output" / "Demand"
+    out_dir.mkdir(parents=True)
+    rows = [
+        # uid=1: real demand 50 MW × 2 blocks
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 1,
+            "uid": 1,
+            "value": 50.0,
+        },
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 2,
+            "uid": 1,
+            "value": 50.0,
+        },
+        # uid=2: real demand 50 MW × 2 blocks
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 1,
+            "uid": 2,
+            "value": 50.0,
+        },
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 2,
+            "uid": 2,
+            "value": 50.0,
+        },
+        # uid=3: synthetic <bat>_dem at 1000 MW × 2 blocks — MUST be filtered out.
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 1,
+            "uid": 3,
+            "value": 1000.0,
+        },
+        {
+            "scene": 0,
+            "phase": 0,
+            "scenario": 1,
+            "stage": 1,
+            "block": 2,
+            "uid": 3,
+            "value": 1000.0,
+        },
+    ]
+    pq.write_table(pa.Table.from_pylist(rows), out_dir / "load_sol.parquet")
+    # Bundle declares uids 1 + 2 as real consumer demands; uid 3 is
+    # the synthetic battery-fed entry gtopt's expand_batteries adds
+    # at LP-build time.
+    bundle = {
+        "system": {
+            "demand_array": [
+                {"uid": 1, "name": "load_north"},
+                {"uid": 2, "name": "load_south"},
+            ],
+        },
+    }
+    durations = {1: 1.0, 2: 1.0}
+    total = _sum_consumer_demand_field_mwh(
+        case_dir, bundle, durations, "Demand/load_sol.parquet"
+    )
+    # 50 MW × 1 h × 2 blocks × 2 uids = 200 MWh; the 1000-MW
+    # synthetic uid contributes ZERO.
+    assert total == pytest.approx(200.0)

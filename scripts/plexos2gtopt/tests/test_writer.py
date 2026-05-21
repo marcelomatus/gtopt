@@ -255,3 +255,69 @@ def test_demand_emits_fcost_when_set() -> None:
     assert "fcost" not in by_name["load_orphan"]
     # lmax still emitted as the 1×N matrix, regardless of fcost.
     assert by_name["load_north"]["lmax"] == [[100.0, 120.0]]
+
+
+# ---------------------------------------------------------------------------
+# T7: DLR profile + resistance → matrix tmax_ab + piecewise loss mode
+# ---------------------------------------------------------------------------
+
+
+def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
+    """A varying ``tmax_ab_profile`` (Dynamic Line Rating) lands on
+    the JSON as ``[[per-hour]]`` matrix; lines with non-zero
+    ``resistance`` AND an enforced cap get gtopt's piecewise loss
+    mode (2 segments) + the ``√S_base`` voltage anchor.
+
+    Locks the joint emission so a refactor can't silently drop
+    either the DLR matrix shape (would clamp the line to the
+    period-1 rating) or the piecewise loss mode (would model the
+    line as lossless, undershooting PLEXOS by the corridor's loss
+    GWh).
+    """
+    lines = (
+        LineSpec(
+            object_id=1,
+            name="dlr_corridor",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=200.0,
+            tmax_ab_profile=(100.0,) * 12 + (200.0,) * 12,
+            resistance=0.05,
+            enforce_limits=2,
+            units=1,
+        ),
+    )
+    out = build_line_array(lines)
+    # The varying DLR profile materialises as a [[per-hour]] matrix.
+    assert isinstance(out[0]["tmax_ab"], list)
+    assert out[0]["tmax_ab"] == [[100.0] * 12 + [200.0] * 12]
+    # Resistance + voltage + piecewise loss mode (2 segments).
+    assert out[0]["resistance"] == 0.05
+    assert out[0]["voltage"] == 10.0
+    assert out[0]["line_losses_mode"] == "piecewise"
+    assert out[0]["loss_segments"] == 2
+
+
+def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
+    """A constant ``tmax_ab_profile`` (all-200) collapses to the
+    scalar ``tmax_ab``; resistance + piecewise loss mode still emit
+    because the line carries a cap.
+    """
+    lines = (
+        LineSpec(
+            object_id=2,
+            name="flat",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=200.0,
+            tmax_ab_profile=(200.0,) * 24,
+            resistance=0.05,
+            enforce_limits=2,
+            units=1,
+        ),
+    )
+    out = build_line_array(lines)
+    # No matrix — the constant profile collapses to a scalar.
+    assert out[0]["tmax_ab"] == 200.0
+    assert out[0]["resistance"] == 0.05
+    assert out[0]["line_losses_mode"] == "piecewise"

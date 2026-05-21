@@ -537,6 +537,111 @@ def test_fuel_offtake_skips_zero_heat_rate(tmp_path: Path) -> None:
     assert 'generator("G2").generation' not in expr
 
 
+# ---------------------------------------------------------------------------
+# T3: Battery Reserve Units Coefficient → commitment("uc_<bat>_gen").status
+# ---------------------------------------------------------------------------
+
+
+_BATT_RU_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>7</class_id><name>Battery</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>40</object_id><class_id>7</class_id><name>bess_a</name></t_object>
+  <t_object>
+    <object_id>100</object_id><class_id>70</class_id><name>BATT_RU</name>
+  </t_object>
+
+  <!-- System → Constraints (Sense / RHS) -->
+  <t_collection>
+    <collection_id>700</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id>
+    <name>Constraints</name>
+  </t_collection>
+  <!-- Battery → Constraints (Reserve Units Coefficient lives here) -->
+  <t_collection>
+    <collection_id>90</collection_id>
+    <parent_class_id>7</parent_class_id>
+    <child_class_id>70</child_class_id>
+    <name>Constraints</name>
+  </t_collection>
+
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id>
+    <name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id>
+    <name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>980</property_id><collection_id>90</collection_id>
+    <name>Reserve Units Coefficient</name>
+  </t_property>
+
+  <t_membership>
+    <membership_id>700001</membership_id>
+    <collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>90001</membership_id>
+    <collection_id>90</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>100</child_object_id>
+  </t_membership>
+
+  <t_data>
+    <data_id>1</data_id><membership_id>700001</membership_id>
+    <property_id>4369</property_id><value>-1</value>
+  </t_data>
+  <t_data>
+    <data_id>2</data_id><membership_id>700001</membership_id>
+    <property_id>4384</property_id><value>1</value>
+  </t_data>
+  <t_data>
+    <data_id>3</data_id><membership_id>90001</membership_id>
+    <property_id>980</property_id><value>1.0</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_user_constraints_battery_reserve_units_forwards_to_gen_commit(
+    tmp_path: Path,
+) -> None:
+    """``Battery.Reserve Units Coefficient`` has no direct LP column.
+
+    gtopt's Battery LP manages its u_charge / u_discharge binaries
+    internally — there's no ``battery_commitment("X").status`` AMPL
+    accessor.  The parser forwards the coefficient onto the
+    synthetic ``<battery>_gen`` Generator's Commitment column
+    (auto-created by gtopt's C++ ``expand_batteries``), which DOES
+    expose ``.status`` via ``commitment("uc_<battery>_gen").status``.
+
+    Locks the forward path so the wiring doesn't silently revert to
+    a ``battery("X").commitment`` form gtopt can't resolve.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BATT_RU_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(db, bundle)
+    by_name = {c.name: c for c in out}
+    assert "BATT_RU" in by_name
+    expr = by_name["BATT_RU"].expression
+    # Forwarded onto the synthetic generator's Commitment status.
+    assert 'commitment("uc_bess_a_gen").status' in expr
+    # No direct battery("…") term lands on the LHS.
+    assert 'battery("bess_a")' not in expr
+    # Sense=-1 → "<="; RHS=1.
+    assert expr.endswith("<= 1")
+
+
 def test_reserve_provision_writer_emits_provision_factor_and_max() -> None:
     """build_reserve_provision_array emits provision_factor + urmax/drmax."""
     from plexos2gtopt.entities import ReserveProvisionSpec
