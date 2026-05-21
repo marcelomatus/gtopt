@@ -328,6 +328,13 @@ struct MainOptions
    * mapping (CPLEX EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap). */
   std::optional<double> mip_gap {};
 
+  /** @brief Disable LP presolve at the solver layer (CLI shortcut).
+   *
+   * Bound to the CLI flag `--no-presolve`.  Forwards to
+   * `solver_options.presolve = false`.  See the docstring on the
+   * struct field for the SDDP cell-replay rationale. */
+  std::optional<bool> no_presolve {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *

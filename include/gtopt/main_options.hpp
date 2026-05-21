@@ -350,6 +350,17 @@ template<typename T>
        "lp_matrix_options.equilibration_method=none).  Intended for "
        "debug / physical-unit validation of coefficients and RHS.  "
        "Overrides JSON values for the affected fields.")  //
+      ("no-presolve",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "disable LP presolve at the solver layer.  Shorthand for "
+       "`--set solver_options.presolve=false`.  Use for SDDP cell-replay "
+       "runs where the cuts being re-installed were already vetted at "
+       "first insertion — presolve has no reductions to find but still "
+       "pays setup overhead per call.  Default `true` keeps presolve on "
+       "(HiGHS regresses 2.5x without it; several SDDP unit tests "
+       "depend on the presolve-induced LP basis for analytical-dual "
+       "checks).")
+      //
       ("no-mip",
        po::value<bool>().implicit_value(/*v=*/true),
        "LP-relax every phase (all binary / integer variables become "
@@ -858,6 +869,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.solver_options.mip_gap = opts.mip_gap;
   }
 
+  if (opts.no_presolve.value_or(false)) {
+    // `--no-presolve` always overrides; the JSON `solver_options.presolve`
+    // setting is the long-form, and the bespoke flag wins.
+    planning.options.solver_options.presolve = false;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1087,6 +1104,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
+      .no_presolve = get_opt<bool>(vm, "no-presolve"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1377,6 +1395,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
   merge(opts.mip_gap, defaults.mip_gap);
+  merge(opts.no_presolve, defaults.no_presolve);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
