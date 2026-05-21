@@ -314,6 +314,13 @@ struct MainOptions
    * `--set model_options.continuous_phases=all`. */
   std::optional<bool> no_mip {};
 
+  /** @brief Naming dialect enforced on input + output (CLI shortcut).
+   *
+   * Bound to the CLI flag `--naming-dialect <name>`.  Forwards to
+   * `model_options.naming_dialect`; see the docstring there for the
+   * full semantics (input warn + output JSON rename). */
+  std::optional<std::string> naming_dialect {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *

@@ -7,10 +7,12 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include <gtopt/json_canonicalize.hpp>
 #include <gtopt/names_registry.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -71,12 +73,18 @@ namespace
 }  // namespace
 
 std::string canonicalize_json_keys(std::string_view json_text,
-                                   const NamesRegistry& registry)
+                                   const NamesRegistry& registry,
+                                   std::string_view enforce_dialect)
 {
   // Quick reject: if the registry is empty, return a copy.
   if (registry.size() == 0) {
     return std::string {json_text};
   }
+
+  // Set of aliases we have already warned about so the log stays
+  // compact: one line per misfit alias regardless of how many times it
+  // appears in the document.  Local to this call.
+  std::unordered_set<std::string> warned_aliases;
 
   std::string out;
   out.reserve(json_text.size());
@@ -148,6 +156,27 @@ std::string canonicalize_json_keys(std::string_view json_text,
             if (const auto canonical = registry.canonical_for(content);
                 canonical.has_value())
             {
+              // Optional input warn: alias's source dialect differs
+              // from the user-enforced dialect.  Hot path only emits
+              // the lookup + once-per-alias warn when enforce_dialect
+              // is non-empty.
+              if (!enforce_dialect.empty()) {
+                const auto alias_dialect = registry.dialect_for(content);
+                if (alias_dialect.has_value()
+                    && *alias_dialect != enforce_dialect)
+                {
+                  const std::string alias_key {content};
+                  if (warned_aliases.insert(alias_key).second) {
+                    spdlog::warn(
+                        "naming-dialect: input alias '{}' belongs to dialect "
+                        "'{}' but --naming-dialect is '{}' (canonical: '{}')",
+                        content,
+                        *alias_dialect,
+                        enforce_dialect,
+                        *canonical);
+                  }
+                }
+              }
               out.push_back('"');
               out.append(*canonical);
               out.push_back('"');
@@ -171,9 +200,117 @@ std::string canonicalize_json_keys(std::string_view json_text,
   return out;
 }
 
+std::string canonicalize_json_keys(std::string_view json_text,
+                                   const NamesRegistry& registry)
+{
+  return canonicalize_json_keys(json_text, registry, /*enforce_dialect=*/"");
+}
+
 std::string canonicalize_json_keys(std::string_view json_text)
 {
   return canonicalize_json_keys(json_text, NamesRegistry::instance());
+}
+
+std::string canonicalize_json_keys(std::string_view json_text,
+                                   std::string_view enforce_dialect)
+{
+  return canonicalize_json_keys(
+      json_text, NamesRegistry::instance(), enforce_dialect);
+}
+
+// ─── Inverse pass: canonical → dialect alias (output rename) ───────────────
+
+std::string decanonicalize_json_keys(std::string_view json_text,
+                                     const NamesRegistry& registry,
+                                     std::string_view dialect)
+{
+  if (dialect.empty() || registry.size() == 0) {
+    return std::string {json_text};
+  }
+
+  std::string out;
+  out.reserve(json_text.size());
+
+  struct Frame
+  {
+    bool in_object;
+    bool expecting_key;
+  };
+  std::vector<Frame> stack;
+  stack.reserve(16);
+
+  std::size_t i = 0;
+  while (i < json_text.size()) {
+    const char c = json_text[i];
+    switch (c) {
+      case '{':
+        out.push_back(c);
+        stack.push_back({.in_object = true, .expecting_key = true});
+        ++i;
+        continue;
+      case '[':
+        out.push_back(c);
+        stack.push_back({.in_object = false, .expecting_key = false});
+        ++i;
+        continue;
+      case '}':
+      case ']':
+        out.push_back(c);
+        if (!stack.empty()) {
+          stack.pop_back();
+        }
+        ++i;
+        continue;
+      case ',':
+        out.push_back(c);
+        if (!stack.empty() && stack.back().in_object) {
+          stack.back().expecting_key = true;
+        }
+        ++i;
+        continue;
+      case ':':
+        out.push_back(c);
+        if (!stack.empty() && stack.back().in_object) {
+          stack.back().expecting_key = false;
+        }
+        ++i;
+        continue;
+      case '"': {
+        const std::size_t end = skip_string(json_text, i);
+        const bool is_key = !stack.empty() && stack.back().in_object
+            && stack.back().expecting_key;
+        if (is_key) {
+          const auto content = raw_string_content(json_text, i, end);
+          if (is_simple_string(content)) {
+            if (const auto alias = registry.alias_for(content, dialect);
+                alias.has_value())
+            {
+              out.push_back('"');
+              out.append(*alias);
+              out.push_back('"');
+              i = end;
+              continue;
+            }
+          }
+        }
+        out.append(json_text.substr(i, end - i));
+        i = end;
+        continue;
+      }
+      default:
+        out.push_back(c);
+        ++i;
+        continue;
+    }
+  }
+  return out;
+}
+
+std::string decanonicalize_json_keys(std::string_view json_text,
+                                     std::string_view dialect)
+{
+  return decanonicalize_json_keys(
+      json_text, NamesRegistry::instance(), dialect);
 }
 
 }  // namespace gtopt

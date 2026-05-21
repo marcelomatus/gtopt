@@ -147,6 +147,15 @@ void NamesRegistry::build_from_json(std::string_view json_content)
       continue;
     }
     m_canonical_to_aliases_[entry.canonical].emplace_back(entry.alt);
+    if (!entry.dialect.empty()) {
+      m_alias_to_dialect_.emplace(entry.alt, entry.dialect);
+      // First (canonical, dialect) pair wins.  Subsequent entries with
+      // the same pair are dropped silently — they would represent two
+      // aliases for the same canonical in the same dialect, an unusual
+      // shape that the output rewriter has no way to disambiguate.
+      m_canonical_dialect_to_alias_.emplace(
+          std::make_pair(entry.canonical, entry.dialect), entry.alt);
+    }
   }
 
   std::size_t class_skipped_dupes = 0;
@@ -231,6 +240,27 @@ std::optional<std::string_view> NamesRegistry::canonical_for(
   }
   // Fall back to global aliases.
   return canonical_for(alias);
+}
+
+std::optional<std::string_view> NamesRegistry::dialect_for(
+    std::string_view alias) const noexcept
+{
+  const auto it = m_alias_to_dialect_.find(std::string {alias});
+  if (it == m_alias_to_dialect_.end()) {
+    return std::nullopt;
+  }
+  return std::string_view {it->second};
+}
+
+std::optional<std::string_view> NamesRegistry::alias_for(
+    std::string_view canonical, std::string_view dialect) const noexcept
+{
+  const auto it = m_canonical_dialect_to_alias_.find(
+      std::make_pair(std::string {canonical}, std::string {dialect}));
+  if (it == m_canonical_dialect_to_alias_.end()) {
+    return std::nullopt;
+  }
+  return std::string_view {it->second};
 }
 
 std::optional<std::filesystem::path> find_names_file()

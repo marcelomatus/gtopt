@@ -91,6 +91,21 @@ public:
     return m_canonical_to_aliases_;
   }
 
+  /// Look up the source dialect tag of a given alias (the `dialect`
+  /// field on the entry in `naming_dialects.json`).  Returns nullopt
+  /// when the alias is unknown or its dialect tag was empty.  Used by
+  /// the input warn pass to flag mixed-dialect input under
+  /// `--naming-dialect`.
+  [[nodiscard]] std::optional<std::string_view> dialect_for(
+      std::string_view alias) const noexcept;
+
+  /// Inverse lookup: find the alias from `dialect` that maps to the
+  /// given canonical name.  Returns nullopt when no entry matches —
+  /// the caller should keep the canonical name unchanged on output.
+  /// Used by the output JSON rewrite under `--naming-dialect`.
+  [[nodiscard]] std::optional<std::string_view> alias_for(
+      std::string_view canonical, std::string_view dialect) const noexcept;
+
   /// Path the registry was loaded from, or `nullopt` if loaded from
   /// the built-in fallback or an explicit JSON string.
   [[nodiscard]] const std::optional<std::filesystem::path>& source_path()
@@ -120,6 +135,16 @@ private:
   /// via the (class, alias) overload of `canonical_for`.
   gtopt::flat_map<std::pair<std::string, std::string>, std::string>
       m_class_alias_to_canonical_;
+  /// Per-alias source dialect tag.  Populated alongside
+  /// `m_alias_to_canonical_` from each entry's `dialect` field; entries
+  /// with an empty `dialect` are omitted (no warning surface possible).
+  gtopt::flat_map<std::string, std::string> m_alias_to_dialect_;
+  /// (canonical, dialect) → alias inverse index.  Populated alongside
+  /// the forward indices in `build_from_json`.  Keyed by the dialect
+  /// string so the output rewrite can pick the alias matching the
+  /// active `model_options.naming_dialect`.
+  gtopt::flat_map<std::pair<std::string, std::string>, std::string>
+      m_canonical_dialect_to_alias_;
   std::optional<std::filesystem::path> m_source_path_;
 };
 
