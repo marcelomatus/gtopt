@@ -12,12 +12,14 @@ from pathlib import Path
 
 from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.parsers import (
+    _patch_uncapped_zero_fuel_bands,
     extract_batteries,
     extract_demands,
     extract_fuels,
     extract_generators,
     extract_lines,
     extract_nodes,
+    extract_reservoirs,
 )
 from plexos2gtopt.plexos_loader import PlexosBundle
 from plexos2gtopt.plexos_xml import NS, load_xml
@@ -643,3 +645,405 @@ def test_extract_bundle_spec_defaults() -> None:
     assert isinstance(spec, BundleSpec)
     assert spec.step_count == 24
     assert spec.step_type == "Hour"
+
+
+# ---------------------------------------------------------------------------
+# T1: Lin_MaxRating sentinel filter (>8× Max Flow ⇒ sentinel, drop uplift)
+# ---------------------------------------------------------------------------
+
+
+_LINES_SENTINEL_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>24</class_id><name>Line</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>10</object_id><class_id>22</class_id><name>bus_n</name>
+  </t_object>
+  <t_object>
+    <object_id>11</object_id><class_id>22</class_id><name>bus_s</name>
+  </t_object>
+  <t_object>
+    <object_id>20</object_id><class_id>24</class_id><name>A</name>
+  </t_object>
+  <t_object>
+    <object_id>21</object_id><class_id>24</class_id><name>B</name>
+  </t_object>
+  <t_collection>
+    <collection_id>306</collection_id>
+    <parent_class_id>24</parent_class_id>
+    <child_class_id>22</child_class_id>
+    <name>Node From</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>307</collection_id>
+    <parent_class_id>24</parent_class_id>
+    <child_class_id>22</child_class_id>
+    <name>Node To</name>
+  </t_collection>
+  <!-- System → Lines collection for static properties -->
+  <t_collection>
+    <collection_id>400</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>24</child_class_id>
+    <name>Lines</name>
+  </t_collection>
+  <t_property>
+    <property_id>1882</property_id><collection_id>400</collection_id>
+    <name>Max Rating</name>
+  </t_property>
+  <t_property>
+    <property_id>1881</property_id><collection_id>400</collection_id>
+    <name>Enforce Limits</name>
+  </t_property>
+  <!-- Endpoints -->
+  <t_membership>
+    <membership_id>900</membership_id>
+    <collection_id>306</collection_id>
+    <parent_object_id>20</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>901</membership_id>
+    <collection_id>307</collection_id>
+    <parent_object_id>20</parent_object_id>
+    <child_object_id>11</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>902</membership_id>
+    <collection_id>306</collection_id>
+    <parent_object_id>21</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>903</membership_id>
+    <collection_id>307</collection_id>
+    <parent_object_id>21</parent_object_id>
+    <child_object_id>11</child_object_id>
+  </t_membership>
+  <!-- System↔Line memberships carry static Max Rating + Enforce Limits -->
+  <t_membership>
+    <membership_id>950</membership_id>
+    <collection_id>400</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>20</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>951</membership_id>
+    <collection_id>400</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>21</child_object_id>
+  </t_membership>
+  <!-- Line A: Max Rating 1700 = 8.5× Max Flow 200 → sentinel, drop. -->
+  <t_data>
+    <data_id>10001</data_id><membership_id>950</membership_id>
+    <property_id>1882</property_id><value>1700</value>
+  </t_data>
+  <t_data>
+    <data_id>10002</data_id><membership_id>950</membership_id>
+    <property_id>1881</property_id><value>2</value>
+  </t_data>
+  <!-- Line B: Max Rating 1400 = 7× Max Flow 200 → realistic, keep. -->
+  <t_data>
+    <data_id>10003</data_id><membership_id>951</membership_id>
+    <property_id>1882</property_id><value>1400</value>
+  </t_data>
+  <t_data>
+    <data_id>10004</data_id><membership_id>951</membership_id>
+    <property_id>1881</property_id><value>2</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_lines_max_rating_sentinel_filter(tmp_path: Path) -> None:
+    """``Max Rating > 8 × Max Flow`` is treated as a PLEXOS-CEN sentinel
+    and zeroed (paired ``Min Rating`` zeroed alongside).
+
+    Audit context: PLEXOS-CEN ships sentinel ratings (e.g.
+    Antofag110→Desalant110 at 17.5×) that would otherwise feed into
+    gtopt's soft/hard limit pair and produce unphysical thermal
+    uplifts.  Realistic emergency-rating uplifts stay below ~7-8×
+    even on oil-cooled HV transformers, so anything above that band
+    is data noise.  Line A here is 8.5× — must be dropped; Line B
+    is 7× — must be kept verbatim.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_LINES_SENTINEL_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "A,2026,1,1,1,1,200\n"
+        "B,2026,1,1,1,1,200\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    lines = extract_lines(db, bundle)
+    by_name = {ln.name: ln for ln in lines}
+    assert set(by_name) == {"A", "B"}
+    # A: 8.5× uplift → sentinel, dropped.
+    assert by_name["A"].max_rating == 0.0
+    # Paired min_rating also zeroed (the sentinel block clears both).
+    assert by_name["A"].min_rating == 0.0
+    # B: 7× uplift → realistic, kept verbatim.
+    assert by_name["B"].max_rating == 1400.0
+
+
+# ---------------------------------------------------------------------------
+# T2: Battery extractor drops infeasible Min Charge / Min Discharge Level
+# ---------------------------------------------------------------------------
+
+
+_BATT_PMIN_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>7</class_id><name>Battery</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>10</object_id><class_id>22</class_id><name>bus_a</name>
+  </t_object>
+  <t_object>
+    <object_id>40</object_id><class_id>7</class_id><name>bess_a</name>
+  </t_object>
+  <t_object>
+    <object_id>41</object_id><class_id>7</class_id><name>valid</name>
+  </t_object>
+  <!-- Battery→Node attachment so the bus_map resolves. -->
+  <t_collection>
+    <collection_id>83</collection_id>
+    <parent_class_id>7</parent_class_id>
+    <child_class_id>22</child_class_id>
+    <name>Nodes</name>
+  </t_collection>
+  <!-- System→Batteries carries the static Max Power / Min Charge / Min Discharge properties. -->
+  <t_collection>
+    <collection_id>80</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>7</child_class_id>
+    <name>Batteries</name>
+  </t_collection>
+  <t_property>
+    <property_id>500</property_id><collection_id>80</collection_id>
+    <name>Max Power</name>
+  </t_property>
+  <t_property>
+    <property_id>501</property_id><collection_id>80</collection_id>
+    <name>Min Charge Level</name>
+  </t_property>
+  <t_property>
+    <property_id>502</property_id><collection_id>80</collection_id>
+    <name>Min Discharge Level</name>
+  </t_property>
+  <!-- Battery attachments to bus_a. -->
+  <t_membership>
+    <membership_id>900</membership_id>
+    <collection_id>83</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>901</membership_id>
+    <collection_id>83</collection_id>
+    <parent_object_id>41</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <!-- System↔Battery memberships for the static-property lookups. -->
+  <t_membership>
+    <membership_id>950</membership_id>
+    <collection_id>80</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>40</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>951</membership_id>
+    <collection_id>80</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>41</child_object_id>
+  </t_membership>
+  <!-- bess_a: pmin_charge=2.5 > pmax=2.0, pmin_discharge=2.8 > 2.0 → both dropped. -->
+  <t_data>
+    <data_id>1</data_id><membership_id>950</membership_id>
+    <property_id>500</property_id><value>2.0</value>
+  </t_data>
+  <t_data>
+    <data_id>2</data_id><membership_id>950</membership_id>
+    <property_id>501</property_id><value>2.5</value>
+  </t_data>
+  <t_data>
+    <data_id>3</data_id><membership_id>950</membership_id>
+    <property_id>502</property_id><value>2.8</value>
+  </t_data>
+  <!-- valid: pmin_charge=1.0 < pmax=5.0 → kept. -->
+  <t_data>
+    <data_id>4</data_id><membership_id>951</membership_id>
+    <property_id>500</property_id><value>5.0</value>
+  </t_data>
+  <t_data>
+    <data_id>5</data_id><membership_id>951</membership_id>
+    <property_id>501</property_id><value>1.0</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_batteries_drops_infeasible_pmin_charge(tmp_path: Path) -> None:
+    """PLEXOS-CEN sometimes ships ``Min Charge Level > Max Power`` on
+    placeholder batteries.  The extractor drops the bad pmin → 0 so
+    the downstream synthetic ``<bat>_dem`` doesn't become infeasible.
+
+    Audit: BAT_DEL_DESIERTO (max=2, min=2.32) and BAT_TOCOPILLA
+    (max=2, min=2.5) hit this on the CEN PCP daily bundle; leaving
+    the lmin>lmax pair in place produced ~7.6 GWh of phantom unserved
+    demand across the week.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BATT_PMIN_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+    assert set(batts) == {"bess_a", "valid"}
+    # Infeasible pmins on bess_a → both cleared to 0.
+    assert batts["bess_a"].pmin_charge == 0.0
+    assert batts["bess_a"].pmin_discharge == 0.0
+    # Feasible pmin on `valid` is preserved.
+    assert batts["valid"].pmin_charge == 1.0
+
+
+# ---------------------------------------------------------------------------
+# T4: _patch_uncapped_zero_fuel_bands — mixed, all-zero, single-member
+# ---------------------------------------------------------------------------
+
+
+def test_patch_uncapped_zero_fuel_bands_mixed_group() -> None:
+    """Mixed group: zero-priced bands inherit the MAX priced sibling.
+
+    PLEXOS-CEN ships multi-band fuel contracts (``Gas_<base>_A/B/C/…``)
+    where only one band carries a price.  The zero bands ARE capped
+    by FueMaxOffWeek_* Constraints living in the solution .accdb,
+    invisible to input-only parsing — so the LP would otherwise
+    discover them as free fuel.  Patching them to the worst-case
+    sibling price closes the arbitrage.
+    """
+    prices: dict[str, list[float]] = {
+        "Gas_A": [100.0] * 24,
+        "Gas_B": [0.0] * 24,
+        "Gas_C": [0.0] * 24,
+    }
+    _patch_uncapped_zero_fuel_bands(prices)
+    # Priced band stays at its original value.
+    assert prices["Gas_A"][0] == 100.0
+    # Zero bands lifted to MAX priced sibling (100).
+    assert prices["Gas_B"][0] == 100.0
+    assert prices["Gas_C"][0] == 100.0
+    # The patch fills every period, not just period 1.
+    assert all(v == 100.0 for v in prices["Gas_B"])
+
+
+def test_patch_uncapped_zero_fuel_bands_wholly_zero_group() -> None:
+    """Wholly-zero groups (biomass / biogas / ERNC) are left alone.
+
+    The explicit zero IS the correct economic signal for true zero-
+    marginal-cost renewables; lifting them to a priced sibling would
+    invent fictional fuel cost.
+    """
+    prices: dict[str, list[float]] = {
+        "Bio_A": [0.0] * 24,
+        "Bio_B": [0.0] * 24,
+    }
+    _patch_uncapped_zero_fuel_bands(prices)
+    assert prices["Bio_A"] == [0.0] * 24
+    assert prices["Bio_B"] == [0.0] * 24
+
+
+def test_patch_uncapped_zero_fuel_bands_single_member_group() -> None:
+    """Single-member groups are never patched (no sibling to draw a price from)."""
+    prices: dict[str, list[float]] = {"Solo": [50.0] * 24}
+    _patch_uncapped_zero_fuel_bands(prices)
+    assert prices["Solo"] == [50.0] * 24
+
+
+# ---------------------------------------------------------------------------
+# T10: ReservoirSpec.water_value sentinel (1e+30) → never_drain hard floor
+# ---------------------------------------------------------------------------
+
+
+_RESERVOIR_WV_XML_TMPL = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>30</object_id><class_id>8</class_id><name>RES_X</name>
+  </t_object>
+  <t_collection>
+    <collection_id>93</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storages</name>
+  </t_collection>
+  <t_property>
+    <property_id>200</property_id><collection_id>93</collection_id>
+    <name>Water Value</name>
+  </t_property>
+  <t_membership>
+    <membership_id>520</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>1</data_id>
+    <membership_id>520</membership_id>
+    <property_id>200</property_id>
+    <value>{{wv}}</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_reservoirs_sentinel_water_value_sets_never_drain(
+    tmp_path: Path,
+) -> None:
+    """PLEXOS ``Water Value = 1e+30`` is the "never drain" sentinel:
+    the reservoir must keep at least its initial volume.  The
+    extractor must NOT clamp it to a finite price (a finite cost
+    would let the LP buy out of the sentinel) — instead drop
+    water_value to 0 and set ``never_drain=True`` so the writer
+    emits a HARD ``vol_end >= eini`` constraint with no
+    ``efin_cost`` slack.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_RESERVOIR_WV_XML_TMPL.format(wv="1e30"))
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_reservoirs(db, bundle)
+    assert len(out) == 1
+    res = out[0]
+    assert res.never_drain is True
+    # Sentinel is NOT clamped to a finite price — water_value stays 0.
+    assert res.water_value == 0.0
+
+
+def test_extract_reservoirs_finite_water_value_is_passthrough(tmp_path: Path) -> None:
+    """A finite ``Water Value`` is forwarded verbatim with
+    ``never_drain=False`` — only the 1e+30 sentinel triggers the
+    hard-floor mode.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_RESERVOIR_WV_XML_TMPL.format(wv="10000"))
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_reservoirs(db, bundle)
+    assert len(out) == 1
+    res = out[0]
+    assert res.never_drain is False
+    assert res.water_value == 10000.0

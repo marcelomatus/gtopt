@@ -414,6 +414,32 @@ def test_convert_requires_input_bundle() -> None:
         convert_plexos_bundle({})
 
 
+def test_convert_plexos_bundle_plexos_mode_fails_without_accdb(
+    tmp_path: Path,
+) -> None:
+    """``--horizon-mode=plexos`` requires the PLEXOS solution .accdb
+    to recover the t_phase_3 block grouping.  Without it, the
+    converter MUST fail loudly — silently falling back to uniform-
+    hourly would solve a different LP than PLEXOS (e.g. 168 hourly
+    vs 111 variable-duration blocks) and any downstream comparison
+    becomes meaningless.
+
+    Locks the explicit hard-fail introduced after a silent-fallback
+    bug shipped a "successful" conversion that compared apples to
+    oranges with PLEXOS.
+    """
+    bundle_dir = _make_dir_bundle(tmp_path)
+    # Synthetic bundle without a RES sibling; horizon_mode=plexos
+    # has no .accdb to read t_phase_3 from.
+    with pytest.raises(FileNotFoundError, match="t_phase_3"):
+        convert_plexos_bundle(
+            {
+                "input_bundle": bundle_dir,
+                "horizon_mode": "plexos",
+            }
+        )
+
+
 def test_convert_inferred_output_dir(tmp_path: Path) -> None:
     """When ``output_dir`` is absent, the converter writes to ``gtopt_<stem>/``."""
     bundle_dir = _make_dir_bundle(tmp_path)
