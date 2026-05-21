@@ -105,23 +105,35 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         horizon_days_opt = options.get("horizon_days")
         block_layout: tuple[tuple[int, ...], ...] = ()
 
+        # Resolved .accdb path (if any) — used both to load t_phase_3
+        # and to dump the PLEXOS-table cache for downstream
+        # comparison tools.  Kept local so the cache dump happens
+        # in the same plexos2gtopt invocation, regardless of whether
+        # the .accdb came from --plexos-solution-accdb or
+        # auto-discovery of the RES sibling.
+        resolved_accdb: Path | None = None
+
         if horizon_mode == "plexos":
             # Try to find the .accdb sibling and read t_phase_3.
             accdb_path = options.get("plexos_solution_accdb")
             if accdb_path is None:
-                from .plexos_block_layout import auto_discover_res_zip
+                from .plexos_block_layout import (
+                    auto_discover_res_zip,
+                    extract_accdb_from_res_zip,
+                )
 
                 res_zip = auto_discover_res_zip(input_path)
                 if res_zip is not None:
-                    from .plexos_block_layout import (
-                        load_block_layout_from_res_zip,
-                    )
+                    resolved_accdb = extract_accdb_from_res_zip(res_zip)
+                    if resolved_accdb is not None:
+                        from .plexos_block_layout import load_block_layout_from_accdb
 
-                    block_layout = load_block_layout_from_res_zip(res_zip)
+                        block_layout = load_block_layout_from_accdb(resolved_accdb)
             elif Path(accdb_path).suffix == ".accdb":
                 from .plexos_block_layout import load_block_layout_from_accdb
 
-                block_layout = load_block_layout_from_accdb(Path(accdb_path))
+                resolved_accdb = Path(accdb_path)
+                block_layout = load_block_layout_from_accdb(resolved_accdb)
 
             if block_layout:
                 # n_days = ceil(max_interval / 24) so the CSV readers
@@ -197,6 +209,17 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
 
         output_dir.mkdir(parents=True, exist_ok=True)
         write_planning(planning, output_file)
+
+        # Dump PLEXOS solution tables to the output dir for downstream
+        # comparison tools (compare_with_plexos) to consume without
+        # re-shelling out to mdb-export on every invocation.  The
+        # cache lives at ``<output_dir>/plexos_cache/`` and is keyed
+        # by the .accdb file mtime — re-runs against the same .accdb
+        # are no-ops.
+        if resolved_accdb is not None:
+            from .plexos_block_layout import cache_plexos_tables
+
+            cache_plexos_tables(resolved_accdb, output_dir)
 
         logger.info(
             "converted %s -> %s "
