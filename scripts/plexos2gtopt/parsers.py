@@ -631,6 +631,73 @@ def _extract_fuel_co2_membership_rates(
     return out
 
 
+#: Regex peeling the trailing PLEXOS band suffix off a fuel name so
+#: sibling-band detection groups e.g. ``Gas_Kelar_GN_A``,
+#: ``Gas_Kelar_GN_B``, … under the same base ``Gas_Kelar_GN``.
+#: Recognised suffixes (in order tried): ``_INF`` / ``_GNL_INF`` /
+#: ``_GN_INF`` (PLEXOS "unlimited" sentinel), single-letter band IDs
+#: (``_A``…``_F``, ``_X``).
+_FUEL_BAND_SUFFIX_RE = re.compile(
+    r"_(?:GN_INF|GNL_INF|INF|[A-FX])$",
+)
+
+
+def _patch_uncapped_zero_fuel_bands(prices: dict[str, list[float]]) -> None:
+    """In-place patch: zero-priced bands that have a priced sibling get
+    promoted to the MAX of the group's priced bands.
+
+    PLEXOS-CEN convention: a fuel "base" (e.g. ``Gas_Kelar_GN``) ships
+    multiple bands (``_A``, ``_B``, ``_C``, ``_D``) — sometimes only
+    one band carries a price and the others are explicit 0.  The
+    zero-priced bands ARE constrained on the PLEXOS side by
+    ``FueMaxOffWeek_<fuel>`` Constraint objects that live only in the
+    solution ``.accdb``, so plexos2gtopt's input-only parsing can't
+    see them.  Without that cap, the gtopt LP exploits the zero band
+    as free fuel.
+
+    The heuristic here turns each unconstrained zero band into a
+    worst-case-priced band (the max of its priced siblings).  This
+    over-estimates cost on those bands but eliminates the
+    free-arbitrage shortcut that would otherwise dwarf PLEXOS's
+    operational dispatch cost on CEN PCP.
+
+    Patches only groups that have a MIX of zero and non-zero bands.
+    Wholly-zero groups (biomass / biogas / geothermal / ERNC) are
+    left alone — their explicit zero is the correct economic signal.
+    """
+    by_base: dict[str, list[str]] = {}
+    for name in prices:
+        base = _FUEL_BAND_SUFFIX_RE.sub("", name)
+        by_base.setdefault(base, []).append(name)
+
+    patched: list[tuple[str, float]] = []
+    for base, names in by_base.items():
+        if len(names) < 2:
+            continue
+        non_zero = [n for n in names if prices[n][0] > 0.0]
+        zero = [n for n in names if prices[n][0] == 0.0]
+        if not non_zero or not zero:
+            continue
+        cap_price = max(prices[n][0] for n in non_zero)
+        for name in zero:
+            old_vals = prices[name]
+            prices[name] = [cap_price] * len(old_vals)
+            patched.append((name, cap_price))
+
+    if patched:
+        # One INFO line per affected fuel keeps the patch auditable
+        # without flooding the log on bundles with many bands.
+        for name, cap in sorted(patched):
+            logger.info(
+                "patched uncapped zero-priced fuel %s → %.4f "
+                "(worst-case sibling price; PLEXOS caps live in .accdb "
+                "FueMaxOffWeek_* and aren't visible to input-only "
+                "parsing)",
+                name,
+                cap,
+            )
+
+
 def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     """One :class:`FuelSpec` per ``t_object`` in class ``Fuel``.
 
@@ -656,6 +723,34 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     prices: dict[str, list[float]] = (
         read_long(bundle.csv("Fuel_Price.csv")) if bundle.has("Fuel_Price.csv") else {}
     )
+
+    # Patch "uncapped zero-priced band" fuels.  PLEXOS-CEN ships
+    # multi-band fuel contracts (e.g. ``Gas_Kelar_GN_A/B/C/D``) where
+    # only band A carries a price and B/C/D are explicit 0.0 in
+    # ``Fuel_Price.csv``.  PLEXOS itself doesn't dispatch unlimited
+    # zero-price fuel because it carries weekly-offtake caps as
+    # ``FueMaxOffWeek_<fuel>`` Constraint objects — but those
+    # Constraints live only in the **solution** ``.accdb`` (not the
+    # input ``DBSEN_PRGDIARIO.xml``), so plexos2gtopt can't see them
+    # by parsing the input alone.  Without the cap, the gtopt LP
+    # discovers a "free fuel" arbitrage and dispatches the
+    # corresponding generator-variant (``KELAR-TG1+TG2+TV_GN_B``,
+    # ``MEJILLONES_3-TG+TV_GN_C``, ``COCHRANE_*_GN_D``, …) for
+    # ~150 GWh of zero-cost thermal generation, undercutting PLEXOS
+    # by ~$15M on the CEN PCP daily-week.  As a band-aid until proper
+    # ``FueMaxOff*`` constraint extraction is wired up (would need
+    # the .accdb at conversion time), promote each zero-priced band
+    # that has a priced sibling to the MAX of its priced siblings
+    # in the same fuel "base group" (same prefix sans trailing
+    # ``_<LETTER>`` band suffix).  This converts the band from a
+    # free-arbitrage option to a worst-case backup that the LP only
+    # uses when nothing cheaper is available — closer to PLEXOS's
+    # cap-constrained dispatch.  Confirmed-zero-price fuels
+    # (biomass / biogas / ERNC where the WHOLE group is zero) are
+    # untouched.
+    if prices:
+        _patch_uncapped_zero_fuel_bands(prices)
+
     membership_rates = _extract_fuel_co2_membership_rates(db)
     out: list[FuelSpec] = []
     for fuel in db.objects_of_class("Fuel"):
