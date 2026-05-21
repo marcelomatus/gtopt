@@ -94,7 +94,43 @@ namespace
   }
 
   const auto single_id = parse_element_id(ref.element_id);
-  const BlockUid buid = block.uid();
+  BlockUid buid = block.uid();
+
+  // ── Inter-block "_prev" suffix ─────────────────────────────────────
+  // ``generator("X").generation_prev`` resolves to ``gen[t−1]`` in
+  // the chronological block sequence — used by PLEXOS-style Ramp
+  // Up/Down Coefficient constraints reformulated as
+  //   coef × gen[t] − coef × gen[t−1] ≤ rhs
+  // The suffix is stripped here, the base attribute name reused for
+  // the registry lookup, and ``buid`` redirected to the immediately
+  // preceding block in the stage's chronological ordering.  When
+  // the current block is the FIRST block (or the stage is not
+  // chronological), no prior LP column exists — return nullopt so
+  // the caller falls through to ``resolve_single_param``, which
+  // handles the boundary case via ``commitment.initial_status``.
+  std::string normalised_attr {ref.attribute};
+  static constexpr std::string_view PREV_SUFFIX {"_prev"};
+  if (normalised_attr.ends_with(PREV_SUFFIX)) {
+    normalised_attr.erase(normalised_attr.size() - PREV_SUFFIX.size());
+    if (!stage.is_chronological()) {
+      SPDLOG_WARN(
+          "user_constraint: '{}({}).{}' references prior-block value in "
+          "a non-chronological stage — dropping term",
+          ref.element_type,
+          ref.element_id,
+          ref.attribute);
+      return std::nullopt;
+    }
+    const auto& blocks = stage.blocks();
+    const auto it = std::ranges::find_if(
+        blocks, [buid](const BlockLP& b) { return b.uid() == buid; });
+    if (it == blocks.end() || it == blocks.begin()) {
+      // First block (or block not in this stage) — let
+      // resolve_single_param emit the initial-state constant.
+      return std::nullopt;
+    }
+    buid = std::prev(it)->uid();
+  }
 
   // 1. Convert element_id (Uid or Name) into a concrete Uid.  Names
   //    are looked up via the AMPL element-name registry populated by
@@ -123,7 +159,7 @@ namespace
   //    we can look up the column without per-element-type dispatch.
   if (const auto col = sc.find_ampl_col(ref.element_type,
                                         *uid_opt,
-                                        ref.attribute,
+                                        normalised_attr,
                                         scenario.uid(),
                                         stage.uid(),
                                         buid))
@@ -137,7 +173,7 @@ namespace
         .scale = lp.get_col_scale(*col),
         .offset = sc.find_ampl_offset(ref.element_type,
                                       *uid_opt,
-                                      ref.attribute,
+                                      normalised_attr,
                                       scenario.uid(),
                                       stage.uid(),
                                       buid),
@@ -320,6 +356,22 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                 ref.element_type,
                 ref.attribute);
     return std::nullopt;
+  }
+
+  // ── "_prev" suffix at the boundary ─────────────────────────────────
+  // ``resolve_single_col`` strips a trailing ``_prev`` and looks up the
+  // SAME class+uid+base-attribute at the previous chronological block.
+  // It returns nullopt for the FIRST block (no prior column) and for
+  // non-chronological stages.  Both cases land here.  Treat the missing
+  // prior value as 0 (cold-start: the unit was off before t=0).  This
+  // makes ``coef × generation_prev`` cleanly vanish for the boundary,
+  // matching PLEXOS's default behaviour for ramp constraints at the
+  // start of a horizon.  A follow-up can read
+  // ``commitment.initial_status × pmax_at_block_0`` instead for warm
+  // starts; until then the cold-start assumption is conservative
+  // (no ramp budget is consumed against a phantom prior dispatch).
+  if (ref.attribute.ends_with("_prev")) {
+    return 0.0;
   }
 
   const auto single_id = parse_element_id(ref.element_id);
