@@ -1347,11 +1347,30 @@ def extract_waterways(
     p2c_to = db.parent_to_children(to_coll.collection_id) if to_coll else {}
     out: list[WaterwaySpec] = []
     pinned_count = 0
+    synthetic_sinks: list[str] = []
     for ww in db.objects_of_class("Waterway"):
         fs = p2c_from.get(ww.object_id, [])
         ts = p2c_to.get(ww.object_id, [])
         f_name = objs[fs[0]].name if fs and fs[0] in objs else None
         t_name = objs[ts[0]].name if ts and ts[0] in objs else None
+        # ``Hydro_WaterFlows.csv`` may carry a FORCED-flow column for
+        # this waterway (filtration / seepage / irrigation extraction
+        # that always runs regardless of operator decision).
+        forced = forced_flows.get(ww.name, [])
+        has_forced = bool(forced) and max(forced) > 0.0
+        # PLEXOS sometimes ships forced-outflow waterways with only a
+        # ``Storage From`` (no ``Storage To``) — modelled as "drains
+        # away" in PLEXOS's reservoir-balance accounting.  gtopt
+        # requires both endpoints, so when a 1-ended waterway has a
+        # CSV-pinned forced flow we synthesise a sink junction
+        # ``<name>_sink`` and rely on the writer's automatic
+        # spillway_cost drain on its co-located zero-storage
+        # reservoir.  Spillways (``Vert_*``) without a CSV pin stay
+        # dropped — operator-controlled spill can fall back to the
+        # source reservoir's own drain.
+        if t_name is None and f_name is not None and has_forced:
+            t_name = f"{ww.name}_sink"
+            synthetic_sinks.append(t_name)
         if f_name is None or t_name is None:
             logger.debug(
                 "waterway %s missing endpoint(s) (from=%s to=%s); skipping",
@@ -1369,15 +1388,15 @@ def extract_waterways(
         # high-cost arcs.
         fcost_raw = db.static_property("Waterway", ww.object_id, "Max Flow Penalty")
         fcost = fcost_raw if fcost_raw and fcost_raw > 0.0 else 0.0
-        # ``Hydro_WaterFlows.csv`` may carry a FORCED-flow column for
-        # this waterway (filtration / seepage that always runs).  We
-        # only pin when the profile is non-zero AND constant — the
-        # CEN PCP day-1 file ships Filt_* / Caudal_Eco_* as constants
-        # across the 168-block horizon, so a scalar fmin=fmax suffices.
-        # Time-varying forced flows would require a per-block profile
-        # in WaterwaySpec (deferred — none in the current bundle).
-        forced = forced_flows.get(ww.name, [])
-        if forced and max(forced) > 0.0:
+        # Pin the forced-flow column.  We only pin when the profile is
+        # non-zero AND constant — the CEN PCP day-1 file ships Filt_*
+        # / Caudal_Eco_* / Riego_* as constants across the 168-block
+        # horizon, so a scalar fmin=fmax suffices.  Time-varying
+        # forced flows would require a per-block profile in
+        # WaterwaySpec (deferred — only B_Maule in the current
+        # bundle, which is a natural reservoir inflow, not a forced
+        # outflow).
+        if has_forced:
             csv_min, csv_max = min(forced), max(forced)
             if csv_max - csv_min < 1.0e-6:
                 fmin = csv_min
@@ -1406,8 +1425,17 @@ def extract_waterways(
     if pinned_count:
         logger.info(
             "extract_waterways: pinned fmin=fmax on %d waterway(s) from "
-            "Hydro_WaterFlows.csv forced-flow columns (filtration / seepage).",
+            "Hydro_WaterFlows.csv forced-flow columns (filtration / seepage / "
+            "irrigation extraction).",
             pinned_count,
+        )
+    if synthetic_sinks:
+        logger.info(
+            "extract_waterways: synthesised %d sink junction(s) for 1-ended "
+            "forced-outflow waterways (PLEXOS 'drains to nowhere' pattern); "
+            "sinks: %s",
+            len(synthetic_sinks),
+            ", ".join(synthetic_sinks),
         )
     return tuple(out)
 
@@ -2895,6 +2923,39 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     """
     db = load_xml(bundle.xml_path)
     reservoirs = extract_reservoirs(db, bundle)
+    # Extract waterways FIRST so we can discover any synthetic sink
+    # junctions (1-ended PLEXOS forced-outflow waterways like
+    # ``Filt_Colb`` / ``Riego_NoGen_Colbun``).  The sink names are
+    # appended as zero-storage Reservoirs (and therefore Junctions
+    # via the 1:1 mapping in extract_junctions) so the waterway has
+    # a valid LP-side destination and the writer's automatic
+    # ``spillway_cost`` drain absorbs the forced flow.
+    waterways = extract_waterways(db, bundle)
+    existing_storage_names = {r.name for r in reservoirs}
+    sink_names_seen: set[str] = set()
+    extra_sinks: list[ReservoirSpec] = []
+    for ww in waterways:
+        for endpoint in (ww.storage_from, ww.storage_to):
+            if (
+                endpoint
+                and endpoint not in existing_storage_names
+                and endpoint not in sink_names_seen
+            ):
+                sink_names_seen.add(endpoint)
+                extra_sinks.append(
+                    ReservoirSpec(
+                        object_id=-len(extra_sinks) - 1,  # synthetic negative ID
+                        name=endpoint,
+                        emin=0.0,
+                        emax=0.0,
+                        eini=0.0,
+                        water_value=0.0,
+                        never_drain=False,
+                        spill_penalty_per_mwh=0.0,
+                    )
+                )
+    if extra_sinks:
+        reservoirs = reservoirs + tuple(extra_sinks)
     junctions = extract_junctions(reservoirs)
     known_junction_names = frozenset(j.name for j in junctions)
     reserves = extract_reserves(db, bundle)
@@ -2953,7 +3014,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         demands=extract_demands(db, bundle),
         batteries=extract_batteries(db, bundle),
         reservoirs=reservoirs,
-        waterways=extract_waterways(db, bundle),
+        waterways=waterways,
         junctions=junctions,
         turbines=turbines,
         flows=extract_flows(db, bundle, known_junction_names),
