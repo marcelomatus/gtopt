@@ -109,6 +109,24 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--water-fail-cost",
+        type=float,
+        default=10.0,
+        help=(
+            "shared $/(m³/s·h) shortfall penalty applied uniformly to "
+            "every soft hydro obligation emitted by the converter: "
+            "soft FlowRights (Filt_Laja, Caudal_Eco_*, Riego_*, "
+            "Ext_*), soft ``discharge_*min`` UserConstraints (turbine "
+            "minimum-flow floors), and any future Flow slack on "
+            "natural-inflow shortfall.  Default 10 matches plp2gtopt's "
+            "``--water-fail-cost`` so PLEXOS- and PLP-derived JSONs "
+            "use the same water-obligation pricing.  Higher values "
+            "make the LP try harder to meet the soft target before "
+            "violating; lower values let it skip the obligation more "
+            "freely."
+        ),
+    )
+    parser.add_argument(
         "--horizon-mode",
         choices=("plexos", "hourly"),
         default="plexos",

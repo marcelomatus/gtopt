@@ -1251,16 +1251,21 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         static_emin = (
             db.static_property("Storage", storage.object_id, "Min Volume") or 0.0
         )
-        # Scalar fallbacks (legacy code paths that don't see profiles):
-        # take the binding CSV value (max for emin, min for emax) and
-        # fall back to static when CSV is empty/zero.
+        # Scalar fallbacks.  ``emin`` uses the PHYSICAL static floor
+        # (PLEXOS ``Min Volume`` property) only — NOT ``max(emin_series)``,
+        # which would lift the operational end-of-day floor (e.g.
+        # ELTORO's 12,142 GWh end-of-week target) into a constant
+        # block-by-block hard floor, making the LP infeasible whenever
+        # natural inflows can't refill the reservoir.  The end-of-day
+        # floor is honoured separately as a SOFT ``efin`` slack below.
+        # ``emax`` continues to take the binding (min) CSV value so
+        # operational caps are respected at every block (caps are
+        # typically physically achievable; floors are aspirational).
         emax = min(emax_series) if emax_series else static_emax
-        emin = max(emin_series) if emin_series else static_emin
+        emin = static_emin
         eini = eini_series[0] if eini_series else 0.0
         if emax == 0.0:
             emax = static_emax
-        if emin == 0.0:
-            emin = static_emin
         if eini == 0.0:
             eini = db.static_property("Storage", storage.object_id, "Initial Volume")
         # ── Build per-block emin/emax profile ─────────────────────────
@@ -1281,17 +1286,15 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         block_layout = getattr(bundle, "block_layout", ())
         if block_layout and (emin_series or emax_series):
             n_blocks = len(block_layout)
-            # End-of-day-1 + end-of-week operational bounds are
-            # honoured (block 23 / block N-1 for a 7-day case).
-            # Mid-week daily floors (blocks 43/56/70/82/97) are
-            # skipped — they over-constrain L_Maule which has no
-            # non-physical-inflow safety valve.  Block 0 always
-            # uses the static physical floor + ``eini``; the day-1
-            # and last-day handoffs pin the trajectory at the two
-            # boundaries PLEXOS values most.
-            first_day_eod = 24
-            last_day_eod = bundle.n_days * 24
-            allowed_eod_hours = {first_day_eod, last_day_eod}
+            # NO per-block emin clamp from the CSV.  All end-of-day
+            # operational floors are now honoured exclusively as a SOFT
+            # ``efin`` + ``efin_cost`` slack on the LAST-day EOD (set
+            # below).  Intermediate (first-day, mid-week) EOD floors are
+            # skipped so the LP isn't over-constrained.  Uniform across
+            # horizon length — hard per-block floors caused infeasibility
+            # chains we'd have to debug per bundle; the soft efin gives
+            # a priced escape consistent for n_days = 1 and n_days = 7.
+            allowed_eod_hours: set[int] = set()
             emin_per_block: list[float] = []
             emax_per_block: list[float] = []
             for intervals in block_layout:
@@ -1328,6 +1331,22 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 emin_profile = tuple(emin_per_block)
             if len(set(emax_per_block)) > 1:
                 emax_profile = tuple(emax_per_block)
+        # ── Soft end-of-horizon target ────────────────────────────────
+        # Pull the LAST-day end-of-day floor from the CSV (PLEXOS slot
+        # ``bundle.n_days * 24 - 1``) and emit it as a soft ``efin``
+        # target.  The writer pairs it with an ``efin_cost`` slack so
+        # the LP can fall short at a penalty rather than hit the hard
+        # per-block emin profile we built above (which only clamps the
+        # first-day boundary, by design).
+        efin: float = 0.0
+        if emin_series:
+            last_day_slot = bundle.n_days * 24 - 1  # 0-indexed
+            if 0 <= last_day_slot < len(emin_series):
+                last_day_floor = emin_series[last_day_slot]
+                # Only emit when the CSV ships a binding end-of-horizon
+                # floor above the static physical emin.
+                if last_day_floor > max(static_emin, 0.0):
+                    efin = float(last_day_floor)
         # PLEXOS Spill Penalty ($/MWh) — controlled-spill cost.  Per the
         # Energy Exemplar docs (Storage.MaxSpill page) ``Max Spill`` is
         # the per-storage spillway capacity to "the sea" with default
@@ -1400,6 +1419,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 emin=emin,
                 emax=emax,
                 eini=eini,
+                efin=efin,
                 water_value=water_value_gwh,
                 never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
@@ -1474,15 +1494,15 @@ def extract_waterways(
     # downstream-pinned forced flow we want to soften via FlowRight.
     synthetic_flow_right_targets: list[tuple[str, str, float]] = []
     # Waterways to drop entirely.  ``Vert_ELTORO`` is the operator-
-    # controlled spillway from ELTORO → POLCURA in the Laja cascade.
-    # Leaving it in lets the LP drain ELTORO from eini=12,155 hm³ down
-    # to ~31 hm³ over the week (pushing water through POLCURA →
-    # Post_Antuco → RUCUE → LAJA_I, where the pass-through buffer
-    # absorbs it for free) — verified in v21 phantom-storage audit.
-    # PLEXOS doesn't activate this spillway in practice because Water
-    # Value keeps ELTORO close to its initial state; we drop it
-    # entirely to mirror that behaviour without re-introducing Water
-    # Value pricing.
+    # controlled spillway from ELTORO → POLCURA in the Laja cascade,
+    # but it is **physically inactive**: ELTORO's reservoir is far too
+    # large for spillover to occur over any realistic horizon, and
+    # PLEXOS keeps it at zero via Water Value.  Leaving the arc in
+    # the LP lets the LP drain ELTORO from eini=12,155 hm³ down to
+    # ~31 hm³ over the week as a free arbitrage (pushing water
+    # through POLCURA → Post_Antuco → RUCUE → LAJA_I), verified in
+    # the v21 phantom-storage audit.  Drop it entirely to mirror
+    # PLEXOS's behaviour without re-introducing Water Value pricing.
     SKIP_WATERWAYS: frozenset[str] = frozenset({"Vert_ELTORO"})
     for ww in db.objects_of_class("Waterway"):
         if ww.name in SKIP_WATERWAYS:
@@ -1553,25 +1573,26 @@ def extract_waterways(
         # high-cost arcs.
         fcost_raw = db.static_property("Waterway", ww.object_id, "Max Flow Penalty")
         fcost = fcost_raw if fcost_raw and fcost_raw > 0.0 else 0.0
-        # CONVERT to FlowRight: forced-flow waterways
-        # (``Filt_*`` / ``Caudal_Eco_*`` / ``Riego_*`` / ``Ext_Maule``,
-        # any Hydro_WaterFlows.csv-pinned arc) are encoded as
-        # FlowRight at the SOURCE junction with the soft delivery
-        # target priced at the global ``hydro_spill_cost`` penalty
-        # ($10/m³ × 3600 = $36,000/(m³/s)/h shortfall).  The
-        # FlowRight's bypass column carries water through to the
-        # downstream (when the source has a ``Vert_*`` spillway the
-        # writer auto-resolves ``bypass_junction``).
-        #
-        # We DROP the original Waterway entirely so we don't double-
-        # count the flow path: the FlowRight's ``flow_col`` consumes
-        # at the source and the inline ``bypass_col`` delivers to the
-        # downstream.  Keeping the parallel Waterway would let the LP
-        # arbitrage between two equivalent paths (it'd pick whichever
-        # had the lower fcost) and would inflate the matrix range
-        # with redundant rows.
+        # CONVERT to FlowRight: the truly DIVERSION-shaped forced-flow
+        # waterways (``Caudal_Eco_*`` / ``Riego_*`` / ``Ext_*``) plus
+        # ``Filt_Laja`` (a large gravity filtration that ELTORO cannot
+        # always physically afford — it drains the dam over a 1-day
+        # horizon, so we soften it with a small shortfall penalty so
+        # the LP can choose to deliver less when ELTORO is running
+        # tight; the bypass column on the FlowRight then accepts the
+        # delivered portion at POLCURA).  Other ``Filt_*`` (e.g.
+        # ``Filt_Inv`` at 13 m³/s, ``Filt_Colb`` at 2.4 m³/s) stay as
+        # Waterways with pinned ``fmin = fmax`` — they're small enough
+        # that the LP can absorb them without infeasibility.
         forced_target = max(forced) if has_forced else 0.0
-        if has_forced and forced_target > 0.0:
+        FORCED_FR_PREFIXES = ("Caudal_Eco_", "Riego_", "Ext_")
+        FORCED_FR_EXACT = {"Filt_Laja"}
+        convert_to_flow_right = (
+            has_forced
+            and forced_target > 0.0
+            and (ww.name.startswith(FORCED_FR_PREFIXES) or ww.name in FORCED_FR_EXACT)
+        )
+        if convert_to_flow_right:
             pinned_count += 1
             if f_name is not None:
                 synthetic_flow_right_targets.append((ww.name, f_name, forced_target))
@@ -1580,6 +1601,15 @@ def extract_waterways(
             # Skip emitting the Waterway — the FlowRight handles the
             # path inline.
             continue
+        # Filt_* (and any other forced-flow that isn't a
+        # diversion-shape): pin ``fmin = fmax = forced_target`` so
+        # the LP physically delivers the seepage from upstream to
+        # downstream.  Without this the LP would pick fmin=0 and
+        # starve the downstream pondage.
+        if has_forced and forced_target > 0.0:
+            fmin = forced_target
+            fmax = forced_target
+            pinned_count += 1
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -2352,8 +2382,25 @@ def extract_hydro_discharge_user_constraints(
         lname = cstr_name.lower()
         if lname.endswith("max"):
             op = "<="
+            # ``max`` is a physical penstock / turbine capacity cap —
+            # exceeding it is non-physical, so keep the constraint
+            # HARD (penalty=0 ⇒ no LP slack).
+            uc_penalty = 0.0
         elif lname.endswith("min"):
             op = ">="
+            # ``min`` is an OPERATIONAL forced-flow floor (e.g.
+            # PLEXOS ``ANTUCOmin = 59 m³/s`` on the ANTUCO turbines).
+            # Operators routinely violate these under stress; gtopt
+            # models them as SOFT with the same hydro_spill_cost
+            # ($10/(m³/s)·h) used on the soft Filt_Laja / Riego_*
+            # FlowRights so the LP has a consistent "drop a forced
+            # flow when the cascade can't physically meet it" cost.
+            # Without this softening, the discharge floor cascaded
+            # into POLCURA emin infeasibility on the 2026-04-22
+            # bundle (ANTUCOmin = 59 m³/s + ELTOROmax = 36.95 m³/s
+            # + POLCURA natural inflow = 9.6 m³/s ⇒ net depletion
+            # 12 m³/s/h with only ~3 hm³ headroom).
+            uc_penalty = 10.0
         else:
             # Mid-name "min"/"max" or unknown suffix: skip.
             continue
@@ -2368,7 +2415,7 @@ def extract_hydro_discharge_user_constraints(
             UserConstraintSpec(
                 name=f"discharge_{cstr_name}",
                 expression=expression,
-                penalty=0.0,
+                penalty=uc_penalty,
                 description=f"PLEXOS Constraint {cstr_name} — Σ (gen/pf) {op} {rhs}",
             )
         )
@@ -2414,18 +2461,25 @@ def _synthesise_pinned_flow_rights(
             continue
         out.append(
             FlowRightSpec(
-                name=f"pinned_{name}",
+                # ``soft_`` prefix: each FlowRight here is a SOFT
+                # delivery obligation priced at ``fcost`` (= $10/(m³/s)·h
+                # shortfall, ≈ $10/m³).  ``target`` is the soft kink the
+                # LP is steered toward; ``fmax = 10 × target`` lets the
+                # LP also deliver more if it's profitable.  The legacy
+                # ``pinned_`` prefix was misleading — these are not
+                # hard pins.
+                name=f"soft_{name}",
                 junction_name=source_junction,
                 purpose="forced_flow",
                 fmin=0.0,
-                fmax=target * 10.0,  # allow spill above target
-                target=target,  # soft kink point — required for fcost
+                fmax=target * 10.0,
+                target=target,
                 fcost=fcost_per_cumec_hour,
             )
         )
     if out:
         logger.info(
-            "_synthesise_pinned_flow_rights: emitted %d FlowRight(s) "
+            "_synthesise_pinned_flow_rights: emitted %d soft FlowRight(s) "
             "from pinned forced-flow waterways at $%.0f/(m³/s·h) "
             "shortfall penalty ($10/m³).",
             len(out),

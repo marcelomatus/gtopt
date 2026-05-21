@@ -611,37 +611,30 @@ def build_reservoir_array(
             entry["emax"] = [list(res.emax_profile)]
         elif res.emax > 0.0:
             entry["emax"] = res.emax
+        # End-of-horizon storage target.  ``ReservoirSpec.efin`` is
+        # populated from the LAST-day end-of-day floor in
+        # ``Hydro_MinVolume.csv`` (see ``extract_reservoirs``).  Two
+        # paths from here:
+        #
+        # 1. ``never_drain == True`` (PLEXOS sentinel Water Value
+        #    ``1e+30``, e.g. ``L_Maule``): emit a HARD
+        #    ``vol_end >= efin`` constraint with NO ``efin_cost``
+        #    slack — the LP can't buy out of the sentinel at any
+        #    finite price.
+        # 2. Otherwise: SOFT slack priced at the storage's PLEXOS
+        #    ``Water Value`` ($/GWh, since gtopt's per-PLEXOS-bundle
+        #    ``efin`` is in PLEXOS native GWh-equivalent units, so
+        #    ``efin_cost`` is also in $/GWh).  CEN PCP 2026-04-22
+        #    ships 10,000 $/GWh on every dispatched reservoir.
         if res.efin > 0.0:
             entry["efin"] = res.efin
-        # PLEXOS Water Value ($/GWh) — terminal opportunity cost of
-        # stored water.  Map to gtopt's ``efin + efin_cost``:
-        # ``efin`` becomes the target end-of-horizon volume (eini, so
-        # the LP is rewarded for keeping at least the initial volume)
-        # and ``efin_cost`` is the per-hm³ shortfall penalty.  Unit
-        # conversion: $/GWh × 1 GWh / 1000 MWh × mean_production_factor
-        # [MWh/hm³] = $/hm³.  gtopt's default mean_production_factor
-        # is 5 MWh/hm³ (reservoir.hpp:96) so the multiplier is 5/1000 =
-        # 0.005.  For PLEXOS default 10,000 $/GWh, efin_cost = 50 $/hm³.
-        #
-        # PLEXOS "never drain" sentinel (Water Value 1e+30) lands here
-        # as ``never_drain=True`` (water_value cleared to 0 by the
-        # parser).  Emit a HARD ``efin = eini`` constraint with no
-        # ``efin_cost`` slack — the LP must keep at least the initial
-        # volume, no buy-out at any finite price.
-        # PLEXOS does NOT ship an explicit end-of-horizon volume target;
-        # it ships only ``Water Value`` ($/GWh, a per-unit opportunity
-        # cost on dispatched water).  Mapping PLEXOS Water Value into
-        # gtopt's ``efin``/``efin_cost`` target/penalty pair was an
-        # over-constraint: setting ``efin = eini`` forced the LP to
-        # refill every reservoir to its initial volume, which natural
-        # inflows over a 7-day horizon (e.g. ELTORO at ~11 hm³/week vs
-        # eini ≈ 12,154 hm³) physically cannot cover.  ``efin`` is
-        # therefore left UNSET for every reservoir.  PLEXOS Water Value
-        # is currently unmodeled at the gtopt level — TODO: add a
-        # per-block ``extraction_cost`` field on ``Reservoir`` mirroring
-        # PLEXOS's marginal Water Value (the correct mapping).
-        _ = res.water_value
-        _ = res.never_drain
+            if not res.never_drain and res.water_value > 0.0:
+                # Soft slack — per-reservoir Water Value as the
+                # shortfall penalty.  Units match efin (PLEXOS GWh).
+                entry["efin_cost"] = res.water_value
+            # ``never_drain`` branch omits efin_cost → gtopt builds the
+            # row as ``vol_end >= efin`` HARD; the LP must hit the
+            # target or fail.
         # Reservoir-internal drain is DISABLED by default, matching PLP's
         # convention: spillage leaves the basin via an explicit ``Vert_*``
         # Waterway routed to a ``<source>_ocean`` drain junction (added by
