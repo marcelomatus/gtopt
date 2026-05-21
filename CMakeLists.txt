@@ -231,6 +231,24 @@ configure_file(
 list(APPEND headers
      "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/names_builtin.hpp")
 
+# ---- Unit-dialects registry: same wiring, sibling file ----
+# Bakes `share/gtopt/unit_dialects.json` into a compiled-in fallback so
+# the runtime UnitRegistry (`source/unit_registry.cpp`) always has a
+# working dictionary even without an installed copy.
+set(GTOPT_UNIT_DIALECTS_SOURCE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/share/gtopt/unit_dialects.json")
+set(GTOPT_UNIT_DIALECTS_INSTALL_PATH
+    "${CMAKE_INSTALL_FULL_DATADIR}/gtopt/unit_dialects.json")
+file(READ "${GTOPT_UNIT_DIALECTS_SOURCE_PATH}"
+     GTOPT_UNIT_DIALECTS_JSON_CONTENT)
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/gtopt/units_builtin.hpp.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/units_builtin.hpp"
+  @ONLY
+)
+list(APPEND headers
+     "${CMAKE_CURRENT_BINARY_DIR}/generated/gtopt/units_builtin.hpp")
+
 # Move gtopt_main.cpp to the front of the source list so that Ninja
 # schedules its compilation before the unity batches.  It is the slowest
 # file (~209s) and compiles standalone (SKIP_UNITY_BUILD_INCLUSION ON),
@@ -291,6 +309,7 @@ target_include_directories(
 # configure time into names_builtin.hpp) before falling back to the
 # compiled-in copy.
 install(FILES "${GTOPT_NAMING_DIALECTS_SOURCE_PATH}"
+              "${GTOPT_UNIT_DIALECTS_SOURCE_PATH}"
         DESTINATION "${CMAKE_INSTALL_DATADIR}/gtopt")
 
 target_include_directories(
