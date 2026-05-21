@@ -283,29 +283,59 @@ def _ensure_bypass_target_junction(
     junction: str,
     uid: int,
 ) -> str:
-    """Ensure a ``<junction>_spill`` drain junction exists; return its name.
+    """Ensure a drain junction exists for the bypass column; return its name.
 
     The bypass column on a FlowRight contributes +1 to this junction's
     balance row.  Without ``drain = True`` the balance constraint would
     force the bypass column to 0 (pure consumer back-pressure), so the
     drain flag is what lets the bypass actually absorb excess water.
-    Idempotent: re-uses the existing junction when already present.
+
+    Resolution order (idempotent, no extra junctions when avoidable):
+
+      1. If a sibling ``<junction>_ocean`` drain already exists in
+         ``junction_array``, REUSE it.  Terminal embalse / serie /
+         pasada centrals already get one synthesised by plp2gtopt's
+         ``_process_central`` ocean-fallback, and the FlowRight's
+         bypass column only needs *some* drain to land in — sharing
+         the existing ocean junction avoids emitting a parallel
+         ``<junction>_spill`` drain that duplicates the function.
+      2. Else if a ``<junction>_spill`` drain already exists, reuse
+         it (legacy idempotence — older runs created this name).
+      3. Else, synthesise a new ``<junction>_spill`` drain.
+
+    On the CEN65 ``plp_2_years`` case this collapses ``ANGOSTURA_spill
+    → ANGOSTURA_ocean`` (PANGUE_pmin_as_flow_right bypass),
+    ``RIEGZACO_spill → RIEGZACO_ocean`` (ANTUCO_pmin_as_flow_right
+    bypass), and ``RieSur123SCDZ_spill → RieSur123SCDZ_ocean``
+    (MACHICURA_pmin_as_flow_right bypass) — 3 redundant ``_spill``
+    drains dropped, no behavioural change because both ``<x>_ocean``
+    and ``<x>_spill`` are drain-only sinks with identical LP roles.
     """
-    ocean_name = f"{junction}_spill"
     junctions = system.setdefault("junction_array", [])
+
+    # Step 1: prefer an existing <junction>_ocean drain when available.
+    ocean_existing = f"{junction}_ocean"
     for j in junctions:
-        if isinstance(j, dict) and j.get("name") == ocean_name:
+        if not isinstance(j, dict):
+            continue
+        if j.get("name") == ocean_existing and j.get("drain"):
+            return ocean_existing
+
+    # Step 2 & 3: legacy <junction>_spill (reuse or create).
+    spill_name = f"{junction}_spill"
+    for j in junctions:
+        if isinstance(j, dict) and j.get("name") == spill_name:
             # Heal latent state: older runs created this junction without
             # `drain = True` so any inflow was force-zeroed by the
             # balance constraint.  Set it now so the bypass column on
             # the FlowRight can actually absorb water.
             if not j.get("drain"):
                 j["drain"] = True
-            return ocean_name
+            return spill_name
     junctions.append(
-        {"uid": _DRAIN_UID_OFFSET + uid + 1, "name": ocean_name, "drain": True}
+        {"uid": _DRAIN_UID_OFFSET + uid + 1, "name": spill_name, "drain": True}
     )
-    return ocean_name
+    return spill_name
 
 
 def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
