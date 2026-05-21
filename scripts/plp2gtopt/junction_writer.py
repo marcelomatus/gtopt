@@ -800,12 +800,30 @@ class JunctionWriter(BaseWriter):
         #    via ``_is_plp_no_limit``).  The ``_ver`` arc carries no
         #    ``fcost``; cost (if any) lives on ``reservoir_drain`` via
         #    plpmat.dat's ``CVert`` fallback.
-        rebalse_cost: Optional[float] = (
+        # ``--auto-water-fail-cost`` (default on since 2026-05-11) installs
+        # the unified water-shortfall pricing on Reservoir.efin_cost /
+        # soft_emin_cost / FlowRight.fail_cost via WaterValueResolver.
+        # Under that pipeline the vrebemb per-central ``Costo de Rebalse``
+        # is redundant for the same reason ``cvert_default`` is: it's a
+        # legacy symmetry-breaker priced in $0.01–$5000 units that sit
+        # next to the much larger soft-storage anchors, widening the LP
+        # coefficient range without changing the optimum.  Drop both
+        # ``rebalse_cost`` (vrebemb path) and ``cvert_default`` (global
+        # path) so the ``_ver`` arc is free under auto pricing, mirroring
+        # the new plexos2gtopt convention that Vert_* spillages flow to
+        # an ocean drain at zero cost.  Membership in plpvrebemb.dat is
+        # still tracked (``in_vrebemb``) for the routing/cap decisions
+        # downstream — only the cost is zeroed.
+        auto_water_fail_cost = bool(self.options.get("auto_water_fail_cost"))
+        raw_rebalse_cost: Optional[float] = (
             self.vrebemb_parser.get_cost(central_name)
             if self.vrebemb_parser is not None
             else None
         )
-        in_vrebemb = rebalse_cost is not None
+        in_vrebemb = raw_rebalse_cost is not None
+        rebalse_cost: Optional[float] = (
+            None if auto_water_fail_cost else raw_rebalse_cost
+        )
         # Global default vert cost from plpmat.dat (``CVert`` in PLP) — used
         # as the per-flow penalty on `_ver` arcs of reservoirs that are NOT
         # in plpvrebemb.dat.  Without this the LP would have a free spillway
