@@ -1309,7 +1309,10 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
     return tuple(out)
 
 
-def extract_waterways(db: PlexosDb) -> tuple[WaterwaySpec, ...]:
+def extract_waterways(
+    db: PlexosDb,
+    bundle: PlexosBundle | None = None,
+) -> tuple[WaterwaySpec, ...]:
     """One :class:`WaterwaySpec` per PLEXOS Waterway object.
 
     Endpoints come from the Waterway→Storage ``Storage From`` /
@@ -1317,13 +1320,33 @@ def extract_waterways(db: PlexosDb) -> tuple[WaterwaySpec, ...]:
     schema). Waterways with only one endpoint are dropped — a 1-ended
     waterway can't add a constraint to the LP. The optional fmin/fmax
     are static properties on the System→Waterways collection.
+
+    ``Hydro_WaterFlows.csv`` (WIDE, one column per Storage or Waterway)
+    additionally carries FORCED flows for filtration / seepage
+    waterways (``Filt_Laja``, ``Filt_Inv``, ``Filt_Colb`` …): these
+    are gravity-driven gravity flows that always run regardless of
+    operator choice.  When a Waterway name matches a column in that
+    CSV with a non-zero constant value, we pin ``fmin = fmax = value``
+    so the LP variable is fixed at the physical forced flow.
+
+    Without that pinning, downstream junctions (e.g. ``POLCURA`` fed
+    by ``Filt_Laja`` from ``ELTORO``) lose ~21 m³/s of baseline
+    supply and the LP becomes infeasible whenever the downstream
+    discharge UC (``discharge_ANTUCOmin``) requires more flow than
+    the natural inflow + capped turbine spillway can supply.
     """
+    forced_flows: dict[str, list[float]] = {}
+    if bundle is not None and bundle.has("Hydro_WaterFlows.csv"):
+        forced_flows = read_wide(
+            bundle.csv("Hydro_WaterFlows.csv"), n_days=bundle.n_days
+        )
     from_coll = db.collection_for_named("Waterway", "Storage", "Storage From")
     to_coll = db.collection_for_named("Waterway", "Storage", "Storage To")
     objs = db.object_by_id()
     p2c_from = db.parent_to_children(from_coll.collection_id) if from_coll else {}
     p2c_to = db.parent_to_children(to_coll.collection_id) if to_coll else {}
     out: list[WaterwaySpec] = []
+    pinned_count = 0
     for ww in db.objects_of_class("Waterway"):
         fs = p2c_from.get(ww.object_id, [])
         ts = p2c_to.get(ww.object_id, [])
@@ -1346,6 +1369,29 @@ def extract_waterways(db: PlexosDb) -> tuple[WaterwaySpec, ...]:
         # high-cost arcs.
         fcost_raw = db.static_property("Waterway", ww.object_id, "Max Flow Penalty")
         fcost = fcost_raw if fcost_raw and fcost_raw > 0.0 else 0.0
+        # ``Hydro_WaterFlows.csv`` may carry a FORCED-flow column for
+        # this waterway (filtration / seepage that always runs).  We
+        # only pin when the profile is non-zero AND constant — the
+        # CEN PCP day-1 file ships Filt_* / Caudal_Eco_* as constants
+        # across the 168-block horizon, so a scalar fmin=fmax suffices.
+        # Time-varying forced flows would require a per-block profile
+        # in WaterwaySpec (deferred — none in the current bundle).
+        forced = forced_flows.get(ww.name, [])
+        if forced and max(forced) > 0.0:
+            csv_min, csv_max = min(forced), max(forced)
+            if csv_max - csv_min < 1.0e-6:
+                fmin = csv_min
+                fmax = csv_max
+                pinned_count += 1
+            else:
+                logger.warning(
+                    "waterway %s: Hydro_WaterFlows.csv profile is non-constant "
+                    "(min=%.3f max=%.3f) — scalar fmin=fmax pinning skipped; "
+                    "per-block forced-flow profile not yet supported",
+                    ww.name,
+                    csv_min,
+                    csv_max,
+                )
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -1356,6 +1402,12 @@ def extract_waterways(db: PlexosDb) -> tuple[WaterwaySpec, ...]:
                 fmax=fmax,
                 fcost=fcost,
             )
+        )
+    if pinned_count:
+        logger.info(
+            "extract_waterways: pinned fmin=fmax on %d waterway(s) from "
+            "Hydro_WaterFlows.csv forced-flow columns (filtration / seepage).",
+            pinned_count,
         )
     return tuple(out)
 
@@ -2901,7 +2953,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         demands=extract_demands(db, bundle),
         batteries=extract_batteries(db, bundle),
         reservoirs=reservoirs,
-        waterways=extract_waterways(db),
+        waterways=extract_waterways(db, bundle),
         junctions=junctions,
         turbines=turbines,
         flows=extract_flows(db, bundle, known_junction_names),
