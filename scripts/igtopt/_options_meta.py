@@ -120,6 +120,7 @@ SOLVER_OPTION_KEYS: frozenset[str] = frozenset(
         "optimal_eps",
         "feasible_eps",
         "barrier_eps",
+        "mip_gap",
         "log_level",
         "time_limit",
         "reuse_basis",
@@ -147,6 +148,8 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "hydro_spill_cost",  # renamed from hydro_fail_cost per §11.10
         "hydro_fail_cost",  # legacy alias (gtopt-legacy dialect)
         "hydro_use_value",
+        "continuous_phases",
+        "naming_dialect",
     }
 )
 
@@ -204,6 +207,21 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "scale_theta",
         "[model] Angle variable scaling factor (default: 1000)",
         1000,
+    ),
+    (
+        "continuous_phases",
+        "[model] Phase range to LP-relax (all binary/integer vars become "
+        "continuous).  Syntax: 'all', 'none' (default), '0', '1,3:5,8:'.  "
+        "Equivalent to --no-mip when set to 'all'.",
+        None,
+    ),
+    (
+        "naming_dialect",
+        "[model] Enforce a naming dialect on input + output: 'gtopt', 'plp', "
+        "'sddp', 'plexos', 'pypsa', 'pandapower'.  Empty = silent legacy "
+        "behaviour.  Drives the input warn pass at JSON parse time and the "
+        "output rename pass at planning.json write time.",
+        None,
     ),
     # ------------------------------------------------------------------
     # Simulation fields (moved into "simulation" in JSON output)
@@ -292,6 +310,14 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     (
         "solver_barrier_eps",
         "[solver] Barrier convergence tolerance (blank = use solver default)",
+        None,
+    ),
+    (
+        "solver_mip_gap",
+        "[solver] Target relative MIP optimality gap (blank = use solver "
+        "default).  Ignored on continuous LPs.  Backend mapping: "
+        "CPX_PARAM_EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap, MindOpt "
+        "MIP/RelGap, CBC ratioGap.",
         None,
     ),
     (
