@@ -481,6 +481,23 @@ TEST_CASE(
   CHECK(planning.options.solver_options.presolve == false);
 }
 
+TEST_CASE(
+    "apply_cli_options(MainOptions) - --no-crossover sets "
+    "solver_options.crossover=false")
+{
+  // The CLI shortcut must drive solver_options.crossover to false so
+  // the existing backend wiring (CPLEX BARCROSSALG, HiGHS
+  // run_crossover, MindOpt SolutionTarget) picks it up.  Default is
+  // true to preserve the dual-availability post-barrier; users opt out
+  // for forward-pass-only speed.
+  Planning planning {};
+  CHECK(planning.options.solver_options.crossover == true);
+
+  apply_cli_options(planning, MainOptions {.no_crossover = true});
+
+  CHECK(planning.options.solver_options.crossover == false);
+}
+
 // ---- Tests for make_lp_matrix_options ----
 
 TEST_CASE("make_lp_matrix_options - defaults when both nullopt")

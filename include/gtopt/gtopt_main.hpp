@@ -335,6 +335,15 @@ struct MainOptions
    * struct field for the SDDP cell-replay rationale. */
   std::optional<bool> no_presolve {};
 
+  /** @brief Disable barrier crossover (CLI shortcut).
+   *
+   * Bound to the CLI flag `--no-crossover`.  Forwards to
+   * `solver_options.crossover = false`.  Only meaningful with the
+   * barrier algorithm — see the struct-field docstring for full
+   * semantics including the on-demand crossover that
+   * `LinearInterface::ensure_duals()` triggers in SDDP. */
+  std::optional<bool> no_crossover {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *
