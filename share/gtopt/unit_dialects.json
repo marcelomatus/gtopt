@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "doc": "gtopt unit registry. Each entry annotates the canonical attribute of a class with the physical unit expected by a given dialect. Used for diagnostics (--list-dialects --units), input-warn under --naming-dialect when an alias's unit differs from the canonical unit, and (eventually) auto-conversion at parse time. Composite units use the standard slash + caret notation: 'USD/MWh', 'MW/h', 'm3/s', 'kV', 'Mm3' (= 1e6 m3 = hm3), 'tCO2/MWh'. Unitless entries use the empty string ''.",
+
+  "units": [
+    {"class": "generator", "canonical": "pmin",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "generator", "canonical": "pmin",           "dialect": "plexos", "unit": "MW"},
+    {"class": "generator", "canonical": "pmin",           "dialect": "sddp",   "unit": "MW"},
+    {"class": "generator", "canonical": "pmin",           "dialect": "plp",    "unit": "MW"},
+    {"class": "generator", "canonical": "pmin",           "dialect": "pypsa",  "unit": "MW"},
+
+    {"class": "generator", "canonical": "pmax",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "generator", "canonical": "pmax",           "dialect": "plexos", "unit": "MW"},
+    {"class": "generator", "canonical": "pmax",           "dialect": "sddp",   "unit": "MW"},
+    {"class": "generator", "canonical": "pmax",           "dialect": "plp",    "unit": "MW"},
+    {"class": "generator", "canonical": "pmax",           "dialect": "pypsa",  "unit": "MW"},
+
+    {"class": "generator", "canonical": "gcost",          "dialect": "gtopt",  "unit": "USD/MWh"},
+    {"class": "generator", "canonical": "gcost",          "dialect": "plexos", "unit": "USD/MWh"},
+    {"class": "generator", "canonical": "gcost",          "dialect": "sddp",   "unit": "USD/MWh"},
+    {"class": "generator", "canonical": "gcost",          "dialect": "plp",    "unit": "USD/MWh"},
+
+    {"class": "generator", "canonical": "heat_rate",      "dialect": "gtopt",  "unit": "MMBtu/MWh"},
+    {"class": "generator", "canonical": "heat_rate",      "dialect": "plexos", "unit": "MMBtu/MWh"},
+
+    {"class": "generator", "canonical": "emission_rate",  "dialect": "gtopt",  "unit": "tCO2/MWh"},
+    {"class": "generator", "canonical": "emission_rate",  "dialect": "plexos", "unit": "kg/MMBtu"},
+
+    {"class": "generator", "canonical": "ramp_up",        "dialect": "gtopt",  "unit": "MW/h"},
+    {"class": "generator", "canonical": "ramp_up",        "dialect": "plexos", "unit": "MW/min"},
+    {"class": "generator", "canonical": "ramp_down",      "dialect": "gtopt",  "unit": "MW/h"},
+    {"class": "generator", "canonical": "ramp_down",      "dialect": "plexos", "unit": "MW/min"},
+
+    {"class": "generator", "canonical": "startup_cost",   "dialect": "gtopt",  "unit": "USD"},
+    {"class": "generator", "canonical": "startup_cost",   "dialect": "plexos", "unit": "USD"},
+    {"class": "generator", "canonical": "noload_cost",    "dialect": "gtopt",  "unit": "USD/h"},
+    {"class": "generator", "canonical": "noload_cost",    "dialect": "plexos", "unit": "USD/h"},
+    {"class": "generator", "canonical": "shutdown_cost",  "dialect": "gtopt",  "unit": "USD"},
+    {"class": "generator", "canonical": "min_up_time",    "dialect": "gtopt",  "unit": "h"},
+    {"class": "generator", "canonical": "min_down_time",  "dialect": "gtopt",  "unit": "h"},
+
+    {"class": "demand",    "canonical": "lmin",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "demand",    "canonical": "lmax",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "demand",    "canonical": "lmax",           "dialect": "plexos", "unit": "MW"},
+    {"class": "demand",    "canonical": "lmax",           "dialect": "sddp",   "unit": "MW"},
+    {"class": "demand",    "canonical": "lmax",           "dialect": "plp",    "unit": "MW"},
+    {"class": "demand",    "canonical": "lmax",           "dialect": "pypsa",  "unit": "MW"},
+    {"class": "demand",    "canonical": "fcost",          "dialect": "gtopt",  "unit": "USD/MWh"},
+    {"class": "demand",    "canonical": "fcost",          "dialect": "sddp",   "unit": "USD/MWh"},
+
+    {"class": "line",      "canonical": "tmax_ab",        "dialect": "gtopt",  "unit": "MW"},
+    {"class": "line",      "canonical": "tmax_ab",        "dialect": "plexos", "unit": "MW"},
+    {"class": "line",      "canonical": "tmax_ab",        "dialect": "sddp",   "unit": "MW"},
+    {"class": "line",      "canonical": "tmax_ba",        "dialect": "gtopt",  "unit": "MW"},
+    {"class": "line",      "canonical": "tmax_ba",        "dialect": "sddp",   "unit": "MW"},
+    {"class": "line",      "canonical": "tcost",          "dialect": "gtopt",  "unit": "USD/MWh"},
+    {"class": "line",      "canonical": "tcost",          "dialect": "plexos", "unit": "USD/MWh"},
+    {"class": "line",      "canonical": "reactance",      "dialect": "gtopt",  "unit": "p.u."},
+    {"class": "line",      "canonical": "resistance",     "dialect": "gtopt",  "unit": "p.u."},
+    {"class": "line",      "canonical": "voltage",        "dialect": "gtopt",  "unit": "kV"},
+    {"class": "line",      "canonical": "lossfactor",     "dialect": "gtopt",  "unit": ""},
+
+    {"class": "battery",   "canonical": "emin",           "dialect": "gtopt",  "unit": "MWh"},
+    {"class": "battery",   "canonical": "emax",           "dialect": "gtopt",  "unit": "MWh"},
+    {"class": "battery",   "canonical": "eini",           "dialect": "gtopt",  "unit": "MWh"},
+    {"class": "battery",   "canonical": "efin",           "dialect": "gtopt",  "unit": "MWh"},
+    {"class": "battery",   "canonical": "pmax",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "battery",   "canonical": "pmin",           "dialect": "gtopt",  "unit": "MW"},
+    {"class": "battery",   "canonical": "discharge_efficiency", "dialect": "gtopt", "unit": ""},
+    {"class": "battery",   "canonical": "charge_efficiency",    "dialect": "gtopt", "unit": ""},
+
+    {"class": "reservoir", "canonical": "vmin",           "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "vmin",           "dialect": "plp",    "unit": "hm3"},
+    {"class": "reservoir", "canonical": "vmin",           "dialect": "sddp",   "unit": "hm3"},
+    {"class": "reservoir", "canonical": "vmax",           "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "vmax",           "dialect": "plp",    "unit": "hm3"},
+    {"class": "reservoir", "canonical": "vmax",           "dialect": "sddp",   "unit": "hm3"},
+    {"class": "reservoir", "canonical": "vini",           "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "emin",           "dialect": "gtopt",  "unit": "GWh"},
+    {"class": "reservoir", "canonical": "emax",           "dialect": "gtopt",  "unit": "GWh"},
+    {"class": "reservoir", "canonical": "production_factor", "dialect": "gtopt", "unit": "MWh/Mm3"},
+
+    {"class": "waterway",  "canonical": "fmin",           "dialect": "gtopt",  "unit": "m3/s"},
+    {"class": "waterway",  "canonical": "fmax",           "dialect": "gtopt",  "unit": "m3/s"},
+    {"class": "waterway",  "canonical": "fmax",           "dialect": "plp",    "unit": "m3/s"},
+    {"class": "waterway",  "canonical": "fmax",           "dialect": "sddp",   "unit": "m3/s"},
+    {"class": "waterway",  "canonical": "fcost",          "dialect": "gtopt",  "unit": "USD/(m3/s)/h"},
+
+    {"class": "flow_right",   "canonical": "fmin",        "dialect": "gtopt",  "unit": "m3/s"},
+    {"class": "flow_right",   "canonical": "fmax",        "dialect": "gtopt",  "unit": "m3/s"},
+    {"class": "volume_right", "canonical": "emin",        "dialect": "gtopt",  "unit": "Mm3"},
+    {"class": "volume_right", "canonical": "emax",        "dialect": "gtopt",  "unit": "Mm3"},
+
+    {"class": "turbine",   "canonical": "discharge_efficiency", "dialect": "gtopt", "unit": "MWh/Mm3"},
+    {"class": "turbine",   "canonical": "fmax",           "dialect": "gtopt",  "unit": "m3/s"},
+
+    {"class": "emission_zone", "canonical": "limit",      "dialect": "gtopt",  "unit": "tCO2"},
+    {"class": "fuel",      "canonical": "fcost",          "dialect": "gtopt",  "unit": "USD/MMBtu"},
+    {"class": "fuel",      "canonical": "fcost",          "dialect": "plexos", "unit": "USD/MMBtu"},
+
+    {"class": "reserve_zone",     "canonical": "requirement", "dialect": "gtopt", "unit": "MW"},
+    {"class": "reserve_provision","canonical": "umax",        "dialect": "gtopt", "unit": "MW"},
+    {"class": "reserve_provision","canonical": "dmax",        "dialect": "gtopt", "unit": "MW"},
+
+    {"class": "block",     "canonical": "duration",       "dialect": "gtopt",  "unit": "h"},
+    {"class": "stage",     "canonical": "discount_factor","dialect": "gtopt",  "unit": ""}
+  ]
+}
