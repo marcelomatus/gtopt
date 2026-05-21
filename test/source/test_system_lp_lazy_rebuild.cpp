@@ -188,6 +188,14 @@ namespace
   options.model_options.demand_fail_cost = 1000.0;
   options.model_options.use_single_bus = OptBool {true};
   options.model_options.scale_objective = OptReal {1.0};
+  // The PlanningLP ctor forces low_memory_mode = off for the
+  // monolithic method (single solve per cell, no amortisation), which
+  // would skip `clear_disposable_collections()` and break every
+  // compress-mode test below.  Pin the method to sddp so the requested
+  // compress mode actually fires.  Single-phase planning is fine here
+  // — only the planner falls back to monolithic on <2 phases; the LP
+  // builder honours the requested mode regardless.
+  options.method = MethodType::sddp;
 
   System system = {
       .name = "single_phase_reservoir",
@@ -250,6 +258,9 @@ TEST_CASE(  // NOLINT
     // ReservoirLP is now disposable too (since the StateVariable channel
     // landed) — same drop applies, even though the fixture has 1
     // reservoir.
+    static_assert(!HasUpdateLP<ReservoirLP>,
+                  "ReservoirLP must NOT satisfy HasUpdateLP for "
+                  "clear_disposable_collections() to drop it");
     const auto& reservoirs = sys.elements<ReservoirLP>();
     CHECK(reservoirs.empty());
   }
