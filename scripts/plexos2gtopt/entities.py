@@ -275,6 +275,18 @@ class WaterwaySpec:
     storage_to: str | None = None
     fmin: float = 0.0
     fmax: float = 0.0
+    # Per-hour forced-flow profile (length = bundle.n_days × 24) for
+    # waterways whose ``Hydro_WaterFlows.csv`` column carries a
+    # TIME-VARYING value.  When non-empty, the writer emits
+    # ``fmin``/``fmax`` as a per-block matrix matching this series,
+    # overriding the scalar ``fmin``/``fmax`` above.  Without this,
+    # pinning ``fmin = fmax = max(profile)`` over-constrains the LP
+    # on every hour where the natural inflow is below the peak —
+    # forcing the upstream cascade (e.g. ``penstock_LOMA_ALTA`` into
+    # ``B_Maule``) to dispatch turbines that wouldn't run physically,
+    # producing phantom hydro generation and accumulating water at
+    # synthetic sinks.
+    forced_flow_profile: tuple[float, ...] = ()
     # PLEXOS ``Max Flow Penalty`` ($/(m³/s)/h or $/MWh-equivalent) —
     # per-flow cost on the waterway column.  Maps to gtopt's
     # ``Waterway.fcost``.  ``-1.0`` in PLEXOS means "feature disabled"

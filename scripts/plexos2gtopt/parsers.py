@@ -1805,14 +1805,23 @@ def extract_waterways(
             # path inline.
             continue
         # Filt_* (and any other forced-flow that isn't a
-        # diversion-shape): pin ``fmin = fmax = forced_target`` so
-        # the LP physically delivers the seepage from upstream to
-        # downstream.  Without this the LP would pick fmin=0 and
-        # starve the downstream pondage.
+        # diversion-shape): pin ``fmin = fmax = forced`` so the LP
+        # physically delivers the seepage from upstream to
+        # downstream.  When the CSV column varies across the week
+        # (e.g. ``B_Maule``: 11.63 → 8.45 → 9.30 m³/s tracking the
+        # natural inflow), keep the FULL per-hour series so the
+        # writer emits a per-block matrix.  Pinning to ``max(forced)``
+        # uniformly was the source of phantom-water generation at
+        # B_Maule: the LP had to dispatch upstream turbines through
+        # ``penstock_LOMA_ALTA`` to maintain the 11.63 m³/s outflow
+        # on hours where natural inflow was only 8.45.
+        forced_profile: tuple[float, ...] = ()
         if has_forced and forced_target > 0.0:
             fmin = forced_target
             fmax = forced_target
             pinned_count += 1
+            if min(forced) != max(forced):
+                forced_profile = tuple(forced)
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -1821,6 +1830,7 @@ def extract_waterways(
                 storage_to=t_name,
                 fmin=fmin,
                 fmax=fmax,
+                forced_flow_profile=forced_profile,
                 fcost=fcost,
             )
         )
