@@ -67,6 +67,21 @@ struct SolverOptions
    * default) */
   std::optional<double> barrier_eps {};
 
+  /** @brief Target relative MIP optimality gap (nullopt = use solver default).
+   *
+   *  Backends translate this to their native "stop when
+   *  `|best_obj − bound| / |best_obj| ≤ gap`" parameter:
+   *  - CPLEX:   `CPX_PARAM_EPGAP`
+   *  - HiGHS:   `mip_rel_gap`
+   *  - Gurobi:  `MIPGap`
+   *  - MindOpt: `MIP/RelGap`
+   *  - CBC:     `ratioGap` (Cbc_setAllowableFractionGap)
+   *
+   *  Has no effect on continuous LPs; safely ignored when no integer or
+   *  binary variables are present.  Pair with `time_limit` to bound MIP
+   *  wall-clock when gap targets are loose. */
+  std::optional<double> mip_gap {};
+
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
 
@@ -183,6 +198,7 @@ struct SolverOptions
     merge_opt(optimal_eps, other.optimal_eps);
     merge_opt(feasible_eps, other.feasible_eps);
     merge_opt(barrier_eps, other.barrier_eps);
+    merge_opt(mip_gap, other.mip_gap);
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
@@ -236,6 +252,7 @@ struct SolverOptions
     merge_opt(optimal_eps, user.optimal_eps);
     merge_opt(feasible_eps, user.feasible_eps);
     merge_opt(barrier_eps, user.barrier_eps);
+    merge_opt(mip_gap, user.mip_gap);
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);

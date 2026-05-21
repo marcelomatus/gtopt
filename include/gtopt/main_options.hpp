@@ -289,20 +289,19 @@ template<typename T>
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
       ("memory-saving",
-       po::value<std::string>().implicit_value("compress"),
-       "coordinated memory-saving: sets both the SDDP flat-LP release "
-       "policy (sddp_options.low_memory_mode) AND the solver-native "
-       "memory hint (solver_options.memory_emphasis, e.g. CPLEX "
-       "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
-       "compress (release solver, keep compressed flat LP — best "
-       "balance, also the resolved default for SDDP/cascade and the "
-       "implicit value when the flag is given without an argument).  "
-       "The legacy `rebuild` value is accepted as a back-compat alias "
-       "for `compress`.  Overridden by direct JSON settings for either "
+       po::value<std::string>(),
+       "coordinated memory-saving (arg = off | compress, default compress "
+       "for SDDP/cascade): sets both the SDDP flat-LP release policy "
+       "(sddp_options.low_memory_mode) AND the solver-native memory "
+       "hint (solver_options.memory_emphasis, e.g. CPLEX "
+       "CPX_PARAM_MEMORYEMPHASIS).  `compress` releases the solver and "
+       "keeps a compressed flat LP — the best balance.  The legacy "
+       "`rebuild` value is accepted as a back-compat alias for "
+       "`compress`.  Overridden by direct JSON settings for either "
        "option.")  //
       // Deprecated alias for `--memory-saving` — hidden from help.
       ("low-memory",
-       po::value<std::string>().implicit_value("compress"),
+       po::value<std::string>(),
        "")  //
       ("memory-limit",
        po::value<std::string>(),
@@ -341,6 +340,15 @@ template<typename T>
        "lp_matrix_options.equilibration_method=none).  Intended for "
        "debug / physical-unit validation of coefficients and RHS.  "
        "Overrides JSON values for the affected fields.")  //
+      ("no-mip",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "LP-relax every phase (all binary / integer variables become "
+       "continuous).  Shorthand for "
+       "`--set model_options.continuous_phases=all`.  Useful for quick "
+       "LP-only smoke tests on cases that would otherwise solve a MIP "
+       "(commitment, segment-based costs, etc.); the relaxation gives a "
+       "lower bound on the true MIP optimum but loses on/off semantics.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -794,6 +802,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
+  if (opts.no_mip.value_or(false)) {
+    // `--no-mip` LP-relaxes every phase by forcing
+    // `model_options.continuous_phases = "all"`.  Overrides any JSON
+    // value so the shortcut is uniformly authoritative — users who want
+    // a partial relaxation should drop the flag and set
+    // `continuous_phases` directly via `--set`.
+    planning.options.model_options.continuous_phases = OptName {"all"};
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1020,6 +1037,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       }(),
       .threads = get_opt<int>(vm, "threads"),
       .no_scale = get_opt<bool>(vm, "no-scale"),
+      .no_mip = get_opt<bool>(vm, "no-mip"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1307,6 +1325,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.no_scale, defaults.no_scale);
+  merge(opts.no_mip, defaults.no_mip);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
