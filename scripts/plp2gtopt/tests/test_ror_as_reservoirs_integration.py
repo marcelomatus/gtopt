@@ -189,7 +189,10 @@ def test_serie_promotion_emits_daily_cycle_reservoir(tmp_path: Path):
     assert reservoir["emax"] == pytest.approx(2.5)
     assert reservoir["capacity"] == pytest.approx(2.5)
     assert reservoir["emin"] == pytest.approx(0.0)
-    assert reservoir["annual_loss"] == pytest.approx(0.0)
+    # plp2gtopt hard-codes ``annual_loss`` to 0 for every reservoir;
+    # the field is omitted from the JSON since gtopt's optional schema
+    # treats an absent field identically to ``annual_loss = 0``.
+    assert "annual_loss" not in reservoir
 
     # The LakeA embalse reservoir must still be present and NOT flagged
     # as daily-cycle — promotion only touches the whitelisted central.
