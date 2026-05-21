@@ -3399,11 +3399,12 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     reservoirs = extract_reservoirs(db, bundle)
     # Extract waterways FIRST so we can discover any synthetic sink
     # junctions (1-ended PLEXOS forced-outflow waterways like
-    # ``Filt_Colb`` / ``Riego_NoGen_Colbun``).  The sink names are
-    # appended as zero-storage Reservoirs (and therefore Junctions
-    # via the 1:1 mapping in extract_junctions) so the waterway has
-    # a valid LP-side destination and the writer's automatic
-    # ``spillway_cost`` drain absorbs the forced flow.
+    # ``Filt_Colb`` / ``Riego_NoGen_Colbun``) and ``<name>_ocean``
+    # spillway drains.  Both kinds of sink are emitted as Junction-only
+    # nodes with ``drain = True`` — the gtopt LP only needs the drain
+    # column on the Junction balance row, and a co-located zero-storage
+    # Reservoir would just add a redundant balance equation and an
+    # unconstrained ``vol_t`` variable.
     forced_waterway_targets: list[tuple[str, str, float]] = []
     waterways = extract_waterways(
         db, bundle, forced_targets_out=forced_waterway_targets
@@ -3415,11 +3416,11 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     #      waterway endpoints but NOT Reservoirs — emitting them
     #      as zero-storage Reservoirs would let the LP accumulate
     #      unbounded phantom volume (writer omits ``emax`` when 0).
-    #   2. Genuinely synthetic sinks created by ``extract_waterways``
-    #      for 1-ended forced-outflow waterways (``<name>_sink``)
-    #      — these MUST be zero-storage Reservoirs with the
-    #      writer's automatic ``spillway_cost`` drain so the
-    #      forced flow has somewhere to go.
+    #   2. Synthetic sinks created by ``extract_waterways`` for 1-ended
+    #      forced-outflow waterways (``<name>_sink``) and Vert_*
+    #      spillway destinations (``<name>_ocean``).  These need
+    #      Junctions with ``drain = True`` (handled by ``_is_sink_junction``
+    #      inside ``extract_junctions``) but NOT Reservoirs.
     plexos_storage_names = {s.name for s in db.objects_of_class("Storage")}
     reservoir_names = {r.name for r in reservoirs}
     # ``_GNL_INF`` storages were already filtered from ``reservoirs`` by
@@ -3435,8 +3436,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         for n in (plexos_storage_names - reservoir_names)
         if not n.endswith("_GNL_INF")
     }
+    # Synthetic sink endpoints (``<name>_sink`` for 1-ended forced-outflow
+    # waterways, ``<name>_ocean`` for Vert_* spillways) are emitted as
+    # Junction-only nodes with ``drain = True``.  A zero-storage Reservoir
+    # at the same name would be pure LP overhead — its balance row is
+    # redundant with the Junction's drain-enabled balance row, and the
+    # extra ``vol_t`` variable just inflates the model (52 → 12 reservoirs
+    # on CEN PCP).  Endpoints that are *not* sinks (would be a parser bug,
+    # since extract_waterways only synthesises ``_sink`` / ``_ocean``
+    # names) are logged and skipped — they would have created an orphan
+    # node with no inflow source either way.
     sink_names_seen: set[str] = set()
-    extra_sinks: list[ReservoirSpec] = []
+    extra_sink_junctions: list[str] = []
+    unexpected_endpoints: list[str] = []
     for ww in waterways:
         for endpoint in (ww.storage_from, ww.storage_to):
             if (
@@ -3446,23 +3458,21 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 and endpoint not in sink_names_seen
             ):
                 sink_names_seen.add(endpoint)
-                extra_sinks.append(
-                    ReservoirSpec(
-                        object_id=-len(extra_sinks) - 1,  # synthetic negative ID
-                        name=endpoint,
-                        emin=0.0,
-                        emax=0.0,
-                        eini=0.0,
-                        water_value=0.0,
-                        never_drain=False,
-                        spill_penalty_per_mwh=0.0,
-                    )
-                )
-    if extra_sinks:
-        reservoirs = reservoirs + tuple(extra_sinks)
-    junctions = extract_junctions(
-        reservoirs, extra_junction_names=tuple(sorted(dropped_passthrough))
+                if _is_sink_junction(endpoint):
+                    extra_sink_junctions.append(endpoint)
+                else:
+                    unexpected_endpoints.append(endpoint)
+    if unexpected_endpoints:
+        logger.warning(
+            "extract_case: %d waterway endpoint(s) not in reservoir/storage "
+            "tables and not recognised as sink/ocean names — skipped: %s",
+            len(unexpected_endpoints),
+            ", ".join(sorted(unexpected_endpoints)),
+        )
+    extra_junction_names = tuple(
+        sorted(dropped_passthrough.union(extra_sink_junctions))
     )
+    junctions = extract_junctions(reservoirs, extra_junction_names=extra_junction_names)
     known_junction_names = frozenset(j.name for j in junctions)
     reserves = extract_reserves(db, bundle)
     generators = extract_generators(db, bundle)

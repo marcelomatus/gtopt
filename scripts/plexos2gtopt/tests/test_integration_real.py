@@ -202,15 +202,35 @@ def test_real_bundle_p5_p6_reserves_and_commitment() -> None:
 def test_real_bundle_p4_hydro_topology() -> None:
     """P4: hydro extractors populate reservoir/waterway/junction/turbine/flow.
 
-    Sanity-check the CEN PCP bundle exposes the expected hydro shapes
-    (33 Storage = 33 Reservoir+Junction, ~28 Waterway, 77 hydro
-    turbines, ~23 inflow time-series) and that every Flow's junction
-    matches a real Junction (no orphans).
+    Sanity-check the CEN PCP bundle exposes the expected hydro shapes:
+    ~28 storage-bearing Reservoirs (PLEXOS pass-through Storages and
+    synthetic ``*_sink`` / ``*_ocean`` drain endpoints are NOT emitted
+    as Reservoirs — they live in ``junction_array`` only with
+    ``drain = True``), ~70 Junctions (one per Reservoir plus the
+    extra sink/ocean/pass-through nodes), ~28 Waterways, 77 hydro
+    turbines, ~23 inflow time-series, and every Flow's junction
+    matching a real Junction (no orphans).
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
-    assert len(case.reservoirs) >= 30
-    assert len(case.junctions) == len(case.reservoirs)
+    assert len(case.reservoirs) >= 25
+    # Junction count >= reservoir count: every Reservoir gets a co-located
+    # Junction, plus extra Junctions for PLEXOS pass-through Storage and
+    # synthetic ``*_sink`` / ``*_ocean`` drain endpoints.
+    assert len(case.junctions) >= len(case.reservoirs)
+    # Sink / ocean drain Junctions must exist but NOT be Reservoirs.
+    reservoir_names = {r.name for r in case.reservoirs}
+    sink_junctions = [
+        j
+        for j in case.junctions
+        if j.name.endswith("_sink") or j.name.endswith("_ocean")
+    ]
+    assert sink_junctions, "expected synthetic sink/ocean junctions"
+    for j in sink_junctions:
+        assert j.drain, f"sink junction {j.name} must have drain=True"
+        assert j.name not in reservoir_names, (
+            f"sink junction {j.name} must not be emitted as a Reservoir"
+        )
     assert len(case.waterways) >= 20
     assert len(case.turbines) >= 50
     assert len(case.flows) >= 10
