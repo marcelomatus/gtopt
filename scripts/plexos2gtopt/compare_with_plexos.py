@@ -497,15 +497,32 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
             (merged["value_mw"] * merged["value_srmc"] * merged["duration"]).sum()
         )
 
+    gen_total = _sum_mwh("Generator/generation_sol.parquet")
+    load_total = _sum_mwh("Demand/load_sol.parquet")
+    fail_total = _sum_mwh("Demand/fail_sol.parquet")
+    batt_charge = _sum_mwh("Battery/finp_sol.parquet")
+    batt_discharge = _sum_mwh("Battery/fout_sol.parquet")
+    # Implicit transmission losses: gtopt doesn't write a per-line
+    # loss parquet — losses are baked into the bus-balance equation
+    # via the piecewise-linear segment columns.  Recover by
+    # energy balance:
+    #   Generation + battery_discharge = load_served + battery_charge
+    #     + losses
+    # → losses = Gen + Disch − Load − Charge.  Floor at 0 to absorb
+    # the rare per-block rounding artifact that would otherwise show
+    # a tiny negative.
+    losses_total = max(0.0, gen_total + batt_discharge - load_total - batt_charge)
     return {
-        "gen_mwh": _sum_mwh("Generator/generation_sol.parquet"),
-        "load_mwh": _sum_mwh("Demand/load_sol.parquet"),
-        "fail_mwh": _sum_mwh("Demand/fail_sol.parquet"),
+        "gen_mwh": gen_total,
+        "load_mwh": load_total,
+        "fail_mwh": fail_total,
         # BESS charging (counted on PLEXOS side as Region.Load - Node.Load
         # contribution, here pulled out as a separate row so the demand
         # comparison stays apples-to-apples on consumer load).
-        "battery_charge_mwh": _sum_mwh("Battery/finp_sol.parquet"),
-        "battery_discharge_mwh": _sum_mwh("Battery/fout_sol.parquet"),
+        "battery_charge_mwh": batt_charge,
+        "battery_discharge_mwh": batt_discharge,
+        # Implicit transmission losses (energy-balance residual).
+        "losses_mwh": losses_total,
         "op_cost_usd": op_cost,
         "block_count": len(block_array),
         "hours_covered": sum(durations.values()),
@@ -2004,12 +2021,15 @@ def _render_solution_compare(
         plexos_tot.get("battery_load_mwh", 0.0),
         gtopt_tot.get("battery_charge_mwh", 0.0),
     )
-    # Transmission losses — PLEXOS reports them, gtopt's DC OPF
-    # doesn't model losses so this is always 0 on the gtopt side.
+    # Transmission losses — PLEXOS publishes Region.Losses (prop 997)
+    # directly; gtopt's value is the energy-balance residual
+    # `gen + batt_discharge − load − batt_charge` since gtopt's
+    # piecewise loss model writes losses into bus balance rather
+    # than emitting a per-line loss parquet.
     _row(
         "Transmission losses [MWh]",
         plexos_tot.get("losses_mwh", 0.0),
-        0.0,
+        gtopt_tot.get("losses_mwh", 0.0),
     )
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
     _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
