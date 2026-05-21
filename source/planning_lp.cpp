@@ -39,6 +39,78 @@
 namespace gtopt
 {
 
+// ── Memory-aware thread clamp for build / write_out work pools ───────────
+
+namespace
+{
+
+// The `--memory-limit` value passes through to `WorkPool::can_dispatch_next`
+// as a REACTIVE gate: it blocks NEW task dispatch when process RSS already
+// exceeds the budget.  That works for short-lived SDDP-solve tasks where
+// completed tasks free memory faster than new ones allocate it.
+//
+// It does NOT work for the long-lived build and write_out tasks in
+// `PlanningLP`: by the time RSS crosses the limit, every dispatched thread
+// is mid-flight on a SystemLP build that allocates monotonically until
+// done.  Blocking the *next* dispatch can't recover memory the *current*
+// threads still hold.  Process OOMs at `cpu_factor × physical_cores ×
+// per_task_mb`, irrespective of the limit.
+//
+// This helper applies the PROACTIVE clamp: cap thread count up front so
+// `threads × per_task_memory_mb ≤ memory_limit_mb − baseline_reserved_mb`.
+// Returns an effective `cpu_factor` to pass to `make_solver_work_pool`.
+// When no memory limit is configured, returns the requested factor
+// unchanged (so the SDDP solve pool's behaviour is preserved end-to-end).
+[[nodiscard]] auto memory_aware_cpu_factor(double cpu_factor,
+                                           double memory_limit_mb,
+                                           double per_task_memory_mb,
+                                           std::string_view pool_label)
+    -> double
+{
+  // Reserve ~2 GB for process baseline + heap fragmentation + the
+  // SystemLP tree we're already holding before parallel build kicks in.
+  // Empirically tracks the observed RSS at the moment the build pool
+  // is allocated on juan/IPLP-scale models.
+  constexpr double kBaselineReservedMB = 2000.0;
+  if (memory_limit_mb <= 0.0 || per_task_memory_mb <= 0.0) {
+    return cpu_factor;
+  }
+  const auto cores = static_cast<double>(physical_concurrency());
+  if (cores <= 0.0) {
+    return cpu_factor;
+  }
+  const double max_threads_cpu = cpu_factor * cores;
+  const double max_threads_mem = std::max(
+      1.0,
+      std::floor((memory_limit_mb - kBaselineReservedMB) / per_task_memory_mb));
+  if (max_threads_mem >= max_threads_cpu) {
+    return cpu_factor;  // memory budget is non-binding
+  }
+  SPDLOG_INFO(
+      "{}: threads clamped to {:.0f} by memory budget "
+      "(cpu-factor={:.2f} × {:.0f} cores = {:.0f}; memory_limit={:.0f} MB, "
+      "per-task estimate={:.0f} MB)",
+      pool_label,
+      max_threads_mem,
+      cpu_factor,
+      cores,
+      max_threads_cpu,
+      memory_limit_mb,
+      per_task_memory_mb);
+  return max_threads_mem / cores;
+}
+
+// Per-task RSS estimates (MB).  Calibrated for juan/IPLP-scale runs:
+//   - LP build: each SystemLP tree holds the full sparse matrix +
+//     working buffers + element registries.  ~1.5-2 GB at iter0.
+//   - write_out: Arrow + Parquet encoder per cell; ~0.5-1 GB peak.
+// Larger models will undercount and may still OOM with the clamp on —
+// tune by lowering `--memory-limit` (the clamp scales linearly).
+constexpr double kLpBuildPerTaskMB = 2000.0;
+constexpr double kWriteOutPerTaskMB = 1000.0;
+
+}  // namespace
+
 // ── Line reactance validation ────────────────────────────────────────────
 
 void PlanningLP::validate_line_reactance(Planning& planning)
@@ -1173,7 +1245,10 @@ auto PlanningLP::create_systems(System& system,
   } else {
     // Both WorkPool modes share the pool allocation.
     auto pool = make_solver_work_pool(
-        build_cpu_factor,
+        memory_aware_cpu_factor(build_cpu_factor,
+                                options.sddp_pool_memory_limit_mb(),
+                                kLpBuildPerTaskMB,
+                                "PlanningLP initial build pool"),
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
         /*memory_limit_mb=*/options.sddp_pool_memory_limit_mb());
@@ -1424,7 +1499,10 @@ void PlanningLP::build_all_lps_eagerly()
       "  Eager LP build: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
   auto pool = make_solver_work_pool(
-      /*cpu_factor=*/1.0,
+      memory_aware_cpu_factor(/*cpu_factor=*/1.0,
+                              m_options_.sddp_pool_memory_limit_mb(),
+                              kLpBuildPerTaskMB,
+                              "PlanningLP eager build pool"),
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
       /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
@@ -1534,7 +1612,10 @@ void PlanningLP::write_out()
   //     the parquet encoder uses internally — adding more pool
   //     threads on top just queues them on Arrow's locks.
   auto pool = make_solver_work_pool(
-      /*cpu_factor=*/1.0,
+      memory_aware_cpu_factor(/*cpu_factor=*/1.0,
+                              m_options_.sddp_pool_memory_limit_mb(),
+                              kWriteOutPerTaskMB,
+                              "PlanningLP write_out pool"),
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
       /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
