@@ -784,25 +784,37 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       planning_lp.build_all_lps_eagerly();
     }
 
-    // --lp-debug in monolithic mode used to be a silent no-op: the
-    // SDDP per-(scene, phase) `LpDebugWriter` is never instantiated,
-    // and `write_lp` only fired when an explicit `--lp-file` path was
-    // provided.  Mirror the SDDP behaviour by writing a single
-    // `<log_directory>/monolithic.lp` dump whenever the user asked
-    // for `lp_debug` without supplying an explicit file path.
-    const bool monolithic_lp_debug = opts.lp_debug.value_or(false)
+    // Runner-level LP dump:
+    //
+    //  * ``--lp-file <path>``: always honour the explicit path.
+    //  * ``--lp-only --lp-debug`` (monolithic, no explicit ``--lp-file``):
+    //    write a single ``<log_directory>/monolithic.lp`` here, because
+    //    ``run_solver`` (and therefore ``MonolithicMethod::solve``
+    //    → ``LpDebugWriter``) is skipped under ``--lp-only`` and would
+    //    leave the user with no LP file.
+    //
+    // For a normal ``--lp-debug`` run that DOES reach the solver, the
+    // ``LpDebugWriter`` inside ``MonolithicMethod::solve`` produces the
+    // per-(scene, phase) ``gtopt_lp_scene_0_phase_0.lp`` file.
+    // Writing ``monolithic.lp`` here too would produce a byte-identical
+    // duplicate (verified 2026-05-21, docs/analysis/lp-debug-two-files.md)
+    // and would ignore the lp_debug compression / filter options that
+    // ``LpDebugWriter`` honours.  Restrict to the ``--lp-only`` case.
+    const bool monolithic_lp_only_debug = want_lp_only
+        && opts.lp_debug.value_or(false)
         && planning_lp.options().method_type_enum() == MethodType::monolithic
         && !opts.lp_file.has_value();
 
     if (opts.lp_file) {
       planning_lp.write_lp(opts.lp_file.value());
-    } else if (monolithic_lp_debug) {
+    } else if (monolithic_lp_only_debug) {
       const auto log_dir = planning_lp.options().log_directory();
       std::error_code ec;
       std::filesystem::create_directories(log_dir, ec);
       const auto lp_path =
           (std::filesystem::path(log_dir) / "monolithic.lp").string();
-      spdlog::info("lp_debug (monolithic): writing LP to {}", lp_path);
+      spdlog::info("lp_debug (monolithic --lp-only): writing LP to {}",
+                   lp_path);
       planning_lp.write_lp(lp_path);
     }
 
