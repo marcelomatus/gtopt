@@ -66,7 +66,20 @@ public:
 
   [[nodiscard]] constexpr auto flow_conversion_rate() const noexcept
   {
-    return reservoir().flow_conversion_rate.value_or(3.6);
+    // Default to the struct-side ``Reservoir::default_flow_conversion_rate``
+    // (= 0.0036 hm³/(m³/s·h), the physical hm³ ⇄ m³/s conversion 3600/1e6).
+    // The previous literal ``3.6`` here disagreed with the struct
+    // default by a factor of 1000 — if a converter ever forgot to
+    // emit ``flow_conversion_rate`` on a Reservoir, every unit of
+    // turbine flow debited the reservoir 1000× more than the
+    // physical hm³ change, inflating hydro generation by ~60 % on
+    // the CEN PCP daily bundle (gtopt 457 578 MWh vs PLEXOS 285 854
+    // MWh measured 2026-05-21 before the plexos2gtopt writer was
+    // patched to set the field explicitly).  Aligning the LP-side
+    // fallback with the struct default prevents that class of bug
+    // from recurring if another converter ships an unset field.
+    return reservoir().flow_conversion_rate.value_or(
+        Element::default_flow_conversion_rate);
   }
 
   [[nodiscard]] constexpr auto spillway_cost() const noexcept
