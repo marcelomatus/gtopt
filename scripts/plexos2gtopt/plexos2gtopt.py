@@ -99,6 +99,25 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         raise ValueError("convert_plexos_bundle: 'input_bundle' option is required")
     input_path = Path(raw_input)
 
+    # Propagate CLI-level knobs to the extractors via process env vars.
+    # ``extract_waterways`` reads these directly (avoids threading extra
+    # parameters through every extractor signature).  CLI flag wins over
+    # any value the user pre-set in the shell env.
+    import os
+
+    if options.get("vert_routing") is not None:
+        os.environ["GTOPT_VERT_ROUTING"] = str(options["vert_routing"])
+    if options.get("use_plexos_commit"):
+        os.environ["GTOPT_USE_PLEXOS_COMMIT"] = "1"
+    if options.get("use_plexos_gen_cap"):
+        os.environ["GTOPT_USE_PLEXOS_GEN_CAP"] = "1"
+    if options.get("reservoir_spillway"):
+        os.environ["GTOPT_RESERVOIR_SPILL"] = "1"
+    if options.get("spill_fcost") is not None:
+        os.environ["GTOPT_SPILL_FCOST"] = str(options["spill_fcost"])
+    if options.get("spill_fcost_scale") is not None:
+        os.environ["GTOPT_SPILL_FCOST_SCALE"] = str(options["spill_fcost_scale"])
+
     with locate_bundle(input_path) as bundle:
         # Resolve horizon mode + day count + block layout.
         horizon_mode = options.get("horizon_mode") or "plexos"

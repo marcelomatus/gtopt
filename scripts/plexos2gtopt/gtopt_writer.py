@@ -686,23 +686,26 @@ def build_reservoir_array(
             "name": res.name,
             "junction": res.name,  # co-located junction (same name)
             "eini": res.eini,
-            # PLEXOS native units are volume in hm³ and flow in m³/s.
-            # gtopt's storage balance debits ``volume[t] = volume[t-1] +
-            # dt × flow_conversion_rate × (inflow − outflow)``, where the
-            # canonical hm³ ⇄ m³/s conversion is ``flow_conversion_rate
-            # = 3600 / 1e6 = 0.0036``.  When the field is OMITTED the
-            # gtopt LP fallback (``reservoir_lp.hpp:69``,
-            # ``value_or(3.6)``) is *1000× too large* — every unit of
-            # penstock flow debits the reservoir 1000× more than the
-            # physical hm³ change.  On the CEN PCP daily bundle this
-            # let each reservoir's eini fuel 1000× more m³/s·h of
-            # dispatch than physically available, inflating total hydro
-            # MWh by ~60 % (gtopt 457 578 MWh vs PLEXOS 285 854 MWh,
-            # measured against the .accdb baseline).  plp2gtopt has been
-            # setting this field explicitly since the early days
-            # (``junction_writer.py:1575``); the plexos2gtopt path was
-            # missing it.
-            "flow_conversion_rate": 3.6 / 1000.0,
+            # PLEXOS native units: Storage volume in CMD (= cumec·day
+            # = m³/s × 86,400 s = 86,400 m³), flow in cumec (m³/s).
+            # Verified via t_unit: unit_id 24 = 'CMD' on Initial /
+            # End / Min / Max Volume props (645/646/643/644);
+            # unit_id 46 = '$/CMD' on Water Value (1101).
+            #
+            # Dimensional conversion ``m³/s · h → CMD`` is
+            # ``3600/86400 = 1/24`` (s/h ÷ s/day).  PLP volumes in
+            # hm³ use the struct default ``0.0036 = 3600/1e6``
+            # instead.
+            # Avoid the EXACT IEEE 754 bit pattern of 1.0/24.0
+            # (= 0.041666666666666664), which triggers a 10× mutation
+            # in daw::json's parser path on this specific value
+            # (verified 2026-05-22 via the parse probe in
+            # gtopt_json_io_parse.cpp; 1 ULP up or down doesn't
+            # trigger).  Perturb the divisor by ~1e-13 so the parsed
+            # double lands one ULP off the trigger bit pattern while
+            # remaining dimensionally identical to 1/24 to double
+            # precision.
+            "flow_conversion_rate": 1.0 / 24.000000000001,
         }
         # Per-block profile takes precedence over the scalar — emitted
         # as the inline ``[[per-block]]`` matrix gtopt's ``Reservoir``
@@ -717,6 +720,19 @@ def build_reservoir_array(
             entry["emax"] = [list(res.emax_profile)]
         elif res.emax > 0.0:
             entry["emax"] = res.emax
+        elif res.eini == 0.0:
+            # Run-of-river / pondage-like reservoir referenced by a
+            # turbine (so the pondage demoter at extract_case can't
+            # drop it).  Explicit ``emax = 0`` with ``eini = 0`` pins
+            # the volume at zero every block, forcing ``inflow ==
+            # outflow`` (pass-through).  Without this the writer
+            # silently omits emax → gtopt treats the reservoir as
+            # unbounded above, letting the LP accumulate water at the
+            # node as a free time-shift buffer (verified 2026-05-22 on
+            # CEN PCP: ISLA storage grew by 118 CMD over the week with
+            # no physical justification, providing free cascade-water
+            # arbitrage and inflating downstream hydro generation).
+            entry["emax"] = 0.0
         # End-of-horizon storage target.  ``ReservoirSpec.efin`` is
         # populated from the LAST-day end-of-day floor in
         # ``Hydro_MinVolume.csv`` (see ``extract_reservoirs``).  Two
@@ -759,6 +775,26 @@ def build_reservoir_array(
             # per-MWh — multiply by the global default productibility
             # (DESIGN.md §6).
             entry["spillway_cost"] = res.spill_penalty_per_mwh * DEFAULT_FP_MED
+        else:
+            # When ``GTOPT_RESERVOIR_SPILL=1`` (the new
+            # ``--reservoir-spillway`` CLI flag), activate the
+            # reservoir-internal spillway with COST = 0.  This
+            # mirrors PLEXOS's implicit Storage-state spillage: when
+            # inflow exceeds the LP's room (capped turbine + capped
+            # cascade exit), water "disappears" via this internal
+            # drain at no cost.  Pairs with the ``Vert_→ Junction.drain``
+            # collapse being SKIPPED (or its cost being prohibitive)
+            # so the LP picks the reservoir spillway as the relief
+            # valve, attributing the spillage to the reservoir
+            # entity rather than the co-located junction.
+            import os as _os
+
+            if _os.environ.get("GTOPT_RESERVOIR_SPILL", "0").lower() in (
+                "1",
+                "true",
+                "yes",
+            ):
+                entry["spillway_cost"] = 0.0
         out.append(entry)
     return out
 
@@ -825,7 +861,12 @@ def build_waterway_array(
                 else list(profile)
             )
             entry["fmin"] = [per_block]
-            entry["fmax"] = [per_block]
+            # Bypass waterways (e.g. ``B_Maule``): emit profile as
+            # fmin only and leave fmax unbounded so the LP can route
+            # surplus above the PLEXOS Min Flow.  Diversion / sink
+            # waterways (Riego_, Caudal_Eco_, Filt_) keep fmin == fmax.
+            if ww.pin_fmax_from_profile:
+                entry["fmax"] = [per_block]
         else:
             if ww.fmax > 0.0:
                 entry["fmax"] = ww.fmax

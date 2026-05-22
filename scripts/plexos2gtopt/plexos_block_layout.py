@@ -303,6 +303,269 @@ def _read_cached_csv(cache_dir: Path, table: str) -> list[dict[str, str]] | None
     return list(csv.DictReader(io.StringIO(proc.stdout)))
 
 
+def extract_storage_solution_efin(
+    cache_dir: Path,
+) -> dict[str, float] | None:
+    """Read PLEXOS End Volume (property 646) at the LAST horizon period
+    for every Storage object in the solution ``.accdb`` cache.
+
+    Returns a mapping ``{storage_name: last_period_end_volume_CMD}`` so
+    callers can pin gtopt's ``Reservoir.efin`` to the value PLEXOS
+    actually achieved (instead of the loose operational floor from
+    ``Hydro_MinVolume.csv``).  Volumes are in CMD = cumec·day (PLEXOS
+    ``t_unit`` id 24).
+
+    Returns ``None`` when the cache is missing any of the required
+    tables (``t_object``, ``t_class``, ``t_membership``, ``t_key``,
+    ``t_data_0``).  Reservoirs absent from the solution are silently
+    omitted; callers should fall back to the CSV-derived floor for
+    those.
+    """
+    objects = _read_cached_csv(cache_dir, "t_object")
+    classes = _read_cached_csv(cache_dir, "t_class")
+    members = _read_cached_csv(cache_dir, "t_membership")
+    keys = _read_cached_csv(cache_dir, "t_key")
+    data0 = _read_cached_csv(cache_dir, "t_data_0")
+    if any(t is None for t in (objects, classes, members, keys, data0)):
+        return None
+
+    storage_cls_id = next(
+        (c["class_id"] for c in classes if c["name"] == "Storage"),
+        None,
+    )
+    if storage_cls_id is None:
+        return None
+
+    storage_oids: dict[str, str] = {  # oid → name
+        o["object_id"]: o["name"]
+        for o in objects
+        if o.get("class_id") == storage_cls_id
+    }
+    if not storage_oids:
+        return None
+
+    # All memberships whose CHILD is one of our Storage objects (any
+    # collection — PLEXOS exposes End Volume on multiple Storage
+    # memberships, the prop_id 646 lookup below filters to the right
+    # ones).
+    oid_by_mid: dict[str, str] = {}
+    for m in members:
+        cid = m.get("child_object_id", "")
+        if cid in storage_oids:
+            oid_by_mid[m["membership_id"]] = cid
+
+    # Keys for property_id 646 (End Volume).
+    ev_kid_to_oid: dict[str, str] = {}
+    for k in keys:
+        if k.get("property_id") == "646" and k.get("membership_id") in oid_by_mid:
+            ev_kid_to_oid[k["key_id"]] = oid_by_mid[k["membership_id"]]
+    if not ev_kid_to_oid:
+        return {}
+
+    # Walk t_data and keep the LAST-period value per storage.
+    last_period: dict[str, int] = {}
+    last_value: dict[str, float] = {}
+    for d in data0:
+        kid = d.get("key_id", "")
+        oid = ev_kid_to_oid.get(kid)
+        if oid is None:
+            continue
+        try:
+            p = int(d.get("period_id", "0"))
+            v = float(d.get("value", "0"))
+        except (TypeError, ValueError):
+            continue
+        if p > last_period.get(oid, -1):
+            last_period[oid] = p
+            last_value[oid] = v
+
+    return {storage_oids[oid]: v for oid, v in last_value.items()}
+
+
+def extract_storage_volume_trajectory(
+    cache_dir: Path,
+) -> dict[str, dict[int, float]] | None:
+    """Read PLEXOS per-period ``End Volume`` (pid 646) for every Storage.
+
+    Returns ``{storage_name: {period_id: volume_CMD}}``.  Unlike
+    :func:`extract_storage_solution_efin` which keeps only the LAST
+    period's value, this returns the full per-period trajectory so
+    callers can pin gtopt's reservoir volume to PLEXOS's solved
+    storage curve at every block (forcing drain TIMING to match, not
+    just the integrated total).
+
+    Returns ``None`` if any required table is missing.
+    """
+    objects = _read_cached_csv(cache_dir, "t_object")
+    classes = _read_cached_csv(cache_dir, "t_class")
+    members = _read_cached_csv(cache_dir, "t_membership")
+    keys = _read_cached_csv(cache_dir, "t_key")
+    data0 = _read_cached_csv(cache_dir, "t_data_0")
+    if any(t is None for t in (objects, classes, members, keys, data0)):
+        return None
+
+    sto_cls_id = next((c["class_id"] for c in classes if c["name"] == "Storage"), None)
+    if sto_cls_id is None:
+        return None
+
+    sto_oids = {
+        o["object_id"]: o["name"] for o in objects if o.get("class_id") == sto_cls_id
+    }
+
+    mid_to_oid: dict[str, str] = {}
+    for m in members:
+        cid = m.get("child_object_id", "")
+        if cid in sto_oids:
+            mid_to_oid[m["membership_id"]] = cid
+
+    # Property 646 = End Volume (CMD per period)
+    ev_kid_to_oid: dict[str, str] = {}
+    for k in keys:
+        if k.get("property_id") == "646" and k.get("membership_id") in mid_to_oid:
+            ev_kid_to_oid[k["key_id"]] = mid_to_oid[k["membership_id"]]
+
+    out: dict[str, dict[int, float]] = {}
+    for d in data0:
+        kid = d.get("key_id", "")
+        oid = ev_kid_to_oid.get(kid)
+        if oid is None:
+            continue
+        try:
+            p = int(d.get("period_id", "0"))
+            v = float(d.get("value", "0"))
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(sto_oids[oid], {})[p] = v
+
+    return out
+
+
+def extract_generator_generation_per_period(
+    cache_dir: Path,
+) -> dict[str, dict[int, float]] | None:
+    """Read PLEXOS per-period ``Generation`` (pid 2) for every Generator.
+
+    Returns ``{generator_name: {period_id: MW_dispatched}}``.  This is
+    the actual per-period MW PLEXOS dispatched in its solution — the
+    tightest possible curve-fit envelope.  Callers can use this as a
+    hard per-block pmax cap on hydro generators to force gtopt's LP
+    to match PLEXOS dispatch exactly (sub-MIP equivalent without
+    running MIP).
+    """
+    objects = _read_cached_csv(cache_dir, "t_object")
+    classes = _read_cached_csv(cache_dir, "t_class")
+    members = _read_cached_csv(cache_dir, "t_membership")
+    keys = _read_cached_csv(cache_dir, "t_key")
+    data0 = _read_cached_csv(cache_dir, "t_data_0")
+    if any(t is None for t in (objects, classes, members, keys, data0)):
+        return None
+
+    gen_cls_id = next(
+        (c["class_id"] for c in classes if c["name"] == "Generator"), None
+    )
+    if gen_cls_id is None:
+        return None
+
+    gen_oids = {
+        o["object_id"]: o["name"] for o in objects if o.get("class_id") == gen_cls_id
+    }
+
+    mid_to_oid: dict[str, str] = {}
+    for m in members:
+        cid = m.get("child_object_id", "")
+        if cid in gen_oids:
+            mid_to_oid[m["membership_id"]] = cid
+
+    # Property 2 = Generation (MW per period)
+    gen_kid_to_oid: dict[str, str] = {}
+    for k in keys:
+        if k.get("property_id") == "2" and k.get("membership_id") in mid_to_oid:
+            gen_kid_to_oid[k["key_id"]] = mid_to_oid[k["membership_id"]]
+
+    out: dict[str, dict[int, float]] = {}
+    for d in data0:
+        kid = d.get("key_id", "")
+        oid = gen_kid_to_oid.get(kid)
+        if oid is None:
+            continue
+        try:
+            p = int(d.get("period_id", "0"))
+            v = float(d.get("value", "0"))
+        except (TypeError, ValueError):
+            continue
+        out.setdefault(gen_oids[oid], {})[p] = v
+
+    return out
+
+
+def extract_generator_commit_per_period(
+    cache_dir: Path,
+) -> dict[str, dict[int, float]] | None:
+    """Read PLEXOS per-period `Units Generating` (property id 7) for every
+    Generator in the solution ``.accdb`` cache.
+
+    Returns ``{generator_name: {period_id: units_generating}}``.  The
+    inner value is the number of units PLEXOS committed at that period:
+    0 means the generator was OFF, 1+ means N units committed (multi-
+    unit Generator like RUCUE has 2 max).  Callers can use this to
+    override gtopt's ``pmax_profile`` and force the LP to follow
+    PLEXOS's commitment schedule (useful to remove
+    cascade-compounding hydro over-dispatch caused by the LP-relax
+    not making the OFF decisions PLEXOS's MIP made).
+
+    Returns ``None`` when the cache is missing any required table.
+    """
+    objects = _read_cached_csv(cache_dir, "t_object")
+    classes = _read_cached_csv(cache_dir, "t_class")
+    members = _read_cached_csv(cache_dir, "t_membership")
+    keys = _read_cached_csv(cache_dir, "t_key")
+    data0 = _read_cached_csv(cache_dir, "t_data_0")
+    if any(t is None for t in (objects, classes, members, keys, data0)):
+        return None
+
+    gen_cls_id = next(
+        (c["class_id"] for c in classes if c["name"] == "Generator"), None
+    )
+    if gen_cls_id is None:
+        return None
+
+    gen_oids: dict[str, str] = {  # oid → name
+        o["object_id"]: o["name"] for o in objects if o.get("class_id") == gen_cls_id
+    }
+    if not gen_oids:
+        return None
+
+    mid_to_oid: dict[str, str] = {}
+    for m in members:
+        cid = m.get("child_object_id", "")
+        if cid in gen_oids:
+            mid_to_oid[m["membership_id"]] = cid
+
+    # Property 7 = Units Generating (per-period commitment state)
+    ug_kid_to_oid: dict[str, str] = {}
+    for k in keys:
+        if k.get("property_id") == "7" and k.get("membership_id") in mid_to_oid:
+            ug_kid_to_oid[k["key_id"]] = mid_to_oid[k["membership_id"]]
+    if not ug_kid_to_oid:
+        return {}
+
+    out: dict[str, dict[int, float]] = {}
+    for d in data0:
+        kid = d.get("key_id", "")
+        oid = ug_kid_to_oid.get(kid)
+        if oid is None:
+            continue
+        try:
+            p = int(d.get("period_id", "0"))
+            v = float(d.get("value", "0"))
+        except (TypeError, ValueError):
+            continue
+        gen_name = gen_oids[oid]
+        out.setdefault(gen_name, {})[p] = v
+
+    return out
+
+
 def extract_fuel_offtake_caps(
     cache_dir: Path,
 ) -> dict[str, tuple[float, float]] | None:

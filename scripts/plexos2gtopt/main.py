@@ -127,6 +127,93 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--spill-fcost",
+        type=float,
+        default=None,
+        help=(
+            "override the per-flow spill cost ($/(m³/s·h)) on every "
+            "``Vert_*`` spillway waterway.  When unset (default), the "
+            "converter uses PLEXOS's ``Max Flow Penalty`` property "
+            "(typically 3.6 on CEN PCP).  Set this to a larger value "
+            "(e.g. 1000) to discourage the LP from routing surplus "
+            "water through Vert_* arcs, pushing it toward turbines / "
+            "bypasses / other paths instead.  Useful for tuning the "
+            "turbine-vs-spill tradeoff when comparing against PLEXOS."
+        ),
+    )
+    parser.add_argument(
+        "--use-plexos-commit",
+        action="store_true",
+        default=False,
+        help=(
+            "override per-period generator pmax with PLEXOS-solved "
+            "Units Generating (pid 7) from the solution .accdb cache. "
+            "Pins gen=0 at hours PLEXOS left the unit OFF.  Used to "
+            "validate that gtopt's hydro over-dispatch is driven by "
+            "the missing MIP commitment decisions: applying this "
+            "forces dispatch into the PLEXOS-chosen ON windows only, "
+            "and downstream cascade hydro should snap to PLEXOS's "
+            "observed values."
+        ),
+    )
+    parser.add_argument(
+        "--reservoir-spillway",
+        action="store_true",
+        default=False,
+        help=(
+            "activate Reservoir-internal spillway with cost=0 on every "
+            "reservoir, and disable the Vert_→Junction.drain collapse. "
+            "Mirrors PLEXOS's implicit Storage-state spillage."
+        ),
+    )
+    parser.add_argument(
+        "--use-plexos-gen-cap",
+        action="store_true",
+        default=False,
+        help=(
+            "hard-cap per-period generator pmax to PLEXOS-solved "
+            "Generation (pid 2) from the solution .accdb cache. "
+            "TIGHTEST curve-fit: every block, gtopt's LP can dispatch "
+            "at most what PLEXOS dispatched in that block.  Useful for "
+            "validating that gtopt's overshoot is purely from missing "
+            "per-block dispatch envelopes vs structural differences. "
+            "Restricted to HYDRO TURBINE generators to avoid the "
+            "ReserveProvisionLP::flat_map::at defect at zero-pmax "
+            "blocks on thermal units."
+        ),
+    )
+    parser.add_argument(
+        "--vert-routing",
+        choices=("ocean", "cascade"),
+        default="ocean",
+        help=(
+            "destination of every ``Vert_*`` spillway waterway. "
+            "DIAGNOSTIC TOGGLE — exists solely to reproduce a "
+            "strange PLEXOS behaviour (mid-cascade Vert spillage) "
+            "that is not natural to our LP; not a physical "
+            "modelling choice.  ``ocean`` (default): every Vert_* "
+            "→ <source>_ocean drain; spillage LEAVES the topology. "
+            "``cascade``: keep PLEXOS's published Tail Storage "
+            "target so spillage feeds the next cascade junction "
+            "(can be re-turbined downstream); falls back to ocean "
+            "when PLEXOS publishes no downstream target.  Default "
+            "is whichever produces dispatch closer to PLEXOS on "
+            "the reference bundle (currently ``ocean``)."
+        ),
+    )
+    parser.add_argument(
+        "--spill-fcost-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "multiplicative scale on PLEXOS's ``Max Flow Penalty`` for "
+            "every ``Vert_*`` spillway waterway.  Default 1.0 (no "
+            "rescaling).  Applied AFTER ``--spill-fcost`` (if set), so "
+            "the two are composable.  Useful when the relative cost "
+            "structure is right but the absolute level is wrong."
+        ),
+    )
+    parser.add_argument(
         "--horizon-mode",
         choices=("plexos", "hourly"),
         default="plexos",
@@ -210,6 +297,13 @@ def main(argv: list[str] | None = None) -> None:
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
         "default_uc_penalty": args.default_uc_penalty,
+        "water_fail_cost": args.water_fail_cost,
+        "spill_fcost": args.spill_fcost,
+        "spill_fcost_scale": args.spill_fcost_scale,
+        "vert_routing": args.vert_routing,
+        "use_plexos_commit": args.use_plexos_commit,
+        "use_plexos_gen_cap": args.use_plexos_gen_cap,
+        "reservoir_spillway": args.reservoir_spillway,
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
         "plexos_solution_accdb": args.plexos_solution_accdb,

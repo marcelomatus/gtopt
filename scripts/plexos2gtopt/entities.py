@@ -294,6 +294,16 @@ class WaterwaySpec:
     # on most Vert_* spillway arcs and 7200/360 on a handful of
     # high-cost gas-storage spillways.
     fcost: float = 0.0
+    # When True (default), the ``forced_flow_profile`` is emitted as
+    # BOTH ``fmin`` AND ``fmax`` — the LP physically pins the waterway
+    # to the PLEXOS-mandated per-hour value (correct for irrigation
+    # diversions, ecological flows, and filtration sinks where the
+    # water IS removed at exactly that rate).  When False, the profile
+    # is emitted as ``fmin`` only and ``fmax`` is left unbounded — the
+    # LP can route ADDITIONAL flow above the minimum (correct for
+    # bypass / overflow waterways like ``B_Maule`` where PLEXOS lets
+    # surplus water flow naturally above the published Min Flow).
+    pin_fmax_from_profile: bool = True
 
 
 @dataclass(frozen=True)

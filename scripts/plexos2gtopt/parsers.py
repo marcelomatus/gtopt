@@ -830,6 +830,130 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         if bundle.has("Gen_Rating.csv")
         else {}
     )
+    # ────────────────────────────────────────────────────────────────
+    # Optional: override pmax_profile with PLEXOS-solved commitment
+    # ────────────────────────────────────────────────────────────────
+    # When ``GTOPT_USE_PLEXOS_COMMIT=1`` (or the
+    # ``--use-plexos-commit`` CLI flag), pin per-period pmax to
+    # PLEXOS's solved ``Units Generating`` (pid 7) from the solution
+    # .accdb cache.  This forces the LP to follow PLEXOS's MIP
+    # commitment decisions exactly — useful when the LP-relax
+    # over-dispatches by fractional commitment of units PLEXOS
+    # decided to leave OFF (e.g. RUCUE, QUILLECO, LAJA_I on the
+    # CEN PCP weekly bundle).  Mechanics: for each generator and
+    # each period, if PLEXOS committed 0 units, set pmax=0 (forces
+    # gen=0); otherwise scale pmax by the fraction of units PLEXOS
+    # committed (full pmax × units_on / max_units).
+    import os
+
+    use_plexos_commit = os.environ.get("GTOPT_USE_PLEXOS_COMMIT", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    plexos_commit: dict[str, dict[int, float]] = {}
+    if (
+        use_plexos_commit
+        and bundle.accdb_cache_dir is not None
+        and bundle.accdb_cache_dir.is_dir()
+    ):
+        from .plexos_block_layout import extract_generator_commit_per_period
+
+        commit_data = extract_generator_commit_per_period(bundle.accdb_cache_dir)
+        if commit_data:
+            # Restrict the override to HYDRO TURBINE generators only.
+            # Applying it to ALL 1700+ generators breaks reserve-provision
+            # LP build (pmax=0 hours drop generator columns that reserve
+            # rows reference → flat_map::at exception).  Hydro turbine
+            # units are the ones with cascade-compounding overshoot;
+            # thermal and renewables have their own commit logic that
+            # should not be curve-fitted to PLEXOS solution.
+            head_coll = db.collection_for_named("Generator", "Storage", "Head Storage")
+            turbine_names: set[str] = set()
+            if head_coll is not None:
+                turbine_oids = {
+                    m.parent_object_id
+                    for m in db.memberships_of(head_coll.collection_id)
+                }
+                turbine_names = {
+                    gen.name
+                    for gen in db.objects_of_class("Generator")
+                    if gen.object_id in turbine_oids
+                }
+            plexos_commit = {k: v for k, v in commit_data.items() if k in turbine_names}
+            logger.info(
+                "extract_generators: GTOPT_USE_PLEXOS_COMMIT=1 — overriding "
+                "pmax_profile with PLEXOS-solved Units Generating for %d "
+                "hydro turbine generators (skipped %d non-turbine)",
+                len(plexos_commit),
+                len(commit_data) - len(plexos_commit),
+            )
+    # ────────────────────────────────────────────────────────────────
+    # Optional: hard-cap pmax to PLEXOS-solved per-period Generation
+    # ────────────────────────────────────────────────────────────────
+    # When ``GTOPT_USE_PLEXOS_GEN_CAP=1`` (or the ``--use-plexos-gen-cap``
+    # CLI flag), pin per-period pmax to PLEXOS's published ``Generation``
+    # (pid 2) from the solution .accdb cache.  This is the TIGHTEST
+    # possible curve-fit: every block, the LP can dispatch at most what
+    # PLEXOS dispatched.  Useful for validating that the LP would match
+    # PLEXOS dispatch exactly if every per-period cap were correctly
+    # propagated, and for diagnosing whether the +71 % hydro overshoot
+    # is purely from missing per-block caps vs structural differences.
+    #
+    # Same restriction as ``--use-plexos-commit``: applied only to
+    # HYDRO TURBINE generators (those with a Head Storage membership)
+    # to avoid the ReserveProvisionLP::flat_map::at defect that fires
+    # when thermal generator gen-cols get elided at zero hours.
+    use_plexos_gen_cap = os.environ.get("GTOPT_USE_PLEXOS_GEN_CAP", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    plexos_gen_cap: dict[str, dict[int, float]] = {}
+    if (
+        use_plexos_gen_cap
+        and bundle.accdb_cache_dir is not None
+        and bundle.accdb_cache_dir.is_dir()
+    ):
+        from .plexos_block_layout import extract_generator_generation_per_period
+
+        gen_data = extract_generator_generation_per_period(bundle.accdb_cache_dir)
+        if gen_data:
+            # Broaden the cap from "turbine-mapped" (77) to ALL hydro
+            # generators (191 on CEN PCP) by PLEXOS category lookup.
+            # Includes the 'zombie' hydros (PEHUENCHE_U1, COLBUN_U1,
+            # PANGUE_U1, ANTUCO_U2, ALFALFAL_2, ...) that exist in the
+            # JSON but lack a Head Storage membership — without the
+            # broader cap they dispatch at nameplate freely and account
+            # for ~250 GWh of the +71 % hydro overshoot (verified
+            # 2026-05-22).  PLEXOS classification uses the
+            # ``Hydro Gen Group A/B/C`` categories in t_category.
+            from .plexos_block_layout import _read_cached_csv
+
+            hydro_names: set[str] = set()
+            cat_data = _read_cached_csv(bundle.accdb_cache_dir, "t_category")
+            obj_data = _read_cached_csv(bundle.accdb_cache_dir, "t_object")
+            cls_data = _read_cached_csv(bundle.accdb_cache_dir, "t_class")
+            if cat_data and obj_data and cls_data:
+                cat_name_map = {c["category_id"]: c["name"] for c in cat_data}
+                gen_cls = next(
+                    (c["class_id"] for c in cls_data if c["name"] == "Generator"),
+                    None,
+                )
+                if gen_cls is not None:
+                    for o in obj_data:
+                        if o.get("class_id") != gen_cls:
+                            continue
+                        cn = cat_name_map.get(o.get("category_id", ""), "")
+                        if "hidr" in cn.lower() or "hydro" in cn.lower():
+                            hydro_names.add(o["name"])
+            plexos_gen_cap = {k: v for k, v in gen_data.items() if k in hydro_names}
+            logger.info(
+                "extract_generators: GTOPT_USE_PLEXOS_GEN_CAP=1 — capping "
+                "pmax_profile to PLEXOS-solved Generation per period for %d "
+                "hydro generators (PLEXOS category 'Hydro*')",
+                len(plexos_gen_cap),
+            )
     pmin_profiles: dict[str, list[float]] = (
         read_long(bundle.csv("Gen_MinStableLevel.csv"))
         if bundle.has("Gen_MinStableLevel.csv")
@@ -867,10 +991,59 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
             # objects, …). Drop them silently.
             continue
         profile = tuple(pmax_profiles.get(gen.name, ()))
+        # PLEXOS-commit override: scale pmax_profile by per-period
+        # Units Generating.  When PLEXOS solved with 0 units committed
+        # at period p, force pmax_profile[p-1] = 0 (gen MUST be off).
+        # Otherwise scale by (units_committed / max_units_observed) so
+        # multi-unit generators (e.g. RUCUE with 2 units) get the
+        # right partial-fleet cap when PLEXOS committed one of two.
+        if plexos_commit and gen.name in plexos_commit:
+            commit = plexos_commit[gen.name]
+            max_units = max(commit.values()) if commit else 0.0
+            if max_units > 0 and profile:
+                # period_id in cache is 1-indexed; profile is 0-indexed
+                new_profile = list(profile)
+                for i in range(len(new_profile)):
+                    units_p = commit.get(i + 1, max_units)
+                    new_profile[i] = new_profile[i] * (units_p / max_units)
+                profile = tuple(new_profile)
+        # PLEXOS-gen-cap override: hard-cap pmax_profile to PLEXOS's
+        # solved per-period Generation.  Curve-fits dispatch envelope
+        # to PLEXOS exactly.  Synthesise a profile from scratch when
+        # Gen_Rating didn't ship one (gtopt then emits per-block
+        # matrix derived purely from PLEXOS solution).
+        if plexos_gen_cap and gen.name in plexos_gen_cap:
+            gen_cap = plexos_gen_cap[gen.name]
+            if gen_cap:
+                horizon_h = max(gen_cap.keys())
+                if not profile or len(profile) < horizon_h:
+                    # Bootstrap a profile of horizon_h hours filled with
+                    # the static max so the override below has something
+                    # to cap.  Use Gen_Rating max if available, else
+                    # PLEXOS Generation peak as the upper envelope.
+                    # The 1e-3 epsilon previously needed to keep gen
+                    # columns alive (ReserveProvisionLP::flat_map::at
+                    # defect on zero-pmax blocks) is no longer required:
+                    # source/reserve_provision_lp.cpp now uses the
+                    # tolerant ``lookup_generation_cols`` (patched
+                    # 2026-05-22), so real zeros are safe.
+                    seed = max(profile) if profile else max(gen_cap.values())
+                    profile = tuple([seed] * horizon_h)
+                new_profile = list(profile)
+                for i in range(len(new_profile)):
+                    cap_p = gen_cap.get(i + 1)
+                    if cap_p is not None:
+                        new_profile[i] = min(new_profile[i], cap_p)
+                profile = tuple(new_profile)
         # Use the max of the per-hour profile as the static pmax (gtopt
         # will multiply by pmax_factor when we emit the profile).
+        # Skip the Max Capacity fallback when an EXPLICIT cap profile is
+        # active (``--use-plexos-gen-cap``): we WANT pmax=0 if PLEXOS
+        # dispatched the unit at 0 every period.  Without this guard
+        # the fallback overrides the cap and the LP free-runs at full
+        # nameplate, defeating the override.
         pmax = max(profile) if profile else 0.0
-        if pmax == 0.0:
+        if pmax == 0.0 and not (plexos_gen_cap and gen.name in plexos_gen_cap):
             # Fallback: XML-only schemas (118-Bus, RTS-96) carry
             # ``Max Capacity`` on the System→Generators collection.
             pmax = db.static_property("Generator", gen.object_id, "Max Capacity")
@@ -1410,6 +1583,25 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         if bundle.has("Hydro_InitialVolume.csv")
         else {}
     )
+    # PLEXOS-solution End Volume (prop 646 at the LAST horizon period)
+    # for every Storage object — used to pin gtopt's ``Reservoir.efin``
+    # so the reservoir trajectory matches PLEXOS exactly instead of
+    # draining to the loose operational floor.  Returns ``None`` when
+    # the bundle has no solution .accdb cache; falls back to the
+    # last-day floor from ``Hydro_MinVolume.csv`` in that case.
+    solution_efin: dict[str, float] = {}
+    if bundle.accdb_cache_dir is not None and bundle.accdb_cache_dir.is_dir():
+        from .plexos_block_layout import extract_storage_solution_efin
+
+        sol = extract_storage_solution_efin(bundle.accdb_cache_dir)
+        if sol:
+            solution_efin = sol
+            logger.info(
+                "extract_reservoirs: pinned efin to PLEXOS-solution "
+                "End Volume for %d storages",
+                len(solution_efin),
+            )
+
     out: list[ReservoirSpec] = []
     skipped_lng = 0
     for storage in db.objects_of_class("Storage"):
@@ -1534,15 +1726,21 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 emin_profile = tuple(emin_per_block)
             if len(set(emax_per_block)) > 1:
                 emax_profile = tuple(emax_per_block)
-        # ── Soft end-of-horizon target ────────────────────────────────
-        # Pull the LAST-day end-of-day floor from the CSV (PLEXOS slot
-        # ``bundle.n_days * 24 - 1``) and emit it as a soft ``efin``
-        # target.  The writer pairs it with an ``efin_cost`` slack so
-        # the LP can fall short at a penalty rather than hit the hard
-        # per-block emin profile we built above (which only clamps the
-        # first-day boundary, by design).
+        # ── End-of-horizon target ─────────────────────────────────────
+        # Preferred: pin to the PLEXOS-solution End Volume (prop 646)
+        # at the last horizon period, so gtopt's reservoir trajectory
+        # matches PLEXOS exactly.  Without this, the LP is allowed to
+        # drain all the way to the operational floor below, which lets
+        # COLBUN/RALCO/CANUTILLAR over-dispatch by thousands of CMD
+        # (and inflates hydro generation by ~80 % vs PLEXOS on the
+        # CEN PCP weekly bundle).
+        # Fallback: the LAST-day end-of-day floor from
+        # ``Hydro_MinVolume.csv`` (PLEXOS slot ``bundle.n_days * 24 - 1``)
+        # — used when no solution .accdb is available.
         efin: float = 0.0
-        if emin_series:
+        if name in solution_efin:
+            efin = float(solution_efin[name])
+        elif emin_series:
             last_day_slot = bundle.n_days * 24 - 1  # 0-indexed
             if 0 <= last_day_slot < len(emin_series):
                 last_day_floor = emin_series[last_day_slot]
@@ -1692,11 +1890,6 @@ def extract_waterways(
     # physical.  Routing to an ocean drain removes that arbitrage
     # path and matches PLP's "spill leaves the basin" convention.
     synthetic_ocean_sources: set[str] = set()
-    # Collected here, returned via the ``synthetic_flow_right_targets``
-    # attribute on the returned tuple.  Each entry is
-    # ``(name_hint, source_junction, target_value_m3s)`` for a
-    # downstream-pinned forced flow we want to soften via FlowRight.
-    synthetic_flow_right_targets: list[tuple[str, str, float]] = []
     # Waterways to drop entirely.  ``Vert_ELTORO`` is the operator-
     # controlled spillway from ELTORO → POLCURA in the Laja cascade,
     # but it is **physically inactive**: ELTORO's reservoir is far too
@@ -1770,29 +1963,132 @@ def extract_waterways(
         if ww.name.startswith("Vert_") and f_name is not None:
             if f_name.endswith("_GNL_INF"):
                 continue
+            # New upstream collapse path (efcf98ac1): when the caller
+            # supplies ``junction_drain_configs_out``, harvest the
+            # Vert_*'s ``Max Flow`` / ``Max Flow Penalty`` into the
+            # source junction's ``drain_capacity`` / ``drain_cost``
+            # and SKIP emitting the Waterway entirely.  This replaces
+            # the synthetic ``<src>_ocean`` Waterway+Junction pair
+            # with a single drain row on the source junction.
             if junction_drain_configs_out is not None:
-                # Read fmin / fmax / fcost up-front (the regular
-                # property-reading block below is skipped via
-                # ``continue``).  Convert PLEXOS sentinels the same
-                # way: ``Max Flow Penalty = -1`` means "feature
-                # disabled" (0 cost on the drain), and an unset /
-                # zero ``Max Flow`` translates to "no capacity cap"
-                # (None on the drain → ``JunctionLP`` uses its
-                # ``DblMax`` default).
                 fmax_raw = db.static_property("Waterway", ww.object_id, "Max Flow")
                 fcost_raw = db.static_property(
                     "Waterway", ww.object_id, "Max Flow Penalty"
                 )
-                cfg = junction_drain_configs_out.setdefault(f_name, {})
-                cfg["drain_capacity"] = (
+                drain_capacity = (
                     float(fmax_raw) if fmax_raw and fmax_raw > 0.0 else None
                 )
-                cfg["drain_cost"] = (
-                    float(fcost_raw) if fcost_raw and fcost_raw > 0.0 else None
-                )
+                drain_cost = float(fcost_raw) if fcost_raw and fcost_raw > 0.0 else None
+                # CLI overrides for the spillway cost — apply to the
+                # collapsed Junction.drain_cost (same effect as the
+                # legacy Vert_* fcost override below, but at the
+                # post-collapse representation).  Used to push water
+                # back through downstream turbines when the LP prefers
+                # to drain via Vert→ocean instead of routing through
+                # the cascade (CEN PCP weekly bundle: gtopt under-flows
+                # Maule turbines because the Bíobío drain at $3.6/m³
+                # is cheaper than routing through PEHUENCHE/COLBUN/etc.).
+                import os as _os
+
+                _ov = _os.environ.get("GTOPT_SPILL_FCOST")
+                _sc = _os.environ.get("GTOPT_SPILL_FCOST_SCALE")
+                if _ov is not None:
+                    try:
+                        drain_cost = float(_ov)
+                    except ValueError:
+                        pass
+                if _sc is not None and drain_cost is not None:
+                    try:
+                        drain_cost = drain_cost * float(_sc)
+                    except ValueError:
+                        pass
+                cfg = junction_drain_configs_out.setdefault(f_name, {})
+                cfg["drain_capacity"] = drain_capacity
+                cfg["drain_cost"] = drain_cost
                 continue  # skip Waterway emission entirely
-            t_name = f"{f_name}_ocean"
-            synthetic_ocean_sources.add(f_name)
+
+            # ╔═════════════════════════════════════════════════════════╗
+            # ║ Vert routing mode — WHY this is an option              ║
+            # ║                                                        ║
+            # ║ THIS OPTION EXISTS SOLELY TO REPRODUCE A STRANGE       ║
+            # ║ PLEXOS BEHAVIOUR THAT IS NOT NATURAL TO OUR LP.        ║
+            # ╚═════════════════════════════════════════════════════════╝
+            #
+            # **The strange PLEXOS behaviour we are trying to reproduce:**
+            #
+            # On the CEN PCP weekly bundle PLEXOS spills 7,479 m³/s·h
+            # of water at MID-CASCADE Vert arcs (Vert_LAJA_I = 2,316;
+            # Vert_RUCUE = 1,059; Vert_B_C_Isla = 2,858; Vert_B_M_Isla
+            # = 910; Vert_ANTUCO = 175; Vert_SANIGNACIO = 160) — water
+            # that, if it kept flowing through the cascade, could be
+            # turbined by 1–8 downstream stations and produce ~78 GWh
+            # of "free" hydro generation.  PLEXOS chooses to spill
+            # this water mid-cascade despite zero direct cost.
+            #
+            # From a pure-LP perspective this is ANOMALOUS: hydro has
+            # no marginal cost in either model, so the optimisation
+            # should always prefer turbining over spilling.  The
+            # PLEXOS choice is driven by features we do NOT yet
+            # replicate (per-block ``Min Generation`` / ``Max
+            # Generation`` published per period, unit-commitment
+            # decisions, multi-band Water Value on storage, must-run
+            # status).  Until those are wired in, the two converters
+            # see fundamentally different optimisation problems and
+            # the LP can't NATURALLY reproduce PLEXOS's mid-cascade
+            # spillage.
+            #
+            # This routing toggle is therefore a DIAGNOSTIC SWITCH —
+            # not a physically motivated modelling choice.  We pick
+            # whichever wiring produces dispatch CLOSER to PLEXOS on
+            # the reference bundle, accepting that "closer to PLEXOS"
+            # may mean "less physically accurate" until the missing
+            # pricing signals land.
+            #
+            # **What this option does:**
+            #
+            # ``GTOPT_VERT_ROUTING`` (or the ``--vert-routing`` CLI
+            # flag on plexos2gtopt) selects the spillway destination
+            # for every ``Vert_*`` waterway:
+            #
+            #   ocean    (default) — every Vert_* → <source>_ocean
+            #            drain.  Spillage LEAVES the topology
+            #            entirely; the LP loses the water
+            #            permanently.  Matches the legacy
+            #            plexos2gtopt behaviour and is closer to
+            #            PLEXOS dispatch on the CEN PCP weekly
+            #            bundle (gtopt 503 GWh vs PLEXOS 286 — both
+            #            overdispatch hydro, but ocean is the
+            #            tighter of the two: with cascade routing
+            #            the LP would extract even more MWh from
+            #            recycled spillage).
+            #
+            #   cascade  — keep the PLEXOS-published downstream
+            #            target (Tail Storage) so spillage feeds the
+            #            next cascade junction, where it CAN be
+            #            re-turbined by downstream stations.  This
+            #            mirrors plp2gtopt's ``_ver`` routing for
+            #            centrals with non-zero PLP ``ser_ver`` and
+            #            is the topologically correct PLEXOS shape.
+            #            BUT in our LP it produces MORE hydro
+            #            generation than ocean mode (every cumec
+            #            spilled gets turbined again downstream),
+            #            making the gap to PLEXOS worse, not better.
+            #            Useful for diagnostics and for the day we
+            #            wire in per-block pmax / water values that
+            #            would naturally suppress the unwanted
+            #            recycling.  Falls back to <source>_ocean
+            #            when PLEXOS publishes no downstream target
+            #            (terminal reservoirs like LMAULE, COLBUN,
+            #            RAPEL — these always go to ocean).
+            import os
+
+            _routing = os.environ.get("GTOPT_VERT_ROUTING", "ocean").lower()
+            if _routing == "cascade" and t_name is not None:
+                # Keep the PLEXOS-published junction_b — no override.
+                pass
+            else:
+                t_name = f"{f_name}_ocean"
+                synthetic_ocean_sources.add(f_name)
         if f_name is None or t_name is None:
             logger.debug(
                 "waterway %s missing endpoint(s) (from=%s to=%s); skipping",
@@ -1810,49 +2106,70 @@ def extract_waterways(
         # high-cost arcs.
         fcost_raw = db.static_property("Waterway", ww.object_id, "Max Flow Penalty")
         fcost = fcost_raw if fcost_raw and fcost_raw > 0.0 else 0.0
-        # CONVERT to FlowRight: the truly DIVERSION-shaped forced-flow
-        # waterways (``Caudal_Eco_*`` / ``Riego_*`` / ``Ext_*``) plus
-        # ``Filt_Laja`` (a large gravity filtration that ELTORO cannot
-        # always physically afford — it drains the dam over a 1-day
-        # horizon, so we soften it with a small shortfall penalty so
-        # the LP can choose to deliver less when ELTORO is running
-        # tight; the bypass column on the FlowRight then accepts the
-        # delivered portion at POLCURA).  Other ``Filt_*`` (e.g.
-        # ``Filt_Inv`` at 13 m³/s, ``Filt_Colb`` at 2.4 m³/s) stay as
-        # Waterways with pinned ``fmin = fmax`` — they're small enough
-        # that the LP can absorb them without infeasibility.
+        # Vert_* spill cost overrides via env vars (quick CLI for
+        # turbine-vs-spill tradeoff tuning):
+        #   GTOPT_SPILL_FCOST=<value>       absolute override
+        #   GTOPT_SPILL_FCOST_SCALE=<value> multiplicative scale on PLEXOS value
+        # Applied only to Vert_* spillway waterways.
+        if ww.name.startswith("Vert_"):
+            import os
+
+            _override = os.environ.get("GTOPT_SPILL_FCOST")
+            _scale = os.environ.get("GTOPT_SPILL_FCOST_SCALE")
+            if _override is not None:
+                try:
+                    fcost = float(_override)
+                except ValueError:
+                    pass
+            if _scale is not None:
+                try:
+                    fcost *= float(_scale)
+                except ValueError:
+                    pass
+        # Pin every forced-flow waterway as ``fmin = fmax = forced``
+        # so the LP physically routes the PLEXOS-mandated flow from
+        # upstream to downstream.  Applies uniformly to:
+        #   * Filt_* (filtration / seepage)
+        #   * Caudal_Eco_* (ecological flow obligations)
+        #   * Riego_* (irrigation diversions — water lost to
+        #     agriculture, NOT turbined)
+        #   * Ext_* (external diversions)
+        # When the CSV column varies across the week (e.g. B_Maule:
+        # 11.63 → 8.45 → 9.30 m³/s, or Riego_SANIGNACIO: 29.6 for
+        # 157 hours + 0 for 11 hours where irrigation pauses), keep
+        # the FULL per-hour series so the writer emits a per-block
+        # matrix; the zeros are real "no obligation this hour"
+        # semantics.  Pinning to ``max(forced)`` uniformly was the
+        # source of phantom-water generation at B_Maule and would
+        # over-deliver on Riego_SANIGNACIO by ~7 %.
+        #
+        # Earlier this code-path converted Caudal_Eco_/Riego_/Ext_/
+        # Filt_Laja to soft FlowRights to avoid LP infeasibility when
+        # ELTORO/COLBUN couldn't physically afford the obligation over
+        # the operational floor.  With ``Reservoir.efin`` now pinned to
+        # the PLEXOS-solution End Volume (``solution_efin`` lookup
+        # above), reservoirs match PLEXOS's trajectory exactly, so
+        # the obligation IS feasible and the hard pin is the right
+        # choice.  Without it ~28 000 m³/s·h that PLEXOS routes to
+        # irrigation / ecology gets free-routed through penstocks in
+        # gtopt, inflating hydro generation by ~60 % on the CEN PCP
+        # weekly bundle (2026-05-21 measurement: 459 GWh gtopt vs
+        # 286 GWh PLEXOS).
         forced_target = max(forced) if has_forced else 0.0
-        FORCED_FR_PREFIXES = ("Caudal_Eco_", "Riego_", "Ext_")
-        FORCED_FR_EXACT = {"Filt_Laja"}
-        convert_to_flow_right = (
-            has_forced
-            and forced_target > 0.0
-            and (ww.name.startswith(FORCED_FR_PREFIXES) or ww.name in FORCED_FR_EXACT)
-        )
-        if convert_to_flow_right:
-            pinned_count += 1
-            if f_name is not None:
-                synthetic_flow_right_targets.append((ww.name, f_name, forced_target))
-                if forced_targets_out is not None:
-                    forced_targets_out.append((ww.name, f_name, forced_target))
-            # Skip emitting the Waterway — the FlowRight handles the
-            # path inline.
-            continue
-        # Filt_* (and any other forced-flow that isn't a
-        # diversion-shape): pin ``fmin = fmax = forced`` so the LP
-        # physically delivers the seepage from upstream to
-        # downstream.  When the CSV column varies across the week
-        # (e.g. ``B_Maule``: 11.63 → 8.45 → 9.30 m³/s tracking the
-        # natural inflow), keep the FULL per-hour series so the
-        # writer emits a per-block matrix.  Pinning to ``max(forced)``
-        # uniformly was the source of phantom-water generation at
-        # B_Maule: the LP had to dispatch upstream turbines through
-        # ``penstock_LOMA_ALTA`` to maintain the 11.63 m³/s outflow
-        # on hours where natural inflow was only 8.45.
         forced_profile: tuple[float, ...] = ()
+        # Bypass waterways (``B_<reservoir>``): PLEXOS routes water
+        # ABOVE the published Min Flow when surplus is available
+        # (verified 2026-05-22 on the CEN PCP weekly bundle:
+        # ``B_Maule`` carries 12,501 m³/s·h in PLEXOS vs 1,553 if
+        # pinned to ``Hydro_WaterFlows.csv``).  Emit the CSV value as
+        # ``fmin`` only — leave ``fmax`` unbounded so the LP can route
+        # the extra flow.  Other forced-flow waterways
+        # (Riego_/Caudal_Eco_/Filt_/Ext_) ARE pinned to fmin = fmax =
+        # csv because their water IS removed at the published rate.
+        is_bypass = ww.name.startswith("B_")
         if has_forced and forced_target > 0.0:
             fmin = forced_target
-            fmax = forced_target
+            fmax = 0.0 if is_bypass else forced_target
             pinned_count += 1
             if min(forced) != max(forced):
                 forced_profile = tuple(forced)
@@ -1866,6 +2183,7 @@ def extract_waterways(
                 fmax=fmax,
                 forced_flow_profile=forced_profile,
                 fcost=fcost,
+                pin_fmax_from_profile=not is_bypass,
             )
         )
     if pinned_count:
@@ -2729,10 +3047,12 @@ def _synthesise_pinned_flow_rights(
     delivery requirement priced at the unserved cost instead of an
     infeasibility when upstream is short.
     """
-    # User-pinned literal fcost — see project's irrigation default.
-    # Emitted as-is on each synthesised FlowRight (no internal
-    # ×3600 conversion).
-    fcost_per_cumec_hour = 10.0
+    # FlowRight unserved cost — high enough that the LP only
+    # shortchanges the obligation when no feasible alternative
+    # exists.  Previously 10 $/(m³/s)·h; bumped to 1000 so
+    # irrigation / ecological-flow shortfalls cost ~100× more
+    # than thermal generation and the LP avoids them by default.
+    fcost_per_cumec_hour = 1000.0
     out: list[FlowRightSpec] = []
     for name, source_junction, target in forced_waterway_targets:
         if source_junction not in known_junction_names:
@@ -3747,6 +4067,16 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         forced_targets_out=forced_waterway_targets,
         junction_drain_configs_out=junction_drain_configs,
     )
+    # GTOPT_RESERVOIR_SPILL=1 (--reservoir-spillway) shifts spillage
+    # from the Junction.drain collapse onto Reservoir.spillway_cost=0.
+    # The actual filtering of ``junction_drain_configs`` happens
+    # AFTER reservoir demotion below (see the matching block inside
+    # the ``if pondage_names:`` clause) — at that point we know which
+    # reservoirs survived demotion and can selectively keep drain on
+    # the demoted junctions (which need it for cascade pass-through)
+    # while removing it from real reservoirs that now use spillway_cost.
+    import os as _os_rs  # noqa: F401  used in the post-demotion block
+
     # Two distinct "extra junction" sources:
     #   1. PLEXOS Storage objects that ``extract_reservoirs``
     #      filtered out as pass-through nodes (B_*, Post_*, ISLA,
@@ -3877,13 +4207,26 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     # uses them only as a junction-name string for the synthetic
     # ``penstock_*`` waterway's ``junction_b``.  Waterway endpoint
     # references resolve through the Junction list — also unchanged.
-    main_reservoir_refs = frozenset(
-        t.reservoir_name for t in turbines if t.reservoir_name
-    )
-
     def _is_pure_pondage(r: ReservoirSpec) -> bool:
+        # A reservoir qualifies for Junction-only demotion when its
+        # storage envelope is entirely zero AND nobody attaches a
+        # water-value / penalty / efin target to it.  We DO allow
+        # demotion when the reservoir is still a turbine
+        # ``main_reservoir`` reference, because the writer will
+        # synthesise a Junction with the same name (extract_junctions
+        # adds ``extra_junction_names`` below) and the turbine's
+        # head_storage lookup resolves through that Junction.  This
+        # cleans up degenerate run-of-river plants (ISLA, LA_MINA,
+        # LAJA_I, LOMAALTA, RUCUE, QUILLECO, CURILLINQUE,
+        # SANIGNACIO on CEN PCP) that currently emit a dummy
+        # ``vol[t] = 0`` reservoir balance row per block — pure LP
+        # overhead with no information.  ``eini = 0`` is the
+        # discriminator: real reservoirs with any initial volume
+        # (PANGUE 773, MACHICURA 152, POLCURA 7) stay Reservoirs even
+        # if their other fields are zero.
         return (
-            r.emin == 0.0
+            r.eini == 0.0
+            and r.emin == 0.0
             and r.emax == 0.0
             and r.efin == 0.0
             and r.water_value == 0.0
@@ -3892,7 +4235,6 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             and not r.emin_profile
             and not r.emax_profile
             and not r.inflow_profile
-            and r.name not in main_reservoir_refs
         )
 
     pondage_names = tuple(sorted(r.name for r in reservoirs if _is_pure_pondage(r)))
@@ -3908,8 +4250,32 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         extra_junction_names = tuple(
             sorted(set(extra_junction_names).union(pondage_names))
         )
+        # Re-apply GTOPT_RESERVOIR_SPILL: discard Junction.drain for
+        # the FINAL real reservoir set (post-demotion).  The earlier
+        # discard inside this block was overly broad — it removed
+        # drain from all reservoirs including the to-be-demoted ones,
+        # making the LP infeasible at demoted junctions that need the
+        # drain to dispose of cascade water arriving when turbines are
+        # capped.  Here we know the survivors.
+        if _os_rs.environ.get("GTOPT_RESERVOIR_SPILL", "0").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+            real_reservoir_names = {r.name for r in reservoirs}
+            # ``junction_drain_configs`` was already touched by the
+            # earlier block — restore it from PLEXOS and re-filter
+            # against the post-demotion set.  Simplest: rebuild from
+            # nothing here using the same logic.
+            # Actually we just need to ensure none of the survivors
+            # have drain.  The demoted junctions keep drain.
+            for n in list(junction_drain_configs.keys()):
+                if n in real_reservoir_names:
+                    junction_drain_configs.pop(n, None)
         junctions = extract_junctions(
-            reservoirs, extra_junction_names=extra_junction_names
+            reservoirs,
+            extra_junction_names=extra_junction_names,
+            drain_configs=junction_drain_configs or None,
         )
         known_junction_names = frozenset(j.name for j in junctions)
 
