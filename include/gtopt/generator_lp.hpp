@@ -155,6 +155,30 @@ public:
     return heat_rate_slack_cols_;
   }
 
+  /// `[segment_index] -> STBIndexHolder<RowIndex>` of piecewise kink
+  /// rows.  Same shape as ``heat_rate_slack_cols_``.  Exposed so
+  /// ``CommitmentLP::add_to_lp`` can retro-fit the rows with the
+  /// ``-pmax_segs[k-1] · u`` term that gates the segment by the
+  /// commitment binary — the refactor that moved piecewise off
+  /// Commitment dropped that u-link, producing an over-loose LP-relax
+  /// (fractional ``u`` could dispatch full piecewise capacity).  See
+  /// ``commitment_lp.cpp`` "u-gate piecewise heat-rate kink rows".
+  [[nodiscard]] const auto& heat_rate_kink_rows() const noexcept
+  {
+    return heat_rate_kink_rows_;
+  }
+
+  /// Per-segment cumulative breakpoints (cumulative MW) used by the
+  /// u-gating retro-fit in ``CommitmentLP::add_to_lp``.  Mirrors
+  /// ``Generator.pmax_segments[0..K-2]`` (the kink RHS values) — the
+  /// generator-side accessor avoids forcing CommitmentLP to re-read
+  /// the OptTBRealSched and re-resolve the per-block sample.  Empty
+  /// when no segments are configured.
+  [[nodiscard]] const auto& heat_rate_kink_breakpoints() const noexcept
+  {
+    return heat_rate_kink_breakpoints_;
+  }
+
 private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;
@@ -169,6 +193,15 @@ private:
   /// columns.  Outer vector has size `K - 1` where `K` is the number
   /// of heat-rate segments.  Empty when no segments are configured.
   std::vector<STBIndexHolder<ColIndex>> heat_rate_slack_cols_;
+  /// Companion to ``heat_rate_slack_cols_``: the row indices of the
+  /// kink rows ``p - δ_k ≤ pmax_segs[k-1]``.  CommitmentLP retrieves
+  /// these to add the ``- pmax_segs[k-1] · u`` term that gates the
+  /// segment by the commit binary.
+  std::vector<STBIndexHolder<RowIndex>> heat_rate_kink_rows_;
+  /// Per-segment breakpoint values used as the RHS of the kink rows
+  /// at emission time.  CommitmentLP reads this to compute the
+  /// retro-fit coefficient ``- pmax_segs[k-1]`` on ``ucol``.
+  std::vector<double> heat_rate_kink_breakpoints_;
 
   /// Cached per-block cost-stack components (physical $/MWh, source-
   /// schedule path — Path A in the design doc).  Populated during

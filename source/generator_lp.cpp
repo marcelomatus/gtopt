@@ -278,6 +278,20 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // in validate_planning.
     if (has_pw && hr_segs.size() > 1) {
       const auto K = hr_segs.size();
+      // Resize the row / breakpoint trackers once per (gen, stage,
+      // block) entry — CommitmentLP retro-fits the kink rows with
+      // the ``-pmax_segs[k-1] · u`` term so the LP-relax tightens as
+      // ``u`` drops (without this, the piecewise stays at full
+      // capacity even when ``u`` is fractional — the regression that
+      // accompanied the move of piecewise from Commitment to
+      // Generator).
+      if (heat_rate_kink_rows_.size() < K - 1) {
+        heat_rate_kink_rows_.resize(K - 1);
+      }
+      if (heat_rate_kink_breakpoints_.size() < K - 1) {
+        heat_rate_kink_breakpoints_.assign(pmax_segs_arr.begin(),
+                                           pmax_segs_arr.begin() + (K - 1));
+      }
       for (std::size_t k = 1; k < K; ++k) {
         const double marginal_slope = hr_segs[k] - hr_segs[k - 1];
         const double slack_cost_per_mwh = stage_fuel_price * marginal_slope;
@@ -312,11 +326,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
                 .less_equal(pmax_segs_arr[k - 1]);
         kink_row[gcol] = 1.0;
         kink_row[s_col] = -1.0;
-        std::ignore = lp.add_row(std::move(kink_row));
+        const auto krow = lp.add_row(std::move(kink_row));
 
         // Stash the slack col per segment index for output / cap
         // refactoring later.
         heat_rate_slack_cols_[k - 1][st_key][buid] = s_col;
+        // Stash the kink row index so CommitmentLP can retro-fit the
+        // u-gating coefficient (see commitment_lp.cpp).
+        heat_rate_kink_rows_[k - 1][st_key][buid] = krow;
       }
     }
   }

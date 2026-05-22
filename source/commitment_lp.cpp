@@ -495,6 +495,63 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     first_block = false;
   }
 
+  // ── u-gate piecewise heat-rate kink rows ──
+  //
+  // ``GeneratorLP::add_to_lp`` emits the per-segment piecewise kink
+  // rows as
+  //
+  //     p − δ_k ≤ pmax_segs[k-1]               (constant RHS)
+  //
+  // independent of any Commitment.  For a renewable-only Generator
+  // (no Commitment) that is correct: the breakpoint is a physical
+  // capacity threshold.  For a Generator gated by a Commitment, the
+  // constant breakpoint over-relaxes the LP — with fractional ``u``
+  // the dispatch ``p`` can still climb to ``pmax × u`` (from the
+  // C2 upper row) and pay only marginal-segment cost, even though
+  // physically the gen is "half on" and shouldn't have access to
+  // the cheap segments at full width.  The pre-``refactor(commitment)``
+  // code put piecewise on Commitment and explicitly gated each
+  // segment by ``u``; the refactor moved piecewise to Generator and
+  // dropped that gating, producing a looser LP-relax that drives
+  // fractional ``u`` in cases where the integer optimum has ``u=1``
+  // (22 UC.jl golden / real-case tests broke).
+  //
+  // Retro-fit: change every kink row from
+  //
+  //     p − δ_k ≤ pmax_segs[k-1]
+  //
+  // to
+  //
+  //     p − δ_k − pmax_segs[k-1] · u ≤ 0
+  //
+  // i.e. add the ``-pmax_segs[k-1]`` coefficient on ``ucol`` and
+  // reset RHS to 0.  At ``u=1`` the row is algebraically identical
+  // (renewable-only case unaffected because no Commitment runs
+  // this block).  At ``u<1`` the segment becomes proportionally
+  // tighter, restoring the pre-refactor LP-relax behaviour.
+  if (!block_ucol.empty()) {
+    const auto& kink_rows = generator_lp.heat_rate_kink_rows();
+    const auto& breakpoints = generator_lp.heat_rate_kink_breakpoints();
+    if (!kink_rows.empty() && kink_rows.size() == breakpoints.size()) {
+      for (size_t k = 0; k < kink_rows.size(); ++k) {
+        const auto kit = kink_rows[k].find(st_key);
+        if (kit == kink_rows[k].end()) {
+          continue;
+        }
+        const double breakpoint_k = breakpoints[k];
+        for (const auto& [buid, krow] : kit->second) {
+          const auto ucol_it = block_ucol.find(buid);
+          if (ucol_it == block_ucol.end()) {
+            continue;
+          }
+          auto& row = lp.row_at(krow);
+          row[ucol_it->second] = -breakpoint_k;
+          row.uppb = 0.0;
+        }
+      }
+    }
+  }
+
   // ── Reserve-UC integration ──
   // Modify existing reserve provision headroom rows to be conditional on u.
   // Up-provision:   g + r_up ≤ Pmax      →  g + r_up - Pmax·u ≤ 0
