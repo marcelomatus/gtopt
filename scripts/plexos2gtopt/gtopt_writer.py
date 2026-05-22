@@ -766,12 +766,23 @@ def build_reservoir_array(
 def build_junction_array(
     junctions: tuple[JunctionSpec, ...],
 ) -> list[dict[str, Any]]:
-    """One Junction per :class:`JunctionSpec`."""
+    """One Junction per :class:`JunctionSpec`.
+
+    Emits the new ``Junction.drain_capacity`` and ``Junction.drain_cost``
+    fields when the JunctionSpec carries values for them (set by
+    ``extract_waterways`` when collapsing a ``Vert_<src>`` spillway onto
+    the source storage's own junction).  Both are omitted when ``None``
+    so gtopt's LP-side defaults (``DblMax`` / ``0.0``) apply.
+    """
     out: list[dict[str, Any]] = []
     for i, j in enumerate(junctions):
         entry: dict[str, Any] = {"uid": i + 1, "name": j.name}
         if j.drain:
             entry["drain"] = True
+        if j.drain_capacity is not None:
+            entry["drain_capacity"] = j.drain_capacity
+        if j.drain_cost is not None:
+            entry["drain_cost"] = j.drain_cost
         out.append(entry)
     return out
 

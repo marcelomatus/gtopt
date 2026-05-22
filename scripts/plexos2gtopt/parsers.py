@@ -1645,6 +1645,7 @@ def extract_waterways(
     bundle: PlexosBundle | None = None,
     forced_targets_out: list[tuple[str, str, float]] | None = None,
     ocean_sources_out: set[str] | None = None,
+    junction_drain_configs_out: dict[str, dict[str, float | None]] | None = None,
 ) -> tuple[WaterwaySpec, ...]:
     """One :class:`WaterwaySpec` per PLEXOS Waterway object.
 
@@ -1738,16 +1739,28 @@ def extract_waterways(
         if t_name is None and f_name is not None and has_forced:
             t_name = f"{ww.name}_sink"
             synthetic_sinks.append(t_name)
-        # Redirect every operator-controlled spillway to a per-source
-        # ocean drain.  PLEXOS routes ``Vert_PANGUE`` to ANGOSTURA
-        # (next reservoir), but in the LP that lets the spillway
-        # column relieve pressure on the downstream storage balance
-        # — an arbitrage path PLP doesn't have (PLP's ``_ver`` arcs
-        # land on a ``<central>_ocean`` drain when the source is
-        # vrebemb-as-sink, otherwise the next central explicitly).
-        # We use the ocean drain uniformly here so spilling never
-        # benefits a downstream reservoir; preserves mass leaving
-        # the basin without coupling the two storage rows.
+        # Operator-controlled spillways (``Vert_*``).
+        #
+        # PLEXOS routes ``Vert_PANGUE`` to ANGOSTURA (the next reservoir
+        # in the cascade), but letting the LP route spillway flow into
+        # the downstream storage row creates an arbitrage path —
+        # spilling one reservoir relieves pressure on the next, which
+        # is not physical.
+        #
+        # When ``junction_drain_configs_out`` is provided, we COLLAPSE
+        # the legacy ``Vert_<src>`` Waterway + synthetic ``<src>_ocean``
+        # Junction pair into a single ``Junction{drain: true,
+        # drain_capacity, drain_cost}`` row on the source storage's
+        # junction.  ``JunctionLP::add_to_lp`` builds the per-block
+        # drain column with the same ``uppb`` and ``cost`` the
+        # Waterway used to carry on its ``fmax`` / ``fcost`` — same
+        # LP, one less Waterway and one less Junction per terminal
+        # spillway.  Mirrors the plp2gtopt collapse that landed in
+        # commit 3d977d57a.
+        #
+        # When the caller doesn't pass the collector (legacy callers /
+        # unit tests), keep the old ocean-redirect path so behaviour is
+        # backward compatible.
         #
         # ``Vert_*_GNL_INF`` spillways are dropped entirely — their
         # source Storage is an LNG gas-import accounting artifact
@@ -1757,6 +1770,27 @@ def extract_waterways(
         if ww.name.startswith("Vert_") and f_name is not None:
             if f_name.endswith("_GNL_INF"):
                 continue
+            if junction_drain_configs_out is not None:
+                # Read fmin / fmax / fcost up-front (the regular
+                # property-reading block below is skipped via
+                # ``continue``).  Convert PLEXOS sentinels the same
+                # way: ``Max Flow Penalty = -1`` means "feature
+                # disabled" (0 cost on the drain), and an unset /
+                # zero ``Max Flow`` translates to "no capacity cap"
+                # (None on the drain → ``JunctionLP`` uses its
+                # ``DblMax`` default).
+                fmax_raw = db.static_property("Waterway", ww.object_id, "Max Flow")
+                fcost_raw = db.static_property(
+                    "Waterway", ww.object_id, "Max Flow Penalty"
+                )
+                cfg = junction_drain_configs_out.setdefault(f_name, {})
+                cfg["drain_capacity"] = (
+                    float(fmax_raw) if fmax_raw and fmax_raw > 0.0 else None
+                )
+                cfg["drain_cost"] = (
+                    float(fcost_raw) if fcost_raw and fcost_raw > 0.0 else None
+                )
+                continue  # skip Waterway emission entirely
             t_name = f"{f_name}_ocean"
             synthetic_ocean_sources.add(f_name)
         if f_name is None or t_name is None:
@@ -1859,6 +1893,15 @@ def extract_waterways(
             len(synthetic_ocean_sources),
             ", ".join(sorted(synthetic_ocean_sources)),
         )
+    if junction_drain_configs_out:
+        logger.info(
+            "extract_waterways: collapsed %d Vert_* spillway(s) onto "
+            "Junction.drain_capacity / drain_cost on the source storage's "
+            "junction (saves 1 Waterway + 1 ocean Junction per spillway); "
+            "sources: %s",
+            len(junction_drain_configs_out),
+            ", ".join(sorted(junction_drain_configs_out.keys())),
+        )
     if ocean_sources_out is not None:
         ocean_sources_out.update(synthetic_ocean_sources)
     return tuple(out)
@@ -1885,6 +1928,7 @@ def _is_sink_junction(name: str) -> bool:
 def extract_junctions(
     reservoirs: tuple[ReservoirSpec, ...],
     extra_junction_names: tuple[str, ...] = (),
+    drain_configs: dict[str, dict[str, float | None]] | None = None,
 ) -> tuple[JunctionSpec, ...]:
     """Synthesise one Junction per Reservoir + per extra junction name.
 
@@ -1909,15 +1953,36 @@ def extract_junctions(
     (the zero-storage Reservoir co-located at the sink junction
     can never accumulate, but the junction's balance constraint
     still has to absorb the inflow).
+
+    ``drain_configs`` maps ``junction_name → {'drain_capacity',
+    'drain_cost'}`` for junctions that should carry an explicit
+    bounded drain (collapsed from a ``Vert_*`` spillway arc).
+    Sets ``drain = True`` plus the new ``Junction.drain_capacity`` /
+    ``drain_cost`` fields on the matching junction.
     """
+    drain_configs = drain_configs or {}
+
+    def _build(name: str, *, sink: bool) -> JunctionSpec:
+        cfg = drain_configs.get(name)
+        if cfg is None:
+            return JunctionSpec(name=name, drain=sink)
+        # A ``Vert_*`` collapse always implies ``drain = True``; combine
+        # with any pre-existing ``sink`` flag for robustness.
+        return JunctionSpec(
+            name=name,
+            drain=True,
+            drain_capacity=cfg.get("drain_capacity"),
+            drain_cost=cfg.get("drain_cost"),
+        )
+
     seen = {r.name for r in reservoirs}
     out: list[JunctionSpec] = [
-        JunctionSpec(name=r.name, drain=_is_sink_junction(r.name)) for r in reservoirs
+        _build(r.name, sink=_is_sink_junction(r.name)) for r in reservoirs
     ]
     for name in extra_junction_names:
         if name and name not in seen:
             seen.add(name)
-            out.append(JunctionSpec(name=name, drain=_is_sink_junction(name)))
+            out.append(_build(name, sink=_is_sink_junction(name)))
     return tuple(out)
 
 
@@ -3668,8 +3733,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     # Reservoir would just add a redundant balance equation and an
     # unconstrained ``vol_t`` variable.
     forced_waterway_targets: list[tuple[str, str, float]] = []
+    # Drain configs harvested from ``Vert_*`` spillway arcs that the
+    # extractor collapses onto the source storage's junction instead of
+    # emitting a ``<src>_ocean`` Junction + connecting Waterway.  Maps
+    # ``source_storage_name → {'drain_capacity', 'drain_cost'}``;
+    # consumed by ``extract_junctions`` (extra_drain_configs kwarg)
+    # below to set the new ``Junction.drain_capacity`` / ``drain_cost``
+    # fields on the corresponding junction.
+    junction_drain_configs: dict[str, dict[str, float | None]] = {}
     waterways = extract_waterways(
-        db, bundle, forced_targets_out=forced_waterway_targets
+        db,
+        bundle,
+        forced_targets_out=forced_waterway_targets,
+        junction_drain_configs_out=junction_drain_configs,
     )
     # Two distinct "extra junction" sources:
     #   1. PLEXOS Storage objects that ``extract_reservoirs``
@@ -3734,7 +3810,11 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     extra_junction_names = tuple(
         sorted(dropped_passthrough.union(extra_sink_junctions))
     )
-    junctions = extract_junctions(reservoirs, extra_junction_names=extra_junction_names)
+    junctions = extract_junctions(
+        reservoirs,
+        extra_junction_names=extra_junction_names,
+        drain_configs=junction_drain_configs or None,
+    )
     known_junction_names = frozenset(j.name for j in junctions)
     reserves = extract_reserves(db, bundle)
     generators = extract_generators(db, bundle)

@@ -304,10 +304,20 @@ class JunctionSpec:
     Waterways (edges), with Reservoirs attached at junctions. PLEXOS
     keeps Storage and topology fused — we explode them so each Storage
     becomes one Junction plus one Reservoir co-located there.
+
+    ``drain_capacity`` and ``drain_cost`` are optional and carry the
+    ``Waterway.Max Flow`` / ``Waterway.Max Flow Penalty`` from PLEXOS's
+    ``Vert_<src>`` spillway arc when we collapse the legacy
+    ``Vert_<src> → <src>_ocean`` (Waterway + synthetic ocean Junction)
+    encoding into a single ``Junction{drain: true, drain_capacity,
+    drain_cost}`` row on the source junction.  Both are optional —
+    when None the LP-side default (``DblMax`` / ``0.0``) applies.
     """
 
     name: str
     drain: bool = False  # True for terminal cascades (water leaves the system)
+    drain_capacity: float | None = None
+    drain_cost: float | None = None
 
 
 @dataclass(frozen=True)
