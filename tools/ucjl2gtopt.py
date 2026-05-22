@@ -751,40 +751,11 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 pmax_segs, hr_segs = [], []
 
         gen_uid += 1
-        # UC.jl's ``Production cost curve (MW)[0]`` (which we feed
-        # into ``pmin``) is the WHEN-COMMITTED floor: dispatch is
-        # required to be ≥ pmin only when the unit is committed (u =
-        # 1).  Since the ``refactor(commitment): separate dispatch-
-        # cost concerns + DecisionVariable`` (commit 16fbdde45) split
-        # the field into two:
-        #
-        #   * ``Generator.pmin``  = always-on floor (column lower bound)
-        #   * ``Commitment.pmin`` = when-committed floor (row gated by u)
-        #
-        # we must emit the UC.jl pmin onto the COMMITMENT entry, not
-        # the Generator entry.  Otherwise the generator column gets
-        # ``lowb = pmin > 0`` and forces dispatch even when the unit
-        # is uncommitted — which is exactly the regression that broke
-        # 22 of the UC.jl golden cross-checks (e.g. ``GenX`` pmin =
-        # 100 became a hard always-on floor instead of a soft commit-
-        # gated floor; the MIP then over-commits to satisfy the
-        # always-on constraint and the dispatch cost balloons).
-        #
-        # Profiled (renewable) and candidate (TEP, expmod ≥ 0) gens
-        # carry no Commitment, so for them the UC.jl pmin stays on
-        # Generator (where the LP treats it as a true always-on
-        # floor — matching UC.jl's renewable / candidate semantics).
-        commitment_pmin = 0.0
-        emit_gen_pmin = pmin
-        if gtype == "thermal" and not is_candidate and profile_ts is None:
-            commitment_pmin = pmin
-            emit_gen_pmin = 0.0
-
         gen_entry = {
             "uid": gen_uid,
             "name": gname,
             "bus": bus_uid,
-            "pmin": round(emit_gen_pmin, 6),
+            "pmin": round(pmin, 6),
             "pmax": round(pmax, 6),
             "gcost": round(gcost, 6),
             "capacity": round(pmax, 6),
@@ -844,13 +815,6 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "generator": gname,
             "relax": bool(relax_commitment),
         }
-        # ``Commitment.pmin`` carries UC.jl's when-committed floor.
-        # See the ``commitment_pmin`` derivation above for why this
-        # field belongs on Commitment, not Generator.  Only emit
-        # when non-zero (keeps the JSON tidy and matches the legacy
-        # output for gens with ``Production cost curve (MW)[0] = 0``).
-        if commitment_pmin > 0.0:
-            c_entry["pmin"] = round(commitment_pmin, 6)
 
         # Map optional UC.jl fields → Commitment fields.
         for ucjl_key, gtopt_key in (
