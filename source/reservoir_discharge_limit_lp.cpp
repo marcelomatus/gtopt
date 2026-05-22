@@ -180,7 +180,21 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
 
   for (const auto& [buid, row] : brows) {
     li.set_coeff(row, state.efin_col, -new_slope);
-    li.set_rhs(row, new_rhs);
+    // Use ``set_row_upp`` (not ``set_rhs``).  The row was constructed
+    // in ``add_to_lp`` with ``.less_equal(coeffs.intercept)`` — i.e.
+    // a ``<=`` row with ``lowb = -DblMax, uppb = intercept``.
+    // ``LinearInterface::set_rhs_raw`` calls
+    // ``backend->set_row_bounds(row, rhs, rhs)`` which silently
+    // rewrites BOTH bounds, converting the row to an equality at
+    // ``rhs`` and forcing ``flow_b - slope·efin == new_rhs``.  On
+    // CEN65 ``plp_2_years`` this turned RALCO's DCMax cap into a
+    // hard discharge requirement: stages where the turbine was in
+    // maintenance (``pmax`` drops to 24.64 MW at block 141) couldn't
+    // satisfy the ≥72 m³/s implied by the equality, and the SDDP
+    // forward pass on scene 14 / 18 at phase 27 reported "elastic
+    // filter produced no feasibility cut".  ``set_row_upp`` updates
+    // only the upper bound, preserving the original ``<=`` sense.
+    li.set_row_upp(row, new_rhs);
     total += 2;
   }
 
