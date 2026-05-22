@@ -4250,34 +4250,79 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         extra_junction_names = tuple(
             sorted(set(extra_junction_names).union(pondage_names))
         )
-        # Re-apply GTOPT_RESERVOIR_SPILL: discard Junction.drain for
-        # the FINAL real reservoir set (post-demotion).  The earlier
-        # discard inside this block was overly broad — it removed
-        # drain from all reservoirs including the to-be-demoted ones,
-        # making the LP infeasible at demoted junctions that need the
-        # drain to dispose of cascade water arriving when turbines are
-        # capped.  Here we know the survivors.
-        if _os_rs.environ.get("GTOPT_RESERVOIR_SPILL", "0").lower() in (
-            "1",
-            "true",
-            "yes",
-        ):
+        # Apply GTOPT_RESERVOIR_SPILL=strict: discard Junction.drain
+        # ONLY for the FINAL real reservoir set (post-demotion) — the
+        # demoted pondage/tailrace junctions keep their drain because
+        # they're cascade pass-through nodes that need it to dispose
+        # of water arriving when downstream turbines are capped.
+        # In ``basic`` mode we keep ALL drain mechanisms — both the
+        # Reservoir.spillway (cost=0) and the Junction.drain — and let
+        # the LP pick the cheapest.  The reservoir spillway wins on
+        # cost (free vs $3.6) so this is mostly cosmetic, but the
+        # caller can opt out of the duplicate-removal step.
+        _rs_mode = _os_rs.environ.get("GTOPT_RESERVOIR_SPILL", "").lower()
+        if _rs_mode == "strict":
             real_reservoir_names = {r.name for r in reservoirs}
-            # ``junction_drain_configs`` was already touched by the
-            # earlier block — restore it from PLEXOS and re-filter
-            # against the post-demotion set.  Simplest: rebuild from
-            # nothing here using the same logic.
-            # Actually we just need to ensure none of the survivors
-            # have drain.  The demoted junctions keep drain.
-            for n in list(junction_drain_configs.keys()):
-                if n in real_reservoir_names:
-                    junction_drain_configs.pop(n, None)
+            removed_real = [
+                n
+                for n in list(junction_drain_configs.keys())
+                if n in real_reservoir_names
+            ]
+            for n in removed_real:
+                junction_drain_configs.pop(n, None)
+            if removed_real:
+                logger.info(
+                    "extract_case: GTOPT_RESERVOIR_SPILL=strict — removed "
+                    "Junction.drain on %d real reservoirs (Reservoir.spillway "
+                    "cost=0 is the sole exit): %s",
+                    len(removed_real),
+                    ", ".join(sorted(removed_real)),
+                )
         junctions = extract_junctions(
             reservoirs,
             extra_junction_names=extra_junction_names,
             drain_configs=junction_drain_configs or None,
         )
         known_junction_names = frozenset(j.name for j in junctions)
+
+        # Strict-mode duplicate-spillway cleanup on the WATERWAY tuple.
+        # In ``--reservoir-spillway=strict`` we also strip any waterway
+        # acting as a parallel spillway path to the Reservoir's own
+        # ``spillway_cost=0`` drain:
+        #   * surviving ``Vert_<X>`` arcs (defensive — the upstream
+        #     collapse should have handled them, but bundles without
+        #     the collapse path or with non-Storage Vert source could
+        #     leave them in place)
+        #   * pure-spillway arcs (``fmax = 0.0`` → unbounded, ``fcost > 0``)
+        #     originating at a real reservoir
+        # Both classes are dropped from the waterway tuple entirely so
+        # the LP has no competing spillage path.  ``basic`` mode keeps
+        # them — the LP will still prefer the cheaper reservoir
+        # spillway, but the alternates remain available for diagnostic
+        # purposes.
+        if _rs_mode == "strict":
+            real_res_names = {r.name for r in reservoirs}
+            ww_to_drop: list[str] = []
+            for w in waterways:
+                # 1. Surviving Vert_<X> (defensive)
+                if w.name.startswith("Vert_"):
+                    ww_to_drop.append(w.name)
+                    continue
+                # 2. Pure-spillway: unbounded fmax + positive fcost from
+                #    a real reservoir.  ``fmax = 0.0`` means unbounded
+                #    (no JSON ``fmax`` key emitted).
+                if w.fmax == 0.0 and w.fcost > 0.0 and w.storage_from in real_res_names:
+                    ww_to_drop.append(w.name)
+            if ww_to_drop:
+                logger.info(
+                    "extract_case: GTOPT_RESERVOIR_SPILL=strict — dropped %d "
+                    "duplicate spillway waterway(s) (Vert_* survivors + "
+                    "fmax=∞/fcost>0 arcs from real reservoirs): %s",
+                    len(ww_to_drop),
+                    ", ".join(sorted(ww_to_drop)),
+                )
+                drop_set = set(ww_to_drop)
+                waterways = tuple(w for w in waterways if w.name not in drop_set)
 
     # PLEXOS Region.VoLL → demand_fail_cost.
     #

@@ -776,24 +776,18 @@ def build_reservoir_array(
             # (DESIGN.md §6).
             entry["spillway_cost"] = res.spill_penalty_per_mwh * DEFAULT_FP_MED
         else:
-            # When ``GTOPT_RESERVOIR_SPILL=1`` (the new
+            # When ``GTOPT_RESERVOIR_SPILL=basic`` or ``strict`` (the
             # ``--reservoir-spillway`` CLI flag), activate the
-            # reservoir-internal spillway with COST = 0.  This
-            # mirrors PLEXOS's implicit Storage-state spillage: when
-            # inflow exceeds the LP's room (capped turbine + capped
-            # cascade exit), water "disappears" via this internal
-            # drain at no cost.  Pairs with the ``Vert_→ Junction.drain``
-            # collapse being SKIPPED (or its cost being prohibitive)
-            # so the LP picks the reservoir spillway as the relief
-            # valve, attributing the spillage to the reservoir
-            # entity rather than the co-located junction.
+            # reservoir-internal spillway with COST = 0.  Mirrors
+            # PLEXOS's implicit Storage-state spillage: when inflow
+            # exceeds the LP's downstream room (capped turbine +
+            # capped cascade exit), water "disappears" via this
+            # internal drain at no cost.  Mode semantics differ in
+            # extract_case where the duplicate-mechanism cleanup runs.
             import os as _os
 
-            if _os.environ.get("GTOPT_RESERVOIR_SPILL", "0").lower() in (
-                "1",
-                "true",
-                "yes",
-            ):
+            mode = _os.environ.get("GTOPT_RESERVOIR_SPILL", "").lower()
+            if mode in ("1", "true", "yes", "basic", "strict"):
                 entry["spillway_cost"] = 0.0
         out.append(entry)
     return out
@@ -883,6 +877,7 @@ def build_turbine_array(
     waterways: tuple[WaterwaySpec, ...] = (),
     extra_waterways: list[dict[str, Any]] | None = None,
     generators: tuple[GeneratorSpec, ...] = (),
+    extra_junctions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """One Turbine per :class:`TurbineSpec`.
 
@@ -956,8 +951,32 @@ def build_turbine_array(
                 if original is not None and original.storage_to is not None:
                     downstream = original.storage_to
         if downstream is None:
-            skipped.append(t.generator_name)
-            continue
+            # Terminal hydro turbine (last station in its basin —
+            # LAJA_I, ANGOSTURA_U1/U2/U3, CANUTILLAR_U1/U2, RAPEL_U1..U5
+            # on CEN PCP).  Previously dropped, which left the
+            # generator UNCOUPLED from water — gcost=0 + no turbine
+            # link meant the LP could dispatch up to nameplate at zero
+            # cost without consuming any cascade water.  Synthesize a
+            # per-turbine ocean drain junction + penstock so the LP
+            # gen↔water equality (``gen = pf × penstock_flow``)
+            # binds.  Only fires when ``extra_junctions`` is provided
+            # (build_planning call site); legacy callers without it
+            # still get the old skip behaviour.
+            if extra_junctions is not None and extra_waterways is not None:
+                drain_junction = f"{t.reservoir_name}_terminal_ocean"
+                if not any(j.get("name") == drain_junction for j in extra_junctions):
+                    extra_junctions.append(
+                        {
+                            "uid": 0,  # patched in build_planning
+                            "name": drain_junction,
+                            "drain": True,
+                            "drain_cost": 0.0,
+                        }
+                    )
+                downstream = drain_junction
+            else:
+                skipped.append(t.generator_name)
+                continue
         # When ``extra_waterways`` is provided (build_planning call
         # site), synthesise a per-turbine zero-cost penstock so each
         # gen has its own ``waterway_flow_*`` variable and never
@@ -1439,12 +1458,14 @@ def build_planning(
         ),
         "battery_array": build_battery_array(case.batteries),
         "fuel_array": fuel_array,
-        "junction_array": build_junction_array(case.junctions),
+        "junction_array": (junction_array := build_junction_array(case.junctions)),
         "reservoir_array": build_reservoir_array(case.reservoirs),
         # Order matters: build the waterway list first, then let
         # build_turbine_array APPEND any per-unit clone waterways it
         # synthesises for multi-unit plants (see docstring on
-        # build_turbine_array for the rationale).
+        # build_turbine_array for the rationale).  ``junction_array``
+        # is also passed so terminal hydro turbines can synthesise a
+        # ``<reservoir>_terminal_ocean`` drain Junction on demand.
         "waterway_array": (
             waterway_array := build_waterway_array(
                 case.waterways, block_layout=case.bundle.block_layout
@@ -1455,6 +1476,7 @@ def build_planning(
             case.waterways,
             extra_waterways=waterway_array,
             generators=case.generators,
+            extra_junctions=junction_array,
         ),
         "flow_array": build_flow_array(
             case.flows,
@@ -1493,6 +1515,13 @@ def build_planning(
         if w.get("uid", 0) == 0:
             w["uid"] = next_ww_uid
             next_ww_uid += 1
+    # Same renumbering for any ``<X>_terminal_ocean`` junctions that
+    # ``build_turbine_array`` synthesised for terminal hydro turbines.
+    next_j_uid = max((j.get("uid", 0) for j in junction_array), default=0) + 1
+    for j in junction_array:
+        if j.get("uid", 0) == 0:
+            j["uid"] = next_j_uid
+            next_j_uid += 1
     # Drop empty arrays so the planning JSON stays compact and the
     # downstream JSON validator does not complain about empty schemas.
     system = {k: v for k, v in system.items() if v not in ((), [], {}) or k == "name"}

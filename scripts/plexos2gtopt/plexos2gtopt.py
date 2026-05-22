@@ -111,8 +111,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_USE_PLEXOS_COMMIT"] = "1"
     if options.get("use_plexos_gen_cap"):
         os.environ["GTOPT_USE_PLEXOS_GEN_CAP"] = "1"
-    if options.get("reservoir_spillway"):
-        os.environ["GTOPT_RESERVOIR_SPILL"] = "1"
+    rs_mode = options.get("reservoir_spillway")
+    if rs_mode is not None:
+        os.environ["GTOPT_RESERVOIR_SPILL"] = str(rs_mode)
     if options.get("spill_fcost") is not None:
         os.environ["GTOPT_SPILL_FCOST"] = str(options["spill_fcost"])
     if options.get("spill_fcost_scale") is not None:

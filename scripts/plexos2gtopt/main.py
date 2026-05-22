@@ -158,12 +158,26 @@ def make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--reservoir-spillway",
-        action="store_true",
-        default=False,
+        nargs="?",
+        const="basic",
+        default=None,
+        choices=("basic", "strict"),
         help=(
-            "activate Reservoir-internal spillway with cost=0 on every "
-            "reservoir, and disable the Vert_→Junction.drain collapse. "
-            "Mirrors PLEXOS's implicit Storage-state spillage."
+            "activate Reservoir-internal spillway with cost=0 on every real "
+            "reservoir.  Two modes:\n"
+            "  basic (default when flag is bare): ONLY emit "
+            "Reservoir.spillway_cost=0.  All other spillway mechanisms "
+            "(Junction.drain, Vert_* waterways, fmax=∞+fcost>0 arcs) stay "
+            "active — the LP picks whichever is cheapest, typically the "
+            "free reservoir spillway.\n"
+            "  strict: emit Reservoir.spillway_cost=0 AND disable every "
+            "DUPLICATE spillway mechanism on real reservoirs — removes "
+            "Junction.drain on real-reservoir junctions, drops any "
+            "Vert_<X> waterway that survived the collapse, and clears "
+            "fcost on pure-spillway waterways (fmax=∞ + fcost>0) that "
+            "originate at a real reservoir.  Use this to FORCE all "
+            "spillage through the reservoir's own internal drain "
+            "(matches PLEXOS's hidden Storage-state spillage exactly)."
         ),
     )
     parser.add_argument(
