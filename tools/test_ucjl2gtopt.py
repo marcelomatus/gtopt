@@ -300,7 +300,19 @@ def _read_uid_column_csv(csv_path: Path, gen_uid: int) -> list[float]:
 
         if not all_keys:
             return []
-        return [uid_values.get(k, 0.0) for k in all_keys]
+        # ``all_keys`` is populated in CSV-row order, but gtopt's
+        # long-form writer is NOT required to emit rows sorted by
+        # ``(scenario, stage, block)`` — they're written in the
+        # iteration order of the underlying ``STBIndexHolder`` /
+        # ``GSTBIndexHolder`` (in practice grouped by uid, with each
+        # uid's rows in block-arrival order, which can put block-2
+        # rows before any block-1 row if block-1 was dropped as the
+        # exact-zero pad).  Walking the dict in insertion order
+        # would then return ``[block-2-value, block-1-value]`` for
+        # any uid whose dispatch is non-zero in block-2 only.
+        # Sort lexicographically by ``(scenario, stage, block)`` so
+        # the returned list is always block-ordered.
+        return [uid_values.get(k, 0.0) for k in sorted(all_keys)]
 
     return []
 
