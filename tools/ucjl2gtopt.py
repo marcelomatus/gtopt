@@ -183,7 +183,6 @@ def _compute_pieces(curve_mw, curve_cost):
     cost = [_first_hour(p) for p in curve_cost] if curve_cost else [0.0, 1000.0]
     pmin = float(mw[0])
     pmax = float(mw[-1])
-    noload = float(cost[0]) if cost else 0.0
     if pmax > pmin and len(mw) >= 2:
         # Slope of the first segment.
         slope0 = (cost[1] - cost[0]) / (mw[1] - mw[0])
@@ -193,6 +192,34 @@ def _compute_pieces(curve_mw, curve_cost):
         slope0 = cost[0] / mw[0]
     else:
         slope0 = 0.0
+
+    # Noload offset for gtopt's ``gcost × p + noload × u`` formulation.
+    #
+    # UC.jl encodes the dispatch curve as ``f(p) = cost[0] + Σ_k h_k δ_k``
+    # where ``δ_k`` is the share of ``p`` in segment ``k`` and ``cost[0]``
+    # is the total cost paid at ``p = pmin`` (committed).  In gtopt the
+    # LP applies ``gcost × p`` to the full dispatch (including the
+    # 0..pmin range that UC.jl doesn't bill — it's covered by
+    # ``cost[0]``).  Setting ``noload = cost[0]`` directly therefore
+    # double-counts ``slope0 × pmin`` per committed (gen, block):
+    #
+    #     gtopt @ p = pmin, u = 1  →  slope0 × pmin + cost[0]
+    #     UC.jl @ p = pmin         →  cost[0]
+    #
+    # On case14/base this added ~$2000 per committed thermal per block;
+    # the four-block MIP obj drifted ~$12K from UC.jl's -$369 876
+    # golden, breaking the cross-check.
+    #
+    # Subtract the over-counted region so gtopt's LP cost at any
+    # ``p ≥ pmin`` matches UC.jl's curve to the cent:
+    #
+    #     noload = cost[0] - slope0 × pmin
+    #
+    # For ``pmin = 0`` gens (e.g. UC.jl's ``g2``: mw[0] = 0, cost[0] =
+    # 0) this collapses to the legacy ``noload = cost[0]`` so the
+    # case14/congested fix that motivated the original ``noload = cost[0]``
+    # workaround (under-pricing thermals at high dispatch) is preserved.
+    noload = float(cost[0]) - slope0 * pmin if cost else 0.0
 
     pmax_segments = []
     heat_rate_segments = []
