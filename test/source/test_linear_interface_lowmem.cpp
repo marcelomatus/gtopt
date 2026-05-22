@@ -1082,7 +1082,7 @@ TEST_CASE(  // NOLINT
   // Mutate a structural coefficient + RHS (the row's only constraint).
   const auto base_row = RowIndex {0};
   li.set_coeff_raw(base_row, x1, 7.0);
-  li.set_rhs_raw(base_row, 11.0);
+  li.set_row_equal_to_raw(base_row, 11.0);
 
   // Pre-release verification — the live backend now carries the new
   // values.
@@ -1143,8 +1143,8 @@ TEST_CASE(  // NOLINT
   li.set_coeff_raw(base_row, x1, 9.0);
 
   // RHS: two writes.
-  li.set_rhs_raw(base_row, 7.0);
-  li.set_rhs_raw(base_row, 12.0);
+  li.set_row_equal_to_raw(base_row, 7.0);
+  li.set_row_equal_to_raw(base_row, 12.0);
 
   CHECK(li.pending_coeffs_size() == 1);
   CHECK(li.pending_rhs_size() == 1);
@@ -4089,7 +4089,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("set_rhs_raw survives reconstruct")
   {
     // Pin the row to an equality constraint (rhs = 8.0).
-    li.set_rhs_raw(r0, 8.0);
+    li.set_row_equal_to_raw(r0, 8.0);
     CHECK(li.get_row_low_raw()[static_cast<size_t>(r0)]
           == doctest::Approx(8.0));
     CHECK(li.get_row_upp_raw()[static_cast<size_t>(r0)]
@@ -4554,7 +4554,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(li.is_optimal());
 
     li.reconstruct_backend();
-    li.set_rhs_raw(RowIndex {0}, 7.0);
+    li.set_row_equal_to_raw(RowIndex {0}, 7.0);
 
     CHECK_FALSE(li.is_optimal());
     CHECK(li.cached_col_sol_size() == 0);

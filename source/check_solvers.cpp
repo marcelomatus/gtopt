@@ -267,10 +267,20 @@ SolverTestResult test_add_row(std::string_view solver)
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 0.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 8.0, 1e-12);
 
-    // set_rhs_raw: sets both bounds to the same value.
-    lp.set_rhs(r1, 4.0);
+    // set_row_equal_to: force the row to ``lowb = uppb = value``.
+    // Replaces the legacy ``set_rhs`` name (which had identical
+    // semantics but didn't read like a force-to-equality from the
+    // call site — see commit 488555548 for the RALCO regression
+    // that motivated the rename).
+    lp.set_row_equal_to(r1, 4.0);
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 4.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 4.0, 1e-12);
+
+    // ``set_row_bounds(row, lb, ub)`` is the generic two-sided
+    // setter — matches the bulk ``set_col_bounds`` API.
+    lp.set_row_bounds(r1, -1.0, 6.0);
+    TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], -1.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 6.0, 1e-12);
 
   } catch (const std::exception& ex) {
     return make_result("add_row", /*test_passed=*/false, ex.what());

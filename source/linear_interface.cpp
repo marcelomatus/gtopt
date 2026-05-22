@@ -2929,24 +2929,36 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
   invalidate_cached_optimal_on_mutation();
 }
 
-void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
+void LinearInterface::set_row_bounds_raw(const RowIndex row,
+                                         const double lowb,
+                                         const double uppb)
 {
-  // Match the rest of the raw-mutation setters above: ensure the
-  // backend is live before delegating.  Without this, a mutation
-  // issued after `release_backend()` would null-deref `m_backend_`
-  // (flagged by clang-analyzer-core.CallAndMessage).
+  // Mirror the single-side ``set_row_low_raw`` / ``set_row_upp_raw``
+  // entry contract: ensure the backend is live before delegating.
+  // A mutation issued after ``release_backend()`` would null-deref
+  // ``m_backend_`` (flagged by clang-analyzer-core.CallAndMessage).
   ensure_backend();
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
-    if (std::abs(rhs) < infy_guard) {
-      m_validation_stats_.note_rhs(rhs, row, m_validation_options_);
+    if (std::abs(lowb) < infy_guard) {
+      m_validation_stats_.note_rhs(lowb, row, m_validation_options_);
+    }
+    if (std::abs(uppb) < infy_guard && uppb != lowb) {
+      m_validation_stats_.note_rhs(uppb, row, m_validation_options_);
     }
   }
-  m_backend_->set_row_bounds(row, rhs, rhs);
+  m_backend_->set_row_bounds(row, normalize_bound(lowb), normalize_bound(uppb));
   invalidate_cached_optimal_on_mutation();
-  // Companion replay record — see `set_coeff_raw` above for rationale.
-  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
-    m_replay_.set_pending_rhs(row, rhs);
+  // Companion replay record — equality rows record into the legacy
+  // ``pending_rhs`` channel so the Seepage / RDL-equality replay
+  // path under ``LowMemoryMode::compress`` keeps working without
+  // schema changes.  Non-equality bounds (``lowb != uppb``) are NOT
+  // currently replayed; callers that need to survive a backend
+  // reconstruct between sets should use the per-phase
+  // ``update_lp_for_phase`` path which re-issues the writes from
+  // its own state.  See ``set_coeff_raw`` for the wider rationale.
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_ && lowb == uppb) {
+    m_replay_.set_pending_rhs(row, lowb);
   }
 }
 
@@ -2966,10 +2978,28 @@ void LinearInterface::set_row_upp(const RowIndex index,
   set_row_upp_raw(index, physical_value / scale);
 }
 
-void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
+void LinearInterface::set_row_bounds(const RowIndex row,
+                                     const double physical_lowb,
+                                     const double physical_uppb)
 {
   const double scale = get_row_scale(row);
-  set_rhs_raw(row, physical_rhs / scale);
+  set_row_bounds_raw(row, physical_lowb / scale, physical_uppb / scale);
+}
+
+void LinearInterface::set_row_equal_to_raw(const RowIndex row,
+                                           const double value)
+{
+  // Convenience: equality is just both bounds at the same value.
+  // Replaces the legacy ``set_rhs_raw`` name — see the header for
+  // why the old name was removed.
+  set_row_bounds_raw(row, value, value);
+}
+
+void LinearInterface::set_row_equal_to(const RowIndex row,
+                                       const double physical_value)
+{
+  const double scale = get_row_scale(row);
+  set_row_equal_to_raw(row, physical_value / scale);
 }
 
 Index LinearInterface::get_numrows() const

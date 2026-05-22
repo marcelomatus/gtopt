@@ -441,7 +441,7 @@ TEST_CASE("LinearInterface - set_col and set_rhs")
   row.uppb = 10.0;
   const auto r1 = interface.add_row(row);
 
-  interface.set_rhs(r1, 7.0);
+  interface.set_row_equal_to(r1, 7.0);
 
   auto row_low = interface.get_row_low();
   auto row_upp = interface.get_row_upp();

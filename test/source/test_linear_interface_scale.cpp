@@ -357,7 +357,7 @@ TEST_CASE("LinearInterface - raw and physical row bound setters")  // NOLINT
 
   SUBCASE("set_rhs_raw pins both bounds")
   {
-    li.set_rhs_raw(r0, 5.0);
+    li.set_row_equal_to_raw(r0, 5.0);
     CHECK(li.get_row_low_raw()[r0] == doctest::Approx(5.0));
     CHECK(li.get_row_upp_raw()[r0] == doctest::Approx(5.0));
   }
@@ -381,7 +381,7 @@ TEST_CASE("LinearInterface - raw and physical row bound setters")  // NOLINT
   SUBCASE("set_rhs (physical) pins both bounds in raw space")
   {
     li.set_row_scale(r0, 10.0);
-    li.set_rhs(r0, 50.0);
+    li.set_row_equal_to(r0, 50.0);
     CHECK(li.get_row_low_raw()[r0] == doctest::Approx(5.0));
     CHECK(li.get_row_upp_raw()[r0] == doctest::Approx(5.0));
   }
@@ -1063,7 +1063,7 @@ TEST_CASE(  // NOLINT
                        }));
 
     // Update both bounds to the physical RHS.
-    li.set_rhs(r0, kPhysRhs);
+    li.set_row_equal_to(r0, kPhysRhs);
 
     const auto status = li.initial_solve({});
     REQUIRE((status && *status == 0));

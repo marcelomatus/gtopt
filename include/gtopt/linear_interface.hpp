@@ -1373,16 +1373,32 @@ public:
   }
 
   // ── Row bound setters (raw: LP/solver units) ──
+  //
+  // Naming parallels ``set_col_*``:
+  //   * ``set_row_low``     — update lower bound only (preserve upper)
+  //   * ``set_row_upp``     — update upper bound only (preserve lower)
+  //   * ``set_row_bounds``  — set both bounds (matches ``set_col_bounds``)
+  //   * ``set_row_equal_to``— force the row to ``lowb = uppb = value``
+  //                           (explicit name for the equality case)
+  //
+  // The legacy ``set_rhs`` name was removed (commit fa…) because it
+  // didn't actually update "the RHS" — it overwrote BOTH bounds to
+  // the given value and silently flipped ``<=`` / ``>=`` rows into
+  // equalities (the RALCO discharge-limit regression in commit
+  // 488555548).  Pick the one-sided setter for ``<=`` / ``>=`` rows
+  // and the explicit ``set_row_equal_to`` for equality rows.
 
-  void set_rhs_raw(RowIndex row, double rhs);
   void set_row_low_raw(RowIndex index, double value);
   void set_row_upp_raw(RowIndex index, double value);
+  void set_row_bounds_raw(RowIndex row, double lowb, double uppb);
+  void set_row_equal_to_raw(RowIndex row, double value);
 
   // ── Row bound setters (physical: descaled) ──
 
-  void set_rhs(RowIndex row, double physical_rhs);
   void set_row_low(RowIndex index, double physical_value);
   void set_row_upp(RowIndex index, double physical_value);
+  void set_row_bounds(RowIndex row, double physical_lowb, double physical_uppb);
+  void set_row_equal_to(RowIndex row, double physical_value);
 
   // ── Coefficient accessors (raw: LP/solver units) ──
 
