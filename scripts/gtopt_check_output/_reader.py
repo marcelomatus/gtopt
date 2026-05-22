@@ -81,20 +81,55 @@ def read_table(directory: Path, stem: str) -> pd.DataFrame | None:
 
 
 def open_dataset(directory: Path, stem: str) -> pads.Dataset | None:
-    """Open a parquet stream lazily.  Returns ``None`` if the stem is
-    absent.  The returned :class:`pyarrow.dataset.Dataset` is the
-    handle the streaming helpers iterate on — it does NOT load any
+    """Open a parquet / CSV stream lazily.  Returns ``None`` if the
+    stem is absent.  The returned :class:`pyarrow.dataset.Dataset` is
+    the handle the streaming helpers iterate on — it does NOT load any
     data until :meth:`Dataset.scanner` or :meth:`to_batches` runs.
+
+    Format precedence: parquet (hive-partitioned dir > single file) >
+    per-(scene, phase) CSV shards.  Cases that set
+    ``options.output_format = "csv"`` (e.g. the igtopt
+    bat4b24 fixture) emit ``<stem>_s<scene>_p<phase>.csv`` instead of
+    ``<stem>.parquet``; the check needs a CSV fallback so
+    curtailment / fail / dual checks run regardless of the on-disk
+    serialisation.
     """
     pq_path = directory / (stem + ".parquet")
-    if not (pq_path.is_dir() or pq_path.is_file()):
+    if pq_path.is_dir() or pq_path.is_file():
+        try:
+            if pq_path.is_dir():
+                return pads.dataset(pq_path, format="parquet", partitioning="hive")
+            return pads.dataset(pq_path, format="parquet")
+        except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            log.warning("open_dataset: failed to open %s: %s", pq_path, exc)
+            return None
+
+    # CSV fallback — list every per-(scene, phase) shard and let
+    # pyarrow union them into a single dataset.  The schema is
+    # auto-detected; long-form CSVs carry the standard ``scenario,
+    # stage, block, uid, value`` header, wide-form CSVs carry
+    # ``scenario, stage, block, uid:N…`` instead.  Both shapes flow
+    # through ``dataset_layout`` / ``streaming_sol_weighted_sum_per_uid``
+    # unchanged.
+    parent = directory / stem
+    parent_stem = parent.name
+    csv_shards = (
+        sorted((directory / parent.parent.name).glob(f"{parent_stem}_s*_p*.csv"))
+        if parent.parent != directory
+        else sorted(directory.glob(f"{parent_stem}_s*_p*.csv"))
+    )
+    if not csv_shards:
+        # Final fallback for the single-shard case (no scene/phase
+        # split — e.g. monolithic single-stage runs).
+        single_csv = directory / (stem + ".csv")
+        if single_csv.is_file():
+            csv_shards = [single_csv]
+    if not csv_shards:
         return None
     try:
-        if pq_path.is_dir():
-            return pads.dataset(pq_path, format="parquet", partitioning="hive")
-        return pads.dataset(pq_path, format="parquet")
+        return pads.dataset(csv_shards, format="csv")
     except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        log.warning("open_dataset: failed to open %s: %s", pq_path, exc)
+        log.warning("open_dataset: failed to open CSV shards for %s: %s", stem, exc)
         return None
 
 

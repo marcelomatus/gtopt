@@ -627,6 +627,14 @@ def check_renewable_curtailment(
                 "no renewable curtailment (all profiled generators at full output)",
             )
         )
+        # Populate ``curtailment_data`` with zero for every profile so
+        # downstream consumers (e.g. the bat4b24 igtopt smoke test) can
+        # assert ``data[profile_name] == 0`` without first checking
+        # whether the spillover dataset had any rows.  Mirrors the
+        # wide-form all-zero path below where each profile is added to
+        # ``curtailment_data`` with its computed (zero) energy.
+        for profile_uid, pname in profile_uid_name.items():
+            curtailment_data[pname] = 0.0
         return findings, curtailment_data
 
     total_curtailment_energy = 0.0
