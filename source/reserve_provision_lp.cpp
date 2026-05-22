@@ -261,7 +261,22 @@ bool ReserveProvisionLP::add_to_lp(const SystemContext& sc,
   }
 
   try {
-    auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+    // Use the tolerant lookup variant: when every block of the
+    // (scenario, stage) was elided by the P1 zero-pmax optimization
+    // (gen column never created — pmax=0 hours), the outer key in
+    // ``generation_cols`` is absent.  ``generation_cols_at`` would
+    // throw ``flat_map::at`` in that case (verified 2026-05-22 on the
+    // CEN PCP daily bundle when ``--use-plexos-gen-cap`` forced
+    // hydro generators with zero PLEXOS dispatch to pmax_profile=0
+    // every block).  ``lookup_generation_cols`` returns an empty
+    // BIndexHolder via ``find_or_empty_inner``, so the per-block
+    // ``generation_cols.find(buid)`` checks below safely iterate
+    // zero times and the reserve constraints simply aren't emitted
+    // for this generator at this (scenario, stage).  This is the
+    // correct behaviour: with no dispatchable capacity available,
+    // there is no reserve capability to provide either.
+    auto&& generation_cols =
+        generator_lp.lookup_generation_cols(scenario, stage);
 
     const auto [opt_capacity, capacity_col] =
         generator_lp.capacity_and_col(stage, lp);

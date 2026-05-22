@@ -53,8 +53,18 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  // Tolerant lookup: same rationale as the patch at
+  // ``source/reserve_provision_lp.cpp:264`` — when every block of
+  // ``(scenario, stage)`` was elided by the P1 zero-pmax optimization
+  // (all-zero pmax_profile, e.g. PLEXOS-must-OFF units forced via
+  // ``--use-plexos-gen-cap``), the outer ``generation_cols`` key is
+  // absent and ``generation_cols_at`` would throw.
+  // ``lookup_generation_cols`` returns an empty inner holder; the
+  // per-block ``generation_cols.find(buid)`` checks below safely
+  // iterate zero times and no commitment row is emitted for blocks
+  // without a dispatchable gen column.
   const auto& generation_cols =
-      generator_lp.generation_cols_at(scenario, stage);
+      generator_lp.lookup_generation_cols(scenario, stage);
   const auto& blocks = stage.blocks();
 
   if (blocks.empty()) {
