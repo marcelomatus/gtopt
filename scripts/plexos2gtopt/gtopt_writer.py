@@ -686,23 +686,6 @@ def build_reservoir_array(
             "name": res.name,
             "junction": res.name,  # co-located junction (same name)
             "eini": res.eini,
-            # PLEXOS native units are volume in hm³ and flow in m³/s.
-            # gtopt's storage balance debits ``volume[t] = volume[t-1] +
-            # dt × flow_conversion_rate × (inflow − outflow)``, where the
-            # canonical hm³ ⇄ m³/s conversion is ``flow_conversion_rate
-            # = 3600 / 1e6 = 0.0036``.  When the field is OMITTED the
-            # gtopt LP fallback (``reservoir_lp.hpp:69``,
-            # ``value_or(3.6)``) is *1000× too large* — every unit of
-            # penstock flow debits the reservoir 1000× more than the
-            # physical hm³ change.  On the CEN PCP daily bundle this
-            # let each reservoir's eini fuel 1000× more m³/s·h of
-            # dispatch than physically available, inflating total hydro
-            # MWh by ~60 % (gtopt 457 578 MWh vs PLEXOS 285 854 MWh,
-            # measured against the .accdb baseline).  plp2gtopt has been
-            # setting this field explicitly since the early days
-            # (``junction_writer.py:1575``); the plexos2gtopt path was
-            # missing it.
-            "flow_conversion_rate": 3.6 / 1000.0,
         }
         # Per-block profile takes precedence over the scalar — emitted
         # as the inline ``[[per-block]]`` matrix gtopt's ``Reservoir``
