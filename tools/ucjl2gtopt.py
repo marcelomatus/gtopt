@@ -1000,7 +1000,18 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                     }
                 )
                 _ucjl_fuel_emitted = True
-            if noload > 0.0:
+            # ``noload`` is now the corrected value
+            # ``cost[0] - slope0 × pmin`` (see ``_compute_pieces``), so
+            # it can be NEGATIVE on hot-start gens where the over-counted
+            # ``slope0 × pmin`` term exceeds ``cost[0]`` (e.g. case14/g1:
+            # cost[0]=1400, slope0=20, pmin=100 → noload=-600).  The
+            # negative coefficient on ``u`` is exactly the credit that
+            # cancels the ``gcost × p`` over-charge on the
+            # 0..pmin range when the gen is committed.  Emit on any
+            # non-zero value (the LP-cost contribution is signed
+            # already; suppressing negatives broke ``test_real_case14_*``
+            # by leaving gtopt with the over-charge but no credit).
+            if noload != 0.0:
                 c_entry["noload_cost"] = round(noload, 6)
 
         commitment_array.append(c_entry)
