@@ -883,6 +883,18 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             c_entry["initial_status"] = init_u
             c_entry["initial_hours"] = init_h
 
+        # Initial power (MW): the gen's dispatch at t = -1.  Needed by
+        # gtopt's first-block ramp-up / ramp-down rows so they enforce
+        # ``p[0] - initial_power ≤ RU·u_init + SU·(1 - u_init)`` rather
+        # than the looser ``p[0] ≤ RU·u_init + SU·(1 - u_init)``.
+        # Without this, hot-start gens with ``pmin > ramp_up`` (e.g.
+        # RTS-GMLC ``216_STEAM_1``: pmin = 62, ramp_up = 60,
+        # ``Initial power (MW) = 62``) make the first-block LP
+        # infeasible (pmin floor 62 clashes with ramp cap 60).
+        init_p = gdata.get("Initial power (MW)")
+        if init_p is not None:
+            c_entry["initial_power"] = float(init_p)
+
         # Startup costs: scalar single tier or tiered hot/warm/cold.
         startup_costs = gdata.get("Startup costs ($)") or []
         startup_delays = gdata.get("Startup delays (h)") or []

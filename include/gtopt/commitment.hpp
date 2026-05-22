@@ -108,6 +108,26 @@ struct Commitment
 
   OptReal initial_status {};  ///< Initial on/off (1.0 = online, 0.0 = offline)
   OptReal initial_hours {};  ///< Hours in current state at t=0
+  /// Initial power output [MW] at ``t = -1``.  When set, the
+  /// first-block ramp-up / ramp-down rows include the
+  /// ``p_prev = initial_power`` term:
+  ///
+  ///   p[0] − initial_power ≤ RU·u_init + SU·(1 − u_init)
+  ///   initial_power − p[0] ≤ RD·u[0] + SD·w[0]
+  ///
+  /// instead of the looser ``p_prev = 0`` form that the previous
+  /// "for simplicity" stub used (commit ID predates this field).
+  ///
+  /// When ``std::nullopt`` (default), the legacy ``p_prev = 0``
+  /// behaviour is preserved — correct for cold starts and any
+  /// generator where the converter / user didn't supply a value.
+  ///
+  /// Required to round-trip UC.jl's ``Initial power (MW)`` on
+  /// hot-start generators with ``pmin > 0`` (e.g. RTS-GMLC
+  /// ``216_STEAM_1``: pmin = 62, ramp_up = 60, initial_power = 62 —
+  /// without this field the first-block LP is infeasible because
+  /// the pmin floor of 62 collides with the ramp-up cap of 60).
+  OptReal initial_power {};
 
   OptBool relax {};  ///< LP relaxation: u/v/w continuous in [0,1]
   OptBool must_run {};  ///< Force committed: u = 1 always

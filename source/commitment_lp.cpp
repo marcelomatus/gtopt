@@ -71,6 +71,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto stage_shutdown_cost =
       shutdown_cost_.optval(stage.uid()).value_or(0.0);
   const auto initial_u = commitment().initial_status.value_or(0.0);
+  // ``initial_power`` (≡ ``p_prev`` at the first block of the
+  // planning horizon) defaults to 0.  When ``initial_u = 1`` and
+  // pmin > 0, this default forces the LP's first-block ramp-up to
+  // be infeasible whenever the ramp limit < pmin (the case that
+  // exposed the bug: RTS-GMLC ``216_STEAM_1`` with pmin = 62,
+  // ramp_up = 60 → ``p[0] ≤ 0 + 60·1 = 60`` clashed with the pmin
+  // floor of 62).  Hot-start callers (e.g. UC.jl's
+  // ``Initial power (MW)`` field) must set ``Commitment.initial_power``
+  // explicitly for the first-block constraint to honor the
+  // previous-block dispatch.
+  const auto initial_p = commitment().initial_power.value_or(0.0);
   const auto is_relax = commitment().relax.value_or(false)
       || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = commitment().must_run.value_or(false);
@@ -418,6 +429,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       const auto ru = opt_ramp_up.value_or(gen_pmax) * block.duration();
       const auto su = opt_startup_ramp.value_or(gen_pmax);
 
+      // First block uses ``initial_p`` as ``p_prev`` and ``initial_u``
+      // as ``u_prev``; subsequent blocks reach back to ``prev_gcol``
+      // / ``prev_block_ucol`` for the same quantities.  Without
+      // ``initial_p`` on the RHS, hot-start gens with ``ramp_up <
+      // pmin`` (e.g. RTS-GMLC ``216_STEAM_1``) go infeasible on the
+      // first block.
       auto row =
           SparseRow {
               .class_name = cname,
@@ -425,14 +442,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
               .variable_uid = cuid,
               .context = ctx,
           }
-              .less_equal(first_block
-                              ? (ru * initial_u) + (su * (1.0 - initial_u))
-                              : 0.0);
+              .less_equal(first_block ? initial_p + (ru * initial_u)
+                                  + (su * (1.0 - initial_u))
+                                      : 0.0);
       row[gcol] = 1.0;
-      if (first_block) {
-        // p[0] ≤ RU·u_init + SU·(1-u_init) + p_prev
-        // For simplicity, p_prev is not tracked across stages.
-      } else {
+      if (!first_block) {
         row[prev_gcol] = -1.0;
         row[prev_block_ucol] = -ru;
         row[vcol] = -su;
@@ -445,6 +459,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       const auto rd = opt_ramp_down.value_or(gen_pmax) * block.duration();
       const auto sd = opt_shutdown_ramp.value_or(gen_pmax);
 
+      // Mirror the ramp-up first-block convention: ``p_prev`` on the
+      // LHS becomes ``initial_p`` on the RHS for the first block.
       auto row =
           SparseRow {
               .class_name = cname,
@@ -452,13 +468,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
               .variable_uid = cuid,
               .context = ctx,
           }
-              .less_equal(first_block
-                              ? (rd * initial_u) + (sd * (1.0 - initial_u))
-                              : 0.0);
+              .less_equal(first_block ? (rd * initial_u)
+                                  + (sd * (1.0 - initial_u)) - initial_p
+                                      : 0.0);
       row[gcol] = -1.0;
-      if (first_block) {
-        // RHS includes the initial contribution.
-      } else {
+      if (!first_block) {
         row[prev_gcol] = 1.0;
         row[ucol] = -rd;
         row[wcol] = -sd;
