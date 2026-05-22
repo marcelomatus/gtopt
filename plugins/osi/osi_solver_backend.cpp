@@ -102,7 +102,7 @@ void apply_options_to_solver(OsiSolverInterface* solver,
   // would tell CBC "any feasible MIP solution is acceptable" which is
   // never what the user meant.
 #ifdef GTOPT_OSI_HAS_CBC
-  if (type == OsiSolverBackend::OsiSolverType::Cbc) {
+  if (type == OsiSolverBackend::OsiSolverType::cbc) {
     if (const auto gap = opts.mip_gap; gap && *gap > 0) {
       if (auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(solver);
           cbc != nullptr)
