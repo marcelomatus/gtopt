@@ -52,7 +52,13 @@ struct json_data_contract<Fuel>
                         jvtl_TRealFieldSched>,
       json_array_null<"emission_factors",
                       gtopt::Array<FuelEmissionFactor>,
-                      FuelEmissionFactor>>;
+                      FuelEmissionFactor>,
+      json_variant_null<"max_offtake",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
+      json_variant_null<"max_offtake_cost",
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>>;
 
   constexpr static auto to_json_data(Fuel const& obj)
   {
@@ -63,7 +69,9 @@ struct json_data_contract<Fuel>
                                  obj.heat_content,
                                  obj.combustion_emission_factor,
                                  obj.upstream_emission_factor,
-                                 obj.emission_factors);
+                                 obj.emission_factors,
+                                 obj.max_offtake,
+                                 obj.max_offtake_cost);
   }
 };
 
