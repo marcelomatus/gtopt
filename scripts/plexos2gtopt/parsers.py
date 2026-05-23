@@ -1582,7 +1582,16 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 emin=0.0,
                 emax=emax_mwh,
                 eini=eini,
-                efin=0.0,
+                # Pin end-of-horizon SoC to start-of-horizon SoC.
+                # Without this, ``efin=0`` lets the LP freely bank
+                # energy across the horizon (an off-spec terminal
+                # value that drives BESS net-charge by ~12 GWh on
+                # the CEN PCP weekly bundle); pinning ``efin=eini``
+                # forces the LP to return the battery to its initial
+                # state, matching PLEXOS's implicit end-of-horizon
+                # SoC equality.  Mirrors the same convention applied
+                # to ``Reservoir.efin`` for hydro storages.
+                efin=eini,
                 pmax_charge=max_power,
                 pmax_discharge=max_power,
                 pmin_charge=pmin_charge,
@@ -1717,15 +1726,34 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         emax_profile: tuple[float, ...] = ()
         block_layout = getattr(bundle, "block_layout", ())
         if block_layout and (emin_series or emax_series):
-            # NO per-block emin clamp from the CSV.  All end-of-day
-            # operational floors are now honoured exclusively as a SOFT
-            # ``efin`` + ``efin_cost`` slack on the LAST-day EOD (set
-            # below).  Intermediate (first-day, mid-week) EOD floors are
-            # skipped so the LP isn't over-constrained.  Uniform across
-            # horizon length — hard per-block floors caused infeasibility
-            # chains we'd have to debug per bundle; the soft efin gives
-            # a priced escape consistent for n_days = 1 and n_days = 7.
-            allowed_eod_hours: set[int] = set()
+            # Hard per-block emin clamp from ``Hydro_MinVolume.csv`` —
+            # at end-of-day 1 (hour 24) only, controlled by
+            # ``GTOPT_EMIN_EOD_DAY1`` env var (default ON).  Honours
+            # the PLEXOS operational floor at the close of the first
+            # operating day, which is the binding daily-coordination
+            # signal in the CEN PCP weekly schedule.
+            #
+            # The last-day EOD floor (hour 168 on a weekly run) is
+            # carried independently as the soft ``efin`` + ``efin_cost``
+            # slack below — not duplicated here.  Mid-week EOD floors
+            # (hour 48, 72, 96, 120, 144) are still skipped because
+            # they previously over-constrained ``L_Maule`` blocks 82/97
+            # (7,969 hm³ target with only 175 hm³ headroom and no nphi
+            # safety valve in CEN PCP).  Hour 24 was never one of the
+            # offending bindings on the 2026-04-22 bundle, so it stays
+            # hard.
+            #
+            # Set ``GTOPT_EMIN_EOD_DAY1=0`` (or unset and patch this
+            # set) to revert to the all-soft behaviour.
+            import os as _os
+
+            _eod_day1 = _os.environ.get("GTOPT_EMIN_EOD_DAY1", "1") not in (
+                "0",
+                "false",
+                "False",
+                "",
+            )
+            allowed_eod_hours: set[int] = {24} if _eod_day1 else set()
             emin_per_block: list[float] = []
             emax_per_block: list[float] = []
             for intervals in block_layout:

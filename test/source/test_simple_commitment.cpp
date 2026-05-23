@@ -2,6 +2,7 @@
 #include <filesystem>
 
 #include <doctest/doctest.h>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/simple_commitment.hpp>
@@ -458,6 +459,158 @@ TEST_CASE(  // NOLINT
   // With demand=20 < pmin=40, dispatching is infeasible at the lower bound,
   // so the MIP optimum is u=0 (unit OFF, pay demand_fail_cost).
   CHECK(lp.get_col_sol()[*u_col] == doctest::Approx(0.0).epsilon(0.001));
+}
+
+TEST_CASE(  // NOLINT
+    "SimpleCommitmentLP — solved dispatch ∈ {0} ∪ [pmin, pmax] (off-or-min)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-throwing-static-initialization,
+  // bugprone-unchecked-optional-access, cert-err58-cpp)
+
+  auto& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // ── Off-or-min: the structural invariant ──────────────────────────
+  //
+  // With binary ``u_status ∈ {0, 1}`` and the gating rows
+  //   gen ≥ pmin × u_status
+  //   gen ≤ pmax × u_status
+  // any feasible solution must have ``gen ∈ {0} ∪ [pmin, pmax]``.
+  // Companion to "MIP status u binary when pmin exceeds demand" (line
+  // 359) which covers the u=0 / idle branch; this one covers the u=1 /
+  // active branch.
+  //
+  // Same Commitment-binary mechanism powers ``Converter.commitment``
+  // (battery synthesised gen, see ``test_converter_commitment.cpp``),
+  // so this test indirectly validates the off-or-min property for
+  // battery commitment as well.
+  //
+  // Economic setup: demand 80 MW, generator pmin=40 / pmax=100 / gcost=$50.
+  // demand_fail_cost = $1000 (so failing is far worse than dispatching).
+  // The MIP optimum: u=1, gen=80 MW (cleanly inside [40, 100]).
+  //
+  // To also probe the u=0 branch in the same solve, the test runs TWO
+  // SUBCASES — one with demand=80 (forces u=1, gen=80 ∈ [pmin, pmax]),
+  // one with demand=20 (forces u=0, gen=0).
+
+  // Generator and SimpleCommitment shared across SUBCASEs.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .pmin = 40.0,
+          .gcost = 50.0,
+          .capacity = 100.0,
+      },
+  };
+  const Array<SimpleCommitment> simple_commitment_array = {
+      {
+          .uid = Uid {1},
+          .name = "sc1",
+          .generator = Uid {1},
+          .dispatch_pmin = 40.0,
+          .relax = false,  // MIP — binary u_status
+      },
+  };
+
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+
+  LpMatrixOptions flat_opts;
+  for (const auto& name : reg.available_solvers()) {
+    if (reg.supports_mip(name)) {
+      flat_opts.solver_name = name;
+      break;
+    }
+  }
+  if (flat_opts.solver_name.empty()) {
+    MESSAGE("Skipping MIP test — no loaded solver reports supports_mip()");
+    return;
+  }
+
+  // Helper: solve and return (u_status_sol, gen_sol).
+  auto solve_with_demand = [&](double demand_mw) -> std::pair<double, double>
+  {
+    const Array<Demand> dem = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .capacity = demand_mw,
+        },
+    };
+    const System system = {
+        .name = "OffOrMinTest",
+        .bus_array = bus_array,
+        .demand_array = dem,
+        .generator_array = generator_array,
+        .simple_commitment_array = simple_commitment_array,
+    };
+    SystemLP system_lp(system, simulation_lp, flat_opts);
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == 0);
+
+    // Find the u_status col + the gen col.
+    const auto& sc_lps = system_lp.elements<SimpleCommitmentLP>();
+    REQUIRE(sc_lps.size() == 1);
+    const auto& sc_lp = sc_lps.front();
+    const auto& scenario_lp = simulation_lp.scenarios().front();
+    const auto& stage_lp = simulation_lp.stages().front();
+    const auto& block_lp = simulation_lp.blocks().front();
+    const auto u_col =
+        sc_lp.lookup_status_col(scenario_lp, stage_lp, block_lp.uid());
+    REQUIRE(u_col.has_value());
+
+    const auto& gen_lps = system_lp.elements<GeneratorLP>();
+    REQUIRE(gen_lps.size() == 1);
+    const auto gen_cols =
+        gen_lps.front().generation_cols_at(scenario_lp, stage_lp);
+    REQUIRE(gen_cols.size() == 1);
+    // gen_cols is a flat_map<BlockUid, Col>; pull out the single entry.
+    const auto gen_col = gen_cols.begin()->second;
+
+    const auto sol = lp.get_col_sol();
+    return {sol[*u_col], sol[gen_col]};
+  };
+
+  constexpr double k_pmin = 40.0;
+  constexpr double k_pmax = 100.0;
+  constexpr double k_tol = 1e-3;
+
+  SUBCASE("u=1 active branch: dispatch sits in [pmin, pmax]")
+  {
+    // Demand 80 MW > pmin=40, so the MIP optimum is u=1 with
+    // gen exactly meeting demand (80 ∈ [40, 100]).
+    const auto [u, gen] = solve_with_demand(80.0);
+    CHECK(u == doctest::Approx(1.0).epsilon(k_tol));
+    // Off-or-min: u=1 ⇒ gen must be in [pmin, pmax].
+    CHECK(gen >= k_pmin - k_tol);
+    CHECK(gen <= k_pmax + k_tol);
+    // Tight check: this LP picks gen = demand (no surplus needed).
+    CHECK(gen == doctest::Approx(80.0).epsilon(k_tol));
+  }
+
+  SUBCASE("u=0 idle branch: dispatch is exactly zero")
+  {
+    // Demand 20 MW < pmin=40 — dispatching would force gen ≥ 40,
+    // worse than just failing the 20 MW load.  MIP picks u=0, gen=0.
+    const auto [u, gen] = solve_with_demand(20.0);
+    CHECK(u == doctest::Approx(0.0).epsilon(k_tol));
+    // Off-or-min: u=0 ⇒ gen = 0 (gating row gen ≤ pmax × u = 0).
+    CHECK(gen == doctest::Approx(0.0).epsilon(k_tol));
+  }
+
+  // NOLINTEND(bugprone-throwing-static-initialization,
+  // bugprone-unchecked-optional-access, cert-err58-cpp)
 }
 
 // NOLINTEND(bugprone-throwing-static-initialization,

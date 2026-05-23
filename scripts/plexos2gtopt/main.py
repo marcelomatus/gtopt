@@ -127,6 +127,47 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--emin-eod-day1",
+        dest="emin_eod_day1",
+        action="store_true",
+        default=True,
+        help=(
+            "enforce the PLEXOS operational reservoir floor from "
+            "``Hydro_MinVolume.csv`` at the end of day 1 (hour 24) as "
+            "a HARD per-block ``emin`` clamp.  Recovers the daily-"
+            "coordination signal PLEXOS uses to keep reservoirs above "
+            "their published operational floor at midnight of day 1.  "
+            "Default ON.  Pass ``--no-emin-eod-day1`` to disable.  "
+            "End-of-week (last day) floors are honoured separately as "
+            "a soft ``efin`` + ``efin_cost`` slack.  Mid-week (hour 48, "
+            "72, …) floors stay disabled to avoid the L_Maule "
+            "infeasibility chain that prompted removing per-block "
+            "clamps in the first place."
+        ),
+    )
+    parser.add_argument(
+        "--no-emin-eod-day1",
+        dest="emin_eod_day1",
+        action="store_false",
+        help="disable the hour-24 hard emin floor (see --emin-eod-day1).",
+    )
+    parser.add_argument(
+        "--nseg-losses",
+        type=int,
+        default=3,
+        help=(
+            "number of piecewise-linear segments used to approximate "
+            "the quadratic transmission-loss curve P_loss = R·f²/V² on "
+            "each lossy line (PLEXOS Enforce Limits = 2 lines with a "
+            "non-zero resistance and a finite ``tmax_ab`` envelope).  "
+            "Default 3 mirrors PLEXOS's coarse PWL.  Larger values "
+            "(6, 10) reduce the PWL approximation error at the cost "
+            "of more LP rows / variables.  PWL error at f = f_max "
+            "scales as 1/nseg, so nseg=6 halves the worst-case loss "
+            "overestimate on the outer segment."
+        ),
+    )
+    parser.add_argument(
         "--spill-fcost",
         type=float,
         default=None,
@@ -339,6 +380,8 @@ def main(argv: list[str] | None = None) -> None:
         "vert_routing": args.vert_routing,
         "use_plexos_commit": args.use_plexos_commit,
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
+        "nseg_losses": args.nseg_losses,
+        "emin_eod_day1": args.emin_eod_day1,
         "reservoir_spillway": args.reservoir_spillway,
         "lift_line_caps": args.lift_line_caps,
         "horizon_mode": args.horizon_mode,

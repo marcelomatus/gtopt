@@ -48,7 +48,7 @@ from rich.table import Table
 # A schema mismatch silently falls back to re-extraction; do not
 # guard with try/except in the call site, the unpickler will surface
 # AttributeError / KeyError naturally.
-_PLEXOS_CACHE_VERSION = 3
+_PLEXOS_CACHE_VERSION = 5  # +gen_cost_srmc_usd in totals (Step 3 SRMC switch)
 
 
 def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
@@ -109,15 +109,28 @@ def _compute_plexos_all(accdb_path: Path) -> dict:
     ``_version`` is folded in so the cache loader can reject stale
     schemas without unpickling first.
     """
+    totals = compute_plexos_energy_totals(accdb_path)
+    unit = compute_plexos_per_unit_srmc(accdb_path)
+    # System operational cost as Σ_unit (Σ_block gen[u,b] × srmc[u,b] ×
+    # dur[b]) — apples-to-apples with gtopt's ``op_cost_usd`` (which is
+    # Σ_unit Σ_block gen × srmc × dur from the gtopt parquets).  Each
+    # unit's compute_plexos_per_unit_srmc entry stores (total_mwh,
+    # weighted_avg_srmc) with the average already MWh-weighted, so the
+    # product reconstructs the system-total $.  Stored alongside the
+    # PLEXOS pid-119 ``gen_cost_usd`` (which uses the integrated
+    # PLEXOS per-block cost — a different accounting basis, kept for
+    # historical reference).
+    totals["gen_cost_srmc_usd"] = sum(mwh * srmc for mwh, srmc in unit.values())
     return {
         "_version": _PLEXOS_CACHE_VERSION,
-        "totals": compute_plexos_energy_totals(accdb_path),
-        "unit": compute_plexos_per_unit_srmc(accdb_path),
+        "totals": totals,
+        "unit": unit,
         "bus": compute_plexos_per_bus_lmp(accdb_path),
         "line": compute_plexos_per_line(accdb_path),
         "tech": compute_plexos_generation_by_technology(accdb_path),
         "res": compute_plexos_reservoir_volumes(accdb_path),
         "bat": compute_plexos_battery_operation(accdb_path),
+        "commit": compute_plexos_commitment(accdb_path),
         # Name→category map: used by ``compute_gtopt_generation_by_technology``
         # to classify gtopt generators using PLEXOS's own taxonomy.
         # Without caching this the gtopt-tech step still hits mdb-export
@@ -290,7 +303,9 @@ def _format_money(value: float) -> str:
 #
 # Collection-2 (Generator class) primary props:
 PLEXOS_PROP_GENERATOR_GENERATION = 2  # MW per period
+PLEXOS_PROP_GENERATOR_UNITS_GENERATING = 7  # # of units ON per period (UC)
 PLEXOS_PROP_GENERATOR_GENCOST = 119  # $ per block (already integrated)
+PLEXOS_PROP_GENERATOR_STARTUP_COST = 120  # Start & Shutdown Cost ($ per block)
 PLEXOS_PROP_GENERATOR_SRMC = 137  # $/MWh per period
 #
 # Collection-80 (Battery class) primary props:
@@ -684,14 +699,33 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     batt_discharge = _sum_mwh("Battery/fout_sol.parquet")
     # Implicit transmission losses: gtopt doesn't write a per-line
     # loss parquet — losses are baked into the bus-balance equation
-    # via the piecewise-linear segment columns.  Recover by
-    # energy balance:
-    #   Generation + battery_discharge = load_served + battery_charge
-    #     + losses
-    # → losses = Gen + Disch − Load − Charge.  Floor at 0 to absorb
-    # the rare per-block rounding artifact that would otherwise show
-    # a tiny negative.
-    losses_total = max(0.0, gen_total + batt_discharge - load_total - batt_charge)
+    # via the piecewise-linear segment columns.  Recover by energy
+    # balance.
+    #
+    # gtopt expands every Battery into a synthetic ``<bat>_gen``
+    # Generator + ``<bat>_dem`` Demand pair (see
+    # ``expand_batteries``).  ``Generator/generation_sol.parquet``
+    # therefore *already* contains battery discharge MWh; cross-
+    # checked against the per-technology rollup (Step 7), which
+    # excludes batteries — gen_total − Σ_tech ≡ batt_discharge to the
+    # MWh.  Load_total is the consumer-only filtered sum (``<bat>_dem``
+    # rows are filtered out by ``_sum_consumer_demand_field_mwh``).
+    #
+    # Balance, with battery already inside gen_total:
+    #     gen_total = consumer_load + batt_charge + losses
+    # ⇒ losses = gen_total − consumer_load − batt_charge
+    #
+    # The previous formula added ``+ batt_discharge`` to the LHS,
+    # double-counting it (once via gen_total, once explicitly), which
+    # inflated reported losses by exactly one batt_discharge term
+    # (~157 GWh on the CEN PCP weekly bundle) and produced a phantom
+    # 5× transmission-loss anomaly vs PLEXOS Line.Loss (pid 1500).
+    # Verified per-line: gtopt physical Σ R/V²·f²·dt ≈ 35 GWh ≈
+    # PLEXOS reported 35 GWh.
+    #
+    # ``batt_discharge`` is still returned in the result dict for the
+    # Step-9 system-totals footnote.
+    losses_total = max(0.0, gen_total - load_total - batt_charge)
     return {
         "gen_mwh": gen_total,
         "load_mwh": load_total,
@@ -2273,6 +2307,328 @@ def _render_battery_compare(
     )
 
 
+def compute_plexos_commitment(
+    accdb_path: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-generator commitment summary from PLEXOS .accdb.
+
+    Pulls ``Units Generating`` (pid 7) for the unit on/off trajectory and
+    ``Start & Shutdown Cost`` (pid 120) for the $ paid for cycling.
+    Returns ``{generator_name → {on_hours, startups, shutdowns,
+    startup_cost_usd}}`` where:
+
+      * ``on_hours``           = Σ (units_generating × block.duration)
+      * ``startups``           = Σ max(0, U_t − U_{t−1})
+      * ``shutdowns``          = Σ max(0, U_{t−1} − U_t)
+      * ``startup_cost_usd``   = Σ Start & Shutdown Cost (already
+                                  block-integrated by PLEXOS)
+
+    Startup / shutdown event counts are derived from ``Units Generating``
+    transitions because PLEXOS does not publish per-period ``Units
+    Started`` / ``Units Shutdown`` series in the CEN PCP daily bundle;
+    only the $ aggregate (pid 120) is shipped.  The transition count is
+    a strict lower bound on actual events (back-to-back start+stop in
+    the same block is invisible).
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    keys = _dump("t_key")
+    data0 = _dump("t_data_0")
+    members = _dump("t_membership")
+    objects = _dump("t_object")
+
+    obj_name = {int(o["object_id"]): o["name"] for o in objects}
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+
+    want_props = {
+        PLEXOS_PROP_GENERATOR_UNITS_GENERATING,
+        PLEXOS_PROP_GENERATOR_STARTUP_COST,
+    }
+    key_meta: dict[int, tuple[int, int]] = {}
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid in want_props and mid in mem_child:
+            key_meta[kid] = (mem_child[mid], pid)
+
+    by_gen: dict[str, dict[int, list[tuple[int, float]]]] = collections.defaultdict(
+        lambda: collections.defaultdict(list)
+    )
+    for r in data0:
+        try:
+            kid = int(r["key_id"])
+            pid_period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        meta = key_meta.get(kid)
+        if meta is None:
+            continue
+        oid, pid = meta
+        name = obj_name.get(oid)
+        if name is None:
+            continue
+        by_gen[name][pid].append((pid_period, val))
+
+    out: dict[str, dict[str, float]] = {}
+    for name, props in by_gen.items():
+        ug = sorted(props.get(PLEXOS_PROP_GENERATOR_UNITS_GENERATING, []))
+        on_hours = sum(v * durations.get(p, 0.0) for p, v in ug)
+        startups = 0.0
+        shutdowns = 0.0
+        prev: float | None = None
+        for _p, v in ug:
+            if prev is not None:
+                delta = v - prev
+                if delta > 0:
+                    startups += delta
+                elif delta < 0:
+                    shutdowns += -delta
+            prev = v
+        startup_cost = sum(
+            v for _p, v in props.get(PLEXOS_PROP_GENERATOR_STARTUP_COST, [])
+        )
+        out[name] = {
+            "on_hours": float(on_hours),
+            "startups": float(startups),
+            "shutdowns": float(shutdowns),
+            "startup_cost_usd": float(startup_cost),
+        }
+    return out
+
+
+def compute_gtopt_commitment(
+    case_dir: Path,
+) -> dict[str, dict[str, float]]:
+    """Per-generator commitment summary from gtopt parquets.
+
+    Reads ``output/Commitment/{status_sol,startup_sol,shutdown_sol}.parquet``
+    and the bundle's ``generator_array`` (for uid→name and per-unit startup
+    cost) and returns ``{name → {on_hours, startups, shutdowns,
+    startup_cost_usd}}``.  ``startup_cost_usd`` is computed as
+    ``Σ_t v_{g,t} × startup_cost_g`` so the comparison line lines up with
+    PLEXOS's pid-120 dollar value.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    # Commitment parquets key rows by the **commitment** uid (1..N_cmt),
+    # not the generator uid (1..N_gen).  Build the uid → (generator
+    # name, startup_cost) map from ``commitment_array`` so we can both
+    # group rows by the human-readable generator name and price the
+    # startup events at the same $ value plexos2gtopt emitted.
+    commit_meta: dict[int, tuple[str, float]] = {}
+    for c in bundle["system"].get("commitment_array", []):
+        try:
+            uid = int(c["uid"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        gen_name = str(c.get("generator", ""))
+        raw_sc = c.get("startup_cost")
+        try:
+            sc = float(raw_sc) if raw_sc is not None else 0.0
+        except (TypeError, ValueError):
+            sc = 0.0
+        commit_meta[uid] = (gen_name, sc)
+
+    name_by_uid = {uid: meta[0] for uid, meta in commit_meta.items()}
+    sc_by_uid = {uid: meta[1] for uid, meta in commit_meta.items()}
+
+    commit_dir = case_dir / "output" / "Commitment"
+    if not commit_dir.is_dir():
+        return {}
+
+    def _by_name(rel: str, weighted: bool) -> dict[str, float]:
+        f = commit_dir / rel
+        if not f.exists():
+            return {}
+        df = pq.read_table(f).to_pandas()
+        if weighted:
+            df["duration"] = df["block"].astype(int).map(durations).fillna(0)
+            df["mwh"] = df["value"] * df["duration"]
+            col = "mwh"
+        else:
+            col = "value"
+        df["name"] = df["uid"].astype(int).map(name_by_uid)
+        return {
+            str(name): float(sub[col].sum())
+            for name, sub in df.groupby("name", observed=True)
+            if name  # drop NaN / empty (uid not in commitment_array)
+        }
+
+    on_hours = _by_name("status_sol.parquet", weighted=True)
+    startups = _by_name("startup_sol.parquet", weighted=False)
+    shutdowns = _by_name("shutdown_sol.parquet", weighted=False)
+
+    # $ paid for startups: Σ_t v_{c,t} · startup_cost_c, with c the
+    # commitment uid.  Keyed via commit_meta (commitment uid →
+    # generator name, $ start cost) so the cost mapping uses the
+    # correct ``commitment_array`` field, not ``generator_array`` (the
+    # naming-dialects registry maps ``startup_cost`` onto the
+    # Commitment class, not the Generator class).
+    su_path = commit_dir / "startup_sol.parquet"
+    startup_cost_by_name: dict[str, float] = {}
+    if su_path.exists():
+        df = pq.read_table(su_path).to_pandas()
+        df["sc"] = df["uid"].astype(int).map(sc_by_uid).fillna(0.0)
+        df["cost"] = df["value"] * df["sc"]
+        df["name"] = df["uid"].astype(int).map(name_by_uid)
+        for name, sub in df.groupby("name", observed=True):
+            if not name:
+                continue
+            startup_cost_by_name[str(name)] = float(sub["cost"].sum())
+
+    out: dict[str, dict[str, float]] = {}
+    for name in set(on_hours) | set(startups) | set(shutdowns):
+        out[name] = {
+            "on_hours": on_hours.get(name, 0.0),
+            "startups": startups.get(name, 0.0),
+            "shutdowns": shutdowns.get(name, 0.0),
+            "startup_cost_usd": startup_cost_by_name.get(name, 0.0),
+        }
+    return out
+
+
+def _render_commitment_compare(
+    plexos_uc: dict[str, dict[str, float]],
+    gtopt_uc: dict[str, dict[str, float]],
+    console: Console,
+    *,
+    top_n: int = 30,
+) -> None:
+    """Step 10 — per-generator commitment + cost-of-commitment comparison."""
+    common = sorted(set(plexos_uc) & set(gtopt_uc))
+    plexos_only = sorted(set(plexos_uc) - set(gtopt_uc))
+    gtopt_only = sorted(set(gtopt_uc) - set(plexos_uc))
+
+    # Aggregate system-level summary first.
+    p_on = sum(u["on_hours"] for u in plexos_uc.values())
+    g_on = sum(u["on_hours"] for u in gtopt_uc.values())
+    p_su = sum(u["startups"] for u in plexos_uc.values())
+    g_su = sum(u["startups"] for u in gtopt_uc.values())
+    p_sd = sum(u["shutdowns"] for u in plexos_uc.values())
+    g_sd = sum(u["shutdowns"] for u in gtopt_uc.values())
+    p_cost = sum(u["startup_cost_usd"] for u in plexos_uc.values())
+    g_cost = sum(u["startup_cost_usd"] for u in gtopt_uc.values())
+
+    summary = Table(
+        title=(
+            "Commitment summary (Step 10) — system totals  "
+            f"(common: {len(common)}, PLEXOS-only: {len(plexos_only)}, "
+            f"gtopt-only: {len(gtopt_only)})"
+        ),
+    )
+    summary.add_column("Metric", style="bold")
+    summary.add_column("PLEXOS", justify="right")
+    summary.add_column("gtopt", justify="right")
+    summary.add_column("Δ (g − p)", justify="right")
+    summary.add_column("Δ %", justify="right")
+
+    def _row(label: str, p: float, g: float, fmt: str = "{:,.0f}") -> None:
+        d = g - p
+        rel = (100.0 * d / p) if p else float("inf") if d else 0.0
+        rel_s = f"{rel:+.1f}%" if abs(rel) != float("inf") else "n/a"
+        summary.add_row(label, fmt.format(p), fmt.format(g), fmt.format(d), rel_s)
+
+    _row("On-hours (Σ u·Δt)", p_on, g_on)
+    _row("Startups (events)", p_su, g_su)
+    _row("Shutdowns (events)", p_sd, g_sd)
+    _row("Start & Shutdown $", p_cost, g_cost, "${:,.0f}")
+    console.print(summary)
+
+    # Per-generator detail: sort by |Δ on_hours| (commitment shape diff).
+    rows = []
+    for name in common:
+        p = plexos_uc[name]
+        g = gtopt_uc[name]
+        rows.append(
+            (
+                name,
+                p["on_hours"],
+                g["on_hours"],
+                p["startups"],
+                g["startups"],
+                p["startup_cost_usd"],
+                g["startup_cost_usd"],
+            )
+        )
+    rows.sort(key=lambda r: abs(r[2] - r[1]), reverse=True)
+
+    t = Table(
+        title=(f"Per-generator commitment (Step 10) — top {top_n} by |Δ on-hours|"),
+    )
+    t.add_column("Unit", style="bold")
+    t.add_column("PLEXOS on-h", justify="right")
+    t.add_column("gtopt on-h", justify="right")
+    t.add_column("Δ on-h", justify="right")
+    t.add_column("PLEXOS su", justify="right")
+    t.add_column("gtopt su", justify="right")
+    t.add_column("PLEXOS $", justify="right")
+    t.add_column("gtopt $", justify="right")
+    for name, pon, gon, psu, gsu, pcost, gcost in rows[:top_n]:
+        d_on = gon - pon
+        t.add_row(
+            name,
+            f"{pon:,.0f}",
+            f"{gon:,.0f}",
+            f"{d_on:+,.0f}",
+            f"{psu:,.0f}",
+            f"{gsu:,.0f}",
+            f"${pcost:,.0f}",
+            f"${gcost:,.0f}",
+        )
+    console.print(t)
+
+    if gtopt_only:
+        console.print(
+            f"[dim]{len(gtopt_only)} gtopt-only committable unit(s) "
+            "(no PLEXOS Units Generating series).[/dim]"
+        )
+    if plexos_only:
+        console.print(
+            f"[dim]{len(plexos_only)} PLEXOS-only committed unit(s) "
+            "(not in gtopt Commitment/status_sol).[/dim]"
+        )
+    # Final diagnostic: is gtopt missing startup_cost entirely?
+    if g_cost == 0 and p_cost > 0:
+        console.print(
+            "[yellow]⚠ gtopt paid $0 in startup costs while PLEXOS paid "
+            f"${p_cost:,.0f} — the bundle likely has no `start_cost` field "
+            "on any generator.  Re-run plexos2gtopt with start-cost wiring "
+            "enabled to close this gap.[/yellow]"
+        )
+
+
 def _render_solution_compare(
     plexos_tot: dict[str, float],
     gtopt_tot: dict[str, float],
@@ -2337,28 +2693,42 @@ def _render_solution_compare(
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
     _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
 
-    # Operational cost: PLEXOS via prop 119 (block-$ already
-    # integrated); gtopt via Σ(gen × srmc × duration).  Same intent
-    # — total operational dispatch $.
-    p_cost = plexos_tot.get("gen_cost_usd", 0.0)
+    # Operational cost — BOTH sides as Σ_unit Σ_block gen × srmc × dur
+    # for apples-to-apples comparison.  PLEXOS pid-119 GenCost (the
+    # integrated piecewise-offer cost) shows a methodology mismatch vs
+    # gtopt's SRMC-based op_cost (gtopt's only available cost output is
+    # the marginal SRMC × MW product); the SRMC×MW basis avoids the
+    # inframarginal-band counting difference and matches what both
+    # solvers actually publish.  Kept the pid-119 number alongside in
+    # parentheses for reference; an LP with linear costs has GenCost
+    # ≡ SRMC×MW, so the parenthesised value is a quick sanity check.
+    p_cost_srmc = plexos_tot.get("gen_cost_srmc_usd", 0.0)
+    p_cost_pid119 = plexos_tot.get("gen_cost_usd", 0.0)
     g_cost = gtopt_tot.get("op_cost_usd", 0.0)
-    delta_cost = g_cost - p_cost
-    rel_cost = (100.0 * delta_cost / p_cost) if p_cost else 0.0
+    delta_cost = g_cost - p_cost_srmc
+    rel_cost = (100.0 * delta_cost / p_cost_srmc) if p_cost_srmc else 0.0
     table.add_row(
-        "Operational $ (∫gen·srmc dt)",
-        _format_money(p_cost),
+        "Operational $ (Σ gen×srmc×dt)",
+        _format_money(p_cost_srmc),
         _format_money(g_cost),
         _format_money(delta_cost),
         f"{rel_cost:+.2f}%",
     )
 
     console.print(table)
+    pid119_note = (
+        f"  PLEXOS pid-119 GenCost (integrated piecewise): "
+        f"{_format_money(p_cost_pid119)} — kept as a side-channel; "
+        "differs from Σ gen×srmc×dt when generators carry a multi-band "
+        "offer curve."
+        if p_cost_pid119
+        else ""
+    )
     console.print(
         "[dim]Demand/Gen are duration-weighted ∫MW dt across the "
         "111-block PLEXOS layout (block durations from t_phase_3).  "
-        "PLEXOS GenCost is per-block $-integrated already (no "
-        "duration weighting).  Step 4 (TBD): per-generator dispatch "
-        "diff + per-bus LMP diff.[/dim]"
+        "Operational $ uses gen × SRMC × duration on BOTH sides for "
+        "apples-to-apples comparison." + pid119_note + "[/dim]"
     )
 
 
@@ -2410,10 +2780,16 @@ def load_uc_penalty_breakdown(
 
     plan_path = case_dir / "output" / "planning.json"
     uid_to_name: dict[int, str] = {}
+    uid_to_penalty: dict[int, float] = {}
     if plan_path.exists():
         plan = _json.loads(plan_path.read_text(encoding="utf-8"))
         for uc in plan.get("system", {}).get("user_constraint_array", []):
             uid_to_name[uc["uid"]] = uc.get("name", f"uc_{uc['uid']}")
+            raw = uc.get("penalty")
+            try:
+                uid_to_penalty[uc["uid"]] = float(raw) if raw is not None else 0.0
+            except (TypeError, ValueError):
+                uid_to_penalty[uc["uid"]] = 0.0
 
     uc_dir = case_dir / "output" / "UserConstraint"
     if not uc_dir.exists():
@@ -2433,14 +2809,25 @@ def load_uc_penalty_breakdown(
             continue
         # Each row carries the per-block slack magnitude; sum within a
         # constraint (across scene, phase, stage, block) to a single
-        # MWh-equivalent slack, then price at the global UC penalty.
+        # scalar slack, then price at the per-UC penalty from the
+        # planning.json (falls back to ``penalty_per_unit`` only when
+        # the UC has no explicit penalty — i.e. it was softened via the
+        # global ``--default-uc-penalty`` rather than an explicit
+        # per-constraint value in the bundle).
         for uid, slack in table.groupby("uid")["value"].sum().items():
             by_uid[int(uid)] = by_uid.get(int(uid), 0.0) + float(slack)
 
     breakdown: dict[str, dict] = {}
     for uid, total_slack in by_uid.items():
         name = uid_to_name.get(uid, f"uid={uid}")
-        cost = total_slack * penalty_per_unit
+        # Per-UC penalty wins; ``penalty_per_unit`` is the diagnostic
+        # fallback for UCs that the bundle never priced explicitly.
+        # This matches how the LP itself prices the slack on the
+        # objective row.
+        eff_penalty = uid_to_penalty.get(uid, 0.0)
+        if eff_penalty <= 0.0 and penalty_per_unit > 0.0:
+            eff_penalty = penalty_per_unit
+        cost = total_slack * eff_penalty
         breakdown[name] = {
             "penalty": cost,
             "category": _categorize_uc(name),
@@ -2475,7 +2862,8 @@ def _render_uc_drilldown(
 
     cat_table = Table(
         title=(
-            f"User-constraint penalty by family (unit penalty ${penalty_per_unit:,.0f})"
+            "User-constraint penalty by family (per-UC penalty from "
+            f"planning.json; fallback ${penalty_per_unit:,.0f}/unit)"
         )
     )
     cat_table.add_column("Family", style="bold")
@@ -2503,17 +2891,323 @@ def _render_uc_drilldown(
     top_table.add_column("#", justify="right")
     top_table.add_column("Constraint name", style="bold")
     top_table.add_column("Family")
-    top_table.add_column("Penalty", justify="right")
+    top_table.add_column("$/unit", justify="right")
     top_table.add_column("Slack", justify="right")
+    top_table.add_column("Penalty", justify="right")
     for i, (name, item) in enumerate(list(breakdown.items())[:top_n], 1):
+        unit = (item["penalty"] / item["slack"]) if item["slack"] else 0.0
         top_table.add_row(
             str(i),
             name,
             item["category"],
-            _format_money(item["penalty"]),
+            f"${unit:,.2f}",
             f"{item['slack']:,.2f}",
+            _format_money(item["penalty"]),
         )
     console.print(top_table)
+
+
+# ============================================================
+# Step 2b — per-block UC drilldown
+# ============================================================
+#
+# For each top-N UC with non-zero slack, parse its expression, pull
+# the per-block dispatch of each referenced generator from both PLEXOS
+# (pid 2) and gtopt (generation_sol.parquet), compute the LHS on both
+# sides, and emit a per-block table flagging exactly which blocks miss
+# the bound (and by how much) on each side.
+#
+# Expression syntax recognised: ``c1 * generator("NAME1").generation
+# {+|-} c2 * generator("NAME2").generation {... } {<=|>=} rhs``.
+# Mid-expression sign tokens are absorbed into the coefficient.
+
+_UC_TERM_RE = re.compile(
+    r"([+-]?\s*\d+\.?\d*(?:[eE][+-]?\d+)?)\s*\*\s*"
+    r'generator\("([^"]+)"\)\.generation'
+)
+_UC_OP_RHS_RE = re.compile(r"([<>]=)\s*([+-]?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*$")
+
+
+def _parse_uc_expression(
+    expr: str,
+) -> tuple[list[tuple[float, str]], str, float] | None:
+    """Parse ``c1 * g1 + c2 * g2 + … {<=|>=} rhs`` into
+    ``(terms, op, rhs)``.  Returns ``None`` if the expression doesn't
+    fit the supported shape (e.g. references something other than
+    ``generator(...).generation``)."""
+    op_m = _UC_OP_RHS_RE.search(expr)
+    if op_m is None:
+        return None
+    op = op_m.group(1)
+    rhs = float(op_m.group(2))
+    terms: list[tuple[float, str]] = []
+    for m in _UC_TERM_RE.finditer(expr):
+        try:
+            coeff = float(m.group(1).replace(" ", ""))
+        except ValueError:
+            return None
+        terms.append((coeff, m.group(2)))
+    if not terms:
+        return None
+    return terms, op, rhs
+
+
+def _pull_plexos_gen_by_period(
+    accdb_path: Path, gen_names: set[str]
+) -> dict[str, dict[int, float]]:
+    """Per-(gen_name, period_id) MW for the requested generators.
+
+    Restricts the t_data_0 scan to property 2 (Generation) and the
+    object_ids matching ``gen_names``.  ``period_id`` here matches the
+    block layout (mdb-export reports values already aggregated to the
+    bundle's block periods)."""
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    objects = _dump("t_object")
+    name_by_oid = {int(o["object_id"]): o["name"] for o in objects}
+    want_oids = {oid for oid, n in name_by_oid.items() if n in gen_names}
+
+    members = _dump("t_membership")
+    mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
+
+    keys = _dump("t_key")
+    want_kids: dict[int, int] = {}  # key_id → object_id
+    for k in keys:
+        try:
+            kid = int(k["key_id"])
+            mid = int(k["membership_id"])
+            pid = int(k["property_id"])
+        except ValueError:
+            continue
+        if pid != PLEXOS_PROP_GENERATOR_GENERATION:
+            continue
+        oid = mem_child.get(mid)
+        if oid in want_oids:
+            want_kids[kid] = oid
+
+    out: dict[str, dict[int, float]] = collections.defaultdict(dict)
+    for r in _dump("t_data_0"):
+        try:
+            kid = int(r["key_id"])
+            period = int(r["period_id"])
+            val = float(r["value"])
+        except (KeyError, ValueError):
+            continue
+        oid = want_kids.get(kid)
+        if oid is None:
+            continue
+        out[name_by_oid[oid]][period] = val
+    return dict(out)
+
+
+def compute_uc_block_drilldown(
+    case_dir: Path,
+    accdb_path: Path,
+    breakdown: dict[str, dict],
+    top_n: int = 5,
+) -> dict[str, list[dict[str, float]]]:
+    """Per-block PLEXOS vs gtopt LHS comparison for the top-N
+    slacking UCs.
+
+    Returns ``{uc_name: list of {block, plexos_lhs, gtopt_lhs, slack,
+    rhs, op}}``, with one entry per block carrying non-zero slack.
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    if not breakdown:
+        return {}
+
+    bundle_path: Path | None = None
+    for cand in case_dir.glob("*.json"):
+        if cand.name == "planning.json":
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        return {}
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    gens = bundle["system"].get("generator_array", [])
+    name_by_uid = {int(g["uid"]): g["name"] for g in gens}
+    uid_by_name = {g["name"]: int(g["uid"]) for g in gens}
+
+    ucs = bundle["system"].get("user_constraint_array", [])
+    uc_by_name = {u["name"]: u for u in ucs}
+
+    # Parse expressions for the top-N offenders, collecting referenced gen names.
+    chosen: list[tuple[str, dict, tuple[list[tuple[float, str]], str, float]]] = []
+    referenced: set[str] = set()
+    for name in list(breakdown)[:top_n]:
+        uc = uc_by_name.get(name)
+        if uc is None:
+            continue
+        parsed = _parse_uc_expression(uc.get("expression", ""))
+        if parsed is None:
+            continue
+        chosen.append((name, breakdown[name], parsed))
+        for _coeff, g_name in parsed[0]:
+            referenced.add(g_name)
+
+    if not chosen or not referenced:
+        return {}
+
+    # PLEXOS side: pull per-period MW for the referenced generators.
+    plexos_gen = _pull_plexos_gen_by_period(accdb_path, referenced)
+
+    # gtopt side: per-(gen_uid, block) MW from generation_sol.
+    gen_sol_path = case_dir / "output" / "Generator" / "generation_sol.parquet"
+    if not gen_sol_path.exists():
+        return {}
+    gen_sol = pq.read_table(gen_sol_path).to_pandas()
+    referenced_uids = {uid_by_name[n] for n in referenced if n in uid_by_name}
+    gtopt_gen: dict[str, dict[int, float]] = {}
+    for uid_v, sub in gen_sol[gen_sol["uid"].astype(int).isin(referenced_uids)].groupby(
+        "uid"
+    ):
+        gtopt_gen[name_by_uid[int(uid_v)]] = {
+            int(r["block"]): float(r["value"]) for _, r in sub.iterrows()
+        }
+
+    # gtopt slack per (uc_uid, block).
+    slack_path = case_dir / "output" / "UserConstraint" / "slack_sol.parquet"
+    slack_pos_path = case_dir / "output" / "UserConstraint" / "slack_pos_sol.parquet"
+    slack_neg_path = case_dir / "output" / "UserConstraint" / "slack_neg_sol.parquet"
+    slack_by_uc_block: dict[int, dict[int, float]] = {}
+    for path in (slack_path, slack_pos_path, slack_neg_path):
+        if not path.exists():
+            continue
+        df = pq.read_table(path).to_pandas()
+        for (uc_uid, blk), val in df.groupby(["uid", "block"])["value"].sum().items():
+            slack_by_uc_block.setdefault(int(uc_uid), {})[int(blk)] = float(val)
+
+    blocks = sorted(durations)
+    out: dict[str, list[dict[str, float]]] = {}
+    for uc_name, item, (terms, op, rhs) in chosen:
+        uc = uc_by_name[uc_name]
+        uc_uid = int(uc["uid"])
+        rows: list[dict[str, float]] = []
+        slack_blk = slack_by_uc_block.get(uc_uid, {})
+        for blk in blocks:
+            p_lhs = sum(
+                coeff * plexos_gen.get(gname, {}).get(blk, 0.0)
+                for coeff, gname in terms
+            )
+            g_lhs = sum(
+                coeff * gtopt_gen.get(gname, {}).get(blk, 0.0) for coeff, gname in terms
+            )
+            slack = slack_blk.get(blk, 0.0)
+            if slack < 1e-6 and (
+                op == ">=" and p_lhs >= rhs - 1e-6 and g_lhs >= rhs - 1e-6
+            ):
+                continue
+            if slack < 1e-6 and (
+                op == "<=" and p_lhs <= rhs + 1e-6 and g_lhs <= rhs + 1e-6
+            ):
+                continue
+            rows.append(
+                {
+                    "block": blk,
+                    "hours": durations[blk],
+                    "rhs": rhs,
+                    "op": op,
+                    "plexos_lhs": p_lhs,
+                    "gtopt_lhs": g_lhs,
+                    "slack": slack,
+                }
+            )
+        if rows:
+            out[uc_name] = rows
+    return out
+
+
+def _render_uc_block_drilldown(
+    drilldown: dict[str, list[dict[str, float]]],
+    case_dir: Path,
+    console: Console,
+    *,
+    max_blocks_per_uc: int = 30,
+) -> None:
+    """Render Step-2b per-block PLEXOS vs gtopt comparison for each
+    UC with non-zero slack or a bound violation on either side."""
+    if not drilldown:
+        return
+    import json
+
+    bundle_path = next(
+        (
+            c
+            for c in case_dir.glob("*.json")
+            if c.name != "planning.json" and c.is_file()
+        ),
+        None,
+    )
+    expr_by_name: dict[str, str] = {}
+    if bundle_path is not None:
+        bundle = json.loads(bundle_path.read_text())
+        for u in bundle["system"].get("user_constraint_array", []):
+            expr_by_name[u["name"]] = u.get("expression", "")
+
+    for uc_name, rows in drilldown.items():
+        # Sort by slack descending so the worst blocks float to the top.
+        rows = sorted(rows, key=lambda r: r["slack"], reverse=True)
+        expr = expr_by_name.get(uc_name, "")
+        title = (
+            f"Per-block UC drilldown (Step 2b) — {uc_name}  "
+            f"({len(rows)} block(s) with slack/violation)"
+        )
+        t = Table(title=title)
+        t.add_column("Block", justify="right")
+        t.add_column("Hours", justify="right")
+        t.add_column("RHS", justify="right")
+        t.add_column("op")
+        t.add_column("PLEXOS LHS", justify="right")
+        t.add_column("gtopt LHS", justify="right")
+        t.add_column("gtopt Slack", justify="right")
+        t.add_column("P meets?", justify="center")
+        t.add_column("G meets?", justify="center")
+        for r in rows[:max_blocks_per_uc]:
+            p_meets = (
+                (r["plexos_lhs"] >= r["rhs"] - 1e-6)
+                if r["op"] == ">="
+                else (r["plexos_lhs"] <= r["rhs"] + 1e-6)
+            )
+            g_meets = (
+                (r["gtopt_lhs"] >= r["rhs"] - 1e-6)
+                if r["op"] == ">="
+                else (r["gtopt_lhs"] <= r["rhs"] + 1e-6)
+            )
+            t.add_row(
+                str(int(r["block"])),
+                f"{r['hours']:.0f}",
+                f"{r['rhs']:.3f}",
+                r["op"],
+                f"{r['plexos_lhs']:,.3f}",
+                f"{r['gtopt_lhs']:,.3f}",
+                f"{r['slack']:,.3f}",
+                "✓" if p_meets else "✗",
+                "✓" if g_meets else "✗",
+            )
+        console.print(t)
+        if expr:
+            console.print(f"[dim]expression: {expr}[/dim]")
+        if len(rows) > max_blocks_per_uc:
+            console.print(
+                f"[dim]… {len(rows) - max_blocks_per_uc} more blocks "
+                "with slack/violation (truncated).[/dim]"
+            )
 
 
 def _render_report(
@@ -2749,6 +3443,7 @@ def main(argv: list[str] | None = None) -> int:
     # outputs.  We need the .accdb to recover the per-block duration
     # from t_phase_3 — same source plexos2gtopt uses to lay out the
     # bundle's block_array.
+    accdb_path: Path | None = None
     if args.gtopt_case is not None and args.plexos_res_zip is not None:
         console.print()
         try:
@@ -2766,12 +3461,16 @@ def main(argv: list[str] | None = None) -> int:
                     console.print(
                         f"[dim]Using cached PLEXOS extract: {cache_path}[/dim]"
                     )
+            # Persistent scratch for the .accdb so the Step-2b
+            # drilldown can re-read per-period generation lazily
+            # (cache-hit doesn't keep the accdb around otherwise).
+            # Cleaned up at process exit by the OS-level /tmp policy.
+            accdb_persist_dir = Path(tempfile.mkdtemp(prefix="plexos_compare_"))
+            accdb_path = _extract_accdb_from_res_zip(
+                args.plexos_res_zip, accdb_persist_dir
+            )
             if plexos_data is None:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    accdb_path = _extract_accdb_from_res_zip(
-                        args.plexos_res_zip, Path(tmpdir)
-                    )
-                    plexos_data = _compute_plexos_all(accdb_path)
+                plexos_data = _compute_plexos_all(accdb_path)
                 _save_plexos_cache(cache_path, plexos_data)
                 console.print(f"[dim]Saved PLEXOS extract to {cache_path}[/dim]")
 
@@ -2798,6 +3497,12 @@ def main(argv: list[str] | None = None) -> int:
             # Step 9 — battery operation
             plexos_bat = plexos_data["bat"]
             gtopt_bat = compute_gtopt_battery_operation(args.gtopt_case)
+            # Step 10 — generator commitment + cost of commitment
+            plexos_commit = plexos_data.get("commit", {})
+            try:
+                gtopt_commit = compute_gtopt_commitment(args.gtopt_case)
+            except FileNotFoundError:
+                gtopt_commit = {}
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:
@@ -2826,8 +3531,11 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_bat and gtopt_bat:
                 console.print()
                 _render_battery_compare(plexos_bat, gtopt_bat, console)
+            if plexos_commit and gtopt_commit:
+                console.print()
+                _render_commitment_compare(plexos_commit, gtopt_commit, console)
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
-            console.print(f"[yellow]Step 3-9 skipped: {exc}[/yellow]")
+            console.print(f"[yellow]Step 3-10 skipped: {exc}[/yellow]")
 
     if args.gtopt_case is not None and not args.no_uc_drilldown:
         console.print()
@@ -2837,6 +3545,25 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"[yellow]UC drilldown unavailable: {exc}[/yellow]")
         else:
             _render_uc_drilldown(breakdown, args.uc_penalty, args.top_uc, console)
+            # Step 2b — per-block PLEXOS vs gtopt LHS for the top-N
+            # slacking UCs.  Requires the accdb (extracted as a
+            # side-effect of Step 3) so we can pull each referenced
+            # generator's per-period MW.  Skipped when the accdb isn't
+            # available (e.g. ``--plexos-log`` mode).
+            if accdb_path is not None and breakdown:
+                try:
+                    drilldown = compute_uc_block_drilldown(
+                        args.gtopt_case,
+                        accdb_path,
+                        breakdown,
+                        top_n=args.top_uc,
+                    )
+                except (FileNotFoundError, RuntimeError, ImportError) as exc:
+                    console.print(f"[yellow]Step 2b skipped: {exc}[/yellow]")
+                else:
+                    if drilldown:
+                        console.print()
+                        _render_uc_block_drilldown(drilldown, args.gtopt_case, console)
 
     return 0
 

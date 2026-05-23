@@ -120,6 +120,10 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_SPILL_FCOST"] = str(options["spill_fcost"])
     if options.get("spill_fcost_scale") is not None:
         os.environ["GTOPT_SPILL_FCOST_SCALE"] = str(options["spill_fcost_scale"])
+    if options.get("nseg_losses") is not None:
+        os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
+    if "emin_eod_day1" in options:
+        os.environ["GTOPT_EMIN_EOD_DAY1"] = "1" if options["emin_eod_day1"] else "0"
 
     with locate_bundle(input_path) as bundle:
         # Resolve horizon mode + day count + block layout.

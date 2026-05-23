@@ -160,6 +160,111 @@ def test_battery_omits_unity_efficiency() -> None:
     assert "output_efficiency" not in out[0]
 
 
+# ---------------------------------------------------------------------------
+# Battery commitment-pmin plumbing
+# ---------------------------------------------------------------------------
+#
+# PLEXOS ``Min Charge Level`` / ``Min Discharge Level`` are *commitment-
+# conditional*: they fire only when the battery is actively
+# charging / discharging.  ``build_battery_array`` mirrors this by
+# emitting ``pmin_charge`` / ``pmin_discharge`` and flipping
+# ``commitment: true`` whenever either pmin is positive.  Without the
+# commitment flag, gtopt would treat the floor as an always-on
+# constraint and force the battery to operate at >= pmin every block
+# (infeasible the moment the LP wants the battery idle).
+#
+# Coverage: both pmins set, only one set, neither set, AND the static
+# floors stay out of the JSON when pmin == 0.
+
+
+def test_battery_emits_pmin_and_commitment_when_both_set() -> None:
+    """Both pmin_charge and pmin_discharge > 0 → both keys plus
+    ``commitment: true`` end up on the JSON entry."""
+    batts = (
+        BatterySpec(
+            object_id=10,
+            name="bess_committed",
+            bus_name="bus_a",
+            emax=100.0,
+            eini=50.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+            pmin_charge=2.5,
+            pmin_discharge=2.0,
+            input_efficiency=0.95,
+            output_efficiency=0.95,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert entry["pmin_charge"] == 2.5
+    assert entry["pmin_discharge"] == 2.0
+    assert entry["commitment"] is True
+
+
+def test_battery_omits_commitment_when_no_pmin() -> None:
+    """A battery with both pmins = 0 must NOT carry ``commitment``
+    or ``pmin_*`` keys — keeping the LP linear (no integer columns)
+    and avoiding the per-block ``load >= 0`` no-op floor."""
+    batts = (
+        BatterySpec(
+            object_id=11,
+            name="bess_linear",
+            bus_name="bus_a",
+            emax=100.0,
+            eini=50.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+            pmin_charge=0.0,
+            pmin_discharge=0.0,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert "pmin_charge" not in entry
+    assert "pmin_discharge" not in entry
+    assert "commitment" not in entry
+
+
+def test_battery_commitment_emitted_when_only_pmin_charge() -> None:
+    """A single non-zero pmin (charge side only) is enough to flip
+    ``commitment: true`` — the writer doesn't require both halves."""
+    batts = (
+        BatterySpec(
+            object_id=12,
+            name="bess_charge_only",
+            bus_name="bus_a",
+            emax=100.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+            pmin_charge=3.0,
+            pmin_discharge=0.0,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert entry["pmin_charge"] == 3.0
+    assert "pmin_discharge" not in entry
+    assert entry["commitment"] is True
+
+
+def test_battery_commitment_emitted_when_only_pmin_discharge() -> None:
+    """Same as above, but on the discharge side."""
+    batts = (
+        BatterySpec(
+            object_id=13,
+            name="bess_discharge_only",
+            bus_name="bus_a",
+            emax=100.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+            pmin_charge=0.0,
+            pmin_discharge=4.0,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert "pmin_charge" not in entry
+    assert entry["pmin_discharge"] == 4.0
+    assert entry["commitment"] is True
+
+
 def test_fuel_emission_factors_combustion_only() -> None:
     """A diesel fuel with co2_rate=0.074 emits a single combustion row.
 

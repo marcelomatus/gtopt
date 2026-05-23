@@ -431,7 +431,13 @@ def build_line_array(
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
                 entry["line_losses_mode"] = "piecewise"
-                entry["loss_segments"] = 3
+                import os as _os
+
+                try:
+                    nseg = int(_os.environ.get("GTOPT_NSEG_LOSSES", "3"))
+                except ValueError:
+                    nseg = 3
+                entry["loss_segments"] = nseg if nseg >= 1 else 3
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge

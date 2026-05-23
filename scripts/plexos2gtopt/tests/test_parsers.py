@@ -916,6 +916,39 @@ def test_extract_batteries_drops_infeasible_pmin_charge(tmp_path: Path) -> None:
     assert batts["valid"].pmin_charge == 1.0
 
 
+def test_extract_batteries_keeps_valid_pmin_end_to_end(tmp_path: Path) -> None:
+    """Companion to the drop-path test: when ``Min Charge Level``
+    fits inside ``Max Power``, the extractor preserves the value AND
+    the downstream writer flips ``commitment: true`` on the JSON
+    entry — verifying the full plexos2gtopt → JSON wiring for the
+    commitment-conditional pmin.
+
+    Uses the same fixture as the drop-path test; the ``valid``
+    battery (pmin_charge = 1.0, pmax = 5.0) exercises the keep path.
+    """
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.gtopt_writer import build_battery_array
+
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BATT_PMIN_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+    spec = batts["valid"]
+    # Parser keeps pmin_charge unchanged on the keep path.
+    assert spec.pmin_charge == 1.0
+    # Discharge side stays at the parser default of 0 (the fixture
+    # ships no Min Discharge Level for ``valid``).
+    assert spec.pmin_discharge == 0.0
+    # And the writer translates a one-sided pmin into commitment=true
+    # plus the matching key on the JSON entry.
+    out = build_battery_array((spec,))
+    entry = out[0]
+    assert entry["pmin_charge"] == 1.0
+    assert "pmin_discharge" not in entry
+    assert entry["commitment"] is True
+
+
 # ---------------------------------------------------------------------------
 # T4: _patch_uncapped_zero_fuel_bands — mixed, all-zero, single-member
 # ---------------------------------------------------------------------------
