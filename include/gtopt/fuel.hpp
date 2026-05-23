@@ -157,6 +157,34 @@ struct Fuel
   /// per-block coefficients into the matching pollutant's
   /// `EmissionZone/balance` row.
   Array<FuelEmissionFactor> emission_factors {};
+
+  /// Maximum fuel consumption per stage `[<fuel_unit>/stage]`,
+  /// stage-schedulable.  When set, FuelLP creates a per-(scenario,
+  /// stage) constraint row enforcing
+  ///
+  ///   Σ_{g : Generator(g).fuel = this_fuel} (heat_rate_g(s, b) ·
+  ///       generation_g(s, t, b) · duration_b)  ≤  max_offtake(s)
+  ///
+  /// summed across every active generator referencing this Fuel and
+  /// every block in the stage.  Mirrors PLEXOS's
+  /// `FueMaxOffWeek_<fuel>` / `FueMaxOffDay_<fuel>` Constraint
+  /// pattern, where the natural stage period (week / day) bounds the
+  /// total fuel offtake from a single contract band.
+  ///
+  /// Stage = the natural fuel-contract period (week in CEN PCP
+  /// daily, month in long-term cases).  Unit-flexibility contract
+  /// applies: `<fuel_unit>` must match `price`, `heat_rate`, etc.
+  /// for this fuel.
+  OptTRealFieldSched max_offtake {};
+
+  /// Per-unit penalty for exceeding `max_offtake`
+  /// `[$/<fuel_unit>]`, stage-schedulable.  When set and > 0 the cap
+  /// becomes SOFT: a non-negative slack column with this cost is
+  /// added to the cap row so the LP can over-consume at a per-unit
+  /// price rather than going infeasible.  When unset, the cap is
+  /// HARD.  Mirrors the `Reservoir.efin_cost` /
+  /// `EmissionZone.cap_cost` convention.
+  OptTRealFieldSched max_offtake_cost {};
 };
 
 }  // namespace gtopt

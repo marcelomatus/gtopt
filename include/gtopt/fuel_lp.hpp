@@ -1,19 +1,29 @@
 /**
  * @file      fuel_lp.hpp
- * @brief     Parameter-carrier wrapper for the Fuel data struct
+ * @brief     LP wrapper for the Fuel data struct
  * @date      2026-05-16
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * `FuelLP` does NOT contribute any LP variables or rows on its own — it
- * is a passive resolver of the time-schedulable fuel price + emission
- * factors that `GeneratorLP` consumes via `system_context.element<FuelLP>`.
- * The two `AddToLP` hooks (`add_to_lp` / `add_to_output`) are no-ops.
+ * `FuelLP` resolves the time-schedulable fuel price + emission factors
+ * that `GeneratorLP` consumes via `system_context.element<FuelLP>`.
+ *
+ * When `Fuel.max_offtake` is set the FuelLP also creates a per-(scenario,
+ * stage) cap row enforcing
+ *
+ *   Σ_{g : Generator(g).fuel = this_fuel}
+ *       (heat_rate_g(s, b) · generation_g(s, t, b) · duration_b)
+ *     ≤  max_offtake(s)
+ *
+ * with an optional slack column priced at `max_offtake_cost` when the
+ * cap is soft.  Mirrors PLEXOS's `FueMaxOffWeek_<fuel>` /
+ * `FueMaxOffDay_<fuel>` Constraint pattern.
  */
 
 #pragma once
 
 #include <gtopt/fuel.hpp>
+#include <gtopt/index_holder.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/schedule.hpp>
@@ -33,6 +43,10 @@ class FuelLP : public ObjectLP<Fuel>
 public:
   using Base = ObjectLP<Fuel>;
 
+  /// LP row / col name constants (snake_case for output filenames).
+  static constexpr std::string_view MaxOfftakeName {"max_offtake"};
+  static constexpr std::string_view MaxOfftakeSlackName {"max_offtake_slack"};
+
   explicit FuelLP(const Fuel& fuel, const InputContext& ic);
 
   [[nodiscard]] constexpr auto&& fuel(this auto&& self) noexcept
@@ -40,12 +54,15 @@ public:
     return self.object();
   }
 
-  // Intentionally no `add_to_lp` / `add_to_output`.  `Fuel` is a
-  // passive parameter carrier — it does not contribute LP variables,
-  // rows, or coefficients.  Downstream consumers (`GeneratorLP`,
-  // `EmissionLP`) resolve the per-stage schedules via the `param_*`
-  // accessors below.  The visitor in `system_lp.cpp` gates on
-  // `AddToLP<T>` and skips this type by construction.
+  /// LP-active hooks.  When `max_offtake` is unset on every stage these
+  /// are effectively no-ops — FuelLP retains its passive-parameter
+  /// behaviour for downstream consumers (`GeneratorLP`, `EmissionLP`).
+  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+                               const ScenarioLP& scenario,
+                               const StageLP& stage,
+                               LinearProblem& lp);
+
+  [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
@@ -62,6 +79,14 @@ public:
   {
     return upstream_ef_.at(s);
   }
+  [[nodiscard]] auto param_max_offtake(StageUid s) const
+  {
+    return max_offtake_.at(s);
+  }
+  [[nodiscard]] auto param_max_offtake_cost(StageUid s) const
+  {
+    return max_offtake_cost_.at(s);
+  }
   /// @}
 
 private:
@@ -69,6 +94,13 @@ private:
   OptTRealSched heat_content_;
   OptTRealSched combustion_ef_;
   OptTRealSched upstream_ef_;
+  OptTRealSched max_offtake_;
+  OptTRealSched max_offtake_cost_;
+
+  /// Per-(scenario, stage) cap row + optional slack column.  Empty
+  /// when `max_offtake` is unset for every (scenario, stage).
+  STIndexHolder<RowIndex> max_offtake_rows_;
+  STIndexHolder<ColIndex> max_offtake_slack_cols_;
 };
 
 /// SingleId-style reference into `Collection<FuelLP>`.  Used by
