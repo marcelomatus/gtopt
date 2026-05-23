@@ -97,6 +97,14 @@ class FuelSpec:
     heat_content: float = 0.0
     co2_rate: float = 0.0
     co2_upstream_rate: float = 0.0
+    #: Weekly fuel offtake cap from ``Fuel_MaxOfftakeWeek.csv`` (one
+    #: scalar per fuel, for the week containing the bundle's
+    #: reference date).  Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>``
+    #: Constraint object.  ``None`` when no row applies (e.g. the
+    #: fuel ships in the CSV with VALUE = 0 on the binding week — a
+    #: legitimate "shut" signal — distinct from "not in the CSV at
+    #: all", which means the cap is irrelevant for the bundle).
+    max_offtake: float | None = None
 
 
 @dataclass(frozen=True)

@@ -644,71 +644,50 @@ def _extract_fuel_co2_membership_rates(
     return out
 
 
-#: Regex peeling the trailing PLEXOS band suffix off a fuel name so
-#: sibling-band detection groups e.g. ``Gas_Kelar_GN_A``,
-#: ``Gas_Kelar_GN_B``, … under the same base ``Gas_Kelar_GN``.
-#: Recognised suffixes (in order tried): ``_INF`` / ``_GNL_INF`` /
-#: ``_GN_INF`` (PLEXOS "unlimited" sentinel), single-letter band IDs
-#: (``_A``…``_F``, ``_X``).
-_FUEL_BAND_SUFFIX_RE = re.compile(
-    r"_(?:GN_INF|GNL_INF|INF|[A-FX])$",
-)
+#  Retired 2026-05-23: `_patch_uncapped_zero_fuel_bands` + the
+#  `_FUEL_BAND_SUFFIX_RE` regex used to live here.  They were a
+#  band-aid for the missing ``FueMaxOffWeek_<fuel>`` constraints —
+#  promoting zero-priced fuel bands to a worst-case sibling price so
+#  the LP wouldn't discover them as free fuel arbitrage.  With
+#  ``Fuel.max_offtake`` (PR #487) we now read the real weekly caps
+#  from ``Fuel_MaxOfftakeWeek.csv`` and emit them as a per-stage cap
+#  row on the gtopt Fuel element.  See
+#  ``_extract_fuel_max_offtake_week`` below.
 
 
-def _patch_uncapped_zero_fuel_bands(prices: dict[str, list[float]]) -> None:
-    """In-place patch: zero-priced bands that have a priced sibling get
-    promoted to the MAX of the group's priced bands.
+def _extract_fuel_max_offtake_week(bundle: PlexosBundle) -> dict[str, float]:
+    """Read ``Fuel_MaxOfftakeWeek.csv`` → ``{fuel_name: cap_for_binding_week}``.
 
-    PLEXOS-CEN convention: a fuel "base" (e.g. ``Gas_Kelar_GN``) ships
-    multiple bands (``_A``, ``_B``, ``_C``, ``_D``) — sometimes only
-    one band carries a price and the others are explicit 0.  The
-    zero-priced bands ARE constrained on the PLEXOS side by
-    ``FueMaxOffWeek_<fuel>`` Constraint objects that live only in the
-    solution ``.accdb``, so plexos2gtopt's input-only parsing can't
-    see them.  Without that cap, the gtopt LP exploits the zero band
-    as free fuel.
+    Each row carries ``NAME,YEAR,MONTH,DAY,PERIOD,VALUE`` where the
+    ``(YEAR, MONTH, DAY)`` triple is the **week-start date** (PLEXOS
+    convention).  CEN PCP daily bundles ship 1-2 weekly rows per fuel
+    band — the binding week is the FIRST one seen in calendar order
+    (``read_long`` picks the lexically earliest ``(Y, M, D)`` as
+    day-0), which for a Saturday-starting week is the one whose
+    start precedes the bundle's reference date.
 
-    The heuristic here turns each unconstrained zero band into a
-    worst-case-priced band (the max of its priced siblings).  This
-    over-estimates cost on those bands but eliminates the
-    free-arbitrage shortcut that would otherwise dwarf PLEXOS's
-    operational dispatch cost on CEN PCP.
+    Returns a ``{name: cap}`` dict.  Fuels NOT in the CSV are simply
+    absent from the dict (= no cap).  Fuels with an explicit 0 cap
+    ARE in the dict with value 0.0 — PLEXOS uses this to "shut" a
+    band on a given week.
 
-    Patches only groups that have a MIX of zero and non-zero bands.
-    Wholly-zero groups (biomass / biogas / geothermal / ERNC) are
-    left alone — their explicit zero is the correct economic signal.
+    Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>`` Constraint object;
+    the daily ``Fuel_MaxOfftakeDay.csv`` (e.g. Diesel) ships the
+    same shape and is consumed by the analogous helper.
+
+    The cap unit matches the fuel's price unit (``$/MMBtu`` or
+    ``$/m³``) so the gtopt ``Fuel.max_offtake`` row sums
+    heat-rate-weighted dispatch in the same basis.
     """
-    by_base: dict[str, list[str]] = {}
-    for name in prices:
-        base = _FUEL_BAND_SUFFIX_RE.sub("", name)
-        by_base.setdefault(base, []).append(name)
-
-    patched: list[tuple[str, float]] = []
-    for base, names in by_base.items():
-        if len(names) < 2:
-            continue
-        non_zero = [n for n in names if prices[n][0] > 0.0]
-        zero = [n for n in names if prices[n][0] == 0.0]
-        if not non_zero or not zero:
-            continue
-        cap_price = max(prices[n][0] for n in non_zero)
-        for name in zero:
-            old_vals = prices[name]
-            prices[name] = [cap_price] * len(old_vals)
-            patched.append((name, cap_price))
-
-    if patched:
-        # One INFO line per affected fuel keeps the patch auditable
-        # without flooding the log on bundles with many bands.
-        for name, cap in sorted(patched):
-            logger.info(
-                "patched uncapped zero-priced fuel %s → %.4f "
-                "(worst-case sibling price; PLEXOS caps live in .accdb "
-                "FueMaxOffWeek_* and aren't visible to input-only "
-                "parsing)",
-                name,
-                cap,
-            )
+    csv_name = "Fuel_MaxOfftakeWeek.csv"
+    if not bundle.has(csv_name):
+        return {}
+    # ``periods=1`` because PLEXOS ships PERIOD=1 for the whole week
+    # value; ``n_days=1`` keeps only the first (lexically earliest)
+    # week-start date, which on CEN PCP daily bundles is the binding
+    # week containing the bundle's reference date.
+    raw = read_long(bundle.csv(csv_name), periods=1, n_days=1)
+    return {name: vals[0] for name, vals in raw.items() if vals}
 
 
 def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
@@ -737,32 +716,13 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         read_long(bundle.csv("Fuel_Price.csv")) if bundle.has("Fuel_Price.csv") else {}
     )
 
-    # Patch "uncapped zero-priced band" fuels.  PLEXOS-CEN ships
-    # multi-band fuel contracts (e.g. ``Gas_Kelar_GN_A/B/C/D``) where
-    # only band A carries a price and B/C/D are explicit 0.0 in
-    # ``Fuel_Price.csv``.  PLEXOS itself doesn't dispatch unlimited
-    # zero-price fuel because it carries weekly-offtake caps as
-    # ``FueMaxOffWeek_<fuel>`` Constraint objects — but those
-    # Constraints live only in the **solution** ``.accdb`` (not the
-    # input ``DBSEN_PRGDIARIO.xml``), so plexos2gtopt can't see them
-    # by parsing the input alone.  Without the cap, the gtopt LP
-    # discovers a "free fuel" arbitrage and dispatches the
-    # corresponding generator-variant (``KELAR-TG1+TG2+TV_GN_B``,
-    # ``MEJILLONES_3-TG+TV_GN_C``, ``COCHRANE_*_GN_D``, …) for
-    # ~150 GWh of zero-cost thermal generation, undercutting PLEXOS
-    # by ~$15M on the CEN PCP daily-week.  As a band-aid until proper
-    # ``FueMaxOff*`` constraint extraction is wired up (would need
-    # the .accdb at conversion time), promote each zero-priced band
-    # that has a priced sibling to the MAX of its priced siblings
-    # in the same fuel "base group" (same prefix sans trailing
-    # ``_<LETTER>`` band suffix).  This converts the band from a
-    # free-arbitrage option to a worst-case backup that the LP only
-    # uses when nothing cheaper is available — closer to PLEXOS's
-    # cap-constrained dispatch.  Confirmed-zero-price fuels
-    # (biomass / biogas / ERNC where the WHOLE group is zero) are
-    # untouched.
-    if prices:
-        _patch_uncapped_zero_fuel_bands(prices)
+    # Weekly offtake caps from ``Fuel_MaxOfftakeWeek.csv`` — the
+    # missing piece that PREVIOUSLY required the
+    # ``_patch_uncapped_zero_fuel_bands`` band-aid (now retired).
+    # PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint binds total weekly
+    # fuel consumption per band; gtopt's ``Fuel.max_offtake`` field
+    # (landed in PR #487) is the corresponding LP row.
+    max_offtake_week = _extract_fuel_max_offtake_week(bundle)
 
     membership_rates = _extract_fuel_co2_membership_rates(db)
     out: list[FuelSpec] = []
@@ -798,6 +758,11 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         co2_rate = co2_mem if co2_mem != 0.0 else co2_direct
         co2_upstream_rate = co2_up_mem if co2_up_mem != 0.0 else co2_up_direct
 
+        # Weekly offtake cap for the binding week.  Absent from the
+        # CSV → ``None`` (no cap); explicit 0 in the CSV → 0.0
+        # (band shut on this week).
+        cap_week = max_offtake_week.get(fuel.name)
+
         out.append(
             FuelSpec(
                 object_id=fuel.object_id,
@@ -805,6 +770,7 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 price=price,
                 co2_rate=co2_rate,
                 co2_upstream_rate=co2_upstream_rate,
+                max_offtake=cap_week,
             )
         )
     return tuple(out)
