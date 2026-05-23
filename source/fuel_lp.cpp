@@ -107,7 +107,13 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
     if (!gen.is_active(stage)) {
       continue;
     }
-    const auto& gcols = gen.generation_cols_at(scenario, stage);
+    // Use the tolerant accessor — `generation_cols_at` throws
+    // `flat_map::at` when every block of (scenario, stage) was
+    // skipped by GeneratorLP's zero-pmax P1 optimisation (the outer
+    // key is then absent).  `lookup_generation_cols` returns an
+    // empty inner map in that case, which the per-block loop below
+    // handles correctly via the `gcols.find(buid)` check.
+    const auto& gcols = gen.lookup_generation_cols(scenario, stage);
     for (const auto& block : blocks) {
       const auto buid = block.uid();
       const auto hr = gen.param_heat_rate(stage_uid, buid).value_or(0.0);
