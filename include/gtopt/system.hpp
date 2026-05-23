@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <gtopt/ammonia_node.hpp>
+#include <gtopt/ammonia_storage.hpp>
 #include <gtopt/battery.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/capacity_profile.hpp>
@@ -39,6 +41,8 @@
 #include <gtopt/fuel.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
+#include <gtopt/hydrogen_node.hpp>
+#include <gtopt/hydrogen_storage.hpp>
 #include <gtopt/inertia_provision.hpp>
 #include <gtopt/inertia_zone.hpp>
 #include <gtopt/junction.hpp>
@@ -103,6 +107,20 @@ struct System
   Array<ThermalStorage>
       thermal_storage_array {};  ///< Molten-salt / sensible-heat TES peers
                                  ///< of ``Battery`` on ``StorageLP<>``.
+
+  // ── Hydrogen carrier (electrolyser / fuel cell / salt cavern) ────────────
+  Array<HydrogenNode>
+      hydrogen_node_array {};  ///< Carrier-tagged balance nodes (MWh_LHV).
+  Array<HydrogenStorage>
+      hydrogen_storage_array {};  ///< Salt cavern / LH₂ / LOHC peers of
+                                  ///< ``Battery`` on ``StorageLP<>``.
+
+  // ── Ammonia carrier (long-term H₂ via Haber-Bosch / cracker) ─────────────
+  Array<AmmoniaNode>
+      ammonia_node_array {};  ///< Carrier-tagged balance nodes (MWh_LHV).
+  Array<AmmoniaStorage>
+      ammonia_storage_array {};  ///< Refrigerated NH₃ tanks; canonical
+                                 ///< seasonal-storage carrier.
 
   // ── Fuel storage ────────────────────────────────────────────────────────
   Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
