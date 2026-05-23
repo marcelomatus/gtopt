@@ -113,9 +113,15 @@ static_assert(AddToLP<CarrierConverterLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
-// `FuelLP` and `EmissionLP` are intentionally NOT `AddToLP` — they
-// are passive parameter carriers.  The visitor in
-// `system_lp.cpp::add_to_lp()` gates on `AddToLP<T>` and skips them.
+// `FuelLP` is mostly a passive parameter carrier (price, heat content,
+// emission factors), but contributes a per-(scenario, stage) cap row
+// when `Fuel.max_offtake` is set — mirrors PLEXOS
+// `FueMaxOffWeek_<fuel>` Constraints.  The cap aggregates
+// heat-rate-weighted dispatch across every generator referencing the
+// fuel, so FuelLP must run AFTER GeneratorLP in the visitor order
+// (verified by its position in `lp_element_types_t`).  `EmissionLP`
+// remains a passive parameter carrier.
+static_assert(AddToLP<FuelLP>);
 // `EmissionZoneLP` (Commit 3) owns the production col + balance row +
 // optional cap row; `EmissionSourceLP` (same commit) injects its
 // `-rate · dur` coefficient into the matching balance row.
