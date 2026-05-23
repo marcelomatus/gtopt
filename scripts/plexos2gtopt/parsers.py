@@ -1677,23 +1677,6 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         emax_series = emax_csv.get(name, [])
         emin_series = emin_csv.get(name, [])
         eini_series = eini_csv.get(name, [])
-        # Per-day CSV values: take the MAX (for emin) / MIN (for
-        # emax) within each 24-slot day window.  CEN PCP
-        # ``Hydro_MinVolume.csv`` ships end-of-day floors via
-        # ``PERIOD=24`` rows (e.g. ELTORO has its 12,079 hm³
-        # end-of-week floor in slot 167, all other slots 0), so a
-        # simple slot-0 sample misses every binding value.
-        # ``max`` and ``min`` correctly pick the binding edge
-        # regardless of which PERIOD the CSV uses for each day.
-        per_day_emin = [
-            max(emin_series[d * 24 : (d + 1) * 24], default=0.0)
-            for d in range(bundle.n_days)
-        ]
-        per_day_emax_raw = [
-            [v for v in emax_series[d * 24 : (d + 1) * 24] if v > 0.0]
-            for d in range(bundle.n_days)
-        ]
-        per_day_emax = [min(chunk) if chunk else 0.0 for chunk in per_day_emax_raw]
         static_emax = (
             db.static_property("Storage", storage.object_id, "Max Volume") or 0.0
         )
@@ -1734,7 +1717,6 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         emax_profile: tuple[float, ...] = ()
         block_layout = getattr(bundle, "block_layout", ())
         if block_layout and (emin_series or emax_series):
-            n_blocks = len(block_layout)
             # NO per-block emin clamp from the CSV.  All end-of-day
             # operational floors are now honoured exclusively as a SOFT
             # ``efin`` + ``efin_cost`` slack on the LAST-day EOD (set
