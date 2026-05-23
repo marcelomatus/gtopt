@@ -377,14 +377,12 @@ BlockResult add_none(const ScenarioLP& scenario,
                      bool enforce_capacity)
 {
   // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
-  // widen the bidirectional flow bounds to ``2 × original tmax`` so
-  // the LP can dispatch above the rating, but the LP still has
-  // finite bounds (DblMax invites scaling / presolve numerical
-  // issues — verified on CEN PCP weekly).  No loss model, so no
-  // other coefficients are affected.
-  const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
-  const double lowb = -lift_multiplier * block_tmax_ba;
-  const double uppb = lift_multiplier * block_tmax_ab;
+  // do NOT enforce any cap on the bidirectional flow — release the
+  // bounds to ``±DblMax``.  ``add_none`` has no loss model, so the
+  // ``2 × original`` segment-discretization rule does not apply here.
+  const double lowb =
+      enforce_capacity ? -block_tmax_ba : -LinearProblem::DblMax;
+  const double uppb = enforce_capacity ? block_tmax_ab : LinearProblem::DblMax;
   const auto fpc = lp.add_col({
       .lowb = lowb,
       .uppb = uppb,
@@ -426,16 +424,21 @@ BlockResult add_linear(const LossConfig& config,
                        bool enforce_capacity)
 {
   BlockResult result;
-  // ``enforce_capacity = false``: widen the directional flow caps
-  // to ``2 × original`` so the LP can dispatch above the rating
-  // while keeping finite bounds (DblMax invites presolve issues).
-  const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
+  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
+  // do NOT enforce any cap on the directional flows — release the
+  // upper bounds to ``DblMax``.  ``add_linear`` uses a per-line
+  // ``λ`` (not segment widths), so the ``2 × original`` PWL
+  // discretization rule does not apply here.
+  const double flow_uppb_ab =
+      enforce_capacity ? block_tmax_ab : LinearProblem::DblMax;
+  const double flow_uppb_ba =
+      enforce_capacity ? block_tmax_ba : LinearProblem::DblMax;
 
   // A→B direction: bus_a sends, bus_b receives.
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
         .lowb = 0.0,
-        .uppb = lift_multiplier * block_tmax_ab,
+        .uppb = flow_uppb_ab,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlowpName,
@@ -462,7 +465,7 @@ BlockResult add_linear(const LossConfig& config,
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
         .lowb = 0.0,
-        .uppb = lift_multiplier * block_tmax_ba,
+        .uppb = flow_uppb_ba,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlownName,
@@ -525,27 +528,32 @@ BlockResult add_piecewise(const LossConfig& config,
   const auto link_reserve_sz = static_cast<size_t>(nseg) + 2;
   const auto loss_reserve_sz = static_cast<size_t>(nseg) + 1;
   // ``enforce_capacity = false`` (PLEXOS-mirror ``Enforce Limits = 0``):
-  // widen the loss-PWL envelope to TWICE the rating so the segments
-  // cover the lifted dispatch range, with the column upper bounds
-  // doubled rather than released to DblMax.  Keeping finite
-  // (= ``2 × original``) bounds preserves PWL convexity (each
-  // segment fills before the next under the natural ordering by
-  // ``loss_k``), so the loss approximation stays meaningful.  The
-  // ``2 ×`` multiplier is the minimum width that covers the
-  // empirical "lifted EL=1" flows on CEN PCP weekly: Capricornio
-  // dispatches up to 209.7 MW vs a 76 MW cap (≈ 2.76×), but for
-  // most lifted lines the AC-feasible flow stays under 2 × cap.
-  // A future per-line override (e.g. ``Line.lift_multiplier``)
-  // would tighten this; for now 2 × is the conservative default.
+  // two separate dials at work here.
+  //
+  //   1. ``seg_width`` — per-segment ``Δf`` used to compute the loss
+  //      coefficient ``loss_k = seg_width · R · (2k−1) / V²``:
+  //      WIDENED to ``2 × original / nseg`` so the PWL approximation
+  //      covers the lifted dispatch range instead of being tuned for
+  //      ``[0, original_tmax]``.  Without this widening the LP would
+  //      see steeply ramping losses past the original cap because
+  //      all flow above it would fall into the highest-loss segment.
+  //
+  //   2. ``seg_uppb`` (segment column upper bounds) and the
+  //      directional ``fp / fn`` flow-column upper bounds:
+  //      RELEASED to ``DblMax`` so the cap is NOT enforced.  PWL
+  //      convexity is lost (the LP can dump flow into the
+  //      lowest-loss segment first and under-estimate losses on
+  //      that line), but this is the explicit user-requested
+  //      semantic for ``Enforce Limits = 0``: compute the loss
+  //      segments using twice the capacity, and still do not
+  //      enforce the cap.
+  //
+  // ``2.0`` is hard-coded for now; a future ``Line.lift_multiplier``
+  // override would let the caller widen further when needed.
   const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
   const double effective_fmax = lift_multiplier * fmax;
   const double seg_width = effective_fmax / nseg;
-  // Each segment binds at its (widened) seg_width — NOT released to
-  // DblMax: that would lose PWL convexity (the LP would dump all
-  // flow into the lowest-loss seg_1 and under-estimate losses).
-  // ``seg_uppb == seg_width`` keeps the natural fill-segments-in-
-  // order behaviour while doubling the total cap when lifted.
-  const double seg_uppb = seg_width;
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   // Hoisted once per (block, line): the AMPL/PAMPL block context is
   // identical for fp_col, fn_col, loss_col, linkrow and lossrow.
@@ -559,8 +567,10 @@ BlockResult add_piecewise(const LossConfig& config,
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
         .lowb = 0,
-        // 2 × original tmax_ab when lifted, original when enforcing.
-        .uppb = lift_multiplier * block_tmax_ab,
+        // No cap enforced when ``enforce_capacity = false``: release
+        // to DblMax.  The ``2 ×`` widening lives in ``seg_width``
+        // (loss-coefficient discretization), not in the flow bound.
+        .uppb = enforce_capacity ? block_tmax_ab : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlowpName,
@@ -575,7 +585,7 @@ BlockResult add_piecewise(const LossConfig& config,
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
         .lowb = 0,
-        .uppb = lift_multiplier * block_tmax_ba,
+        .uppb = enforce_capacity ? block_tmax_ba : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlownName,
@@ -711,19 +721,20 @@ DirResult add_direction(const LossConfig& config,
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
-  // ``enforce_capacity = false``: widen the loss-PWL envelope to
-  // ``2 × original tmax`` so the segments cover the lifted dispatch
-  // range with finite (not DblMax) bounds — PWL convexity preserved.
-  // See ``add_piecewise`` for the design rationale.
+  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
+  // widen the loss-PWL envelope to ``2 × original tmax`` for
+  // ``seg_width`` (loss-coefficient accuracy) but release the
+  // per-segment AND the flow upper bounds to ``DblMax`` so the cap
+  // is NOT enforced.  See ``add_piecewise`` for the rationale.
   const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
   const double seg_width = (lift_multiplier * block_tmax) / nseg;
-  const double seg_uppb = seg_width;
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   const auto block_ctx =
       make_block_context(scenario.uid(), stage.uid(), block.uid());
   const auto flow_col = lp.add_col({
       .lowb = 0,
-      .uppb = lift_multiplier * block_tmax,
+      .uppb = enforce_capacity ? block_tmax : LinearProblem::DblMax,
       .cost = block_tcost,
       .class_name = Line::class_name.full_name(),
       .variable_name = labels.flow,
@@ -904,13 +915,14 @@ BlockResult add_bidirectional(const LossConfig& config,
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
   // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
-  // widen the loss-PWL envelope to ``2 × original tmax`` and keep
-  // finite per-segment bounds (PWL convexity preserved).  See
-  // ``add_piecewise`` for the rationale on why DblMax is avoided.
+  // widen the loss-PWL envelope to ``2 × original tmax`` for
+  // ``seg_width`` (loss-coefficient accuracy) but release the
+  // per-segment upper bound to ``DblMax`` so the cap is NOT
+  // enforced.  See ``add_piecewise`` for the rationale.
   const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
   const double seg_width = (lift_multiplier * block_tmax) / nseg;
   const double seg_tcost = block_tcost / nseg;
-  const double seg_uppb = seg_width;
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   std::vector<ColIndex> seg_cols;
   seg_cols.reserve(static_cast<size_t>(nseg));
