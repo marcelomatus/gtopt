@@ -21,6 +21,7 @@
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_profile_lp.hpp>
+#include <gtopt/carrier_converter_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
@@ -108,6 +109,7 @@ static_assert(AddToLP<HydrogenNodeLP>);
 static_assert(AddToLP<HydrogenStorageLP>);
 static_assert(AddToLP<AmmoniaNodeLP>);
 static_assert(AddToLP<AmmoniaStorageLP>);
+static_assert(AddToLP<CarrierConverterLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
@@ -275,6 +277,7 @@ public:
                                    Collection<HydrogenStorageLP>,
                                    Collection<AmmoniaNodeLP>,
                                    Collection<AmmoniaStorageLP>,
+                                   Collection<CarrierConverterLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,

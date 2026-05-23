@@ -26,8 +26,12 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <span>
 #include <string_view>
+
+#include <gtopt/enum_option.hpp>
 
 namespace gtopt
 {
@@ -68,6 +72,21 @@ enum class Carrier : std::uint8_t
       return "ammonia";
   }
   return "unknown";
+}
+
+/// NamedEnum table — lets ``Carrier`` round-trip through JSON via
+/// ``json_string_enum<>``.  See ``enum_option.hpp`` for the framework.
+inline constexpr auto carrier_entries = std::to_array<EnumEntry<Carrier>>({
+    {.name = "electric", .value = Carrier::Electric},
+    {.name = "water", .value = Carrier::Water},
+    {.name = "hydrogen", .value = Carrier::Hydrogen},
+    {.name = "thermal", .value = Carrier::Thermal},
+    {.name = "ammonia", .value = Carrier::Ammonia},
+});
+
+[[nodiscard]] constexpr auto enum_entries(Carrier) noexcept
+{
+  return std::span {carrier_entries};
 }
 
 }  // namespace gtopt

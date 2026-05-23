@@ -17,6 +17,7 @@
 #include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/json/json_capacity_profile.hpp>
+#include <gtopt/json/json_carrier_converter.hpp>
 #include <gtopt/json/json_commitment.hpp>
 #include <gtopt/json/json_converter.hpp>
 #include <gtopt/json/json_decision_variable.hpp>
@@ -92,6 +93,9 @@ struct json_data_contract<System>
       json_array_null<"ammonia_storage_array",
                       Array<AmmoniaStorage>,
                       AmmoniaStorage>,
+      json_array_null<"carrier_converter_array",
+                      Array<CarrierConverter>,
+                      CarrierConverter>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
@@ -157,6 +161,7 @@ struct json_data_contract<System>
                                  system.hydrogen_storage_array,
                                  system.ammonia_node_array,
                                  system.ammonia_storage_array,
+                                 system.carrier_converter_array,
                                  system.lng_terminal_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
