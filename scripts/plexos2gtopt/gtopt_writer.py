@@ -652,6 +652,16 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
             if fuel.co2_upstream_rate != 0.0:
                 factor["upstream"] = fuel.co2_upstream_rate
             entry["emission_factors"] = [factor]
+        # Weekly offtake cap — mirrors PLEXOS ``FueMaxOffWeek_<fuel>``
+        # Constraint.  ``None`` means the fuel is absent from
+        # ``Fuel_MaxOfftakeWeek.csv`` (no cap binds this bundle).
+        # Explicit 0.0 IS emitted so PLEXOS's "shut on this week"
+        # signal carries through — the gtopt Fuel.max_offtake row
+        # then forces every generator on this fuel to dispatch 0
+        # within the stage (cheaper than the legacy band-aid that
+        # would have over-priced the band's marginal cost).
+        if fuel.max_offtake is not None:
+            entry["max_offtake"] = fuel.max_offtake
         out.append(entry)
     return out
 

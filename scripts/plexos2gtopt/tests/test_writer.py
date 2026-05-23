@@ -319,6 +319,61 @@ def test_fuel_emission_factors_upstream_only() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fuel.max_offtake (PLEXOS FueMaxOffWeek_* reproduction — PR #487)
+# ---------------------------------------------------------------------------
+
+
+def test_fuel_max_offtake_emitted_when_set() -> None:
+    """``FuelSpec.max_offtake`` > 0 lands on the JSON as ``max_offtake``.
+
+    The weekly cap (m³ or MMBtu / week) caps total stage consumption
+    once gtopt's FuelLP::add_to_lp builds the per-stage row.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=1,
+            name="Gas_Quintero_A",
+            price=10.0,
+            max_offtake=5000.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["max_offtake"] == 5000.0
+
+
+def test_fuel_max_offtake_explicit_zero_propagates() -> None:
+    """``max_offtake == 0.0`` IS emitted (PLEXOS "shut" signal).
+
+    Distinct from ``None``: the LP must dispatch 0 on every
+    generator referencing this fuel within the stage.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=2,
+            name="Gas_Quintero_B",
+            price=12.0,
+            max_offtake=0.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["max_offtake"] == 0.0
+
+
+def test_fuel_max_offtake_absent_when_none() -> None:
+    """``max_offtake == None`` omits the field (no cap binds)."""
+    fuels = (
+        FuelSpec(
+            object_id=3,
+            name="Gas_Quintero_C",
+            price=14.0,
+            max_offtake=None,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert "max_offtake" not in out[0]
+
+
+# ---------------------------------------------------------------------------
 # Demand fcost (literature audit #3: per-Region VoLL → per-Demand fcost)
 # ---------------------------------------------------------------------------
 

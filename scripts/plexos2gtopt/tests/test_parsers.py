@@ -12,7 +12,6 @@ from pathlib import Path
 
 from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.parsers import (
-    _patch_uncapped_zero_fuel_bands,
     extract_batteries,
     extract_demands,
     extract_fuels,
@@ -317,6 +316,56 @@ def test_extract_fuels_skips_non_co2_emission(tmp_path: Path) -> None:
     fuels = extract_fuels(db, bundle)
     assert fuels[0].co2_rate == 0.0
     assert fuels[0].co2_upstream_rate == 0.0
+
+
+def test_extract_fuels_max_offtake_week_binding_week(tmp_path: Path) -> None:
+    """``Fuel_MaxOfftakeWeek.csv`` populates ``FuelSpec.max_offtake``.
+
+    Two week-start dates (Apr 16 and Apr 23) ship per fuel; the
+    binding week is the FIRST one seen by ``read_long`` (Apr 16 in
+    calendar order — the week containing the Apr 22 bundle date).
+    The Apr 23 row is ignored because it's outside the bundle's
+    1-day window.
+
+    Mirrors PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint pattern.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Fuel_MaxOfftakeWeek.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n"
+        "diesel,2026,4,16,1,5000.0\n"  # ← binding week
+        "diesel,2026,4,23,1,1.0\n",  # ← ignored (next week)
+    )
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].max_offtake == 5000.0
+
+
+def test_extract_fuels_max_offtake_week_absent(tmp_path: Path) -> None:
+    """No CSV → ``max_offtake = None`` (no cap binds)."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].max_offtake is None
+
+
+def test_extract_fuels_max_offtake_week_explicit_zero(tmp_path: Path) -> None:
+    """Explicit 0 in the CSV → ``max_offtake = 0.0`` (PLEXOS "shut").
+
+    Distinct from "absent" (= no cap).  An explicit-zero cap propagates
+    so the gtopt LP forces every generator on this fuel band to
+    dispatch 0 within the stage.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Fuel_MaxOfftakeWeek.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\ndiesel,2026,4,16,1,0\n",
+    )
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].max_offtake == 0.0
 
 
 def test_extract_generators_with_costs(tmp_path: Path) -> None:
@@ -947,59 +996,6 @@ def test_extract_batteries_keeps_valid_pmin_end_to_end(tmp_path: Path) -> None:
     assert entry["pmin_charge"] == 1.0
     assert "pmin_discharge" not in entry
     assert entry["commitment"] is True
-
-
-# ---------------------------------------------------------------------------
-# T4: _patch_uncapped_zero_fuel_bands — mixed, all-zero, single-member
-# ---------------------------------------------------------------------------
-
-
-def test_patch_uncapped_zero_fuel_bands_mixed_group() -> None:
-    """Mixed group: zero-priced bands inherit the MAX priced sibling.
-
-    PLEXOS-CEN ships multi-band fuel contracts (``Gas_<base>_A/B/C/…``)
-    where only one band carries a price.  The zero bands ARE capped
-    by FueMaxOffWeek_* Constraints living in the solution .accdb,
-    invisible to input-only parsing — so the LP would otherwise
-    discover them as free fuel.  Patching them to the worst-case
-    sibling price closes the arbitrage.
-    """
-    prices: dict[str, list[float]] = {
-        "Gas_A": [100.0] * 24,
-        "Gas_B": [0.0] * 24,
-        "Gas_C": [0.0] * 24,
-    }
-    _patch_uncapped_zero_fuel_bands(prices)
-    # Priced band stays at its original value.
-    assert prices["Gas_A"][0] == 100.0
-    # Zero bands lifted to MAX priced sibling (100).
-    assert prices["Gas_B"][0] == 100.0
-    assert prices["Gas_C"][0] == 100.0
-    # The patch fills every period, not just period 1.
-    assert all(v == 100.0 for v in prices["Gas_B"])
-
-
-def test_patch_uncapped_zero_fuel_bands_wholly_zero_group() -> None:
-    """Wholly-zero groups (biomass / biogas / ERNC) are left alone.
-
-    The explicit zero IS the correct economic signal for true zero-
-    marginal-cost renewables; lifting them to a priced sibling would
-    invent fictional fuel cost.
-    """
-    prices: dict[str, list[float]] = {
-        "Bio_A": [0.0] * 24,
-        "Bio_B": [0.0] * 24,
-    }
-    _patch_uncapped_zero_fuel_bands(prices)
-    assert prices["Bio_A"] == [0.0] * 24
-    assert prices["Bio_B"] == [0.0] * 24
-
-
-def test_patch_uncapped_zero_fuel_bands_single_member_group() -> None:
-    """Single-member groups are never patched (no sibling to draw a price from)."""
-    prices: dict[str, list[float]] = {"Solo": [50.0] * 24}
-    _patch_uncapped_zero_fuel_bands(prices)
-    assert prices["Solo"] == [50.0] * 24
 
 
 # ---------------------------------------------------------------------------
