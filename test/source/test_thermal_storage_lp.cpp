@@ -1,23 +1,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Smoke integration test for the Carrier + ThermalNode +
-// ThermalStorage type-safe registration path.  Builds a complete
-// ``System`` with the new arrays, runs LP assembly via ``SystemLP``,
-// and verifies:
-//   * the System parses + holds ThermalNode + ThermalStorage arrays,
-//   * ``ThermalStorageLP`` is registered in the LP element collections,
-//   * the LP assembles without crashing,
-//   * the bus-only side (Bus + Generator + Demand) solves to the
-//     expected dispatch cost on its own — i.e. the new TES path does
-//     not break the existing LP topology.
-//
-// The full thermal-side LP (solar field generator + power-block
-// converter on a ThermalNode-aware balance row) lands when
-// ``ThermalNodeLP`` is added — see the CSP plan for the next milestone.
-// Until then the ThermalStorage element is held back from LP assembly
-// by leaving its ``active`` field unset on a non-default-active
-// timeline; if that escape hatch is needed in the future, set
-// ``active = false`` explicitly.
+// Integration tests for ThermalNodeLP + ThermalStorageLP wiring:
+//   * Smoke: System registers ThermalNode + ThermalStorage, LP
+//     assembles and solves, bus-side dispatch cost matches.
+//   * Balance row: ThermalStorageLP stamps finp (−1) / fout (+1) into
+//     the ThermalNodeLP balance row.  With no external source/sink at
+//     the node and no charge/discharge cost, the LP collapses
+//     finp = fout = 0 and the dual is undetermined; we just verify
+//     the cols are clamped at zero.
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
@@ -113,16 +103,15 @@ TEST_CASE(
           },
       },
   };
-  // ThermalStorage element is held INACTIVE on this milestone — the
-  // thermal-side balance row (ThermalNodeLP) doesn't exist yet, so an
-  // active TES would leave finp/fout columns unbound and the LP would
-  // be dual-infeasible.  Marking it inactive exercises the parse +
-  // registration path without polluting the LP.
+  // ThermalStorage is now ACTIVE: finp/fout cols are stamped into the
+  // ThermalNodeLP balance row (−1 charge / +1 discharge).  With no
+  // other element on the thermal node, the balance row sum must equal
+  // zero in every block, so the LP will set finp[b] = fout[b] = 0 in
+  // every block.  eini = efin = 200 satisfies the SoC carry trivially.
   sys.thermal_storage_array = {
       {
           .uid = Uid {1},
           .name = "tes1",
-          .active = false,
           .thermal_node = SingleId {Uid {7}},
           .input_efficiency = 0.98,
           .output_efficiency = 0.98,
@@ -130,7 +119,8 @@ TEST_CASE(
           .emax = 500.0,
           .eini = 200.0,
           .efin = 200.0,
-          .capacity = 100.0,
+          .capacity = 500.0,  // Installed energy capacity (MWh_th) — must
+                              // be ≥ eini so the SoC fits.
           .use_state_variable = true,
           .daily_cycle = false,
       },
@@ -166,4 +156,19 @@ TEST_CASE(
   // 1000 → 5.0.
   const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(5.0).epsilon(0.01));
+
+  // The balance row at the thermal node forces finp[b] = fout[b] for
+  // every block.  With no external source/sink and no charge/discharge
+  // cost, the LP collapses both to zero.
+  const auto& scenarios = system_lp.scene().scenarios();
+  const auto& stages = system_lp.phase().stages();
+  const auto& finps = tes.finp_cols_at(scenarios[0], stages[0]);
+  const auto& fouts = tes.fout_cols_at(scenarios[0], stages[0]);
+  const auto sol = li.get_col_sol();
+  for (const auto& [buid, col] : finps) {
+    CHECK(sol[col] == doctest::Approx(0.0).epsilon(1e-6));
+  }
+  for (const auto& [buid, col] : fouts) {
+    CHECK(sol[col] == doctest::Approx(0.0).epsilon(1e-6));
+  }
 }

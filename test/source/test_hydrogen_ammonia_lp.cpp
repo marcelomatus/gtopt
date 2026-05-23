@@ -104,16 +104,19 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "salt_cavern",
-          .active = false,  // Held inactive: HydrogenNodeLP not yet wired.
+          // ACTIVE: finp/fout now stamped into HydrogenNodeLP balance row.
           .hydrogen_node = SingleId {Uid {11}},
           .input_efficiency = 0.95,
           .output_efficiency = 0.99,
-          .annual_loss = 0.005,
+          // annual_loss intentionally unset: with eini == efin and no
+          // external source/sink, any self-discharge makes SoC drift below
+          // efin and the LP becomes primal-infeasible.
           .emin = 50000.0,
           .emax = 200000.0,
           .eini = 100000.0,
-          .efin = 80000.0,
-          .capacity = 200000.0,
+          .efin = 100000.0,  // Same as eini — no external source/sink yet,
+                             // so the LP can't move H₂ in/out of the cavern.
+          .capacity = 200000.0,  // ≥ eini so SoC fits inside the cap.
           .use_state_variable = true,
           .daily_cycle = false,
       },
@@ -132,13 +135,13 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "nh3_tank",
-          .active = false,  // Held inactive: AmmoniaNodeLP not yet wired.
+          // ACTIVE: finp/fout now stamped into AmmoniaNodeLP balance row.
           .ammonia_node = SingleId {Uid {22}},
-          .annual_loss = 0.025,
+          // annual_loss intentionally unset (same rationale as H₂ above).
           .emin = 0.0,
           .emax = 310000.0,
           .eini = 155000.0,
-          .efin = 100000.0,
+          .efin = 155000.0,  // Same as eini — no external source/sink yet.
           .capacity = 310000.0,
           .use_state_variable = true,
           .daily_cycle = false,
