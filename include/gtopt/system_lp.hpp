@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include <gtopt/ammonia_node_lp.hpp>
 #include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
@@ -34,6 +35,7 @@
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/hydrogen_node_lp.hpp>
 #include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
@@ -60,6 +62,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/thermal_node_lp.hpp>
 #include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
@@ -99,8 +102,11 @@ static_assert(AddToLP<GeneratorProfileLP>);
 static_assert(AddToLP<DemandProfileLP>);
 static_assert(AddToLP<CapacityProfileLP>);
 static_assert(AddToLP<BatteryLP>);
+static_assert(AddToLP<ThermalNodeLP>);
 static_assert(AddToLP<ThermalStorageLP>);
+static_assert(AddToLP<HydrogenNodeLP>);
 static_assert(AddToLP<HydrogenStorageLP>);
+static_assert(AddToLP<AmmoniaNodeLP>);
 static_assert(AddToLP<AmmoniaStorageLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
@@ -263,8 +269,11 @@ public:
                                    Collection<DemandProfileLP>,
                                    Collection<CapacityProfileLP>,
                                    Collection<BatteryLP>,
+                                   Collection<ThermalNodeLP>,
                                    Collection<ThermalStorageLP>,
+                                   Collection<HydrogenNodeLP>,
                                    Collection<HydrogenStorageLP>,
+                                   Collection<AmmoniaNodeLP>,
                                    Collection<AmmoniaStorageLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,

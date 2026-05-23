@@ -11,6 +11,7 @@
  * types differ.
  */
 
+#include <gtopt/hydrogen_node_lp.hpp>
 #include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -117,6 +118,27 @@ bool HydrogenStorageLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
+
+  // Stamp into the HydrogenNode balance row if a hydrogen_node ref is
+  // set.  Sign convention (mirrors BusLP):
+  //   * finp (charging the H₂ store) pulls H₂ from the node    → −1
+  //   * fout (discharging the H₂ store) injects H₂ to the node → +1
+  if (const auto& hn_ref = hydrogen_storage().hydrogen_node; hn_ref.has_value())
+  {
+    const auto& hn_lp =
+        sc.element<HydrogenNodeLP>(HydrogenNodeLPSId {hn_ref.value()});
+    if (hn_lp.is_active(stage)) {
+      const auto& brows = hn_lp.balance_rows_at(scenario, stage);
+      const auto& finps_at = finp_cols.at(st_key);
+      const auto& fouts_at = fout_cols.at(st_key);
+      for (auto&& block : blocks) {
+        const auto buid = block.uid();
+        auto& brow = lp.row_at(brows.at(buid));
+        brow[finps_at.at(buid)] = -1.0;
+        brow[fouts_at.at(buid)] = +1.0;
+      }
+    }
+  }
 
   sc.add_ampl_variable(
       ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));

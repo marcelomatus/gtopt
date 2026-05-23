@@ -9,6 +9,7 @@
  * Same LP shape; only class-name labels and the data struct differ.
  */
 
+#include <gtopt/ammonia_node_lp.hpp>
 #include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -114,6 +115,26 @@ bool AmmoniaStorageLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
+
+  // Stamp into the AmmoniaNode balance row if an ammonia_node ref is
+  // set.  Sign convention (mirrors BusLP):
+  //   * finp (charging the NH₃ tank) pulls NH₃ from the node    → −1
+  //   * fout (discharging the NH₃ tank) injects NH₃ to the node → +1
+  if (const auto& an_ref = ammonia_storage().ammonia_node; an_ref.has_value()) {
+    const auto& an_lp =
+        sc.element<AmmoniaNodeLP>(AmmoniaNodeLPSId {an_ref.value()});
+    if (an_lp.is_active(stage)) {
+      const auto& brows = an_lp.balance_rows_at(scenario, stage);
+      const auto& finps_at = finp_cols.at(st_key);
+      const auto& fouts_at = fout_cols.at(st_key);
+      for (auto&& block : blocks) {
+        const auto buid = block.uid();
+        auto& brow = lp.row_at(brows.at(buid));
+        brow[finps_at.at(buid)] = -1.0;
+        brow[fouts_at.at(buid)] = +1.0;
+      }
+    }
+  }
 
   sc.add_ampl_variable(
       ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));

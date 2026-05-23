@@ -12,6 +12,7 @@
 
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/thermal_node_lp.hpp>
 #include <gtopt/thermal_storage_lp.hpp>
 
 namespace gtopt
@@ -120,6 +121,26 @@ bool ThermalStorageLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
+
+  // Stamp into the ThermalNode balance row if a thermal_node ref is
+  // set.  Sign convention (mirrors BusLP):
+  //   * finp (charging the TES) pulls heat from the node    → −1
+  //   * fout (discharging the TES) injects heat to the node → +1
+  if (const auto& tn_ref = thermal_storage().thermal_node; tn_ref.has_value()) {
+    const auto& tn_lp =
+        sc.element<ThermalNodeLP>(ThermalNodeLPSId {tn_ref.value()});
+    if (tn_lp.is_active(stage)) {
+      const auto& brows = tn_lp.balance_rows_at(scenario, stage);
+      const auto& finps_at = finp_cols.at(st_key);
+      const auto& fouts_at = fout_cols.at(st_key);
+      for (auto&& block : blocks) {
+        const auto buid = block.uid();
+        auto& brow = lp.row_at(brows.at(buid));
+        brow[finps_at.at(buid)] = -1.0;
+        brow[fouts_at.at(buid)] = +1.0;
+      }
+    }
+  }
 
   sc.add_ampl_variable(
       ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));
