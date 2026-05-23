@@ -28,6 +28,7 @@
 #include <gtopt/battery.hpp>
 #include <gtopt/bus.hpp>
 #include <gtopt/capacity_profile.hpp>
+#include <gtopt/carrier_converter.hpp>
 #include <gtopt/commitment.hpp>
 #include <gtopt/converter.hpp>
 #include <gtopt/decision_variable.hpp>
@@ -121,6 +122,11 @@ struct System
   Array<AmmoniaStorage>
       ammonia_storage_array {};  ///< Refrigerated NH₃ tanks; canonical
                                  ///< seasonal-storage carrier.
+
+  // ── Multi-carrier converters (electrolyser, fuel cell, HB, cracker, …) ──
+  Array<CarrierConverter>
+      carrier_converter_array {};  ///< One-stage flow converters between
+                                   ///< any two carrier-typed balance nodes.
 
   // ── Fuel storage ────────────────────────────────────────────────────────
   Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
