@@ -14,11 +14,22 @@
  * | Category | Elements |
  * |----------|---------|
  * | Electrical network | Bus, Generator, Demand, Line |
- * | Profiles | GeneratorProfile, DemandProfile |
+ * | Time-varying profiles | GeneratorProfile, DemandProfile, CapacityProfile |
  * | Energy storage | Battery, Converter |
+ * | Thermal carrier | ThermalNode, ThermalStorage |
+ * | Hydrogen carrier | HydrogenNode, HydrogenStorage |
+ * | Ammonia carrier | AmmoniaNode, AmmoniaStorage |
+ * | Multi-carrier converters | CarrierConverter |
+ * | Fuel storage | LngTerminal |
+ * | Fuels | Fuel |
+ * | Emissions | Emission, EmissionZone, EmissionSource |
+ * | Unit commitment | Commitment, SimpleCommitment |
  * | Reserve | ReserveZone, ReserveProvision |
+ * | Inertia | InertiaZone, InertiaProvision |
  * | Hydro cascade | Junction, Waterway, Flow, Reservoir, ReservoirSeepage,
- * ReservoirDischargeLimit, Turbine |
+ * ReservoirDischargeLimit, ReservoirProductionFactor, Turbine, Pump |
+ * | Water rights | FlowRight, VolumeRight |
+ * | User constraints | UserParam, DecisionVariable, UserConstraint |
  */
 
 #pragma once
