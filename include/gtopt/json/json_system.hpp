@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <gtopt/json/json_ammonia_node.hpp>
+#include <gtopt/json/json_ammonia_storage.hpp>
 #include <gtopt/json/json_battery.hpp>
 #include <gtopt/json/json_bus.hpp>
 #include <gtopt/json/json_capacity_profile.hpp>
@@ -28,6 +30,8 @@
 #include <gtopt/json/json_fuel.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
+#include <gtopt/json/json_hydrogen_node.hpp>
+#include <gtopt/json/json_hydrogen_storage.hpp>
 #include <gtopt/json/json_inertia_provision.hpp>
 #include <gtopt/json/json_inertia_zone.hpp>
 #include <gtopt/json/json_junction.hpp>
@@ -41,6 +45,8 @@
 #include <gtopt/json/json_reservoir_production_factor.hpp>
 #include <gtopt/json/json_reservoir_seepage.hpp>
 #include <gtopt/json/json_simple_commitment.hpp>
+#include <gtopt/json/json_thermal_node.hpp>
+#include <gtopt/json/json_thermal_storage.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/json/json_user_param.hpp>
@@ -74,6 +80,18 @@ struct json_data_contract<System>
                       CapacityProfile>,
       json_array_null<"battery_array", Array<Battery>, Battery>,
       json_array_null<"converter_array", Array<Converter>, Converter>,
+      json_array_null<"thermal_node_array", Array<ThermalNode>, ThermalNode>,
+      json_array_null<"thermal_storage_array",
+                      Array<ThermalStorage>,
+                      ThermalStorage>,
+      json_array_null<"hydrogen_node_array", Array<HydrogenNode>, HydrogenNode>,
+      json_array_null<"hydrogen_storage_array",
+                      Array<HydrogenStorage>,
+                      HydrogenStorage>,
+      json_array_null<"ammonia_node_array", Array<AmmoniaNode>, AmmoniaNode>,
+      json_array_null<"ammonia_storage_array",
+                      Array<AmmoniaStorage>,
+                      AmmoniaStorage>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
@@ -133,6 +151,12 @@ struct json_data_contract<System>
                                  system.capacity_profile_array,
                                  system.battery_array,
                                  system.converter_array,
+                                 system.thermal_node_array,
+                                 system.thermal_storage_array,
+                                 system.hydrogen_node_array,
+                                 system.hydrogen_storage_array,
+                                 system.ammonia_node_array,
+                                 system.ammonia_storage_array,
                                  system.lng_terminal_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
