@@ -255,21 +255,34 @@ bool LineLP::add_to_lp(SystemContext& sc,
         CostHelper::block_ecost(scenario, stage, block, block_tcost_phys);
 
     // ``Line.enforce_level`` mirrors PLEXOS ``Line.Enforce Limits``:
-    //   0 = never enforce  → the line stays in the topology and
-    //       carries flow but the thermal rating is informational
-    //       rather than binding.  ``block_tmax_*`` are still passed
-    //       to ``add_block`` so the loss-segment discretization
-    //       (line_losses.cpp ``seg_width = fmax / nseg``) has a
-    //       sensible scale, then AFTER the call we relax the
-    //       flow-column upper bounds to ``DblMax`` so the LP
-    //       doesn't bind on the rating.  Used for PLEXOS EL=0 lines
-    //       and for the handful of EL=1 lines that physically
-    //       require flow above their cap to serve radial load
-    //       (CEN PCP weekly: Capricornio110→LaNegra110).
+    //   0 = never enforce  → AFTER ``add_block`` returns, relax the
+    //       AGGREGATOR flow-column upper bounds (fp_col / fn_col).
     //   1 = voltage-conditional (PLEXOS) → treated identically to
     //       level 2 in our LP (no AC iteration available).
-    //   2 = always enforce → hard cap (the historical behaviour
-    //       and the schema default).
+    //   2 = always enforce → hard cap (historical behaviour, schema
+    //       default).
+    //
+    // KNOWN LIMITATION: piecewise / piecewise_direct loss modes
+    // build the line capacity into the per-segment columns
+    // (``seg_p_cols`` / ``seg_n_cols``) via ``seg_width =
+    // block_tmax_ab / nseg``, AND embed
+    // ``loss_coeff = seg_width · R · (2k−1) / V²`` in the
+    // loss-tracking row.  Relaxing the segment column upper bounds
+    // post-hoc triggers an internal LP rebuild that blows up the
+    // loss-row coefficients (verified: max-coeff explodes from
+    // ~5e2 to 1.4e306 on the CEN PCP weekly bundle when segment
+    // bounds are relaxed).  We therefore relax ONLY the
+    // aggregator columns; piecewise-mode lines retain a partial
+    // cap via the segment sum constraint.  For the typical lift
+    // targets on CEN PCP (Capricornio110→LaNegra110 and similar
+    // 110 / 220 kV radial stepdowns) this is acceptable in
+    // practice because their loss-mode collapses to ``none`` for
+    // most reasonable resistance values.  A complete no-cap
+    // implementation for piecewise-loss lines requires propagating
+    // ``enforce_level`` into ``line_losses::add_block`` so the
+    // segments use a separate "rating-for-discretization"
+    // parameter independent of the column upper bound.  Tracked
+    // as a follow-up.
     const auto enforce_lvl = line().enforce_level.value_or(2);
     auto result = line_losses::add_block(loss_config,
                                          scenario,

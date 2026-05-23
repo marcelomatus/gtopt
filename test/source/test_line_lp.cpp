@@ -311,3 +311,123 @@ TEST_CASE("LineLP — overload_penalty scalar broadcasts to every block")
   // Identical to "penalty applied above soft threshold" obj = 30,800.
   CHECK(lp.get_obj_value_raw() == doctest::Approx(30'800.0));
 }
+
+// =============================================================
+// Line.enforce_level (PLEXOS "Enforce Limits" mirror) — three modes:
+//   0 = never enforce (line capacity not binding; tmax_ab kept only
+//       for loss-segment discretization)
+//   1 = voltage-conditional (in our LP treated as hard cap, since
+//       we have no AC voltage-feasibility iteration)
+//   2 = always enforce (hard cap — the historical default)
+// =============================================================
+
+TEST_CASE("LineLP enforce_level=2 (default) — hard cap binds")
+{
+  // Demand 120 MW > tmax 100 MW.  With enforce_level=2 (default the
+  // schema implicit) the LP must hit the cap, leaving 20 MW
+  // unserved → 20_000_000 demand-fail at $1e6/MWh dominates.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;  // no backup at bus_b
+  // enforce_level not set → default 2.
+
+  const System system {
+      .name = "EnforceLevel2HardCap",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // 100 MW served via line (gen cost = 100 × 10 = 1000)
+  // 20 MW unserved at fail_cost 1e6 = 20_000_000
+  // obj = 1000 + 20_000_000 = 20_001_000
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(20'001'000.0));
+}
+
+TEST_CASE("LineLP enforce_level=0 — cap not binding, full demand served")
+{
+  // Same scenario as above but with enforce_level=0.  The hard cap
+  // is relaxed; the LP must be able to push the full 120 MW across
+  // the line, serving all demand and avoiding the 20-MW
+  // demand-fail.  tmax_ab=100 is kept on the JSON for loss-segment
+  // discretization but doesn't bind on the flow column.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;
+  fix.line_array[0].enforce_level = 0;
+
+  const System system {
+      .name = "EnforceLevel0Unbounded",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // 120 MW served via g1 (cost = 120 × 10 = 1200), zero unserved.
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(1200.0));
+}
+
+TEST_CASE("LineLP enforce_level=1 — same hard-cap behaviour as level=2")
+{
+  // In our LP (no AC voltage iteration), level 1 is treated the same
+  // as level 2.  This guards against the regression where an
+  // off-by-one in the threshold check (e.g. ``> 1`` instead of
+  // ``>= 1``) would have made level 1 behave like level 0.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;
+  fix.line_array[0].enforce_level = 1;
+
+  const System system {
+      .name = "EnforceLevel1HardCap",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Identical to enforce_level=2: 100 MW carried, 20 MW unserved.
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(20'001'000.0));
+}
+
+// TODO: a regression test for ``enforce_level = 0`` combined with
+// piecewise-loss mode would close the loop on a Capricornio-style
+// lift on lossy lines.  Currently the column-bound relaxation in
+// ``LineLP::add_to_lp`` doesn't fully free the cap when
+// ``line_losses::add_block`` returns loss-link / loss-tracking rows
+// that embed ``block_tmax_ab`` in their coefficients.  See the
+// KNOWN LIMITATION note in ``source/line_lp.cpp`` where the
+// relaxation runs.  Workaround for now: ``enforce_level = 0`` lines
+// in the CEN PCP weekly bundle that genuinely need the lift
+// (Capricornio110->LaNegra110) are typically 110 kV stepdowns with
+// negligible R, so the loss model collapses to ``none`` and the
+// column-bound relaxation suffices for them in practice.
