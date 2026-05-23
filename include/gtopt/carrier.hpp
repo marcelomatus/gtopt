@@ -44,6 +44,10 @@ enum class Carrier : std::uint8_t
   Water = 1,  ///< Water flow (m³/s).  Reserved for future Junction refactor.
   Hydrogen = 2,  ///< Hydrogen energy (MWh_LHV); 1 kg-H₂ ≈ 33.3 kWh-LHV.
   Thermal = 3,  ///< Thermal energy (MW_th).  CSP / district heat.
+  Ammonia = 4,  ///< Ammonia energy (MWh_LHV); 1 kg-NH₃ ≈ 5.17 kWh-LHV.
+                ///< Long-term H₂ carrier (Haber-Bosch synthesis,
+                ///< NH₃ cracking back to H₂ for end-use).  Easier to
+                ///< liquefy (-33 °C @ 1 atm) and ship than H₂.
 };
 
 /// Human-readable name of a carrier (for diagnostics / error
@@ -60,6 +64,8 @@ enum class Carrier : std::uint8_t
       return "hydrogen";
     case Carrier::Thermal:
       return "thermal";
+    case Carrier::Ammonia:
+      return "ammonia";
   }
   return "unknown";
 }
