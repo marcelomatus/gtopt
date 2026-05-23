@@ -1037,13 +1037,25 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 profile = tuple(new_profile)
         # Use the max of the per-hour profile as the static pmax (gtopt
         # will multiply by pmax_factor when we emit the profile).
-        # Skip the Max Capacity fallback when an EXPLICIT cap profile is
-        # active (``--use-plexos-gen-cap``): we WANT pmax=0 if PLEXOS
-        # dispatched the unit at 0 every period.  Without this guard
-        # the fallback overrides the cap and the LP free-runs at full
-        # nameplate, defeating the override.
+        # Skip the Max Capacity fallback when:
+        #   * An EXPLICIT cap profile is active (``--use-plexos-gen-cap``)
+        #     — we WANT pmax=0 if PLEXOS dispatched the unit at 0
+        #     every period.  Without this guard the fallback overrides
+        #     the cap and the LP free-runs at full nameplate.
+        #   * Gen_Rating.csv ships an explicit zero profile for the
+        #     unit (PLEXOS marks it out-of-service for the whole
+        #     horizon).  Without this guard we silently restore the
+        #     nameplate from ``Max Capacity``, letting the LP dispatch
+        #     gens PLEXOS deliberately took offline — verified on
+        #     CEN PCP weekly bundle: 32 units (PEHUENCHE_U1, COLBUN_U1,
+        #     PANGUE_U1, ANTUCO_U2, ALFALFAL_2, ... 27 small ROR
+        #     plants) totalling 1,428 MW of free generation capacity.
+        # The fallback remains for XML-only schemas (118-Bus, RTS-96)
+        # whose Gen_Rating.csv is genuinely absent (not all-zero).
         pmax = max(profile) if profile else 0.0
-        if pmax == 0.0 and not (plexos_gen_cap and gen.name in plexos_gen_cap):
+        explicit_cap = plexos_gen_cap and gen.name in plexos_gen_cap
+        explicit_zero_profile = bool(profile)  # CSV shipped → respect zeros
+        if pmax == 0.0 and not explicit_cap and not explicit_zero_profile:
             # Fallback: XML-only schemas (118-Bus, RTS-96) carry
             # ``Max Capacity`` on the System→Generators collection.
             pmax = db.static_property("Generator", gen.object_id, "Max Capacity")
