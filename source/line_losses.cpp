@@ -293,7 +293,8 @@ void add_segments(LinearProblem& lp,
                   int nseg,
                   SparseRow& linkrow,
                   SparseRow& lossrow,
-                  double loss_row_scale)
+                  double loss_row_scale,
+                  double seg_uppb)
 {
   for (const auto k : iota_range(1, nseg + 1)) {
     const double loss_k =
@@ -301,7 +302,15 @@ void add_segments(LinearProblem& lp,
 
     const auto seg_col = lp.add_col({
         .lowb = 0,
-        .uppb = seg_width,
+        // ``seg_uppb`` is normally ``seg_width`` (binding the
+        // segment to its share of the total rating), but the caller
+        // can pass ``DblMax`` when ``Line.enforce_level = 0`` to
+        // let the LP discard the per-segment cap while keeping
+        // ``loss_k`` (computed from ``seg_width × R × (2k−1) /
+        // V²``) numerically sensible.  Passing DblMax for both
+        // would explode the loss-tracking row coefficients to
+        // ~1e+306 and break solver presolve.
+        .uppb = seg_uppb,
         .class_name = Line::class_name.full_name(),
         .variable_name = seg_label,
         .variable_uid = uid,
@@ -364,11 +373,19 @@ BlockResult add_none(const ScenarioLP& scenario,
                      double block_tmax_ab,
                      double block_tmax_ba,
                      double block_tcost,
-                     Uid uid)
+                     Uid uid,
+                     bool enforce_capacity)
 {
+  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
+  // the bidirectional flow column has its bounds released to
+  // ``[-DblMax, +DblMax]`` so the LP doesn't bind on the rating.
+  // No loss model so no other coefficients are affected.
+  const double lowb =
+      enforce_capacity ? -block_tmax_ba : -LinearProblem::DblMax;
+  const double uppb = enforce_capacity ? block_tmax_ab : LinearProblem::DblMax;
   const auto fpc = lp.add_col({
-      .lowb = -block_tmax_ba,
-      .uppb = block_tmax_ab,
+      .lowb = lowb,
+      .uppb = uppb,
       .cost = block_tcost,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::FlowpName,
@@ -403,7 +420,8 @@ BlockResult add_linear(const LossConfig& config,
                        double block_tmax_ba,
                        double block_tcost,
                        std::optional<ColIndex> capacity_col,
-                       Uid uid)
+                       Uid uid,
+                       bool enforce_capacity)
 {
   BlockResult result;
 
@@ -411,7 +429,7 @@ BlockResult add_linear(const LossConfig& config,
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
         .lowb = 0.0,
-        .uppb = block_tmax_ab,
+        .uppb = enforce_capacity ? block_tmax_ab : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlowpName,
@@ -438,7 +456,7 @@ BlockResult add_linear(const LossConfig& config,
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
         .lowb = 0.0,
-        .uppb = block_tmax_ba,
+        .uppb = enforce_capacity ? block_tmax_ba : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlownName,
@@ -485,7 +503,8 @@ BlockResult add_piecewise(const LossConfig& config,
                           double block_tmax_ba,
                           double block_tcost,
                           std::optional<ColIndex> capacity_col,
-                          Uid uid)
+                          Uid uid,
+                          bool enforce_capacity)
 {
   BlockResult result;
   const double fmax = std::max(block_tmax_ab, block_tmax_ba);
@@ -500,6 +519,16 @@ BlockResult add_piecewise(const LossConfig& config,
   const auto link_reserve_sz = static_cast<size_t>(nseg) + 2;
   const auto loss_reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = fmax / nseg;
+  // ``enforce_capacity = false`` (PLEXOS-mirror ``Enforce Limits = 0``):
+  // the per-segment column upper bound is released so the LP does
+  // not bind on the rating, but ``seg_width`` (and hence the loss-
+  // row coefficients computed from it) stay at the real value so
+  // the PWL approximation remains numerically well-formed —
+  // critical because relaxing seg_width itself to DblMax blows up
+  // the loss-row coefficients to ~1e+306 and breaks solver presolve
+  // (verified on CEN PCP weekly bundle).  The flow-column upper
+  // bounds (fp_col / fn_col) are relaxed below via the same flag.
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   // Hoisted once per (block, line): the AMPL/PAMPL block context is
   // identical for fp_col, fn_col, loss_col, linkrow and lossrow.
@@ -513,7 +542,7 @@ BlockResult add_piecewise(const LossConfig& config,
   if (block_tmax_ab > 0.0) {
     const auto fpc = lp.add_col({
         .lowb = 0,
-        .uppb = block_tmax_ab,
+        .uppb = enforce_capacity ? block_tmax_ab : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlowpName,
@@ -528,7 +557,7 @@ BlockResult add_piecewise(const LossConfig& config,
   if (block_tmax_ba > 0.0) {
     const auto fnc = lp.add_col({
         .lowb = 0,
-        .uppb = block_tmax_ba,
+        .uppb = enforce_capacity ? block_tmax_ba : LinearProblem::DblMax,
         .cost = block_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlownName,
@@ -582,6 +611,11 @@ BlockResult add_piecewise(const LossConfig& config,
   lossrow.reserve(loss_reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
+  // Pass ``seg_uppb`` separately from ``seg_width``: the loss
+  // coefficients computed inside ``add_segments`` use ``seg_width``
+  // (always the real value derived from the rating), while the
+  // per-segment column upper bound is ``seg_uppb`` (``= seg_width``
+  // when enforcing, ``= DblMax`` when ``Line.enforce_level = 0``).
   add_segments(lp,
                scenario,
                stage,
@@ -594,7 +628,8 @@ BlockResult add_piecewise(const LossConfig& config,
                nseg,
                linkrow,
                lossrow,
-               config.loss_row_scale);
+               config.loss_row_scale,
+               seg_uppb);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -648,7 +683,8 @@ DirResult add_direction(const LossConfig& config,
                         double block_tcost,
                         std::optional<ColIndex> capacity_col,
                         Uid uid,
-                        const DirLabels& labels)
+                        const DirLabels& labels,
+                        bool enforce_capacity)
 {
   if (block_tmax <= 0.0) {
     return {};
@@ -658,12 +694,18 @@ DirResult add_direction(const LossConfig& config,
   assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
   const double seg_width = block_tmax / nseg;
+  // ``enforce_capacity = false``: relax both the directional flow
+  // column and each per-segment column upper bound to ``DblMax`` so
+  // the LP doesn't bind on the rating.  ``seg_width`` stays at the
+  // real value so the loss-row coefficients remain finite (see the
+  // comment in ``add_piecewise`` for the numerical rationale).
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   const auto block_ctx =
       make_block_context(scenario.uid(), stage.uid(), block.uid());
   const auto flow_col = lp.add_col({
       .lowb = 0,
-      .uppb = block_tmax,
+      .uppb = enforce_capacity ? block_tmax : LinearProblem::DblMax,
       .cost = block_tcost,
       .class_name = Line::class_name.full_name(),
       .variable_name = labels.flow,
@@ -724,7 +766,8 @@ DirResult add_direction(const LossConfig& config,
                nseg,
                linkrow,
                lossrow,
-               config.loss_row_scale);
+               config.loss_row_scale,
+               seg_uppb);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -756,7 +799,8 @@ BlockResult add_bidirectional(const LossConfig& config,
                               double block_tmax_ba,
                               double block_tcost,
                               std::optional<ColIndex> capacity_col,
-                              Uid uid)
+                              Uid uid,
+                              bool enforce_capacity)
 {
   auto [fp, lsp, capp] = add_direction(config,
                                        scenario,
@@ -769,7 +813,8 @@ BlockResult add_bidirectional(const LossConfig& config,
                                        block_tcost,
                                        capacity_col,
                                        uid,
-                                       positive_labels);
+                                       positive_labels,
+                                       enforce_capacity);
 
   auto [fn, lsn, capn] = add_direction(config,
                                        scenario,
@@ -782,7 +827,8 @@ BlockResult add_bidirectional(const LossConfig& config,
                                        block_tcost,
                                        capacity_col,
                                        uid,
-                                       negative_labels);
+                                       negative_labels,
+                                       enforce_capacity);
 
   return {
       .fp_col = fp,
@@ -830,7 +876,8 @@ BlockResult add_bidirectional(const LossConfig& config,
     double block_tmax,
     double block_tcost,
     Uid uid,
-    const DirLabels& labels)
+    const DirLabels& labels,
+    bool enforce_capacity)
 {
   if (block_tmax <= 0.0) {
     return {};
@@ -840,6 +887,12 @@ BlockResult add_bidirectional(const LossConfig& config,
   assert(nseg > 0 && "line_losses: nseg must be positive");
   const double seg_width = block_tmax / nseg;
   const double seg_tcost = block_tcost / nseg;
+  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
+  // release the per-segment column upper bounds.  ``seg_width``
+  // (and hence the segment loss-allocation coefficient ``lf_k``)
+  // stays at the real value so per-segment loss contributions
+  // remain numerically sensible.
+  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   std::vector<ColIndex> seg_cols;
   seg_cols.reserve(static_cast<size_t>(nseg));
@@ -850,7 +903,7 @@ BlockResult add_bidirectional(const LossConfig& config,
 
     const auto seg_col = lp.add_col({
         .lowb = 0,
-        .uppb = seg_width,
+        .uppb = seg_uppb,
         .cost = seg_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = labels.seg,
@@ -885,7 +938,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                  double block_tmax_ab,
                                  double block_tmax_ba,
                                  double block_tcost,
-                                 Uid uid)
+                                 Uid uid,
+                                 bool enforce_capacity)
 {
   auto seg_p_cols = add_direct_direction(config,
                                          scenario,
@@ -897,7 +951,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                          block_tmax_ab,
                                          block_tcost,
                                          uid,
-                                         positive_labels);
+                                         positive_labels,
+                                         enforce_capacity);
 
   auto seg_n_cols = add_direct_direction(config,
                                          scenario,
@@ -909,7 +964,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                          block_tmax_ba,
                                          block_tcost,
                                          uid,
-                                         negative_labels);
+                                         negative_labels,
+                                         enforce_capacity);
 
   return {
       .fp_col = {},
@@ -938,7 +994,8 @@ BlockResult add_block(const LossConfig& config,
                       double block_tmax_ba,
                       double block_tcost,
                       std::optional<ColIndex> capacity_col,
-                      Uid uid)
+                      Uid uid,
+                      bool enforce_capacity)
 {
   switch (config.mode) {
     case LineLossesMode::none:
@@ -951,7 +1008,8 @@ BlockResult add_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
-                      uid);
+                      uid,
+                      enforce_capacity);
 
     case LineLossesMode::linear:
       return add_linear(config,
@@ -965,7 +1023,8 @@ BlockResult add_block(const LossConfig& config,
                         block_tmax_ba,
                         block_tcost,
                         capacity_col,
-                        uid);
+                        uid,
+                        enforce_capacity);
 
     case LineLossesMode::piecewise:
       return add_piecewise(config,
@@ -979,7 +1038,8 @@ BlockResult add_block(const LossConfig& config,
                            block_tmax_ba,
                            block_tcost,
                            capacity_col,
-                           uid);
+                           uid,
+                           enforce_capacity);
 
     case LineLossesMode::bidirectional:
       return add_bidirectional(config,
@@ -993,7 +1053,8 @@ BlockResult add_block(const LossConfig& config,
                                block_tmax_ba,
                                block_tcost,
                                capacity_col,
-                               uid);
+                               uid,
+                               enforce_capacity);
 
     case LineLossesMode::piecewise_direct:
       // `resolve_mode` demotes direct + expansion to `piecewise`,
@@ -1026,7 +1087,8 @@ BlockResult add_block(const LossConfig& config,
                                   block_tmax_ab,
                                   block_tmax_ba,
                                   block_tcost,
-                                  uid);
+                                  uid,
+                                  enforce_capacity);
 
     default:
       return add_none(scenario,
@@ -1038,7 +1100,8 @@ BlockResult add_block(const LossConfig& config,
                       block_tmax_ab,
                       block_tmax_ba,
                       block_tcost,
-                      uid);
+                      uid,
+                      enforce_capacity);
   }
 }
 

@@ -187,7 +187,8 @@ struct BlockResult
                                     double block_tmax_ba,
                                     double block_tcost,
                                     std::optional<ColIndex> capacity_col,
-                                    Uid uid);
+                                    Uid uid,
+                                    bool enforce_capacity = true);
 
 }  // namespace line_losses
 }  // namespace gtopt

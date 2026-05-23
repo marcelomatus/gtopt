@@ -419,15 +419,122 @@ TEST_CASE("LineLP enforce_level=1 — same hard-cap behaviour as level=2")
   CHECK(lp.get_obj_value_raw() == doctest::Approx(20'001'000.0));
 }
 
-// TODO: a regression test for ``enforce_level = 0`` combined with
-// piecewise-loss mode would close the loop on a Capricornio-style
-// lift on lossy lines.  Currently the column-bound relaxation in
-// ``LineLP::add_to_lp`` doesn't fully free the cap when
-// ``line_losses::add_block`` returns loss-link / loss-tracking rows
-// that embed ``block_tmax_ab`` in their coefficients.  See the
-// KNOWN LIMITATION note in ``source/line_lp.cpp`` where the
-// relaxation runs.  Workaround for now: ``enforce_level = 0`` lines
-// in the CEN PCP weekly bundle that genuinely need the lift
-// (Capricornio110->LaNegra110) are typically 110 kV stepdowns with
-// negligible R, so the loss model collapses to ``none`` and the
-// column-bound relaxation suffices for them in practice.
+TEST_CASE(
+    "LineLP enforce_level=0 with piecewise losses — segments also relaxed")
+{
+  // Regression test for the Capricornio-style lift on lossy lines.
+  // In piecewise loss mode each segment column has ``.uppb =
+  // seg_width = block_tmax_ab / nseg`` and the linkrow says
+  // ``fp + fn − Σ seg_k = 0``.  Without lifting the segment caps
+  // too, the aggregator still binds to the total rating via the
+  // segment sum.  The wired ``enforce_capacity`` flag in
+  // ``line_losses::add_block`` propagates the relaxation to BOTH
+  // the directional flow columns AND the per-segment columns while
+  // keeping ``seg_width`` (and hence the loss-row coefficients)
+  // finite to avoid blowing up solver numerics.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;
+  fix.line_array[0].enforce_level = 0;
+  // Enable piecewise losses with 3 segments (CEN PCP default).
+  fix.line_array[0].resistance = 0.01;
+  fix.line_array[0].voltage = 100.0;
+  fix.line_array[0].line_losses_mode = std::string {"piecewise"};
+  fix.line_array[0].loss_segments = 3;
+
+  const System system {
+      .name = "EnforceLevel0PiecewiseLosses",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // With losses, g1 must send (120 + loss) MW to serve 120 MW at
+  // bus_b.  With R=0.01 / V=100 the loss is negligible (≤ 0.01 MW)
+  // so total gen ≈ 120 × 10 = 1200, plus a tiny loss premium.
+  // Critically: NO demand-fail cost (otherwise obj would be in the
+  // millions).
+  CHECK(lp.get_obj_value_raw() < 5000.0);
+}
+
+TEST_CASE("LineLP enforce_level=0 with linear losses")
+{
+  // Same setup but linear loss model (lossfactor explicitly set
+  // without resistance + voltage triggering piecewise downgrade).
+  // The directional flow columns must be released so the LP can
+  // dispatch the full 120 MW + linear loss.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;
+  fix.line_array[0].enforce_level = 0;
+  fix.line_array[0].lossfactor = 0.001;  // 0.1 % linear loss
+  fix.line_array[0].line_losses_mode = std::string {"linear"};
+
+  const System system {
+      .name = "EnforceLevel0LinearLosses",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // gen cost ≈ 120 × (1 + lossfactor) × 10 ≈ 1201; no fail cost.
+  CHECK(lp.get_obj_value_raw() < 5000.0);
+}
+
+TEST_CASE("LineLP enforce_level=2 with piecewise losses — hard cap still binds")
+{
+  // Regression guard: when enforce_level=2 (default), the piecewise
+  // segments MUST still cap the flow at the rating.  This catches
+  // a bug where the ``enforce_capacity`` plumbing accidentally
+  // releases the segment bounds for level=2 too.
+  TwoBusFixture fix;
+  fix.demand_array[0].capacity = 120.0;
+  fix.generator_array[1].capacity = 0.0;
+  fix.line_array[0].enforce_level = 2;  // explicit hard cap
+  fix.line_array[0].resistance = 0.01;
+  fix.line_array[0].voltage = 100.0;
+  fix.line_array[0].line_losses_mode = std::string {"piecewise"};
+  fix.line_array[0].loss_segments = 3;
+
+  const System system {
+      .name = "EnforceLevel2PiecewiseHardCap",
+      .bus_array = fix.bus_array,
+      .demand_array = fix.demand_array,
+      .generator_array = fix.generator_array,
+      .line_array = fix.line_array,
+  };
+
+  const PlanningOptionsLP options(make_opts());
+  SimulationLP simulation_lp(fix.simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // 100 MW carried (capped), 20 MW unserved → 20 × 1e6 = 2e7
+  // plus 100 × 10 ≈ 1000 gen cost.
+  CHECK(lp.get_obj_value_raw() > 1.9e7);
+  CHECK(lp.get_obj_value_raw() < 2.1e7);
+}
