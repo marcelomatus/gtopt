@@ -41,6 +41,8 @@
 #include <gtopt/json/json_reservoir_production_factor.hpp>
 #include <gtopt/json/json_reservoir_seepage.hpp>
 #include <gtopt/json/json_simple_commitment.hpp>
+#include <gtopt/json/json_thermal_node.hpp>
+#include <gtopt/json/json_thermal_storage.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/json/json_user_param.hpp>
@@ -74,6 +76,10 @@ struct json_data_contract<System>
                       CapacityProfile>,
       json_array_null<"battery_array", Array<Battery>, Battery>,
       json_array_null<"converter_array", Array<Converter>, Converter>,
+      json_array_null<"thermal_node_array", Array<ThermalNode>, ThermalNode>,
+      json_array_null<"thermal_storage_array",
+                      Array<ThermalStorage>,
+                      ThermalStorage>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
@@ -133,6 +139,8 @@ struct json_data_contract<System>
                                  system.capacity_profile_array,
                                  system.battery_array,
                                  system.converter_array,
+                                 system.thermal_node_array,
+                                 system.thermal_storage_array,
                                  system.lng_terminal_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,

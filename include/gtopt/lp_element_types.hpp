@@ -29,6 +29,7 @@ namespace gtopt
 // ─────────────────────────────
 class BatteryLP;
 class BusLP;
+class ThermalStorageLP;
 class CommitmentLP;
 class ConverterLP;
 class DemandLP;
@@ -91,6 +92,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       DemandProfileLP,
                                       CapacityProfileLP,
                                       BatteryLP,
+                                      ThermalStorageLP,
                                       ReserveZoneLP,
                                       ReserveProvisionLP,
                                       FuelLP,

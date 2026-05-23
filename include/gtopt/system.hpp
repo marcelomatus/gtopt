@@ -52,6 +52,8 @@
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/simple_commitment.hpp>
+#include <gtopt/thermal_node.hpp>
+#include <gtopt/thermal_storage.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/user_param.hpp>
@@ -94,6 +96,13 @@ struct System
   Array<Battery> battery_array {};  ///< Battery energy storage systems
   Array<Converter>
       converter_array {};  ///< Battery ↔ generator/demand couplings
+
+  // ── Thermal carrier (CSP / district-heat) ────────────────────────────────
+  Array<ThermalNode>
+      thermal_node_array {};  ///< Carrier-tagged balance nodes (MW_th).
+  Array<ThermalStorage>
+      thermal_storage_array {};  ///< Molten-salt / sensible-heat TES peers
+                                 ///< of ``Battery`` on ``StorageLP<>``.
 
   // ── Fuel storage ────────────────────────────────────────────────────────
   Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals

@@ -58,6 +58,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -96,6 +97,7 @@ static_assert(AddToLP<GeneratorProfileLP>);
 static_assert(AddToLP<DemandProfileLP>);
 static_assert(AddToLP<CapacityProfileLP>);
 static_assert(AddToLP<BatteryLP>);
+static_assert(AddToLP<ThermalStorageLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
@@ -257,6 +259,7 @@ public:
                                    Collection<DemandProfileLP>,
                                    Collection<CapacityProfileLP>,
                                    Collection<BatteryLP>,
+                                   Collection<ThermalStorageLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,
