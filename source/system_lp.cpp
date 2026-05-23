@@ -528,10 +528,16 @@ void create_collections(const auto& system_context,
       make_collection<CapacityProfileLP>(ic, sys.capacity_profile_array);
   std::get<Collection<BatteryLP>>(colls) =
       make_collection<BatteryLP>(ic, sys.battery_array);
+  std::get<Collection<ThermalNodeLP>>(colls) =
+      make_collection<ThermalNodeLP>(ic, sys.thermal_node_array);
   std::get<Collection<ThermalStorageLP>>(colls) =
       make_collection<ThermalStorageLP>(ic, sys.thermal_storage_array);
+  std::get<Collection<HydrogenNodeLP>>(colls) =
+      make_collection<HydrogenNodeLP>(ic, sys.hydrogen_node_array);
   std::get<Collection<HydrogenStorageLP>>(colls) =
       make_collection<HydrogenStorageLP>(ic, sys.hydrogen_storage_array);
+  std::get<Collection<AmmoniaNodeLP>>(colls) =
+      make_collection<AmmoniaNodeLP>(ic, sys.ammonia_node_array);
   std::get<Collection<AmmoniaStorageLP>>(colls) =
       make_collection<AmmoniaStorageLP>(ic, sys.ammonia_storage_array);
   std::get<Collection<ReserveZoneLP>>(colls) =
@@ -641,8 +647,11 @@ void register_element_names(SimulationLP& sim, const Array& arr)
 void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 {
   register_element_names<BatteryLP>(sim, sys.battery_array);
+  register_element_names<ThermalNodeLP>(sim, sys.thermal_node_array);
   register_element_names<ThermalStorageLP>(sim, sys.thermal_storage_array);
+  register_element_names<HydrogenNodeLP>(sim, sys.hydrogen_node_array);
   register_element_names<HydrogenStorageLP>(sim, sys.hydrogen_storage_array);
+  register_element_names<AmmoniaNodeLP>(sim, sys.ammonia_node_array);
   register_element_names<AmmoniaStorageLP>(sim, sys.ammonia_storage_array);
   register_element_names<BusLP>(sim, sys.bus_array);
   register_element_names<ConverterLP>(sim, sys.converter_array);
