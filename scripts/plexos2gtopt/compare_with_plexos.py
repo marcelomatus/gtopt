@@ -29,6 +29,9 @@ always (this is a diagnostic, not a gate).
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
+import pickle
 import re
 import sys
 import tempfile
@@ -38,6 +41,89 @@ from pathlib import Path
 # Rich is already a project dependency (see scripts/pyproject.toml).
 from rich.console import Console
 from rich.table import Table
+
+
+# Cache schema version — bump on ANY signature / field change to the
+# ``compute_plexos_*`` functions so stale pickles are invalidated.
+# A schema mismatch silently falls back to re-extraction; do not
+# guard with try/except in the call site, the unpickler will surface
+# AttributeError / KeyError naturally.
+_PLEXOS_CACHE_VERSION = 3
+
+
+def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
+    """Return the deterministic cache-file path for ``res_zip``.
+
+    The key blends the resolved zip path, its size, its mtime (ns),
+    and the cache schema version so re-running against the same
+    bundle is O(unpickle) but a touched / re-downloaded zip
+    invalidates automatically.
+
+    ``cache_dir`` defaults to ``$XDG_CACHE_HOME/gtopt/plexos_compare``
+    (falling back to ``~/.cache/gtopt/plexos_compare``) — a
+    cross-tool spot the user can ``rm -rf`` without disturbing
+    either the source zip or the gtopt case directory.
+    """
+    if cache_dir is None:
+        base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+        cache_dir = base / "gtopt" / "plexos_compare"
+    res_zip = res_zip.resolve()
+    st = res_zip.stat()
+    key = (
+        f"{res_zip}|size={st.st_size}|mtime_ns={st.st_mtime_ns}"
+        f"|v{_PLEXOS_CACHE_VERSION}"
+    )
+    digest = hashlib.sha1(key.encode()).hexdigest()[:16]
+    return cache_dir / f"{res_zip.stem}-{digest}.pkl"
+
+
+def _load_plexos_cache(path: Path) -> dict | None:
+    """Best-effort cache reader; returns ``None`` on miss or corruption."""
+    if not path.is_file():
+        return None
+    try:
+        with path.open("rb") as f:
+            data = pickle.load(f)
+    except (OSError, pickle.UnpicklingError, EOFError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("_version") != _PLEXOS_CACHE_VERSION:
+        return None
+    return data
+
+
+def _save_plexos_cache(path: Path, data: dict) -> None:
+    """Atomic pickle write: tmp + rename so a SIGINT mid-write does not
+    leave a half-written cache file the next run would try to load."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".pkl.tmp")
+    with tmp.open("wb") as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    tmp.replace(path)
+
+
+def _compute_plexos_all(accdb_path: Path) -> dict:
+    """Run every ``compute_plexos_*`` extractor once on the same accdb.
+
+    Returns a dict the cache layer can pickle.  The keys map 1-to-1
+    to the variables the caller in ``main()`` consumes.
+    ``_version`` is folded in so the cache loader can reject stale
+    schemas without unpickling first.
+    """
+    return {
+        "_version": _PLEXOS_CACHE_VERSION,
+        "totals": compute_plexos_energy_totals(accdb_path),
+        "unit": compute_plexos_per_unit_srmc(accdb_path),
+        "bus": compute_plexos_per_bus_lmp(accdb_path),
+        "line": compute_plexos_per_line(accdb_path),
+        "tech": compute_plexos_generation_by_technology(accdb_path),
+        "res": compute_plexos_reservoir_volumes(accdb_path),
+        "bat": compute_plexos_battery_operation(accdb_path),
+        # Name→category map: used by ``compute_gtopt_generation_by_technology``
+        # to classify gtopt generators using PLEXOS's own taxonomy.
+        # Without caching this the gtopt-tech step still hits mdb-export
+        # even when the rest of the PLEXOS side is cache-hot.
+        "name_to_category": _plexos_name_to_category(accdb_path),
+    }
 
 
 # Matches PLEXOS log lines like
@@ -1070,12 +1156,20 @@ def compute_plexos_per_line(
     """Per-line **total absolute energy transferred** and limits from
     PLEXOS .accdb.
 
-    Returns ``{line_name → {energy_mwh, max_flow, min_flow, active}}``:
+    Returns ``{line_name →
+        {energy_mwh, peak_flow_mw, max_flow, min_flow, active}}``:
 
       * ``energy_mwh`` = Σ |MW_block| × duration_block_h over all 111
         blocks.  Uses absolute value so positive- and negative-direction
         flows DON'T cancel — a line carrying ±500 MW alternating shows
         as ~84 GWh transferred over a 168-h week, not ~0.
+      * ``peak_flow_mw`` = max ``|MW_block|`` over all blocks
+        (instantaneous, NOT duration-weighted).  Pairs with
+        ``max_flow`` to flag lines whose dispatch peaks above the
+        published rating (= candidate for ``Enforce Limits = 0``
+        lift on the gtopt side; see Step 6c cap-violation table).
+        Capricornio110->LaNegra110 is the canonical example: cap
+        76 MW, PLEXOS peak ≈ 209 MW (2.76×).
       * ``max_flow`` / ``min_flow`` = time-weighted average of
         prop 709 / 710 (PLEXOS MW limits).
       * ``active`` = 1.0 if the line has any flow data on prop 708
@@ -1162,6 +1256,7 @@ def compute_plexos_per_line(
     for name, fields in by_line.items():
         entry: dict[str, float] = {
             "energy_mwh": 0.0,
+            "peak_flow_mw": 0.0,
             "max_flow": 0.0,
             "min_flow": 0.0,
             "active": 0.0,
@@ -1170,6 +1265,10 @@ def compute_plexos_per_line(
             if fname == "flow":
                 # Total absolute energy transferred (non-cancelling).
                 entry["energy_mwh"] = sum(abs(v) * durations.get(p, 0) for p, v in rows)
+                # Peak instantaneous |flow| — pairs with max_flow to
+                # detect cap-violating lines (PLEXOS Enforce Limits=0
+                # signal).  NOT duration-weighted.
+                entry["peak_flow_mw"] = max((abs(v) for _, v in rows), default=0.0)
                 entry["active"] = 1.0 if rows else 0.0
             elif fname == "min_flow":
                 # PLEXOS Import Limit is published as a positive MW
@@ -1194,15 +1293,26 @@ def compute_gtopt_per_line(
     """Per-line total absolute energy + capacity + active-flag from
     gtopt parquet + bundle.
 
-    Returns ``{line_name → {energy_mwh, max_flow, min_flow, active}}``:
+    Returns ``{line_name →
+        {energy_mwh, peak_flow_mw, max_flow, min_flow, active,
+         enforce_level}}``:
       * ``energy_mwh`` = Σ |MW_block| × duration_block_h (non-cancelling
         across positive/negative flow directions).
+      * ``peak_flow_mw`` = max ``|MW_block|`` over all blocks
+        (instantaneous; pairs with ``max_flow`` to flag lines whose
+        dispatch peaks above the published rating — i.e. lines
+        running under ``enforce_level = 0``).
       * ``max_flow`` =  fmax  (bundle JSON, time-mean of tmax_ab list /
                          scalar; positive direction)
       * ``min_flow`` = -fmax_ba (negative-direction limit, sign-flipped
                          to match PLEXOS Min Flow convention).
       * ``active`` = bundle's ``active`` field if present, else 1.0
         (lines with active=0/False are not in service this period).
+      * ``enforce_level`` = bundle's ``enforce_level`` field; mirrors
+        PLEXOS ``Enforce Limits`` (0 = no cap, 1 = voltage-conditional
+        — treated as 2 in gtopt's DC-OPF, 2 = hard cap, default 2).
+        Surfaces which lines were deliberately lifted to explain
+        peak > cap cases in the Step 6c cap-violation table.
     """
     import json
 
@@ -1245,6 +1355,7 @@ def compute_gtopt_per_line(
         return 0.0
 
     active_by_name: dict[str, float] = {}
+    enforce_by_name: dict[str, float] = {}
     for ll in bundle["system"]["line_array"]:
         name_by_uid[int(ll["uid"])] = ll["name"]
         fmax_ab = _scalar_or_first(ll.get("tmax_ab", 0.0))
@@ -1263,9 +1374,17 @@ def compute_gtopt_per_line(
             active_by_name[ll["name"]] = 1.0 if float(raw_active) != 0.0 else 0.0
         except (TypeError, ValueError):
             active_by_name[ll["name"]] = 1.0
+        # PLEXOS ``Enforce Limits``: 0 = no cap, 1 = voltage-conditional,
+        # 2 = hard cap (default).  Stored as float for table-rendering.
+        raw_enforce = ll.get("enforce_level", 2)
+        try:
+            enforce_by_name[ll["name"]] = float(raw_enforce)
+        except (TypeError, ValueError):
+            enforce_by_name[ll["name"]] = 2.0
 
     flow_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
     energy_mwh: dict[str, float] = {}
+    peak_mw: dict[str, float] = {}
     if flow_path.exists():
         df = pq.read_table(flow_path).to_pandas()
         df["duration"] = df["block"].astype(int).map(durations)
@@ -1273,14 +1392,18 @@ def compute_gtopt_per_line(
         for name, sub in df.groupby("name", observed=True):
             # Σ |MW| × duration — total energy transferred (sign-blind)
             energy_mwh[str(name)] = float((sub["value"].abs() * sub["duration"]).sum())
+            # Peak instantaneous |MW| — for Step 6c cap-violation detection.
+            peak_mw[str(name)] = float(sub["value"].abs().max())
 
     out: dict[str, dict[str, float]] = {}
     for name, lim in limits.items():
         out[name] = {
             "energy_mwh": energy_mwh.get(name, 0.0),
+            "peak_flow_mw": peak_mw.get(name, 0.0),
             "max_flow": lim["max_flow"],
             "min_flow": lim["min_flow"],
             "active": active_by_name.get(name, 1.0),
+            "enforce_level": enforce_by_name.get(name, 2.0),
         }
     return out
 
@@ -1397,6 +1520,73 @@ def _render_line_compare(
         for n, p_a, g_a in active_mismatch[:top_n]:
             t3.add_row(n, f"{p_a:>3.0f}", f"{g_a:>3.0f}")
     console.print(t3)
+
+    # (4) Step 6c — Cap-violation candidates.
+    # Lines whose PEAK instantaneous flow exceeds their rated cap on
+    # EITHER side (PLEXOS or gtopt).  These are the lines running
+    # under ``Enforce Limits = 0`` (lifted) or — if the gtopt
+    # ``enforce_level`` is still 2 — candidates for a manual lift.
+    # The canonical example is Capricornio110->LaNegra110:
+    # PLEXOS published rating 76 MW, PLEXOS peak ≈ 209 MW (2.76×).
+    # The gtopt side ``--lift-line-caps`` machinery encodes this as
+    # ``enforce_level = 0``; this table surfaces both the encoded
+    # lifts (cross-check) and any unencoded violations (action item).
+    cap_rows: list[tuple[str, float, float, float, float, float, float]] = []
+    for n in common:
+        p = plexos_line[n]
+        g = gtopt_line[n]
+        p_peak = float(p.get("peak_flow_mw", 0.0))
+        g_peak = float(g.get("peak_flow_mw", 0.0))
+        p_cap = float(p.get("max_flow", 0.0))
+        g_cap = float(g.get("max_flow", 0.0))
+        enforce = float(g.get("enforce_level", 2.0))
+        # Ratio = peak / cap on the side with the larger violation.
+        p_ratio = (p_peak / p_cap) if p_cap > 0 else 0.0
+        g_ratio = (g_peak / g_cap) if g_cap > 0 else 0.0
+        max_ratio = max(p_ratio, g_ratio)
+        if max_ratio > 1.0 + 1e-3:
+            cap_rows.append((n, p_peak, g_peak, p_cap, g_cap, max_ratio, enforce))
+    cap_rows.sort(key=lambda r: r[5], reverse=True)
+
+    t4 = Table(
+        title=(
+            f"Per-line CAP-VIOLATION (Step 6c) — {len(cap_rows)} line(s) "
+            f"with peak |flow| > rated cap on EITHER side "
+            "(candidates for enforce_level=0 lift)"
+        ),
+    )
+    t4.add_column("Line", style="bold")
+    t4.add_column("PLEXOS peak", justify="right")
+    t4.add_column("gtopt peak", justify="right")
+    t4.add_column("PLEXOS cap", justify="right")
+    t4.add_column("gtopt cap", justify="right")
+    t4.add_column("max(p/cap)", justify="right")
+    t4.add_column("gtopt EL", justify="right")
+    if not cap_rows:
+        t4.add_row("(no cap violations)", "", "", "", "", "", "")
+    else:
+        for n, p_pk, g_pk, p_c, g_c, ratio, el in cap_rows[:top_n]:
+            # Mark explicit lifts (EL=0) so the reader can distinguish
+            # "this was deliberate" from "should we lift this too?"
+            el_marker = f"{el:.0f} (lifted)" if el < 1.5 else f"{el:.0f}"
+            t4.add_row(
+                n,
+                f"{p_pk:>9.1f}",
+                f"{g_pk:>9.1f}",
+                f"{p_c:>9.1f}",
+                f"{g_c:>9.1f}",
+                f"{ratio:>+6.2f}x",
+                el_marker,
+            )
+        console.print(
+            "[dim]Step 6c: ``EL`` = ``Line.enforce_level`` in the gtopt "
+            "bundle.  EL = 0 (lifted) means the cap is intentionally not "
+            "enforced (loss-PWL segments use a 2× envelope so losses "
+            "stay finite); EL = 2 (default) means the cap should bind "
+            "— a peak > cap here points to a missing lift or a stale "
+            "PLEXOS rating.[/dim]"
+        )
+    console.print(t4)
 
     if energy_rows:
         deltas = [r[3] for r in energy_rows]
@@ -1543,6 +1733,7 @@ def compute_gtopt_generation_by_technology(
     case_dir: Path,
     *,
     accdb_path: Path | None = None,
+    cat_by_name: dict[str, str] | None = None,
 ) -> dict[str, float]:
     """gtopt total generation MWh per technology bucket.
 
@@ -1551,8 +1742,12 @@ def compute_gtopt_generation_by_technology(
     a per-block SRMC and would be silently dropped by an inner-join).
 
     Classifies each dispatched unit via PLEXOS category (preferred,
-    when an .accdb is supplied) or a name-pattern heuristic
-    (BAT_* / _FV / _EO / _U[N] suffix) fallback.
+    when a category map or .accdb is supplied) or a name-pattern
+    heuristic (BAT_* / _FV / _EO / _U[N] suffix) fallback.
+
+    The pre-computed ``cat_by_name`` form lets a cache-hot run skip
+    the ``_plexos_name_to_category`` accdb hit; if both are passed,
+    ``cat_by_name`` wins and ``accdb_path`` is ignored.
     """
     import json
     import re
@@ -1586,9 +1781,10 @@ def compute_gtopt_generation_by_technology(
     df["mwh"] = df["value"] * df["duration"]
     df["name"] = df["uid"].astype(int).map(name_by_uid)
 
-    cat_by_name: dict[str, str] = {}
-    if accdb_path is not None:
-        cat_by_name = _plexos_name_to_category(accdb_path)
+    if cat_by_name is None:
+        cat_by_name = {}
+        if accdb_path is not None:
+            cat_by_name = _plexos_name_to_category(accdb_path)
 
     def _name_to_tech(name: str) -> str:
         if name in cat_by_name:
@@ -2454,6 +2650,29 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help=(
+            "directory for the pickled PLEXOS-extract cache.  Default: "
+            "$XDG_CACHE_HOME/gtopt/plexos_compare (~/.cache/gtopt/"
+            "plexos_compare).  One pickle per (RES zip, size, mtime, "
+            "schema version); subsequent runs against the same bundle "
+            "skip every mdb-export round-trip and the temporary accdb "
+            "extraction."
+        ),
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "ignore any cached PLEXOS extract and force a full "
+            "re-extraction.  Use after editing a compute_plexos_* "
+            "function in this module without bumping "
+            "_PLEXOS_CACHE_VERSION."
+        ),
+    )
+    parser.add_argument(
         "--uc-penalty",
         type=float,
         default=10000.0,
@@ -2533,33 +2752,52 @@ def main(argv: list[str] | None = None) -> int:
     if args.gtopt_case is not None and args.plexos_res_zip is not None:
         console.print()
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                accdb_path = _extract_accdb_from_res_zip(
-                    args.plexos_res_zip, Path(tmpdir)
-                )
-                # Step 3 — system totals (demand, gen, op cost)
-                plexos_tot = compute_plexos_energy_totals(accdb_path)
-                gtopt_tot = compute_gtopt_energy_totals(args.gtopt_case)
-                # Step 4 — per-unit SRMC + dispatch
-                plexos_unit = compute_plexos_per_unit_srmc(accdb_path)
-                gtopt_unit = compute_gtopt_per_unit_srmc(args.gtopt_case)
-                # Step 5 — per-bus LMP
-                plexos_bus = compute_plexos_per_bus_lmp(accdb_path)
-                gtopt_bus = compute_gtopt_per_bus_lmp(args.gtopt_case)
-                # Step 6 — per-line energy + limits + active
-                plexos_line = compute_plexos_per_line(accdb_path)
-                gtopt_line = compute_gtopt_per_line(args.gtopt_case)
-                # Step 7 — generation by technology
-                plexos_tech = compute_plexos_generation_by_technology(accdb_path)
-                gtopt_tech = compute_gtopt_generation_by_technology(
-                    args.gtopt_case, accdb_path=accdb_path
-                )
-                # Step 8 — reservoir trajectories
-                plexos_res = compute_plexos_reservoir_volumes(accdb_path)
-                gtopt_res = compute_gtopt_reservoir_volumes(args.gtopt_case)
-                # Step 9 — battery operation
-                plexos_bat = compute_plexos_battery_operation(accdb_path)
-                gtopt_bat = compute_gtopt_battery_operation(args.gtopt_case)
+            # ----- PLEXOS side: cache the parsed extracts -----
+            # The accdb is parsed once, then a pickle of every
+            # ``compute_plexos_*`` output is dropped in
+            # ``$XDG_CACHE_HOME/gtopt/plexos_compare`` (or
+            # ``--cache-dir``).  Subsequent runs against the same
+            # RES zip skip mdb-export entirely (~minutes → seconds).
+            cache_path = _plexos_cache_path(args.plexos_res_zip, args.cache_dir)
+            plexos_data: dict | None = None
+            if not args.no_cache:
+                plexos_data = _load_plexos_cache(cache_path)
+                if plexos_data is not None:
+                    console.print(
+                        f"[dim]Using cached PLEXOS extract: {cache_path}[/dim]"
+                    )
+            if plexos_data is None:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    accdb_path = _extract_accdb_from_res_zip(
+                        args.plexos_res_zip, Path(tmpdir)
+                    )
+                    plexos_data = _compute_plexos_all(accdb_path)
+                _save_plexos_cache(cache_path, plexos_data)
+                console.print(f"[dim]Saved PLEXOS extract to {cache_path}[/dim]")
+
+            # Step 3 — system totals (demand, gen, op cost)
+            plexos_tot = plexos_data["totals"]
+            gtopt_tot = compute_gtopt_energy_totals(args.gtopt_case)
+            # Step 4 — per-unit SRMC + dispatch
+            plexos_unit = plexos_data["unit"]
+            gtopt_unit = compute_gtopt_per_unit_srmc(args.gtopt_case)
+            # Step 5 — per-bus LMP
+            plexos_bus = plexos_data["bus"]
+            gtopt_bus = compute_gtopt_per_bus_lmp(args.gtopt_case)
+            # Step 6 — per-line energy + limits + active
+            plexos_line = plexos_data["line"]
+            gtopt_line = compute_gtopt_per_line(args.gtopt_case)
+            # Step 7 — generation by technology
+            plexos_tech = plexos_data["tech"]
+            gtopt_tech = compute_gtopt_generation_by_technology(
+                args.gtopt_case, cat_by_name=plexos_data["name_to_category"]
+            )
+            # Step 8 — reservoir trajectories
+            plexos_res = plexos_data["res"]
+            gtopt_res = compute_gtopt_reservoir_volumes(args.gtopt_case)
+            # Step 9 — battery operation
+            plexos_bat = plexos_data["bat"]
+            gtopt_bat = compute_gtopt_battery_operation(args.gtopt_case)
             if plexos_tot and gtopt_tot:
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
             else:

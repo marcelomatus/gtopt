@@ -431,7 +431,7 @@ def build_line_array(
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
                 entry["line_losses_mode"] = "piecewise"
-                entry["loss_segments"] = 2
+                entry["loss_segments"] = 3
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
