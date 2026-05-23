@@ -183,7 +183,7 @@ class LineSpec:
     #   * EL=0 → drop the hard cap (tmax = +inf via unset)
     #   * EL=1/2 → keep the hard cap (current default behaviour)
     # CEN PCP carries 185 lines at EL=0, 96 at EL=1, 63 at EL=2.
-    enforce_limits: int = 1  # default = "enforce" (safer than allowing unbounded)
+    enforce_limits: int = 2  # default per PLEXOS docs ("Always enforce")
     units: int = 1
     reactance: float = 0.0
     wheeling_charge: float = 0.0

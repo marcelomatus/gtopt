@@ -1299,7 +1299,7 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         # to 1 ("enforce") when the property is unset to stay safe on
         # legacy bundles where the property pre-dates the feature.
         enforce_raw = db.static_property("Line", line.object_id, "Enforce Limits")
-        enforce_limits = int(enforce_raw) if enforce_raw is not None else 1
+        enforce_limits = int(enforce_raw) if enforce_raw is not None else 2
         out.append(
             LineSpec(
                 object_id=line.object_id,
@@ -1433,6 +1433,21 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # BESS_IniValue has no BAND column — long format with NAME, YEAR,
         # MONTH, DAY, PERIOD, VALUE. Period 1 = day-start SOC (percent).
         ini_soc_pct = read_long(bundle.csv("BESS_IniValue.csv"))
+    # PLEXOS Battery.Max Power is a placeholder (2.0 MW on every CEN
+    # PCP battery) — the real per-period MW rating lives in
+    # ``Gen_Rating.csv`` against the ``BAT_<name>`` Generator object
+    # that PLEXOS uses to model the storage's electrical port.
+    # Without this fallback every gtopt battery gets pmax=2 MW
+    # regardless of actual nameplate, losing ~2.8 GW of dispatch
+    # capacity on the CEN PCP weekly bundle (BAT_DEL_DESIERTO real =
+    # 198 MW vs gtopt = 2 MW, BAT_COYA_FV real = 141 MW vs gtopt = 2
+    # MW, etc.).  Read Gen_Rating once here and consult it whenever
+    # the static Max Power looks like the placeholder.
+    gen_rating: dict[str, list[float]] = (
+        read_long(bundle.csv("Gen_Rating.csv"), n_days=bundle.n_days)
+        if bundle.has("Gen_Rating.csv")
+        else {}
+    )
     out: list[BatterySpec] = []
     skipped_aux = 0
     for batt in db.objects_of_class("Battery"):
@@ -1460,6 +1475,12 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # separate Max Power Charge / Discharge properties).
         capacity = db.static_property("Battery", batt.object_id, "Capacity")
         max_power = db.static_property("Battery", batt.object_id, "Max Power")
+        # Override the placeholder Max Power with the Gen_Rating peak
+        # for the matching ``BAT_<name>`` Generator (the canonical
+        # location for the battery's actual per-period MW rating).
+        gen_rating_peak = max(gen_rating.get(batt.name, [0]) or [0])
+        if gen_rating_peak > max_power:
+            max_power = gen_rating_peak
         charge_eff_pct = db.static_property(
             "Battery", batt.object_id, "Charge Efficiency", default=100.0
         )
@@ -4183,6 +4204,27 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 ", ".join(t.generator_name for t in dropped_turbs),
             )
         turbines = tuple(t for t in turbines if t.generator_name not in inactive_gens)
+
+    # ── Pseudo-hydro generators ──
+    # PLEXOS-classified hydro generators with NO Storage attachment
+    # (no Head Storage / Tail Storage membership) — small ROR plants
+    # like LA_HIGUERA, LA_CONFLUENCIA, ALFALFAL, PEUCHEN, SAUZAL, ...
+    # (~99 on CEN PCP) — are LEFT AS-IS.  PLEXOS dispatches them
+    # purely from ``Gen_Rating.csv`` per-block availability, which we
+    # already read into ``GeneratorSpec.pmax_profile``.  The
+    # per-block ``pmax`` bound IS the water-driven dispatch envelope,
+    # so the existing ``gen[t] <= pmax_profile[t]`` constraint is
+    # equivalent to a synthetic pond + inflow + penstock + turbine
+    # topology where the penstock would carry exactly ``pmax_profile``
+    # water and the turbine would convert with ``pf = 1``.  No
+    # benefit to adding the redundant water topology — same LP
+    # behaviour, +400 entities of JSON bloat, and the hard
+    # ``Flow.discharge`` equality on the synthetic inflow would
+    # over-constrain the LP when combined with ``--use-plexos-gen-cap``
+    # (the cap drops pmax below Gen_Rating but the discharge stays at
+    # the higher value, producing infeasibility — verified on CEN PCP
+    # 2026-04-22).
+    # ─────────────────────────────────────────────────────────────
 
     # Demote pure-pondage / pure-tailrace Reservoirs to Junction-only.
     #

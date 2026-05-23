@@ -327,21 +327,25 @@ def build_line_array(
         }
         # PLEXOS Enforce Limits:
         #   0 = Never enforce  → drop cap (gtopt → +∞)
-        #   1 = Voltage-conditional → empirically NOT enforced in
-        #       the PRGdia daily solve.  Capricornio110->LaNegra110
-        #       (EL=1) ships Export Limit 76 MW yet PLEXOS Flow goes
-        #       up to 204.67 MW with Hours Congested = 0 — PLEXOS
-        #       doesn't consider the cap binding under EL=1.  Match
-        #       that by dropping the cap entirely (let gtopt run
-        #       unbounded on EL=1 lines).
+        #   1 = Voltage-conditional → ENFORCE in gtopt (PLEXOS's
+        #       voltage-conditional logic is solver-internal and
+        #       cannot be mirrored exactly; the cap is the published
+        #       physical rating, so enforcing it is the safe default).
+        #       The CEN PCP weekly bundle has 96 of 344 lines at EL=1,
+        #       including major 500 kV trunk lines
+        #       (LoAguirre500→Polpaico500 2,078 MW;
+        #       AJahuel500→AJahuel220 1,800 MW; Charrua220→Charrua500
+        #       1,940 MW).  Leaving them uncapped removes ~93 GW of
+        #       transmission constraint and lets the LP route phantom
+        #       flows across the whole network for free.
         #   2 = Always enforce → hard cap.
         # Max Rating (pid 1882) considered as a soft/hard pair, but
         # data-quality check flagged sentinel values (e.g.
         # Antofag110->Desalant110 at 110 kV claims Max Rating
         # 1000 MW = 17.5× Max Flow — physically implausible).  Until
         # a sentinel-filter lands, keep Max Flow as the single hard
-        # cap on EL=2 lines and ignore the Max Rating uplift.
-        if line.enforce_limits >= 2:
+        # cap and ignore the Max Rating uplift.
+        if line.enforce_limits >= 1:
             ab_profile = line.tmax_ab_profile
             ba_profile = line.tmin_ab_profile
 
