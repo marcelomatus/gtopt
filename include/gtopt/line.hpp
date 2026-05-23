@@ -137,6 +137,33 @@ struct Line
 
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
+  /// Thermal-limit enforcement mode, mirroring PLEXOS's
+  /// ``Line.Enforce Limits`` property:
+  ///
+  ///   * ``0`` — never enforce.  The LP does NOT add the hard
+  ///     ``|flow| <= tmax_{ab,ba}`` bound; ``tmax_ab`` / ``tmax_ba``
+  ///     are carried purely for **loss-segment discretization** (the
+  ///     piecewise-linear loss approximation needs an upper envelope
+  ///     to pick segment widths; without it
+  ///     ``seg_width = DblMax / nseg`` produces meaningless
+  ///     segments).  Use this for lines that PLEXOS labels EL=0
+  ///     ("Never enforce") and for selectively-lifted EL=1 lines
+  ///     whose flow physically exceeds the rating (e.g.
+  ///     Capricornio110→LaNegra110 on the CEN PCP weekly bundle,
+  ///     where AC voltage support requires ~200 MW vs the 76 MW
+  ///     steady-state cap).
+  ///   * ``1`` — voltage-conditional (PLEXOS).  In our LP we treat
+  ///     this identically to level ``2`` (hard cap), because we have
+  ///     no AC voltage-feasibility iteration to consult.  PLEXOS
+  ///     empirically enforces EL=1 caps in its economic dispatch on
+  ///     the CEN PCP weekly bundle (88 of 89 EL=1 lines with flow
+  ///     stay at or below cap; the one outlier — Capricornio — is
+  ///     the line we lift to ``0`` explicitly).
+  ///   * ``2`` — always enforce (the historical hard-cap behaviour
+  ///     and the schema default).
+  ///
+  /// Default = ``2``.
+  OptInt enforce_level {};
   OptTBRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]
                                  ///< — per-(stage, block).  Accepts a
                                  ///< scalar (broadcasts), a 2-D nested

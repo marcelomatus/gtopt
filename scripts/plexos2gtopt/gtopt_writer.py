@@ -325,27 +325,32 @@ def build_line_array(
             "bus_a": line.bus_from,
             "bus_b": line.bus_to,
         }
-        # PLEXOS Enforce Limits:
-        #   0 = Never enforce  → drop cap (gtopt → +∞)
-        #   1 = Voltage-conditional → ENFORCE in gtopt (PLEXOS's
-        #       voltage-conditional logic is solver-internal and
-        #       cannot be mirrored exactly; the cap is the published
-        #       physical rating, so enforcing it is the safe default).
-        #       The CEN PCP weekly bundle has 96 of 344 lines at EL=1,
-        #       including major 500 kV trunk lines
-        #       (LoAguirre500→Polpaico500 2,078 MW;
-        #       AJahuel500→AJahuel220 1,800 MW; Charrua220→Charrua500
-        #       1,940 MW).  Leaving them uncapped removes ~93 GW of
-        #       transmission constraint and lets the LP route phantom
-        #       flows across the whole network for free.
-        #   2 = Always enforce → hard cap.
-        # Max Rating (pid 1882) considered as a soft/hard pair, but
-        # data-quality check flagged sentinel values (e.g.
-        # Antofag110->Desalant110 at 110 kV claims Max Rating
-        # 1000 MW = 17.5× Max Flow — physically implausible).  Until
-        # a sentinel-filter lands, keep Max Flow as the single hard
-        # cap and ignore the Max Rating uplift.
-        if line.enforce_limits >= 1:
+        # PLEXOS Enforce Limits → gtopt ``Line.enforce_level``
+        # (same int 0/1/2 semantics as PLEXOS):
+        #   0 = Never enforce — emit ``tmax_ab`` (loss-segment
+        #       discretization needs a real envelope, otherwise
+        #       ``seg_width = DblMax / nseg`` produces meaningless
+        #       PWL segments) PLUS ``enforce_level = 0`` so the LP
+        #       doesn't bind on the rating.
+        #   1 = Voltage-conditional — PLEXOS empirically enforces
+        #       these caps in CEN PCP weekly economic dispatch (88
+        #       of 89 EL=1 lines with flow stay at-or-below cap),
+        #       but allows exceptions on lines where AC voltage
+        #       support requires flow above the cap (Capricornio110→
+        #       LaNegra110 — radial 110 kV, no parallel path, must
+        #       carry 200+ MW to serve Antofagasta load).  We
+        #       default EL=1 to ``enforce_level = 1`` (treated as
+        #       hard cap in our LP since no AC iteration available)
+        #       and let the caller pass an explicit lift-list
+        #       (``--lift-line-caps``) to flip specific names to
+        #       ``enforce_level = 0``.
+        #   2 = Always enforce — hard cap (historical behaviour and
+        #       gtopt's schema default).
+        # Max Rating (pid 1882) is not used as a soft/hard pair —
+        # data-quality check flagged sentinel values (Antofag110->
+        # Desalant110: 17.5× Max Flow).  Max Flow is the single
+        # hard cap.
+        if line.tmax_ab > 0.0:
             ab_profile = line.tmax_ab_profile
             ba_profile = line.tmin_ab_profile
 
@@ -370,6 +375,13 @@ def build_line_array(
                 entry["tmax_ba"] = (
                     abs(line.tmin_ab) * units if line.tmin_ab else line.tmax_ab * units
                 )
+
+            # Emit ``enforce_level`` only when it differs from the
+            # gtopt default of 2 (always enforce).  Keeps the JSON
+            # compact for the 63 EL=2 lines on CEN PCP and makes the
+            # explicit EL=0 / lifted EL=1 lines stand out.
+            if line.enforce_limits < 2:
+                entry["enforce_level"] = line.enforce_limits
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
         # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +

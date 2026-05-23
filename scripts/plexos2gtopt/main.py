@@ -157,6 +157,28 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--lift-line-caps",
+        type=str,
+        default="Capricornio110->LaNegra110",
+        help=(
+            "Comma-separated list of Line names to demote from PLEXOS "
+            "EL=1 (enforce hard cap) down to EL=0 (no cap, but keep "
+            "tmax_ab for loss-segment discretization).  Used for "
+            "PLEXOS lines where the dispatched flow exceeds the "
+            "published rating because the line is radial and the LP "
+            "has no alternative path — enforcing the cap in gtopt "
+            "would otherwise create unserved demand.  Default lifts "
+            "``Capricornio110->LaNegra110`` (76 MW Max Flow, 204 MW "
+            "in PLEXOS dispatch on the CEN PCP weekly bundle, 269 %% "
+            "of cap; the line is a 110 kV radial stepdown to the "
+            "Antofagasta region with no parallel path).  Pass an "
+            "empty string to disable.  Pending the ``pandapower`` AC "
+            "voltage-analysis side-investigation that may confirm "
+            "this line as the unique voltage-support case in the "
+            "bundle."
+        ),
+    )
+    parser.add_argument(
         "--reservoir-spillway",
         nargs="?",
         const="basic",
@@ -318,6 +340,7 @@ def main(argv: list[str] | None = None) -> None:
         "use_plexos_commit": args.use_plexos_commit,
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
         "reservoir_spillway": args.reservoir_spillway,
+        "lift_line_caps": args.lift_line_caps,
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
         "plexos_solution_accdb": args.plexos_solution_accdb,

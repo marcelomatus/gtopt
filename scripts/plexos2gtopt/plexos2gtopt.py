@@ -111,6 +111,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_USE_PLEXOS_COMMIT"] = "1"
     if options.get("use_plexos_gen_cap"):
         os.environ["GTOPT_USE_PLEXOS_GEN_CAP"] = "1"
+    if options.get("lift_line_caps") is not None:
+        os.environ["GTOPT_LIFT_LINE_CAPS"] = str(options["lift_line_caps"])
     rs_mode = options.get("reservoir_spillway")
     if rs_mode is not None:
         os.environ["GTOPT_RESERVOIR_SPILL"] = str(rs_mode)

@@ -1312,6 +1312,27 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         # legacy bundles where the property pre-dates the feature.
         enforce_raw = db.static_property("Line", line.object_id, "Enforce Limits")
         enforce_limits = int(enforce_raw) if enforce_raw is not None else 2
+        # ``--lift-line-caps NAME[,NAME...]`` (CLI on plexos2gtopt) lets
+        # the caller demote specific PLEXOS EL=1 lines down to EL=0
+        # (gtopt ``enforce_level = 0`` — emit ``tmax_ab`` for loss-PWL
+        # but skip the hard cap in the LP).  Used for lines where
+        # PLEXOS allows flow above cap on radial paths that have no
+        # parallel route (CEN PCP weekly:
+        # ``Capricornio110->LaNegra110`` — 76 MW cap, 204 MW observed).
+        # Reads ``GTOPT_LIFT_LINE_CAPS`` (comma-separated names) the
+        # CLI propagates through plexos2gtopt.py.
+        import os as _os_lift
+
+        _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
+        _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
+        if line.name in _lift_set and enforce_limits >= 1:
+            enforce_limits = 0
+            logger.info(
+                "extract_lines: lifted cap on line '%s' (EL=1 → 0) via "
+                "GTOPT_LIFT_LINE_CAPS — tmax_ab will be carried for loss "
+                "PWL but the LP will not bind on the rating.",
+                line.name,
+            )
         out.append(
             LineSpec(
                 object_id=line.object_id,

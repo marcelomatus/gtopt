@@ -254,6 +254,23 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto block_tcost =
         CostHelper::block_ecost(scenario, stage, block, block_tcost_phys);
 
+    // ``Line.enforce_level`` mirrors PLEXOS ``Line.Enforce Limits``:
+    //   0 = never enforce  → the line stays in the topology and
+    //       carries flow but the thermal rating is informational
+    //       rather than binding.  ``block_tmax_*`` are still passed
+    //       to ``add_block`` so the loss-segment discretization
+    //       (line_losses.cpp ``seg_width = fmax / nseg``) has a
+    //       sensible scale, then AFTER the call we relax the
+    //       flow-column upper bounds to ``DblMax`` so the LP
+    //       doesn't bind on the rating.  Used for PLEXOS EL=0 lines
+    //       and for the handful of EL=1 lines that physically
+    //       require flow above their cap to serve radial load
+    //       (CEN PCP weekly: Capricornio110→LaNegra110).
+    //   1 = voltage-conditional (PLEXOS) → treated identically to
+    //       level 2 in our LP (no AC iteration available).
+    //   2 = always enforce → hard cap (the historical behaviour
+    //       and the schema default).
+    const auto enforce_lvl = line().enforce_level.value_or(2);
     auto result = line_losses::add_block(loss_config,
                                          scenario,
                                          stage,
@@ -266,6 +283,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          block_tcost,
                                          capacity_col,
                                          uid());
+    if (enforce_lvl <= 0) {
+      if (result.fp_col) {
+        lp.set_col_uppb(*result.fp_col, LinearProblem::DblMax);
+      }
+      if (result.fn_col) {
+        lp.set_col_uppb(*result.fn_col, LinearProblem::DblMax);
+      }
+    }
 
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
