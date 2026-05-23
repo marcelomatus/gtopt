@@ -24,7 +24,18 @@ from plexos2gtopt.gtopt_writer import (
 
 
 def test_generator_gcost_thermal() -> None:
-    """P3: thermal cost = heat_rate × fuel_price + vom_charge."""
+    """Thermal generator with a Fuel FK + heat_rate: emit the FK + the
+    NON-FUEL part of variable cost as ``gcost``.
+
+    gtopt computes ``effective_gcost = fuel.price × heat_rate + gcost``
+    at LP-build (Generator + FuelLP coupling).  Pre-baking
+    ``heat_rate × price`` into ``gcost`` here would double-count once
+    gtopt resolves the fuel and would also hide the Fuel FK that
+    ``FuelLP.max_offtake`` needs to find the generator at cap-row
+    build time.  Numerical result is identical (0.25 × 1500 + 8 = 383
+    at LP solve), but the JSON now carries ``fuel`` + ``heat_rate``
+    explicitly.
+    """
     fuels = (FuelSpec(object_id=1, name="diesel", price=1500.0),)
     gens = (
         GeneratorSpec(
@@ -38,8 +49,11 @@ def test_generator_gcost_thermal() -> None:
         ),
     )
     out = build_generator_array(gens, fuels)
-    # 0.25 * 1500 + 8 = 383
-    assert out[0]["gcost"] == 383.0
+    assert out[0]["fuel"] == "diesel"
+    assert out[0]["heat_rate"] == 0.25
+    # gcost is the non-fuel adder only (VOM + transport).  Fuel cost
+    # is recovered as `fuel.price × heat_rate` at LP-build.
+    assert out[0]["gcost"] == 8.0
 
 
 def test_generator_gcost_renewable() -> None:
@@ -371,6 +385,49 @@ def test_fuel_max_offtake_absent_when_none() -> None:
     )
     out = build_fuel_array(fuels)
     assert "max_offtake" not in out[0]
+
+
+def test_thermal_generator_emits_fuel_fk_for_offtake_cap_binding() -> None:
+    """End-to-end coupling: a thermal generator must emit ``fuel`` +
+    ``heat_rate`` so gtopt's ``FuelLP.max_offtake`` cap row can find
+    it at LP-build.
+
+    Pre-PR-#489 the writer pre-baked ``heat_rate × price`` into
+    ``gcost`` and dropped the Fuel FK — which made the cap row
+    silently empty (no generator coupled to the Fuel) and the
+    feature ineffective.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=1,
+            name="Gas_Quintero_A",
+            price=10.0,
+            max_offtake=5000.0,
+        ),
+    )
+    gens = (
+        GeneratorSpec(
+            object_id=10,
+            name="Quintero_1A",
+            bus_name="b1",
+            pmax=200.0,
+            heat_rate=2.0,
+            vom_charge=1.5,
+            fuel_transport=0.3,
+            fuel_names=("Gas_Quintero_A",),
+        ),
+    )
+    gen_out = build_generator_array(gens, fuels)
+    # Fuel FK + heat_rate explicit on the generator entry.
+    assert gen_out[0]["fuel"] == "Gas_Quintero_A"
+    assert gen_out[0]["heat_rate"] == 2.0
+    # Non-fuel cost only.
+    assert gen_out[0]["gcost"] == 1.5 + 0.3
+    # Fuel side ships the cap; gtopt will sum the heat_rate-weighted
+    # generation across this gen (and any others with the same fuel)
+    # and bound by `max_offtake`.
+    fuel_out = build_fuel_array(fuels)
+    assert fuel_out[0]["max_offtake"] == 5000.0
 
 
 # ---------------------------------------------------------------------------

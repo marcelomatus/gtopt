@@ -254,8 +254,29 @@ def build_generator_array(
             entry["pmax_segments"] = list(gen.pmax_segments)
             entry["heat_rate_segments"] = list(segments_scaled)
             entry["gcost"] = gen.vom_charge + gen.fuel_transport
+        elif primary_fuel is not None and gen.heat_rate > 0.0:
+            # Scalar path WITH a known Fuel + heat_rate — emit the
+            # explicit FK so gtopt's `FuelLP::add_to_lp` can find
+            # this generator when building the per-stage offtake
+            # cap row (PR #487 + #489).  gtopt computes
+            #
+            #   effective_gcost = fuel.price × heat_rate + gcost
+            #
+            # at LP-build, so we pass the *non-fuel* part of the
+            # variable cost as ``gcost`` and let gtopt resolve the
+            # fuel-price contribution from the Fuel element.  The
+            # numerical result is identical to the legacy
+            # pre-baked path below.
+            entry["fuel"] = primary_fuel
+            entry["heat_rate"] = gen.heat_rate
+            entry["gcost"] = gen.vom_charge + gen.fuel_transport
         else:
-            # Scalar path: pre-baked gcost coefficient.
+            # Legacy baked-gcost path: no Fuel FK (renewables, units
+            # without a Fuel membership in PLEXOS, virtual gens).
+            # Everything is collapsed into a single scalar coefficient
+            # on `generation` — the Fuel.max_offtake cap row will not
+            # apply to these gens, which is correct: they don't draw
+            # from a constrained fuel band.
             gcost = gen.heat_rate * primary_price + gen.vom_charge + gen.fuel_transport
             entry["gcost"] = gcost
         # When the per-hour rating profile actually varies (renewable
