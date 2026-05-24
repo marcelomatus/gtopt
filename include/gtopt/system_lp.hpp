@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 
+#include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/ammonia_node_lp.hpp>
 #include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/battery_lp.hpp>
@@ -110,6 +111,7 @@ static_assert(AddToLP<HydrogenStorageLP>);
 static_assert(AddToLP<AmmoniaNodeLP>);
 static_assert(AddToLP<AmmoniaStorageLP>);
 static_assert(AddToLP<CarrierConverterLP>);
+static_assert(AddToLP<AllowancePoolLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
@@ -284,6 +286,7 @@ public:
                                    Collection<AmmoniaNodeLP>,
                                    Collection<AmmoniaStorageLP>,
                                    Collection<CarrierConverterLP>,
+                                   Collection<AllowancePoolLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,

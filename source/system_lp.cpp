@@ -542,6 +542,8 @@ void create_collections(const auto& system_context,
       make_collection<AmmoniaStorageLP>(ic, sys.ammonia_storage_array);
   std::get<Collection<CarrierConverterLP>>(colls) =
       make_collection<CarrierConverterLP>(ic, sys.carrier_converter_array);
+  std::get<Collection<AllowancePoolLP>>(colls) =
+      make_collection<AllowancePoolLP>(ic, sys.allowance_pool_array);
   std::get<Collection<ReserveZoneLP>>(colls) =
       make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(colls) =
@@ -656,6 +658,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<AmmoniaNodeLP>(sim, sys.ammonia_node_array);
   register_element_names<AmmoniaStorageLP>(sim, sys.ammonia_storage_array);
   register_element_names<CarrierConverterLP>(sim, sys.carrier_converter_array);
+  register_element_names<AllowancePoolLP>(sim, sys.allowance_pool_array);
   register_element_names<BusLP>(sim, sys.bus_array);
   register_element_names<ConverterLP>(sim, sys.converter_array);
   register_element_names<DemandLP>(sim, sys.demand_array);
