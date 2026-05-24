@@ -84,7 +84,94 @@ struct LossConfig
   /// globally via `model_options.scale_loss_link`; `PlanningLP`
   /// auto-computes from `median(R/V²)` when unset.
   double loss_row_scale {1.0};
+  /// Segment-layout strategy for the PWL loss approximation.  See
+  /// `LinePwlLayout` (line_enums.hpp): `uniform` (default; equal-
+  /// width secant chords — preserves pre-2026-05 behaviour),
+  /// `equal_error` (√-spaced minimax: same K and LP row count, ~√K
+  /// better worst-case chord error), `tangent` (outer approximation,
+  /// reserved for future).  Per-line override via
+  /// `Line.loss_pwl_layout`; otherwise inherits from
+  /// `ModelOptions.loss_pwl_layout` (TBD) — default `uniform`.
+  LinePwlLayout pwl_layout {LinePwlLayout::uniform};
 };
+
+// ─── PWL geometry (exposed for unit testing) ────────────────────────
+
+/// Geometry of one piecewise-linear segment built by ``add_segments``
+/// for the static PWL approximation of the convex loss curve
+/// ``ℓ(f) = (R/V²)·f²`` on ``[0, envelope]``.
+///
+///   * ``width``  — Δf covered by this segment (becomes the seg col's
+///                  upper bound when caps are enforced; the LP picks
+///                  ``Σ seg_k = |f|``).
+///   * ``slope``  — chord slope of ``ℓ/(R/V²)`` on this segment, i.e.
+///                  the geometric pre-factor.  The actual loss-row
+///                  coefficient is ``slope × R / V²``.
+struct SegGeom
+{
+  double width;
+  double slope;
+};
+
+/// Compute the per-segment ``(width, slope)`` for the static PWL
+/// approximation of the line-loss curve.  ``layout = uniform`` (the
+/// default and currently the only mode with a meaningful per-segment
+/// distribution — ``equal_error`` aliases to it for convex quadratic;
+/// ``tangent`` uses a structurally different LP, not this function)
+/// gives equal-width chords:
+///
+///   width_k  = envelope / K
+///   slope_k  = (envelope / K) × (2k − 1)              ← chord (a + b)
+///
+/// so the loss-row coefficient on ``seg_k`` is
+/// ``loss_k = slope_k × R / V²``.  Caller (``add_segments``) must
+/// pass the FULL envelope (``effective_fmax`` = ``tmax`` when
+/// ``enforce_level ≥ 1``, ``2·tmax`` when ``enforce_level = 0``);
+/// passing ``seg_width = envelope/K`` by mistake makes every slope
+/// shrink by ``1/K`` and the LP underestimate loss accordingly.
+/// Exposed via this public header so unit tests can pin the formula.
+[[nodiscard]] SegGeom loss_segment_geometry(
+    double envelope,
+    int nseg,
+    int k,
+    LinePwlLayout layout = LinePwlLayout::uniform) noexcept;
+
+/// Geometry of one tangent line in the outer-approximation PWL
+/// formulation (``layout = tangent``).  Tangent ``k`` touches the
+/// convex quadratic ``ℓ(f) = (R/V²)·f²`` at ``touch_point = t_k``
+/// and forms the LP inequality
+///
+///     loss ≥ slope_coef · |f| + intercept_coef       (pre-`R/V²`)
+///
+/// i.e. ``loss ≥ R/V² · (2·t_k · |f| − t_k²)``.
+///
+/// Fields are the GEOMETRIC pre-``R/V²`` values, so unit tests can
+/// validate the curve math independently of any specific line's
+/// resistance / voltage.  ``add_tangents`` multiplies both by
+/// ``R/V²`` (and by ``loss_row_scale``) when stamping rows.
+struct TangentGeom
+{
+  double touch_point;  ///< t_k where the tangent meets the curve
+  double slope_coef;  ///< 2 · t_k (pre-R/V²); coef on |f| in `loss ≥ …`
+  double intercept_coef;  ///< -t_k² (pre-R/V²); intercept in `loss ≥ …`
+};
+
+/// Compute the ``k``-th tangent's geometry for the outer-approximation
+/// PWL loss model.  Tangent touch points are uniform partition
+/// midpoints on ``[0, envelope]``:
+///
+///     t_k = envelope · (2k − 1) / (2K)
+///
+/// giving a max chord-error of ``(envelope/(2K))²`` at partition
+/// boundaries — same magnitude as the secant overestimate (uniform
+/// mode) but BELOW the curve (LP underestimates loss).  ``k`` is
+/// 1-based; ``layout`` accepted only as ``tangent`` (other layouts
+/// return ``{0, 0, 0}`` since this geometry is meaningless for them).
+[[nodiscard]] TangentGeom loss_tangent_geometry(
+    double envelope,
+    int nseg,
+    int k,
+    LinePwlLayout layout = LinePwlLayout::tangent) noexcept;
 
 // ─── Results ────────────────────────────────────────────────────────
 

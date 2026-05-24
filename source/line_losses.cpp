@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <string>
 
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/line.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -115,7 +117,7 @@ LineLossesMode resolve_mode(const Line& line,
 // ─── Config builder ─────────────────────────────────────────────────
 
 LossConfig make_config(LineLossesMode mode,
-                       const Line& /*line*/,
+                       const Line& line,
                        LossAllocationMode allocation,
                        double lossfactor,
                        double resistance,
@@ -153,6 +155,76 @@ LossConfig make_config(LineLossesMode mode,
     }
   }
 
+  // Per-line override.  Defaults to `uniform` when the field is unset
+  // (current behaviour, no regression).
+  //
+  // Layout semantics:
+  //   * ``uniform`` (default): equal-width secant chords.  Minimax for
+  //     chord error on a convex quadratic (chord error scales as
+  //     `width²/4`, minimized by equal widths).  ALWAYS overestimates
+  //     loss; LP underdispatches lossy lines slightly.
+  //   * ``equal_error``: documented alias for ``uniform`` — for a
+  //     convex quadratic, equalising max chord error IS the uniform
+  //     partition.  Kept as a named option so future schedulers can
+  //     express the intent (e.g. weighted-by-flow-distribution
+  //     adaptive partition) without a JSON-schema change once that
+  //     variant lands.  See ``seg_geom`` for the rationale.
+  //   * ``tangent``: K outer-approximation tangent inequalities on
+  //     the existing flow + loss columns (no per-segment vars).
+  //     UNDER-estimates loss; LP picks the binding tangent at its
+  //     operating point and gets it exact there.  Structurally
+  //     different LP — see ``add_tangents`` and the early-return in
+  //     ``add_piecewise``.
+  const auto requested = line.loss_pwl_layout_enum();
+
+  // Per-line `loss_row_scale` override.
+  //
+  // A single global `loss_row_scale` (from
+  // `ModelOptions.scale_loss_link` or auto-derived from the median
+  // R/V² across all lines) is a compromise: it lifts the typical
+  // line's seg coefficients to ~O(1) but lines whose R/V² is far
+  // from the median end up with row coefs spread by many orders of
+  // magnitude, driving κ up via the global min/max coefficient
+  // ratio.
+  //
+  // For PWL modes, when all the per-line geometry is available
+  // (R > 0, V² > 0, fmax > 0, nseg ≥ 2), pick a per-line scale so
+  // the LARGEST per-segment loss coefficient lands at ~1.0 in the
+  // LP matrix.  Concretely, the largest uniform-secant slope is
+  //   max_k(loss_k) = (fmax/K)·(2K−1)·R/V²
+  // so we use
+  //   s_line = 1 / [ (fmax/K)·(2K−1)·R/V² ]
+  //         = K·V² / [ fmax · R · (2K−1) ].
+  //
+  // The pre-scale `kLossCoeffTolerance` and post-scale
+  // `kLossLpRowTolerance` checks in `add_segments` / `add_tangents`
+  // continue to drop the tail-end seg/tangent stamps if the
+  // per-line scale still leaves them below the LP-numerical-noise
+  // floor.
+  //
+  // Falls back to the caller-supplied global `loss_row_scale` when
+  // the per-line recipe isn't applicable (linear mode, no R/V, no
+  // fmax, single-segment PWL).  This preserves prior behaviour for
+  // the linear-loss path and for any line that can't supply enough
+  // geometry to be self-scaled.
+  double effective_scale = (loss_row_scale > 0.0) ? loss_row_scale : 1.0;
+  const bool is_pwl = mode == LineLossesMode::piecewise
+      || mode == LineLossesMode::bidirectional
+      || mode == LineLossesMode::piecewise_direct;
+  if (is_pwl && resistance > 0.0 && V2 > 0.0 && fmax > 0.0 && nseg >= 2) {
+    // Envelope is ``fmax`` regardless of EL: ``add_piecewise`` /
+    // ``add_direction`` / ``add_piecewise_direct`` all build the PWL
+    // segments on ``fmax`` whether or not the cap is enforced (EL=0
+    // releases only the *bounds*, not the loss coefficients).  So
+    // the per-line scale here matches the actual stamped coefs and
+    // a line keeps the same loss approximation across EL transitions.
+    const double max_slope = (fmax / static_cast<double>(nseg))
+        * static_cast<double>((2 * nseg) - 1) * resistance / V2;
+    if (max_slope > 0.0) {
+      effective_scale = 1.0 / max_slope;
+    }
+  }
+
   return {
       .mode = mode,
       .allocation = allocation,
@@ -160,7 +232,8 @@ LossConfig make_config(LineLossesMode mode,
       .resistance = resistance,
       .V2 = V2,
       .nseg = nseg,
-      .loss_row_scale = (loss_row_scale > 0.0) ? loss_row_scale : 1.0,
+      .loss_row_scale = effective_scale,
+      .pwl_layout = requested,
   };
 }
 
@@ -258,6 +331,27 @@ auto add_capacity_row(LinearProblem& lp,
 /// errors where the loss model contributes nothing.
 constexpr double kLossCoeffTolerance = 1e-6;
 
+/// Post-scale (LP-coefficient) noise floor: drop the seg/tangent stamp
+/// when its stamped coefficient — `loss_k * loss_row_scale` (segments)
+/// or `2·k_loss·t_k * loss_row_scale` (tangents) — would land below
+/// this threshold in the assembled LP matrix.
+///
+/// Rationale: a coefficient below this magnitude in the constraint
+/// matrix sits in LP solver presolve noise and adds nothing the dual
+/// can distinguish, but it does bloat the matrix coefficient range
+/// (min/max ratio drives κ).  Started conservative at 1e-6 (same
+/// order as the pre-scale physical-noise floor `kLossCoeffTolerance`
+/// — only catches truly-degenerate seg/tangent stamps after scaling);
+/// can be tightened upward (1e-5, 1e-4, …) if κ-driven measurements
+/// show measurable headroom against the LP residual tolerance.
+///
+/// The pre-scale `kLossCoeffTolerance` check already catches the
+/// truly-zero physical case; this is a separate LP-numerical-noise
+/// floor that fires AFTER `loss_row_scale` is applied (so it scales
+/// with the chosen row scaling and doesn't require retuning per
+/// case).
+constexpr double kLossLpRowTolerance = 1e-6;
+
 /// Add piecewise-linear segment variables to linking and loss rows.
 ///
 /// Segment k (1-based) has:
@@ -281,24 +375,200 @@ constexpr double kLossCoeffTolerance = 1e-6;
 /// the `kLossCoeffTolerance` block above for the rationale and the
 /// matching `validate_line_reactance` clamp pattern in
 /// `planning_lp.cpp`.
+/// Compute (width_k, slope_k) for segment k under a given layout.
+///
+/// `envelope` is the upper bound of the PWL (typically `tmax` for EL≥1
+/// or `2·tmax` for EL=0).  `K` is the segment count; `k` is 1-based.
+///
+/// All layouts approximate the convex `ℓ(f) = (R/V²)·f²` on `[0, B]`.
+/// The returned width feeds the seg col's upper bound; the returned
+/// slope (× R/V²) feeds the loss-row coefficient.
+///
+/// `uniform` (default; current behavior):
+///   width_k = B/K           (equal widths)
+///   slope_k = B·(2k−1)/K    (chord slope on segment [(k−1)B/K, kB/K])
+///   chord error peaks at the outer segment: ≤ (B/K)²/4.
+///
+/// `equal_error` (sqrt-spaced minimax):
+///   b_k     = √(k/K)·B
+///   width_k = B·(√(k/K) − √((k−1)/K))
+///   slope_k = b_k + b_{k−1} = B·(√(k/K) + √((k−1)/K))
+///   max chord error is the same across all segments — falls as 1/K
+///   instead of peaking on the outer segment.  Same K, same LP row
+///   count, ~√K × better worst-case error.
+///
+/// `tangent` falls back to `uniform` here with a one-time warning at
+/// the caller; the alternate LP structure (1 col + K tangent rows
+/// instead of K cols + 1 row) is not yet wired.
+// SegGeom now lives in line_losses.hpp so unit tests can reach it
+// via the exposed ``loss_segment_geometry`` thin wrapper (defined
+// below the anonymous namespace block).
+
+[[nodiscard]] inline SegGeom seg_geom(double envelope,
+                                      int nseg,
+                                      int k,
+                                      LinePwlLayout layout) noexcept
+{
+  // For a convex quadratic ℓ(f) = (R/V²)·f², the chord-error on a
+  // segment of width `w` is `w²/4` (max at midpoint).  Minimizing the
+  // maximum error across K segments on a fixed envelope therefore
+  // calls for **equal segment widths** = uniform partition — the
+  // mathematically optimal static PWL.  Any other layout (including
+  // the √-spaced "equal contribution" variant earlier explored under
+  // the equal_error name) increases max chord error somewhere along
+  // the curve, with measurable LP-feasibility consequences when low-
+  // flow segments get steep slopes (verified: nseg=6 √-spaced
+  // produced 213 GWh unserved on CEN PCP weekly).
+  //
+  // ``equal_error`` here is therefore a documented alias for
+  // ``uniform`` — same geometry, same numerics — preserved as a
+  // named option so future schedulers can express the intent without
+  // a code change if a meaningful equal-error variant lands (e.g.
+  // weighted by an empirical flow-distribution measure).
+  //
+  // ``tangent`` does NOT call seg_geom() at all — it builds a
+  // structurally different LP (K outer-approximation rows on the
+  // existing flow + loss columns; no per-segment variables).  See
+  // add_piecewise_tangent().
+  const double w = envelope / static_cast<double>(nseg);
+  const double slope = w * static_cast<double>((2 * k) - 1);
+  (void)layout;  // Reserved for future per-layout geometry overrides.
+  (void)k;  // Used above; kept for symmetry once more modes are added.
+  return {.width = w, .slope = slope};
+}
+
+/// Stamp the K outer-approximation tangent rows for the convex
+/// quadratic loss ℓ(f) = k_loss · f² on `[0, envelope]`.  Adds K rows
+/// of the form
+///
+///     s · loss − 2 · s · k_loss · t_k · f ≥ −s · k_loss · t_k²
+///
+/// (`s = loss_row_scale`), where `t_k = (2k−1)·envelope/(2K)` are the
+/// midpoints of K uniform partitions.  Each tangent touches the curve
+/// at `f = t_k` and lies BELOW the curve everywhere else (outer
+/// approximation of a convex function).  The LP minimises `loss`, so
+/// it drives `loss` down to `max_k(tangent_k(f))` at the chosen
+/// operating point — exact at one tangent point, otherwise within
+/// `(envelope/(2K))²·k_loss` of the true curve at the partition
+/// boundaries.
+///
+/// LP-structure contrast with the secant-PWL path (`add_segments`):
+///   * `add_segments`: K seg cols + 1 link row + 1 loss row.
+///   * `add_tangents`: 0 seg cols + K tangent rows on existing flow
+///     and loss cols.  Slightly fewer variables, similar row count
+///     for moderate K, gives an **underestimate** of losses (LP picks
+///     marginally too much flow on lossy lines) vs the secant
+///     **overestimate**.  Reference: Aigner & Van Hentenryck,
+///     *Line Loss Outer Approximation*, arXiv:2112.10975.
+///
+/// Reuses the existing `loss_col` already stamped by the caller into
+/// the receiver-bus row (so loss is consumed on the bus balance as
+/// in the secant path).  No `linkrow`/`lossrow` equalities — the K
+/// tangent inequalities subsume both.
+void add_tangents(LinearProblem& lp,
+                  const ScenarioLP& scenario,
+                  const StageLP& stage,
+                  const BlockLP& block,
+                  Uid uid,
+                  double envelope,
+                  double resistance,
+                  double V2,
+                  int nseg,
+                  ColIndex loss_col,
+                  std::optional<ColIndex> fp_col,
+                  std::optional<ColIndex> fn_col,
+                  double loss_row_scale)
+{
+  const double k_loss = resistance / V2;
+  if (k_loss < kLossCoeffTolerance / std::max(envelope, 1.0)) {
+    // Same dropout policy as add_segments: a tangent stamp at this
+    // scale just pollutes coefficient statistics without contributing
+    // measurable physical loss.  No rows added; loss col stays at its
+    // [0, ∞) default and the bus balance simply sees loss = 0 (the
+    // LP's natural optimum for an unconstrained minimised variable).
+    return;
+  }
+  for (const auto k : iota_range(1, nseg + 1)) {
+    const double t_k = envelope * static_cast<double>((2 * k) - 1)
+        / (2.0 * static_cast<double>(nseg));
+    // Per-tangent dropout, analogous to ``add_segments``'s per-segment
+    // ``|loss_k| < kLossCoeffTolerance`` skip (see ``add_segments``
+    // docstring + the ``kLossCoeffTolerance`` comment).  The slope of
+    // tangent ``k`` on |f| is ``2 · k_loss · t_k`` (pre-scaling); when
+    // it falls below the tolerance the row degenerates to
+    // ``loss ≥ −k_loss · t_k² ≈ 0`` (always satisfied by ``loss ≥ 0``).
+    // Stamping it would just pollute the coefficient-range statistics
+    // and risk presolve numerical artifacts (suspected root cause of
+    // the K=4 tangent MIP infeasibility on the CEN PCP bundle, where
+    // a sub-set of lines had ``2 · k_loss · t_1`` near the tolerance).
+    const double slope_coef = 2.0 * k_loss * t_k;
+    const double scaled_slope = slope_coef * loss_row_scale;
+    if (std::abs(slope_coef) < kLossCoeffTolerance
+        || std::abs(scaled_slope) < kLossLpRowTolerance)
+    {
+      // Two-floor dropout matching `add_segments`: pre-scale
+      // physical-noise floor + post-scale LP-coefficient noise floor.
+      // See `kLossLpRowTolerance` comment for the rationale.
+      continue;
+    }
+    auto trow =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = loss_link_constraint_name,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
+        }
+            .greater_equal(-k_loss * t_k * t_k * loss_row_scale);
+    trow.reserve(3);
+    trow[loss_col] = +loss_row_scale;
+    const double coef = -slope_coef * loss_row_scale;
+    if (fp_col) {
+      trow[*fp_col] = coef;
+    }
+    if (fn_col) {
+      trow[*fn_col] = coef;
+    }
+    [[maybe_unused]] auto idx = lp.add_row(std::move(trow));
+  }
+}
+
 void add_segments(LinearProblem& lp,
                   const ScenarioLP& scenario,
                   const StageLP& stage,
                   const BlockLP& block,
                   std::string_view seg_label,
                   Uid uid,
-                  double seg_width,
+                  double envelope,
                   double resistance,
                   double V2,
                   int nseg,
                   SparseRow& linkrow,
                   SparseRow& lossrow,
                   double loss_row_scale,
-                  double seg_uppb)
+                  double seg_uppb,
+                  LinePwlLayout layout = LinePwlLayout::uniform)
 {
   for (const auto k : iota_range(1, nseg + 1)) {
-    const double loss_k =
-        seg_width * resistance * static_cast<double>((2 * k) - 1) / V2;
+    const auto geom = seg_geom(envelope, nseg, k, layout);
+    // loss_k matches the legacy uniform formula
+    //   loss_k = seg_width · R · (2k−1) / V²
+    // and generalises to `equal_error` via the chord slope formula
+    // `loss_k = R/V² × (b_k + b_{k−1})`, where the previous code's
+    // (2k−1) is the special case for uniform breakpoints `b_k = kB/K`.
+    const double loss_k = geom.slope * resistance / V2;
+
+    // Under `uniform` the segment upper bound is the equal share of
+    // the rating (or DblMax under EL=0).  Under `equal_error` the
+    // per-segment widths differ, so equal-share doesn't make sense —
+    // honor the caller's `seg_uppb` choice (DblMax for unbounded)
+    // OR cap at the segment's own physical width, whichever is
+    // tighter.  This keeps the EL=0 unbounded behaviour intact while
+    // automatically using the correct per-segment width when the
+    // caller passes the legacy `seg_width` default.
+    const double col_uppb =
+        layout == LinePwlLayout::equal_error && seg_uppb < DblMax ? geom.width
+                                                                  : seg_uppb;
 
     const auto seg_col = lp.add_col({
         .lowb = 0,
@@ -306,11 +576,11 @@ void add_segments(LinearProblem& lp,
         // segment to its share of the total rating), but the caller
         // can pass ``DblMax`` when ``Line.enforce_level = 0`` to
         // let the LP discard the per-segment cap while keeping
-        // ``loss_k`` (computed from ``seg_width × R × (2k−1) /
-        // V²``) numerically sensible.  Passing DblMax for both
-        // would explode the loss-tracking row coefficients to
-        // ~1e+306 and break solver presolve.
-        .uppb = seg_uppb,
+        // ``loss_k`` (computed from the segment slope · R/V²)
+        // numerically sensible.  Passing DblMax for both would
+        // explode the loss-tracking row coefficients to ~1e+306
+        // and break solver presolve.
+        .uppb = col_uppb,
         .class_name = Line::class_name.full_name(),
         .variable_name = seg_label,
         .variable_uid = uid,
@@ -319,15 +589,25 @@ void add_segments(LinearProblem& lp,
     });
 
     linkrow[seg_col] = -1.0;
-    if (std::abs(loss_k) < kLossCoeffTolerance) {
+    const double scaled_loss = loss_k * loss_row_scale;
+    if (std::abs(loss_k) < kLossCoeffTolerance
+        || std::abs(scaled_loss) < kLossLpRowTolerance)
+    {
       // Skip the lossrow stamp — segment still participates in the
       // link row above (capacity preserved) but contributes zero
-      // loss approximation.  No log here: the validation-time
-      // `validate_line_reactance` warn covers the data-entry
-      // outlier case at the line level.
+      // loss approximation.  Two independent floors:
+      //   * pre-scale `kLossCoeffTolerance` (1e-6) — physical-noise
+      //     floor: R/V² × seg_width below this is a virtually-
+      //     lossless line (transformer / busbar / data outlier).
+      //   * post-scale `kLossLpRowTolerance` (1e-3) — LP-coefficient
+      //     noise floor: `loss_k × loss_row_scale` below this would
+      //     add a sub-millis. matrix entry that the solver presolve
+      //     drops anyway and that bloats κ via min/max coef spread.
+      // No log here: the validation-time `validate_line_reactance`
+      // warn covers the data-entry outlier case at the line level.
       continue;
     }
-    lossrow[seg_col] = -loss_k * loss_row_scale;
+    lossrow[seg_col] = -scaled_loss;
   }
 }
 
@@ -540,18 +820,20 @@ BlockResult add_piecewise(const LossConfig& config,
   //
   //   2. ``seg_uppb`` (segment column upper bounds) and the
   //      directional ``fp / fn`` flow-column upper bounds:
-  //      RELEASED to ``DblMax`` so the cap is NOT enforced.  PWL
-  //      convexity is lost (the LP can dump flow into the
-  //      lowest-loss segment first and under-estimate losses on
-  //      that line), but this is the explicit user-requested
-  //      semantic for ``Enforce Limits = 0``: compute the loss
-  //      segments using twice the capacity, and still do not
-  //      enforce the cap.
+  //      RELEASED to ``DblMax`` so the cap is NOT enforced.  The
+  //      loss-PWL approximation past the original cap continues
+  //      linearly with the segment-K slope (steepest), which is the
+  //      "natural" extrapolation of a convex quadratic.
   //
-  // ``2.0`` is hard-coded for now; a future ``Line.lift_multiplier``
-  // override would let the caller widen further when needed.
-  const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
-  const double effective_fmax = lift_multiplier * fmax;
+  // The PWL envelope is ``fmax`` regardless of ``enforce_capacity``:
+  // toggling a line from ``Enforce Limits = 1`` (EL=1) to
+  // ``Enforce Limits = 0`` (EL=0) MUST keep the loss segment /
+  // tangent geometry identical so the loss approximation doesn't
+  // jump when the cap is relaxed.  Earlier versions widened the
+  // envelope to ``2 × fmax`` for EL=0 — that broke EL-symmetry,
+  // doubled the per-line ``loss_row_scale``, and (with uniform PWL)
+  // halved every segment's loss slope vs the equivalent EL=1 line.
+  const double effective_fmax = fmax;
   const double seg_width = effective_fmax / nseg;
   const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
@@ -610,6 +892,29 @@ BlockResult add_piecewise(const LossConfig& config,
 
   apply_loss_allocation(brow_a, brow_b, loss_col, config.allocation);
 
+  // Tangent (outer-approximation) PWL: K tangent inequalities on the
+  // existing flow + loss columns, no per-segment variables.  Returns
+  // early because the flow columns already carry the capacity bound
+  // (``enforce_capacity ? block_tmax_{ab,ba} : DblMax``) — no need
+  // for a separate sum-of-segments link row.  See ``add_tangents``
+  // for the math.
+  if (config.pwl_layout == LinePwlLayout::tangent) {
+    add_tangents(lp,
+                 scenario,
+                 stage,
+                 block,
+                 uid,
+                 effective_fmax,
+                 config.resistance,
+                 config.V2,
+                 nseg,
+                 loss_col,
+                 result.fp_col,
+                 result.fn_col,
+                 config.loss_row_scale);
+    return result;
+  }
+
   // Linking: fp + fn − Σ seg_k = 0
   auto linkrow =
       SparseRow {
@@ -644,20 +949,22 @@ BlockResult add_piecewise(const LossConfig& config,
   // (always the real value derived from the rating), while the
   // per-segment column upper bound is ``seg_uppb`` (``= seg_width``
   // when enforcing, ``= DblMax`` when ``Line.enforce_level = 0``).
-  add_segments(lp,
-               scenario,
-               stage,
-               block,
-               "seg",
-               uid,
-               seg_width,
-               config.resistance,
-               config.V2,
-               nseg,
-               linkrow,
-               lossrow,
-               config.loss_row_scale,
-               seg_uppb);
+  add_segments(
+      lp,
+      scenario,
+      stage,
+      block,
+      "seg",
+      uid,
+      effective_fmax,  // full envelope (seg_geom divides by nseg internally)
+      config.resistance,
+      config.V2,
+      nseg,
+      linkrow,
+      lossrow,
+      config.loss_row_scale,
+      seg_uppb,
+      config.pwl_layout);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -721,13 +1028,13 @@ DirResult add_direction(const LossConfig& config,
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
   const auto reserve_sz = static_cast<size_t>(nseg) + 1;
-  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
-  // widen the loss-PWL envelope to ``2 × original tmax`` for
-  // ``seg_width`` (loss-coefficient accuracy) but release the
-  // per-segment AND the flow upper bounds to ``DblMax`` so the cap
-  // is NOT enforced.  See ``add_piecewise`` for the rationale.
-  const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
-  const double seg_width = (lift_multiplier * block_tmax) / nseg;
+  // EL-symmetric envelope: PWL uses ``block_tmax`` regardless of
+  // ``enforce_capacity``.  EL=0 releases only the *bounds* (seg cols
+  // and the directional flow col), keeping the loss coefficients
+  // identical to the EL=1 case so flipping the EL value doesn't
+  // alter the PWL approximation.  See ``add_piecewise`` for the
+  // rationale.
+  const double seg_width = block_tmax / nseg;
   const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
   const auto block_ctx =
@@ -789,14 +1096,15 @@ DirResult add_direction(const LossConfig& config,
                block,
                labels.seg,
                uid,
-               seg_width,
+               block_tmax,  // full envelope; seg_geom divides by nseg
                config.resistance,
                config.V2,
                nseg,
                linkrow,
                lossrow,
                config.loss_row_scale,
-               seg_uppb);
+               seg_uppb,
+               config.pwl_layout);
 
   [[maybe_unused]] auto linkrow_idx = lp.add_row(std::move(linkrow));
   [[maybe_unused]] auto lossrow_idx = lp.add_row(std::move(lossrow));
@@ -914,13 +1222,12 @@ BlockResult add_bidirectional(const LossConfig& config,
 
   const int nseg = config.nseg;
   assert(nseg > 0 && "line_losses: nseg must be positive");
-  // ``enforce_capacity = false`` (PLEXOS ``Enforce Limits = 0``):
-  // widen the loss-PWL envelope to ``2 × original tmax`` for
-  // ``seg_width`` (loss-coefficient accuracy) but release the
-  // per-segment upper bound to ``DblMax`` so the cap is NOT
-  // enforced.  See ``add_piecewise`` for the rationale.
-  const double lift_multiplier = enforce_capacity ? 1.0 : 2.0;
-  const double seg_width = (lift_multiplier * block_tmax) / nseg;
+  // EL-symmetric envelope: PWL uses ``block_tmax`` regardless of
+  // ``enforce_capacity``.  EL=0 releases only the per-segment upper
+  // bound, keeping the loss coefficients identical to the EL=1 case
+  // so flipping the EL value doesn't alter the PWL approximation.
+  // See ``add_piecewise`` for the rationale.
+  const double seg_width = block_tmax / nseg;
   const double seg_tcost = block_tcost / nseg;
   const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
 
@@ -1010,6 +1317,36 @@ BlockResult add_piecewise_direct(const LossConfig& config,
 }
 
 }  // namespace
+
+// ─── Public PWL geometry wrappers (unit-test entry points) ─────────
+
+SegGeom loss_segment_geometry(double envelope,
+                              int nseg,
+                              int k,
+                              LinePwlLayout layout) noexcept
+{
+  return seg_geom(envelope, nseg, k, layout);
+}
+
+TangentGeom loss_tangent_geometry(double envelope,
+                                  int nseg,
+                                  int k,
+                                  LinePwlLayout layout) noexcept
+{
+  // Documented as meaningful only for ``layout = tangent``; return
+  // an all-zero struct otherwise so callers (typically unit tests)
+  // can assert on the precondition without throwing.
+  if (layout != LinePwlLayout::tangent || nseg <= 0 || k < 1 || k > nseg) {
+    return {.touch_point = 0.0, .slope_coef = 0.0, .intercept_coef = 0.0};
+  }
+  const double t_k = envelope * static_cast<double>((2 * k) - 1)
+      / (2.0 * static_cast<double>(nseg));
+  return {
+      .touch_point = t_k,
+      .slope_coef = 2.0 * t_k,
+      .intercept_coef = -t_k * t_k,
+  };
+}
 
 // ─── Dispatcher ─────────────────────────────────────────────────────
 

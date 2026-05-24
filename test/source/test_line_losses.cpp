@@ -980,17 +980,31 @@ TEST_CASE("line_losses LP structure - piecewise mode")
 
   SUBCASE("loss-tracking row coefficients match PWL formula")
   {
-    // loss_k = width · R · (2k-1) / V²
+    // loss_k = width · R · (2k-1) / V²       (geometric, pre-scaling)
     // width = 200/3, R = 0.01, V² = 10000
+    //
+    // make_config now picks a per-line `loss_row_scale` so the
+    // LARGEST segment coefficient lands at ~1.0 in the LP matrix.
+    // For uniform PWL: max slope = (fmax/K)·(2K−1)·R/V², so
+    //   s_line = K·V² / [ fmax · R · (2K−1) ]
+    //         = 3·10000 / (200·0.01·5)  = 3000  here.
+    // Both the loss-col stamp (+s_line) and each seg coef
+    // (-loss_k·s_line) carry that same factor; the segment ratios
+    // are preserved (1:3:5 for K=3), so functional equivalence is
+    // unchanged — only the absolute matrix entries move.
     const double width = 200.0 / 3.0;
     const double R = 0.01;
     const double V2 = 10000.0;
+    const double fmax = 200.0;
+    const int K = 3;
+    const double s_line = K * V2 / (fmax * R * ((2.0 * K) - 1));
+    REQUIRE(s_line == doctest::Approx(3000.0));
 
     const auto lsl = find_row(li, "line_loss_link_");
     const auto loss_col = find_col(li, "line_lossp_");
 
-    // Loss variable has coeff +1.0 in loss-tracking row
-    CHECK(li.get_coeff(lsl, loss_col) == doctest::Approx(1.0));
+    // Loss variable has coeff +s_line in loss-tracking row.
+    CHECK(li.get_coeff(lsl, loss_col) == doctest::Approx(s_line));
 
     // Collect segment coefficients sorted by name
     std::vector<std::pair<std::string, double>> seg_coeffs;
@@ -1003,10 +1017,13 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     REQUIRE(seg_coeffs.size() == 3);
 
     for (int k = 1; k <= 3; ++k) {
-      const double expected = -width * R * ((2.0 * k) - 1.0) / V2;
+      const double expected = -width * R * ((2.0 * k) - 1.0) * s_line / V2;
       CHECK(seg_coeffs[static_cast<size_t>(k - 1)].second
             == doctest::Approx(expected));
     }
+    // Pin the per-line normalisation: the LARGEST segment coef
+    // (k=K) should land at -1.0 in the LP matrix.
+    CHECK(seg_coeffs.back().second == doctest::Approx(-1.0));
   }
 
   SUBCASE("two rows total for line (linking + loss-tracking)")
@@ -1068,14 +1085,21 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
 
   SUBCASE("negative-direction loss coefficients match PWL formula")
   {
+    // Per-line `loss_row_scale` lifts the largest seg coef to ~1.0.
+    // s_line = K·V²/(fmax·R·(2K−1)) = 3·10000/(200·0.01·5) = 3000.
+    // See the matching SUBCASE in the piecewise-mode test for the
+    // full derivation.
     const double width = 200.0 / 3.0;
     const double R = 0.01;
     const double V2 = 10000.0;
+    const double fmax = 200.0;
+    const int K = 3;
+    const double s_line = K * V2 / (fmax * R * ((2.0 * K) - 1));
 
     const auto lsln = find_row(li, "line_lossn_link_");
     const auto lsn = find_col(li, "line_lossn_");
 
-    CHECK(li.get_coeff(lsln, lsn) == doctest::Approx(1.0));
+    CHECK(li.get_coeff(lsln, lsn) == doctest::Approx(s_line));
 
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
@@ -1087,7 +1111,7 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     REQUIRE(seg_coeffs.size() == 3);
 
     for (int k = 1; k <= 3; ++k) {
-      const double expected = -width * R * ((2.0 * k) - 1.0) / V2;
+      const double expected = -width * R * ((2.0 * k) - 1.0) * s_line / V2;
       CHECK(seg_coeffs[static_cast<size_t>(k - 1)].second
             == doctest::Approx(expected));
     }
@@ -1315,6 +1339,14 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
   const double width = 200.0 / K;
   const double R = 0.01;
   const double V2 = 10000.0;
+  const double fmax = 200.0;
+  // `make_config` now picks a per-line `loss_row_scale` so the
+  // largest seg coef lands at ~1.0 in the LP matrix.  All PWL
+  // modes that go through `add_segments` carry this factor in their
+  // loss-row coefficients.  See `loss-tracking row coefficients
+  // match PWL formula` SUBCASE in the piecewise-mode test for the
+  // full derivation; s_line = K·V²/(fmax·R·(2K−1)) = 3000 here.
+  const double s_line = K * V2 / (fmax * R * ((2.0 * K) - 1));
 
   struct ModeExpect
   {
@@ -1589,7 +1621,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
       std::ranges::sort(coeffs);
       REQUIRE(coeffs.size() == static_cast<size_t>(K));
       for (int k = 1; k <= K; ++k) {
-        const double expected = -width * R * ((2.0 * k) - 1.0) / V2;
+        const double expected = -width * R * ((2.0 * k) - 1.0) * s_line / V2;
         CHECK(coeffs[static_cast<size_t>(k - 1)].second
               == doctest::Approx(expected));
       }
@@ -1606,7 +1638,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
       std::ranges::sort(coeffs);
       REQUIRE(coeffs.size() == static_cast<size_t>(K));
       for (int k = 1; k <= K; ++k) {
-        const double expected = -width * R * ((2.0 * k) - 1.0) / V2;
+        const double expected = -width * R * ((2.0 * k) - 1.0) * s_line / V2;
         CHECK(coeffs[static_cast<size_t>(k - 1)].second
               == doctest::Approx(expected));
       }
