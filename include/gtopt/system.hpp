@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <gtopt/allowance_pool.hpp>
 #include <gtopt/ammonia_node.hpp>
 #include <gtopt/ammonia_storage.hpp>
 #include <gtopt/battery.hpp>
@@ -127,6 +128,14 @@ struct System
   Array<CarrierConverter>
       carrier_converter_array {};  ///< One-stage flow converters between
                                    ///< any two carrier-typed balance nodes.
+
+  // ── CO₂ / pollutant allowance pools (cap-and-trade) ─────────────────────
+  Array<AllowancePool>
+      allowance_pool_array {};  ///< Tradable emission-allowance pools
+                                ///< (EU ETS / California C&T / RGGI).
+                                ///< Banking + free allocation today;
+                                ///< auction (Phase 4) + EmissionZone
+                                ///< coupling (Phase 3) come later.
 
   // ── Fuel storage ────────────────────────────────────────────────────────
   Array<LngTerminal> lng_terminal_array {};  ///< LNG storage terminals
