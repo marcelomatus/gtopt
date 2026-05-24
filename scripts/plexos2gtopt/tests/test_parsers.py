@@ -328,6 +328,11 @@ def test_extract_fuels_max_offtake_week_binding_week(tmp_path: Path) -> None:
     1-day window.
 
     Mirrors PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint pattern.
+
+    The CSV value is passed through as-is — see the parsers.py
+    module-level caveat about the TJ-vs-GJ unit gap and the
+    per-stage-sum-vs-per-period-rate semantics that empirically
+    cancel out to a +4.4% dispatch-cost gap on CEN PCP.
     """
     bundle, xml_path = _build_bundle(tmp_path)
     _write_csv(
