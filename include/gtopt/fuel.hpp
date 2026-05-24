@@ -185,6 +185,32 @@ struct Fuel
   /// HARD.  Mirrors the `Reservoir.efin_cost` /
   /// `EmissionZone.cap_cost` convention.
   OptTRealFieldSched max_offtake_cost {};
+
+  /// When `true`, enforce the offtake cap **per block** instead of
+  /// summed over the stage.  The per-stage cap `max_offtake` is
+  /// pro-rated by each block's share of stage duration:
+  ///
+  ///   block_cap_b = max_offtake(s) · duration_b / Σ_b duration_b
+  ///
+  /// and `FuelLP` creates one row per (scenario, stage, block):
+  ///
+  ///   Σ_g (heat_rate_g(s, b) · gen_g(s, t, b) · duration_b) ≤ block_cap_b
+  ///
+  /// Mirrors PLEXOS's per-period `FueMaxOffWeek_<fuel>` semantics:
+  /// the weekly cap is enforced as a per-hour rate distributed
+  /// uniformly across the week's hours, forcing the LP to spread
+  /// offtake rather than front-loading it.  This is TIGHTER than
+  /// the default per-stage sum — the per-stage sum would let the LP
+  /// pile cheap-fuel dispatch into a few hours, the per-block view
+  /// would not.
+  ///
+  /// When `false` / unset (default), the legacy per-stage sum
+  /// behaviour applies: a single row per (scenario, stage) with the
+  /// full `max_offtake(s)` on the right-hand side.  Soft-cap slack
+  /// (`max_offtake_cost`) is supported in both modes — for per-block
+  /// the slack is shared across the per-block rows via a single
+  /// stage-scoped column.
+  OptBool max_offtake_per_block {};
 };
 
 }  // namespace gtopt

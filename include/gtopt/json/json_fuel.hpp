@@ -58,7 +58,8 @@ struct json_data_contract<Fuel>
                         jvtl_TRealFieldSched>,
       json_variant_null<"max_offtake_cost",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_bool_null<"max_offtake_per_block", OptBool>>;
 
   constexpr static auto to_json_data(Fuel const& obj)
   {
@@ -71,7 +72,8 @@ struct json_data_contract<Fuel>
                                  obj.upstream_emission_factor,
                                  obj.emission_factors,
                                  obj.max_offtake,
-                                 obj.max_offtake_cost);
+                                 obj.max_offtake_cost,
+                                 obj.max_offtake_per_block);
   }
 };
 
