@@ -459,6 +459,13 @@ def build_line_array(
                 except ValueError:
                     nseg = 3
                 entry["loss_segments"] = nseg if nseg >= 1 else 3
+                # Segment-layout strategy: forwarded via GTOPT_LOSS_PWL_LAYOUT
+                # so the writer doesn't need a new argument.  Default `uniform`
+                # preserves pre-2026-05 behaviour; pass `equal_error` for
+                # √-spaced minimax (same K, better worst-case chord error).
+                pwl_layout = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "uniform")
+                if pwl_layout != "uniform":
+                    entry["loss_pwl_layout"] = pwl_layout
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge

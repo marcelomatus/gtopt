@@ -155,6 +155,64 @@ inline constexpr auto line_losses_mode_entries =
   return std::span {line_losses_mode_entries};
 }
 
+// ─── LinePwlLayout ──────────────────────────────────────────────────
+
+/**
+ * @brief Segment-layout strategy for the piecewise-linear loss model.
+ *
+ * Applies only when `line_losses_mode` is `piecewise`, `bidirectional`,
+ * `adaptive`, `dynamic`, or `piecewise_direct`.  Controls **where the
+ * breakpoints are placed** along `[0, envelope]` and **what kind of
+ * lines** (secant chords vs. tangent supports) approximate the
+ * quadratic loss curve `ℓ(f) = (R/V²)·f²`.
+ *
+ * - `uniform` (0, default): equal-width secant chords.  Breakpoints at
+ *   `b_k = (k/K)·envelope`; each segment's chord slope is
+ *   `(R/V²)·width·(2k−1)`.  Backwards-compatible with all bundles
+ *   that don't carry `loss_pwl_layout`.  Worst-case chord error scales
+ *   as `(envelope/K)²/4`, peaking on the OUTER segment.
+ *
+ * - `equal_error` (1): √-spaced secant chords (minimax).  Breakpoints
+ *   at `b_k = √(k/K)·envelope`; each segment carries the SAME max
+ *   chord error.  Drop-in replacement for `uniform`: same K, same LP
+ *   row count, but max chord error drops by a factor of ~√K.
+ *   Recommended when you want better accuracy at no LP-size cost.
+ *
+ * - `tangent` (2): outer-approximation via K tangent lines (future).
+ *   Loss is bounded below by the maximum of K tangents at points
+ *   `t_k = ((2k−1)/(2K))·envelope`.  Yields a LOWER bound on losses
+ *   that's tight at the LP's chosen operating point.  Currently
+ *   reserved; falls back to `uniform` with a one-time log warning
+ *   until the alternative LP structure (1 col + K rows per (line,
+ *   block) instead of K cols + 1 row) is wired up.
+ *
+ * Theory references:
+ *   - Imamura et al., *On piecewise linear approximation of quadratic
+ *     functions* (2003).
+ *   - Aigner & Van Hentenryck, *Line Loss Outer Approximation*,
+ *     arXiv:2112.10975 (2022) — for the `tangent` mode.
+ *   - Fitiwi et al., *Dynamic PWL DC Transmission Losses*, IEEE 2010.
+ */
+enum class LinePwlLayout : uint8_t
+{
+  uniform = 0,  ///< Equal-width secant chords (default; current behavior)
+  equal_error = 1,  ///< √-spaced secant chords (minimax error)
+  tangent =
+      2,  ///< Outer-approximation tangents (future; falls back to uniform)
+};
+
+inline constexpr auto line_pwl_layout_entries =
+    std::to_array<EnumEntry<LinePwlLayout>>({
+        {.name = "uniform", .value = LinePwlLayout::uniform},
+        {.name = "equal_error", .value = LinePwlLayout::equal_error},
+        {.name = "tangent", .value = LinePwlLayout::tangent},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LinePwlLayout /*tag*/) noexcept
+{
+  return std::span {line_pwl_layout_entries};
+}
+
 // ─── KirchhoffMode ──────────────────────────────────────────────────
 
 /**

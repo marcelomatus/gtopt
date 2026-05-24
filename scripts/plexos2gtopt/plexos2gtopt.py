@@ -122,6 +122,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_SPILL_FCOST_SCALE"] = str(options["spill_fcost_scale"])
     if options.get("nseg_losses") is not None:
         os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
+    if options.get("loss_pwl_layout") is not None:
+        os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
     if "emin_eod_day1" in options:
         os.environ["GTOPT_EMIN_EOD_DAY1"] = "1" if options["emin_eod_day1"] else "0"
 
@@ -272,6 +274,49 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             len(case.demands),
             len(case.batteries),
         )
+
+        # Optional post-write step: auto-detect lines that exceed
+        # their rated cap in a pandapower DC OPF of the first
+        # (scenario, block) and patch ``enforce_level = 0`` onto
+        # them.  See ``auto_lift_lines.detect_overloaded_lines`` for
+        # the rationale (radial step-down lines that PLEXOS treats
+        # as voltage-conditional and the LP would otherwise refuse
+        # to dispatch above).
+        auto_lift_threshold = options.get("auto_lift_lines")
+        if auto_lift_threshold is not None:
+            # pylint: disable=import-outside-toplevel
+            from .auto_lift_lines import (
+                detect_overloaded_lines,
+                detect_overloaded_lines_via_gtopt,
+                patch_bundle_with_lifts,
+            )
+
+            engine = options.get("auto_lift_engine", "pandapower")
+            if engine == "gtopt":
+                overloaded = detect_overloaded_lines_via_gtopt(
+                    output_file, threshold=float(auto_lift_threshold)
+                )
+            else:
+                overloaded = detect_overloaded_lines(
+                    output_file, threshold=float(auto_lift_threshold)
+                )
+            if overloaded:
+                n_patched = patch_bundle_with_lifts(output_file, overloaded)
+                logger.info(
+                    "auto-lift (%s): OPF flagged %d line(s) over %.2fx "
+                    "rated; patched %d to enforce_level=0",
+                    engine,
+                    len(overloaded),
+                    float(auto_lift_threshold),
+                    n_patched,
+                )
+            else:
+                logger.info(
+                    "auto-lift (%s): OPF found no line over %.2fx rated; "
+                    "nothing patched.",
+                    engine,
+                    float(auto_lift_threshold),
+                )
     return 0
 
 

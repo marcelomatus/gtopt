@@ -14,6 +14,7 @@ import signal
 import sys
 from pathlib import Path
 
+from .auto_lift_lines import DEFAULT_THRESHOLD
 from .info_display import display_plexos_info
 from .plexos2gtopt import convert_plexos_bundle, validate_plexos_bundle
 
@@ -127,6 +128,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--loss-pwl-layout",
+        choices=("uniform", "equal_error", "tangent"),
+        default="uniform",
+        help=(
+            "Segment-layout strategy for the PWL line-loss approximation, "
+            "emitted on every lossy ``Line.loss_pwl_layout`` entry.  "
+            "``uniform`` (default, current behaviour): equal-width secant "
+            "chords; max chord error peaks on the outer segment.  "
+            "``equal_error``: √-spaced secant chords (minimax) — same K, "
+            "same LP row count, max chord error drops by ~√K.  "
+            "Drop-in improvement; recommended for new bundles.  "
+            "``tangent``: outer-approximation tangents (reserved; falls "
+            "back to uniform with a one-time log warning until the "
+            "alternate LP structure is wired)."
+        ),
+    )
+    parser.add_argument(
         "--emin-eod-day1",
         dest="emin_eod_day1",
         action="store_true",
@@ -165,6 +183,48 @@ def make_parser() -> argparse.ArgumentParser:
             "of more LP rows / variables.  PWL error at f = f_max "
             "scales as 1/nseg, so nseg=6 halves the worst-case loss "
             "overestimate on the outer segment."
+        ),
+    )
+    parser.add_argument(
+        "--auto-lift-lines",
+        nargs="?",
+        type=float,
+        const=DEFAULT_THRESHOLD,
+        default=None,
+        metavar="THRESHOLD",
+        help=(
+            "After writing the bundle JSON, run a lifted-cap DC OPF on "
+            "the first (scenario, block) and post-patch "
+            "``enforce_level = 0`` onto every line whose lifted-OPF "
+            "flow exceeds its rated ``tmax_ab`` by at least THRESHOLD "
+            "(default 1.0 = strictly above rated).  OPF engine selected "
+            "via ``--auto-lift-engine``.  Mirrors PLEXOS's voltage-"
+            "conditional cap treatment on radial step-down lines (e.g. "
+            "``Capricornio110->LaNegra110`` on CEN PCP, 76 MW rated, "
+            "~204 MW PLEXOS dispatch).  Composes with "
+            "``--lift-line-caps``: the auto-detected set is the UNION "
+            "with the comma-separated names there.  Falls back to a "
+            "logged warning + empty patch when the engine is "
+            "unavailable.  Pass without a value to use the default "
+            "threshold."
+        ),
+    )
+    parser.add_argument(
+        "--auto-lift-engine",
+        choices=("pandapower", "gtopt"),
+        default="pandapower",
+        help=(
+            "OPF engine for ``--auto-lift-lines``.  ``pandapower`` "
+            "(default): runs ``pp.rundcopp`` on the first block via "
+            "``gtopt2pp.convert``; ~10 s on CEN PCP weekly; needs the "
+            "``pandapower`` + ``gtopt2pp`` Python packages.  ``gtopt``: "
+            "runs the actual ``gtopt --no-mip`` binary on a sibling "
+            "bundle with every line demoted to ``enforce_level = 0``, "
+            "then reads the first-block flows from the parquet output; "
+            "~30 s on CEN PCP weekly; needs only the ``gtopt`` binary "
+            "in ``$PATH`` (or via ``$GTOPT_BIN``).  Use ``gtopt`` when "
+            "you want the EXACT loss model + voltage assumptions the "
+            "downstream solve will see, ``pandapower`` for speed."
         ),
     )
     parser.add_argument(
@@ -398,7 +458,10 @@ def main(argv: list[str] | None = None) -> None:
         "use_plexos_commit": args.use_plexos_commit,
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
         "nseg_losses": args.nseg_losses,
+        "loss_pwl_layout": args.loss_pwl_layout,
         "emin_eod_day1": args.emin_eod_day1,
+        "auto_lift_lines": args.auto_lift_lines,
+        "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,
         "lift_line_caps": args.lift_line_caps,
         "horizon_mode": args.horizon_mode,

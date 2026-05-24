@@ -109,6 +109,16 @@ struct Line
   OptInt loss_segments {};  ///< Number of piecewise-linear segments for
                             ///< quadratic losses (default: from Options)
 
+  OptName loss_pwl_layout {};  ///< Segment-layout strategy for the PWL
+                               ///< loss approximation.  See LinePwlLayout
+                               ///< for valid values: `"uniform"` (default,
+                               ///< equal-width secant chords), `"equal_error"`
+                               ///< (√-spaced minimax), `"tangent"` (outer
+                               ///< approximation, future).  Active only when
+                               ///< `line_losses_mode` selects a PWL flavour.
+                               ///< When unset, defaults to `uniform` —
+                               ///< preserving pre-2026-05 behaviour.
+
   OptName loss_allocation_mode {};  ///< How losses are allocated between
                                     ///< sender and receiver buses:
                                     ///< `"receiver"` (default), `"sender"`,
@@ -122,6 +132,16 @@ struct Line
       return enum_from_name<LineLossesMode>(*line_losses_mode);
     }
     return std::nullopt;
+  }
+
+  /// Parse loss_pwl_layout string to enum (defaults to `uniform`).
+  [[nodiscard]] constexpr LinePwlLayout loss_pwl_layout_enum() const noexcept
+  {
+    if (loss_pwl_layout.has_value()) {
+      return enum_from_name<LinePwlLayout>(*loss_pwl_layout)
+          .value_or(LinePwlLayout::uniform);
+    }
+    return LinePwlLayout::uniform;
   }
 
   /// Parse loss_allocation_mode string to enum (receiver if unset).
