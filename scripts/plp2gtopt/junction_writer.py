@@ -512,6 +512,10 @@ class JunctionWriter(BaseWriter):
         # options.  Maps promoted central name -> RorSpec (vmax_hm3 +
         # production_factor override).
         self._ror_reservoir_spec: dict[str, RorSpec] = {}
+        # Populated at the start of to_json_array() from filemb + central
+        # parsers; used to suppress the parallel spillway arc when a
+        # seepage already wires the same (source, target) reservoir pair.
+        self._seepage_target_pairs: set[tuple[int, int]] = set()
 
     @property
     def central_parser(self) -> CentralParser:
