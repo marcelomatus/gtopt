@@ -1378,13 +1378,28 @@ def build_flow_right_array(
 
 def build_commitment_array(
     commitments: tuple[CommitmentSpec, ...],
+    *,
+    lp_relax: bool = False,
 ) -> list[dict[str, Any]]:
     """One ``Commitment`` per :class:`CommitmentSpec`.
 
-    ``relax: true`` is set on every entry so the LP-only path solves
-    without an MIP solver. Drop the flag (or override via JSON) when
-    you have CPLEX/CBC/HiGHS MIP support and want full binary
-    commitment decisions.
+    ``relax: true`` is emitted only when ``lp_relax=True`` (CLI:
+    ``--lp-relax``).  Default is MIP — commitments ship without the
+    ``relax`` field so gtopt enforces binary integrality on the
+    status / startup / shutdown variables.
+
+    The default flipped from LP-relax to MIP on 2026-05-23 after
+    diagnosing the CEN PCP PLEXOS reproduction: with LP-relax the
+    ``<plant>_Uniq`` constraints (``Σ status ≤ 1`` over band
+    variants) collapsed to fractional commitments, letting the LP
+    spread dispatch across band variants and undercut PLEXOS by ~31%
+    on operational cost.  MIP enforcement closed ~7 pp of that gap
+    and moved NUEVA_RENCA-TG+TV_GN_A dispatch from 19 GWh/week (LP)
+    to 33 GWh/week (MIP) vs PLEXOS's 40 GWh.
+
+    Pass ``--lp-relax`` for the legacy LP-only behaviour (faster
+    solve, less accurate dispatch) or for solvers without MIP
+    support (CLP, OSI without CBC, etc.).
     """
     out: list[dict[str, Any]] = []
     for i, c in enumerate(commitments):
@@ -1392,8 +1407,9 @@ def build_commitment_array(
             "uid": i + 1,
             "name": f"uc_{c.generator_name}",
             "generator": c.generator_name,
-            "relax": True,
         }
+        if lp_relax:
+            entry["relax"] = True
         if c.startup_cost > 0.0:
             entry["startup_cost"] = c.startup_cost
         if c.shutdown_cost > 0.0:
@@ -1478,6 +1494,7 @@ def build_planning(
     *,
     name: str,
     default_uc_penalty: float | None = None,
+    lp_relax: bool = False,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -1552,7 +1569,7 @@ def build_planning(
         "reserve_provision_array": build_reserve_provision_array(
             case.reserve_provisions
         ),
-        "commitment_array": build_commitment_array(case.commitments),
+        "commitment_array": build_commitment_array(case.commitments, lp_relax=lp_relax),
         "flow_right_array": build_flow_right_array(
             case.flow_rights,
             block_count=DEFAULT_BLOCK_COUNT * case.bundle.n_days,

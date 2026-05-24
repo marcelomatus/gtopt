@@ -246,6 +246,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             case,
             name=planning_name,
             default_uc_penalty=options.get("default_uc_penalty"),
+            lp_relax=bool(options.get("lp_relax", False)),
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):
