@@ -27,6 +27,7 @@ namespace gtopt
 
 // ── Forward declarations for all LP element types
 // ─────────────────────────────
+class AllowancePoolLP;
 class AmmoniaNodeLP;
 class AmmoniaStorageLP;
 class BatteryLP;
@@ -105,6 +106,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       AmmoniaNodeLP,
                                       AmmoniaStorageLP,
                                       CarrierConverterLP,
+                                      AllowancePoolLP,
                                       ReserveZoneLP,
                                       ReserveProvisionLP,
                                       FuelLP,

@@ -74,6 +74,15 @@ struct AllowancePool
   /// pollutant (see ``AllowancePoolLP``).
   OptSingleId emission {};
 
+  /// Annualised allowance-decay rate `[p.u./year]`, stage-
+  /// schedulable.  Typically **0** for allowance pools (CO₂
+  /// permits don't physically decay), but some regulatory
+  /// schemes apply a Linear Reduction Factor (LRF) or scheduled
+  /// retirement of bank balances — e.g. the EU ETS Market
+  /// Stability Reserve removes ~12 %/yr of any bank above its
+  /// upper threshold.  Default unset = no decay.
+  OptTRealFieldSched annual_loss {};
+
   // ── Allowance bounds (tCO₂) ─────────────────────────────────────
   OptTBRealFieldSched emin {};  ///< Minimum banked allowances [tCO₂].  Defaults
                                 ///< to 0 (no borrowing).  Set ``emin < 0`` to
