@@ -74,7 +74,16 @@ def test_piecewise_with_real_fuel_does_not_premultiply() -> None:
 
 
 def test_scalar_path_unchanged_when_no_segments() -> None:
-    """Without segments, gcost falls back to the scalar fuel × heat_rate + vom."""
+    """Scalar generator with a known Fuel + heat_rate now emits the
+    explicit Fuel FK + heat_rate (un-baked).
+
+    PR #490 split the scalar path into two: when a Fuel FK + heat_rate
+    are both known, the writer emits ``fuel`` + ``heat_rate`` + the
+    NON-FUEL adder as ``gcost`` so gtopt's ``FuelLP.max_offtake``
+    cap row can find this generator at LP-build.  gtopt then
+    reconstructs the per-MWh cost as
+    ``fuel.price × heat_rate + gcost`` (= 0.5 × 10 + 3 = 8 here).
+    """
     gens = (
         GeneratorSpec(
             object_id=1,
@@ -88,12 +97,13 @@ def test_scalar_path_unchanged_when_no_segments() -> None:
     )
     fuels = (FuelSpec(object_id=10, name="diesel", price=10.0),)
     out = build_generator_array(gens, fuels)
-    # 0.5 × 10 + 3 = 8.
-    assert out[0]["gcost"] == 8.0
-    # No piecewise / fuel keys in the scalar path.
+    # Explicit Fuel FK + heat_rate; gcost is the non-fuel adder.
+    assert out[0]["fuel"] == "diesel"
+    assert out[0]["heat_rate"] == 0.5
+    assert out[0]["gcost"] == 3.0
+    # Piecewise is still not present in the scalar path.
     assert "pmax_segments" not in out[0]
     assert "heat_rate_segments" not in out[0]
-    assert "fuel" not in out[0]
 
 
 def test_build_planning_synthesises_virtual_fuel() -> None:

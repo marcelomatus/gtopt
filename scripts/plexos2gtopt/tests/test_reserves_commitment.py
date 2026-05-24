@@ -312,8 +312,16 @@ def test_extract_commitments_signs_initial_hours_down(tmp_path: Path) -> None:
     assert out[0].initial_status == 0.0
 
 
-def test_build_commitment_array() -> None:
-    """build_commitment_array emits relax=True and skips zero-valued fields."""
+def test_build_commitment_array_default_mip() -> None:
+    """build_commitment_array default = MIP — ``relax`` field omitted.
+
+    Changed 2026-05-23: previously emitted ``relax: True`` on every
+    commitment, which collapsed gtopt's ``<plant>_Uniq`` constraints
+    (``Σ status ≤ 1`` over band variants) to fractional commitments
+    and undercut PLEXOS dispatch by ~31 % on the CEN PCP bundle.
+    MIP enforcement closed ~7 pp of that gap.  Pass ``lp_relax=True``
+    for the legacy LP-only behaviour.
+    """
     commits = (
         CommitmentSpec(
             generator_name="GEN_A",
@@ -327,11 +335,29 @@ def test_build_commitment_array() -> None:
     assert out[0]["startup_cost"] == 500.0
     assert out[0]["initial_status"] == 1.0
     assert out[0]["initial_hours"] == 24.0
-    assert out[0]["relax"] is True
+    # MIP by default — no ``relax`` field.
+    assert "relax" not in out[0]
     # No min_up_time key when the spec has min_up_time=0.
     assert "min_up_time" not in out[0]
     # No noload_cost key when the spec has noload_cost=0.
     assert "noload_cost" not in out[0]
+
+
+def test_build_commitment_array_lp_relax_opt_in() -> None:
+    """``lp_relax=True`` (CLI ``--lp-relax``) re-enables LP relaxation.
+
+    The flag is the explicit opt-in for solvers without MIP support
+    (CLP, OSI without CBC) or for fast LP-only diagnostics.
+    """
+    commits = (
+        CommitmentSpec(
+            generator_name="GEN_C",
+            startup_cost=100.0,
+            initial_status=1.0,
+        ),
+    )
+    out = build_commitment_array(commits, lp_relax=True)
+    assert out[0]["relax"] is True
 
 
 def test_build_commitment_array_with_noload() -> None:

@@ -338,10 +338,12 @@ def test_fuel_emission_factors_upstream_only() -> None:
 
 
 def test_fuel_max_offtake_emitted_when_set() -> None:
-    """``FuelSpec.max_offtake`` > 0 lands on the JSON as ``max_offtake``.
+    """``FuelSpec.max_offtake`` > 0 lands on the JSON as ``max_offtake``
+    + ``max_offtake_per_block: true`` (PLEXOS per-period semantics).
 
-    The weekly cap (m³ or MMBtu / week) caps total stage consumption
-    once gtopt's FuelLP::add_to_lp builds the per-stage row.
+    The weekly cap (GJ/week after the TJ→GJ scaling on the parser
+    side) is pro-rated by block duration in gtopt's FuelLP — one
+    cap row per (scenario, stage, block).
     """
     fuels = (
         FuelSpec(
@@ -353,6 +355,7 @@ def test_fuel_max_offtake_emitted_when_set() -> None:
     )
     out = build_fuel_array(fuels)
     assert out[0]["max_offtake"] == 5000.0
+    assert out[0]["max_offtake_per_block"] is True
 
 
 def test_fuel_max_offtake_explicit_zero_propagates() -> None:
@@ -360,6 +363,8 @@ def test_fuel_max_offtake_explicit_zero_propagates() -> None:
 
     Distinct from ``None``: the LP must dispatch 0 on every
     generator referencing this fuel within the stage.
+    ``max_offtake_per_block`` is also set so the per-block cap
+    is 0 across every block (consistent with the "shut" semantic).
     """
     fuels = (
         FuelSpec(
@@ -371,10 +376,11 @@ def test_fuel_max_offtake_explicit_zero_propagates() -> None:
     )
     out = build_fuel_array(fuels)
     assert out[0]["max_offtake"] == 0.0
+    assert out[0]["max_offtake_per_block"] is True
 
 
 def test_fuel_max_offtake_absent_when_none() -> None:
-    """``max_offtake == None`` omits the field (no cap binds)."""
+    """``max_offtake == None`` omits both fields (no cap binds)."""
     fuels = (
         FuelSpec(
             object_id=3,
@@ -385,6 +391,7 @@ def test_fuel_max_offtake_absent_when_none() -> None:
     )
     out = build_fuel_array(fuels)
     assert "max_offtake" not in out[0]
+    assert "max_offtake_per_block" not in out[0]
 
 
 def test_thermal_generator_emits_fuel_fk_for_offtake_cap_binding() -> None:

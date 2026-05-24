@@ -333,6 +333,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--lp-relax",
+        action="store_true",
+        default=False,
+        help=(
+            "emit ``Commitment.relax = true`` on every commitment so "
+            "gtopt LP-relaxes the binary status / startup / shutdown "
+            "variables.  Default (since 2026-05-23) is MIP — commitments "
+            "ship without ``relax`` so gtopt enforces integrality.  "
+            "Empirically: dropping the LP-relax closed ~7 pp of the "
+            "PLEXOS-vs-gtopt dispatch-cost gap on CEN PCP, moving "
+            "NUEVA_RENCA-TG+TV_GN_A from 19 GWh/week (LP) to 33 GWh/week "
+            "(MIP, vs PLEXOS 40 GWh).  Pass ``--lp-relax`` for the "
+            "legacy LP-only behaviour (faster solve, looser dispatch) "
+            "or for solvers without MIP support."
+        ),
+    )
+    parser.add_argument(
         "-V",
         "--version",
         action="version",
@@ -387,6 +404,7 @@ def main(argv: list[str] | None = None) -> None:
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
         "plexos_solution_accdb": args.plexos_solution_accdb,
+        "lp_relax": args.lp_relax,
     }
 
     if args.show_info:

@@ -655,7 +655,7 @@ def _extract_fuel_co2_membership_rates(
 #  ``_extract_fuel_max_offtake_week`` below.
 
 
-#: PLEXOS-CEN FueMaxOffWeek_* — units + semantics caveat.
+#: PLEXOS-CEN FueMaxOffWeek_* — units + semantics.
 #:
 #: 1. **Units**: ``Fuel_MaxOfftakeWeek.csv`` ships the cap in
 #:    **TJ/week**, while ``Gen_HeatRate.csv`` ships heat rates in
@@ -663,30 +663,21 @@ def _extract_fuel_co2_membership_rates(
 #:    the constraint's t_data RHS = CSV × 1000 = total weekly cap
 #:    in GJ (for ``FueMaxOffWeek_Gas_NuevaRenca_GN_A``: CSV 9.8 TJ
 #:    matches the per-period RHS 58.33 GJ × 168 hours = 9800 GJ).
+#:    → we multiply the CSV value by ``_TJ_TO_GJ`` (1000) when
+#:    emitting to gtopt so the cap units match the LHS basis.
 #:
-#: 2. **Semantics**: PLEXOS enforces the cap **per period**
-#:    (per-hour rate `= CSV / 168 hours`, scaled by period duration),
-#:    NOT as a sum over the week.  gtopt's ``Fuel.max_offtake`` row
-#:    enforces a per-stage SUM (one row per (scenario, stage)).
-#:    Per-stage sum is LOOSER than per-period rate — under
-#:    per-period the LP must spread offtake uniformly; under
-#:    per-stage the LP can front-load cheap-fuel dispatch.
-#:
-#: Empirical: passing the CSV value through as-is (no TJ → GJ
-#: conversion) gives a cap that's 1000× tighter than the "real"
-#: weekly cap but accidentally matches PLEXOS dispatch within
-#: +4.4% on the 7-day CEN PCP bundle — the per-stage sum on the
-#: under-scaled cap binds similarly to PLEXOS's per-period rate on
-#: the correctly-scaled cap.  Applying the units-correct ×1000
-#: scaling makes the cap units right but lets the LP dispatch 28%
-#: cheaper than PLEXOS because the per-stage relaxation is too
-#: loose.
-#:
-#: Until gtopt grows a per-block ``Fuel.max_offtake`` option
-#: (``FuelLP`` would build one row per (scenario, stage, block)
-#: instead of one per (scenario, stage)), we ship the CSV value
-#: as-is and accept the +4.4% gap as the practical reproduction
-#: quality.  The per-block cap row is the cleaner long-term fix.
+#: 2. **Semantics**: PLEXOS enforces the cap **per period** (the
+#:    weekly cap distributed as a uniform per-hour rate, then
+#:    multiplied by each period's duration).  Evidence: the
+#:    constraint's RHS in t_data ships uniformly as 58.33 across
+#:    all 111 periods, and Activity_p values per period vary but
+#:    never exceed RHS_p — consistent with `Activity_p ≤ RHS_p`
+#:    per-period enforcement.
+#:    → we set ``Fuel.max_offtake_per_block = True`` so gtopt's
+#:    ``FuelLP`` builds one cap row per (scenario, stage, block),
+#:    pro-rating the weekly cap by block duration share.  Matches
+#:    PLEXOS's per-period semantics.
+_TJ_TO_GJ = 1000.0
 
 
 def _extract_fuel_max_offtake_week(bundle: PlexosBundle) -> dict[str, float]:
@@ -700,20 +691,20 @@ def _extract_fuel_max_offtake_week(bundle: PlexosBundle) -> dict[str, float]:
     day-0), which for a Saturday-starting week is the one whose
     start precedes the bundle's reference date.
 
-    The CSV value is passed through as-is.  See the module-level
-    comment above this function for the TJ-vs-GJ unit caveat and
-    the per-stage-sum-vs-per-period-rate semantics gap, which
-    empirically cancel out to a +4.4% dispatch-cost gap on the CEN
-    PCP 7-day bundle.
+    The CSV value is in **TJ/week** and is scaled to **GJ/week**
+    via ``_TJ_TO_GJ`` so the cap units match the per-block LHS
+    basis (heat_rate × MWh, where PLEXOS heat_rate is in GJ/MWh).
 
-    Returns a ``{name: cap}`` dict.  Fuels NOT in the CSV are simply
-    absent from the dict (= no cap).  Fuels with an explicit 0 cap
-    ARE in the dict with value 0.0 — PLEXOS uses this to "shut" a
-    band on a given week.
+    Returns a ``{name: cap_GJ_per_week}`` dict.  Fuels NOT in the
+    CSV are simply absent from the dict (= no cap).  Fuels with an
+    explicit 0 cap ARE in the dict with value 0.0 — PLEXOS uses
+    this to "shut" a band on a given week.
 
     Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>`` Constraint object;
     the daily ``Fuel_MaxOfftakeDay.csv`` (e.g. Diesel) ships the
-    same shape and is consumed by the analogous helper.
+    same shape and is consumed by the analogous helper.  PLEXOS
+    enforces the cap **per period** — gtopt mirrors this via
+    ``Fuel.max_offtake_per_block = True`` on the writer side.
     """
     csv_name = "Fuel_MaxOfftakeWeek.csv"
     if not bundle.has(csv_name):
@@ -723,7 +714,7 @@ def _extract_fuel_max_offtake_week(bundle: PlexosBundle) -> dict[str, float]:
     # week-start date, which on CEN PCP daily bundles is the binding
     # week containing the bundle's reference date.
     raw = read_long(bundle.csv(csv_name), periods=1, n_days=1)
-    return {name: vals[0] for name, vals in raw.items() if vals}
+    return {name: vals[0] * _TJ_TO_GJ for name, vals in raw.items() if vals}
 
 
 def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:

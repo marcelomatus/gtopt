@@ -98,9 +98,19 @@ private:
   OptTRealSched max_offtake_cost_;
 
   /// Per-(scenario, stage) cap row + optional slack column.  Empty
-  /// when `max_offtake` is unset for every (scenario, stage).
+  /// when `max_offtake` is unset for every (scenario, stage), or
+  /// when the per-block path is selected via
+  /// `Fuel.max_offtake_per_block = true`.
   STIndexHolder<RowIndex> max_offtake_rows_;
   STIndexHolder<ColIndex> max_offtake_slack_cols_;
+
+  /// Per-(scenario, stage, block) cap rows + optional slack columns.
+  /// Populated only when `Fuel.max_offtake_per_block = true` —
+  /// mirrors PLEXOS's per-period `FueMaxOffWeek_<fuel>` semantics
+  /// by pro-rating the stage cap by each block's share of total
+  /// stage duration.
+  STBIndexHolder<RowIndex> max_offtake_block_rows_;
+  STBIndexHolder<ColIndex> max_offtake_block_slack_cols_;
 };
 
 /// SingleId-style reference into `Collection<FuelLP>`.  Used by
