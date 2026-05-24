@@ -133,12 +133,14 @@ def _merge_pf_curves_min(
     return merged
 
 
-class _SpillwayFields(TypedDict):
+class _SpillwayFields(TypedDict, total=False):
     """Subset of ``Reservoir`` fields produced by ``_spillway_fields``.
 
     Used as the return type for the helper so its result can be
     ``**``-expanded into a ``Reservoir`` literal without mypy losing the
-    statically-known key names.
+    statically-known key names.  Both keys are optional because the
+    helper returns ``{}`` to suppress the drain column entirely (see
+    ``_spillway_fields`` branch under ``zero_vrebemb_spillway``).
     """
 
     spillway_cost: float
@@ -212,9 +214,6 @@ class _ReservoirRequired(TypedDict):
     fmin: float
     fmax: float
     flow_conversion_rate: float
-    spillway_cost: float
-    spillway_capacity: float
-    annual_loss: float
 
 
 class Reservoir(_ReservoirRequired, total=False):
@@ -230,6 +229,9 @@ class Reservoir(_ReservoirRequired, total=False):
 
     use_state_variable: bool
     spill_junction: str
+    spillway_cost: float
+    spillway_capacity: float
+    annual_loss: float
     soft_emin: list[float]
     soft_emin_cost: list[float]
     seepage: List[Dict[str, Any]]
@@ -688,7 +690,7 @@ class JunctionWriter(BaseWriter):
         # PLP-faithful one (its piecewise volume function carries the
         # forced flow); the spillway arc has nothing left to contribute
         # under ``--auto-water-fail-cost`` defaults.
-        self._seepage_target_pairs: set[tuple[int, int]] = set()
+        self._seepage_target_pairs = set()
         if self.filemb_parser and central_parser:
             for entry in self.filemb_parser.seepages:
                 src = central_parser.get_central_by_name(entry["embalse"])
