@@ -683,6 +683,15 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
         # would have over-priced the band's marginal cost).
         if fuel.max_offtake is not None:
             entry["max_offtake"] = fuel.max_offtake
+            # PLEXOS enforces FueMaxOffWeek_<fuel> per period (the
+            # weekly cap distributed as a uniform per-hour rate),
+            # not as a per-stage sum.  Setting
+            # max_offtake_per_block = true makes gtopt's FuelLP
+            # build one cap row per (scenario, stage, block),
+            # pro-rating the weekly cap by block duration share —
+            # matching the PLEXOS semantics.  See the module-level
+            # comment in parsers.py for the unit + semantics detail.
+            entry["max_offtake_per_block"] = True
         out.append(entry)
     return out
 

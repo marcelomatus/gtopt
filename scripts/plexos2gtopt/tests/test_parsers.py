@@ -329,21 +329,24 @@ def test_extract_fuels_max_offtake_week_binding_week(tmp_path: Path) -> None:
 
     Mirrors PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint pattern.
 
-    The CSV value is passed through as-is — see the parsers.py
-    module-level caveat about the TJ-vs-GJ unit gap and the
-    per-stage-sum-vs-per-period-rate semantics that empirically
-    cancel out to a +4.4% dispatch-cost gap on CEN PCP.
+    The CSV value is in **TJ/week** and is scaled to **GJ/week**
+    by the ``_TJ_TO_GJ`` factor (= 1000) so the cap units match
+    the per-block LHS basis (heat_rate × MWh in GJ).  Verified
+    against PLEXOS solution `.accdb`:
+    ``FueMaxOffWeek_Gas_NuevaRenca_GN_A`` ships 9.8 TJ in the CSV
+    and 58.33 GJ × 168 hours = 9800 GJ in the constraint's t_data.
     """
     bundle, xml_path = _build_bundle(tmp_path)
     _write_csv(
         tmp_path,
         "Fuel_MaxOfftakeWeek.csv",
         "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n"
-        "diesel,2026,4,16,1,5000.0\n"  # ← binding week
+        "diesel,2026,4,16,1,5.0\n"  # ← binding week (5 TJ)
         "diesel,2026,4,23,1,1.0\n",  # ← ignored (next week)
     )
     db = load_xml(xml_path)
     fuels = extract_fuels(db, bundle)
+    # 5.0 TJ × 1000 = 5000 GJ (unit matching the gtopt FuelLP basis).
     assert fuels[0].max_offtake == 5000.0
 
 
