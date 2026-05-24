@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <gtopt/json/json_allowance_pool.hpp>
 #include <gtopt/json/json_ammonia_node.hpp>
 #include <gtopt/json/json_ammonia_storage.hpp>
 #include <gtopt/json/json_battery.hpp>
@@ -96,6 +97,9 @@ struct json_data_contract<System>
       json_array_null<"carrier_converter_array",
                       Array<CarrierConverter>,
                       CarrierConverter>,
+      json_array_null<"allowance_pool_array",
+                      Array<AllowancePool>,
+                      AllowancePool>,
       json_array_null<"lng_terminal_array", Array<LngTerminal>, LngTerminal>,
       json_array_null<"reserve_zone_array", Array<ReserveZone>, ReserveZone>,
       json_array_null<"reserve_provision_array",
@@ -162,6 +166,7 @@ struct json_data_contract<System>
                                  system.ammonia_node_array,
                                  system.ammonia_storage_array,
                                  system.carrier_converter_array,
+                                 system.allowance_pool_array,
                                  system.lng_terminal_array,
                                  system.reserve_zone_array,
                                  system.reserve_provision_array,
