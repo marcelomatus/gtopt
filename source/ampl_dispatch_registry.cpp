@@ -20,10 +20,14 @@
  * `register_ampl_param` line — no resolver edit.
  */
 
+#include <gtopt/allowance_pool_lp.hpp>
+#include <gtopt/ammonia_node_lp.hpp>
+#include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/ampl_dispatch_registry.hpp>
 #include <gtopt/ampl_variable.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
+#include <gtopt/carrier_converter_lp.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/decision_variable_lp.hpp>
@@ -34,6 +38,8 @@
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/hydrogen_node_lp.hpp>
+#include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
@@ -48,6 +54,8 @@
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/thermal_node_lp.hpp>
+#include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -422,6 +430,219 @@ std::optional<double> uc_param_rhs(const SystemContext& sc,
   return sc.get_element(ObjectSingleId<UserConstraintLP> {uid}).param_rhs(s, b);
 }
 
+// Fuel — max_offtake row (PR #487 / #492).  These are the
+// stage-level cap parameters used by ``FuelLP::add_to_lp`` when
+// building the per-(scenario, stage) row that bounds total
+// heat-rate-weighted dispatch on every generator referencing the
+// fuel.  Exposed via PAMPL so user constraints can read the cap
+// (e.g. for compliance-side audit constraints).
+std::optional<double> fuel_param_max_offtake(const SystemContext& sc,
+                                             Uid uid,
+                                             StageUid s,
+                                             BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_max_offtake(s);
+}
+std::optional<double> fuel_param_max_offtake_cost(const SystemContext& sc,
+                                                  Uid uid,
+                                                  StageUid s,
+                                                  BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_max_offtake_cost(s);
+}
+
+// LngTerminal — delivery (m³/stage).  Per-stage scheduled LNG
+// arrival; the LP per-block inflow rate is ``delivery /
+// stage_duration``.  Exposed via PAMPL so user constraints can
+// reference the scheduled delivery in compliance / aggregation
+// rules.
+std::optional<double> lng_param_delivery(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid s,
+                                         BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<LngTerminalLP> {uid}).param_delivery(s);
+}
+
+// Storage peers (Battery / Reservoir already covered above) —
+// ThermalStorage / HydrogenStorage / AmmoniaStorage all derive
+// emin/emax/ecost from the StorageLP base + add
+// input_efficiency / output_efficiency on the Battery pattern.
+std::optional<double> ts_param_emin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
+      .param_emin(s, b);
+}
+std::optional<double> ts_param_emax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
+      .param_emax(s, b);
+}
+std::optional<double> ts_param_ecost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
+      .param_ecost(s, b);
+}
+std::optional<double> ts_param_input_efficiency(const SystemContext& sc,
+                                                Uid uid,
+                                                StageUid s,
+                                                BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
+      .param_input_efficiency(s, b);
+}
+std::optional<double> ts_param_output_efficiency(const SystemContext& sc,
+                                                 Uid uid,
+                                                 StageUid s,
+                                                 BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<ThermalStorageLP> {uid})
+      .param_output_efficiency(s, b);
+}
+
+std::optional<double> hs_param_emin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
+      .param_emin(s, b);
+}
+std::optional<double> hs_param_emax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
+      .param_emax(s, b);
+}
+std::optional<double> hs_param_ecost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
+      .param_ecost(s, b);
+}
+std::optional<double> hs_param_input_efficiency(const SystemContext& sc,
+                                                Uid uid,
+                                                StageUid s,
+                                                BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
+      .param_input_efficiency(s, b);
+}
+std::optional<double> hs_param_output_efficiency(const SystemContext& sc,
+                                                 Uid uid,
+                                                 StageUid s,
+                                                 BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<HydrogenStorageLP> {uid})
+      .param_output_efficiency(s, b);
+}
+
+std::optional<double> as_param_emin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
+      .param_emin(s, b);
+}
+std::optional<double> as_param_emax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
+      .param_emax(s, b);
+}
+std::optional<double> as_param_ecost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
+      .param_ecost(s, b);
+}
+std::optional<double> as_param_input_efficiency(const SystemContext& sc,
+                                                Uid uid,
+                                                StageUid s,
+                                                BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
+      .param_input_efficiency(s, b);
+}
+std::optional<double> as_param_output_efficiency(const SystemContext& sc,
+                                                 Uid uid,
+                                                 StageUid s,
+                                                 BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AmmoniaStorageLP> {uid})
+      .param_output_efficiency(s, b);
+}
+
+// CarrierConverter — multi-carrier converter (PR #485).
+std::optional<double> cc_param_efficiency(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<CarrierConverterLP> {uid})
+      .param_efficiency(s, b);
+}
+std::optional<double> cc_param_ocost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<CarrierConverterLP> {uid})
+      .param_ocost(s, b);
+}
+
+// AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
+// Inherits emin/emax/ecost from StorageLP base; exposes delivery
+// (free allocation per stage) on its own accessor.
+std::optional<double> ap_param_emin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid}).param_emin(s, b);
+}
+std::optional<double> ap_param_emax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid}).param_emax(s, b);
+}
+std::optional<double> ap_param_ecost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid})
+      .param_ecost(s, b);
+}
+std::optional<double> ap_param_delivery(const SystemContext& sc,
+                                        Uid uid,
+                                        StageUid s,
+                                        BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<AllowancePoolLP> {uid})
+      .param_delivery(s);
+}
+
 /// Class iterator: walks `sc.elements<LP>()` and emits every element's
 /// uid to the supplied captureless callback.  One instantiation per LP
 /// class that participates in `sum(class(all)...)`.
@@ -518,6 +739,60 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   // other constraints' expressions as `user_constraint("X").rhs`.
   constexpr auto user_constraint_cls = UserConstraint::class_name.snake_case();
   sim.register_ampl_param(user_constraint_cls, "rhs", &uc_param_rhs);
+
+  // Fuel — max_offtake cap row (PR #487 / #492).
+  sim.register_ampl_param(fuel_cls, "max_offtake", &fuel_param_max_offtake);
+  sim.register_ampl_param(
+      fuel_cls, "max_offtake_cost", &fuel_param_max_offtake_cost);
+
+  // LngTerminal — scheduled LNG delivery per stage.
+  constexpr auto lng_terminal_cls = LngTerminal::class_name.snake_case();
+  sim.register_ampl_param(lng_terminal_cls, "delivery", &lng_param_delivery);
+
+  // ThermalStorage — molten-salt TES (PR #483).
+  constexpr auto thermal_storage_cls = ThermalStorage::class_name.snake_case();
+  sim.register_ampl_param(thermal_storage_cls, "emin", &ts_param_emin);
+  sim.register_ampl_param(thermal_storage_cls, "emax", &ts_param_emax);
+  sim.register_ampl_param(thermal_storage_cls, "ecost", &ts_param_ecost);
+  sim.register_ampl_param(
+      thermal_storage_cls, "input_efficiency", &ts_param_input_efficiency);
+  sim.register_ampl_param(
+      thermal_storage_cls, "output_efficiency", &ts_param_output_efficiency);
+
+  // HydrogenStorage — salt cavern / LH₂ / LOHC (PR #483).
+  constexpr auto hydrogen_storage_cls =
+      HydrogenStorage::class_name.snake_case();
+  sim.register_ampl_param(hydrogen_storage_cls, "emin", &hs_param_emin);
+  sim.register_ampl_param(hydrogen_storage_cls, "emax", &hs_param_emax);
+  sim.register_ampl_param(hydrogen_storage_cls, "ecost", &hs_param_ecost);
+  sim.register_ampl_param(
+      hydrogen_storage_cls, "input_efficiency", &hs_param_input_efficiency);
+  sim.register_ampl_param(
+      hydrogen_storage_cls, "output_efficiency", &hs_param_output_efficiency);
+
+  // AmmoniaStorage — refrigerated NH₃ tank (PR #483).
+  constexpr auto ammonia_storage_cls = AmmoniaStorage::class_name.snake_case();
+  sim.register_ampl_param(ammonia_storage_cls, "emin", &as_param_emin);
+  sim.register_ampl_param(ammonia_storage_cls, "emax", &as_param_emax);
+  sim.register_ampl_param(ammonia_storage_cls, "ecost", &as_param_ecost);
+  sim.register_ampl_param(
+      ammonia_storage_cls, "input_efficiency", &as_param_input_efficiency);
+  sim.register_ampl_param(
+      ammonia_storage_cls, "output_efficiency", &as_param_output_efficiency);
+
+  // CarrierConverter — multi-carrier converter (PR #485).
+  constexpr auto carrier_converter_cls =
+      CarrierConverter::class_name.snake_case();
+  sim.register_ampl_param(
+      carrier_converter_cls, "efficiency", &cc_param_efficiency);
+  sim.register_ampl_param(carrier_converter_cls, "ocost", &cc_param_ocost);
+
+  // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
+  constexpr auto allowance_pool_cls = AllowancePool::class_name.snake_case();
+  sim.register_ampl_param(allowance_pool_cls, "emin", &ap_param_emin);
+  sim.register_ampl_param(allowance_pool_cls, "emax", &ap_param_emax);
+  sim.register_ampl_param(allowance_pool_cls, "ecost", &ap_param_ecost);
+  sim.register_ampl_param(allowance_pool_cls, "delivery", &ap_param_delivery);
 }
 
 void register_ampl_iterator_dispatchers(SimulationLP& sim)
@@ -579,6 +854,29 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
   // class-level iteration patterns over user constraints.
   sim.register_ampl_iter(UserConstraint::class_name.snake_case(),
                          &iter_class<UserConstraintLP>);
+
+  // Multi-carrier element family (PR #483 / #484 / #485) — typed
+  // balance nodes + their storage peers + the cross-carrier
+  // converter.  Each gets ``sum(<class>(all).<attr>)`` support
+  // via class-level iteration.
+  sim.register_ampl_iter(ThermalNode::class_name.snake_case(),
+                         &iter_class<ThermalNodeLP>);
+  sim.register_ampl_iter(ThermalStorage::class_name.snake_case(),
+                         &iter_class<ThermalStorageLP>);
+  sim.register_ampl_iter(HydrogenNode::class_name.snake_case(),
+                         &iter_class<HydrogenNodeLP>);
+  sim.register_ampl_iter(HydrogenStorage::class_name.snake_case(),
+                         &iter_class<HydrogenStorageLP>);
+  sim.register_ampl_iter(AmmoniaNode::class_name.snake_case(),
+                         &iter_class<AmmoniaNodeLP>);
+  sim.register_ampl_iter(AmmoniaStorage::class_name.snake_case(),
+                         &iter_class<AmmoniaStorageLP>);
+  sim.register_ampl_iter(CarrierConverter::class_name.snake_case(),
+                         &iter_class<CarrierConverterLP>);
+
+  // AllowancePool — CO₂ cap-and-trade pool (PR #495 / #496).
+  sim.register_ampl_iter(AllowancePool::class_name.snake_case(),
+                         &iter_class<AllowancePoolLP>);
 }
 
 }  // namespace gtopt

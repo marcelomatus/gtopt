@@ -70,6 +70,13 @@ public:
     return free_allocation_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  /// Free-allocation total per stage [tCO₂/stage]; the LP per-block
+  /// inflow rate = ``delivery / stage_duration``.
+  [[nodiscard]] auto param_delivery(StageUid s) const { return delivery.at(s); }
+  /// @}
+
 private:
   OptTRealSched delivery;
   STBIndexHolder<ColIndex> free_allocation_cols;

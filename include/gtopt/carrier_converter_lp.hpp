@@ -57,6 +57,18 @@ public:
     return input_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  [[nodiscard]] auto param_efficiency(StageUid s, BlockUid b) const
+  {
+    return efficiency.at(s, b);
+  }
+  [[nodiscard]] auto param_ocost(StageUid s, BlockUid b) const
+  {
+    return ocost.at(s, b);
+  }
+  /// @}
+
 private:
   OptTBRealSched efficiency;
   OptTBRealSched ocost;

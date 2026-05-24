@@ -1279,7 +1279,7 @@ def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {}
+    assert not fields
 
 
 def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
@@ -1311,7 +1311,7 @@ def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._vrebemb_as_sink = True
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {}
+    assert not fields
 
 
 def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():

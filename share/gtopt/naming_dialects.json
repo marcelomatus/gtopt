@@ -301,7 +301,21 @@
     {"class": "user_constraint", "canonical": "active",     "alt": "Include in PASA",        "dialect": "plexos"},
     {"class": "user_constraint", "canonical": "expression", "alt": "LHS",                    "dialect": "plexos"},
     {"class": "user_constraint", "canonical": "penalty",    "alt": "Penalty Price",          "dialect": "plexos"},
-    {"class": "user_constraint", "canonical": "name",       "alt": "Constraint",             "dialect": "plexos"}
+    {"class": "user_constraint", "canonical": "name",       "alt": "Constraint",             "dialect": "plexos"},
+
+    {"class": "carrier_converter","canonical": "efficiency",        "alt": "eta",                 "dialect": "gtopt-legacy"},
+    {"class": "carrier_converter","canonical": "ocost",             "alt": "operating_cost",      "dialect": "gtopt-legacy"},
+
+    {"class": "allowance_pool",   "canonical": "delivery",          "alt": "free_allocation",     "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "eini",              "alt": "initial_bank",        "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "efin",              "alt": "terminal_bank",       "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_price",     "alt": "market_price",        "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "delivery",          "alt": "Free Allocation",     "dialect": "plexos"},
+
+    {"class": "line",             "canonical": "loss_pwl_layout",   "alt": "pwl_layout",          "dialect": "gtopt-legacy"},
+    {"class": "fuel",             "canonical": "max_offtake",       "alt": "weekly_offtake_cap",  "dialect": "gtopt-legacy"},
+    {"class": "fuel",             "canonical": "max_offtake",       "alt": "FueMaxOffWeek",       "dialect": "plexos"},
+    {"class": "fuel",             "canonical": "max_offtake_cost",  "alt": "offtake_violation_cost","dialect": "gtopt-legacy"}
   ],
 
   "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",
@@ -329,6 +343,21 @@
     {"class": "fuel",             "canonical": "upstream_emission_factor","alt": "lifecycle_rate",  "dialect": "gtopt"},
 
     {"class": "model_options",    "canonical": "reserve_shortage_cost",  "alt": "VoRS",            "dialect": "plexos"},
-    {"class": "reserve_zone",     "canonical": "urcost",                 "alt": "VoRS",            "dialect": "plexos"}
+    {"class": "reserve_zone",     "canonical": "urcost",                 "alt": "VoRS",            "dialect": "plexos"},
+
+    {"class": "thermal_storage",  "canonical": "thermal_node",           "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "thermal_storage",  "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "thermal_storage",  "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "hydrogen_storage", "canonical": "hydrogen_node",          "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "hydrogen_storage", "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "hydrogen_storage", "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "ammonia_storage",  "canonical": "ammonia_node",           "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "ammonia_storage",  "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "ammonia_storage",  "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "carrier_converter","canonical": "from_node",              "alt": "input_node",      "dialect": "gtopt-legacy"},
+    {"class": "carrier_converter","canonical": "to_node",                "alt": "output_node",     "dialect": "gtopt-legacy"}
   ]
 }
