@@ -70,6 +70,13 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
+  /// @name Parameter accessors for PAMPL user-constraint resolution
+  /// @{
+  /// Scheduled LNG delivery per stage [m³/stage]; the LP per-block
+  /// inflow rate = ``delivery / stage_duration``.
+  [[nodiscard]] auto param_delivery(StageUid s) const { return delivery.at(s); }
+  /// @}
+
 private:
   OptTRealSched delivery;
   OptTBRealSched scost;
