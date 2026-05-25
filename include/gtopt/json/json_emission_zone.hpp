@@ -61,7 +61,8 @@ struct EmissionZoneConstructor
       gtopt::Array<EmissionZoneFactor> emissions,
       OptTRealFieldSched cap,
       OptTRealFieldSched cap_cost,
-      OptTRealFieldSched price) const
+      OptTRealFieldSched price,
+      OptSingleId allowance_pool) const
   {
     EmissionZone z;
     z.uid = uid;
@@ -79,6 +80,7 @@ struct EmissionZoneConstructor
     z.cap = std::move(cap);
     z.cap_cost = std::move(cap_cost);
     z.price = std::move(price);
+    z.allowance_pool = std::move(allowance_pool);
     return z;
   }
 };
@@ -100,7 +102,8 @@ struct json_data_contract<EmissionZone>
                       EmissionZoneFactor>,
       json_variant_null<"cap", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"cap_cost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"price", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"price", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"allowance_pool", OptSingleId, jvtl_SingleId>>;
 
   constexpr static auto to_json_data(EmissionZone const& z)
   {
@@ -113,7 +116,8 @@ struct json_data_contract<EmissionZone>
                            z.emissions,
                            z.cap,
                            z.cap_cost,
-                           z.price);
+                           z.price,
+                           z.allowance_pool);
   }
 };
 

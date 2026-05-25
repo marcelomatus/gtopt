@@ -118,6 +118,17 @@ struct EmissionZone
   /// stage-schedulable.  Adds `price · production_b` to the objective
   /// for every block.
   OptTRealFieldSched price {};
+
+  /// Optional FK to an `AllowancePool` that banks this zone's
+  /// allowances (cap-and-trade with banking, EU-ETS style).  When set:
+  ///   * each per-block `production` column is injected as a drawdown
+  ///     (coefficient `+1`, in tCO₂) into the pool's energy-balance
+  ///     rows, so the pool's banked SoC — not a fixed per-stage figure
+  ///     — becomes the binding multi-stage cap; and
+  ///   * the zone's own standalone per-stage `cap` row is SKIPPED
+  ///     (the pool's `emin` / `efin` / `efin_cost` mediate compliance).
+  /// When unset, the standalone `cap` row (if any) applies as before.
+  OptSingleId allowance_pool {};
 };
 
 }  // namespace gtopt

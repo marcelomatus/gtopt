@@ -19,6 +19,7 @@
  *                                          penalty when cap_cost set)
  */
 
+#include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -37,7 +38,7 @@ EmissionZoneLP::EmissionZoneLP(const EmissionZone& zone, const InputContext& ic)
 {
 }
 
-bool EmissionZoneLP::add_to_lp(const SystemContext& /*sc*/,
+bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp)
@@ -102,8 +103,34 @@ bool EmissionZoneLP::add_to_lp(const SystemContext& /*sc*/,
   production_cols_[st_key] = std::move(prod_cols);
   balance_rows_[st_key] = std::move(balance_rows);
 
+  // ── Optional allowance-pool coupling (cap-and-trade with banking) ────
+  // When this zone references an AllowancePool, inject each per-block
+  // production column as a drawdown (coefficient +1, in tCO₂) into the
+  // pool's energy-balance rows.  The pool's banked SoC then becomes the
+  // binding multi-stage cap, so the zone's own standalone per-stage cap
+  // row is skipped below.  AllowancePoolLP is visited before
+  // EmissionZoneLP (collections_t ordering in system_lp.hpp), so its
+  // energy rows already exist for this (scenario, stage).
+  //
+  // `production_b` is already a per-block tonnage (the source injects
+  // `-weight·rate·dur·gen`), so the energy-row coefficient is a bare
+  // +1 — NOT the `·dur` an inflow rate would carry.  The result is
+  //   bank_b = (1−loss)·bank_{b-1} + free_allocation·dur − Σ_z prod_{z,b}
+  const auto pool_fk = emission_zone().allowance_pool;
+  if (pool_fk.has_value()) {
+    auto&& pool = sc.element<AllowancePoolLP>(AllowancePoolLPSId {*pool_fk});
+    const auto& energy_rows = pool.energy_rows_at(scenario, stage);
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      lp.set_coeff(energy_rows.at(buid), production_cols_[st_key][buid], 1.0);
+    }
+  }
+
   // ── Optional per-stage cap row ───────────────────────────────────────
-  if (stage_cap) {
+  // Skipped when an allowance pool mediates compliance — the pool's
+  // banked SoC / efin is the binding cap instead of a fixed per-stage
+  // figure.
+  if (stage_cap && !pool_fk.has_value()) {
     SparseRow cap_row {
         .class_name = cname,
         .constraint_name = CapName,

@@ -159,6 +159,8 @@
     {"class": "emission_zone", "canonical": "price",    "alt": "Carbon Price",     "dialect": "plexos"},
     {"class": "emission_zone", "canonical": "weight",   "alt": "gwp",              "dialect": "gtopt"},
     {"class": "emission_zone", "canonical": "weight",   "alt": "CO2 Equivalent",   "dialect": "plexos"},
+    {"class": "emission_zone", "canonical": "allowance_pool", "alt": "pool",        "dialect": "gtopt-legacy"},
+    {"class": "emission_zone", "canonical": "allowance_pool", "alt": "Market",      "dialect": "plexos"},
 
     {"class": "emission_capture", "canonical": "rate", "alt": "capture_rate",        "dialect": "gtopt"},
     {"class": "emission_capture", "canonical": "rate", "alt": "Carbon Capture Rate", "dialect": "plexos"},
