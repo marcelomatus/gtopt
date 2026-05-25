@@ -1445,11 +1445,31 @@ $$
 \begin{aligned}
 e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
   \;+\; \Delta_b\,\phi_{a,s,t,b}
+  \;+\; \beta_{a,s,t,b}
   \;-\; \sum_{z:\,a(z)=a} q_{z,s,t,b}
 \qquad \forall \; a,\; s,t,b
 \end{aligned}
 $$
 <!-- source: source/emission_zone_lp.cpp:106-126 ; source/allowance_pool_lp.cpp -->
+
+**Auction purchases (cap-and-trade market).** When `auction_price`
+$\rho_{a,t,b}$ is set, an `auction` column $\beta_{a,s,t,b}$ [tCO₂]
+lets the bank buy allowances on the market instead of abating
+emissions:
+
+$$
+0 \;\leq\; \beta_{a,s,t,b} \;\leq\; \overline{B}_{a,t,b},
+\qquad \text{obj} \mathrel{+}= \rho_{a,t,b}\,\pi_s\,\delta_t\,\beta_{a,s,t,b}
+$$
+<!-- source: source/allowance_pool_lp.cpp -->
+
+where $\overline{B}_{a,t,b}$ is `auction_cap`, $\pi_s$ the scenario
+probability, and $\delta_t$ the stage discount. The price carries
+**no** duration factor because $\beta$ is an absolute tonnage (contrast
+the free-allocation rate $\phi$, whose energy-row coefficient is
+$\Delta_b$). The marginal allowance value — the dual of the bank
+balance — is thus capped at $\rho_{a,t,b}$: the LP abates only while
+abatement is cheaper than buying.
 
 Because the bank obeys $e_{a,s,t,b} \geq \underline{E}_a$ (default
 $0$) at every block and an optional terminal target

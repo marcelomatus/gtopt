@@ -19,12 +19,20 @@
  *     stages), with ``emin`` / ``emax`` / ``efin`` / ``efin_cost``
  *     handled by the base.
  *
- * Phase 3 will add: ``EmissionZone.production`` outflow stamping
- * into the per-block energy rows, replacing the standalone
- * ``EmissionZone.cap`` row with a pool-mediated cap.
+ * Phase 3 (done): ``EmissionZone.production`` outflow stamping into
+ * the per-block energy rows, replacing the standalone
+ * ``EmissionZone.cap`` row with a pool-mediated cap.  Wired from the
+ * zone side (``EmissionZoneLP::add_to_lp``) into this pool's
+ * ``energy_rows_at``.
  *
- * Phase 4 will add: optional auction-purchase column priced at
- * ``auction_price`` and capped by ``auction_cap``.
+ * Phase 4 (this file): optional **auction-purchase** column.  When
+ * ``auction_price`` is set, each (scenario, stage, block) gets an
+ * ``auction`` column (absolute tCO₂, ``[0, auction_cap]``) injected as
+ * a ``-1`` inflow into the energy-balance row, priced at
+ * ``auction_price`` [$/tCO₂] (probability × discount weighted; NO
+ * duration — the column is a tonnage, not a rate).  This lets the bank
+ * buy allowances on the market instead of forcing emission abatement
+ * when the marginal allowance value exceeds the auction price.
  */
 
 #pragma once
@@ -44,6 +52,10 @@ public:
   /// LP column name for the free-allocation inflow (per block,
   /// fixed-rate = delivery / stage_duration).
   static constexpr std::string_view FreeAllocationName {"free_allocation"};
+
+  /// LP column name for the auction-purchase inflow (per block,
+  /// absolute tCO₂, ``[0, auction_cap]``, priced at auction_price).
+  static constexpr std::string_view AuctionName {"auction"};
 
   using StorageBase = StorageLP<ObjectLP<AllowancePool>>;
 
@@ -75,11 +87,24 @@ public:
   /// Free-allocation total per stage [tCO₂/stage]; the LP per-block
   /// inflow rate = ``delivery / stage_duration``.
   [[nodiscard]] auto param_delivery(StageUid s) const { return delivery.at(s); }
+  /// Per-(stage, block) market price for buying allowances [$/tCO₂].
+  [[nodiscard]] auto param_auction_price(StageUid s, BlockUid b) const
+  {
+    return auction_price_.at(s, b);
+  }
+  /// Per-(stage, block) cap on allowances purchasable [tCO₂].
+  [[nodiscard]] auto param_auction_cap(StageUid s, BlockUid b) const
+  {
+    return auction_cap_.at(s, b);
+  }
   /// @}
 
 private:
   OptTRealSched delivery;
+  OptTBRealSched auction_price_;
+  OptTBRealSched auction_cap_;
   STBIndexHolder<ColIndex> free_allocation_cols;
+  STBIndexHolder<ColIndex> auction_cols;
 };
 
 // Pin the data-struct constant value so an accidental rename of the
