@@ -522,7 +522,7 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     # The varying DLR profile materialises as a [[per-hour]] matrix.
     assert isinstance(out[0]["tmax_ab"], list)
     assert out[0]["tmax_ab"] == [[100.0] * 12 + [200.0] * 12]
-    # Resistance + voltage + piecewise loss mode (3 segments default).
+    # Resistance + voltage + piecewise loss mode (4 segments default).
     assert out[0]["resistance"] == 0.05
     assert out[0]["voltage"] == 10.0
     assert out[0]["line_losses_mode"] == "piecewise"
