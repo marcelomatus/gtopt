@@ -987,6 +987,50 @@ void SystemLP::drop_for_write_out_done() noexcept
   m_linear_interface_.clear_snapshot();
 }
 
+void SystemLP::clear_collections_for_eviction() noexcept
+{
+  // Memory-limited eviction: drop the ENTIRE collection tuple (both the
+  // disposable types AND the HasUpdateLP types) while leaving the
+  // LinearInterface's compressed snapshot + replay journal intact, so the
+  // cell can still reconstruct its backend and replay cuts.  This is the
+  // lever that bounds the compress-mode floor — the kept HasUpdateLP
+  // wrappers are ~the entire ~25 MB/cell resident state, and keeping them
+  // for all `num_cells` is what pinned RSS at ~num_cells × per-cell.
+  //
+  // Differs from `clear_disposable_collections()` (drops only disposables,
+  // keeps HasUpdateLP for `update_lp`) and from `drop_for_write_out_done()`
+  // (also tears down snapshot/replay/cache — for cells that will NEVER be
+  // touched again).  Here the cell WILL be touched again: `update_lp()` and
+  // the other collection readers call `rebuild_collections_if_needed()`,
+  // which re-creates the full tuple from the shared `System` on demand.
+  //
+  // No-op under `off` (collections must stay live) and when already empty.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+    return;
+  }
+  if (!m_collections_built_) {
+    return;
+  }
+  try {
+    std::apply(
+        [](auto&... colls)
+        {
+          const auto drop = [](auto& coll) noexcept
+          {
+            using CollT = std::remove_cvref_t<decltype(coll)>;
+            coll = CollT {};
+          };
+          (drop(colls), ...);
+        },
+        m_collections_);
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Collection move-assign is nothrow on every used type; defend
+    // against future allocator-aware changes.  Best-effort.
+  }
+  m_collections_built_ = false;
+  m_disposable_collections_built_ = false;
+}
+
 void SystemLP::rebuild_collections_if_needed()
 {
   // Skips for `off`: collections are never dropped under off mode.
@@ -1513,7 +1557,61 @@ auto SystemLP::write_lp(const std::string& filename) const
 
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
-  return linear_interface().resolve(solver_options);
+  auto& li = linear_interface();
+  auto result = li.resolve(solver_options);
+  if (!result) {
+    return result;
+  }
+
+  // ── Fix-integers dual-recovery pass ───────────────────────────────────
+  //
+  // A MIP solution carries no LP duals (shadow prices) or reduced costs,
+  // so a UC run with binary commitment columns would write empty
+  // `balance_dual.parquet` and no bus LMPs.  When the caller requested
+  // duals and/or reduced costs AND the problem actually contains integer
+  // columns, run the standard recovery technique: pin every integer to
+  // its rounded MIP value, relax integrality, and re-solve the resulting
+  // pure LP — whose row duals / reduced costs are the correct marginal
+  // prices given the committed integer solution.  The primal stays the
+  // MIP primal (integers pinned to their optimal values).
+  //
+  // Gated tightly so pure-LP solves and runs that don't need duals pay
+  // nothing: the `has_integer_cols()` scan only runs when dual/rc output
+  // is requested, and `fix_integers_and_resolve` itself is a no-op when
+  // no integer column exists.  Enable crossover on the follow-up solve so
+  // a barrier backend produces clean vertex duals.
+  const auto sel = options().write_out();
+  const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
+      || has_flag(sel.atoms, OutputFlags::reduced_cost);
+  if (wants_duals && li.has_integer_cols()) {
+    auto lp_opts = solver_options;
+    lp_opts.crossover = true;
+    auto fix = li.fix_integers_and_resolve(lp_opts);
+    if (!fix) {
+      // The MIP solve already succeeded; a failed dual-recovery re-solve
+      // should not fail the whole cell.  Warn and keep the MIP result
+      // (duals stay empty, primal is intact).
+      spdlog::warn(
+          "SystemLP::resolve [scene={} phase={}]: fix-integers dual "
+          "recovery re-solve failed: {} (keeping MIP primal, duals "
+          "unavailable)",
+          scene().uid(),
+          phase().uid(),
+          fix.error().message);
+      return result;  // original MIP status
+    }
+    if (fix->fixed_columns > 0) {
+      SPDLOG_DEBUG(
+          "SystemLP::resolve [scene={} phase={}]: fixed {} integer "
+          "column(s) and re-solved LP for duals (status {})",
+          scene().uid(),
+          phase().uid(),
+          fix->fixed_columns,
+          fix->status.value_or(0));
+    }
+  }
+
+  return result;
 }
 
 int SystemLP::update_lp()
@@ -1525,13 +1623,23 @@ int SystemLP::update_lp()
     return 0;
   }
 
-  // No `rebuild_collections_if_needed()` here: the constructor's
-  // `clear_disposable_collections()` keeps HasUpdateLP types alive
-  // (their per-(scen, stg) update state must persist across SDDP
-  // iterations), and `visit_elements` below only acts on those types.
-  // Iterating empty disposable Collection<X>'s is a fast no-op.
-  // Triggering a full rebuild here would re-create those disposable
-  // types on every iter for nothing.
+  // Rebuild collections if they were dropped.  Self-gating
+  // (`rebuild_collections_if_needed` returns immediately when both
+  // built-flags are set), so this is a NO-OP under the default
+  // keep-resident behaviour (P3) and under disposable-only drop —
+  // `visit_elements` below walks the still-resident HasUpdateLP types.
+  //
+  // It only does work under the memory-limited *full* eviction path
+  // (`clear_collections_for_eviction()` on release), where the
+  // HasUpdateLP types this loop iterates were also dropped: without the
+  // rebuild, `visit_elements` would silently walk EMPTY collections and
+  // skip the per-(scene,stage) coefficient updates (seepage, production
+  // factors, …) — a silent-wrong-result bug, not a crash.  The rebuild
+  // is the optimized flatten (`skip_matrix_build`, no equilibration /
+  // labels / stats), ~5-10× cheaper than a full flatten — the CPU side
+  // of the bounded-memory trade, paid only when a memory limit forces
+  // eviction.
+  rebuild_collections_if_needed();
 
   int total = 0;
 

@@ -130,18 +130,19 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--loss-pwl-layout",
         choices=("uniform", "equal_error", "tangent"),
-        default="uniform",
+        default="tangent",
         help=(
             "Segment-layout strategy for the PWL line-loss approximation, "
             "emitted on every lossy ``Line.loss_pwl_layout`` entry.  "
-            "``uniform`` (default, current behaviour): equal-width secant "
-            "chords; max chord error peaks on the outer segment.  "
-            "``equal_error``: √-spaced secant chords (minimax) — same K, "
-            "same LP row count, max chord error drops by ~√K.  "
-            "Drop-in improvement; recommended for new bundles.  "
-            "``tangent``: outer-approximation tangents (reserved; falls "
-            "back to uniform with a one-time log warning until the "
-            "alternate LP structure is wired)."
+            "``tangent`` (default since CEN PCP K=3/K=4 sweeps showed "
+            "best obj and closest match to PLEXOS losses; outer-"
+            "approximation tangents at uniform midpoints — bounds loss "
+            "BELOW the true quadratic curve, exact at the touching point).  "
+            "``uniform``: equal-width secant chords; max chord error "
+            "peaks on the outer segment.  ``equal_error``: √-spaced "
+            "secant chords (minimax) — same K, same LP row count, "
+            "max chord error drops by ~√K (currently aliases to "
+            "uniform — see line_losses.cpp seg_geom docstring)."
         ),
     )
     parser.add_argument(
@@ -170,19 +171,120 @@ def make_parser() -> argparse.ArgumentParser:
         help="disable the hour-24 hard emin floor (see --emin-eod-day1).",
     )
     parser.add_argument(
+        "--battery-efin-pin",
+        dest="battery_efin_pin",
+        action="store_true",
+        default=True,
+        help=(
+            "pin every battery's end-of-horizon SoC to its initial "
+            "SoC (``efin = eini``).  Default ON — forces the LP to "
+            "return batteries to their starting state, preventing "
+            "off-spec end-of-horizon energy banking that drives "
+            "BESS net-charge by ~12 GWh on the CEN PCP weekly "
+            "bundle.  Pass ``--no-battery-efin-pin`` to drop the "
+            "pin and let the LP set ``efin`` freely (matches "
+            "PLEXOS's flexible terminal-SoC convention; on CEN PCP "
+            "weekly 2026-04-22 PLEXOS net-discharges batteries by "
+            "≈568 MWh over the horizon)."
+        ),
+    )
+    parser.add_argument(
+        "--no-battery-efin-pin",
+        dest="battery_efin_pin",
+        action="store_false",
+        help="drop the efin=eini pin (see --battery-efin-pin).",
+    )
+    parser.add_argument(
+        "--soft-efin-reservoirs",
+        type=str,
+        default="L_Maule",
+        help=(
+            "Comma-separated reservoir names whose end-of-horizon "
+            "``efin`` is emitted as a SOFT constraint (slack column at "
+            "the reservoir's PLEXOS Water Value, or $1e6/GWh for the "
+            "PLEXOS ``1e+30`` never-drain sentinel reservoirs).  All "
+            "other reservoirs get a HARD ``vol_end >= efin`` row.  "
+            "Default ``L_Maule`` — its 1e+30 Water Value makes the "
+            "floor unreachable without slack once the upstream cascade "
+            "is tightened; every other CEN PCP reservoir reaches its "
+            "PLEXOS-published efin natively.  Pass an empty string "
+            "(``--soft-efin-reservoirs=''``) to make EVERY efin hard, "
+            "or a comma-separated list to opt in additional reservoirs."
+        ),
+    )
+    parser.add_argument(
         "--nseg-losses",
         type=int,
-        default=3,
+        default=4,
         help=(
             "number of piecewise-linear segments used to approximate "
             "the quadratic transmission-loss curve P_loss = R·f²/V² on "
             "each lossy line (PLEXOS Enforce Limits = 2 lines with a "
             "non-zero resistance and a finite ``tmax_ab`` envelope).  "
-            "Default 3 mirrors PLEXOS's coarse PWL.  Larger values "
-            "(6, 10) reduce the PWL approximation error at the cost "
-            "of more LP rows / variables.  PWL error at f = f_max "
+            "Default 4 with the ``tangent`` layout — chosen from CEN "
+            "PCP sweeps as the best obj + closest match to PLEXOS "
+            "losses (0 MWh unserved, +1.63%% loss vs PLEXOS).  Larger "
+            "values (6, 10) reduce the PWL approximation error at the "
+            "cost of more LP rows / variables.  PWL error at f = f_max "
             "scales as 1/nseg, so nseg=6 halves the worst-case loss "
             "overestimate on the outer segment."
+        ),
+    )
+    parser.add_argument(
+        "--loss-tangent-top-pct",
+        type=float,
+        default=30.0,
+        metavar="PCT",
+        help=(
+            "Enable the loading-classified HYBRID loss layout: the top "
+            "PCT%% of lossy lines BY STATIC LOSS MAGNITUDE R·P² "
+            "(resistance × rating², the V²-free part of the full-flow "
+            "loss (R/V²)·P²) get the accurate ``tangent`` layout with "
+            "``--nseg-tangent`` segments; the remaining lossy lines get "
+            "the cheaper, presolve-friendly ``uniform`` layout with "
+            "``--nseg-uniform`` segments.  PCT=0 → all uniform; PCT=100 "
+            "→ all tangent; PCT=20 → the 20%% highest-loss lossy lines "
+            "are tangent.  DEFAULT 30 (covers ~50%% of the realised "
+            "losses on CEN PCP while keeping ~70%% of lines on the fast "
+            "uniform layout — best accuracy/MIP-size trade-off found).  "
+            "R·P² ranks far better than rating alone (a "
+            "high-rating low-R trunk carries little loss).  Spends the "
+            "MIP-heavy tangent rows only where loss concentrates (Sun et "
+            "al. 2019, line-loading classification).  Overrides "
+            "``--loss-pwl-layout`` / ``--nseg-losses`` when set.  Combine "
+            "with ``--loss-tangent-lines`` to additionally force specific "
+            "lines to tangent regardless of loss."
+        ),
+    )
+    parser.add_argument(
+        "--loss-tangent-lines",
+        type=str,
+        default=None,
+        metavar="NAME[,NAME...]",
+        help=(
+            "Comma-separated line names forced to the ``tangent`` loss "
+            "layout regardless of rating (also activates hybrid mode on "
+            "its own).  Useful for known binding interconnections."
+        ),
+    )
+    parser.add_argument(
+        "--nseg-tangent",
+        type=int,
+        default=6,
+        help=(
+            "Segment count for ``tangent``-layout lines in hybrid mode "
+            "(default 6).  Tangent uses inequality (outer-approximation) "
+            "rows that resist presolve binary-fixing, so keep it coarse."
+        ),
+    )
+    parser.add_argument(
+        "--nseg-uniform",
+        type=int,
+        default=8,
+        help=(
+            "Segment count for ``uniform``-layout lines in hybrid mode "
+            "(default 8).  Uniform uses segment-variable equalities that "
+            "presolve handles cheaply, so it can afford more segments."
         ),
     )
     parser.add_argument(
@@ -268,15 +370,21 @@ def make_parser() -> argparse.ArgumentParser:
             "PLEXOS lines where the dispatched flow exceeds the "
             "published rating because the line is radial and the LP "
             "has no alternative path — enforcing the cap in gtopt "
-            "would otherwise create unserved demand.  Default lifts "
-            "``Capricornio110->LaNegra110`` (76 MW Max Flow, 204 MW "
-            "in PLEXOS dispatch on the CEN PCP weekly bundle, 269 %% "
-            "of cap; the line is a 110 kV radial stepdown to the "
-            "Antofagasta region with no parallel path).  Pass an "
-            "empty string to disable.  Pending the ``pandapower`` AC "
-            "voltage-analysis side-investigation that may confirm "
-            "this line as the unique voltage-support case in the "
-            "bundle."
+            "would otherwise create unserved demand.\n"
+            "\n"
+            "Default lifts ``Capricornio110->LaNegra110`` only — the "
+            "single canonical case on the CEN PCP weekly bundle (76 "
+            "MW Max Flow, 204 MW in PLEXOS dispatch, 269%% of cap; "
+            "the line is a 110 kV radial stepdown to the Antofagasta "
+            "region with no parallel path).  Pass an empty string "
+            "(``--lift-line-caps=''``) to activate the experimental "
+            "SOFT-EL=1 mode instead — every EL=1 line gets a parallel "
+            "slack at ``tcost = (min(demand.fcost) + max(generator."
+            "gcost)) / 2`` ($/MWh).  Soft mode lets the LP push past "
+            "the PLEXOS rating at a penalty, but on CEN PCP weekly "
+            "increased BESS-charging +77%% and losses +18%% vs the "
+            "Capricornio-only baseline — kept as an opt-in for new "
+            "bundles where the lift list isn't curated yet."
         ),
     )
     parser.add_argument(
@@ -459,7 +567,15 @@ def main(argv: list[str] | None = None) -> None:
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
         "nseg_losses": args.nseg_losses,
         "loss_pwl_layout": args.loss_pwl_layout,
+        "loss_tangent_top_pct": args.loss_tangent_top_pct,
+        "loss_tangent_lines": args.loss_tangent_lines,
+        "nseg_tangent": args.nseg_tangent,
+        "nseg_uniform": args.nseg_uniform,
         "emin_eod_day1": args.emin_eod_day1,
+        "battery_efin_pin": args.battery_efin_pin,
+        "soft_efin_reservoirs": tuple(
+            n.strip() for n in args.soft_efin_reservoirs.split(",") if n.strip()
+        ),
         "auto_lift_lines": args.auto_lift_lines,
         "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,

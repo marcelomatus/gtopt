@@ -308,10 +308,30 @@ PLEXOS_PROP_GENERATOR_GENCOST = 119  # $ per block (already integrated)
 PLEXOS_PROP_GENERATOR_STARTUP_COST = 120  # Start & Shutdown Cost ($ per block)
 PLEXOS_PROP_GENERATOR_SRMC = 137  # $/MWh per period
 #
-# Collection-80 (Battery class) primary props:
-PLEXOS_PROP_BATTERY_LOAD = 521  # MW charging
-PLEXOS_PROP_BATTERY_CHARGING = 523  # MW (named "Charging")
-PLEXOS_PROP_BATTERY_DISCHARGING = 524  # MW (named "Discharging")
+# Collection-80 (Battery class) primary props.
+#
+# IMPORTANT: PLEXOS publishes battery power on two sides:
+#
+#   * AC-side (network)         — what the inverter exchanges with
+#     the bus.  Includes inverter loss already.  Use these to
+#     compare against gtopt's ``Battery/finp_sol`` (charge into the
+#     bus as load) and ``Battery/fout_sol`` (discharge out of the
+#     battery as generation).
+#         520 = Generation (MW, AC discharge to the bus)
+#         521 = Load       (MW, AC charge from the bus)
+#
+#   * DC-side (cell)            — power at the storage cell itself,
+#     before/after the inverter.  Used internally by PLEXOS for the
+#     SoC update.  Reading these against gtopt's AC-side parquets
+#     creates a phantom over-cycling gap of (1 - η_inv)·throughput.
+#         523 = Charging    (MW, DC into the cell)
+#         524 = Discharging (MW, DC out of the cell)
+#
+# Per-battery throughput compares MUST use 520 / 521.
+PLEXOS_PROP_BATTERY_GENERATION = 520  # MW discharge to bus (AC-side)
+PLEXOS_PROP_BATTERY_LOAD = 521  # MW charge from bus (AC-side)
+PLEXOS_PROP_BATTERY_CHARGING = 523  # MW into cell (DC-side) — do NOT compare
+PLEXOS_PROP_BATTERY_DISCHARGING = 524  # MW out of cell (DC-side) — do NOT compare
 #
 # Collection-80 (Storage) volume props:
 PLEXOS_PROP_STORAGE_SOC = 518  # GWh / m³ per period
@@ -877,7 +897,16 @@ def compute_gtopt_per_unit_srmc(
     gen = pq.read_table(gen_path).to_pandas()
     srmc = pq.read_table(srmc_path).to_pandas()
     key_cols = ["scene", "phase", "scenario", "stage", "block", "uid"]
-    merged = gen.merge(srmc, on=key_cols, suffixes=("_mw", "_srmc"))
+    # LEFT-merge so generators without a published SRMC entry (hydro
+    # / pumped storage / RoR — water value travels via
+    # ``Reservoir/water_value_dual`` instead of
+    # ``Generator/srmc_sol``) still appear with their dispatch MWh.
+    # An inner merge silently zeroed every such generator in the
+    # Step 4 / Step 4b dispatch tables, producing the phantom
+    # "-100% dispatch on COLBUN_U2 / PEHUENCHE_U2 / RALCO_U2"
+    # column even though gtopt actually dispatches them.
+    merged = gen.merge(srmc, on=key_cols, suffixes=("_mw", "_srmc"), how="left")
+    merged["value_srmc"] = merged["value_srmc"].fillna(0.0)
     merged["duration"] = merged["block"].astype(int).map(durations)
     merged["mwh"] = merged["value_mw"] * merged["duration"]
     merged["name"] = merged["uid"].astype(int).map(name_by_uid)
@@ -2110,10 +2139,14 @@ def compute_plexos_battery_operation(
 ) -> dict[str, dict[str, float]]:
     """Per-battery total charge / discharge MWh from PLEXOS .accdb.
 
-    Returns ``{battery_name → {charge_mwh, discharge_mwh,
-    net_mwh, eini, efin}}``.  Uses Battery-class properties
-    523 Charging (MW load), 524 Discharging (MW gen), and the
-    Storage props 645 Initial / 646 End Volume.
+    Returns ``{battery_name → {charge_mwh, discharge_mwh, net_mwh}}``.
+
+    Uses AC-side properties 520 Generation (discharge to bus) and
+    521 Load (charge from bus) to mirror gtopt's
+    ``Battery/finp_sol`` and ``Battery/fout_sol``.  Reading the
+    DC-side 523/524 here would systematically over-report
+    throughput by the inverter loss (~7-10%) and create a phantom
+    "battery over-cycling" gap.
     """
     import collections
     import csv
@@ -2135,7 +2168,6 @@ def compute_plexos_battery_operation(
 
     obj_name = {int(o["object_id"]): o["name"] for o in objects}
     mem_child = {int(m["membership_id"]): int(m["child_object_id"]) for m in members}
-    # Battery props: 523 Charging, 524 Discharging
     key_meta: dict[int, tuple[int, int]] = {}
     for k in keys:
         try:
@@ -2145,7 +2177,7 @@ def compute_plexos_battery_operation(
         except ValueError:
             continue
         if (
-            pid in (PLEXOS_PROP_BATTERY_CHARGING, PLEXOS_PROP_BATTERY_DISCHARGING)
+            pid in (PLEXOS_PROP_BATTERY_LOAD, PLEXOS_PROP_BATTERY_GENERATION)
             and mid in mem_child
         ):
             key_meta[kid] = (mem_child[mid], pid)
@@ -2172,12 +2204,11 @@ def compute_plexos_battery_operation(
     out: dict[str, dict[str, float]] = {}
     for name, props in by_bat.items():
         charge = sum(
-            v * durations.get(p, 0)
-            for p, v in props.get(PLEXOS_PROP_BATTERY_CHARGING, [])
+            v * durations.get(p, 0) for p, v in props.get(PLEXOS_PROP_BATTERY_LOAD, [])
         )
         discharge = sum(
             v * durations.get(p, 0)
-            for p, v in props.get(PLEXOS_PROP_BATTERY_DISCHARGING, [])
+            for p, v in props.get(PLEXOS_PROP_BATTERY_GENERATION, [])
         )
         out[name] = {
             "charge_mwh": charge,
@@ -3519,6 +3550,15 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_bus and gtopt_bus:
                 console.print()
                 _render_lmp_compare(plexos_bus, gtopt_bus, console)
+            elif plexos_bus and not gtopt_bus:
+                console.print()
+                console.print(
+                    "[yellow]Step 5 (per-bus LMP) skipped: gtopt wrote no "
+                    "bus balance duals (output/Bus/balance_dual.parquet is "
+                    "empty).  MIP runs do not emit LP duals — re-run with "
+                    "--write-out dual on an LP-relaxed solve, or solve the "
+                    "LP relaxation, to populate the bus-LMP comparison.[/yellow]"
+                )
             if plexos_line and gtopt_line:
                 console.print()
                 _render_line_compare(plexos_line, gtopt_line, console)

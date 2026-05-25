@@ -212,19 +212,26 @@ def test_real_bundle_p4_hydro_topology() -> None:
     """P4: hydro extractors populate reservoir/waterway/junction/turbine/flow.
 
     Sanity-check the CEN PCP bundle exposes the expected hydro shapes:
-    ~20 storage-bearing Reservoirs (PLEXOS pass-through Storages,
-    pure pondage / tailrace points with all bounds at zero and not
-    referenced as a turbine main_reservoir, and synthetic
-    ``*_sink`` / ``*_ocean`` drain endpoints are all emitted as
-    Junction-only nodes — never as Reservoirs), ~51 Junctions
-    (one per Reservoir plus the extra pondage / sink / ocean /
-    pass-through nodes), ~28 Waterways, 77 hydro turbines,
+    ~12 storage-bearing Reservoirs after dropping the 6 ``*_GNL_INF``
+    LNG-import sentinels (commit e763f39d1; those PLEXOS Storages
+    model gas-cargo arrivals, not water reservoirs).  PLEXOS pass-
+    through Storages, pure pondage / tailrace points with all bounds
+    at zero and not referenced as a turbine main_reservoir, and
+    synthetic ``*_sink`` / ``*_ocean`` drain endpoints are all
+    emitted as Junction-only nodes — never as Reservoirs.
+    ~51 Junctions (one per Reservoir plus the extra pondage / sink /
+    ocean / pass-through nodes), ~28 Waterways, 77 hydro turbines,
     ~23 inflow time-series, and every Flow's junction matching a
     real Junction (no orphans).
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
-    assert len(case.reservoirs) >= 18
+    # Lowered from ≥18 to ≥12 after e763f39d1 dropped the 6
+    # `*_GNL_INF` LNG-import storages.  Keep a strict floor so a
+    # future refactor that loses real water reservoirs gets caught.
+    assert len(case.reservoirs) >= 12
+    # And no GNL_INF sentinel survived the drop.
+    assert not any("GNL_INF" in r.name for r in case.reservoirs)
     # No pondage / tailrace Reservoir should remain: every kept
     # Reservoir must carry at least one binding volume / cost field.
     for r in case.reservoirs:
@@ -265,7 +272,13 @@ def test_real_bundle_p4_hydro_topology() -> None:
         assert j.name not in reservoir_names, (
             f"sink junction {j.name} must not be emitted as a Reservoir"
         )
-    assert len(case.waterways) >= 20
+    # Waterway floor lowered from ≥20 → ≥15 post-2026-04-22 topology
+    # cleanup (commit 6dcf83e5d dropped the synthetic GNL_INF /
+    # Vert→ocean / sink waterways that didn't model real water
+    # transfers).  The 2026-04-22 PCP bundle yields 16 real waterways
+    # after cleanup; keep a strict floor so a future refactor that
+    # loses real hydraulic links gets caught.
+    assert len(case.waterways) >= 15
     # Threshold tightened post-topology-cleanup: the 2026-04-22 PCP
     # bundle yields ~33 turbines after the GNL_INF / nphi / sinks
     # cleanup landed in 6dcf83e5d; pre-cleanup count was ~50+.  The
@@ -279,15 +292,27 @@ def test_real_bundle_p4_hydro_topology() -> None:
         assert flow.junction_name in junction_names, (
             f"orphan Flow junction: {flow.junction_name}"
         )
-    # Every Turbine's reservoir matches a real Reservoir.  ``*_GNL_INF``
-    # reservoirs are dropped upstream (they are LNG gas-import artifacts,
-    # not water reservoirs — see e763f39d1) so the turbines that still
-    # reference them are expected orphans; skip them here.
+    # Every Turbine's reservoir matches a real Reservoir OR a known
+    # pondage-only Junction (the Reservoir was dropped upstream
+    # because all volume / cost bounds were zero — pondage / tail-race
+    # nodes are emitted as Junction-only, not Reservoir).  Also
+    # tolerate ``*_GNL_INF`` LNG-import sentinels (commit e763f39d1).
+    # The turbine still names the pondage as its head; the LP doesn't
+    # need a Reservoir record for it because volume tracking is
+    # collapsed into the parent reservoir's energy balance.
     reservoir_names = {r.name for r in case.reservoirs}
+    junction_names_for_turbines = {j.name for j in case.junctions}
     for turbine in case.turbines:
-        if turbine.reservoir_name and turbine.reservoir_name.endswith("_GNL_INF"):
+        rname = turbine.reservoir_name
+        if not rname:
             continue
-        assert turbine.reservoir_name in reservoir_names
+        if rname.endswith("_GNL_INF"):
+            continue  # LNG-import sentinel
+        # Either a real Reservoir or a Junction-only pondage node.
+        assert rname in reservoir_names or rname in junction_names_for_turbines, (
+            f"Turbine '{turbine.generator_name}' references reservoir "
+            f"'{rname}' which is neither a Reservoir nor a Junction"
+        )
     # Every Waterway's endpoints map to junctions.
     for ww in case.waterways:
         assert ww.storage_from in junction_names

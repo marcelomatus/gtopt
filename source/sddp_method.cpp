@@ -383,14 +383,23 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // ── Low-memory mode: configure all SystemLPs ──────────────────────────────
   if (m_options_.low_memory_mode != LowMemoryMode::off) {
     const auto codec = select_codec(m_options_.memory_codec);
-    SPDLOG_INFO("SDDP: low_memory mode {} (codec: {})",
+    // Under a configured process memory limit, also drop the disposable XLP
+    // collection wrappers on every `release_backend()` so the resident
+    // floor is bounded to the active working set instead of all cells'
+    // ~30 MB wrappers (the dominant compress-mode floor on large models).
+    // Off when no limit — keeps the P3 keep-resident speed default.
+    const bool drop_collections = m_options_.pool_memory_limit_mb > 0.0;
+    SPDLOG_INFO("SDDP: low_memory mode {} (codec: {}){}",
                 enum_name(m_options_.low_memory_mode),
-                codec_name(codec));
+                codec_name(codec),
+                drop_collections
+                    ? " + drop-collections-on-release (memory limit set)"
+                    : "");
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        planning_lp()
-            .system(scene_index, phase_index)
-            .set_low_memory(m_options_.low_memory_mode, codec);
+        auto& sys = planning_lp().system(scene_index, phase_index);
+        sys.set_low_memory(m_options_.low_memory_mode, codec);
+        sys.set_drop_collections_on_release(drop_collections);
       }
     }
   }
@@ -476,7 +485,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         m_options_.pool_cpu_factor,
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
-        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb);
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
+        /*pool_label=*/"SDDP alpha-setup pool");
     std::vector<std::future<void>> futures;
     futures.reserve(num_scenes);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
@@ -664,7 +674,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         m_options_.pool_cpu_factor,
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
-        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb);
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
+        /*pool_label=*/"SDDP backend-release pool");
     std::vector<std::future<void>> futures;
     futures.reserve(static_cast<std::size_t>(num_scenes)
                     * static_cast<std::size_t>(num_phases));

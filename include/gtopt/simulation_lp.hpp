@@ -660,6 +660,36 @@ public:
     return it->second.cols_at(block_uid);
   }
 
+  /// Is the (class, element_uid, attribute) triple registered as an LP
+  /// variable somewhere — any (scene, phase, scenario, stage)?  Used by
+  /// the user-constraint resolver to distinguish "attribute is real
+  /// but the element has no column in THIS specific (scene, phase,
+  /// scenario, stage, block)" (treat-as-zero) from "attribute is a
+  /// typo or not supported on this element" (strict-mode error).
+  ///
+  /// Scans every (scene, phase) cell, matching any AmplVariableKey
+  /// with the given class+uid+attribute regardless of scenario/stage.
+  /// Cost is O(cells × variables) but only triggered on the failure
+  /// path of `resolve_col_to_row` — never on the hot success path.
+  [[nodiscard]] bool find_ampl_variable_for_element(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute) const
+  {
+    for (const auto& by_phase : m_ampl_lp_cells_) {
+      for (const auto& cell : by_phase) {
+        for (const auto& [key, _] : cell.variables) {
+          if (key.class_name == class_name && key.element_uid == element_uid
+              && key.attribute == attribute)
+          {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   /// Register an element's name so that user-expressions like
   /// `generator("G1")` resolve to its Uid.
   ///

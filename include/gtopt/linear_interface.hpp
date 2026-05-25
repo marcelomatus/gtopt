@@ -411,6 +411,29 @@ public:
     return m_cache_.row_dual().size();
   }
 
+  /// Diagnostic resident-byte breakdown for the memory-accounting pass.
+  /// Read-only; sums the retainers this interface holds between solves.
+  struct DiagResidentBytes
+  {
+    std::size_t cache_bytes {};  ///< col_sol + col_cost + row_dual vectors
+    std::size_t compressed_bytes {};  ///< persistent compressed flat-LP buffer
+    std::size_t active_cuts {};  ///< accumulated cut rows (count, a proxy)
+    bool flat_resident {};  ///< decompressed flat LP currently held (≈0 normal)
+  };
+  [[nodiscard]] DiagResidentBytes diag_resident_bytes() const noexcept
+  {
+    constexpr std::size_t kDbl = sizeof(double);
+    DiagResidentBytes r {};
+    r.cache_bytes = (m_cache_.col_sol().size() + m_cache_.col_cost().size()
+                     + m_cache_.row_dual().size())
+        * kDbl;
+    const auto& snap = m_snapshot_holder_.snapshot();
+    r.compressed_bytes = snap.compressed_lp.data.size();
+    r.active_cuts = m_replay_.active_cuts_size();
+    r.flat_resident = !snap.flat_lp.matbeg.empty();
+    return r;
+  }
+
   /// Span-out solution-fill wrappers — public API delegating to the
   /// underlying `SolverBackend::fill_col_sol/fill_col_cost/fill_row_dual`.
   /// Used by `populate_solution_cache_post_solve` to write directly
@@ -2007,6 +2030,74 @@ public:
    * @return Number of columns relaxed from integer to continuous.
    */
   Index relax_integers();
+
+  /**
+   * @brief Outcome of `fix_integers_and_resolve`.
+   *
+   * `fixed_columns` is the number of integer columns that were pinned
+   * to their (rounded) MIP-optimal value and relaxed to continuous.
+   * When it is 0, the LP carried no integer columns and no re-solve was
+   * performed — the caller's existing (LP) duals are already valid.
+   * `status` carries the solver status of the follow-up LP solve when
+   * `fixed_columns > 0` (0 = optimal); it is `std::nullopt` when no
+   * re-solve ran.
+   */
+  struct FixIntegersOutcome
+  {
+    Index fixed_columns {0};
+    std::optional<int> status {};
+  };
+
+  /**
+   * @brief Fix every integer column to its MIP-optimal value, relax
+   *        integrality, and re-solve as a pure LP to recover duals.
+   *
+   * A MIP solution carries no LP duals (shadow prices) or reduced
+   * costs.  The standard recovery technique — used by CPLEX/PLEXOS and
+   * most unit-commitment tools to report LMPs — is: after the MIP is
+   * solved, FIX every integer variable to its optimal (rounded) value,
+   * relax integrality so the problem becomes a pure LP, and re-solve.
+   * The resulting LP has well-defined row duals and column reduced
+   * costs, which are the correct marginal prices given the committed
+   * integer solution.
+   *
+   * Pre-condition: a successful MIP `resolve()` / `initial_solve()`
+   * must have just completed on a live (or reconstructable) backend so
+   * `get_col_sol_raw()` returns the MIP-optimal primal vector.  The
+   * MIP primal values are read into a local copy BEFORE any bound
+   * mutation (the first `set_col_bounds_raw` invalidates the cached
+   * solution).
+   *
+   * For every integer column `c` this:
+   *   1. reads its MIP value `v = round(col_sol_raw[c])`,
+   *   2. fixes both bounds to `v` (`set_col_bounds_raw` with 'B'),
+   *   3. flips it continuous (`relax_integers()` after the bound pins).
+   * It then calls `resolve(opts)`.  After the re-solve the primal
+   * `col_sol` is unchanged (integers pinned to the MIP values) while
+   * `row_dual` / `col_cost` now hold the LP duals / reduced costs.
+   *
+   * Solver-agnostic: routes entirely through `set_col_bounds_raw`,
+   * `relax_integers()` (backend `relax_all_integers`), and `resolve()`.
+   * No backend is hard-coded.
+   *
+   * When the LP has no integer columns this is a cheap no-op: it
+   * returns `{.fixed_columns = 0}` without touching bounds or
+   * re-solving, so a pure-LP solve keeps its native duals untouched.
+   *
+   * @param opts Solver options for the follow-up LP solve (the caller
+   *             typically enables `crossover` so vertex duals are
+   *             produced).
+   * @return Outcome with the fixed-column count and the re-solve status
+   *         (status absent when no integers were found).
+   */
+  [[nodiscard]] std::expected<FixIntegersOutcome, Error>
+  fix_integers_and_resolve(const SolverOptions& opts = {});
+
+  /// True iff at least one column is currently flagged integer.
+  /// Cheap linear scan; short-circuits on the first integer column.
+  /// Used to gate the fix-integers dual-recovery pass so pure-LP solves
+  /// pay nothing.
+  [[nodiscard]] bool has_integer_cols() const;
 
   /**
    * @brief Sets a time limit for the solver

@@ -88,6 +88,10 @@ private:
   /// (interpreted as 0 = off, 1 = on); blocks where the schedule has
   /// no entry leave u free (or governed by ``must_run``).
   OptTBRealSched fixed_status_;
+  /// Per-(stage, block) minimum stable level when committed [MW]
+  /// (PLEXOS ``Min Stable Level`` time series).  Resolved block-by-
+  /// block; unset blocks fall back to the gen column lower bound.
+  OptTBRealSched pmin_;
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> startup_cols_;

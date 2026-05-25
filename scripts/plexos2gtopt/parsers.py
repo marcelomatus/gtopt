@@ -823,6 +823,78 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         if bundle.has("Gen_Rating.csv")
         else {}
     )
+
+    # ── PLEXOS Generator dispatch-state CSVs (forced + outage) ──────
+    #
+    # plexos2gtopt's original pmax extraction only honoured
+    # ``Gen_Rating.csv`` (the nameplate × availability profile).
+    # PLEXOS layers THREE more dispatch-state CSVs on top of that
+    # — they were silently ignored, which on CEN PCP weekly 2026-04-22
+    # gave the LP a deceptively-loose feasible set: 727 must-run
+    # renewables, 1354 forced outages, and 1736 commit-override entries
+    # were all invisible to gtopt.  Reading them here aligns gtopt
+    # with PLEXOS's actual dispatch envelope.
+    #
+    # CSV semantics (per PLEXOS Help → Generator class properties):
+    #
+    #   * ``Gen_FixedLoad.csv`` (Fixed Load, MW/period): hard
+    #     equality ``Generation[t] = Fixed Load[t]``.  Must-run
+    #     renewables and run-of-river hydro carry a per-hour CF
+    #     profile here so PLEXOS dispatches them at exactly that
+    #     value regardless of price.  We honour this by setting
+    #     ``pmax[t] = pmin[t] = fixed_load[t]`` in the writer.
+    #
+    #   * ``Gen_UnitsOut.csv`` (Units Out, # of units): derate
+    #     ``pmax[t] *= (max_units − units_out[t]) / max_units``.
+    #     For single-unit gens (max_units = 1), ``units_out = 1``
+    #     means the gen is fully out for that period (pmax = 0).
+    #     For multi-unit plants the derating is proportional.
+    #
+    #   * ``Gen_Commit.csv`` (Commit, ∈ {-1, 0, 1}):
+    #         -1 ⇒ Endogenous: NO commitment on this gen — let the
+    #              LP/MIP run without a ``CommitmentSpec`` (the
+    #              default for 988 / 1792 = 55% of CEN PCP gens).
+    #              Gens that have ``Commit = -1`` for ALL periods are
+    #              skipped from ``CommitmentSpec`` extraction.
+    #          0 ⇒ Don't Commit: emit a ``CommitmentSpec`` with the
+    #              status fixed/free (writer's call); pmax is left
+    #              untouched (per-period 0-availability already comes
+    #              via Gen_UnitsOut or Gen_Rating = 0).
+    #         +1 ⇒ Commit: must-run within ``[pmin, pmax]``; gtopt
+    #              models this via the standard commitment binary.
+    #
+    # All three are LONG-FORMAT per-period CSVs (NAME,Y,M,D,P,BAND,
+    # VALUE); ``read_long`` returns the per-hour vector over the
+    # bundle's ``n_days`` horizon.
+    fixed_loads: dict[str, list[float]] = (
+        read_long(bundle.csv("Gen_FixedLoad.csv"), n_days=bundle.n_days)
+        if bundle.has("Gen_FixedLoad.csv")
+        else {}
+    )
+    units_out: dict[str, list[float]] = (
+        read_long(bundle.csv("Gen_UnitsOut.csv"), n_days=bundle.n_days)
+        if bundle.has("Gen_UnitsOut.csv")
+        else {}
+    )
+    # ``Gen_Commit.csv`` is loaded and applied on the commitment
+    # side (``extract_commitments`` skips gens with ALL values = -1).
+    # Initial generation is per-generator scalar (PLEXOS ships only
+    # period 1); read once with ``n_days=1`` and look up by name.
+    initial_generations: dict[str, list[float]] = (
+        read_long(bundle.csv("Gen_IniGeneration.csv"), n_days=1)
+        if bundle.has("Gen_IniGeneration.csv")
+        else {}
+    )
+    # Per-generator nameplate "Max Units" property — denominator for
+    # the proportional derating.  Falls back to 1.0 for single-unit
+    # gens missing the explicit declaration (the common CEN PCP case).
+    max_units_by_gen: dict[str, float] = {}
+    for gen_obj in db.objects_of_class("Generator"):
+        try:
+            mu = db.static_property("Generator", gen_obj.object_id, "Max Units")
+        except (LookupError, KeyError, TypeError):
+            mu = None
+        max_units_by_gen[gen_obj.name] = float(mu) if mu and mu > 0 else 1.0
     # ────────────────────────────────────────────────────────────────
     # Optional: override pmax_profile with PLEXOS-solved commitment
     # ────────────────────────────────────────────────────────────────
@@ -984,6 +1056,49 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
             # objects, …). Drop them silently.
             continue
         profile = tuple(pmax_profiles.get(gen.name, ()))
+
+        # ``Gen_UnitsOut.csv`` is PLEXOS's authoritative outage signal
+        # (Generator.Units Out, integer # of units offline).  It is
+        # MOSTLY redundant with ``Gen_Rating[t] = 0`` (when CF=0 the
+        # CSV writer sets Units Out = 1), but for a small set of
+        # ALWAYS-offline thermal units the two disagree: 31 CEN-PCP
+        # gens (TOCOPILLA-TG1/2, COLMITO_DIE, CONCON, PLACILLA,
+        # ARICA_M2, EL_TOTORAL, LAS_VEGAS, LINARES, SANTA_LIDIA, …)
+        # are forced offline ALL 168h via Units Out = 1 even though
+        # ``Gen_Rating`` still ships their nameplate capacity (mostly
+        # diesel peakers PLEXOS does not allow ST Schedule to
+        # commit).  Without honouring Units Out, the gtopt MIP picks
+        # those cheap diesels where PLEXOS forbids them.  All
+        # observed values are 0 or 1 (every gen is single-unit), so
+        # the application reduces to a hard mask: ``pmax[t] = 0`` for
+        # every ``t`` with ``Units Out[t] > 0``.  Multi-unit gens
+        # would derate proportionally; keep the formula general.
+        units_out_profile = units_out.get(gen.name) if units_out else None
+        if units_out_profile and profile:
+            max_units = max(max(units_out_profile), 1.0)
+            new_profile = list(profile)
+            n = min(len(new_profile), len(units_out_profile))
+            for i in range(n):
+                uo = units_out_profile[i]
+                if uo > 0.0:
+                    factor = max(0.0, 1.0 - uo / max_units)
+                    new_profile[i] = new_profile[i] * factor
+            profile = tuple(new_profile)
+
+        # ``Gen_Commit`` uses an enum {Commit (+1), Don't Commit (0),
+        # Endogenous (−1)} where −1 means "let the LP decide" (the
+        # default for 58% of CEN PCP generators).  Interpreting −1 as
+        # "force OFF" — the naive reading — would zero pmax on
+        # > 1000 generators and break dispatch entirely.  This CSV is
+        # read but applied only on the commitment side (skip
+        # generators with ALL values = −1 from CommitmentSpec
+        # extraction — see ``extract_commitments``).
+        #
+        # ``FixedLoad`` IS applied on the writer side as
+        # ``pmin = pmax = fixed_load`` (must-take equality), not as
+        # an extra pmax derating.  See
+        # ``gtopt_writer.py::build_generator_array``.
+
         # PLEXOS-commit override: scale pmax_profile by per-period
         # Units Generating.  When PLEXOS solved with 0 units committed
         # at period p, force pmax_profile[p-1] = 0 (gen MUST be off).
@@ -1137,6 +1252,25 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 hr_incr + 2.0 * hr_incr2 * seg2_mid,
             )
         _ = hr_base  # currently routed through Commitment.noload_cost
+        # PLEXOS Generator.Fixed Load (Gen_FixedLoad.csv): per-period
+        # forced-dispatch profile.  We pass through even when all
+        # entries are zero so the writer can still recognise the
+        # "must-be-zero" case (gen forced off but still listed).
+        # Trim to the bundle's horizon length.
+        fixed_load_profile_raw = fixed_loads.get(gen.name, ())
+        fixed_load_profile: tuple[float, ...] = (
+            tuple(fixed_load_profile_raw)
+            if any(v != 0.0 for v in fixed_load_profile_raw)
+            else ()
+        )
+
+        # PLEXOS Generator.Initial Generation: scalar value used to
+        # seed the ramp-from-prior-window state in rolling/cascade
+        # solves.  For the monolithic single-stage CEN PCP run it
+        # documents the warm-start dispatch level for diagnostics.
+        ini_gen_raw = initial_generations.get(gen.name, ())
+        initial_generation = float(ini_gen_raw[0]) if ini_gen_raw else 0.0
+
         out.append(
             GeneratorSpec(
                 object_id=gen.object_id,
@@ -1152,6 +1286,8 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 fuel_price_override=fuel_price_override,
                 pmax_segments=pmax_segments,
                 heat_rate_segments=hr_segments,
+                fixed_load_profile=fixed_load_profile,
+                initial_generation=initial_generation,
             )
         )
     return tuple(out)
@@ -1305,27 +1441,39 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         # legacy bundles where the property pre-dates the feature.
         enforce_raw = db.static_property("Line", line.object_id, "Enforce Limits")
         enforce_limits = int(enforce_raw) if enforce_raw is not None else 2
-        # ``--lift-line-caps NAME[,NAME...]`` (CLI on plexos2gtopt) lets
-        # the caller demote specific PLEXOS EL=1 lines down to EL=0
-        # (gtopt ``enforce_level = 0`` — emit ``tmax_ab`` for loss-PWL
-        # but skip the hard cap in the LP).  Used for lines where
-        # PLEXOS allows flow above cap on radial paths that have no
-        # parallel route (CEN PCP weekly:
-        # ``Capricornio110->LaNegra110`` — 76 MW cap, 204 MW observed).
-        # Reads ``GTOPT_LIFT_LINE_CAPS`` (comma-separated names) the
-        # CLI propagates through plexos2gtopt.py.
+        # PLEXOS EL=0 ("Never enforce") lines: gtopt's DC-OPF does NOT
+        # physically limit an uncapped line, so dropping the cap lets the
+        # LP route huge (often circulating) flows — e.g. 54,720 MW on the
+        # 62 MW ``S-Km6100->Salar110`` 110 kV line.  But a plain HARD cap
+        # at the rating over-constrains the radial pockets PLEXOS itself
+        # runs above rating (``Capricornio110->LaNegra110`` at 2.7×, no
+        # parallel route).  So model EL=0 lines as a SOFT cap instead:
+        # free up to the rating, penalised between the rating and
+        # ``headroom × rating``, hard at ``headroom × rating`` (the writer
+        # applies the headroom + penalty via ``Line.tmax_normal_*`` +
+        # ``overload_penalty``).  Orig EL=1/EL=2 lines keep their plain
+        # hard cap.  The genuine exceptions named in ``--lift-line-caps``
+        # stay GENUINELY uncapped (gtopt ``enforce_level = 0``: emit
+        # ``tmax_ab`` for the loss PWL but skip the hard cap in the LP),
+        # e.g. ``Capricornio110->LaNegra110``.  Reads
+        # ``GTOPT_LIFT_LINE_CAPS`` (comma-separated names) which the CLI
+        # propagates through plexos2gtopt.py.
         import os as _os_lift
 
         _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
         _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
-        if line.name in _lift_set and enforce_limits >= 1:
+        soft_cap = False
+        if line.name in _lift_set:
             enforce_limits = 0
             logger.info(
-                "extract_lines: lifted cap on line '%s' (EL=1 → 0) via "
-                "GTOPT_LIFT_LINE_CAPS — tmax_ab will be carried for loss "
-                "PWL but the LP will not bind on the rating.",
+                "extract_lines: lifted cap on line '%s' (→ EL=0) via "
+                "--lift-line-caps — no hard limit (tmax_ab carried only "
+                "for the loss PWL).",
                 line.name,
             )
+        elif enforce_limits == 0:
+            enforce_limits = 1
+            soft_cap = True
         out.append(
             LineSpec(
                 object_id=line.object_id,
@@ -1343,6 +1491,7 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 resistance=resistance,
                 wheeling_charge=wheeling,
                 enforce_limits=enforce_limits,
+                soft_cap=soft_cap,
             )
         )
     return tuple(out)
@@ -1567,6 +1716,24 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 max_power,
             )
             pmin_discharge = 0.0
+        # Pin end-of-horizon SoC to start-of-horizon SoC by default.
+        # Without this, ``efin=0`` lets the LP freely bank energy
+        # across the horizon (an off-spec terminal value that drives
+        # BESS net-charge by ~12 GWh on the CEN PCP weekly bundle);
+        # pinning ``efin=eini`` forces the LP to return the battery
+        # to its initial state.  PLEXOS's actual MIP allows a small
+        # net-discharge across the horizon (≈568 MWh / −0.6% of total
+        # cycling on CEN PCP weekly 2026-04-22) — when calibrating
+        # against PLEXOS, set ``GTOPT_BATTERY_PIN_EFIN=0`` (or the
+        # ``--no-battery-efin-pin`` CLI flag) to drop the pin and let
+        # gtopt's LP match PLEXOS's flexible terminal SoC.  The
+        # default ``GTOPT_BATTERY_PIN_EFIN=1`` keeps the historic
+        # behaviour (efin=eini hard pin) so existing test cases
+        # don't drift.
+        import os as _os_efin
+
+        _pin = _os_efin.environ.get("GTOPT_BATTERY_PIN_EFIN", "1").strip()
+        pin_efin = _pin not in ("0", "false", "False", "no", "NO", "off")
         out.append(
             BatterySpec(
                 object_id=batt.object_id,
@@ -1575,16 +1742,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 emin=0.0,
                 emax=emax_mwh,
                 eini=eini,
-                # Pin end-of-horizon SoC to start-of-horizon SoC.
-                # Without this, ``efin=0`` lets the LP freely bank
-                # energy across the horizon (an off-spec terminal
-                # value that drives BESS net-charge by ~12 GWh on
-                # the CEN PCP weekly bundle); pinning ``efin=eini``
-                # forces the LP to return the battery to its initial
-                # state, matching PLEXOS's implicit end-of-horizon
-                # SoC equality.  Mirrors the same convention applied
-                # to ``Reservoir.efin`` for hydro storages.
-                efin=eini,
+                efin=eini if pin_efin else 0.0,
                 pmax_charge=max_power,
                 pmax_discharge=max_power,
                 pmin_charge=pmin_charge,
@@ -2722,9 +2880,21 @@ def extract_reserve_provisions(
         g.name: bool(g.pmax_profile) and (max(g.pmax_profile) != min(g.pmax_profile))
         for g in generators
     }
+    # Restrict eligibility to generators with positive ``pmax``.
+    # Gens forced offline by PLEXOS (``Gen_UnitsOut = 1`` or
+    # ``Gen_Rating = 0`` across the whole horizon — TOCOPILLA-TG1/2,
+    # COLMITO_DIE, all _GNL_INF configurations, …) keep an LP
+    # placeholder column bounded to zero, but they CANNOT provide
+    # reserve.  Without this filter the writer emits 395+
+    # ``ReserveProvision`` rows attached to zero-capacity gens; the
+    # reserve-requirement constraint then can't be satisfied because
+    # the LP can't dispatch them — LP becomes primal-infeasible.
+    eligible_gens = {n for n, pmax in pmax_by_gen.items() if pmax > 0.0}
     by_gen: dict[str, list[str]] = {}
     for rsv in reserves:
         for gen_name in rsv.eligible_generators:
+            if gen_name not in eligible_gens:
+                continue
             by_gen.setdefault(gen_name, []).append(rsv.name)
     urmin_by_gen: dict[str, float] = {}
     drmin_by_gen: dict[str, float] = {}
@@ -2802,6 +2972,28 @@ def extract_commitments(
     Fuel object's catalogue price.
     """
     fuel_price_by_name = {f.name: f.price for f in fuels}
+
+    # PLEXOS ``Generator.Commit`` enum encoding (Gen_Commit.csv):
+    #   -1 = NO commitment (LP-relaxed dispatch, no on/off binary
+    #        modelled — typical for must-take renewables / RoR hydro;
+    #        ~988 of 1792 generators on CEN PCP weekly 2026-04-22).
+    #    0 = Endogenous (LP / MIP decides commitment — the standard
+    #        UC behaviour, ~56 generators).
+    #   +1 = Forced ON (commitment status pinned to 1 for that period
+    #        — ~102 generators always-on plus mixed-period gens).
+    #
+    # When a generator's Gen_Commit profile is ALL -1, gtopt should
+    # not emit a CommitmentSpec at all — let the LP run continuous
+    # dispatch within [pmin, pmax] (the legacy behaviour for gens
+    # without a Commitment object).  When ANY period is 0 or +1, the
+    # generator participates in commitment as normal (the per-period
+    # forcing for +1 is a follow-up; the current writer doesn't yet
+    # plumb per-block ``fixed_status``).
+    # ``Gen_Commit.csv`` is no longer used to gate CommitmentSpec
+    # emission (every value ``-1`` = MIP-endogenous, every value
+    # ``0`` = forced-off-this-period, every value ``+1`` = must-
+    # commit-this-period).  Until the writer supports per-period
+    # forced-status the file is purely informational here.
     start_cost = (
         read_long(bundle.csv("Gen_StartCost.csv"))
         if bundle.has("Gen_StartCost.csv")
@@ -2816,8 +3008,12 @@ def extract_commitments(
     # into ``CommitmentSpec.pmin`` (distinct from
     # ``GeneratorSpec.pmin`` which is the always-on floor = 0 in CEN
     # PCP).  Hoisted out of the gen loop so the CSV is parsed once.
+    # Read the FULL horizon (``n_days``) — Min Stable Level is a time
+    # series (e.g. SANTA_MARIA: 170.53 MW for 20 h, 98.53 MW for 148 h)
+    # and the writer emits the per-block profile; reading only day-1
+    # (the old default) collapsed it to a single over-restrictive floor.
     msl_csv = (
-        read_long(bundle.csv("Gen_MinStableLevel.csv"))
+        read_long(bundle.csv("Gen_MinStableLevel.csv"), n_days=bundle.n_days)
         if bundle.has("Gen_MinStableLevel.csv")
         else {}
     )
@@ -2834,6 +3030,18 @@ def extract_commitments(
     ini_hours_down = (
         read_long(bundle.csv("Gen_IniHoursDown.csv"))
         if bundle.has("Gen_IniHoursDown.csv")
+        else {}
+    )
+    # PLEXOS ``Generator.Commit`` per-period forcing (Gen_Commit.csv,
+    # VALUE in {-1, 0, +1}): +1 = forced ON, 0 = forced OFF, -1 =
+    # MIP-endogenous (free).  Carried onto ``CommitmentSpec`` so the
+    # writer can pin gtopt's ``u`` (commitment status) via
+    # ``must_run`` (all-+1 units) or per-block ``fixed_status`` —
+    # honouring PLEXOS's must-run / don't-commit decisions through the
+    # commitment variable itself, NOT by zeroing ``pmax``.
+    gen_commit_csv = (
+        read_long(bundle.csv("Gen_Commit.csv"), n_days=bundle.n_days)
+        if bundle.has("Gen_Commit.csv")
         else {}
     )
     out: list[CommitmentSpec] = []
@@ -2861,8 +3069,19 @@ def extract_commitments(
         # t_data fallbacks for static UC parameters.
         min_up = db.static_property("Generator", gen.object_id, "Min Up Time")
         min_down = db.static_property("Generator", gen.object_id, "Min Down Time")
-        ramp_up = db.static_property("Generator", gen.object_id, "Max Ramp Up")
-        ramp_down = db.static_property("Generator", gen.object_id, "Max Ramp Down")
+        # PLEXOS ``Max Ramp Up / Down`` is published in MW/min.
+        # gtopt's ``Commitment.ramp_up / ramp_down`` is in MW/hr
+        # (commitment_lp.cpp multiplies by ``block.duration()`` hours
+        # to get the per-block ramp envelope).  Convert with × 60.
+        # Without this conversion COCHRANE_1 (PLEXOS Max Ramp Down =
+        # 1.25 MW/min ≡ 75 MW/h; initial_power = 244.842 MW;
+        # FixedLoad[block 1] = 119.942 MW) fires
+        # ``commitment_ramp_down#1 = 0 ≤ −123.65`` and the LP becomes
+        # primal-infeasible on the very first block.
+        raw_ramp_up = db.static_property("Generator", gen.object_id, "Max Ramp Up")
+        raw_ramp_down = db.static_property("Generator", gen.object_id, "Max Ramp Down")
+        ramp_up = raw_ramp_up * 60.0 if raw_ramp_up else 0.0
+        ramp_down = raw_ramp_down * 60.0 if raw_ramp_down else 0.0
         # PLEXOS ``Run Up Rate`` is expressed in MW/min.  gtopt's
         # ``Commitment.startup_ramp`` is the maximum output [MW] the
         # unit can reach in the startup block.  Block duration in CEN
@@ -2885,6 +3104,10 @@ def extract_commitments(
                 fuel_price_by_name.get(primary_fuel, 0.0) if primary_fuel else 0.0
             )
         noload_cost = hr_base * primary_price
+        # Hoist the GeneratorSpec lookup once — used by both the
+        # Min-Stable-Level / pmax clamp and the Initial-Power /
+        # FixedLoad sync below.
+        gen_spec = next((g for g in generators if g.name == name), None)
         # PLEXOS Min Stable Level → gtopt Commitment.pmin.
         # ``GeneratorSpec.pmin`` is now the *always-on* floor (= 0
         # for CEN PCP).  CSV first, XML t_data fallback.
@@ -2895,6 +3118,103 @@ def extract_commitments(
                 db.static_property("Generator", gen.object_id, "Min Stable Level")
                 or 0.0
             )
+        # Some PLEXOS CEN entries have ``Min Stable Level > Max
+        # Capacity`` (e.g. ANCOA: pmin=19, pmax=8 from a stale or
+        # legacy commit-floor) — this combined with ``Gen_Commit = 1``
+        # (must commit) produces an LP-infeasible row
+        # ``19·u_commit − gen ≤ 0`` since ``gen`` is bounded by 8.
+        # PLEXOS itself dispatches ANCOA at 8 MW (= FixedLoad cap)
+        # for the whole week without violating Min Stable Level —
+        # i.e. PLEXOS implicitly demotes ``pmin`` to ``min(pmin,
+        # max_pmax)`` when Fixed Load binds below it.  Mirror that.
+        if gen_spec is not None:
+            # PLEXOS treats Fixed Load as a hard equality
+            # ``gen[t] = fixed_load[t]`` that OVERRIDES Min Stable
+            # Level — the unit's actual dispatch is whatever Fixed
+            # Load demands, regardless of the published MSL.  When
+            # we land in gtopt's commitment-lower row
+            # ``cmt_pmin · u_commit − gen ≤ 0`` with FixedLoad
+            # pinning ``gen[t] < cmt_pmin``, the LP becomes
+            # infeasible.  We saw this on CHIBURGO block 34
+            # (block-aggregated FixedLoad = 3.23 < cmt_pmin = 3.64;
+            # the per-hour raw FL values are 3.9/4.0/4.8/4.9, but
+            # block 34 averages several of these down).
+            #
+            # A per-block clamp would need the block-aggregated
+            # profile (not available in this extractor — the writer
+            # does the aggregation).  Cleaner: drop ``cmt_pmin``
+            # entirely for any gen that has a Fixed-Load profile.
+            # Rationale: PLEXOS only respects MSL when Fixed Load
+            # isn't binding, but if Fixed Load is published at all,
+            # PLEXOS will let it win.  Setting ``cmt_pmin = 0`` here
+            # leaves the actual dispatch level under FixedLoad's
+            # control (still a hard equality) without making the
+            # commitment row trigger an artificial MSL infeasibility.
+            if gen_spec.fixed_load_profile and any(
+                v > 0.0 for v in gen_spec.fixed_load_profile
+            ):
+                cmt_pmin = 0.0
+            else:
+                # No Fixed Load — still defensively clamp ``cmt_pmin``
+                # to the smallest positive pmax in the raw profile so
+                # block-aggregation rounding can't push pmax[t] below
+                # cmt_pmin at a single block.
+                positive_pmax = [
+                    v for v in (gen_spec.pmax_profile or (gen_spec.pmax,)) if v > 0.0
+                ]
+                min_positive_pmax = min(positive_pmax, default=0.0)
+                if cmt_pmin > min_positive_pmax > 0.0:
+                    cmt_pmin = min_positive_pmax
+        # Per-period Min Stable Level profile (full horizon).  PLEXOS
+        # ships Min Stable Level as a time series; the scalar ``cmt_pmin``
+        # above (period-1 value) over-constrains units whose floor drops
+        # later in the week (e.g. SANTA_MARIA: 170.53 MW for 20 h, 98.53
+        # MW for 148 h — gtopt previously pinned 170.53 everywhere and
+        # could not back the unit down like PLEXOS).  Apply the same
+        # fixed-load / pmax clamps element-wise; only keep the profile
+        # when it genuinely varies (constant series use the scalar).
+        cmt_pmin_profile: tuple[float, ...] = ()
+        if msl_series and len(set(msl_series)) > 1:
+            if (
+                gen_spec is not None
+                and gen_spec.fixed_load_profile
+                and any(v > 0.0 for v in gen_spec.fixed_load_profile)
+            ):
+                prof = [0.0] * len(msl_series)
+            else:
+                cap = 0.0
+                if gen_spec is not None:
+                    pos_pmax = [
+                        v
+                        for v in (gen_spec.pmax_profile or (gen_spec.pmax,))
+                        if v > 0.0
+                    ]
+                    cap = min(pos_pmax, default=0.0)
+                prof = [
+                    min(v, cap) if (cap > 0.0 and v > cap) else v for v in msl_series
+                ]
+            if len(set(prof)) > 1:
+                cmt_pmin_profile = tuple(prof)
+        # PLEXOS ``Initial Generation`` (Gen_IniGeneration.csv) →
+        # gtopt ``Commitment.initial_power``: dispatch level at t=-1.
+        # Pulled from the GeneratorSpec where the CSV was already
+        # parsed during ``extract_generators``.
+        initial_power = gen_spec.initial_generation if gen_spec else 0.0
+        # When PLEXOS Fixed Load is positive on block 1 it acts as a
+        # hard-equality (``Generation[1] = Fixed Load[1]``) that
+        # bypasses Max Ramp Down — PLEXOS simply does NOT apply the
+        # ramp constraint where Fixed Load binds.  gtopt's commitment
+        # ramp row knows nothing of Fixed Load, so a fixed_load[0]
+        # well below ``Initial Generation`` (e.g. COCHRANE_1:
+        # 119.942 MW at block 1 vs 244.842 MW carried over) makes
+        # the LP infeasible on block 1.  Align ``initial_power`` to
+        # the binding Fixed Load value at block 1 so the ramp row
+        # is trivially satisfied — mirrors PLEXOS's effective
+        # treatment.
+        if gen_spec and gen_spec.fixed_load_profile:
+            fl0 = gen_spec.fixed_load_profile[0]
+            if fl0 > 0.0:
+                initial_power = fl0
         any_param = (
             startup_cost
             or shutdown_cost
@@ -2906,9 +3226,77 @@ def extract_commitments(
             or initial_hours
             or noload_cost
             or cmt_pmin
+            or initial_power
         )
-        if not any_param:
+        # Bridge: ALSO force-commit a unit that PLEXOS forces via
+        # Gen_Commit (value 0 or +1 in some period) even when it carries
+        # no commitment param of its own, so gtopt's committed set mirrors
+        # PLEXOS for an apples-to-apples commitment comparison.  This is
+        # safe now that renewable/RoR ``pmin`` is SOFT (0, curtailable):
+        # a forced-OFF must-take unit simply curtails to 0, instead of the
+        # old ``pmin=pmax`` (gen pinned >0) vs ``u=0`` infeasibility.
+        # Verified clean otherwise: no Uniq family has 2+ configs forced
+        # ON in the same block, and no forced unit has commitment.pmin >
+        # pmax.  The pinned ``u`` (must_run/fixed_status, emitted in
+        # build_commitment_array) is fixed in presolve, so the MIP cost is
+        # negligible.
+        _forced_commit = any(v in (0, 1) for v in gen_commit_csv.get(name, ()))
+        if not any_param and not _forced_commit:
             continue
+
+        # Drop commitments that have NO real on/off cost, NO Min
+        # Stable Level floor, NO Min Up / Down time, AND NO ramp
+        # limits.  Such commits add a u_commit binary to the MIP
+        # that the LP can flip at zero economic consequence (no
+        # startup cost, no shutdown cost, no >=pmin floor when
+        # committed, no minimum contiguous-on/off duration, no
+        # ramp-rate constraint) — pure noise that bloats the MIP
+        # without changing the optimum.  Observed on 96 / 909 commits
+        # in CEN PCP weekly: hydro/wind/solar with all seven fields
+        # zero, plus a handful of gas/LNG fictitious INF proxies —
+        # all with the wider ``initial_hours`` / ``noload_cost`` /
+        # ``initial_power`` UC params (which qualify ``any_param``
+        # above but on their own carry no commitment economics).
+        if (
+            not startup_cost
+            and not shutdown_cost
+            and not cmt_pmin
+            and not min_up
+            and not min_down
+            and not ramp_up
+            and not ramp_down
+            # ...UNLESS PLEXOS forces this unit's commitment (Gen_Commit
+            # 0/+1): keep it so the forced ``u`` has a variable to pin.
+            and not _forced_commit
+        ):
+            continue
+
+        # PLEXOS ``Generator.Commit`` semantics revisited (2026-05-24):
+        #   +1 = Yes — must commit
+        #    0 = No  — don't commit (forced off this period)
+        #   -1 = Endogenous — let PLEXOS's MIP decide via the
+        #         standard commitment binary
+        #
+        # Earlier we skipped any generator with ``Gen_Commit = -1``
+        # across the whole horizon on the theory that "-1 means no
+        # commitment".  Validated against the PLEXOS solution
+        # (.accdb prop 7 Units Generating) on CEN PCP 2026-04-22:
+        # CAMPICHE (Gen_Commit = -1 always, $102k startup, 62.9 MW
+        # MSL) actually cycles 1→0 mid-week in PLEXOS.  Same story
+        # for 10/16 coal plants (ANGAMOS_1/2, NUEVA_VENTANAS,
+        # HORNITOS, ANDINA, GUACOLDA_1/2/3/5, COCHRANE_2), 900+
+        # thermals total.  Skipping their CommitmentSpec lets the
+        # gtopt LP dispatch them freely with no startup cost,
+        # producing the +$20 GWh CAMPICHE over-dispatch / +$25 GWh
+        # SANTA_MARIA over-dispatch / etc. observed in the 2026-
+        # 05-24 K=6 uniform run.
+        #
+        # Correct interpretation: ``Gen_Commit = -1`` = "MIP
+        # decides" — emit the CommitmentSpec exactly as if any
+        # other commitment-bearing parameter was present.  The
+        # ``any_param`` filter above already excludes pure
+        # renewables and RoR hydros (no startup_cost, no MSL, no
+        # ramp data → ``any_param == False``).
         out.append(
             CommitmentSpec(
                 generator_name=name,
@@ -2923,6 +3311,11 @@ def extract_commitments(
                 startup_ramp=startup_ramp,
                 noload_cost=noload_cost,
                 pmin=cmt_pmin,
+                pmin_profile=cmt_pmin_profile,
+                initial_power=initial_power,
+                commit_status_profile=tuple(
+                    int(round(v)) for v in gen_commit_csv.get(name, ())
+                ),
             )
         )
     return tuple(out)
@@ -3291,6 +3684,47 @@ def _format_coefficient(value: float, first: bool) -> str:
     return f" + {value:g} * "
 
 
+#: Constraint-name prefixes / suffixes whose UCs MUST be active in
+#: the gtopt LP even when PLEXOS marks ``Include in ST Schedule ≤ 0``.
+#: PLEXOS enforces these implicitly through its commitment solver
+#: (config mutual-exclusion, startup logic, commitment branches);
+#: gtopt's LP build needs them as explicit UCs or the LP can ghost-
+#: double physical capacity (e.g. NEHUENCO_2-TG and NEHUENCO_2-TG+TV
+#: — the same unit in two configurations — running in parallel).
+#:
+#: Discovered while diagnosing CEN PCP weekly LNG +229% over-dispatch
+#: (combined with the FueMaxOff missing-gens fix in
+#: ``_build_fuel_offtake_caps_ucs`` and the per-stage SUM mode for
+#: ``Fuel.max_offtake`` in ``build_fuel_array``).
+#:
+#: Patterns are deliberately conservative: the structural-infeasibility
+#: contingency filter still applies on top, so genuinely-broken UCs
+#: (all-negative coefficients with ``>= positive RHS``) remain off.
+#: Tokens that MUST appear (as a substring) in the constraint name for
+#: PLEXOS names commonly carry a unit prefix before the family token
+#: (``NEHUENCO_2_ConfTG``, ``ATA_CC_1_ConfTGA``, ``BAT_*_OFF``, …), so
+#: a prefix-only matcher would miss them.
+_FORCE_ACTIVE_PATTERNS: tuple[str, ...] = (
+    "Commit_",  # commitment branches (TG/CC dispatch logic)
+    "CTFOFF",  # Configuration Turn-Off
+    "Conf",  # *_Conf, *_ConfTG, *_ConfFSTVU, _ConfFA, …
+    "MutuallyExclusive",  # explicit physical-machine mutex
+    "_Uniq",  # unique-config selectors (NEHUENCO_Uniq, …)
+    "_Startings",  # start-event limits
+    "Startings_",  # alternate placement
+    "_Comparison",  # band-comparison rows (NEHUENCO_2_DIE_Comparison)
+    "_OFF",  # *_GNL_INF_OFF (LNG-import sentinel turn-off)
+    # Excluded — these families reference gtopt-side commitments
+    # that don't exist for some entities (e.g. CSF_MinUnits hits
+    # `commitment(uc_BAT_*_gen).status`, but gtopt doesn't model
+    # batteries with separate _gen commitments).  Re-enable a
+    # specific family AFTER auditing its expressions against the
+    # gtopt entity registry.
+    #   "CTF_", "CSF_", "CSFLW", "CPF_", "CPFN", "InertiaCommit",
+    #   "InertiaGlobal", "InertiaNR", "GxAtacama", "GxCTM3"
+)
+
+
 def _is_contingency_constraint(
     name: str,  # noqa: ARG001  # reserved for future name-based recognisers
     coefficients: list[float],
@@ -3336,6 +3770,72 @@ def _first_value(rows: list) -> float | None:
     if abs(raw) >= 1.0e20:
         return None
     return raw
+
+
+def _horizon_value(
+    rows: list, horizon_start, *, prefer_min: bool = False
+) -> float | None:
+    """Select the effective PLEXOS property value for ``horizon_start``.
+
+    PLEXOS property values can carry a ``[date_from, date_to]`` window
+    (``t_date_from`` / ``t_date_to``).  A *dated* row is a temporary
+    override active only while the simulation timestamp lies inside its
+    window; *undated* rows are the permanent base value.  The CEN PRGdia
+    bundles routinely ship several rows per constraint property — a base
+    value plus narrow single-day windows that record historical binding
+    events from past real-time runs.  ``_first_value`` (lowest data_id)
+    ignores the windows entirely and frequently picks a stale historical
+    override, which is wrong: validated against the RES20260422 solution,
+    the lowest-data_id RHS matches PLEXOS in only 30 % of the 336
+    ambiguous constraints, whereas this date-aware rule matches 99 %.
+
+    Selection:
+      1. Keep rows active at ``horizon_start``: undated base rows (priority
+         0) and dated rows whose window covers it (priority 1).
+      2. Among the highest priority present, pick the value.  For RHS
+         (``prefer_min=True``) take the minimum — the relaxed bound PLEXOS
+         applies when a constraint is effectively disabled (e.g. a
+         ``Σ status >= 1`` disjunction whose live RHS is 0, freeing the
+         unit to shut down); otherwise take the lowest-data_id value.
+      3. Drop the ``±1E+30`` infinity sentinel.
+
+    Falls back to undated/base rows when ``horizon_start`` is unknown or no
+    dated row is active, so unit tests without Horizon dates behave as
+    before.
+    """
+    if not rows:
+        return None
+
+    def _active_priority(row) -> int | None:
+        df, dt_ = row.date_from, row.date_to
+        if df is None and dt_ is None:
+            return 0
+        if horizon_start is None:
+            return None
+        if (df is None or df <= horizon_start) and (
+            dt_ is None or dt_ >= horizon_start
+        ):
+            return 1
+        return None
+
+    active = [(p, r) for r in rows if (p := _active_priority(r)) is not None]
+    if not active:
+        # No row active at the horizon (all windows historical).  Fall back
+        # to undated base rows, else the raw rows, so we never return None
+        # for a constraint that does carry an RHS.
+        base = [r for r in rows if r.date_from is None and r.date_to is None]
+        active = [(0, r) for r in (base or rows)]
+
+    top = max(p for p, _ in active)
+    candidates = [r for p, r in active if p == top]
+    vals = [
+        r.value for r in candidates if r.value is not None and abs(r.value) < 1.0e20
+    ]
+    if not vals:
+        return None
+    if prefer_min:
+        return min(vals)
+    return min(candidates, key=lambda r: r.data_id).value
 
 
 def _build_membership_pair_index(
@@ -3484,10 +3984,25 @@ def extract_user_constraints(
                 continue
             rows.sort(key=lambda r: r.data_id)
             val = rows[0].value
-            # PLEXOS uses {-1, 0} for "exclude", positive (typically 1)
-            # for "include".  Sentinel-magnitude values land in
-            # exclude territory too — defensive.
-            if val is not None and val <= 0.0:
+            # PLEXOS ``Include in ST Schedule`` semantics revisited
+            # (2026-05-24): the property is tri-state
+            #   (no entry) = use PROJECT default → INCLUDE
+            #            0 = explicitly EXCLUDE from ST Schedule
+            #           -1 = use PROJECT default (sentinel form) →
+            #                INCLUDE
+            #          ≥ 1 = explicitly INCLUDE
+            # Earlier this branch treated both 0 and -1 as
+            # "exclude" — wrong for -1.  Verified on CEN PCP
+            # 2026-04-22: ``Campiche_starting`` /
+            # ``NVentanas_starting`` / ``SD_2025128381_...`` /
+            # ``NorthSecurity`` all carry value ``-1`` yet PLEXOS
+            # actively binds them (CAMPICHE's 5.7 GWh / 33h dispatch
+            # tail matches enforcement of ``startup ≤ 0`` after the
+            # initial-state shutdown).  Treating -1 as ``exclude``
+            # made gtopt under-emit 704 / 1107 constraints,
+            # producing the +20 to +32 GWh coal over-dispatch
+            # (NUEVA_VENTANAS, CAMPICHE, SANTA_MARIA, …).
+            if val is not None and val == 0.0:
                 include_st_excluded.add(constr_oid)
     if include_st_excluded:
         logger.info(
@@ -3624,14 +4139,38 @@ def extract_user_constraints(
                                 gen_obj.name
                             )
 
+    # Pre-build a set of generator names that are HYDROS — i.e. have
+    # no Fuel membership.  PLEXOS UserConstraints whose ENTIRE LHS
+    # references hydros are typically per-reservoir operational floors
+    # (``PANGUEcaudal_min_diario``, ``ANGOSTURAmin``, ``ANTUCOmin``,
+    # ``ELTOROmin``, ``PANGUEramp``, ``ANGOSTURAmaxramp``, …).  PLEXOS
+    # gates these on the unit's commitment status internally (only
+    # enforced when the unit is committed) but our extractor emits
+    # them as raw hard floors — when the LP wants to dispatch the
+    # unit BELOW the floor (or off entirely) the constraint becomes
+    # primal-infeasible.  Mirror PLEXOS's effective treatment by
+    # emitting these as SOFT constraints with a small penalty
+    # (``$10/MWh`` — matches the existing
+    # ``discharge_ANTUCOmin`` penalty).  Thermal/mixed constraints
+    # stay HARD as before.
+    _HYDRO_UC_SOFT_PENALTY = 10.0
+
     out: list[UserConstraintSpec] = []
     unsupported_rhs_shift_warns: set[str] = set()
+    horizon_start = db.horizon_start
     for constr in constraints:
         mid = sys_mid_by_constr.get(constr.object_id)
         if mid is None:
             continue
-        sense_val = _first_value(db.data_for(mid, prop_sense))
-        rhs_val = _first_value(db.data_for(mid, prop_rhs))
+        sense_val = _horizon_value(db.data_for(mid, prop_sense), horizon_start)
+        # RHS uses the relaxed (min) value among horizon-active rows: PLEXOS
+        # ships dated historical overrides that ``_first_value`` would pick
+        # by mistake, forcing units committed (e.g. CAMPICHE / coal staying
+        # on all week instead of shutting down like PLEXOS).  See
+        # ``_horizon_value``.
+        rhs_val = _horizon_value(
+            db.data_for(mid, prop_rhs), horizon_start, prefer_min=True
+        )
         if sense_val is None or rhs_val is None:
             continue
         op = _SENSE_OP.get(sense_val)
@@ -3639,7 +4178,9 @@ def extract_user_constraints(
             logger.debug("constraint %s has unknown Sense %s", constr.name, sense_val)
             continue
         penalty_val = (
-            _first_value(db.data_for(mid, prop_penalty)) if prop_penalty else None
+            _horizon_value(db.data_for(mid, prop_penalty), horizon_start)
+            if prop_penalty
+            else None
         )
 
         # 1. Direct coefficient terms.  Filter at two levels:
@@ -3656,6 +4197,12 @@ def extract_user_constraints(
         # constraint as contingency after the build loop (signs +
         # magnitudes are what determines feasibility).
         coefficients: list[float] = []
+        # Track parent generator names referenced (any class).  Used
+        # below to soften UCs whose entire LHS references hydros —
+        # PLEXOS gates hydro per-reservoir floors on commitment
+        # status internally; our extractor emits them as hard floors
+        # which collide with off-state dispatch.
+        referenced_gen_names: set[str] = set()
         # Per-block RHS shift bookkeeping — accumulated from both the
         # Fuel.Offtake daily-to-block budget split AND the derived
         # Curtailed / Available Capacity coefficients below.  Hoisted
@@ -3703,6 +4250,11 @@ def extract_user_constraints(
                 var_ref = f'{gtopt_class}("{ref_name}").{accessor}'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
                 coefficients.append(coeff)
+                # Record parent gen names that we actually emitted
+                # (so the post-loop hydro-classification skips terms
+                # that were filtered out above).
+                if parent_class == "Generator":
+                    referenced_gen_names.add(parent_name)
 
         # 2. Fuel.Offtake expansion: a Fuel→Constraint coefficient ``α``
         #    becomes ``α × heat_rate(g) × generator(g).generation`` summed
@@ -3834,12 +4386,16 @@ def extract_user_constraints(
                     continue
                 elif mode == "forward_to_battery_gen_commit":
                     # Battery.Reserve Units → forward to the
-                    # auto-synthesised ``<battery>_gen`` Generator's
-                    # Commitment.  ``system.cpp::expand_batteries``
-                    # creates this Commitment object with uid
-                    # ``uc_<battery_name>_gen``; the
-                    # ``commitment("X").status`` AMPL accessor
-                    # exists and is exact.
+                    # synthesised ``uc_<battery>_gen`` Commitment.
+                    # ``System::expand_batteries`` now creates this
+                    # commitment UNCONDITIONALLY for every battery
+                    # (relaxed continuous ``u ∈ [0, 1]`` when the
+                    # battery has no commitment economics — see
+                    # ``source/system.cpp``), so the reference always
+                    # resolves at LP build.  Mirrors PLEXOS, which
+                    # synthesises an internal commitment binary from
+                    # the battery's ``Units`` property for every
+                    # battery.
                     var_ref = f'commitment("uc_{parent_name}_gen").status'
                     terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
                     coefficients.append(alpha)
@@ -3916,7 +4472,53 @@ def extract_user_constraints(
         is_structurally_infeasible = _is_contingency_constraint(
             constr.name, coefficients, op, rhs_val
         )
-        is_inactive = is_excluded_by_plexos or is_structurally_infeasible
+
+        # ── ST-include override ─────────────────────────────────────
+        # PLEXOS marks ~91% of constraints with ``Include in ST
+        # Schedule ≤ 0`` to exclude them from the daily run, but a
+        # subset of those flagged exclusions are STILL needed for
+        # gtopt to produce a PLEXOS-comparable dispatch: physical-
+        # machine config mutual-exclusion (Conf*), commitment logic
+        # (Commit_*), startup-event limits (*_Startings, CTFOFF*),
+        # and offer-comparison rows (*_Comparison, *_Uniq).  PLEXOS
+        # enforces these implicitly via its commitment solver, but
+        # gtopt's LP build needs them as explicit UCs.  Without the
+        # override, NEHUENCO_2-TG and NEHUENCO_2-TG+TV (the same
+        # physical machine in different configs) can run in PARALLEL,
+        # ghost-doubling capacity — root cause of a chunk of the LNG
+        # +229% over-dispatch on CEN PCP weekly.
+        #
+        # ``_FORCE_ACTIVE_PREFIXES`` and ``_FORCE_ACTIVE_SUFFIXES``
+        # capture the constraint families to keep active regardless
+        # of the PLEXOS ST-include flag.  Structurally-infeasible
+        # contingency rows (cap rule (b)) still get active=False.
+        # Substring matcher: PLEXOS names commonly carry a unit prefix
+        # before the family token (NEHUENCO_2_ConfTG, ATA_CC_1_ConfTGA,
+        # BAT_*_OFF, …), so prefix/suffix-only matching misses them.
+        # Check ``substring in name`` for every family pattern.
+        is_force_active_family = any(p in constr.name for p in _FORCE_ACTIVE_PATTERNS)
+        if is_excluded_by_plexos and is_force_active_family:
+            # ST-exclude flag suppressed; keep this UC active because
+            # its family (Conf/Commit/Startings/etc.) is required for
+            # PLEXOS-comparable dispatch.
+            is_excluded_by_plexos = False
+
+        # Battery-disable UCs (``Almacenamiento_BAT_*: battery.energy
+        # = 0``) are PLEXOS's internal way of pinning a battery's SoC
+        # to zero across the horizon (= unit effectively offline).
+        # gtopt already represents battery on/off via ``Battery.emax``
+        # / ``eini`` / ``efin`` / ``commitment``; the EQ pin
+        # collides with gtopt's battery dynamics (initial SoC > 0
+        # forces a discharge path the energy-=0 row forbids), and
+        # even soft-penalty slack can't resolve a multi-block
+        # accumulating violation cleanly.  Mark these inactive so
+        # they don't conflict.
+        is_battery_disable = constr.name.startswith(
+            "Almacenamiento_BAT_"
+        ) or constr.name.startswith("Almacenamiento_NoBAT_")
+        is_inactive = (
+            is_excluded_by_plexos or is_structurally_infeasible or is_battery_disable
+        )
         if is_excluded_by_plexos:
             logger.debug(
                 "constraint %s excluded from ST run by PLEXOS "
@@ -3938,16 +4540,138 @@ def extract_user_constraints(
         rhs_profile_tuple: tuple[float, ...] = ()
         if any(abs(s) > 0.0 for s in rhs_shift_per_block):
             rhs_profile_tuple = tuple(rhs_val - shift for shift in rhs_shift_per_block)
+        # Soften UCs whose ENTIRE Generator-side LHS references hydros
+        # — PLEXOS gates these per-reservoir floors / ramps on the
+        # unit's commitment status internally, but we emit them as
+        # raw hard floors which collide with off-state dispatch.
+        # Override the PLEXOS-supplied penalty (typically 0 = hard)
+        # with $10/MWh so the LP can take small slacks instead of
+        # going infeasible (matches the existing
+        # ``discharge_ANTUCOmin`` precedent).  Constraints with no
+        # generator references OR with mixed thermal+hydro refs stay
+        # at the PLEXOS-supplied penalty (typically hard).
+        plexos_penalty = penalty_val if penalty_val and penalty_val > 0 else 0.0
+        emitted_penalty = plexos_penalty
+        if plexos_penalty == 0.0 and not is_inactive:
+            # Two-tier soft default for active PLEXOS Constraints
+            # without an explicit Penalty Price:
+            #
+            #   HARD (penalty=0) — constraints that reference a
+            #   commitment binary (``commitment(...).status`` /
+            #   ``.startup`` / ``.shutdown``).  These encode UNIT
+            #   COMMITMENT / SCHEDULING decisions that drive the
+            #   PLEXOS dispatch pattern: ``Campiche_starting``
+            #   (``startup ≤ 0`` → no restart), ``NVentanas_starting``
+            #   (NV stays off), ``SD_2025128381_Campiche_o_NVentanas``
+            #   (CAMPICHE-or-NV mutex), ``NorthSecurity`` (coal
+            #   commitment count), the ``*ConfTG*`` / ``*_Uniq``
+            #   configuration mutexes.  These are individually
+            #   feasible (a unit can always stay off / on) and MUST
+            #   bind — softening them at $10/MWh let the LP pay a
+            #   trivial slack to dispatch coal PLEXOS keeps off
+            #   (CAMPICHE +30 GWh, NUEVA_VENTANAS +13 GWh).
+            #
+            #   SOFT ($10/MWh) — operational floors / caps on
+            #   ``generator.generation`` / ``battery.energy`` /
+            #   ``line.flow`` (``PANGUEcaudal_min_diario``,
+            #   ``ANGOSTURAmin``, ``SD_2025079667_Gx_Pullinque_
+            #   Lautaro``).  PLEXOS gates these on commitment status
+            #   internally and its own solution VIOLATES many
+            #   (``Pullinque_Lautaro >= 59`` is infeasible-as-hard:
+            #   gen capacity sums to only 58.97 MW).  Emitting hard
+            #   makes the LP primal-infeasible; soft keeps it
+            #   feasible and surfaces violations as slack-cost line
+            #   items.
+            #   HARD (penalty=0) — also pure transmission-flow limits
+            #   (only ``line(X).flow`` terms).  The RES20260422
+            #   solution-vs-RHS classification found all pure-flow
+            #   ``SD_*`` line limits SATISFIED by PLEXOS, so they port
+            #   HARD with no infeasibility risk (gtopt's flows sit below
+            #   these ``<=`` caps).
+            #
+            #   SOFT ($10/MWh) — everything else: operational generation
+            #   floors and reserve-provision requirements.  An "all-hard"
+            #   experiment (2026-05-24) proved these cannot all be hard:
+            #   ``ANTUCOmin >= 137 MW`` conflicts with the hard
+            #   ``discharge_ANTUCOmax <= 63 m³/s`` cap, and the
+            #   CPF/CSF/CTF reserve requirements (e.g.
+            #   ``CTF_DownMinProvision``) are infeasible-as-hard.  PLEXOS
+            #   treats all of these as soft (implicit slack) and violates
+            #   many, so they stay soft here.  (Fuel-offtake caps no
+            #   longer travel through UserConstraints at all — they use
+            #   the native ``Fuel.max_offtake`` budget; reserve will
+            #   likewise move to native ``ReserveZone.urcost/drcost`` in
+            #   a follow-up.)
+            references_commitment = "commitment(" in expression
+            is_pure_line_flow = (
+                "line(" in expression
+                and "generator(" not in expression
+                and "commitment(" not in expression
+                and "battery(" not in expression
+                and "reserve_provision(" not in expression
+                and "decision_variable(" not in expression
+            )
+            if not references_commitment and not is_pure_line_flow:
+                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
         out.append(
             UserConstraintSpec(
                 name=constr.name,
                 expression=expression,
-                penalty=penalty_val if penalty_val and penalty_val > 0 else 0.0,
+                penalty=emitted_penalty,
                 active=False if is_inactive else None,
                 rhs_profile=rhs_profile_tuple,
             )
         )
     return tuple(out)
+
+
+#: Soft-violation penalty ($/fuel-unit) for synthesised ``FueMaxOff_*``
+#: caps.  PLEXOS treats these fuel-offtake limits as soft and exceeds
+#: them substantially in the solved model; matching that (vs the old
+#: near-hard 10000) keeps gtopt from throttling LNG and over-running on
+#: coal.  Same magnitude as the other soft-UC penalties (see
+#: ``_HYDRO_UC_SOFT_PENALTY``).
+_FUEL_OFFTAKE_SOFT_PENALTY = 1000.0
+
+
+def _apply_native_fuel_offtake_caps(
+    bundle: PlexosBundle, fuels: tuple[FuelSpec, ...]
+) -> tuple[FuelSpec, ...]:
+    """Set native ``Fuel.max_offtake`` (+ soft ``max_offtake_cost``) from
+    the PLEXOS ``FueMaxOffWeek_*`` weekly caps.
+
+    Replaces the ``FueMaxOff_*`` UserConstraint approximation
+    (``Σ heat_rate·gen ≤ cap`` per block) with gtopt's native per-stage
+    fuel-budget row (``Σ heat_rate·gen·duration ≤ max_offtake`` over the
+    week).  The model has one stage = the week, so each fuel's weekly
+    cap maps directly to ``max_offtake``.  The cap is SOFT
+    (``max_offtake_cost`` = the standard soft penalty) because PLEXOS
+    violates these caps — a hard budget re-throttles LNG and forces coal.
+
+    Returns the fuels tuple with caps applied; unmatched fuels pass
+    through unchanged.
+    """
+    if bundle.accdb_cache_dir is None or not bundle.accdb_cache_dir.is_dir():
+        return fuels
+    from .plexos_block_layout import extract_fuel_offtake_caps
+
+    caps = extract_fuel_offtake_caps(bundle.accdb_cache_dir)
+    if not caps:
+        return fuels
+    # Drop never-binding sentinels (cap ≥ 1e15 = "no real limit").
+    binding = {f: cap for f, (cap, _scope) in caps.items() if cap < 1e15}
+    if not binding:
+        return fuels
+    return tuple(
+        dataclasses.replace(
+            fuel,
+            max_offtake=binding[fuel.name],
+            max_offtake_cost=_FUEL_OFFTAKE_SOFT_PENALTY,
+        )
+        if fuel.name in binding
+        else fuel
+        for fuel in fuels
+    )
 
 
 def _build_fuel_offtake_caps_ucs(
@@ -4005,16 +4729,21 @@ def _build_fuel_offtake_caps_ucs(
     for g in case.generators:
         if not g.fuel_names or g.heat_rate <= 0.0 or g.pmax <= 0.0:
             continue
-        # Skip generators whose per-block pmax profile drops to 0
-        # in any block — gtopt's GeneratorLP omits the LP column on
-        # zero-pmax blocks and strict-mode UC resolution then fails
-        # with "missing or inactive" on the very first such block.
-        # These are PLEXOS startup-staged / alternate-fuel-mode
-        # variants that only become dispatchable mid-horizon; the
-        # cap LHS slightly under-counts them but the constraint
-        # still binds on the always-dispatchable variants.
-        if g.pmax_profile and any(p <= 0.0 for p in g.pmax_profile):
-            continue
+        # KEEP generators whose per-block pmax profile drops to 0 in
+        # SOME blocks (PLEXOS startup-staged / alternate-fuel-mode
+        # variants).  The earlier code skipped them to avoid gtopt's
+        # strict-mode UC resolver throwing "missing or inactive" on
+        # zero-pmax blocks — but that under-counted the FueMaxOff
+        # cap LHS by entire generators, producing a +229% LNG over-
+        # dispatch on CEN PCP weekly (NEHUENCO_2-TG+TV_GNL_C alone
+        # dispatched 30,843 MWh vs PLEXOS 244 MWh).
+        #
+        # gtopt's resolver was made lenient on the specific case
+        # "element registered for SOME block of the stage but not
+        # this one" (element_known=true via `find_ampl_cols` scan
+        # over the stage's blocks in `element_column_resolver.cpp`).
+        # Genuine typos / unregistered attributes still throw — the
+        # safety guard is preserved.
         for fuel_name in g.fuel_names:
             fuel_to_gens.setdefault(fuel_name, []).append((g.name, g.heat_rate))
 
@@ -4052,12 +4781,38 @@ def _build_fuel_offtake_caps_ucs(
         if not terms:
             continue
 
-        # Per-block RHS decomposition: each block carries
-        # ``cap × duration / scope`` of the weekly/daily budget.
-        if block_durations:
+        # PLEXOS publishes a per-period RHS profile that varies
+        # substantially across the horizon — e.g.
+        # ``FueMaxOffWeek_Gas_Yungay_GN_A`` runs at 14.5 in the
+        # first 25 blocks (where YUNGAY units are FixedLoad-pinned
+        # at 52 MW × 0.284 heat ≈ 14.76 per block) and drops to
+        # 0.49 in the cheap-gen surplus hours.  A uniform
+        # decomposition (``cap × d / scope``) flattens this to 2.32
+        # per block, which collides with the FixedLoad equality and
+        # makes the LP primal-infeasible on block 1.  Use PLEXOS's
+        # actual per-period RHS values where they're available;
+        # fall back to the uniform decomposition otherwise.
+        per_period = (
+            extract_fuel_offtake_caps.rhs_per_period.get(  # type: ignore[attr-defined]
+                fuel_name, {}
+            )
+            if hasattr(extract_fuel_offtake_caps, "rhs_per_period")
+            else {}
+        )
+        if per_period and block_durations:
+            # ``per_period`` maps PLEXOS period_id (1-indexed) to
+            # the per-period RHS.  block_durations is 0-indexed and
+            # aligns 1:1 with PLEXOS blocks under
+            # ``--horizon-mode plexos``.  Build the profile from
+            # period_id = i + 1; fall back to the uniform formula
+            # at any block where PLEXOS didn't publish a row.
+            rhs_profile = tuple(
+                per_period.get(i + 1, cap * (block_durations[i] / scope_hours))
+                for i in range(len(block_durations))
+            )
+            scalar_rhs = sum(rhs_profile) / max(len(rhs_profile), 1)
+        elif block_durations:
             rhs_profile = tuple(cap * (d / scope_hours) for d in block_durations)
-            # The scalar baked into the expression is the average
-            # (matches the rhs_profile when the layout is uniform).
             scalar_rhs = (
                 cap
                 * (horizon_hours / max(scope_hours, 1.0))
@@ -4076,17 +4831,177 @@ def _build_fuel_offtake_caps_ucs(
         # an extra separator.  Using ``" + ".join(terms)`` would
         # produce ``X +  + Y`` (double-plus) and break the parser.
         expression = "".join(terms) + f" <= {scalar_rhs:.6f}"
+        # PLEXOS treats FueMaxOff_* caps as genuinely SOFT constraints
+        # and violates them substantially: the solved model dispatches
+        # gas/LNG well above these per-period fuel-offtake limits (the
+        # RES20260422 analysis found over-runs up to ~175 fuel-units,
+        # not the tiny ~0.25 originally assumed).  Emitting them with a
+        # near-hard penalty (the old 10000) made gtopt RESPECT a cap
+        # PLEXOS ignores, throttling the central/north LNG combined-
+        # cycles (NUEVA_RENCA, NEHUENCO, SAN_ISIDRO, QUINTERO, ATA) to
+        # roughly half their PLEXOS dispatch and forcing ~100 GWh of
+        # coal to fill the gap.  A controlled experiment (penalty
+        # 10000 → 10) swung 100 GWh from coal back to gas, snapping the
+        # fuel mix onto PLEXOS (coal 211 vs 218 GWh, gas 221 vs 227).
+        # Use the standard soft-UC penalty so the cap behaves as the
+        # economic "buy incremental LNG" signal PLEXOS models, not a
+        # hard availability wall.
         out.append(
             UserConstraintSpec(
                 name=f"FueMaxOff_{fuel_name}",
                 expression=expression,
                 rhs_profile=rhs_profile,
+                penalty=_FUEL_OFFTAKE_SOFT_PENALTY,
             )
         )
     if out:
         logger.info(
             "synthesised %d FueMaxOff* UserConstraint(s) from solution .accdb "
             "(weekly/daily fuel-offtake caps; per-block uniform decomposition)",
+            len(out),
+        )
+    return tuple(out)
+
+
+# PLEXOS encodes Combined-Cycle / multi-fuel-band plants by emitting
+# one Generator object per *configuration* — e.g. SAN_ISIDRO_2-TG+TV
+# ships 13 variants named with the fuel-band suffix:
+#
+#   _DIE                     (diesel backup)
+#   _GNL_{A,B,C,D,E,F,INF}   (LNG, one per offer band)
+#   _GN_{A,B,C,D,E}          (pipeline gas, one per offer band)
+#
+# In PLEXOS the underlying physical plant only has ONE pmax — the LP
+# can run at most one configuration at a time.  PLEXOS itself enforces
+# this either:
+#   1. via the GUI "Composite Generator" property (not exposed as XML
+#      data in CEN PCP — the ``Power Station`` class is empty here),
+#   2. via fictitious-proxy commitments + ``<plant>_ConfTG`` UCs
+#      (only present for ATA_CC, KELAR, NEHUENCO_1 in CEN PCP), or
+#   3. implicitly via the ``FueMaxOff_Gas_<band>`` per-fuel caps
+#      (which only bind on the band, not on the plant total).
+#
+# Without an explicit plant-cap constraint, gtopt's LP dispatches
+# every active variant up to its individual pmax simultaneously,
+# producing the "SAN_ISIDRO_2 ≈ 85 GWh" arbitrage (well above the
+# 391-MW × 168 h ≈ 65-GWh single-config envelope) observed in the
+# 2026-05-24 K=6 uniform run.
+#
+# Fix: detect plant families by stripping the fuel-band suffix and
+# emit one ``PlantCap_<stem>`` UserConstraint that caps the SUM of
+# variant generation by the family's maximum single-config pmax.
+# Conservative for the rare case where two configs coexist (gas +
+# diesel start-up) — for those, the ``FueMaxOff_*`` caps already
+# bind on each band and provide the same envelope.  Soft-priced so
+# any model-data inconsistency (e.g. simultaneous Fixed-Load on two
+# variants) doesn't make the LP infeasible.
+_PLANT_FAMILY_SUFFIX_PATTERNS: tuple[str, ...] = (
+    # Order matters: try the most specific patterns first.
+    r"_GNL_INF$",
+    r"_GNL_[A-Z]$",
+    r"_GN_[A-Z]$",
+    r"_GLP$",
+    r"_GNL_P$",
+    r"_DIE$",
+)
+
+
+def _strip_plant_config_suffix(name: str) -> str | None:
+    """Return the family stem of ``name`` if it ends in a known fuel-band
+    suffix; ``None`` otherwise.
+
+    Used by :func:`_detect_plant_families` to group multi-fuel-band
+    variants of the same physical plant — the LP must cap their
+    summed dispatch at the single-config pmax envelope.
+    """
+    import re
+
+    for pat in _PLANT_FAMILY_SUFFIX_PATTERNS:
+        stem = re.sub(pat, "", name)
+        if stem != name:
+            return stem
+    return None
+
+
+def _detect_plant_families(
+    generators: tuple[GeneratorSpec, ...],
+) -> dict[str, list[GeneratorSpec]]:
+    """Group generators by stem (= name minus fuel-band suffix).
+
+    Only returns stems with ≥ 2 variants and ≥ 2 ACTIVE variants
+    (``pmax > 0`` or any positive entry in ``pmax_profile``) — a
+    family with only one active variant has no LP arbitrage and
+    doesn't need a cap UC.
+    """
+    families: dict[str, list[GeneratorSpec]] = {}
+    for g in generators:
+        stem = _strip_plant_config_suffix(g.name)
+        if stem is None:
+            continue
+        families.setdefault(stem, []).append(g)
+
+    def _is_active(g: GeneratorSpec) -> bool:
+        if g.pmax_profile and any(v > 0.0 for v in g.pmax_profile):
+            return True
+        return (g.pmax or 0.0) > 0.0
+
+    return {
+        stem: variants
+        for stem, variants in families.items()
+        if len(variants) >= 2 and sum(1 for v in variants if _is_active(v)) >= 2
+    }
+
+
+def _build_plant_cap_ucs(
+    case: PlexosCase,
+) -> tuple[UserConstraintSpec, ...]:
+    """Synthesise ``PlantCap_<stem>`` UserConstraints, one per multi-
+    config plant family.
+
+    Each emitted UC has the form
+
+        Σ_v 1·generator("<stem>_<config>").generation <= P_family_max
+
+    where ``P_family_max`` is the maximum pmax across all variants of
+    the family (= what one single configuration can produce).  Soft
+    via ``penalty = 10_000`` so a rare data inconsistency
+    (e.g. simultaneous Fixed-Load on two variants) doesn't make the
+    LP infeasible.  ``active`` defaults to ``True`` (the UC binds in
+    every block).
+    """
+    families = _detect_plant_families(case.generators)
+    out: list[UserConstraintSpec] = []
+    for stem, variants in sorted(families.items()):
+        # Effective per-variant cap = peak over horizon (Gen_Rating
+        # profile if present, else scalar pmax).
+        def _peak_pmax(g: GeneratorSpec) -> float:
+            if g.pmax_profile:
+                return max(g.pmax_profile)
+            return g.pmax or 0.0
+
+        active_variants = [v for v in variants if _peak_pmax(v) > 0.0]
+        if len(active_variants) < 2:
+            continue
+        cap = max(_peak_pmax(v) for v in active_variants)
+        if cap <= 0.0:
+            continue
+
+        terms = [f'1 * generator("{v.name}").generation' for v in active_variants]
+        expression = " + ".join(terms) + f" <= {cap:.6f}"
+        out.append(
+            UserConstraintSpec(
+                name=f"PlantCap_{stem}",
+                expression=expression,
+                penalty=10000.0,
+            )
+        )
+    if out:
+        logger.info(
+            "synthesised %d PlantCap_* UserConstraint(s) "
+            "(one per multi-fuel-band Generator family; caps Σ "
+            "variant.generation at the family's max single-config "
+            "pmax to prevent LP from dispatching mutually-exclusive "
+            "configurations simultaneously)",
             len(out),
         )
     return tuple(out)
@@ -4240,6 +5155,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 ", ".join(t.generator_name for t in dropped_turbs),
             )
         turbines = tuple(t for t in turbines if t.generator_name not in inactive_gens)
+
+        # KEEP the inactive generators in the JSON as bounded-zero
+        # placeholders (pmax = 0 ⇒ the LP column is constrained to
+        # exactly 0) so any User Constraint / FueMaxOff_* that
+        # references them by name still resolves through the gtopt
+        # ``element_known`` path and contributes a zero coefficient
+        # — silently — instead of throwing under strict resolver
+        # mode.  ``extract_reserve_provisions`` filters its own
+        # eligibility list against the emitted gen set so dangling
+        # ``ReserveProvision`` rows do NOT make it into the JSON;
+        # this is the actual fix for the PLEXOS-mirroring infeasibility
+        # (~15 dropped reserves on the 31 always-offline diesels,
+        # ~395 on the larger GNL-config fleet).
 
     # ── Pseudo-hydro generators ──
     # PLEXOS-classified hydro generators with NO Storage attachment
@@ -4476,19 +5404,29 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         decision_variables=extract_decision_variables(db),
     )
 
-    # Only allow constraint references to generators whose pmax is
-    # active in every block of the horizon. PLEXOS Constraint
-    # expressions are LHS-scoped to "all blocks", and gtopt only
-    # registers a ``GenerationName`` variable at blocks where pmax > 0
-    # — solar / wind gens with zero-block hours would dangle the
-    # reference at those blocks and crash LP assembly. Constraints
-    # that lose every reference get dropped (their LHS becomes empty).
+    # Allow constraint references to any generator whose pmax is
+    # active in AT LEAST ONE block of the horizon.  PLEXOS Constraint
+    # expressions are LHS-scoped to "all blocks", and gtopt previously
+    # required every block to have ``pmax > 0`` to avoid dangling
+    # references at zero-pmax blocks.  That over-tightened filter
+    # silently dropped UC terms for generators like NUEVA_VENTANAS
+    # (8/111 blocks at pmax=0 due to Gen_UnitsOut, 103/111 active) —
+    # which made critical PLEXOS-side constraints
+    # (``SD_2024131550_Campiche_NuevaVentanas``,
+    # ``SD_2025128381_Campiche_o_NVentanas``) lose their NV term and
+    # mis-emit as if they bound CAMPICHE alone, letting the LP
+    # over-dispatch NV by +32 GWh / week.
+    #
+    # Safe with the resolver-leniency fix (element_known + silent
+    # zero contribution at blocks where the gen is not registered):
+    # references at the 8 zero-pmax blocks silently contribute 0
+    # to the LHS, the other 103 blocks contribute correctly.
     def _gen_always_active(g: GeneratorSpec) -> bool:
-        if g.pmax <= 0.0:
-            return False
-        if not g.pmax_profile:
+        if (g.pmax or 0.0) > 0.0:
             return True
-        return all(p > 0.0 for p in g.pmax_profile)
+        if g.pmax_profile:
+            return any(p > 0.0 for p in g.pmax_profile)
+        return False
 
     emitted_names: dict[str, frozenset[str]] = {
         "Generator": frozenset(
@@ -4501,6 +5439,16 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         # the templated names (``uc_<gen>`` / ``provision_<gen>``) and
         # needs to drop references for generators that didn't emit a
         # matching Commitment / ReserveProvision row.
+        # Commitment binaries come from ``CommitmentSpec`` rows;
+        # emitted as ``uc_<gen_name>``.  We deliberately do NOT add
+        # battery-synth names (``uc_<battery>_gen``) here — gtopt
+        # does not currently register a per-battery commitment binary
+        # (batteries get a ``<bat>_gen`` continuous variable but no
+        # ``uc_<bat>_gen`` commitment), so any UC term referencing
+        # ``commitment("uc_<bat>_gen").status`` (e.g.
+        # ``CSF_MinUnits``) would crash gtopt's resolver.  Filtering
+        # them out here drops the term silently, mirroring the
+        # legacy behaviour.
         "Commitment": frozenset(f"uc_{c.generator_name}" for c in case.commitments),
         "ReserveProvision": frozenset(
             f"provision_{p.generator_name}" for p in case.reserve_provisions
@@ -4532,14 +5480,23 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators
     )
-    # Solution-side FueMaxOff* weekly/daily caps.  Synthesised only
-    # when the .accdb cache is available (``--horizon-mode plexos``
-    # branch caches it before ``extract_case`` runs); otherwise this
-    # extractor returns an empty tuple and nothing is appended.
-    fuel_offtake_ucs = _build_fuel_offtake_caps_ucs(bundle, case)
+    # Solution-side FueMaxOff* weekly caps → native ``Fuel.max_offtake``
+    # (soft, per-stage budget) instead of the old ``FueMaxOff_*``
+    # UserConstraint approximation.  gtopt's FuelLP enforces
+    # ``Σ heat_rate·gen·duration ≤ max_offtake`` over the week with a
+    # priced slack — the correct weekly-fuel-budget semantics, and it
+    # avoids the per-block decomposition artifacts of the UC form.
+    case = dataclasses.replace(
+        case, fuels=_apply_native_fuel_offtake_caps(bundle, case.fuels)
+    )
+    # Plant-family configuration caps — one per multi-fuel-band
+    # Generator family (SAN_ISIDRO_2-TG+TV, QUINTERO_1A, NEHUENCO_2-TG,
+    # NUEVA_RENCA-TG+TV, etc.).  Closes the PLEXOS configuration-
+    # exclusivity gap when no ``ConfTG`` UC is present.
+    plant_cap_ucs = _build_plant_cap_ucs(case)
     case = dataclasses.replace(
         case,
-        user_constraints=tuple(base_ucs) + tuple(hydro_ucs) + tuple(fuel_offtake_ucs),
+        user_constraints=(tuple(base_ucs) + tuple(hydro_ucs) + tuple(plant_cap_ucs)),
     )
     logger.info(
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "

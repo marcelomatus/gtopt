@@ -727,7 +727,7 @@ TEST_CASE("expand_batteries wires pmin_* onto synthetic gen/demand")  // NOLINT
   REQUIRE(system.commitment_array.size() == 1);
   const auto& cmt = system.commitment_array.back();
   REQUIRE(cmt.pmin.has_value());
-  CHECK(cmt.pmin.value_or(0.0) == doctest::Approx(2.0));
+  CHECK(std::get<double>(cmt.pmin.value_or(0.0)) == doctest::Approx(2.0));
 
   REQUIRE(system.demand_array.size() == 1);
   const auto& dem = system.demand_array.back();
@@ -827,7 +827,7 @@ TEST_CASE(
   REQUIRE(system.commitment_array.size() == 1);
   CHECK(system.commitment_array.front().name == "uc_bat_gen");
   // Commitment.pmin carries the discharge-side floor.
-  CHECK(system.commitment_array.front().pmin.value_or(-1.0)
+  CHECK(std::get<double>(system.commitment_array.front().pmin.value_or(-1.0))
         == doctest::Approx(2.0));
   // Converter sees the same `commitment = true` flag.
   REQUIRE(system.converter_array.size() == 1);
@@ -835,7 +835,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "expand_batteries — zero commitment triggers → no synthesized "
+    "expand_batteries — plain battery synthesizes a relaxed "
     "Commitment")  // NOLINT
 {
   System system;
@@ -852,11 +852,19 @@ TEST_CASE(
           .pmax_charge = 10.0,
           .pmax_discharge = 10.0,
           .discharge_cost = 1.0,
-          // No pmin_* and no commitment=true → no synthesis.
+          // No pmin_* and no commitment=true.
       },
   };
   system.expand_batteries();
-  CHECK(system.commitment_array.empty());
+  // The ``uc_<bat>_gen`` Commitment is synthesized UNCONDITIONALLY so
+  // PLEXOS-derived UserConstraints can reference its status column.
+  // For a plain battery (no pmin, no ``commitment = true``) it is
+  // LP-relaxed (continuous u ∈ [0, 1], zero integer cost) and carries
+  // no pmin floor.
+  REQUIRE(system.commitment_array.size() == 1);
+  CHECK(system.commitment_array.front().name == "uc_bat_gen");
+  CHECK(system.commitment_array.front().relax.value_or(false));
+  CHECK_FALSE(system.commitment_array.front().pmin.has_value());
 }
 
 TEST_CASE(

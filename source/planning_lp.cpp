@@ -11,6 +11,8 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -25,6 +27,7 @@
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/lng_terminal.hpp>
 #include <gtopt/memory_compress.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/reservoir.hpp>
@@ -39,77 +42,14 @@
 namespace gtopt
 {
 
-// ── Memory-aware thread clamp for build / write_out work pools ───────────
-
-namespace
-{
-
-// The `--memory-limit` value passes through to `WorkPool::can_dispatch_next`
-// as a REACTIVE gate: it blocks NEW task dispatch when process RSS already
-// exceeds the budget.  That works for short-lived SDDP-solve tasks where
-// completed tasks free memory faster than new ones allocate it.
-//
-// It does NOT work for the long-lived build and write_out tasks in
-// `PlanningLP`: by the time RSS crosses the limit, every dispatched thread
-// is mid-flight on a SystemLP build that allocates monotonically until
-// done.  Blocking the *next* dispatch can't recover memory the *current*
-// threads still hold.  Process OOMs at `cpu_factor × physical_cores ×
-// per_task_mb`, irrespective of the limit.
-//
-// This helper applies the PROACTIVE clamp: cap thread count up front so
-// `threads × per_task_memory_mb ≤ memory_limit_mb − baseline_reserved_mb`.
-// Returns an effective `cpu_factor` to pass to `make_solver_work_pool`.
-// When no memory limit is configured, returns the requested factor
-// unchanged (so the SDDP solve pool's behaviour is preserved end-to-end).
-[[nodiscard]] auto memory_aware_cpu_factor(double cpu_factor,
-                                           double memory_limit_mb,
-                                           double per_task_memory_mb,
-                                           std::string_view pool_label)
-    -> double
-{
-  // Reserve ~2 GB for process baseline + heap fragmentation + the
-  // SystemLP tree we're already holding before parallel build kicks in.
-  // Empirically tracks the observed RSS at the moment the build pool
-  // is allocated on juan/IPLP-scale models.
-  constexpr double kBaselineReservedMB = 2000.0;
-  if (memory_limit_mb <= 0.0 || per_task_memory_mb <= 0.0) {
-    return cpu_factor;
-  }
-  const auto cores = static_cast<double>(physical_concurrency());
-  if (cores <= 0.0) {
-    return cpu_factor;
-  }
-  const double max_threads_cpu = cpu_factor * cores;
-  const double max_threads_mem = std::max(
-      1.0,
-      std::floor((memory_limit_mb - kBaselineReservedMB) / per_task_memory_mb));
-  if (max_threads_mem >= max_threads_cpu) {
-    return cpu_factor;  // memory budget is non-binding
-  }
-  SPDLOG_INFO(
-      "{}: threads clamped to {:.0f} by memory budget "
-      "(cpu-factor={:.2f} × {:.0f} cores = {:.0f}; memory_limit={:.0f} MB, "
-      "per-task estimate={:.0f} MB)",
-      pool_label,
-      max_threads_mem,
-      cpu_factor,
-      cores,
-      max_threads_cpu,
-      memory_limit_mb,
-      per_task_memory_mb);
-  return max_threads_mem / cores;
-}
-
-// Per-task RSS estimates (MB).  Calibrated for juan/IPLP-scale runs:
-//   - LP build: each SystemLP tree holds the full sparse matrix +
-//     working buffers + element registries.  ~1.5-2 GB at iter0.
-//   - write_out: Arrow + Parquet encoder per cell; ~0.5-1 GB peak.
-// Larger models will undercount and may still OOM with the clamp on —
-// tune by lowering `--memory-limit` (the clamp scales linearly).
-constexpr double kLpBuildPerTaskMB = 2000.0;
-constexpr double kWriteOutPerTaskMB = 1000.0;
-
-}  // namespace
+// `--memory-limit` is enforced entirely inside the pool factories
+// (`make_solver_work_pool` / `make_sddp_work_pool`): with a limit the pool
+// starts at one thread and grows toward the CPU ceiling under the live
+// measured-memory controller in `BasicWorkPool` (idle-floor + measured
+// marginal per-task cost + rate-limited admission).  There are NO a-priori
+// per-task size estimates anywhere — this replaced the hardcoded
+// kBaselineReservedMB / kLpBuildPerTaskMB / kWriteOutPerTaskMB constants
+// that systematically mis-estimated on larger models.
 
 // ── Line reactance validation ────────────────────────────────────────────
 
@@ -1243,15 +1183,14 @@ auto PlanningLP::create_systems(System& system,
       all_systems[scene_index] = std::move(phase_systems);
     }
   } else {
-    // Both WorkPool modes share the pool allocation.
+    // Both WorkPool modes share the pool allocation.  The factory applies
+    // the measured-baseline memory clamp + growth ceiling internally.
     auto pool = make_solver_work_pool(
-        memory_aware_cpu_factor(build_cpu_factor,
-                                options.sddp_pool_memory_limit_mb(),
-                                kLpBuildPerTaskMB,
-                                "PlanningLP initial build pool"),
+        build_cpu_factor,
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
-        /*memory_limit_mb=*/options.sddp_pool_memory_limit_mb());
+        /*memory_limit_mb=*/options.sddp_pool_memory_limit_mb(),
+        /*pool_label=*/"PlanningLP initial build pool");
 
     if (build_mode == BuildMode::scene_parallel) {
       // ── Scene-parallel path (pre-00c605d7 behavior, current default) ──
@@ -1499,13 +1438,11 @@ void PlanningLP::build_all_lps_eagerly()
       "  Eager LP build: {} scene(s) × {} phase(s)", num_scenes, num_phases);
 
   auto pool = make_solver_work_pool(
-      memory_aware_cpu_factor(/*cpu_factor=*/1.0,
-                              m_options_.sddp_pool_memory_limit_mb(),
-                              kLpBuildPerTaskMB,
-                              "PlanningLP eager build pool"),
+      /*cpu_factor=*/1.0,
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
-      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb(),
+      /*pool_label=*/"PlanningLP eager build pool");
   std::vector<std::future<void>> futures;
   futures.reserve(num_scenes * num_phases);
   for (auto& phase_systems : m_systems_) {
@@ -1524,9 +1461,127 @@ void PlanningLP::build_all_lps_eagerly()
                              std::chrono::steady_clock::now() - build_start)
                              .count();
   SPDLOG_INFO("  Eager LP build done in {:.3f}s", elapsed);
+  log_lp_memory_breakdown("post-eager-build");
 }
 
 PlanningLP::~PlanningLP() noexcept = default;
+
+void PlanningLP::log_lp_memory_breakdown(std::string_view label) const
+{
+  // Opt-in only — keep normal runs silent and allocation-free.
+  if (std::getenv("GTOPT_LOG_LP_MEMORY") == nullptr) {
+    return;
+  }
+  std::size_t cells = 0;
+  std::size_t cells_collections_resident = 0;
+  std::size_t cells_flat_resident = 0;
+  std::uint64_t compressed_bytes = 0;
+  std::uint64_t cache_bytes = 0;
+  std::uint64_t active_cuts = 0;
+  for (const auto& phase_systems : m_systems_) {
+    for (const auto& sys : phase_systems) {
+      ++cells;
+      if (sys.collections_resident()) {
+        ++cells_collections_resident;
+      }
+      const auto d = sys.linear_interface().diag_resident_bytes();
+      compressed_bytes += d.compressed_bytes;
+      cache_bytes += d.cache_bytes;
+      active_cuts += d.active_cuts;
+      cells_flat_resident += d.flat_resident ? 1U : 0U;
+    }
+  }
+  const double rss_mb =
+      MemoryMonitor::get_system_memory_snapshot().process_rss_mb;
+  constexpr double kMiB = 1024.0 * 1024.0;
+  const double accounted_mb =
+      (static_cast<double>(compressed_bytes) + static_cast<double>(cache_bytes))
+      / kMiB;
+  SPDLOG_INFO(
+      "LP-MEM [{}]: cells={} (collections_resident={}, flat_resident={}); "
+      "compressed_lp={:.0f} MB, solution_cache={:.0f} MB, active_cuts={}; "
+      "accounted={:.0f} MB vs process RSS={:.0f} MB → unaccounted (XLP "
+      "collections + heap/allocator)={:.0f} MB ({:.0f} MB/collections-cell)",
+      label,
+      cells,
+      cells_collections_resident,
+      cells_flat_resident,
+      static_cast<double>(compressed_bytes) / kMiB,
+      static_cast<double>(cache_bytes) / kMiB,
+      active_cuts,
+      accounted_mb,
+      rss_mb,
+      rss_mb - accounted_mb,
+      cells_collections_resident > 0 ? (rss_mb - accounted_mb)
+              / static_cast<double>(cells_collections_resident)
+                                     : 0.0);
+}
+
+void PlanningLP::write_out_cell(SystemLP& system)
+{
+  // Fast path 0: the sim pass flagged this cell as belonging to a
+  // scene it declared infeasible (no valid primal/dual).  Skip —
+  // rehydrate + re-solve would just reproduce the same failure and
+  // write garbage.
+  if (system.output_skipped()) {
+    return;
+  }
+  // Fast path A: sim-pass cells already wrote output — skip
+  // ensure_lp_built entirely so we don't needlessly rehydrate the
+  // backend just to find m_output_written_ == true.
+  //
+  // Drop the per-cell flat-LP snapshot here: the sim-pass write_out
+  // path doesn't drop it, and PlanningLP::resolve() is the last
+  // LP-touching step in the run, so no future caller will
+  // reconstruct.  Idempotent (the snapshot was already dropped by
+  // the sim-pass mid-run hook in
+  // `sddp_iteration.cpp::run_scene_simulation` cleanup).
+  if (system.output_written()) {
+    system.linear_interface().clear_snapshot();
+    // End-of-life drop: collections + replay journal + cached
+    // primal/dual.  See `SystemLP::drop_for_write_out_done` doc.
+    // Largest single saving on recovery hot-starts that loaded
+    // tens of thousands of cuts into `m_replay_` — those records
+    // never replay again past write_out.
+    system.drop_for_write_out_done();
+    return;
+  }
+  // Fast path B: under any non-`off` low_memory mode, Phase 2a
+  // cached the solution vectors at release time and
+  // `SystemLP::write_out` repopulates XLP col indices via a
+  // throw-away flatten (`rebuild_collections_if_needed()`).  That
+  // combo lets us emit without the expensive
+  // `reconstruct_backend` → re-solve round-trip.  Both compress and
+  // rebuild hit this path now — `rebuild_collections_if_needed`
+  // handles both modes uniformly.
+  const auto& li = system.linear_interface();
+  if (system.low_memory_mode() != LowMemoryMode::off && li.is_backend_released()
+      && li.is_optimal())
+  {
+    system.write_out();
+    // Drop XLP collections rebuilt inside — the LinearInterface is
+    // already released so this is a no-op on the backend side.
+    system.release_backend();
+    // Opportunity A — drop the compressed flat-LP snapshot now that
+    // the cell's parquet output is written.  `PlanningLP::resolve()`
+    // is the last LP-touching step in the run, so no future caller
+    // will reconstruct this cell.  At ~3-5 MB compressed × 816 cells
+    // on Juan-scale this frees ~3-4 GB of RSS just before the writer
+    // thread exits.  Safe because the only remaining consumers
+    // (status JSON, post-resolve aggregations) read cached scalars
+    // from `m_cache_`, not the flat-LP snapshot.
+    system.linear_interface().clear_snapshot();
+    // End-of-life drop — see comment on the fast-path-A clone above.
+    system.drop_for_write_out_done();
+    return;
+  }
+  system.ensure_lp_built();
+  system.write_out();
+  system.release_backend();
+  system.linear_interface().clear_snapshot();
+  // End-of-life drop — see comment on the fast-path-A clone above.
+  system.drop_for_write_out_done();
+}
 
 void PlanningLP::set_output_delegate(
     std::unique_ptr<PlanningLP> delegate) noexcept
@@ -1612,105 +1667,76 @@ void PlanningLP::write_out()
   //     the parquet encoder uses internally — adding more pool
   //     threads on top just queues them on Arrow's locks.
   auto pool = make_solver_work_pool(
-      memory_aware_cpu_factor(/*cpu_factor=*/1.0,
-                              m_options_.sddp_pool_memory_limit_mb(),
-                              kWriteOutPerTaskMB,
-                              "PlanningLP write_out pool"),
+      /*cpu_factor=*/1.0,
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
-      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb());
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb(),
+      /*pool_label=*/"PlanningLP write_out pool");
 
   std::vector<std::future<void>> futures;
   futures.reserve(static_cast<std::size_t>(num_scenes)
                   * static_cast<std::size_t>(num_phases));
 
-  const auto emit_cell = [](SystemLP& system)
-  {
-    // Fast path 0: the sim pass flagged this cell as belonging to a
-    // scene it declared infeasible (no valid primal/dual).  Skip —
-    // rehydrate + re-solve would just reproduce the same failure and
-    // write garbage.
-    if (system.output_skipped()) {
-      return;
+  // Hybrid chunked cell-parallel write (mirrors `aperture_chunk_size`).
+  //
+  // One task per CELL would spread `num_cells` write_outs across the pool
+  // — but the parallelism is then capped by whatever dispatches first, and
+  // on low-scene cases the scene-parallel sim write left cores idle.  Here
+  // we flatten ALL (scene, phase) cells and hand each pool task a
+  // contiguous CHUNK to process serially (rebuild → write → drop per
+  // cell).  Because each task drops every cell as soon as it is written,
+  // at most ~one cell per concurrently-running task is resident, so the
+  // memory ceiling is ~`num_running_tasks × per-cell` regardless of how
+  // many scenes there are.
+  //
+  // Chunk size is a GLOBAL estimate: `num_cells / cores / 4`.  Dividing by
+  // cores spreads the work evenly; the extra `/4` makes ~4× as many tasks
+  // as cores so a slow cell can't leave a core idle while its neighbours
+  // finish (load balancing) — and keeps each task's serial run short
+  // enough that the resident set stays bounded.  Floor of 1 cell/chunk.
+  std::vector<SystemLP*> cells;
+  cells.reserve(static_cast<std::size_t>(num_scenes)
+                * static_cast<std::size_t>(num_phases));
+  for (auto& phase_systems : m_systems_) {
+    for (auto& system : phase_systems) {
+      cells.push_back(&system);
     }
-    // Fast path A: sim-pass cells already wrote output — skip
-    // ensure_lp_built entirely so we don't needlessly rehydrate the
-    // backend just to find m_output_written_ == true.
-    //
-    // Drop the per-cell flat-LP snapshot here: the sim-pass write_out
-    // path doesn't drop it, and PlanningLP::resolve() is the last
-    // LP-touching step in the run, so no future caller will
-    // reconstruct.  Idempotent (the snapshot was already dropped by
-    // the sim-pass mid-run hook in
-    // `sddp_iteration.cpp::run_scene_simulation` cleanup).
-    if (system.output_written()) {
-      system.linear_interface().clear_snapshot();
-      // End-of-life drop: collections + replay journal + cached
-      // primal/dual.  See `SystemLP::drop_for_write_out_done` doc.
-      // Largest single saving on recovery hot-starts that loaded
-      // tens of thousands of cuts into `m_replay_` — those records
-      // never replay again past write_out.
-      system.drop_for_write_out_done();
-      return;
-    }
-    // Fast path B: under any non-`off` low_memory mode, Phase 2a
-    // cached the solution vectors at release time and
-    // `SystemLP::write_out` repopulates XLP col indices via a
-    // throw-away flatten (`rebuild_collections_if_needed()`).  That
-    // combo lets us emit without the expensive
-    // `reconstruct_backend` → re-solve round-trip.  Both compress and
-    // rebuild hit this path now — `rebuild_collections_if_needed`
-    // handles both modes uniformly.
-    const auto& li = system.linear_interface();
-    if (system.low_memory_mode() != LowMemoryMode::off
-        && li.is_backend_released() && li.is_optimal())
-    {
-      system.write_out();
-      // Drop XLP collections rebuilt inside — the LinearInterface is
-      // already released so this is a no-op on the backend side.
-      system.release_backend();
-      // Opportunity A — drop the compressed flat-LP snapshot now that
-      // the cell's parquet output is written.  `PlanningLP::resolve()`
-      // is the last LP-touching step in the run, so no future caller
-      // will reconstruct this cell.  At ~3-5 MB compressed × 816 cells
-      // on Juan-scale this frees ~3-4 GB of RSS just before the writer
-      // thread exits.  Safe because the only remaining consumers
-      // (status JSON, post-resolve aggregations) read cached scalars
-      // from `m_cache_`, not the flat-LP snapshot.
-      system.linear_interface().clear_snapshot();
-      // End-of-life drop — see comment on the fast-path-A clone above.
-      system.drop_for_write_out_done();
-      return;
-    }
-    system.ensure_lp_built();
-    system.write_out();
-    system.release_backend();
-    system.linear_interface().clear_snapshot();
-    // End-of-life drop — see comment on the fast-path-A clone above.
-    system.drop_for_write_out_done();
-  };
+  }
+  const auto cores = std::max<std::size_t>(
+      1, static_cast<std::size_t>(physical_concurrency()));
+  const std::size_t total_cells = cells.size();
+  const std::size_t write_chunk =
+      std::max<std::size_t>(1, total_cells / cores / 4);
+  SPDLOG_INFO("  write_out: {} cells in chunks of {} ({} task(s)), {} cores",
+              total_cells,
+              write_chunk,
+              (total_cells + write_chunk - 1) / write_chunk,
+              cores);
 
-  for (auto&& [scene_num, phase_systems] : enumerate<SceneIndex>(m_systems_)) {
-    for (auto&& [phase_num, system] : enumerate<PhaseIndex>(phase_systems)) {
-      auto* const sys_ptr = &system;
-      auto result = pool->submit(
-          [sys_ptr, &emit_cell] { emit_cell(*sys_ptr); },
-          {
-              .priority = TaskPriority::Low,
-              .name = as_label(
-                  "write_out_cell", "scene", scene_num, "phase", phase_num),
-          });
-      if (result.has_value()) {
-        futures.push_back(std::move(*result));
-      } else {
-        // Synchronous fallback preserves parity if the pool refuses the
-        // task (e.g. memory-limit throttling raised mid-run).
-        SPDLOG_WARN(
-            "Failed to submit write_out task for (scene {}, phase {}),"
-            " running synchronously",
-            scene_num,
-            phase_num);
-        emit_cell(system);
+  for (std::size_t start = 0; start < total_cells; start += write_chunk) {
+    const auto end = std::min(total_cells, start + write_chunk);
+    auto result = pool->submit(
+        [&cells, start, end]
+        {
+          for (std::size_t i = start; i < end; ++i) {
+            PlanningLP::write_out_cell(*cells[i]);
+          }
+        },
+        {
+            .priority = TaskPriority::Low,
+            .name = as_label("write_out_chunk", "start", start, "end", end),
+        });
+    if (result.has_value()) {
+      futures.push_back(std::move(*result));
+    } else {
+      // Synchronous fallback preserves parity if the pool refuses the
+      // task (e.g. memory-limit throttling raised mid-run).
+      SPDLOG_WARN(
+          "Failed to submit write_out chunk [{}, {}), running synchronously",
+          start,
+          end);
+      for (std::size_t i = start; i < end; ++i) {
+        PlanningLP::write_out_cell(*cells[i]);
       }
     }
   }

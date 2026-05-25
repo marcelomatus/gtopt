@@ -7,6 +7,8 @@ path against the real bundle.
 
 from __future__ import annotations
 
+import pytest
+
 from plexos2gtopt.entities import (
     BatterySpec,
     DemandSpec,
@@ -15,6 +17,8 @@ from plexos2gtopt.entities import (
     LineSpec,
 )
 from plexos2gtopt.gtopt_writer import (
+    _compute_default_slack_cost,
+    augment_el1_with_soft_caps,
     build_battery_array,
     build_demand_array,
     build_fuel_array,
@@ -339,11 +343,9 @@ def test_fuel_emission_factors_upstream_only() -> None:
 
 def test_fuel_max_offtake_emitted_when_set() -> None:
     """``FuelSpec.max_offtake`` > 0 lands on the JSON as ``max_offtake``
-    + ``max_offtake_per_block: true`` (PLEXOS per-period semantics).
-
-    The weekly cap (GJ/week after the TJ→GJ scaling on the parser
-    side) is pro-rated by block duration in gtopt's FuelLP — one
-    cap row per (scenario, stage, block).
+    only (no ``max_offtake_per_block`` field — gtopt's FuelLP defaults
+    to per-stage SUM, which matches the PLEXOS weekly-budget
+    semantic: ``Σ_blocks heat_rate × gen × dur ≤ weekly_cap``).
     """
     fuels = (
         FuelSpec(
@@ -355,16 +357,20 @@ def test_fuel_max_offtake_emitted_when_set() -> None:
     )
     out = build_fuel_array(fuels)
     assert out[0]["max_offtake"] == 5000.0
-    assert out[0]["max_offtake_per_block"] is True
+    # Per-stage SUM is the default — no per_block field emitted.
+    # Per-block (pro-rated uniform per-hour cap) was used in earlier
+    # versions but reduces to an effective power limit that removes
+    # the LP's flexibility to time-shift fuel use within the week.
+    assert "max_offtake_per_block" not in out[0]
 
 
 def test_fuel_max_offtake_explicit_zero_propagates() -> None:
     """``max_offtake == 0.0`` IS emitted (PLEXOS "shut" signal).
 
     Distinct from ``None``: the LP must dispatch 0 on every
-    generator referencing this fuel within the stage.
-    ``max_offtake_per_block`` is also set so the per-block cap
-    is 0 across every block (consistent with the "shut" semantic).
+    generator referencing this fuel within the stage.  Per-stage SUM
+    mode means a single cap row per (scenario, stage) at 0 GJ — the
+    LP is forced to keep total fuel use at 0 across the horizon.
     """
     fuels = (
         FuelSpec(
@@ -376,7 +382,7 @@ def test_fuel_max_offtake_explicit_zero_propagates() -> None:
     )
     out = build_fuel_array(fuels)
     assert out[0]["max_offtake"] == 0.0
-    assert out[0]["max_offtake_per_block"] is True
+    assert "max_offtake_per_block" not in out[0]
 
 
 def test_fuel_max_offtake_absent_when_none() -> None:
@@ -490,7 +496,8 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     """A varying ``tmax_ab_profile`` (Dynamic Line Rating) lands on
     the JSON as ``[[per-hour]]`` matrix; lines with non-zero
     ``resistance`` AND an enforced cap get gtopt's piecewise loss
-    mode (2 segments) + the ``√S_base`` voltage anchor.
+    mode (4 segments, the post-2026-05 default) + the ``√S_base``
+    voltage anchor.
 
     Locks the joint emission so a refactor can't silently drop
     either the DLR matrix shape (would clamp the line to the
@@ -519,7 +526,10 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     assert out[0]["resistance"] == 0.05
     assert out[0]["voltage"] == 10.0
     assert out[0]["line_losses_mode"] == "piecewise"
-    assert out[0]["loss_segments"] == 3
+    assert out[0]["loss_segments"] == 4
+    # Default layout (post-2026-05) is `tangent`; emitted only when
+    # non-`uniform` so the JSON stays minimal for the older default.
+    assert out[0].get("loss_pwl_layout") == "tangent"
 
 
 def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
@@ -545,3 +555,332 @@ def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
     assert out[0]["tmax_ab"] == 200.0
     assert out[0]["resistance"] == 0.05
     assert out[0]["line_losses_mode"] == "piecewise"
+
+
+# ---------------------------------------------------------------------------
+# Soft-EL=1 augmenter — pins the default behaviour that auto-converts every
+# PLEXOS EL=1 line into a soft-capped line (rated as tmax_normal, 3× rated
+# as the hard cap, overload_penalty as the per-MWh slack price).
+# ---------------------------------------------------------------------------
+
+
+def test_augment_el1_with_soft_caps_mutates_only_el1() -> None:
+    """The helper softens EL=1 lines in place and leaves EL=0/EL=2 alone."""
+    line_entries = [
+        {
+            "uid": 1,
+            "name": "el0_a",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ab": 100.0,
+            "tmax_ba": 100.0,
+            "enforce_level": 0,
+        },
+        {
+            "uid": 2,
+            "name": "el1_b",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ab": 200.0,
+            "tmax_ba": 200.0,
+            "enforce_level": 1,
+        },
+        {
+            "uid": 3,
+            "name": "el2_c",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ab": 300.0,
+            "tmax_ba": 300.0,
+            "enforce_level": 2,
+        },
+        # EL=1 with B→A leg only
+        {
+            "uid": 4,
+            "name": "el1_d",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ba": 50.0,
+            "enforce_level": 1,
+        },
+    ]
+    n = augment_el1_with_soft_caps(line_entries, overload_penalty=285.81)
+    # Only the two EL=1 entries get softened.  uid=4 has no tmax_ab so
+    # the soft mode falls through and it is NOT counted.  Pin the count
+    # so a refactor that accidentally softens EL=0/2 or skips the no-ab
+    # case fails.
+    assert n == 1
+    assert len(line_entries) == 4  # mutated in place, no new entries
+
+    el0 = line_entries[0]
+    assert el0["tmax_ab"] == 100.0  # untouched
+    assert "tmax_normal_ab" not in el0
+    assert "overload_penalty" not in el0
+
+    el1 = line_entries[1]
+    assert el1["tmax_normal_ab"] == 200.0  # soft target = original rated
+    assert el1["tmax_ab"] == 600.0  # 3× rated headroom
+    assert el1["tmax_normal_ba"] == 200.0
+    assert el1["tmax_ba"] == 600.0
+    assert el1["overload_penalty"] == 285.81
+    # EL stays at 1; the new tmax_ab becomes the hard cap and the soft
+    # mechanism (slack column priced at overload_penalty) kicks in via
+    # the LP — not via EL flip.
+    assert el1["enforce_level"] == 1
+
+    el2 = line_entries[2]
+    assert el2["tmax_ab"] == 300.0  # untouched
+    assert "tmax_normal_ab" not in el2
+
+    el1_no_ab = line_entries[3]
+    assert "tmax_normal_ab" not in el1_no_ab
+    assert "overload_penalty" not in el1_no_ab
+
+
+def test_augment_el1_skips_zero_rated() -> None:
+    """An EL=1 line with tmax_ab=0 is skipped (no soft mode emitted —
+    would be a divide-by-something on an empty corridor)."""
+    line_entries = [
+        {
+            "uid": 1,
+            "name": "empty_el1",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ab": 0.0,
+            "enforce_level": 1,
+        },
+    ]
+    n = augment_el1_with_soft_caps(line_entries, overload_penalty=285.81)
+    assert n == 0
+    assert "tmax_normal_ab" not in line_entries[0]
+
+
+def test_augment_el1_custom_headroom_factor() -> None:
+    """The headroom_factor knob controls how much overflow the LP can
+    push into the slack band.  Used for stress-testing under heavier
+    overflow regimes; default 3× balances the loss-PWL accuracy (which
+    is currently anchored on tmax_ab, NOT tmax_normal_ab — see
+    gtopt_writer docstring) against soft-band capacity."""
+    line_entries = [
+        {
+            "uid": 1,
+            "name": "el1",
+            "bus_a": "A",
+            "bus_b": "B",
+            "tmax_ab": 100.0,
+            "enforce_level": 1,
+        }
+    ]
+    augment_el1_with_soft_caps(
+        line_entries, overload_penalty=285.81, headroom_factor=10.0
+    )
+    assert line_entries[0]["tmax_ab"] == 1000.0  # 10× rated
+    assert line_entries[0]["tmax_normal_ab"] == 100.0
+
+
+def test_compute_default_slack_cost_recipe() -> None:
+    """slack_cost = avg(min(demand.fcost), max(generator.gcost))."""
+    demand = [
+        {"uid": 1, "name": "d1", "fcost": 467.19},
+        {"uid": 2, "name": "d2", "fcost": 1000.0},
+    ]
+    generator = [
+        {"uid": 1, "name": "g1", "gcost": 100.0},
+        {"uid": 2, "name": "g2", "gcost": 5.0},
+        {"uid": 3, "name": "g3", "gcost": 0.1},
+    ]
+    cost = _compute_default_slack_cost(demand, generator)
+    # min(fcost)=467.19, max(gcost)=100  →  avg = 283.595
+    assert cost == pytest.approx(283.595)
+
+
+def test_compute_default_slack_cost_handles_per_block_matrix() -> None:
+    """fcost / gcost may be scalar, per-block list, or per-block matrix;
+    flattener picks the min/max across positive entries."""
+    demand = [{"uid": 1, "name": "d1", "fcost": [[500.0, 450.0, 480.0]]}]
+    generator = [
+        {"uid": 1, "name": "g1", "gcost": [[10.0, 80.0, 25.0]]},
+    ]
+    cost = _compute_default_slack_cost(demand, generator)
+    # min positive fcost = 450, max positive gcost = 80
+    assert cost == pytest.approx((450.0 + 80.0) / 2)
+
+
+def test_compute_default_slack_cost_fallback_when_empty() -> None:
+    """No demands or no generators → returns the fallback constant."""
+    assert _compute_default_slack_cost([], [], fallback=42.0) == 42.0
+    assert (
+        _compute_default_slack_cost(
+            [{"uid": 1, "name": "d", "fcost": 500}], [], fallback=7.0
+        )
+        == 7.0
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gen_FixedLoad + Gen_IniGeneration extraction (PLEXOS forced-dispatch CSVs)
+#
+# `Generator.Fixed Load` (Gen_FixedLoad.csv) hard-equality-pins
+# `Generation[t] = Fixed Load[t]` on must-take renewables and run-of-
+# river hydro.  plexos2gtopt translates this into JSON
+# `pmin = pmax = fixed_load` per block, forcing the LP to dispatch
+# exactly the published profile.
+#
+# `Generator.Initial Generation` (Gen_IniGeneration.csv) is the
+# warm-start dispatch level at t=0; captured on `GeneratorSpec` but
+# NOT emitted to gtopt JSON (no schema field yet — rolling-horizon
+# state continuity is a follow-up).
+# ---------------------------------------------------------------------------
+
+
+def test_generator_fixed_load_emits_pmin_eq_pmax_matrix() -> None:
+    """A variable Fixed Load profile lands on the JSON as
+    ``pmin == pmax`` per block — forces the LP to dispatch exactly the
+    published value at each block.
+
+    Pins the joint emission so a refactor can't drop one side of the
+    equality (which would let the LP dispatch BELOW the forced value
+    when economics favour it — the silent failure mode that motivated
+    reading Gen_FixedLoad in the first place).
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=10,
+            name="forced_renewable",
+            bus_name="bus_a",
+            pmax=100.0,
+            heat_rate=0.0,
+            vom_charge=0.0,
+            fuel_names=(),
+            fixed_load_profile=(
+                10.0,
+                20.0,
+                30.0,
+                40.0,
+                50.0,
+                60.0,
+                50.0,
+                40.0,
+                30.0,
+                20.0,
+                10.0,
+                5.0,
+            ),
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    # The variable profile must collapse to a per-block matrix on BOTH
+    # pmin and pmax — single-side emission would leave the LP free to
+    # dispatch in [0, profile[t]] instead of EXACTLY profile[t].
+    assert isinstance(out[0]["pmin"], list)
+    assert isinstance(out[0]["pmax"], list)
+    assert out[0]["pmin"] == out[0]["pmax"]
+    # And the matrix shape is [[per-hour]] (single scenario).
+    assert len(out[0]["pmin"]) == 1
+    assert len(out[0]["pmin"][0]) == 12
+
+
+def test_generator_fixed_load_scalar_when_constant_profile() -> None:
+    """A constant Fixed Load profile (e.g. a 24h baseload forced unit)
+    collapses to a scalar ``pmin == pmax`` instead of an expanded
+    matrix — keeps the JSON compact when there's no time variation.
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=11,
+            name="forced_baseload",
+            bus_name="bus_a",
+            pmax=80.0,
+            fixed_load_profile=(50.0,) * 24,
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    assert out[0]["pmin"] == 50.0
+    assert out[0]["pmax"] == 50.0
+
+
+def test_generator_no_fixed_load_keeps_default_pmin() -> None:
+    """Without ``fixed_load_profile`` the writer emits the unmodified
+    ``GeneratorSpec.pmin`` (= 0 for unforced gens) and the static
+    ``GeneratorSpec.pmax``.  pmin defaults to 0 when no MinStableLevel
+    has been parsed — equivalent to "no forced floor".
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=12,
+            name="free_dispatch",
+            bus_name="bus_a",
+            pmax=200.0,
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    assert out[0]["pmax"] == 200.0
+    assert out[0]["pmin"] == 0.0
+
+
+def test_generator_initial_generation_not_emitted_to_json() -> None:
+    """``GeneratorSpec.initial_generation`` is captured for downstream
+    diagnostic tooling but intentionally NOT emitted to the gtopt
+    JSON: the Generator schema has no ``initial_generation`` field
+    yet (rolling-horizon state continuity is a follow-up), and
+    emitting an unknown member trips daw::json's strict reader.
+    Pin the omission so a future refactor doesn't accidentally
+    re-introduce the strict-reader regression.
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=13,
+            name="warm_start_diag",
+            bus_name="bus_a",
+            pmax=100.0,
+            initial_generation=42.5,
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    assert "initial_generation" not in out[0]
+
+
+def test_commitment_initial_power_emitted_when_nonzero() -> None:
+    """``CommitmentSpec.initial_power`` (= PLEXOS ``Initial Generation``)
+    lands on the JSON as ``Commitment.initial_power`` — the dispatch
+    level at t=-1 used for first-block ramp / commitment continuity.
+
+    Pin the emission so a refactor can't accidentally drop it (which
+    would silently revert to gtopt's legacy ``p_prev = 0`` cold-start
+    behaviour, breaking hot-start UC.jl / PLEXOS test cases).
+    """
+    from plexos2gtopt.entities import CommitmentSpec
+    from plexos2gtopt.gtopt_writer import build_commitment_array
+
+    commits = (
+        CommitmentSpec(
+            generator_name="hot_start_unit",
+            startup_cost=1000.0,
+            initial_status=1.0,
+            initial_hours=24.0,
+            initial_power=85.5,
+            pmin=50.0,
+        ),
+    )
+    out = build_commitment_array(commits, lp_relax=False)
+    assert out[0]["initial_power"] == 85.5
+
+
+def test_commitment_omits_initial_power_when_zero() -> None:
+    """``initial_power = 0`` (the default for cold-start units) keeps
+    the JSON clean — emitting an explicit 0 would suggest a deliberate
+    cold-start when in fact the field was just unset by the parser.
+    """
+    from plexos2gtopt.entities import CommitmentSpec
+    from plexos2gtopt.gtopt_writer import build_commitment_array
+
+    commits = (
+        CommitmentSpec(
+            generator_name="cold_start_unit",
+            startup_cost=1000.0,
+            pmin=50.0,
+            # initial_power left at default 0.0
+        ),
+    )
+    out = build_commitment_array(commits, lp_relax=False)
+    assert "initial_power" not in out[0]

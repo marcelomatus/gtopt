@@ -575,6 +575,30 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
+  // Auto-discover a per-solver parameter file at
+  //   <input_directory>/solvers/<solver_name>.prm
+  // when `solver_options.param_file` has not been set explicitly (CLI
+  // --set or JSON).  This is the convention emitted by plexos2gtopt /
+  // plp2gtopt next to the case JSON so backend-native tuning travels
+  // with the case data.
+  if (auto& so = planning.options.solver_options;
+      !so.param_file.has_value() || so.param_file->empty())
+  {
+    if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+      const std::filesystem::path candidate =
+          std::filesystem::path(
+              planning.options.input_directory.value_or(std::string {"input"}))
+          / "solvers" / (solver_key + ".prm");
+      std::error_code ec;
+      if (std::filesystem::exists(candidate, ec) && !ec) {
+        so.param_file = candidate.string();
+        spdlog::info("Auto-loaded {} parameter file: {}",
+                     solver_key,
+                     so.param_file.value());
+      }
+    }
+  }
+
   return flat_opts;
 }
 

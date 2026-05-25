@@ -96,7 +96,14 @@ struct Commitment
   /// commitment-conditional per the official Energy Exemplar docs,
   /// so the plexos2gtopt converter writes Min Stable Level here
   /// (not into Generator.pmin) and keeps Generator.pmin = 0.
-  OptReal pmin {};
+  ///
+  /// Per-(stage, block) schedule: PLEXOS ``Min Stable Level`` is a
+  /// time series (e.g. CEN PCP coal units carry 98.53 MW for most of
+  /// the week and 170.53 MW for a few hours), so this is a
+  /// ``FieldSched`` accepting either a scalar (constant floor, the
+  /// common case) or a per-block vector.  ``commitment_lp.cpp``
+  /// resolves it block-by-block.
+  OptTBRealFieldSched pmin {};
 
   OptReal min_up_time {};  ///< Minimum up time [hours]
   OptReal min_down_time {};  ///< Minimum down time [hours]

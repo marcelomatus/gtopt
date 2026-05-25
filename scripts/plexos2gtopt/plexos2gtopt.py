@@ -124,8 +124,25 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
     if options.get("loss_pwl_layout") is not None:
         os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
+    # Loading-classified hybrid loss layout (tangent for the top-PCT%
+    # highest-rated / forced lines, uniform for the rest; independent
+    # segment counts).
+    if options.get("loss_tangent_top_pct") is not None:
+        os.environ["GTOPT_LOSS_TANGENT_PCT"] = str(
+            float(options["loss_tangent_top_pct"])
+        )
+    if options.get("loss_tangent_lines"):
+        os.environ["GTOPT_LOSS_TANGENT_LINES"] = str(options["loss_tangent_lines"])
+    if options.get("nseg_tangent") is not None:
+        os.environ["GTOPT_NSEG_TANGENT"] = str(int(options["nseg_tangent"]))
+    if options.get("nseg_uniform") is not None:
+        os.environ["GTOPT_NSEG_UNIFORM"] = str(int(options["nseg_uniform"]))
     if "emin_eod_day1" in options:
         os.environ["GTOPT_EMIN_EOD_DAY1"] = "1" if options["emin_eod_day1"] else "0"
+    if "battery_efin_pin" in options:
+        os.environ["GTOPT_BATTERY_PIN_EFIN"] = (
+            "1" if options["battery_efin_pin"] else "0"
+        )
 
     with locate_bundle(input_path) as bundle:
         # Resolve horizon mode + day count + block layout.
@@ -244,11 +261,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             options.get("output_file"),
             options.get("name"),
         )
+        soft_efin_raw = options.get("soft_efin_reservoirs") or ("L_Maule",)
+        soft_efin_set = frozenset(
+            n.strip() for n in soft_efin_raw if isinstance(n, str) and n.strip()
+        )
         planning = build_planning(
             case,
             name=planning_name,
             default_uc_penalty=options.get("default_uc_penalty"),
             lp_relax=bool(options.get("lp_relax", False)),
+            soft_efin_reservoirs=soft_efin_set,
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):

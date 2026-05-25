@@ -105,6 +105,14 @@ class FuelSpec:
     #: legitimate "shut" signal — distinct from "not in the CSV at
     #: all", which means the cap is irrelevant for the bundle).
     max_offtake: float | None = None
+    #: Per-unit soft penalty ``[$/<fuel_unit>]`` for exceeding
+    #: ``max_offtake`` (gtopt ``Fuel.max_offtake_cost``).  PLEXOS treats
+    #: the ``FueMaxOffWeek_*`` caps as SOFT and routinely violates them
+    #: (the solved model burns gas above the contract band), so we emit
+    #: a finite cost rather than a hard wall — a hard cap throttles the
+    #: central/north LNG combined-cycles by ~100 GWh and forces coal.
+    #: ``None`` ⇒ hard cap.
+    max_offtake_cost: float | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +148,22 @@ class GeneratorSpec:
     # ``Heat Rate Incr2``); mutually exclusive with scalar ``heat_rate``.
     pmax_segments: tuple[float, ...] = field(default_factory=tuple)
     heat_rate_segments: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Fixed Load`` per-period profile
+    # (``Gen_FixedLoad.csv``).  When non-empty, the writer emits both
+    # ``pmin`` and ``pmax`` matching the per-period fixed-load value:
+    # the LP is forced to dispatch EXACTLY this amount
+    # (``Generation[t] = Fixed Load[t]``).  Used by must-take
+    # renewables (solar / wind CF profile) and forced run-of-river
+    # hydro.  Empty for free-dispatch generators (the common case for
+    # thermal / battery-driven).
+    fixed_load_profile: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Initial Generation`` (``Gen_IniGeneration.csv``):
+    # the dispatch level at t=0 (start of horizon), used for ramp /
+    # commitment continuity across SDDP / cascade rolling windows.
+    # Scalar (single value per generator) — PLEXOS only ships the
+    # period-1 value.  Defaults to 0 when the CSV doesn't list the
+    # generator.
+    initial_generation: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -192,6 +216,13 @@ class LineSpec:
     #   * EL=1/2 → keep the hard cap (current default behaviour)
     # CEN PCP carries 185 lines at EL=0, 96 at EL=1, 63 at EL=2.
     enforce_limits: int = 2  # default per PLEXOS docs ("Always enforce")
+    # Set by ``extract_lines`` for ex-PLEXOS-EL=0 lines (promoted to
+    # ``enforce_limits = 1``): the writer turns these into a SOFT cap
+    # (free up to the rating, penalised between the rating and
+    # ``headroom × rating``, hard at ``headroom × rating``) instead of
+    # a plain hard cap.  Orig EL=1/EL=2 lines keep ``soft_cap = False``
+    # (plain hard cap); ``--lift-line-caps`` lines stay EL=0/uncapped.
+    soft_cap: bool = False
     units: int = 1
     reactance: float = 0.0
     wheeling_charge: float = 0.0
@@ -546,6 +577,22 @@ class CommitmentSpec:
     # (ReserveGenerators.MinStableFactor): Min Stable Level applies
     # only when the unit is committed.
     pmin: float = 0.0  # MW (when-committed floor)
+    # Per-period ``Min Stable Level`` profile (``Gen_MinStableLevel.csv``,
+    # length = bundle.n_days × 24).  PLEXOS ships Min Stable Level as a
+    # time series — CEN PCP coal units carry e.g. 98.53 MW for most of
+    # the week and 170.53 MW for a few peak hours.  When this varies the
+    # writer aggregates it to per-block values and emits ``pmin`` as a
+    # vector schedule; otherwise the scalar ``pmin`` above is used.
+    pmin_profile: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Commit`` per-period forcing (Gen_Commit.csv),
+    # one value per horizon hour, VALUE in {-1, 0, +1}:
+    #   +1 = forced ON, 0 = forced OFF, -1 = MIP-endogenous (free).
+    # The writer turns this into gtopt's ``Commitment.must_run`` (when
+    # every value is +1) or per-block ``fixed_status`` (pins the ``u``
+    # status variable to 1/0 and leaves -1 blocks free).  Empty = no
+    # forcing.  Forcing is applied via the commitment variable only —
+    # ``pmax`` is left untouched.
+    commit_status_profile: tuple[int, ...] = field(default_factory=tuple)
     # PLEXOS ``Run Up Rate`` (MW/min) → gtopt's ``Commitment.startup_ramp``
     # (MW max output in the startup block).  Converted to MW by
     # multiplying by 60 (per-hour startup ramp).  11 generators in CEN
@@ -555,6 +602,19 @@ class CommitmentSpec:
     # independent of power output. For PLEXOS quadratic heat-rate
     # formulations, ``noload_cost = Heat Rate Base × Fuel Price``.
     noload_cost: float = 0.0
+    # PLEXOS ``Generator.Initial Generation`` (``Gen_IniGeneration.csv``)
+    # in MW.  Maps to gtopt's ``Commitment.initial_power`` — the
+    # dispatch level at ``t = -1`` used in the first-block ramp /
+    # commitment continuity rows:
+    #   p[0] − initial_power ≤ RU·u_init + SU·(1 − u_init)
+    #   initial_power − p[0] ≤ RD·u[0] + SD·w[0]
+    # When 0 (the default), gtopt's legacy "cold-start" behaviour
+    # (``p_prev = 0``) is preserved, which is correct for genuinely
+    # offline units and for any case where PLEXOS didn't ship an
+    # Initial Generation entry.  73 generators on CEN PCP weekly
+    # 2026-04-22 carry a non-zero value (mostly hydro turbines at
+    # the start of their dispatch window).
+    initial_power: float = 0.0
 
 
 @dataclass(frozen=True)

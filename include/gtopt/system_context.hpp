@@ -527,6 +527,22 @@ public:
     return simulation().lookup_ampl_element_uid(class_name, element_name);
   }
 
+  /// Is the (class, element_uid, attribute) triple registered as an LP
+  /// variable somewhere in the simulation?  Used by the user-constraint
+  /// resolver to distinguish "element/attribute exist, just no column
+  /// for this specific (scene, phase, scenario, stage, block)"
+  /// (treat-as-zero) from "attribute is a typo or unsupported on this
+  /// element" (strict-mode error).  Delegates to
+  /// `SimulationLP::find_ampl_variable_for_element`.
+  [[nodiscard]] bool find_ampl_variable_for_element(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute) const
+  {
+    return simulation().find_ampl_variable_for_element(
+        class_name, element_uid, attribute);
+  }
+
   /// Look up a compound PAMPL attribute by (class, compound_name).
   [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
       std::string_view class_name,

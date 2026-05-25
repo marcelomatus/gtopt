@@ -311,6 +311,38 @@ public:
   void write_out();
 
   /**
+   * @brief Emit output for a single (scene, phase) cell.
+   *
+   * Contains the fast-path dispatch logic that was previously the
+   * `emit_cell` lambda inside `write_out()`:
+   *   0. output_skipped → no-op
+   *   A. output_written → drop snapshot, no re-write
+   *   B. low_memory != off + backend released + optimal → write from
+   *      cached solution vectors without re-solve
+   *   generic → ensure_lp_built, write_out, release_backend
+   *
+   * Exposed as a public static method so unit tests can verify each
+   * fast path in isolation without constructing a full PlanningLP
+   * grid.
+   */
+  static void write_out_cell(SystemLP& system);
+
+  /**
+   * @brief Diagnostic: log the resident-memory breakdown across all cells.
+   *
+   * Read-only.  Sums the per-cell LP retainers — compressed flat-LP
+   * snapshots, cached solution vectors, accumulated cuts — and counts how
+   * many cells currently hold their XLP collection wrappers
+   * (`SystemLP::collections_resident()`), printed alongside the live
+   * process RSS.  Lets us attribute the resident floor (compressed LP vs
+   * cache vs collection wrappers) without guessing.  Only invoked when the
+   * env var `GTOPT_LOG_LP_MEMORY` is set, so normal runs are unaffected.
+   *
+   * @param label  short context tag (e.g. "post-build", "post-forward").
+   */
+  void log_lp_memory_breakdown(std::string_view label) const;
+
+  /**
    * @brief Install a surrogate PlanningLP whose systems provide the
    *        solution data for `write_out()`.
    *

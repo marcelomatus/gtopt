@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <expected>
 #include <format>
@@ -80,6 +81,13 @@ struct WorkPoolConfig
   /// Only evaluated near thread saturation so quiescent paging (e.g.
   /// init-time swap readahead) does not stall the pool.  0 = disabled.
   double max_swap_io_per_sec {0.0};
+  /// Absolute upper bound the pool may grow `max_threads` to at runtime
+  /// once observed per-task RSS deltas show the initial (memory-clamped)
+  /// thread count left headroom unused.  0 = no growth (ceiling equals
+  /// `max_threads`).  Typically set to the un-clamped CPU budget
+  /// (`cpu_factor × cores`) so a conservative bootstrap clamp can recover
+  /// to full parallelism when tasks turn out to be cheap.
+  int max_threads_ceiling {0};
 
   explicit WorkPoolConfig(
       int max_threads_ = static_cast<int>(physical_concurrency()),
@@ -92,7 +100,8 @@ struct WorkPoolConfig
       std::string name_ = "WorkPool",
       bool enable_periodic_stats_ = true,
       double max_process_swap_mb_ = 2048.0,
-      double max_swap_io_per_sec_ = 0.0) noexcept
+      double max_swap_io_per_sec_ = 0.0,
+      int max_threads_ceiling_ = 0) noexcept
       : max_threads(max_threads_)
       , max_cpu_threshold(max_cpu_threshold_)
       , min_free_memory_mb(min_free_memory_mb_)
@@ -103,9 +112,55 @@ struct WorkPoolConfig
       , enable_periodic_stats(enable_periodic_stats_)
       , max_process_swap_mb(max_process_swap_mb_)
       , max_swap_io_per_sec(max_swap_io_per_sec_)
+      , max_threads_ceiling(max_threads_ceiling_)
   {
   }
 };
+
+/// Result of the proactive memory-aware thread clamp: the conservative
+/// initial thread count and the absolute (CPU-budget) growth ceiling.
+struct MemoryClamp
+{
+  int initial_threads;  ///< Conservative starting `max_threads`
+  int ceiling_threads;  ///< Un-clamped CPU budget (growth ceiling)
+};
+
+/// Compute the thread count and growth ceiling for a work pool.
+///
+/// `cpu_factor × physical_concurrency()` is the absolute CPU budget — the
+/// ceiling.  There are NO a-priori per-task size estimates anywhere.
+///
+/// Worker-thread count is DECOUPLED from memory throttling: the pool always
+/// runs at the full ceiling so worker threads stay available even while the
+/// dispatch gate throttles memory-heavy work.  This is required by the SDDP
+/// backward pass's blocking-slot pattern (`release_slot_while_blocking`): a
+/// parent cell-task drops its slot and blocks on child futures, and a free
+/// worker must be able to run that child.  Clamping the worker count below
+/// `cell_task_headroom` deadlocks the pass — observed as a livelock at
+/// RSS ≫ limit with the rss-throttle counter spinning and no progress.
+///
+/// Memory is bounded purely by the live dispatch controller in
+/// `BasicWorkPool::can_dispatch_task` (measured idle-floor + marginal
+/// per-task cost + one-admit-per-monitor-interval rate limit + always-admit-
+/// when-idle progress guarantee).  The rate limit serialises admission to
+/// ~one task per monitor interval regardless of worker count, so keeping all
+/// workers available can never cause a dispatch burst.
+[[nodiscard]] inline MemoryClamp memory_clamp_threads(
+    double cpu_factor, double memory_limit_mb, std::string_view pool_label)
+{
+  const int ceiling = std::max(
+      1, static_cast<int>(std::lround(cpu_factor * physical_concurrency())));
+  if (memory_limit_mb > 0.0) {
+    spdlog::info(
+        "{}: memory limit {:.0f} MB — {} worker(s) available; memory bounded "
+        "by the rate-limited measured-memory dispatch gate (workers decoupled "
+        "from throttling for deadlock-freedom; no fixed per-task estimate).",
+        pool_label,
+        memory_limit_mb,
+        ceiling);
+  }
+  return {ceiling, ceiling};
+}
 
 enum class TaskStatus : uint8_t
 {
@@ -310,7 +365,16 @@ private:
   std::atomic<int> active_threads_ {0};
   std::atomic<bool> running_ {false};
 
-  int max_threads_;
+  // Current dispatch ceiling.  Atomic + mutable at runtime: the
+  // projected-RSS gate starts from a conservative memory clamp and
+  // `maybe_grow_max_threads_unlocked()` raises this toward
+  // `max_threads_ceiling_` once observed per-task deltas reveal unused
+  // headroom (grow-only — see that method).
+  std::atomic<int> max_threads_;
+  /// Absolute upper bound on `max_threads_` growth — the un-clamped CPU
+  /// budget (`cpu_factor × cores`).  When 0/unset it equals the initial
+  /// `max_threads_`, disabling growth (back-compat default).
+  int max_threads_ceiling_;
   double max_cpu_threshold_;
   double min_free_memory_mb_;
   double max_memory_percent_;
@@ -320,6 +384,25 @@ private:
   std::chrono::milliseconds scheduler_interval_;
   std::string name_;
   bool enable_periodic_stats_;
+
+  // ── Measured memory model (no fixed per-task estimates) ────────────────
+  // `idle_floor_mb_` is the process RSS captured whenever the pool goes
+  // idle (`active == 0`): the persistent, non-task footprint (heap +
+  // resident snapshots + registries + cuts).  `meas_per_task_mb_` is the
+  // MEASURED marginal cost of one active task, `(rss - floor) / active`,
+  // kept as a slowly-decaying high-water mark so it tracks the true
+  // per-task peak of the (roughly uniform) tasks without ever badly
+  // underestimating.  Both are updated live from `/proc` via
+  // `update_memory_model_()`; nothing here is a hardcoded size.
+  mutable std::atomic<double> idle_floor_mb_ {0.0};
+  mutable std::atomic<double> meas_per_task_mb_ {0.0};
+  // Rate limiter: timestamp of the last admission.  Admitting at most one
+  // task per memory-monitor interval guarantees each admission's real RSS
+  // impact is observed (the monitor refreshes RSS on that cadence) before
+  // the next admit — the structural fix for the "N tasks admitted before
+  // RSS reflects any of them" burst that caused multi-x overshoots.
+  mutable std::atomic<std::chrono::steady_clock::time_point> last_admit_time_ {
+      std::chrono::steady_clock::time_point {}};
 
   std::atomic<size_t> tasks_completed_ {0};
   std::atomic<size_t> tasks_submitted_ {0};
@@ -358,6 +441,9 @@ public:
 
   explicit BasicWorkPool(WorkPoolConfig config = WorkPoolConfig {})
       : max_threads_(config.max_threads)
+      , max_threads_ceiling_(config.max_threads_ceiling > config.max_threads
+                                 ? config.max_threads_ceiling
+                                 : config.max_threads)
       , max_cpu_threshold_(config.max_cpu_threshold)
       , min_free_memory_mb_(config.min_free_memory_mb)
       , max_memory_percent_(config.max_memory_percent)
@@ -369,10 +455,13 @@ public:
       , enable_periodic_stats_(config.enable_periodic_stats)
   {
     spdlog::info(
-        "  {} initialized: {} max threads, {:.0f}% CPU threshold, "
+        "  {} initialized: {} max threads{}, {:.0f}% CPU threshold, "
         "{:.0f} MB min free mem, {:.0f}% max mem{}{}{}",
         name_,
-        max_threads_,
+        max_threads_.load(std::memory_order_relaxed),
+        max_threads_ceiling_ > max_threads_.load(std::memory_order_relaxed)
+            ? std::format(" (grows to {})", max_threads_ceiling_)
+            : "",
         max_cpu_threshold_,
         min_free_memory_mb_,
         max_memory_percent_,
@@ -424,7 +513,10 @@ public:
       // parallelism (e.g. `ctest -j20`) where many short-lived pools
       // with `max_threads = physical_concurrency()` would otherwise
       // sum to hundreds of mostly-idle pthreads.
-      workers_.reserve(static_cast<std::size_t>(max_threads_));
+      // Reserve up to the growth ceiling so `maybe_grow_max_threads_unlocked`
+      // never reallocates `workers_` while spawning extra threads.
+      workers_.reserve(static_cast<std::size_t>(std::max(
+          max_threads_.load(std::memory_order_relaxed), max_threads_ceiling_)));
 
       // Periodic stats thread: replaces the old scheduler thread's
       // logging duty.  Sleeps on `cv_` with a 30 s timeout so it wakes
@@ -712,8 +804,18 @@ public:
   /// verify `make_solver_work_pool(cpu_factor)` clamps its thread
   /// count correctly (e.g. tiny `cpu_factor` must floor to 1 thread
   /// to give a genuine serial baseline).  Safe to call from any
-  /// thread — `max_threads_` is set once in the constructor.
-  [[nodiscard]] int max_threads() const noexcept { return max_threads_; }
+  /// thread — `max_threads_` may grow at runtime up to the ceiling.
+  [[nodiscard]] int max_threads() const noexcept
+  {
+    return max_threads_.load(std::memory_order_relaxed);
+  }
+
+  /// Absolute growth ceiling for `max_threads()` (the un-clamped CPU
+  /// budget).  Equals `max_threads()` initially when growth is disabled.
+  [[nodiscard]] int max_threads_ceiling() const noexcept
+  {
+    return max_threads_ceiling_;
+  }
 
   // ── Slot-release guard for in-task blocking ─────────────────────────────
   //
@@ -891,7 +993,7 @@ public:
           stats.tasks_pending,
           stats.tasks_active,
           stats.active_threads,
-          max_threads_,
+          max_threads_.load(std::memory_order_relaxed),
           stats.current_cpu_load,
           stats.current_memory_percent,
           stats.available_memory_mb,
@@ -971,7 +1073,9 @@ private:
       return;  // pool is shutting down — do not create new workers
     }
     const auto total = workers_.size();
-    if (total >= static_cast<std::size_t>(max_threads_)) {
+    if (total >= static_cast<std::size_t>(
+            max_threads_.load(std::memory_order_relaxed)))
+    {
       return;
     }
     const auto active = active_threads_.load(std::memory_order_relaxed);
@@ -992,6 +1096,117 @@ private:
 #endif
           worker_loop(stoken);
         });
+  }
+
+  /// Refresh the measured memory model from a live `/proc` RSS reading.
+  /// No locks required (all state is atomic); cheap enough to call on every
+  /// dispatch attempt and task completion.
+  ///
+  ///   * When idle (`active == 0`) the current RSS IS the persistent floor
+  ///     (heap + resident snapshots + registries + cuts) — capture it.
+  ///   * When busy, the marginal cost of one task is `(rss - floor) / active`.
+  ///     We keep `meas_per_task_mb_` as a slowly-decaying high-water mark:
+  ///     it jumps up to any new observed marginal immediately (conservative —
+  ///     never underestimates a uniform task's peak) and decays gently so a
+  ///     transient spike does not throttle the pool forever.
+  void update_memory_model_(int active_now) const
+  {
+    if (max_process_rss_mb_ <= 0.0) {
+      return;  // no limit → model unused
+    }
+    const double rss = memory_monitor_.get_process_rss_mb();
+    if (rss <= 0.0) {
+      return;
+    }
+    if (active_now <= 0) {
+      idle_floor_mb_.store(rss, std::memory_order_relaxed);
+      return;
+    }
+    const double floor = idle_floor_mb_.load(std::memory_order_relaxed);
+    const double sample = (rss - floor) / static_cast<double>(active_now);
+    if (!(sample > 0.0)) {
+      return;  // floor not yet captured or noise — keep prior estimate
+    }
+    const double prev = meas_per_task_mb_.load(std::memory_order_relaxed);
+    // Jump up instantly, decay ~2% per refresh otherwise.
+    const double next = std::max(sample, prev * 0.98);
+    meas_per_task_mb_.store(next, std::memory_order_relaxed);
+  }
+
+  /// Grow `max_threads_` toward `max_threads_ceiling_` by at most one per
+  /// memory-monitor interval, sized to the MEASURED memory headroom.  Caller
+  /// holds `queue_mutex_`.
+  ///
+  /// Concurrency tracks "how many uniform tasks fit": feasible =
+  /// `(limit - idle_floor) / measured_per_task`.  Growth is paced (one step
+  /// per monitor interval) so each new worker's real RSS impact is observed
+  /// before the next step — the same rate limit the dispatch gate uses, so
+  /// `max_threads_` and the gate stay consistent and never burst.  Grow-only:
+  /// already-spawned jthreads are not reclaimed; the gate handles tightening.
+  void maybe_grow_max_threads_unlocked()
+  {
+    const int ceiling = max_threads_ceiling_;
+    const int current = max_threads_.load(std::memory_order_relaxed);
+    if (ceiling <= current) {
+      return;  // already at ceiling
+    }
+
+    // No memory limit → memory is not the constraint; go straight to ceiling.
+    if (max_process_rss_mb_ <= 0.0) {
+      max_threads_.store(ceiling, std::memory_order_relaxed);
+      maybe_spawn_worker_unlocked();
+      return;
+    }
+
+    // Pace growth to the monitor cadence (reuse the admission rate limiter):
+    // one capacity step per interval lets each added worker's footprint
+    // register in RSS before we add more.
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last_admit_time_.load(std::memory_order_relaxed)
+        < memory_monitor_.get_interval())
+    {
+      return;
+    }
+
+    const auto active_now =
+        std::max(0, active_threads_.load(std::memory_order_relaxed));
+    update_memory_model_(active_now);
+    const double per_task = meas_per_task_mb_.load(std::memory_order_relaxed);
+    const double floor = idle_floor_mb_.load(std::memory_order_relaxed);
+    const double rss = memory_monitor_.get_process_rss_mb();
+
+    // No measurement yet (no task has run long enough to move RSS): allow a
+    // single probe step so one task can run and reveal its cost.
+    int feasible = ceiling;
+    constexpr double kPerTaskEpsilonMB = 1.0;
+    if (per_task > kPerTaskEpsilonMB) {
+      const double headroom = max_process_rss_mb_ - std::max(floor, rss - 0.0);
+      const int fits = headroom > 0.0
+          ? static_cast<int>(std::floor(headroom / per_task))
+          : 0;
+      feasible = active_now + std::max(0, fits);
+    } else if (rss >= max_process_rss_mb_) {
+      feasible = current;  // already at/over limit with no usable estimate
+    }
+
+    // Grow by at most one step this interval.
+    const int target = std::clamp(feasible, current, ceiling);
+    const int new_max = std::min(target, current + 1);
+    if (new_max > current) {
+      max_threads_.store(new_max, std::memory_order_relaxed);
+      SPDLOG_DEBUG(
+          "{}: grew max_threads {} → {} (measured per-task {:.0f} MB, floor "
+          "{:.0f} MB, rss {:.0f} MB, feasible {}, ceiling {})",
+          name_,
+          current,
+          new_max,
+          per_task,
+          floor,
+          rss,
+          feasible,
+          ceiling);
+      maybe_spawn_worker_unlocked();
+    }
   }
 
   /// Worker loop: each persistent thread runs this until shutdown.
@@ -1081,6 +1296,12 @@ private:
         tasks_pending_.fetch_sub(1, std::memory_order_relaxed);
         active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
         tasks_active_.fetch_add(1, std::memory_order_relaxed);
+        // Stamp the admission time for the measured-memory rate limiter:
+        // the dispatch gate and capacity growth both refuse to admit/grow
+        // again until one memory-monitor interval has elapsed, so each
+        // admission's real RSS impact is observed before the next.
+        last_admit_time_.store(std::chrono::steady_clock::now(),
+                               std::memory_order_relaxed);
 
         lock.unlock();
 
@@ -1126,6 +1347,16 @@ private:
           total_task_rss_delta_mb_ += (rs.rss_mb_after - rs.rss_mb_before);
         }
 
+        // Now that this task's RSS delta has updated the EMA, see whether
+        // the conservative initial clamp can be relaxed toward the CPU
+        // ceiling — and spawn workers to fill the new capacity.  Held under
+        // `queue_mutex_` (consistent with every other `max_threads_` write
+        // and `maybe_spawn_worker_unlocked` call).
+        {
+          const std::scoped_lock<std::mutex> qlock(queue_mutex_);
+          maybe_grow_max_threads_unlocked();
+        }
+
         // Wake any worker that was throttled by `current + threads_needed
         // > max_threads_`: one of those checks may now pass against the
         // freshly-decremented `active_threads_`.
@@ -1155,13 +1386,34 @@ private:
     const auto threads_needed = next_task.requirements().estimated_threads;
     const auto current_threads =
         active_threads_.load(std::memory_order_relaxed);
+    const auto max_threads = max_threads_.load(std::memory_order_relaxed);
 
-    if (current_threads + threads_needed > max_threads_) {
+    if (current_threads + threads_needed > max_threads) {
       return false;
     }
 
     const auto is_critical =
         next_task.requirements().priority == TaskPriority::Critical;
+
+    // Refresh the measured memory model (captures the idle floor when
+    // nothing is running) before any gate decision.
+    const auto active_now = active_threads_.load(std::memory_order_relaxed);
+    update_memory_model_(active_now);
+
+    // ── Universal progress guarantee ───────────────────────────────────
+    // When nothing is running (`active_now == 0`), ADMIT one task
+    // regardless of CPU / memory% / free-memory / RSS / swap pressure.
+    // Serial execution of a single task is the minimum-resource way to
+    // make progress; refusing it on ANY soft resource gate would wedge the
+    // pool forever (no running task can relieve the pressure to reopen the
+    // gate).  This is the livelock that hung the box on the 2-year
+    // simulation/write pass: 18 tasks pending, 0 active, system mem 92% ≥
+    // 90% `max_memory_percent` blocking every one, "no progress for 88
+    // intervals".  The thread-count gate above already passed (current==0),
+    // so admitting here is always safe.
+    if (active_now == 0) {
+      return true;
+    }
 
     // CPU check — only apply when threads are near saturation.
     // Thread count is the primary concurrency limiter; CPU load is a
@@ -1174,9 +1426,9 @@ private:
     // any background-loaded host (`ctest -j20` consistently sits at
     // 50 %+ system CPU).  Skip the gate entirely for small pools —
     // they cannot meaningfully oversubscribe.
-    if (max_threads_ >= 4
+    if (max_threads >= 4
         && current_threads + threads_needed
-            >= static_cast<int>(max_threads_ * 0.8))
+            >= static_cast<int>(max_threads * 0.8))
     {
       const auto cpu_load = cpu_monitor_.get_physical_load();
       auto cpu_threshold = max_cpu_threshold_;
@@ -1220,16 +1472,49 @@ private:
       return false;
     }
 
+    // ── Measured-memory dispatch gate (no fixed per-task estimates) ──────
+    // Reached only when `active_now > 0` (the idle case admitted above).
+    // The measured model was already refreshed at the top of this function.
     if (max_process_rss_mb_ > 0.0) {
       const auto rss = memory_monitor_.get_process_rss_mb();
       const auto rss_threshold =
           is_critical ? max_process_rss_mb_ * 1.1 : max_process_rss_mb_;
-      if (rss >= rss_threshold) {
+
+      // Rate limit: admit at most one task per memory-monitor interval so
+      // each admission's real RSS impact is observed (the monitor refreshes
+      // RSS on that cadence) before we decide again.  This is the
+      // structural cure for the "N tasks admitted before RSS reflects any
+      // of them" burst — without it, right after an admit the marginal
+      // estimate is still ~0 and the gate would wave the whole queue
+      // through.  Critical tasks bypass the pacing.
+      if (!is_critical) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto since_admit =
+            now - last_admit_time_.load(std::memory_order_relaxed);
+        if (since_admit < memory_monitor_.get_interval()) {
+          throttled_process_rss_.fetch_add(1, std::memory_order_relaxed);
+          return false;
+        }
+      }
+
+      // Project adding ONE more task at the MEASURED marginal cost.  `rss`
+      // already reflects the tasks in flight (their allocation is resident),
+      // so we add a single task's measured footprint — peak then settles at
+      // ≈ rss + per_task ≤ limit, i.e. overshoot bounded by one task.
+      const double per_task = meas_per_task_mb_.load(std::memory_order_relaxed);
+      const double projected = rss + per_task;
+      if (projected >= rss_threshold) {
         throttled_process_rss_.fetch_add(1, std::memory_order_relaxed);
-        SPDLOG_DEBUG("{}: blocked by process RSS {:.0f} MB >= {:.0f} MB",
-                     name_,
-                     rss,
-                     rss_threshold);
+        SPDLOG_DEBUG(
+            "{}: blocked by measured RSS {:.0f}+{:.0f}={:.0f} MB >= {:.0f} MB "
+            "(floor {:.0f} MB, {} active)",
+            name_,
+            rss,
+            per_task,
+            projected,
+            rss_threshold,
+            idle_floor_mb_.load(std::memory_order_relaxed),
+            active_now);
         return false;
       }
     }
@@ -1256,9 +1541,9 @@ private:
     // swap-in as fresh code is faulted in.  Same small-pool guard as
     // the CPU gate: with max_threads < 4 the saturation check would
     // be a permanent true and starve dispatch.
-    if (max_swap_io_per_sec_ > 0.0 && max_threads_ >= 4
+    if (max_swap_io_per_sec_ > 0.0 && max_threads >= 4
         && current_threads + threads_needed
-            >= static_cast<int>(max_threads_ * 0.8))
+            >= static_cast<int>(max_threads * 0.8))
     {
       const auto rate = memory_monitor_.get_swap_io_rate();
       const auto rate_threshold =

@@ -1970,8 +1970,11 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   SystemLP system_lp(sys, simulation_lp);
 
   auto&& li = system_lp.linear_interface();
-  // With integer binaries, should have integer variables
-  // 4 blocks × 3 (u, v, w) = 12 integers
+  // Tight 3-binary formulation declares ONLY the status u integer;
+  // startup v and shutdown w are continuous in [0,1] (they resolve to
+  // binary via the logic + exclusion constraints).  So with 4 blocks
+  // and 1 committed generator we expect 4 integer columns (the u's),
+  // not 12.  See commitment_lp.cpp for the rationale.
   const auto ncols = li.get_numcols();
   int num_ints = 0;
   for (Index i = 0; i < ncols; ++i) {
@@ -1979,7 +1982,7 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
       ++num_ints;
     }
   }
-  CHECK(num_ints == 12);
+  CHECK(num_ints == 4);
 }
 
 TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
@@ -2210,15 +2213,25 @@ TEST_CASE(  // NOLINT
   REQUIRE(v2.has_value());
   REQUIRE(w2.has_value());
 
-  // Binaries must be integer in the LP.
+  // Tight 3-binary formulation: ONLY the status u is declared integer.
+  // Startup v and shutdown w are continuous in [0,1] — the logic equality
+  // C1 (u[p]-u[p-1]-v[p]+w[p]=0) + exclusion C3 (v+w<=1) + nonnegative
+  // startup/shutdown costs force them to integer transitions of an integer
+  // u, so they come out binary WITHOUT being branched on.  This is the
+  // active check that the tight formulation is in effect: flipping these
+  // back to CHECK(lp.is_integer(...)) would mean the integrality-reduction
+  // regressed.
   CHECK(lp.is_integer(*u0));
   CHECK(lp.is_integer(*u1));
   CHECK(lp.is_integer(*u2));
-  CHECK(lp.is_integer(*v1));
-  CHECK(lp.is_integer(*v2));
-  CHECK(lp.is_integer(*w2));
+  CHECK(!lp.is_integer(*v1));
+  CHECK(!lp.is_integer(*v2));
+  CHECK(!lp.is_integer(*w2));
 
-  // Primal values: unit off at block 0, starts at block 1, stays on at 2.
+  // Correctness of the reduction: even though v/w are continuous, the
+  // optimal solution still takes clean integer values — unit off at block
+  // 0, starts at block 1, stays on at 2.  If the propagation ever broke,
+  // these would go fractional.
   CHECK(sol[*u0] == doctest::Approx(0.0).epsilon(1e-4));
   CHECK(sol[*u1] == doctest::Approx(1.0).epsilon(1e-4));
   CHECK(sol[*u2] == doctest::Approx(1.0).epsilon(1e-4));
@@ -2322,7 +2335,7 @@ TEST_CASE("Commitment JSON — `pmin` field accepted (new in 2026-05-20)")
   })";
   const auto c = daw::json::from_json<Commitment>(minimal, StrictParsePolicy);
   CHECK(c.uid == 1);
-  CHECK(c.pmin.value_or(-1.0) == doctest::Approx(25.0));
+  CHECK(std::get<double>(c.pmin.value_or(-1.0)) == doctest::Approx(25.0));
 }
 
 // NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,

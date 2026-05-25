@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,24 @@ logger = logging.getLogger(__name__)
 # CEN PCP horizon: one operating day = 24 hourly blocks.
 DEFAULT_BLOCK_COUNT = 24
 DEFAULT_BLOCK_DURATION_H = 1.0
+
+# Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``):
+# the hard cap is set to ``_LINE_HEADROOM_FACTOR × rating`` and flow
+# between the rating and the hard cap is charged ``_LINE_OVERLOAD_PENALTY``
+# $/MWh.  Headroom 3× covers every observed CEN PCP overflow (worst
+# Capricornio110->LaNegra110 ≈ 2.7× rated).  The penalty sits below
+# ``demand_fail_cost`` (≈$467/MWh) so re-dispatch/overload always beats
+# shedding load, yet high enough that the LP won't gratuitously teleport
+# flow across an over-capacity line.
+_LINE_HEADROOM_FACTOR = 3.0
+# The soft-cap overload penalty ($/MWh on flow between the rating and the
+# 3× hard cap) is COMPUTED per bundle, not hard-coded: it is
+# ``_compute_default_slack_cost(demands, gens) / _LINE_OVERLOAD_DIVISOR``,
+# i.e. one quarter of the calibrated slack cost
+# ``(min demand.fcost + max gen.gcost) / 2`` (~$285 → ~$71/MWh).  The ÷4
+# lets the LP push roughly four "jumps" into an ex-EL0 line's soft band
+# before it ever prefers shedding load (and it stays < demand_fail_cost).
+_LINE_OVERLOAD_DIVISOR = 4.0
 
 # Fallback productibility used when ``Hydro_EfficiencyIncr.csv`` lacks
 # a value for a given Storage; matches the global irrigation default
@@ -86,6 +105,21 @@ def build_options(
             "use_kirchhoff": not use_single_bus,
             "scale_objective": 1000,
             "demand_fail_cost": demand_fail_cost,
+        },
+        # Enable the backend solver log by default.  Two knobs are
+        # needed (they are independent):
+        #   * ``log_mode = 1`` (SolverLogMode.detailed) — makes
+        #     ``PlanningLP`` call ``set_log_file`` so the backend writes a
+        #     per-(scene, phase) file ``<log_directory>/<solver>_sc0_ph0.log``.
+        #     Without this the solver is silent regardless of log_level.
+        #   * ``log_level = 1`` — verbosity inside that file (CPLEX
+        #     screen-indicator / MIP display level).
+        # Together they capture the branch-and-bound trace (presolve, root
+        # relaxation, nodes / incumbent / gap) — essential for diagnosing
+        # MIP convergence on the PLEXOS reproduction.
+        "solver_options": {
+            "log_mode": 1,
+            "log_level": 1,
         },
     }
 
@@ -236,8 +270,15 @@ def build_generator_array(
             "uid": i + 1,
             "name": gen.name,
             "bus": gen.bus_name,
-            "pmin": gen.pmin,
         }
+        # ``generator.pmin`` is the ALWAYS-ON hard floor — emit it only
+        # when a real floor exists (> 0).  For CEN PCP it is always 0
+        # (no always-on floor; commitment-conditional floors live on
+        # ``Commitment.pmin``, and must-take renewables/RoR keep pmin=0
+        # in the FixedLoad block below = curtailable), so it is normally
+        # omitted rather than written as a redundant ``"pmin": 0``.
+        if gen.pmin and gen.pmin > 0.0:
+            entry["pmin"] = gen.pmin
         if gen.heat_rate_segments and gen.pmax_segments:
             # Piecewise path: emit segments + fuel ref. When there's
             # no real Fuel object (118-Bus), point at the virtual
@@ -295,6 +336,88 @@ def build_generator_array(
             entry["pmax"] = [profile]
         else:
             entry["pmax"] = gen.pmax
+
+        # PLEXOS ``Generator.Fixed Load`` (Gen_FixedLoad.csv): per-period
+        # forced-dispatch profile, modelled as ``pmin = pmax = fixed_load``
+        # ONLY at blocks where ``fixed_load[t] > 0``.  PLEXOS treats a
+        # zero-valued FixedLoad row as "no forced-dispatch constraint
+        # at this period" (= free dispatch within ``[Commitment.pmin,
+        # Gen_Rating[t]]``), NOT as "force dispatch to 0".  Verified
+        # on CEN PCP COCHRANE_1: 168/168 FixedLoad rows present, only
+        # hours 1-3 have positive values (the start-up trajectory
+        # PLEXOS uses to mirror commitment state from the prior week);
+        # hours 4-168 are FixedLoad=0 and the unit dispatches actively
+        # (13.6 GWh / week, peaking at 244.86 MW) — interpreting the
+        # zero rows as ``pmax=0`` zeros out a 244 MW thermal unit for
+        # 165h, then collides with ``initial_power=244.842 MW``
+        # carried by the Commitment row → ramp-down constraint
+        # ``0 <= -123.65`` and a primal-infeasible LP.
+        #
+        # The patch: where FixedLoad is non-zero we pin pmin=pmax to
+        # the FixedLoad value (hard equality); where FixedLoad=0 we
+        # restore the original ``pmax`` (Gen_Rating-derived
+        # block-profile or scalar) and leave ``pmin`` at the gen's
+        # always-on floor (``gen.pmin``, usually 0 — Commitment.pmin
+        # handles the commitment-conditional floor).
+        if gen.fixed_load_profile:
+            fl_profile = (
+                _aggregate_to_blocks(
+                    gen.fixed_load_profile, block_layout, reducer="mean"
+                )
+                if block_layout
+                else list(gen.fixed_load_profile)
+            )
+            if fl_profile and any(v > 0.0 for v in fl_profile):
+                # Recover the block-aggregated pmax profile we already
+                # computed above so we can keep the original cap on
+                # zero-FixedLoad blocks.  Scalar-pmax gens broadcast.
+                if isinstance(entry["pmax"], list):
+                    base_pmax = list(entry["pmax"][0])
+                else:
+                    base_pmax = [float(entry["pmax"])] * len(fl_profile)
+                base_pmin = float(gen.pmin or 0.0)
+                pmin_blocks: list[float] = []
+                pmax_blocks: list[float] = []
+                for t, fl in enumerate(fl_profile):
+                    if fl > 0.0:
+                        # Soft must-take: cap output at the FixedLoad/CF
+                        # value but leave pmin=0 so the unit is
+                        # CURTAILABLE.  gcost≈0 keeps the LP maxing free
+                        # renewables/RoR (matching PLEXOS) while allowing
+                        # curtailment under congestion — and it removes
+                        # the hard pmin=pmax infeasibility (gen pinned >0
+                        # while a transmission limit / commitment u-pin
+                        # forces it lower).
+                        pmin_blocks.append(0.0)
+                        pmax_blocks.append(fl)
+                    else:
+                        pmin_blocks.append(base_pmin)
+                        # Keep the cap from Gen_Rating; index-safe even
+                        # if the two arrays differ in length (rare).
+                        pmax_blocks.append(base_pmax[t] if t < len(base_pmax) else 0.0)
+                # Emit the cap (scalar when uniform, else per-block).
+                if min(pmax_blocks) == max(pmax_blocks):
+                    entry["pmax"] = pmax_blocks[0]
+                else:
+                    entry["pmax"] = [pmax_blocks]
+                # Emit pmin only if a real floor remains (>0); the
+                # curtailable renewables/RoR keep pmin at its default 0.
+                if any(v > 0.0 for v in pmin_blocks):
+                    if min(pmin_blocks) == max(pmin_blocks):
+                        entry["pmin"] = pmin_blocks[0]
+                    else:
+                        entry["pmin"] = [pmin_blocks]
+                else:
+                    entry.pop("pmin", None)
+
+        # PLEXOS ``Generator.Initial Generation`` is captured in
+        # ``GeneratorSpec.initial_generation`` for downstream tooling
+        # but NOT emitted to the gtopt JSON: the Generator schema has
+        # no ``initial_generation`` field yet (rolling-horizon /
+        # cascade-state work is a follow-up).  Emitting it here
+        # triggers gtopt's strict daw::json "Could not find member"
+        # failure at LP build.
+
         out.append(entry)
     return out
 
@@ -310,10 +433,249 @@ def _needs_virtual_fuel(generators: tuple[GeneratorSpec, ...]) -> bool:
     )
 
 
+def augment_el1_with_soft_caps(
+    line_entries: list[dict[str, Any]],
+    *,
+    overload_penalty: float,
+    headroom_factor: float = 3.0,
+) -> int:
+    """Convert every EL=1 line into a soft-capped line.
+
+    Uses gtopt's native ``Line.tmax_normal_*`` + ``overload_penalty``
+    primitive (line_lp.cpp emits an overload-slack column per direction
+    when both are set).  Below ``tmax_normal_*`` the LP pays nothing
+    extra; above it the LP pays ``overload_penalty`` per MWh up to the
+    hard cap ``tmax_*``.  That's a true piecewise soft cap on a SINGLE
+    Line entity — cleaner than appending parallel slack lines (which
+    distort the Kirchhoff cycle structure with every extra branch).
+
+    For each EL=1 entry with a non-zero ``tmax_ab``:
+      * ``tmax_normal_ab`` ← original ``tmax_ab``         (soft target)
+      * ``tmax_ab``        ← ``headroom_factor × original`` (hard cap)
+      * Same for the B→A leg when ``tmax_ba`` is set.
+      * ``overload_penalty`` ← the caller-supplied per-MWh penalty.
+      * ``enforce_level`` stays 1 (the new ``tmax_ab`` is the hard cap;
+        the LP only ever pushes flow into the soft band when economics
+        demand it).
+
+    ``headroom_factor`` default ``3.0``: gives the LP up to 3× rated
+    capacity at penalty, which covers every observed CEN PCP overflow
+    (largest case Capricornio ≈ 2.7× rated).  Capped at 3× because
+    gtopt's loss-PWL envelope is anchored on ``tmax_ab`` (the hard
+    cap), so larger headrooms stretch the PWL across the over-capacity
+    band and under-estimate I²R losses for flow near the rated point.
+    A future gtopt change (decoupling the loss envelope from the flow
+    cap via a separate ``block_loss_envelope_*`` parameter to
+    ``line_losses::add_block``) would let us safely set headroom to
+    ``+∞`` without distorting the loss model.
+
+    Recommended ``overload_penalty`` on CEN PCP bundles:
+        avg(min(demand.fcost), max(generator.gcost))
+    (~$285.81/MWh on the 2026-04-22 bundle).  High enough that
+    re-dispatch wins whenever possible, low enough that the LP doesn't
+    prefer dropping demand over routing flow at the soft penalty.
+
+    Returns the number of EL=1 entries softened (each mutated in
+    place — no new line entries are appended).
+    """
+    n_softened = 0
+    for ln in line_entries:
+        if ln.get("enforce_level") != 1:
+            continue
+        rated_ab = ln.get("tmax_ab")
+        if rated_ab is None:
+            continue
+        if isinstance(rated_ab, (int, float)) and rated_ab <= 0:
+            continue
+        # A→B leg
+        if "tmax_ab" in ln:
+            ln["tmax_normal_ab"] = ln["tmax_ab"]
+            if isinstance(ln["tmax_ab"], (int, float)):
+                ln["tmax_ab"] = ln["tmax_ab"] * headroom_factor
+        # B→A leg (only if it's set)
+        if "tmax_ba" in ln:
+            ln["tmax_normal_ba"] = ln["tmax_ba"]
+            if isinstance(ln["tmax_ba"], (int, float)):
+                ln["tmax_ba"] = ln["tmax_ba"] * headroom_factor
+        ln["overload_penalty"] = overload_penalty
+        n_softened += 1
+    return n_softened
+
+
+def _compute_default_slack_cost(
+    demand_entries: list[dict[str, Any]],
+    generator_entries: list[dict[str, Any]],
+    *,
+    fallback: float = 285.81,
+) -> float:
+    """Compute the default EL=1 slack ``tcost`` from the bundle's own
+    demand fail-cost and generator marginal-cost values.
+
+    Recipe (per CEN PCP K=4-tangent calibration):
+        slack_cost = (min(demand.fcost) + max(generator.gcost)) / 2
+
+    Falls back to ``fallback`` if either pool is empty.  Scalars,
+    per-block lists, and per-block matrices are all flattened to their
+    positive values; non-positive entries are ignored.
+    """
+
+    def _flatten_positive(seq):
+        for x in seq:
+            if isinstance(x, list):
+                yield from _flatten_positive(x)
+            elif x is not None and x > 0:
+                yield float(x)
+
+    fcosts = list(
+        _flatten_positive(
+            d.get("fcost") if isinstance(d.get("fcost"), list) else [d.get("fcost")]
+            for d in demand_entries
+            if d.get("fcost") is not None
+        )
+    )
+    gcosts = list(
+        _flatten_positive(
+            g.get("gcost") if isinstance(g.get("gcost"), list) else [g.get("gcost")]
+            for g in generator_entries
+            if g.get("gcost") is not None
+        )
+    )
+    if not fcosts or not gcosts:
+        return fallback
+    return (min(fcosts) + max(gcosts)) / 2.0
+
+
+def _int_loss_env(key: str, default: int) -> int:
+    """Read a positive int from a ``GTOPT_*`` env var, else ``default``."""
+    import os as _os
+
+    try:
+        v = int(_os.environ.get(key, str(default)))
+    except ValueError:
+        return default
+    return v if v >= 1 else default
+
+
+def _loss_proxy(resistance: float, rating_mw: float) -> float:
+    """Static loss-magnitude proxy ``R · P²`` for one line.
+
+    The physical loss at full rated flow is ``ℓ_max = (R/V²)·P²`` — so
+    ``R·P²`` (the V²-free part) ranks lines by how much loss they CAN
+    carry.  Far better than rating ``P`` alone: a high-rating 500 kV trunk
+    with low per-unit R contributes little loss, whereas a mid-rating
+    220 kV line with high R can dominate.  Used to pick the tangent tier
+    so the accurate layout lands where loss actually concentrates.
+    """
+    return resistance * rating_mw * rating_mw
+
+
+def _tangent_loss_cutoff(proxies: list[float]) -> float | None:
+    """Loss-proxy (``R·P²``) cutoff for the hybrid loss layout, from the
+    env var ``GTOPT_LOSS_TANGENT_PCT`` (set by ``--loss-tangent-top-pct``).
+
+    ``GTOPT_LOSS_TANGENT_PCT = P`` selects the **top P% of lossy lines by
+    static loss magnitude ``R·P²``** for the accurate ``tangent`` layout:
+    lines whose proxy ≥ the returned cutoff get tangent, the rest get
+    ``uniform``.
+
+      * ``P = 0``   → cutoff ``+inf``  (no line qualifies → all uniform).
+      * ``P = 100`` → cutoff ``-inf``  (every line qualifies → all tangent).
+      * ``0 < P < 100`` → cutoff = the ``ceil(n·P/100)``-th largest proxy,
+        so ~P% of the ``n`` lossy lines clear it (ties round up).
+
+    Returns ``None`` when the env var is unset / blank (hybrid percentile
+    mode off — only the explicit ``GTOPT_LOSS_TANGENT_LINES`` list, if
+    any, then drives tangent selection).
+    """
+    import math
+    import os as _os
+
+    raw = _os.environ.get("GTOPT_LOSS_TANGENT_PCT", "").strip()
+    if not raw:
+        return None
+    try:
+        pct = float(raw)
+    except ValueError:
+        return None
+    pct = min(max(pct, 0.0), 100.0)
+    n = len(proxies)
+    if pct <= 0.0 or n == 0:
+        return math.inf  # none → all uniform
+    if pct >= 100.0:
+        return -math.inf  # all → all tangent
+    k = math.ceil(n * pct / 100.0)  # number of lines that should be tangent
+    return sorted(proxies, reverse=True)[k - 1]
+
+
+def _resolve_loss_layout(
+    line_name: str,
+    loss_proxy: float,
+    tangent_cutoff: float | None,
+) -> tuple[str, int]:
+    """Resolve ``(loss_pwl_layout, loss_segments)`` for one lossy line.
+
+    Hybrid (loading-classified) mode activates when ``tangent_cutoff`` is
+    not ``None`` (from ``--loss-tangent-top-pct``) OR the explicit
+    ``GTOPT_LOSS_TANGENT_LINES`` name list is non-empty.  A line gets the
+    accurate ``tangent`` layout when it is FORCED by name OR its static
+    loss proxy ``R·P²`` ≥ ``tangent_cutoff``; otherwise the cheaper
+    ``uniform`` layout.  The two tiers use independent segment counts
+    (``GTOPT_NSEG_TANGENT`` default 6, ``GTOPT_NSEG_UNIFORM`` default 8) —
+    tangent stays coarse (fewer binaries/rows) since its outer-
+    approximation inequalities resist presolve binary-fixing, while
+    uniform's segment-variable equalities presolve cheaply and can afford
+    more segments.
+
+    When neither knob is set, falls back to the legacy single-layout
+    ``GTOPT_LOSS_PWL_LAYOUT`` / ``GTOPT_NSEG_LOSSES`` (default tangent / 4).
+
+    Rationale (loading-classified PWL, Sun et al. 2019): spend the
+    accurate-but-MIP-heavy tangent rows only on the few lines where loss
+    actually concentrates; give the long tail the fast, presolve-friendly
+    uniform segments.  The loss proxy ``R·P²`` (resistance × rating²) is
+    the V²-free part of the full-flow loss ``(R/V²)·P²`` — a far better
+    ranking than rating alone, since a high-rating low-R trunk carries
+    little loss while a mid-rating high-R line can dominate.
+    """
+    import os as _os
+
+    forced = {
+        n.strip()
+        for n in _os.environ.get("GTOPT_LOSS_TANGENT_LINES", "").split(",")
+        if n.strip()
+    }
+
+    if tangent_cutoff is None and not forced:
+        # Legacy single-layout path.
+        layout = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "tangent")
+        return layout, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
+
+    is_tangent = line_name in forced or (
+        tangent_cutoff is not None and loss_proxy >= tangent_cutoff
+    )
+    if is_tangent:
+        return "tangent", _int_loss_env("GTOPT_NSEG_TANGENT", 6)
+    return "uniform", _int_loss_env("GTOPT_NSEG_UNIFORM", 8)
+
+
+def _scale_tmax(value: Any, factor: float) -> Any:
+    """Scale a ``tmax_*`` entry by ``factor``.
+
+    Handles both the scalar form (``float``) and the per-block matrix
+    form (``[[v, ...]]`` emitted for DLR lines), leaving the JSON shape
+    unchanged so the soft (``tmax_normal_*``) and hard (``tmax_*``)
+    limits stay congruent.
+    """
+    if isinstance(value, (int, float)):
+        return value * factor
+    return [[x * factor for x in row] for row in value]
+
+
 def build_line_array(
     lines: tuple[LineSpec, ...],
     *,
     block_layout: tuple[tuple[int, ...], ...] = (),
+    overload_penalty: float = 285.81 / _LINE_OVERLOAD_DIVISOR,
 ) -> list[dict[str, Any]]:
     """One line entry per :class:`LineSpec`.
 
@@ -329,6 +691,17 @@ def build_line_array(
     higher daytime rating block-by-block.  Constant profiles
     collapse to the scalar (peak) tmax_ab.
     """
+    # Hybrid loss layout: rank the lossy lines (resistance>0, rated) by
+    # static loss magnitude ``R·P²`` once, so ``--loss-tangent-top-pct``
+    # can pick the highest-loss P% for the accurate tangent layout (see
+    # _loss_proxy / _tangent_loss_cutoff / _resolve_loss_layout).
+    tangent_cutoff = _tangent_loss_cutoff(
+        [
+            _loss_proxy(ln.resistance, ln.tmax_ab)
+            for ln in lines
+            if ln.resistance > 0.0 and ln.tmax_ab > 0.0
+        ]
+    )
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
         # Parser (`extract_lines`) already clamps hour-0 units to 1 and
@@ -403,6 +776,27 @@ def build_line_array(
             # explicit EL=0 / lifted EL=1 lines stand out.
             if line.enforce_limits < 2:
                 entry["enforce_level"] = line.enforce_limits
+            # Soft-cap the ex-PLEXOS-EL=0 lines (parser flagged
+            # ``soft_cap`` and promoted them to enforce_level=1): free
+            # flow up to the rating (``tmax_normal_*``), penalised
+            # between the rating and ``_LINE_HEADROOM_FACTOR × rating``
+            # (the new hard ``tmax_*``).  Mirrors PLEXOS, which leaves
+            # these lines uncapped yet in practice runs them at most
+            # ~2.7× rated; the penalty stops gtopt from teleporting tens
+            # of GW across them while keeping the radial pockets PLEXOS
+            # over-serves feasible.  Orig EL=1/EL=2 stay plain hard caps.
+            if line.soft_cap:
+                if "tmax_ab" in entry:
+                    entry["tmax_normal_ab"] = entry["tmax_ab"]
+                    entry["tmax_ab"] = _scale_tmax(
+                        entry["tmax_ab"], _LINE_HEADROOM_FACTOR
+                    )
+                if "tmax_ba" in entry:
+                    entry["tmax_normal_ba"] = entry["tmax_ba"]
+                    entry["tmax_ba"] = _scale_tmax(
+                        entry["tmax_ba"], _LINE_HEADROOM_FACTOR
+                    )
+                entry["overload_penalty"] = overload_penalty
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
         # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +
@@ -452,20 +846,23 @@ def build_line_array(
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
                 entry["line_losses_mode"] = "piecewise"
-                import os as _os
-
-                try:
-                    nseg = int(_os.environ.get("GTOPT_NSEG_LOSSES", "3"))
-                except ValueError:
-                    nseg = 3
-                entry["loss_segments"] = nseg if nseg >= 1 else 3
-                # Segment-layout strategy: forwarded via GTOPT_LOSS_PWL_LAYOUT
-                # so the writer doesn't need a new argument.  Default `uniform`
-                # preserves pre-2026-05 behaviour; pass `equal_error` for
-                # √-spaced minimax (same K, better worst-case chord error).
-                pwl_layout = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "uniform")
-                if pwl_layout != "uniform":
-                    entry["loss_pwl_layout"] = pwl_layout
+                # Per-line segment count + layout, resolved from the
+                # converter's loss env vars.  In hybrid (loading-
+                # classified) mode this returns tangent/N_t for high-
+                # rating or forced lines and uniform/N_u for the rest;
+                # otherwise the legacy single-layout knobs apply.  Power
+                # rating = ``line.tmax_ab`` (PLEXOS Max Flow, pre-headroom
+                # — entry["tmax_ab"] may already be the 3× soft hard cap).
+                layout, nseg = _resolve_loss_layout(
+                    line.name,
+                    _loss_proxy(line.resistance, line.tmax_ab),
+                    tangent_cutoff,
+                )
+                entry["loss_segments"] = nseg
+                # Emit ``loss_pwl_layout`` only when non-default (uniform
+                # is gtopt's default) to keep the JSON minimal.
+                if layout != "uniform":
+                    entry["loss_pwl_layout"] = layout
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
@@ -510,6 +907,48 @@ def _aggregate_to_blocks(
             out.append(sum(vals))
         else:  # mean
             out.append(sum(vals) / len(vals))
+    return out
+
+
+def _commit_status_code(v: int) -> float:
+    """Map a PLEXOS ``Gen_Commit`` value to gtopt ``fixed_status``:
+    ``+1 -> 1.0`` (pin u=1), ``0 -> 0.0`` (pin u=0), anything else
+    (``-1``) -> ``-1.0`` — the out-of-``[0, 1]`` "no-pin" sentinel that
+    ``commitment_lp.cpp`` reads as "leave this block's ``u`` free".
+    """
+    if v == 1:
+        return 1.0
+    if v == 0:
+        return 0.0
+    return -1.0
+
+
+def _aggregate_commit_status(
+    hourly: tuple[int, ...] | list[int],
+    block_layout: tuple[tuple[int, ...], ...],
+) -> list[float]:
+    """Collapse an hourly PLEXOS commit-status profile (values in
+    ``{-1, 0, +1}``) to one forced-status value per block for gtopt's
+    ``Commitment.fixed_status``.
+
+    Per block the modal hourly value wins; ties (including a block that
+    straddles a forced-on/forced-off boundary) resolve to ``-1`` (free)
+    so an ambiguous block is never pinned to the wrong status.  With no
+    ``block_layout`` the hourly profile is mapped 1:1.
+    """
+    if not block_layout:
+        return [_commit_status_code(int(v)) for v in hourly]
+    out: list[float] = []
+    n = len(hourly)
+    for intervals in block_layout:
+        vals = [int(hourly[iv - 1]) for iv in intervals if 1 <= iv <= n]
+        if not vals:
+            out.append(-1.0)
+            continue
+        counts = ((1, vals.count(1)), (0, vals.count(0)), (-1, vals.count(-1)))
+        top = max(c for _, c in counts)
+        winners = [v for v, c in counts if c == top]
+        out.append(_commit_status_code(winners[0]) if len(winners) == 1 else -1.0)
     return out
 
 
@@ -690,21 +1129,37 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
         # would have over-priced the band's marginal cost).
         if fuel.max_offtake is not None:
             entry["max_offtake"] = fuel.max_offtake
-            # PLEXOS enforces FueMaxOffWeek_<fuel> per period (the
-            # weekly cap distributed as a uniform per-hour rate),
-            # not as a per-stage sum.  Setting
-            # max_offtake_per_block = true makes gtopt's FuelLP
-            # build one cap row per (scenario, stage, block),
-            # pro-rating the weekly cap by block duration share —
-            # matching the PLEXOS semantics.  See the module-level
-            # comment in parsers.py for the unit + semantics detail.
-            entry["max_offtake_per_block"] = True
+            # Use per-STAGE SUM mode (the gtopt default), NOT per-block.
+            # `Fuel_MaxOfftakeWeek.csv` ships a WEEKLY total cap.
+            # Enforcing it per-block (with uniform pro-rating by
+            # block duration) collapses the constraint into an
+            # effective per-hour power cap — semantically equivalent
+            # to lowering `pmax`, which removes the LP's flexibility
+            # to time-shift fuel use within the week.  Per-stage SUM
+            # = `Σ_blocks heat_rate × gen × dur ≤ weekly_cap` keeps
+            # the LP free to pick WHEN to burn the fuel, matching
+            # PLEXOS's weekly-budget semantics.
+            #
+            # On CEN PCP weekly 2026-04-22, switching from per-block
+            # to per-stage SUM was part of fixing the LNG +229%
+            # over-dispatch (with the missing-gens fix in
+            # parsers.py).
+            # Leave ``max_offtake_per_block`` unset → gtopt FuelLP
+            # defaults to per-stage SUM.
+            #
+            # ``max_offtake_cost`` makes the cap SOFT (a priced slack
+            # column).  PLEXOS treats ``FueMaxOffWeek_*`` as soft and
+            # violates it; a hard cap re-throttles LNG and forces coal.
+            if fuel.max_offtake_cost is not None:
+                entry["max_offtake_cost"] = fuel.max_offtake_cost
         out.append(entry)
     return out
 
 
 def build_reservoir_array(
     reservoirs: tuple[ReservoirSpec, ...],
+    *,
+    soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
 ) -> list[dict[str, Any]]:
     """One ``Reservoir`` per :class:`ReservoirSpec``.
 
@@ -819,13 +1274,42 @@ def build_reservoir_array(
         #    ships 10,000 $/GWh on every dispatched reservoir.
         if res.efin > 0.0:
             entry["efin"] = res.efin
-            if not res.never_drain and res.water_value > 0.0:
-                # Soft slack — per-reservoir Water Value as the
-                # shortfall penalty.  Units match efin (PLEXOS GWh).
-                entry["efin_cost"] = res.water_value
-            # ``never_drain`` branch omits efin_cost → gtopt builds the
-            # row as ``vol_end >= efin`` HARD; the LP must hit the
-            # target or fail.
+            # Per-reservoir SOFTENING opt-in (``soft_efin_reservoirs``
+            # set, default ``{"L_Maule"}``).  Outside the set, ``efin``
+            # is emitted WITHOUT ``efin_cost`` → gtopt builds a HARD
+            # ``vol_end >= efin`` row that the LP MUST satisfy.
+            #
+            # Rationale: every reservoir with a finite ``Water Value``
+            # used to be soft (efin_cost = water_value).  That let the
+            # LP pay the per-GWh penalty (e.g. ELTORO at $10k) and
+            # drain water past the published floor, generating
+            # downstream cascade hydro for cheap.  CEN PCP 2026-04-22
+            # gtopt drained ELTORO 128 GWh below its 12,079-GWh
+            # target → $1.28M slack, freeing +20 GWh of ELTORO
+            # dispatch + +5 GWh of cascade RUCUE generation that
+            # PLEXOS doesn't take.  Restoring the HARD floor for
+            # ELTORO (and other regular reservoirs) closes the
+            # arbitrage, matching PLEXOS treatment.
+            #
+            # ``L_Maule`` keeps a SOFT efin because its PLEXOS
+            # ``Water Value = 1e+30`` sentinel implies a never-drain
+            # floor that the LP cannot reach without slack when
+            # combined with the upstream ramp / FixedLoad tightening
+            # (otherwise the L_Maule reservoir balance becomes the
+            # dominant infeasibility row).  Pin its slack at a HIGH
+            # cost so the LP respects it whenever physically possible.
+            if res.name in soft_efin_reservoirs:
+                if res.never_drain:
+                    # Sentinel never-drain reservoir — high penalty so
+                    # slack is used only when no other option exists.
+                    entry["efin_cost"] = 1.0e6
+                elif res.water_value > 0.0:
+                    # Regular soft path — use PLEXOS Water Value.
+                    entry["efin_cost"] = res.water_value
+                # else: no water_value AND not never_drain → no slack
+                # column emitted (would be a no-op anyway).
+            # Reservoirs NOT in soft_efin_reservoirs: omit efin_cost,
+            # producing the HARD ``vol_end >= efin`` constraint.
         # Reservoir-internal drain is DISABLED by default, matching PLP's
         # convention: spillage leaves the basin via an explicit ``Vert_*``
         # Waterway routed to a ``<source>_ocean`` drain junction (added by
@@ -1387,6 +1871,7 @@ def build_commitment_array(
     commitments: tuple[CommitmentSpec, ...],
     *,
     lp_relax: bool = False,
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One ``Commitment`` per :class:`CommitmentSpec`.
 
@@ -1443,8 +1928,47 @@ def build_commitment_array(
         # and skips resetting Generator.pmin.  Distinct from
         # Generator.pmin (always-on floor).  CEN PCP uses Min Stable
         # Level here; Generator.pmin stays 0 (no always-on floor).
-        if c.pmin > 0.0:
+        #
+        # PLEXOS ships Min Stable Level as a time series.  When it
+        # varies across the horizon, emit the per-block schedule
+        # (aggregated to the block_array layout, ``[[block values]]``
+        # = one stage) so gtopt backs the unit down in its low-floor
+        # periods instead of pinning the period-1 value all week
+        # (e.g. SANTA_MARIA: 98.53 MW for 148 h, 170.53 MW for 20 h).
+        # Constant profiles collapse to the scalar.
+        if c.pmin_profile and (max(c.pmin_profile) != min(c.pmin_profile)):
+            pmin_blocks = (
+                _aggregate_to_blocks(c.pmin_profile, block_layout, reducer="mean")
+                if block_layout
+                else list(c.pmin_profile)
+            )
+            entry["pmin"] = [pmin_blocks]
+        elif c.pmin > 0.0:
             entry["pmin"] = c.pmin
+        # PLEXOS ``Generator.Commit`` forcing (Gen_Commit profile) →
+        # pin gtopt's ``u`` (commitment status) so the LP honours
+        # PLEXOS's must-run / don't-commit decisions THROUGH THE
+        # COMMITMENT VARIABLE — ``pmax`` is left untouched.
+        #   * every period +1  → ``must_run: true`` (u = 1 all stage).
+        #   * any forced period → per-block ``fixed_status`` (1.0 pins
+        #     u=1, 0.0 pins u=0, -1.0 leaves the block free).
+        #   * all -1 (endogenous) → nothing (gtopt decides).
+        prof = c.commit_status_profile
+        if prof:
+            if all(v == 1 for v in prof):
+                entry["must_run"] = True
+            elif any(v in (0, 1) for v in prof):
+                fixed = _aggregate_commit_status(prof, block_layout)
+                if any(v >= 0.0 for v in fixed):  # at least one pinned block
+                    entry["fixed_status"] = [fixed]
+        # PLEXOS ``Initial Generation`` (Gen_IniGeneration.csv) →
+        # gtopt ``Commitment.initial_power``: the dispatch level at
+        # t = -1 used by the first-block ramp / commitment continuity
+        # rows.  Emit only when non-zero so the JSON stays clean for
+        # cold-start units (the gtopt LP defaults to ``p_prev = 0``
+        # when the field is unset — correct for genuine cold starts).
+        if c.initial_power != 0.0:
+            entry["initial_power"] = c.initial_power
         out.append(entry)
     return out
 
@@ -1502,6 +2026,7 @@ def build_planning(
     name: str,
     default_uc_penalty: float | None = None,
     lp_relax: bool = False,
+    soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -1523,29 +2048,43 @@ def build_planning(
                 "price": 1.0,
             }
         )
+    generator_array = build_generator_array(
+        case.generators,
+        case.fuels,
+        generators_with_commitment=frozenset(
+            c.generator_name for c in case.commitments
+        ),
+        block_layout=case.bundle.block_layout,
+    )
+    demand_array = build_demand_array(
+        case.demands,
+        block_layout=case.bundle.block_layout,
+    )
+    # Soft-cap overload penalty for ex-EL0 lines: one quarter of the
+    # calibrated slack cost ``(min demand.fcost + max gen.gcost)/2``
+    # (~$285 → ~$71/MWh), so the LP pushes ~4 jumps into an EL0 line's
+    # soft band before shedding load.  Computed from the bundle's own
+    # cost data, not a magic constant.
+    line_overload_penalty = (
+        _compute_default_slack_cost(demand_array, generator_array)
+        / _LINE_OVERLOAD_DIVISOR
+    )
     system: dict[str, Any] = {
         "name": name,
         "bus_array": build_bus_array(case.nodes),
-        "generator_array": build_generator_array(
-            case.generators,
-            case.fuels,
-            generators_with_commitment=frozenset(
-                c.generator_name for c in case.commitments
-            ),
-            block_layout=case.bundle.block_layout,
-        ),
+        "generator_array": generator_array,
         "line_array": build_line_array(
             case.lines,
             block_layout=case.bundle.block_layout,
+            overload_penalty=line_overload_penalty,
         ),
-        "demand_array": build_demand_array(
-            case.demands,
-            block_layout=case.bundle.block_layout,
-        ),
+        "demand_array": demand_array,
         "battery_array": build_battery_array(case.batteries),
         "fuel_array": fuel_array,
         "junction_array": (junction_array := build_junction_array(case.junctions)),
-        "reservoir_array": build_reservoir_array(case.reservoirs),
+        "reservoir_array": build_reservoir_array(
+            case.reservoirs, soft_efin_reservoirs=soft_efin_reservoirs
+        ),
         # Order matters: build the waterway list first, then let
         # build_turbine_array APPEND any per-unit clone waterways it
         # synthesises for multi-unit plants (see docstring on
@@ -1576,7 +2115,11 @@ def build_planning(
         "reserve_provision_array": build_reserve_provision_array(
             case.reserve_provisions
         ),
-        "commitment_array": build_commitment_array(case.commitments, lp_relax=lp_relax),
+        "commitment_array": build_commitment_array(
+            case.commitments,
+            lp_relax=lp_relax,
+            block_layout=case.bundle.block_layout,
+        ),
         "flow_right_array": build_flow_right_array(
             case.flow_rights,
             block_count=DEFAULT_BLOCK_COUNT * case.bundle.n_days,
@@ -1594,6 +2137,44 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
     }
+    # ── Default soft-EL=1 augmentation ────────────────────────────────
+    # When the caller did NOT pass ``--lift-line-caps`` (empty env var),
+    # add a parallel slack line on every EL=1 line so the LP has a
+    # priced escape valve above the PLEXOS-stated rating.  This avoids
+    # the all-or-nothing trade-off between "hard-cap EL=1 lines that
+    # PLEXOS itself dispatches above rating" and "manually curate a
+    # bundle-specific lift list" — the LP itself decides when to push
+    # past the cap, paying the per-MWh slack penalty.
+    #
+    # Disabled when ``--lift-line-caps`` provides an explicit list:
+    # those named lines are demoted to EL=0 inside ``extract_lines``
+    # (the upstream behaviour), and the soft mode would be redundant.
+    #
+    # ``GTOPT_LIFT_LINE_CAPS`` is the same env var that
+    # ``extract_lines`` reads; empty / unset → activate soft mode.
+    import os as _os_soft
+
+    _lift_raw = _os_soft.environ.get("GTOPT_LIFT_LINE_CAPS", "").strip()
+    if not _lift_raw and system["line_array"]:
+        penalty = _compute_default_slack_cost(
+            system["demand_array"],
+            system["generator_array"],
+        )
+        n_softened = augment_el1_with_soft_caps(
+            system["line_array"], overload_penalty=penalty
+        )
+        if n_softened > 0:
+            import logging as _log_soft
+
+            _log_soft.getLogger("plexos2gtopt").info(
+                "augment_el1_with_soft_caps: softened %d EL=1 line(s) "
+                "(tmax_normal_* ← rated, tmax_* ← 3× rated, "
+                "overload_penalty=$%.2f/MWh = avg of min(demand.fcost), "
+                "max(generator.gcost)); disable with --lift-line-caps=<list>",
+                n_softened,
+                penalty,
+            )
+
     # Assign sequential UIDs to any per-unit waterway clones that
     # `build_turbine_array` appended with placeholder uid=0.
     next_ww_uid = max((w.get("uid", 0) for w in waterway_array), default=0) + 1
@@ -1623,13 +2204,46 @@ def build_planning(
     }
 
 
+_BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
+
+
+def install_solver_param_files(output_dir: Path) -> list[Path]:
+    """Copy every bundled ``<solver>.prm`` into ``<output_dir>/solvers/``.
+
+    gtopt's ``prepare_matrix_options`` (source/gtopt_lp_runner.cpp) auto-loads
+    ``<input_directory>/solvers/<solver_name>.prm`` when the user does not
+    pass ``solver_options.param_file`` explicitly.  Shipping the curated
+    parameter files alongside the JSON case means a fresh plexos2gtopt
+    output is solver-tuned out of the box.
+
+    Returns the list of installed file paths (empty when no bundled prm).
+    """
+    if not _BUNDLED_SOLVERS_DIR.is_dir():
+        return []
+    target_dir = output_dir / "solvers"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    installed: list[Path] = []
+    for src in sorted(_BUNDLED_SOLVERS_DIR.glob("*.prm")):
+        dst = target_dir / src.name
+        shutil.copyfile(src, dst)
+        installed.append(dst)
+        logger.info("installed solver param file: %s", dst)
+    return installed
+
+
 def write_planning(planning: dict[str, Any], output_path: Path) -> Path:
-    """Write the planning to ``output_path`` (parents created on demand)."""
+    """Write the planning to ``output_path`` (parents created on demand).
+
+    Also installs any bundled ``<solver>.prm`` files into
+    ``<output_path.parent>/solvers/`` so that ``gtopt`` picks up tuned
+    backend parameters automatically.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as fh:
         json.dump(planning, fh, indent=2)
         fh.write("\n")
     logger.info("wrote gtopt planning: %s", output_path)
+    install_solver_param_files(output_path.parent)
     return output_path
 
 
@@ -1656,5 +2270,6 @@ __all__ = [
     "build_turbine_array",
     "build_user_constraint_array",
     "build_waterway_array",
+    "install_solver_param_files",
     "write_planning",
 ]

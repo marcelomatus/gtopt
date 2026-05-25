@@ -31,6 +31,7 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
           ic, Element::class_name, id(), std::move(object().shutdown_cost))
     , fixed_status_(
           ic, Element::class_name, id(), std::move(object().fixed_status))
+    , pmin_(ic, Element::class_name, id(), std::move(object().pmin))
 {
 }
 
@@ -257,7 +258,20 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     });
     ucols[rep_buid] = ucol;
 
-    // ── Create v (startup) variable ──
+    // ── Create v (startup) and w (shutdown) variables ──
+    //
+    // These are deliberately CONTINUOUS in [0,1], NOT integer, even on a
+    // non-relaxed (MIP) build.  In this tight 3-binary formulation the
+    // logic equality C1 (`u[p] - u[p-1] - v[p] + w[p] = 0`) together with
+    // the exclusion C3 (`v[p] + w[p] <= 1`) and the nonnegative startup /
+    // shutdown costs force v and w to the integer up/down transition of an
+    // integer u — so they take binary values at every optimal vertex
+    // without being declared integer.  Declaring only u integer cuts the
+    // branching-variable count by ~2/3 with an identical feasible set.
+    // See Knueven, Ostrowski & Watson (2020), "On MIP Formulations for the
+    // Unit Commitment Problem", INFORMS J. Comput. 32(4); and
+    // Morales-España, Latorre & Ramos (2013), "Tight and Compact MILP
+    // Formulation ...", IEEE Trans. Power Syst.
     const auto v_cost = has_startup_tiers
         ? 0.0
         : CostHelper::block_ecost(
@@ -266,7 +280,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = v_cost,
-        .is_integer = !is_relax,
+        .is_integer = false,
         .class_name = cname,
         .variable_name = StartupName,
         .variable_uid = cuid,
@@ -275,14 +289,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     vcols[rep_buid] = vcol;
     period_vcol[p] = vcol;
 
-    // ── Create w (shutdown) variable ──
     const auto w_cost = CostHelper::block_ecost(
         scenario, stage, rep_block, stage_shutdown_cost);
     auto wcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = w_cost,
-        .is_integer = !is_relax,
+        .is_integer = false,
         .class_name = cname,
         .variable_name = ShutdownName,
         .variable_uid = cuid,
@@ -393,7 +406,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // that order are a user error (the LP still solves but the
     // conditional pmin is irrelevant — dominated by the always-on
     // floor).
-    const auto explicit_pmin = commitment().pmin;
+    const auto explicit_pmin = pmin_.optval(stage.uid(), buid);
     const auto gen_pmin =
         explicit_pmin.has_value() ? *explicit_pmin : lp.get_col_lowb(gcol);
 

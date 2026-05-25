@@ -389,13 +389,42 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
             term.element->attribute,
             ctx.block.uid(),
             *suppression);
+      } else if (res.element_known) {
+        // The element exists in the AMPL registry but has no LP
+        // column for this specific (scenario, stage, block) —
+        // typically a generator with ``pmax = 0`` on this block
+        // (GeneratorLP omits the column), or a battery with the
+        // same condition on charge/discharge.  The term contributes
+        // 0 to the LHS by construction (the underlying variable is
+        // implicitly 0); silently skipping it keeps the constraint
+        // well-formed without forcing the caller to per-block
+        // expressions.  Trace at DEBUG so the diagnostic is still
+        // available when needed.
+        //
+        // This was the root cause of the CEN PCP weekly LNG +229%
+        // over-dispatch: plexos2gtopt deliberately dropped startup-
+        // staged generators from FueMaxOff_<fuel> expressions to
+        // avoid this exact strict-mode error, but that under-counted
+        // the cap LHS by entire generators (NEHUENCO_2-TG+TV_GNL_C
+        // dispatched 30,843 MWh vs PLEXOS 244 MWh).  With this
+        // tolerance, plexos2gtopt can include those gens and the
+        // cap stays well-defined.
+        SPDLOG_DEBUG(
+            "user_constraint '{}': element '{}({}).{}' has no LP column "
+            "for block {} (inactive: pmax=0 or similar) — term contributes "
+            "0 to LHS",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid());
       } else if (ctx.is_strict) {
         // The element ref resolved neither as an LP column (no
         // matching variable in the AMPL registry) nor as a data
-        // parameter — most commonly a typo, an inactive element, or
-        // a missing element.  Silent skipping here is the most
-        // insidious failure mode: the constraint becomes vacuously
-        // satisfied while the LP still solves.
+        // parameter — most commonly a typo or a missing element.
+        // Silent skipping here is the most insidious failure mode:
+        // the constraint becomes vacuously satisfied while the LP
+        // still solves.
         throw std::runtime_error(std::format(
             "user_constraint '{}': cannot resolve element reference "
             "'{}({}).{}' (block {}) — element is missing or inactive, "

@@ -246,6 +246,31 @@ namespace
     return std::nullopt;
   }();
 
+  // ``element_known`` flips to true when the (class, element_uid,
+  // attribute) triple is registered as an LP variable SOMEWHERE in
+  // the simulation — any (scene, phase, scenario, stage).  Lets the
+  // user-constraint resolver distinguish:
+  //   * pmax=0 (or similarly inactive) in this specific (scenario,
+  //     stage, block): registered for at least one OTHER cell →
+  //     element_known=true → caller silently contributes 0 to the
+  //     LHS (the underlying variable is implicitly 0 anyway).
+  //   * Typo or unsupported-attribute case: no cell anywhere has a
+  //     column for this attribute on this element → element_known
+  //     =false → strict-mode caller throws.
+  //
+  // The simple "uid_opt has value" check isn't enough: a lossless
+  // line has a known UID but the ``flown`` attribute is registered
+  // nowhere, and a misspelled attribute on a real element would
+  // otherwise leak through and silently make the UC vacuous.
+  const auto attribute_registered_for_element = [&]() -> bool
+  {
+    if (!uid_opt.has_value()) {
+      return false;
+    }
+    return sc.find_ampl_variable_for_element(
+        ref.element_type, *uid_opt, ref.attribute);
+  };
+
   if (uid_opt) {
     // Try multi-col (sum-of-cols) first.  When registered, the
     // aggregator is virtual and the attribute expands to a sum of LP
@@ -262,7 +287,7 @@ namespace
       for (const auto& col : cols) {
         row[col] += coef;
       }
-      return {.emitted = true, .offset_shift = 0.0};
+      return {.emitted = true, .offset_shift = 0.0, .element_known = true};
     }
   }
 
@@ -274,9 +299,14 @@ namespace
     return {
         .emitted = true,
         .offset_shift = coef * resolved->offset,
+        .element_known = true,
     };
   }
-  return {.emitted = false, .offset_shift = 0.0};
+  return {
+      .emitted = false,
+      .offset_shift = 0.0,
+      .element_known = attribute_registered_for_element(),
+  };
 }
 }  // namespace
 
@@ -307,6 +337,14 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       if (leg_res.emitted) {
         out.emitted = true;
         out.offset_shift += leg_res.offset_shift;
+      }
+      // A single known leg suffices to mark the compound element as
+      // known — different legs may resolve to different attributes
+      // (e.g., line.flow → flowp − flown) and the registry hit on
+      // EITHER leg means the element is real, even if a particular
+      // (scenario, stage, block) has no column for it.
+      if (leg_res.element_known) {
+        out.element_known = true;
       }
     }
     return out;

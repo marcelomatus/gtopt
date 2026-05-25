@@ -249,19 +249,37 @@ public:
 {
   WorkPoolConfig pool_config {};
   pool_config.name = "SDDPWorkPool";
+  // The CPU-budget ceiling includes the cell-task headroom (extra slots
+  // reserved for the synchronised backward pass's blocking cell tasks).
   const auto base_threads =
       static_cast<int>(std::lround(cpu_factor * physical_concurrency()));
-  pool_config.max_threads = base_threads + std::max(0, cell_task_headroom);
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  const int ceiling =
+      std::max(1, base_threads + std::max(0, cell_task_headroom));
+
+  // With a memory limit the pool starts at ONE thread and grows toward
+  // `ceiling` under the live measured-memory controller (no fixed per-task
+  // estimate); each forward/backward task reconstructs ~one cell's flat LP,
+  // and the controller measures that marginal cost directly.  With no limit
+  // it runs at the ceiling.  We feed the helper the *effective* cpu_factor
+  // that reproduces `ceiling` (headroom folded in) so the ceiling is exact.
+  const double effective_cpu_factor = static_cast<double>(ceiling)
+      / std::max(1.0, static_cast<double>(physical_concurrency()));
+  const auto clamp = memory_clamp_threads(
+      effective_cpu_factor, memory_limit_mb, "SDDPWorkPool");
+  pool_config.max_threads = clamp.initial_threads;
+  pool_config.max_threads_ceiling = ceiling;
+  pool_config.max_cpu_threshold =
+      static_cast<int>(100.0 - (50.0 / static_cast<double>(ceiling)));
   pool_config.max_process_rss_mb = memory_limit_mb;
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
   SPDLOG_INFO(
-      "SDDP work pool started: max_threads={} (base={} + cell_headroom={}) "
-      "cpu_threshold={:.0f}%{} (physical_cores={} logical_cores={})",
+      "SDDP work pool started: max_threads={} (ceiling={} = base {} + "
+      "cell_headroom {}) cpu_threshold={:.0f}%{} (physical_cores={} "
+      "logical_cores={})",
       pool_config.max_threads,
+      ceiling,
       base_threads,
       cell_task_headroom,
       static_cast<double>(pool_config.max_cpu_threshold),

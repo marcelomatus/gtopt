@@ -488,6 +488,94 @@ def test_extract_generators(tmp_path: Path) -> None:
     assert by_name["solar_b"].pmax_profile[11] == 80.0
 
 
+def test_extract_generators_units_out_overrides_rating(tmp_path: Path) -> None:
+    """``Gen_UnitsOut[t] = 1`` forces ``pmax_profile[t] = 0`` even when
+    ``Gen_Rating[t] > 0``.
+
+    Mirrors the PLEXOS CEN PCP pattern where ~31 thermal diesels
+    (TOCOPILLA-TG1, COLMITO_DIE, …) ship a full Gen_Rating profile
+    but Gen_UnitsOut marks them offline for the entire horizon.
+    Without this override the gtopt MIP would commit these gens
+    where PLEXOS does not.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    # thermal_a: rating non-zero everywhere; UnitsOut = 1 at hour 2
+    # (forced outage), UnitsOut = 0 at hour 1.
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,100\n"
+        "thermal_a,2026,1,1,2,1,100\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_UnitsOut.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,0\n"
+        "thermal_a,2026,1,1,2,1,1\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    # Hour 1 (UnitsOut=0): full nameplate.
+    assert by_name["thermal_a"].pmax_profile[0] == 100.0
+    # Hour 2 (UnitsOut=1, single-unit): forced offline.
+    assert by_name["thermal_a"].pmax_profile[1] == 0.0
+
+
+def test_extract_generators_units_out_no_csv(tmp_path: Path) -> None:
+    """Absence of ``Gen_UnitsOut.csv`` leaves ``pmax_profile`` untouched."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,50\n"
+        "thermal_a,2026,1,1,2,1,75\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    assert by_name["thermal_a"].pmax_profile[0] == 50.0
+    assert by_name["thermal_a"].pmax_profile[1] == 75.0
+
+
+def test_extract_generators_units_out_multi_unit_partial(tmp_path: Path) -> None:
+    """Two-unit gen with ``UnitsOut[t] = 1`` derates pmax to 50%.
+
+    Validates the general formula
+    ``factor = max(0, 1 - units_out / max_units)`` and ensures it
+    keeps working when PLEXOS bundles ship multi-unit data (not seen
+    in CEN PCP weekly, but documented for fleet plants like RUCUE).
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,200\n"
+        "thermal_a,2026,1,1,2,1,200\n"
+        "thermal_a,2026,1,1,3,1,200\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_UnitsOut.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,0\n"
+        "thermal_a,2026,1,1,2,1,1\n"
+        "thermal_a,2026,1,1,3,1,2\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    # max_units = 2 (observed peak of UnitsOut series).
+    # Hour 1: 0 out -> full 200; Hour 2: 1/2 derate -> 100; Hour 3: full out -> 0.
+    assert by_name["thermal_a"].pmax_profile[0] == 200.0
+    assert by_name["thermal_a"].pmax_profile[1] == 100.0
+    assert by_name["thermal_a"].pmax_profile[2] == 0.0
+
+
 def test_extract_lines(tmp_path: Path) -> None:
     """Line endpoints picked up from Node From / Node To."""
     bundle, xml_path = _build_bundle(tmp_path)

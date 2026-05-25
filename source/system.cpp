@@ -267,44 +267,51 @@ void System::expand_batteries()
     });
 
     // Synthesise a Commitment for the battery's discharge generator
-    // when the battery carries any commitment-conditional data
-    // (``pmin_discharge``, ``pmin_charge``, or explicit
-    // ``Battery.commitment = true``).  The commitment owns the
-    // ``u`` variable that gates dispatch direction and reserve
-    // provision; ``Commitment.pmin`` carries the per-unit Min
-    // Discharge Level (PLEXOS ``Generator.Min Stable Level``
-    // semantics).  ``relax = true`` keeps the LP path LP-only;
-    // override via JSON for full MIP.
-    const bool needs_commitment = battery.commitment.value_or(false)
-        || battery.pmin_discharge.has_value()
-        || battery.pmin_charge.has_value();
-    if (needs_commitment) {
-      Commitment bat_commit {
-          .uid = cmt_uid++,
-          .name = "uc_" + gen_name,
-          .generator = Name {gen_name},
-          .relax = OptBool {true},
-      };
-      // Carry the discharge-side floor as the commitment pmin (the
-      // gen-side per-unit min stable level).  Charge-side gating is
-      // applied by ConverterLP using the same u column.
-      //
-      // ``Commitment.pmin`` is ``OptReal`` (scalar); ``pmin_discharge``
-      // is ``OptTBRealFieldSched`` (variant of scalar / 2D / file).
-      // Collapse to scalar only when the underlying variant holds a
-      // plain double — for the CEN PCP daily horizon all per-unit
-      // floors are scalars, so the lossy 2D / file branches don't
-      // need to be honoured here.  Per-block commitment pmin would
-      // need ``OptTBRealFieldSched Commitment.pmin`` instead.
-      if (battery.pmin_discharge.has_value()) {
-        if (const auto* scalar =
-                std::get_if<double>(&battery.pmin_discharge.value()))
-        {
-          bat_commit.pmin = OptReal {*scalar};
-        }
-      }
-      commitment_array.push_back(std::move(bat_commit));
+    // UNCONDITIONALLY.  The ``<bat>_gen`` Generator always exists
+    // (created above), so its companion ``uc_<bat>_gen`` Commitment
+    // must always exist too: PLEXOS-derived UserConstraints routinely
+    // reference ``commitment("uc_<bat>_gen").status`` for system
+    // min-units / inertia rows (e.g. ``CSF_MinUnits``), and PLEXOS
+    // itself synthesises an internal commitment binary from the
+    // battery's ``Units`` property for every battery.  Previously
+    // gtopt created the commitment only when the battery carried
+    // ``pmin_discharge`` / ``pmin_charge`` / explicit
+    // ``commitment = true`` — so a UC referencing a plain battery's
+    // commitment crashed the resolver with "element is missing or
+    // inactive" (observed on CEN PCP CSF_MinUnits →
+    // ``uc_BAT_MANZANO_FV_gen``).
+    //
+    // The commitment owns the ``u`` variable that gates dispatch
+    // direction and reserve provision; ``Commitment.pmin`` carries
+    // the per-unit Min Discharge Level (PLEXOS ``Generator.Min
+    // Stable Level`` semantics).  ``relax = true`` keeps the LP path
+    // LP-only (continuous ``u ∈ [0, 1]``) UNLESS the modeller opts
+    // into MIP via ``Battery.commitment = true`` — then the binary
+    // is honoured.  When the battery carries no commitment economics
+    // (no pmin, no explicit flag) the relaxed ``u`` is free in
+    // ``[0, 1]`` at zero cost, exactly mirroring PLEXOS's "Units"
+    // availability flag: it provides the column UCs reference
+    // without distorting the dispatch optimum.
+    Commitment bat_commit {
+        .uid = cmt_uid++,
+        .name = "uc_" + gen_name,
+        .generator = Name {gen_name},
+        // Honour an explicit MIP request; otherwise stay LP-relaxed
+        // so the always-on synthesis adds no integer columns.
+        .relax = OptBool {!battery.commitment.value_or(false)},
+    };
+    // Carry the discharge-side floor as the commitment pmin (the
+    // gen-side per-unit min stable level).  Charge-side gating is
+    // applied by ConverterLP using the same u column.
+    //
+    // Both ``Commitment.pmin`` and ``Battery.pmin_discharge`` are
+    // ``OptTBRealFieldSched`` (variant of scalar / per-block vector /
+    // file), so the discharge floor — scalar or full per-block
+    // schedule — carries over verbatim.
+    if (battery.pmin_discharge.has_value()) {
+      bat_commit.pmin = battery.pmin_discharge;
     }
+    commitment_array.push_back(std::move(bat_commit));
 
     SPDLOG_TRACE(
         std::format("Expanded battery '{}': gen='{}' dem='{}' conv='{}'",

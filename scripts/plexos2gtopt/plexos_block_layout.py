@@ -661,22 +661,35 @@ def extract_fuel_offtake_caps(
                     rhs_key_to_constraint[k["key_id"]] = cid
                     break
 
-    # Sum per-block RHS values per constraint.
+    # Collect per-period RHS values per constraint (PLEXOS publishes a
+    # row per period).  We keep both the per-period profile and the
+    # rolled-up sum; the per-period values are the authoritative
+    # PLEXOS limits (they vary substantially across the horizon —
+    # e.g. ``FueMaxOffWeek_Gas_Yungay_GN_A`` ranges 0.488 → 14.51 per
+    # block), and the uniform decomposition currently used by
+    # ``_build_fuel_offtake_caps_ucs`` collides head-on with PLEXOS
+    # Fixed-Load forced dispatch when the gen's fuel coef × forced MW
+    # exceeds the uniform-average per-block RHS.
     rhs_sum: dict[str, float] = {}
+    rhs_per_period: dict[str, dict[int, float]] = {}
     for d in data0:
         kid = d.get("key_id", "")
         if kid in rhs_key_to_constraint:
             try:
                 v = float(d.get("value", "0"))
+                p = int(d.get("period_id", "0"))
             except ValueError:
                 continue
             cid = rhs_key_to_constraint[kid]
             rhs_sum[cid] = rhs_sum.get(cid, 0.0) + v
+            rhs_per_period.setdefault(cid, {})[p] = v
 
-    # Build the final {fuel_name: (cap, scope_hours)} mapping.  When
-    # multiple constraints reference the same fuel (Day + Week), keep
-    # the TIGHTER cap (the smaller per-hour rate).
+    # Build the final {fuel_name: (cap, scope_hours, rhs_profile)}
+    # mapping.  When multiple constraints reference the same fuel
+    # (Day + Week), keep the TIGHTER cap (smaller per-hour rate);
+    # propagate the chosen constraint's per-period profile too.
     result: dict[str, tuple[float, float]] = {}
+    chosen_per_period: dict[str, dict[int, float]] = {}
     for cid, (_, scope_h) in fue_constraints.items():
         fuel = constraint_to_fuel.get(cid)
         cap = rhs_sum.get(cid)
@@ -687,6 +700,13 @@ def extract_fuel_offtake_caps(
         # apples-to-apples.
         if existing is None or (cap / scope_h) < (existing[0] / existing[1]):
             result[fuel] = (cap, scope_h)
+            chosen_per_period[fuel] = rhs_per_period.get(cid, {})
+    # Stash the per-period profiles on the function object so
+    # ``_build_fuel_offtake_caps_ucs`` can fetch them by fuel name
+    # without changing the legacy ``(cap, scope_hours)`` return-type
+    # contract.  Read by callers as
+    # ``extract_fuel_offtake_caps.rhs_per_period.get(fuel)``.
+    extract_fuel_offtake_caps.rhs_per_period = chosen_per_period  # type: ignore[attr-defined]
 
     return result
 

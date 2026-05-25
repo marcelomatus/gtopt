@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -78,13 +79,23 @@ class PlexosProperty:
 
 @dataclass
 class PlexosDataRow:
-    """One ``t_data`` row — numeric property value."""
+    """One ``t_data`` row — numeric property value.
+
+    ``date_from`` / ``date_to`` mirror the optional PLEXOS ``t_date_from`` /
+    ``t_date_to`` rows keyed by ``data_id``.  A row carrying a date window
+    is a *dated override* that applies only while the simulation timestamp
+    falls inside ``[date_from, date_to]``; rows with no window are the
+    permanent base value.  See :func:`PlexosDb.horizon_start` and the
+    constraint RHS selection in ``parsers.build_user_constraints``.
+    """
 
     data_id: int
     membership_id: int
     property_id: int
     value: float
     period_id: int | None = None
+    date_from: datetime | None = None
+    date_to: datetime | None = None
 
 
 @dataclass
@@ -104,6 +115,10 @@ class PlexosDb:
     memberships: list[PlexosMembership] = field(default_factory=list)
     properties: list[PlexosProperty] = field(default_factory=list)
     data_rows: list[PlexosDataRow] = field(default_factory=list)
+    #: Simulation horizon start (Horizon "Date From" attribute, OLE-serial
+    #: decoded).  ``None`` when the bundle carries no Horizon date.  Used to
+    #: resolve dated property overrides (see :class:`PlexosDataRow`).
+    horizon_start: datetime | None = None
 
     # ----- precomputed lookup indexes ---------------------------------------
     #
@@ -416,7 +431,58 @@ def _parse_properties(root: ET.Element) -> list[PlexosProperty]:
     return out
 
 
+def _parse_date_map(root: ET.Element, table: str) -> dict[int, datetime]:
+    """Index ``t_date_from`` / ``t_date_to`` as ``{data_id -> datetime}``."""
+    out: dict[int, datetime] = {}
+    for elem in root.findall(f"{NS}{table}"):
+        did = _findtext_int(elem, "data_id")
+        raw = elem.findtext(f"{NS}date")
+        if did is None or raw is None:
+            continue
+        try:
+            out[did] = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+    return out
+
+
+def _parse_horizon_start(root: ET.Element) -> datetime | None:
+    """Decode the Horizon ``Date From`` attribute (OLE serial) to a datetime.
+
+    PLEXOS stores the horizon start as an OLE Automation date serial
+    (days since 1899-12-30) on the Horizon object's ``Date From``
+    attribute.  The CEN PRGdia daily bundles carry exactly one Horizon
+    with a single date, so the first match is authoritative.
+    """
+    horizon_cids = {
+        _findtext_int(c, "class_id")
+        for c in root.findall(f"{NS}t_class")
+        if (c.findtext(f"{NS}name") or "") == "Horizon"
+    }
+    horizon_oids = {
+        _findtext_int(o, "object_id")
+        for o in root.findall(f"{NS}t_object")
+        if _findtext_int(o, "class_id") in horizon_cids
+    }
+    date_from_aids = {
+        _findtext_int(a, "attribute_id")
+        for a in root.findall(f"{NS}t_attribute")
+        if (a.findtext(f"{NS}name") or "") == "Date From"
+    }
+    for ad in root.findall(f"{NS}t_attribute_data"):
+        if (
+            _findtext_int(ad, "object_id") in horizon_oids
+            and _findtext_int(ad, "attribute_id") in date_from_aids
+        ):
+            serial = _findtext_float(ad, "value")
+            if serial is not None:
+                return datetime(1899, 12, 30) + timedelta(days=serial)
+    return None
+
+
 def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
+    dfrom = _parse_date_map(root, "t_date_from")
+    dto = _parse_date_map(root, "t_date_to")
     out: list[PlexosDataRow] = []
     for elem in root.findall(f"{NS}t_data"):
         did = _findtext_int(elem, "data_id")
@@ -433,6 +499,8 @@ def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
                 property_id=pid,
                 value=val,
                 period_id=period,
+                date_from=dfrom.get(did),
+                date_to=dto.get(did),
             )
         )
     return out
@@ -481,6 +549,7 @@ def load_xml(path: Path | str) -> PlexosDb:
         # (System-collection membership_id, property_id). ~72k rows on
         # the 36 MB PCP bundle, ~250 ms parse.
         data_rows=_parse_data(root),
+        horizon_start=_parse_horizon_start(root),
     )
 
 

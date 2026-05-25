@@ -21,6 +21,9 @@ from unittest import mock
 import pytest
 
 from plexos2gtopt.compare_with_plexos import (
+    PLEXOS_PROP_BATTERY_CHARGING,
+    PLEXOS_PROP_BATTERY_DISCHARGING,
+    PLEXOS_PROP_BATTERY_GENERATION,
     PLEXOS_PROP_BATTERY_LOAD,
     PLEXOS_PROP_GENERATOR_GENCOST,
     PLEXOS_PROP_GENERATOR_GENERATION,
@@ -33,6 +36,7 @@ from plexos2gtopt.compare_with_plexos import (
     _plexos_block_durations_from_accdb,
     compute_gtopt_energy_totals,
     compute_gtopt_generation_by_technology,
+    compute_plexos_battery_operation,
     compute_plexos_energy_totals,
 )
 
@@ -737,3 +741,113 @@ def test_sum_consumer_demand_excludes_synthetic_battery_uids(
     # 50 MW × 1 h × 2 blocks × 2 uids = 200 MWh; the 1000-MW
     # synthetic uid contributes ZERO.
     assert total == pytest.approx(200.0)
+
+
+# ----------------------------------------------------------------
+# compute_plexos_battery_operation — AC-side PIDs (520/521), not
+# DC-side (523/524).  Reading the DC-side over-reports throughput
+# by the inverter loss (~7-10%) and creates a phantom
+# "battery over-cycling" gap vs gtopt.
+# ----------------------------------------------------------------
+
+
+@pytest.fixture
+def mock_mdb_export_battery(monkeypatch) -> None:
+    """Synthetic .accdb with one Battery, BOTH PID flavours present.
+
+    PID 520 (AC-side discharge) = 8 MW per period
+    PID 521 (AC-side charge)    = 10 MW per period
+    PID 523 (DC-side charge)    = 12 MW per period  -- MUST be ignored
+    PID 524 (DC-side discharge) = 6  MW per period  -- MUST be ignored
+
+    Two periods, each 1 h, so the expected per-battery totals are
+    discharge_mwh = 16, charge_mwh = 20.  If the function ever
+    reads the DC-side props instead, the totals would be 12 / 24.
+    """
+    tables: dict[str, list[dict[str, str]]] = {
+        "t_phase_3": [
+            {"period_id": "1", "interval_id": "1"},
+            {"period_id": "2", "interval_id": "2"},
+        ],
+        "t_object": [
+            {"object_id": "1", "class_id": "7", "name": "BAT_A", "category_id": "0"},
+        ],
+        "t_membership": [
+            {"membership_id": "100", "child_object_id": "1"},
+        ],
+        "t_key": [
+            {
+                "key_id": "1",
+                "membership_id": "100",
+                "property_id": str(PLEXOS_PROP_BATTERY_GENERATION),
+            },
+            {
+                "key_id": "2",
+                "membership_id": "100",
+                "property_id": str(PLEXOS_PROP_BATTERY_LOAD),
+            },
+            {
+                "key_id": "3",
+                "membership_id": "100",
+                "property_id": str(PLEXOS_PROP_BATTERY_CHARGING),
+            },
+            {
+                "key_id": "4",
+                "membership_id": "100",
+                "property_id": str(PLEXOS_PROP_BATTERY_DISCHARGING),
+            },
+        ],
+        "t_data_0": [
+            {"key_id": "1", "period_id": "1", "value": "8"},
+            {"key_id": "1", "period_id": "2", "value": "8"},
+            {"key_id": "2", "period_id": "1", "value": "10"},
+            {"key_id": "2", "period_id": "2", "value": "10"},
+            {"key_id": "3", "period_id": "1", "value": "12"},
+            {"key_id": "3", "period_id": "2", "value": "12"},
+            {"key_id": "4", "period_id": "1", "value": "6"},
+            {"key_id": "4", "period_id": "2", "value": "6"},
+        ],
+    }
+
+    def fake_check_output(cmd, **kwargs):
+        assert cmd[0] == "mdb-export"
+        return _mock_table(tables.get(cmd[2], []))
+
+    def fake_run(cmd, **kwargs):
+        if cmd and cmd[0] == "mdb-export":
+            return mock.Mock(
+                stdout=_mock_table(tables.get(cmd[2], [])),
+                returncode=0,
+            )
+        raise NotImplementedError(f"unmocked subprocess: {cmd!r}")
+
+    monkeypatch.setattr("subprocess.check_output", fake_check_output)
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+
+def test_compute_plexos_battery_operation_uses_ac_side_pids(
+    tmp_path: Path, mock_mdb_export_battery
+) -> None:
+    """LOCKED: per-battery totals use AC-side PIDs 520/521.
+
+    Reading the DC-side 523/524 would have given
+    discharge=12, charge=24 — both wrong; this test pins the
+    correct values 16 and 20.  Reverts to a 523/524 reader will
+    fail loudly here, preventing the phantom over-cycling gap from
+    re-appearing in compare reports.
+    """
+    fake_accdb = tmp_path / "fake.accdb"
+    fake_accdb.touch()
+    out = compute_plexos_battery_operation(fake_accdb)
+    assert set(out) == {"BAT_A"}
+    bat = out["BAT_A"]
+    # AC-side: 8 MW × 1 h × 2 periods = 16 MWh discharge.
+    assert bat["discharge_mwh"] == pytest.approx(16.0)
+    # AC-side: 10 MW × 1 h × 2 periods = 20 MWh charge.
+    assert bat["charge_mwh"] == pytest.approx(20.0)
+    # Net = discharge − charge.
+    assert bat["net_mwh"] == pytest.approx(-4.0)
+    # Sanity: had the function used DC-side props the values would
+    # have been 12 and 24 — assert we're definitely NOT seeing those.
+    assert bat["discharge_mwh"] != pytest.approx(12.0)
+    assert bat["charge_mwh"] != pytest.approx(24.0)

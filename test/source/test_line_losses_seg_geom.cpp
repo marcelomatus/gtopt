@@ -148,4 +148,128 @@ TEST_CASE("loss_segment_geometry: scales linearly with envelope")
   }
 }
 
+TEST_CASE(  // NOLINT
+    "make_config — per-line loss_row_scale lifts max seg coef to ~1.0")
+{
+  // Per-line ``loss_row_scale`` override in
+  // ``line_losses::make_config`` picks
+  //   s_line = K · V² / (fmax · R · (2K-1))
+  // so the largest segment-K coefficient
+  //   loss_K · s_line = (fmax/K)·(2K-1)·R/V² · s_line = 1.0
+  // lands at exactly 1.0 in the LP matrix.  Pins the κ-improving
+  // recipe that took CEN PCP weekly from κ ≈ 1.2e9 (legacy global
+  // scaling) down to ≈ 1.6e8 (per-line auto-scale, all loss rows
+  // normalised).  Caller-supplied positive ``loss_row_scale`` is
+  // overridden in PWL modes when the per-line recipe applies.
+  Line line;
+  constexpr double R = 0.01;
+  constexpr double V = 100.0;
+  constexpr int K = 6;
+  constexpr double FMAX = 200.0;
+
+  auto cfg = line_losses::make_config(LineLossesMode::piecewise,
+                                      line,
+                                      LossAllocationMode::receiver,
+                                      /*lossfactor=*/0,
+                                      R,
+                                      V,
+                                      K,
+                                      FMAX,
+                                      /*loss_row_scale=*/1e4);
+
+  CHECK(cfg.mode == LineLossesMode::piecewise);
+  CHECK(cfg.nseg == K);
+  const double max_slope = (FMAX / K) * ((2 * K) - 1) * R / (V * V);
+  const double expected = 1.0 / max_slope;
+  CHECK(cfg.loss_row_scale == doctest::Approx(expected).epsilon(kEps));
+  // Sanity: with these inputs the max post-scale coef is exactly 1.0.
+  CHECK((cfg.loss_row_scale * max_slope) == doctest::Approx(1.0).epsilon(kEps));
+}
+
+TEST_CASE(  // NOLINT
+    "make_config — per-line loss_row_scale is EL-symmetric")
+{
+  // Setting ``Line.enforce_level`` to 0, 1, or 2 must NOT change
+  // ``loss_row_scale`` — the loss-PWL geometry is built on the same
+  // envelope (``fmax``) regardless of EL, so flipping a line from
+  // EL=1 → EL=0 (or back) must NOT alter the loss approximation.
+  // Earlier code lifted the envelope to ``2 × fmax`` when EL=0,
+  // breaking this invariant; the fix removed the lift entirely
+  // (lift_multiplier hard-coded out of all three PWL paths in
+  // ``line_losses.cpp::add_piecewise / add_direction /
+  // add_piecewise_direct``).
+  Line line_el0 {
+      .enforce_level = 0,
+  };
+  Line line_el1 {
+      .enforce_level = 1,
+  };
+  Line line_el2 {
+      .enforce_level = 2,
+  };
+
+  constexpr auto args = [](Line& ln)
+  {
+    return [&ln]
+    {
+      return line_losses::make_config(LineLossesMode::piecewise,
+                                      ln,
+                                      LossAllocationMode::receiver,
+                                      /*lossfactor=*/0,
+                                      /*resistance=*/0.01,
+                                      /*voltage=*/100,
+                                      /*loss_segments=*/4,
+                                      /*fmax=*/200);
+    };
+  };
+
+  const auto cfg0 = args(line_el0)();
+  const auto cfg1 = args(line_el1)();
+  const auto cfg2 = args(line_el2)();
+
+  CHECK(cfg0.loss_row_scale
+        == doctest::Approx(cfg1.loss_row_scale).epsilon(kEps));
+  CHECK(cfg1.loss_row_scale
+        == doctest::Approx(cfg2.loss_row_scale).epsilon(kEps));
+  // And the recipe holds:
+  // max_slope = (200/4) · 7 · 0.01 / 10000 = 3.5e-4 → s_line ≈ 2857
+  const double expected = 4 * 10000.0 / (200.0 * 0.01 * 7);
+  CHECK(cfg1.loss_row_scale == doctest::Approx(expected).epsilon(kEps));
+}
+
+TEST_CASE(  // NOLINT
+    "make_config — per-line scale needs all four inputs (R,V,fmax,K≥2)")
+{
+  // The per-line auto-scale branch in ``make_config`` only fires
+  // when ``resistance > 0 && V² > 0 && fmax > 0 && nseg ≥ 2``.
+  // Otherwise it falls back to the caller-supplied
+  // ``loss_row_scale`` (legacy global scaling path).  Pins the
+  // fallback so the linear and degenerate-PWL modes don't
+  // accidentally pick up the auto-scale.
+  Line line;
+  // Linear mode → no per-line scaling (loss_row_scale stays at 7.0)
+  auto cfg_linear = line_losses::make_config(LineLossesMode::linear,
+                                             line,
+                                             LossAllocationMode::receiver,
+                                             /*lossfactor=*/0.05,
+                                             /*resistance=*/0,
+                                             /*voltage=*/0,
+                                             /*loss_segments=*/1,
+                                             /*fmax=*/200,
+                                             /*loss_row_scale=*/7.0);
+  CHECK(cfg_linear.loss_row_scale == doctest::Approx(7.0).epsilon(kEps));
+
+  // PWL but fmax=0 → fall back to caller's scale
+  auto cfg_nofmax = line_losses::make_config(LineLossesMode::piecewise,
+                                             line,
+                                             LossAllocationMode::receiver,
+                                             /*lossfactor=*/0,
+                                             /*resistance=*/0.01,
+                                             /*voltage=*/100,
+                                             /*loss_segments=*/4,
+                                             /*fmax=*/0,
+                                             /*loss_row_scale=*/7.0);
+  CHECK(cfg_nofmax.loss_row_scale == doctest::Approx(7.0).epsilon(kEps));
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
