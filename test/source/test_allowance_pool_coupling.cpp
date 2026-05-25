@@ -125,6 +125,29 @@ System make_coupled_system(double pool_eini, double zone_cap = -1.0)
   return sys;
 }
 
+/// Build the LP for `sys` on the standard 2-stage / 24h simulation,
+/// solve, and return the raw (scaled) objective.  Fails the test on a
+/// solve error.
+double solve_obj(const System& sys)
+{
+  const auto simulation = make_2stage_24h_simulation();
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  if (!result.has_value()) {
+    MESSAGE("resolve error code=" << static_cast<int>(result.error().code)
+                                  << " message=" << result.error().message);
+  }
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+  return li.get_obj_value_raw();
+}
+
 }  // namespace test_allowance_pool_coupling
 
 TEST_CASE("EmissionZone JSON — allowance_pool FK round-trips")  // NOLINT
@@ -233,4 +256,128 @@ TEST_CASE(  // NOLINT
 
   const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(4.8).epsilon(0.01));
+}
+
+TEST_CASE("AllowancePool coupling: zone references pool by NAME")  // NOLINT
+{
+  using namespace test_allowance_pool_coupling;
+  // The `allowance_pool` FK must resolve by element name, not only uid.
+  // First confirm the JSON parses the string form into a Name variant,
+  // then confirm the LP path resolves it (same binding bank ⇒ 16.0).
+  constexpr std::string_view js = R"({
+    "uid": 1, "name": "z", "emission": "co2", "allowance_pool": "co2_pool"
+  })";
+  const auto z = daw::json::from_json<EmissionZone>(js);
+  REQUIRE(z.allowance_pool.has_value());
+  CHECK(std::holds_alternative<Name>(*z.allowance_pool));
+  CHECK(std::get<Name>(*z.allowance_pool) == "co2_pool");
+
+  auto sys = make_coupled_system(/*pool_eini=*/100.0);
+  sys.emission_zone_array[0].allowance_pool = OptSingleId {Name {"co2_pool"}};
+  CHECK(solve_obj(sys) == doctest::Approx(16.0).epsilon(0.01));
+}
+
+TEST_CASE(  // NOLINT
+    "AllowancePool coupling: two zones drain one shared pool additively")
+{
+  using namespace test_allowance_pool_coupling;
+  // g1 and g2 are identical dirty-cheap units (0.5 t/MWh, $10), each in
+  // its own EmissionZone, both pointing at ONE pool (eini = 100 t).  g3
+  // is a clean backstop ($50).  The shared bank caps COMBINED emissions
+  // at 100 t ⇒ g1+g2 ≤ 200 MWh; g3 serves the remaining 280 MWh.
+  //   obj = (200·$10 + 280·$50)/1000 = 16.0
+  // If the two zones' drawdowns OVERWROTE (instead of accumulating) on
+  // the shared energy row, only one generator would be capped and the
+  // other would serve all 480 MWh at $10 ⇒ obj 4.8.  The 16.0 golden
+  // proves the production columns add into the same row.
+  System sys;
+  sys.name = "co2_two_zone_pool";
+  sys.bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  sys.demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+  };
+  sys.generator_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .pmin = 0.0,
+       .pmax = 100.0,
+       .gcost = 10.0,
+       .capacity = 100.0},
+      {.uid = Uid {2},
+       .name = "g2",
+       .bus = Uid {1},
+       .pmin = 0.0,
+       .pmax = 100.0,
+       .gcost = 10.0,
+       .capacity = 100.0},
+      {.uid = Uid {3},
+       .name = "g3_clean",
+       .bus = Uid {1},
+       .pmin = 0.0,
+       .pmax = 100.0,
+       .gcost = 50.0,
+       .capacity = 100.0},
+  };
+  sys.emission_array = {{.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {
+      {.uid = Uid {1},
+       .name = "z1",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}},
+       .allowance_pool = OptSingleId {Uid {1}}},
+      {.uid = Uid {2},
+       .name = "z2",
+       .emissions = {{.emission = Uid {1}, .weight = 1.0}},
+       .allowance_pool = OptSingleId {Uid {1}}},
+  };
+  sys.emission_source_array = {
+      {.uid = Uid {1},
+       .name = "g1_co2",
+       .generator = OptSingleId {Uid {1}},
+       .zone = Uid {1},
+       .emission = Uid {1},
+       .rate = 0.5},
+      {.uid = Uid {2},
+       .name = "g2_co2",
+       .generator = OptSingleId {Uid {2}},
+       .zone = Uid {2},
+       .emission = Uid {1},
+       .rate = 0.5},
+  };
+  sys.allowance_pool_array = {
+      {.uid = Uid {1},
+       .name = "co2_pool",
+       .emin = 0.0,
+       .emax = 1.0e6,
+       .eini = 100.0,
+       .capacity = 1.0e6,
+       .use_state_variable = true,
+       .daily_cycle = false},
+  };
+  CHECK(solve_obj(sys) == doctest::Approx(16.0).epsilon(0.01));
+}
+
+TEST_CASE(  // NOLINT
+    "AllowancePool coupling: per-ton price coexists with pool drawdown")
+{
+  using namespace test_allowance_pool_coupling;
+  // `price` (carbon tax on the production column) and `allowance_pool`
+  // (bank drawdown) wire independently — both must apply together.
+  SUBCASE("ample bank — tax applies to the full emissions")
+  {
+    // Bank ≫ demand ⇒ g1 serves all 480 MWh (240 tCO₂).  All-in g1 cost
+    // = $10 + $20·0.5 = $20/MWh, still below clean g2 ($50).
+    //   obj = (480·$10 + 240·$20)/1000 = (4800 + 4800)/1000 = 9.6
+    auto sys = make_coupled_system(/*pool_eini=*/1.0e6);
+    sys.emission_zone_array[0].price = 20.0;
+    CHECK(solve_obj(sys) == doctest::Approx(9.6).epsilon(0.01));
+  }
+  SUBCASE("binding bank — tax applies only to the abated 100 tCO₂")
+  {
+    // Bank caps g1 at 200 MWh (100 tCO₂); g2 covers 280 MWh.
+    //   obj = 16.0 (dispatch) + 100·$20/1000 = 16.0 + 2.0 = 18.0
+    auto sys = make_coupled_system(/*pool_eini=*/100.0);
+    sys.emission_zone_array[0].price = 20.0;
+    CHECK(solve_obj(sys) == doctest::Approx(18.0).epsilon(0.01));
+  }
 }
