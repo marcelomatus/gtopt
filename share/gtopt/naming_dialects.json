@@ -312,6 +312,8 @@
     {"class": "allowance_pool",   "canonical": "eini",              "alt": "initial_bank",        "dialect": "gtopt-legacy"},
     {"class": "allowance_pool",   "canonical": "efin",              "alt": "terminal_bank",       "dialect": "gtopt-legacy"},
     {"class": "allowance_pool",   "canonical": "auction_price",     "alt": "market_price",        "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_cap",       "alt": "auction_volume",      "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_cap",       "alt": "Auction Volume",      "dialect": "plexos"},
     {"class": "allowance_pool",   "canonical": "delivery",          "alt": "Free Allocation",     "dialect": "plexos"},
 
     {"class": "line",             "canonical": "loss_pwl_layout",   "alt": "pwl_layout",          "dialect": "gtopt-legacy"},

@@ -12,6 +12,7 @@
  */
 
 #include <gtopt/allowance_pool_lp.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
@@ -24,6 +25,10 @@ AllowancePoolLP::AllowancePoolLP(const AllowancePool& pool,
                                  const InputContext& ic)
     : StorageBase(pool, ic, Element::class_name)
     , delivery(ic, Element::class_name, id(), std::move(object().delivery))
+    , auction_price_(
+          ic, Element::class_name, id(), std::move(object().auction_price))
+    , auction_cap_(
+          ic, Element::class_name, id(), std::move(object().auction_cap))
 {
 }
 
@@ -124,6 +129,43 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   free_allocation_cols[st_key] = std::move(fa_cols);
 
+  // ── Phase 4: auction-purchase columns ─────────────────────────────────
+  // When ``auction_price`` is set on a (stage, block), add an ``auction``
+  // column (absolute tCO₂, ``[0, auction_cap]``) that the LP may buy to
+  // top up the bank instead of abating emissions.  Injected as a ``-1``
+  // inflow into the StorageLP energy rows (mirrors the EmissionZone
+  // production drawdown with the opposite sign).  Priced at
+  // ``auction_price · probability · discount`` — NO duration, because
+  // the column is an absolute tonnage (contrast the ``delivery`` rate,
+  // which carries duration via the StorageLP ``finp`` path).
+  BIndexHolder<ColIndex> au_cols;
+  const auto& energy_rows = energy_rows_at(scenario, stage);
+  const auto disc_prob = CostHelper::cost_factor(
+      scenario.probability_factor(), stage.discount_factor(), 1.0);
+  for (auto&& block : blocks) {
+    const auto buid = block.uid();
+    const auto price = auction_price_.at(stage.uid(), buid);
+    if (!price.has_value()) {
+      continue;
+    }
+    const auto cap =
+        auction_cap_.at(stage.uid(), buid).value_or(LinearProblem::DblMax);
+    const auto col = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = cap,
+        .cost = *price * disc_prob,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = AuctionName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), buid),
+    });
+    au_cols[buid] = col;
+    lp.set_coeff(energy_rows.at(buid), col, -1.0);
+  }
+  if (!au_cols.empty()) {
+    auction_cols[st_key] = std::move(au_cols);
+  }
+
   // Register PAMPL-visible columns.
   if (!free_allocation_cols.at(st_key).empty()) {
     sc.add_ampl_variable(ampl_name,
@@ -132,6 +174,14 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
                          scenario,
                          stage,
                          free_allocation_cols.at(st_key));
+  }
+  if (auction_cols.contains(st_key) && !auction_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         AuctionName,
+                         scenario,
+                         stage,
+                         auction_cols.at(st_key));
   }
 
   return true;
@@ -144,6 +194,11 @@ bool AllowancePoolLP::add_to_output(OutputContext& out) const
   if (!free_allocation_cols.empty()) {
     out.add_col_sol(cname, FreeAllocationName, id(), free_allocation_cols);
     out.add_col_cost(cname, FreeAllocationName, id(), free_allocation_cols);
+  }
+
+  if (!auction_cols.empty()) {
+    out.add_col_sol(cname, AuctionName, id(), auction_cols);
+    out.add_col_cost(cname, AuctionName, id(), auction_cols);
   }
 
   return StorageBase::add_to_output(out, cname);
