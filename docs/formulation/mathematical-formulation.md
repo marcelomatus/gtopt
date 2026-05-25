@@ -1388,6 +1388,79 @@ $$
 Volume bounds $\underline{V}_\tau \leq e_{\tau,s,t,b}^{\text{lng}} \leq \overline{V}_\tau$
 and initial/final conditions follow the generic storage template (§5.7).
 
+### 5.14 bis Emission Zone, Cap, and Allowance-Pool Banking
+
+An `EmissionZone` $z \in \mathcal{Z}$ is the constraint owner for one or
+more pollutants within a regulatory scope. Each `EmissionSource`
+$\sigma$ links a generator $g(\sigma)$ to a zone $z(\sigma)$ and a
+pollutant with a combustion-plus-upstream rate
+$r_\sigma$ [t/MWh]; the zone weights each pollutant by its GWP
+$w_p$ (CO₂-equivalent). The zone owns a per-block **production**
+column $q_{z,s,t,b}$ [tCO₂-eq] pinned by a balance row:
+
+$$
+\begin{aligned}
+q_{z,s,t,b} \;-\; \sum_{\sigma:\,z(\sigma)=z}
+  w_{p(\sigma)}\,(1-\chi_\sigma)\,r_\sigma\,\Delta_b\,p_{g(\sigma),s,t,b}
+  \;=\; 0
+\qquad \forall \; z,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/emission_zone_lp.cpp:90-98 ; source/emission_source_lp.cpp:177-194 -->
+
+where $\chi_\sigma$ is the CCS capture fraction. Note $q_{z,s,t,b}$ is
+an absolute per-block tonnage (the duration $\Delta_b$ is folded in by
+the source injection), **not** a rate.
+
+When a per-ton price $\pi_{z,t}$ is set, each production column carries
+an objective coefficient $\pi_{z,t}\,\Delta_b$ (a carbon tax).
+
+**Standalone cap (no pool).** When `cap` $C_{z,t}$ is set and the zone
+is *not* coupled to an allowance pool, a per-stage cap row aggregates the
+block tonnages:
+
+$$
+\sum_b q_{z,s,t,b} \;\;(-\;\xi_{z,s,t})\; \leq \; C_{z,t}
+\qquad \forall \; z,\; s,t
+$$
+<!-- source: source/emission_zone_lp.cpp:106-145 -->
+
+The slack $\xi_{z,s,t} \geq 0$ exists only when `cap_cost` is set
+(soft cap, penalised at $\kappa_{z,t}$ per ton); otherwise the cap is
+hard.
+
+**Allowance-pool coupling (cap-and-trade with banking).** An
+`AllowancePool` $a \in \mathcal{A}$ reuses the `StorageLP` balance
+template (§5.7) to bank allowances across stages: its inflow `finp` is
+the free-allocation column $\phi_{a,s,t,b}$ (fixed-rate
+$F_{a,t}/T_t$, the grandfathering entitlement) and its state
+$e_{a,s,t,b}$ [tCO₂] carries forward with annual decay $\lambda_a$.
+
+When `EmissionZone.allowance_pool` references pool $a$, each zone
+production column is injected as a **drawdown** (coefficient $+1$,
+absolute tonnage) into that pool's energy-balance row, and the zone's
+own standalone cap row is **skipped**:
+
+$$
+\begin{aligned}
+e_{a,s,t,b} \;=\;& e_{a,s,t,b-1}\,(1 - \lambda_a^h\,\Delta_b)
+  \;+\; \Delta_b\,\phi_{a,s,t,b}
+  \;-\; \sum_{z:\,a(z)=a} q_{z,s,t,b}
+\qquad \forall \; a,\; s,t,b
+\end{aligned}
+$$
+<!-- source: source/emission_zone_lp.cpp:106-126 ; source/allowance_pool_lp.cpp -->
+
+Because the bank obeys $e_{a,s,t,b} \geq \underline{E}_a$ (default
+$0$) at every block and an optional terminal target
+$e_{a,\cdot,\text{end}} \geq E_a^{\text{fin}}$ (soft if
+$E_a^{\text{fin,cost}}$ set), the cumulative emission cap becomes a
+multi-stage budget with banking: unused allowances roll forward and
+the marginal value of an allowance is the dual of the bank balance,
+not a fixed per-stage price. `AllowancePoolLP` is assembled before
+`EmissionZoneLP` (collections ordering), so the energy rows exist when
+the zone injects its drawdown.
+
 ### 5.15 Unit Commitment (3-bin)
 
 A `Commitment` element attaches to a generator $g \in \mathcal{UC}$ and

@@ -27,6 +27,18 @@
  * generation column into the corresponding balance row — analogous
  * to `InertiaProvisionLP` injecting its provision factor into
  * `InertiaZoneLP::requirement_rows()`.
+ *
+ * ## Allowance-pool coupling (cap-and-trade with banking)
+ *
+ * When `EmissionZone.allowance_pool` is set, each per-block
+ * `production` column is injected (coefficient `+1`, tCO₂) as a
+ * drawdown into the referenced `AllowancePoolLP`'s energy-balance
+ * rows, and the per-stage `cap` row is SKIPPED.  The pool's banked
+ * SoC (`emin` / `emax` / `efin` / `efin_cost`) then mediates a
+ * multi-stage cap with banking, replacing the fixed per-stage cap.
+ * `AllowancePoolLP` is visited before `EmissionZoneLP` (see
+ * `system_lp.hpp` `collections_t` ordering) so its energy rows exist
+ * when this injection runs.
  */
 
 #pragma once

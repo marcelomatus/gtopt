@@ -1786,6 +1786,15 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             "Per-ton tax / permit price [$/t], stage-schedulable.",
             None,
         ),
+        (
+            "allowance_pool",
+            _J_ID,
+            False,
+            "FK to an AllowancePool that banks this zone's allowances "
+            "(cap-and-trade w/ banking). When set, production is drawn "
+            "from the pool's bank and the standalone `cap` row is skipped.",
+            None,
+        ),
     ],
     # NOTE: `emission_capture` does not have a top-level array — instances
     # live inline only on `Generator.emission_captures[]`.
