@@ -191,3 +191,31 @@ TEST_CASE("AllowancePool auction: cap limits purchases")  // NOLINT
                                                  /*auction_cap=*/2.0));
   CHECK(obj == doctest::Approx(11.2).epsilon(0.01));
 }
+
+TEST_CASE(
+    "AllowancePool auction: zero free bank → every tonne is bought")  // NOLINT
+{
+  using namespace test_allowance_pool_auction;
+  // Empty initial bank, no free allocation — every tCO₂ must be bought
+  // at the $30 market price.  g1 still serves all 480 MWh because the
+  // all-in cost ($10 dispatch + $30·0.5 = $25/MWh) beats clean g2 ($50).
+  //   emissions = 480·0.5 = 240 tCO₂, all auctioned
+  //   obj = (480·$10 + 240·$30)/1000 = (4800 + 7200)/1000 = 12.0
+  // Also pins the energy-row sign: a +1 (outflow) coefficient bug would
+  // make the bank unfillable, forcing g2 to serve all → obj 24.0.
+  auto sys = make_auction_system(/*auction_price=*/30.0);
+  sys.allowance_pool_array[0].eini = 0.0;
+  CHECK(solve_obj(sys) == doctest::Approx(12.0).epsilon(0.01));
+}
+
+TEST_CASE(
+    "AllowancePool auction: unset price → no auction column built")  // NOLINT
+{
+  using namespace test_allowance_pool_auction;
+  // With auction_price unset the auction branch is skipped entirely;
+  // the pool reverts to the Phase-3 binding bank (eini=100 caps g1 at
+  // 200 MWh, g2 covers 280 MWh).
+  //   obj = (200·$10 + 280·$50)/1000 = 16.0
+  CHECK(solve_obj(make_auction_system(/*auction_price=*/-1.0))
+        == doctest::Approx(16.0).epsilon(0.01));
+}

@@ -129,7 +129,7 @@ bool AllowancePoolLP::add_to_lp(SystemContext& sc,
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   free_allocation_cols[st_key] = std::move(fa_cols);
 
-  // ── Phase 4: auction-purchase columns ─────────────────────────────────
+  // ── Auction-purchase columns ──────────────────────────────────────────
   // When ``auction_price`` is set on a (stage, block), add an ``auction``
   // column (absolute tCO₂, ``[0, auction_cap]``) that the LP may buy to
   // top up the bank instead of abating emissions.  Injected as a ``-1``
