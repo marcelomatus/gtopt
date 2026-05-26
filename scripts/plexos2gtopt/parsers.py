@@ -2717,7 +2717,6 @@ def _parse_res_requirement_csv(
     ``reservezone_drequirement_12_<scene>_<stage>_<block>`` columns on
     the 7-day CEN PCP case.
     """
-    import csv  # pylint: disable=import-outside-toplevel
 
     hour_re = re.compile(r"H(\d+)")
     out: dict[str, list[float]] = {}
@@ -3387,7 +3386,6 @@ def extract_hydro_discharge_user_constraints(
     free to dispatch beyond their combined penstock capacity — that's
     why our previous LP cost was ~$5 M lower than the PLEXOS MIP.
     """
-    import csv  # pylint: disable=import-outside-toplevel
 
     if not bundle.has("Hydro_AntucoBounds.csv"):
         return ()
@@ -3629,7 +3627,6 @@ def _extract_flow_rights_legacy_misclassified(
     caused phantom infeasibilities; see ``extract_flow_rights``
     docstring for the proper UserConstraint reformulation.
     """
-    import csv  # pylint: disable=import-outside-toplevel
 
     if not bundle.has("Hydro_AntucoBounds.csv"):
         return ()
@@ -3956,6 +3953,20 @@ def extract_decision_variables(
     return tuple(out)
 
 
+def _shift_at(buf: list[float], idx: int) -> float:
+    """Grow ``buf`` with zeros up to ``idx`` and return ``buf[idx]``."""
+    while idx >= len(buf):
+        buf.append(0.0)
+    return buf[idx]
+
+
+def _set_shift(buf: list[float], idx: int, value: float) -> None:
+    """Grow ``buf`` with zeros up to ``idx`` and set ``buf[idx] = value``."""
+    while idx >= len(buf):
+        buf.append(0.0)
+    buf[idx] = value
+
+
 _UC_OP_TXT = {"<=": "≤", ">=": "≥", "=": "="}
 
 
@@ -4279,6 +4290,13 @@ def extract_user_constraints(
     # ``discharge_ANTUCOmin`` penalty).  Thermal/mixed constraints
     # stay HARD as before.
     _HYDRO_UC_SOFT_PENALTY = 10.0
+    # Gas/GNL daily fuel-operation caps (``Gas_MaxOpDay*``, flagged by
+    # ``rhs_from_custom``) are PHYSICAL fuel-supply limits, not hydro
+    # operational floors — they must bind, so they carry a high fuel-cap
+    # penalty instead of the $10 hydro soft floor (which let cheap
+    # gas/GNL units over-run their gas allocation, e.g. SAN_ISIDRO_2
+    # +45%).  Distinct constant so the two families never share a tier.
+    _FUEL_CAP_PENALTY = 500.0
 
     out: list[UserConstraintSpec] = []
     unsupported_rhs_shift_warns: set[str] = set()
@@ -4348,16 +4366,6 @@ def extract_user_constraints(
         gen_pmax_by_name = pmax_by_gen or {}
         gen_pmax_profiles = pmax_profiles_by_gen or {}
         rhs_shift_per_block: list[float] = []
-
-        def _shift_at(idx: int) -> float:
-            while idx >= len(rhs_shift_per_block):
-                rhs_shift_per_block.append(0.0)
-            return rhs_shift_per_block[idx]
-
-        def _set_shift(idx: int, value: float) -> None:
-            while idx >= len(rhs_shift_per_block):
-                rhs_shift_per_block.append(0.0)
-            rhs_shift_per_block[idx] = value
 
         for parent_class, gtopt_class, accessor, name_tmpl, per_constr in direct_index:
             allowed_parent = (
@@ -4447,7 +4455,11 @@ def extract_user_constraints(
             # every block.
             shift = rhs_val - per_block_rhs
             for idx in range(horizon):
-                _set_shift(idx, _shift_at(idx) + shift)
+                _set_shift(
+                    rhs_shift_per_block,
+                    idx,
+                    _shift_at(rhs_shift_per_block, idx) + shift,
+                )
 
         # 2b. Reserve.Provision expansion: α × Σ_g reserve_provision(
         #     "provision_<g>").<up|dn> over generators eligible for
@@ -4508,7 +4520,11 @@ def extract_user_constraints(
                     )
                     for idx in range(horizon):
                         cap_cf = profile[idx] if profile else fallback_pmax
-                        _set_shift(idx, _shift_at(idx) + alpha * cap_cf)
+                        _set_shift(
+                            rhs_shift_per_block,
+                            idx,
+                            _shift_at(rhs_shift_per_block, idx) + alpha * cap_cf,
+                        )
                     if mode == "curtailed":
                         # α × (Capacity × cf − gen) ⇒ LHS gets −α × gen,
                         # RHS already received the +α × cap_cf shift
@@ -4675,7 +4691,26 @@ def extract_user_constraints(
         # available_capacity coefficient contributed; otherwise leave
         # ``rhs_profile`` empty so the writer keeps the inline scalar.
         rhs_profile_tuple: tuple[float, ...] = ()
-        if any(abs(s) > 0.0 for s in rhs_shift_per_block):
+        # Day-scope the daily gas-operation caps (``Gas_MaxOpDay{N}``).
+        # PLEXOS ships one cap per day (Day0..Day7) over the SAME
+        # generators with a per-day RHS (e.g. Enel Day0=0.131 vs
+        # Day1=6.55); emitting each as a scalar cap applied to ALL blocks
+        # made the tightest day bind the whole week (Day0 crushed every
+        # gas unit).  Instead emit a per-period RHS profile that holds the
+        # per-hour cap on day N's 24 hours and a non-binding sentinel
+        # elsewhere, so each daily budget binds only on its own day.  The
+        # per-hour rate (``×1000/horizon_hours``) is unchanged — gtopt
+        # duration-weights the row across the stage.
+        if rhs_from_custom:
+            day_match = re.match(r"Gas_MaxOpDay(\d+)", constr.name)
+            if day_match:
+                day_n = int(day_match.group(1))
+                horizon = int(horizon_hours)
+                lo, hi = day_n * 24, (day_n + 1) * 24
+                rhs_profile_tuple = tuple(
+                    rhs_val if lo <= p < hi else 1.0e9 for p in range(horizon)
+                )
+        if not rhs_profile_tuple and any(abs(s) > 0.0 for s in rhs_shift_per_block):
             rhs_profile_tuple = tuple(rhs_val - shift for shift in rhs_shift_per_block)
         # Soften UCs whose ENTIRE Generator-side LHS references hydros
         # — PLEXOS gates these per-reservoir floors / ramps on the
@@ -4749,7 +4784,11 @@ def extract_user_constraints(
                 and "decision_variable(" not in expression
             )
             if not references_commitment and not is_pure_line_flow:
-                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
+                # Gas/GNL fuel caps (rhs_from_custom) must bind → fuel-cap
+                # tier; hydro / reserve operational floors stay soft.
+                emitted_penalty = (
+                    _FUEL_CAP_PENALTY if rhs_from_custom else _HYDRO_UC_SOFT_PENALTY
+                )
         out.append(
             UserConstraintSpec(
                 name=constr.name,
@@ -5068,7 +5107,6 @@ def _strip_plant_config_suffix(name: str) -> str | None:
     variants of the same physical plant — the LP must cap their
     summed dispatch at the single-config pmax envelope.
     """
-    import re
 
     for pat in _PLANT_FAMILY_SUFFIX_PATTERNS:
         stem = re.sub(pat, "", name)

@@ -1134,3 +1134,56 @@ def test_write_provenance_creates_valid_json(tmp_path) -> None:
     assert data["elements"]["Generator"]["count"] == 2
     assert "soft_penalty" in data["global_transforms"]
     assert "rhs_custom" in data["global_transforms"]
+
+
+def test_build_fcf_alpha_terms_normal_path() -> None:
+    """F6/B: FCF boundary cut → alpha_fcf DecisionVariable (cost
+    normalised by horizon) + FCF_future_cost UserConstraint with the
+    reservoir water-value slopes and the FCF intercept as RHS."""
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import _FCF_SCALE_ALPHA, build_fcf_alpha_terms
+
+    cut = BoundaryCutSpec(fcf=1_000_000.0, slopes={"RES_A": 50.0, "RES_B": 30.0})
+    result = build_fcf_alpha_terms(
+        cut, frozenset({"RES_A", "RES_B"}), dv_uid=1, uc_uid=2, horizon_hours=168.0
+    )
+    assert result is not None
+    alpha_dv, fcf_uc = result
+    assert alpha_dv["uid"] == 1
+    assert alpha_dv["name"] == "alpha_fcf"
+    assert alpha_dv["lower_bound"] == 0.0
+    # Cost is /horizon so the per-block × duration sum collapses to one term.
+    assert alpha_dv["cost"] == pytest.approx(_FCF_SCALE_ALPHA / 168.0)
+    assert fcf_uc["uid"] == 2
+    assert 'decision_variable("alpha_fcf").value' in fcf_uc["expression"]
+    assert 'reservoir("RES_A").efin' in fcf_uc["expression"]
+    assert fcf_uc["expression"].rstrip().endswith(">= 1000000.000000")
+
+
+def test_build_fcf_alpha_terms_no_reservoir_match_returns_none() -> None:
+    """No slope maps onto a bundle reservoir → returns None (caller skips)."""
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import build_fcf_alpha_terms
+
+    cut = BoundaryCutSpec(fcf=1e6, slopes={"UNKNOWN": 50.0})
+    assert (
+        build_fcf_alpha_terms(
+            cut, frozenset({"RES_A"}), dv_uid=1, uc_uid=2, horizon_hours=168.0
+        )
+        is None
+    )
+
+
+def test_build_fcf_alpha_terms_zero_horizon_clamps() -> None:
+    """horizon_hours=0 must not divide by zero — clamps the denominator
+    to 1.0 so the cost equals the raw scale_alpha."""
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import _FCF_SCALE_ALPHA, build_fcf_alpha_terms
+
+    cut = BoundaryCutSpec(fcf=1e6, slopes={"RES_A": 50.0})
+    result = build_fcf_alpha_terms(
+        cut, frozenset({"RES_A"}), dv_uid=1, uc_uid=2, horizon_hours=0.0
+    )
+    assert result is not None
+    alpha_dv, _ = result
+    assert alpha_dv["cost"] == pytest.approx(_FCF_SCALE_ALPHA)

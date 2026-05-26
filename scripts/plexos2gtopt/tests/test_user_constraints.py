@@ -741,3 +741,6 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     desc = by_name["Gas_MaxOpDay0_X"].description
     assert "generator dispatch [MW]" in desc
     assert "(File: DBSEN_PRGDIARIO.xml)" in desc
+    # rhs_from_custom gas caps bind at the fuel-cap penalty tier (500),
+    # not the soft hydro/reserve tier (10), so they actually constrain.
+    assert by_name["Gas_MaxOpDay0_X"].penalty == 500.0

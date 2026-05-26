@@ -2334,13 +2334,11 @@ def build_planning(
             system["line_array"], overload_penalty=penalty
         )
         if n_softened > 0:
-            import logging as _log_soft
-
-            _log_soft.getLogger("plexos2gtopt").info(
+            logger.info(
                 "augment_el1_with_soft_caps: softened %d EL=1 line(s) "
                 "(tmax_normal_* ← rated, tmax_* ← 3× rated, "
-                "overload_penalty=$%.2f/MWh = avg of min(demand.fcost), "
-                "max(generator.gcost)); disable with --lift-line-caps=<list>",
+                "overload_penalty=$%.2f/MWh = min(max(gcost)+1, min(VoLL)-1)); "
+                "disable with --lift-line-caps=<list>",
                 n_softened,
                 penalty,
             )
@@ -2848,6 +2846,8 @@ _UC_FAMILIES: tuple[tuple[str, Any], ...] = (
     ),
     # PLEXOS↔gtopt validation/comparison rows (diagnostic, usually inactive).
     ("comparison", lambda n: "Comparison" in n),
+    # End-of-horizon future-cost (FCF / SDDP terminal value) rows.
+    ("terminal_value", lambda n: n.startswith("FCF") or n.startswith("alpha")),
 )
 # Default family for the remaining operational floors / ramps / caps.
 _UC_DEFAULT_FAMILY = "operational"
