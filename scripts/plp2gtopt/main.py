@@ -199,7 +199,13 @@ _SECTION_DEFAULTS: dict[str, str] = {
     # ``_parsers.py``'s ``--method`` default for the rationale.
     "method": "cascade",
     "state_fail_cost": "1000.0",
-    "scale_objective": "1000.0",
+    # Default 1.0 (was 1000): with the production-default `cascade` method,
+    # scale_objective=1 keeps the LP basis well-conditioned (it is the dominant
+    # kappa contributor once Benders cuts accumulate) and matches the
+    # method-aware C++ default for sddp/cascade.  The writer still remaps a
+    # legacy explicit 1000 to 1.0 for sddp/cascade and preserves 1000 for
+    # explicit monolithic requests.
+    "scale_objective": "1.0",
     "discount_rate": "0.0",
     "reservoir_scale_mode": "auto",
 }

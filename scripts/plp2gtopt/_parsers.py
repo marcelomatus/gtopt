@@ -862,7 +862,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         dest="scale_objective",
         type=float,
         metavar="FACTOR",
-        default=float(conf.get("scale_objective", "1000.0")),
+        default=float(conf.get("scale_objective", "1.0")),
         help=("objective function scaling factor. (default: %(default)s)"),
     )
     parser.add_argument(
