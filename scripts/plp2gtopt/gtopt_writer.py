@@ -1193,9 +1193,25 @@ class GTOptWriter(
             "strict_storage_emin": src_model.get("strict_storage_emin", False),
             "auto_scale": src_model.get("auto_scale", True),
         }
-        # Only emit scale_objective if explicitly set (C++ default is 1000).
-        if "scale_objective" in src_model:
-            model_opts["scale_objective"] = src_model["scale_objective"]
+        # scale_objective is method-aware on the C++ side since the SDDP
+        # basis-condition tuning (commit ab041592f): the default is 1.0 for
+        # sddp / cascade and 1000 for monolithic.  scale_objective is the
+        # dominant LP basis-condition contributor once Benders cuts
+        # accumulate — forwarding the monolithic 1000 into a cascade case
+        # inflates kappa (measured 3.0e9 -> 7.6e9 on a 2-year cascade,
+        # 118 vs 20 "high kappa" warnings) without changing the optimum.
+        # plp2gtopt's CLI/conf default is the monolithic 1000, so for
+        # sddp/cascade methods we emit 1.0 instead.  An explicit non-1000
+        # value from the conf/CLI is treated as a deliberate override and
+        # forwarded verbatim for every method.
+        _src_scale = src_model.get("scale_objective")
+        _sddp_like = method in ("sddp", "cascade", "cascade-reduced")
+        if _src_scale is not None and float(_src_scale) != 1000.0:
+            model_opts["scale_objective"] = _src_scale
+        elif _sddp_like:
+            model_opts["scale_objective"] = 1.0
+        elif _src_scale is not None:
+            model_opts["scale_objective"] = _src_scale
         # Only emit scale_theta if explicitly set (C++ auto_scale_theta
         # computes the optimal value from median line reactance).
         if "scale_theta" in src_model:

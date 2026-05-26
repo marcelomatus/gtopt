@@ -478,6 +478,66 @@ class TestProcessOptionsModelOpts:
         assert mo["use_line_losses"] is True
 
 
+class TestScaleObjectiveMethodAware:
+    """``scale_objective`` is method-aware (commit ab041592f).
+
+    The C++ default is 1.0 for sddp/cascade (it is the dominant LP
+    basis-condition contributor once Benders cuts accumulate) and 1000
+    for monolithic.  plp2gtopt's CLI/conf default is the monolithic
+    1000, so the writer must emit 1.0 for sddp/cascade while honoring a
+    deliberate non-1000 override verbatim for any method.
+    """
+
+    @pytest.mark.parametrize("method", ["sddp", "cascade", "cascade-reduced"])
+    def test_sddp_cascade_default_becomes_one(self, tmp_path, method):
+        """The monolithic 1000 default is rewritten to 1.0 for sddp/cascade."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, f"so_{method.replace('-', '_')}")
+        opts["method"] = method
+        # The conf/CLI default arrives in model_options as 1000.
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        assert writer.planning["options"]["model_options"]["scale_objective"] == 1.0
+
+    def test_cascade_propagates_into_cascade_options(self, tmp_path):
+        """The 1.0 value also lands in the cascade-level model_options base."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_casc_prop")
+        opts["method"] = "cascade"
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        casc = writer.planning["options"]["cascade_options"]
+        assert casc["model_options"]["scale_objective"] == 1.0
+
+    def test_monolithic_keeps_1000(self, tmp_path):
+        """Monolithic retains the 1000 value (matches its C++ default)."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_mono")
+        opts["method"] = "monolithic"
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        mo = writer.planning["options"]["model_options"]
+        assert mo["scale_objective"] == 1000.0
+
+    def test_explicit_override_forwarded_for_cascade(self, tmp_path):
+        """A deliberate non-1000 value is honored verbatim, even for cascade."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_override")
+        opts["method"] = "cascade"
+        opts["model_options"] = {"scale_objective": 500.0}
+        writer.process_options(opts)
+        mo = writer.planning["options"]["model_options"]
+        assert mo["scale_objective"] == 500.0
+
+
 # ---------------------------------------------------------------------------
 # process_stage_blocks — stages_phase spec (lines 220-237)
 # ---------------------------------------------------------------------------
