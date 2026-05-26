@@ -24,6 +24,7 @@ from plexos2gtopt.gtopt_writer import (
     build_fuel_array,
     build_generator_array,
     build_line_array,
+    soft_penalty_cost,
 )
 
 
@@ -679,7 +680,7 @@ def test_augment_el1_custom_headroom_factor() -> None:
 
 
 def test_compute_default_slack_cost_recipe() -> None:
-    """slack_cost = avg(min(demand.fcost), max(generator.gcost))."""
+    """slack_cost = min(max(gcost) + 1, min(VoLL) - 1)."""
     demand = [
         {"uid": 1, "name": "d1", "fcost": 467.19},
         {"uid": 2, "name": "d2", "fcost": 1000.0},
@@ -690,8 +691,8 @@ def test_compute_default_slack_cost_recipe() -> None:
         {"uid": 3, "name": "g3", "gcost": 0.1},
     ]
     cost = _compute_default_slack_cost(demand, generator)
-    # min(fcost)=467.19, max(gcost)=100  →  avg = 283.595
-    assert cost == pytest.approx(283.595)
+    # max(gcost)=100 → 101; min(fcost)=467.19 → 466.19; min = 101.
+    assert cost == pytest.approx(100.0 + 1.0)
 
 
 def test_compute_default_slack_cost_handles_per_block_matrix() -> None:
@@ -702,8 +703,8 @@ def test_compute_default_slack_cost_handles_per_block_matrix() -> None:
         {"uid": 1, "name": "g1", "gcost": [[10.0, 80.0, 25.0]]},
     ]
     cost = _compute_default_slack_cost(demand, generator)
-    # min positive fcost = 450, max positive gcost = 80
-    assert cost == pytest.approx((450.0 + 80.0) / 2)
+    # max positive gcost = 80 → 81; min positive fcost = 450 → 449; min = 81.
+    assert cost == pytest.approx(80.0 + 1.0)
 
 
 def test_compute_default_slack_cost_fallback_when_empty() -> None:
@@ -733,15 +734,10 @@ def test_compute_default_slack_cost_fallback_when_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_generator_fixed_load_emits_pmin_eq_pmax_matrix() -> None:
-    """A variable Fixed Load profile lands on the JSON as
-    ``pmin == pmax`` per block — forces the LP to dispatch exactly the
-    published value at each block.
-
-    Pins the joint emission so a refactor can't drop one side of the
-    equality (which would let the LP dispatch BELOW the forced value
-    when economics favour it — the silent failure mode that motivated
-    reading Gen_FixedLoad in the first place).
+def test_generator_fixed_load_emits_pmax_as_cap_matrix() -> None:
+    """A variable Fixed Load profile lands on the JSON as a per-block
+    ``pmax`` cap at the published value, with ``pmin`` left at 0
+    (curtailable) and omitted.
     """
     gens = (
         GeneratorSpec(
@@ -769,21 +765,34 @@ def test_generator_fixed_load_emits_pmin_eq_pmax_matrix() -> None:
         ),
     )
     out = build_generator_array(gens, fuels=())
-    # The variable profile must collapse to a per-block matrix on BOTH
-    # pmin and pmax — single-side emission would leave the LP free to
-    # dispatch in [0, profile[t]] instead of EXACTLY profile[t].
-    assert isinstance(out[0]["pmin"], list)
+    # pmin is 0 (curtailable) and omitted as a redundant zero.
+    assert "pmin" not in out[0]
+    # pmax caps dispatch at the FixedLoad value per block.
     assert isinstance(out[0]["pmax"], list)
-    assert out[0]["pmin"] == out[0]["pmax"]
-    # And the matrix shape is [[per-hour]] (single scenario).
-    assert len(out[0]["pmin"]) == 1
-    assert len(out[0]["pmin"][0]) == 12
+    assert out[0]["pmax"] == [
+        [
+            10.0,
+            20.0,
+            30.0,
+            40.0,
+            50.0,
+            60.0,
+            50.0,
+            40.0,
+            30.0,
+            20.0,
+            10.0,
+            5.0,
+        ]
+    ]
+    assert len(out[0]["pmax"]) == 1
+    assert len(out[0]["pmax"][0]) == 12
 
 
 def test_generator_fixed_load_scalar_when_constant_profile() -> None:
     """A constant Fixed Load profile (e.g. a 24h baseload forced unit)
-    collapses to a scalar ``pmin == pmax`` instead of an expanded
-    matrix — keeps the JSON compact when there's no time variation.
+    collapses to a scalar ``pmax`` cap, with ``pmin`` left at 0
+    (curtailable) and omitted.
     """
     gens = (
         GeneratorSpec(
@@ -795,15 +804,180 @@ def test_generator_fixed_load_scalar_when_constant_profile() -> None:
         ),
     )
     out = build_generator_array(gens, fuels=())
-    assert out[0]["pmin"] == 50.0
+    assert "pmin" not in out[0]
     assert out[0]["pmax"] == 50.0
 
 
-def test_generator_no_fixed_load_keeps_default_pmin() -> None:
-    """Without ``fixed_load_profile`` the writer emits the unmodified
-    ``GeneratorSpec.pmin`` (= 0 for unforced gens) and the static
-    ``GeneratorSpec.pmax``.  pmin defaults to 0 when no MinStableLevel
-    has been parsed — equivalent to "no forced floor".
+def test_generator_fixed_load_thermal_pins_pmin_eq_pmax_matrix() -> None:
+    """A thermal unit (real fuel + heat rate) with a Fixed Load profile
+    is a forced-dispatch / commitment trajectory: PLEXOS pins the
+    generation variable, so we emit ``pmin == pmax == fixed_load`` per
+    block at the non-zero blocks (the COCHRANE_1 start-up trajectory
+    case).  The floor is made SOFT via ``pmin_fcost`` =
+    ``min(max(gcost)+1, min(VoLL)-1)`` so a transmission/commitment limit
+    can't make the LP infeasible.  Renewables stay curtailable — this is
+    the non-renewable arm of the tech-dependent rule.
+    """
+    fuels = (FuelSpec(object_id=1, name="coal", price=50.0),)
+    gens = (
+        GeneratorSpec(
+            object_id=20,
+            name="forced_thermal",
+            bus_name="bus_a",
+            pmax=250.0,
+            heat_rate=0.30,
+            vom_charge=20.0,  # gcost field = vom (fuel cost rides the FK)
+            fuel_names=("coal",),
+            # Start-up trajectory: positive for the first 3 blocks, then 0.
+            fixed_load_profile=(100.0, 150.0, 200.0, 0.0, 0.0, 0.0),
+        ),
+    )
+    out = build_generator_array(gens, fuels=fuels)
+    # Non-renewable ⇒ hard equality: pmin == pmax on the forced blocks,
+    # and at fixed_load=0 blocks pmax falls back to the rating cap while
+    # pmin returns to the always-on floor (0 here).
+    assert out[0]["pmin"] == [[100.0, 150.0, 200.0, 0.0, 0.0, 0.0]]
+    assert out[0]["pmax"] == [[100.0, 150.0, 200.0, 250.0, 250.0, 250.0]]
+    # Soft floor: pmin_fcost = max(gcost field) + 1.  Only one generator
+    # (gcost field = vom_charge = 20), so the floor is 20 + 1.
+    assert out[0]["pmin_fcost"] == pytest.approx(20.0 + 1.0)
+
+
+def test_generator_fixed_load_thermal_override_pins_pmin_eq_pmax() -> None:
+    """A unit with a per-unit fuel-price override (no Fuel FK) but a
+    positive heat rate also counts as non-renewable → ``pmin == pmax``
+    with a soft ``pmin_fcost`` floor at ``max(gcost) + 1``.  Override
+    units take the legacy baked-gcost path, so their gcost field INCLUDES
+    the fuel cost (``heat_rate × price + vom``).
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=21,
+            name="forced_virtual_thermal",
+            bus_name="bus_a",
+            pmax=80.0,
+            heat_rate=0.4,
+            vom_charge=8.0,
+            fuel_price_override=30.0,
+            fixed_load_profile=(60.0,) * 6,
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    # Constant forced value collapses to a scalar on both sides.
+    assert out[0]["pmin"] == 60.0
+    assert out[0]["pmax"] == 60.0
+    # Legacy baked gcost field = 0.4 × 30 + 8 = 20; +1 → 21.
+    assert out[0]["pmin_fcost"] == pytest.approx(0.4 * 30.0 + 8.0 + 1.0)
+
+
+def test_generator_fixed_load_soft_pmin_uses_system_max_cost() -> None:
+    """``pmin_fcost`` is the SYSTEM-WIDE ``max(gcost) + 1``, not the
+    forced unit's own cost.  A cheap forced thermal gets the floor of the
+    most expensive generator (a costly peaker) plus one.
+    """
+    fuels = (FuelSpec(object_id=1, name="coal", price=50.0),)
+    gens = (
+        # Cheap forced unit (gcost field = vom = 5) carrying the Fixed Load.
+        GeneratorSpec(
+            object_id=30,
+            name="cheap_forced",
+            bus_name="bus_a",
+            pmax=200.0,
+            heat_rate=0.30,
+            vom_charge=5.0,
+            fuel_names=("coal",),
+            fixed_load_profile=(80.0,) * 4,
+        ),
+        # Expensive peaker: override/legacy path → gcost field = 1.0 × 100
+        # = 100; no Fixed Load.  Sets the system-wide max.
+        GeneratorSpec(
+            object_id=31,
+            name="expensive_peaker",
+            bus_name="bus_b",
+            pmax=50.0,
+            heat_rate=1.0,
+            fuel_price_override=100.0,
+        ),
+    )
+    out = build_generator_array(gens, fuels=fuels)
+    forced = next(e for e in out if e["name"] == "cheap_forced")
+    # Floor uses the peaker's gcost 100, NOT the forced unit's own 5.
+    assert forced["pmin_fcost"] == pytest.approx(100.0 + 1.0)
+    # The peaker itself has no Fixed Load → no soft floor.
+    peaker = next(e for e in out if e["name"] == "expensive_peaker")
+    assert "pmin_fcost" not in peaker
+
+
+def test_generator_fixed_load_soft_pmin_capped_below_voll() -> None:
+    """``pmin_fcost`` is capped at ``min(VoLL) - 1`` so the forced-floor
+    obligation never outranks load-serving — even when ``max(gcost) + 1``
+    would exceed the value of lost load.  An explicit override wins over
+    both.
+    """
+    gens = (
+        # Legacy/override path → gcost field = 1.0 × 100 = 100.
+        GeneratorSpec(
+            object_id=40,
+            name="forced_expensive",
+            bus_name="bus_a",
+            pmax=100.0,
+            heat_rate=1.0,
+            fuel_price_override=100.0,
+            fixed_load_profile=(40.0,) * 3,
+        ),
+    )
+    # VoLL = 50 → cap = 49, below the uncapped 101.
+    out = build_generator_array(gens, demand_voll=50.0)
+    assert out[0]["pmin_fcost"] == pytest.approx(50.0 - 1.0)
+    # Without a VoLL the uncapped max(gcost)+1 = 101 applies.
+    out_uncapped = build_generator_array(gens)
+    assert out_uncapped[0]["pmin_fcost"] == pytest.approx(100.0 + 1.0)
+    # An explicit override wins over the computed value and the VoLL cap.
+    out_override = build_generator_array(
+        gens, demand_voll=50.0, soft_penalty_override=7.5
+    )
+    assert out_override[0]["pmin_fcost"] == pytest.approx(7.5)
+
+
+def test_soft_penalty_cost_formula() -> None:
+    """Unit-test the shared ``soft_penalty_cost`` helper directly."""
+    # max(gcost) + 1, no VoLL cap.
+    assert soft_penalty_cost([10.0, 50.0, 30.0], []) == pytest.approx(51.0)
+    # Capped at min(VoLL) - 1 when that is the binding term.
+    assert soft_penalty_cost([10.0, 50.0, 30.0], [40.0, 80.0]) == pytest.approx(39.0)
+    # Nested lists are flattened; non-positive gcosts ignored.
+    assert soft_penalty_cost([[10.0, 0.0], [20.0]], [100.0]) == pytest.approx(21.0)
+    # Empty gcost pool → floor of 1.0.
+    assert soft_penalty_cost([], []) == pytest.approx(1.0)
+    # Explicit override short-circuits everything.
+    assert soft_penalty_cost([10.0], [40.0], override=999.0) == pytest.approx(999.0)
+
+
+def test_generator_fixed_load_renewable_has_no_soft_pmin() -> None:
+    """A zero-cost renewable (no fuel, zero heat rate) with a Fixed Load
+    profile stays a curtailable cap: no ``pmin`` floor and therefore no
+    ``pmin_fcost`` soft-floor penalty.
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=22,
+            name="forced_renewable",
+            bus_name="bus_a",
+            pmax=100.0,
+            heat_rate=0.0,
+            fuel_names=(),
+            fixed_load_profile=(10.0, 20.0, 30.0),
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    assert "pmin" not in out[0]
+    assert "pmin_fcost" not in out[0]
+
+
+def test_generator_no_fixed_load_omits_zero_pmin() -> None:
+    """Without ``fixed_load_profile`` and with default ``pmin=0``
+    the writer omits the zero floor — no need to emit redundant
+    ``"pmin": 0`` when the LP default is already unbounded-below.
     """
     gens = (
         GeneratorSpec(
@@ -815,7 +989,7 @@ def test_generator_no_fixed_load_keeps_default_pmin() -> None:
     )
     out = build_generator_array(gens, fuels=())
     assert out[0]["pmax"] == 200.0
-    assert out[0]["pmin"] == 0.0
+    assert "pmin" not in out[0]
 
 
 def test_generator_initial_generation_not_emitted_to_json() -> None:

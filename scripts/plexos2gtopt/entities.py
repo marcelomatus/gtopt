@@ -221,8 +221,15 @@ class LineSpec:
     # (free up to the rating, penalised between the rating and
     # ``headroom × rating``, hard at ``headroom × rating``) instead of
     # a plain hard cap.  Orig EL=1/EL=2 lines keep ``soft_cap = False``
-    # (plain hard cap); ``--lift-line-caps`` lines stay EL=0/uncapped.
+    # (plain hard cap); ``--lift-line-caps`` lines are also soft-capped but
+    # with the wider band (see ``soft_cap_lifted``).
     soft_cap: bool = False
+    # True for ``--lift-line-caps`` corridors: still soft-capped (not
+    # uncapped) but with a WIDER free band (4× rating) and a 10× hard cap
+    # instead of the regular 2×/5×, since these radial paths are the ones
+    # PLEXOS itself runs hardest.  Carries PLEXOS-like over-flow for free
+    # yet can't teleport.
+    soft_cap_lifted: bool = False
     units: int = 1
     reactance: float = 0.0
     wheeling_charge: float = 0.0

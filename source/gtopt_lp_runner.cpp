@@ -692,15 +692,13 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  // The `out_sw` stopwatch only measures the final
-  // `PlanningLP::write_out()` flush + planning.json sidecar.  Under SDDP
-  // every per-cell parquet was already written during the forward pass
-  // (each iteration dispatches its own `SystemLP::write_out` calls to
-  // the cell pool), so by the time we get here there is nothing left
-  // to flush — `out_sw` reports a misleading 0.x s for runs that
-  // actually wrote gigabytes.  Print *both* numbers so the report is
-  // honest: the runner stopwatch, plus the process-wide cumulative
-  // per-cell write_out wall fed by `SystemLP::write_out`.
+  // The `out_sw` stopwatch measures the final `PlanningLP::write_out()`
+  // flush + planning.json sidecar.  Under SDDP the simulation pass
+  // defers per-cell output to this single chunked pass (see the
+  // "Output is NOT written here" comment in sddp_iteration.cpp), so the
+  // majority of write time is captured here.  Print *both* numbers so
+  // the report is honest: the runner stopwatch, plus the process-wide
+  // cumulative per-cell write_out wall fed by `SystemLP::write_out`.
   const auto cells = SystemLP::total_write_cells();
   const auto cum_ms = SystemLP::total_write_ms();
   if (cells > 0) {

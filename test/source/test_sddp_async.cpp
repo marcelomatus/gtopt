@@ -424,6 +424,11 @@ TEST_CASE("SDDPMethod async - per-scene output writing")  // NOLINT
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
 
+  // Flush the deferred per-cell output (the SDDP simulation pass solves
+  // every phase with crossover but defers write_out to a final chunked
+  // pass so the pool can use all cores regardless of scene count).
+  planning_lp.write_out();
+
   // Verify that output files were created in the temp directory.
   // Each scene × phase should have written output.
   // Check for at least some output files (generator, demand, etc.)

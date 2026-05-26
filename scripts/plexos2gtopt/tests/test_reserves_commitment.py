@@ -122,7 +122,13 @@ def test_extract_reserve_provisions_inverts_eligibility() -> None:
         ReserveSpec(object_id=20, name="ZONE_A", eligible_generators=("g1", "g2")),
         ReserveSpec(object_id=21, name="ZONE_B", eligible_generators=("g1",)),
     )
-    provisions = extract_reserve_provisions(reserves)
+    # Must pass generators with positive pmax; extract_reserve_provisions
+    # filters out gens with pmax <= 0 from eligibility.
+    gens = (
+        GeneratorSpec(object_id=1, name="g1", bus_name="b", pmax=100.0),
+        GeneratorSpec(object_id=2, name="g2", bus_name="b", pmax=100.0),
+    )
+    provisions = extract_reserve_provisions(reserves, generators=gens)
     by_gen = {p.generator_name: p for p in provisions}
     assert set(by_gen["g1"].reserve_zones) == {"ZONE_A", "ZONE_B"}
     assert set(by_gen["g2"].reserve_zones) == {"ZONE_A"}
@@ -304,6 +310,9 @@ def test_extract_commitments_signs_initial_hours_down(tmp_path: Path) -> None:
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     (tmp_path / "Gen_IniHoursDown.csv").write_text(
         "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\nGEN_A,2026,1,1,1,12\n"
+    )
+    (tmp_path / "Gen_StartCost.csv").write_text(
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\nGEN_A,2026,1,1,1,1\n"
     )
     db = load_xml(xml)
     gens = (GeneratorSpec(object_id=10, name="GEN_A", bus_name="b"),)

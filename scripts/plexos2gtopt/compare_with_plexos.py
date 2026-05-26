@@ -1423,9 +1423,22 @@ def compute_gtopt_per_line(
         name_by_uid[int(ll["uid"])] = ll["name"]
         fmax_ab = _scalar_or_first(ll.get("tmax_ab", 0.0))
         fmax_ba = _scalar_or_first(ll.get("tmax_ba", fmax_ab))
+        # Soft-capped (ex-EL0 / lifted) lines carry ``tmax_normal_*`` +
+        # ``overload_penalty``: the writer inflated ``tmax_ab`` to
+        # ``hard_factor × rating`` (5× regular, 10× lifted) so the loss
+        # PWL stays finite, with the soft threshold at ``soft_factor ×
+        # rating`` (2× / 4×).  ``tmax_ab`` is therefore the *emergency*
+        # ceiling, not the original rating.  Flag these so the renderer
+        # can recover the original cap for the Step 6b / 6c comparison.
+        is_soft = "tmax_normal_ab" in ll and "overload_penalty" in ll
+        soft_thr = (
+            _scalar_or_first(ll.get("tmax_normal_ab", fmax_ab)) if is_soft else fmax_ab
+        )
         limits[ll["name"]] = {
             "max_flow": fmax_ab,
             "min_flow": -fmax_ba,
+            "is_soft": 1.0 if is_soft else 0.0,
+            "soft_threshold": soft_thr,
         }
         # gtopt's ``active`` is either an int 0/1 or omitted (defaults
         # to 1 = in service).  Coerce both to a 0.0/1.0 float so the
@@ -1467,6 +1480,8 @@ def compute_gtopt_per_line(
             "min_flow": lim["min_flow"],
             "active": active_by_name.get(name, 1.0),
             "enforce_level": enforce_by_name.get(name, 2.0),
+            "is_soft": lim["is_soft"],
+            "soft_threshold": lim["soft_threshold"],
         }
     return out
 
@@ -1495,6 +1510,26 @@ def _render_line_compare(
     plexos_only = set(plexos_line) - common
     gtopt_only = set(gtopt_line) - common
 
+    def _orig_cap(g: dict[str, float], plexos_max: float) -> float:
+        """Recover the ORIGINAL line rating for soft-capped lines.
+
+        For EL0 / lifted lines the writer stored ``tmax_ab = hard_factor ×
+        rating`` with ``hard_factor ∈ {5 (regular), 10 (lifted)}``.  The
+        ratio ``tmax_ab / tmax_normal_ab`` is 2.5 for *both*, so the bundle
+        alone is ambiguous — but the original rating is exactly the value
+        PLEXOS published as its Export Limit (the converter scaled from
+        it).  Snap the factor to whichever of {5, 10} reproduces the PLEXOS
+        rating; fall back to the regular ÷5 when no PLEXOS reference.
+        Plain (non-soft) lines are returned unchanged.
+        """
+        hard = float(g.get("max_flow", 0.0))
+        if g.get("is_soft", 0.0) < 0.5 or hard <= 0.0:
+            return hard
+        cands = (hard / 5.0, hard / 10.0)
+        if plexos_max and plexos_max > 0.0:
+            return min(cands, key=lambda c: abs(c - plexos_max))
+        return cands[0]
+
     energy_rows = []
     limit_rows = []
     active_mismatch = []
@@ -1504,10 +1539,14 @@ def _render_line_compare(
         p_e = p.get("energy_mwh", 0.0)
         g_e = g.get("energy_mwh", 0.0)
         p_max = p.get("max_flow", 0.0)
-        g_max = g.get("max_flow", 0.0)
+        g_hard = g.get("max_flow", 0.0)
+        # Step 6b/6c compare the ORIGINAL rating, not the soft-cap
+        # emergency ceiling.  Cache it back on the row for Step 6c reuse.
+        g_max = _orig_cap(g, p_max)
+        g["orig_cap"] = g_max
         p_act = p.get("active", 1.0)
         g_act = g.get("active", 1.0)
-        energy_rows.append((n, p_e, g_e, g_e - p_e, p_max, g_max))
+        energy_rows.append((n, p_e, g_e, g_e - p_e, p_max, g_hard))
         limit_rows.append((n, p_max, g_max, g_max - p_max))
         if p_act != g_act:
             active_mismatch.append((n, p_act, g_act))
@@ -1543,9 +1582,16 @@ def _render_line_compare(
         )
     console.print(t1)
 
-    # (2) Limit differences
+    # (2) Limit differences.  For soft-capped (EL0 / lifted) lines the
+    # ``gtopt Max`` column reports the recovered ORIGINAL rating (the
+    # emergency ceiling tmax_ab = 5×/10× rating is the loss-PWL envelope,
+    # not a real limit), so this table now flags genuine rating
+    # mismatches instead of the soft-cap headroom.
     t2 = Table(
-        title=(f"Per-line LIMIT comparison (Step 6b) — top {top_n} by |Δ max_flow|"),
+        title=(
+            f"Per-line LIMIT comparison (Step 6b) — top {top_n} by "
+            "|Δ rated cap|  (gtopt = original rating; soft-cap headroom excluded)"
+        ),
     )
     t2.add_column("Line", style="bold")
     t2.add_column("PLEXOS Max", justify="right")
@@ -1601,7 +1647,10 @@ def _render_line_compare(
         p_peak = float(p.get("peak_flow_mw", 0.0))
         g_peak = float(g.get("peak_flow_mw", 0.0))
         p_cap = float(p.get("max_flow", 0.0))
-        g_cap = float(g.get("max_flow", 0.0))
+        # Use the recovered ORIGINAL rating (cached in the Step 6b loop)
+        # so cap-violation flags overuse against the true rating, not the
+        # 5×/10× soft-cap envelope.
+        g_cap = float(g.get("orig_cap", g.get("max_flow", 0.0)))
         enforce = float(g.get("enforce_level", 2.0))
         # Ratio = peak / cap on the side with the larger violation.
         p_ratio = (p_peak / p_cap) if p_cap > 0 else 0.0

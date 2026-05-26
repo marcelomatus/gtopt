@@ -63,6 +63,17 @@ struct GeneratorAttrs
                                  ///< when ``fuel``+``heat_rate`` are set;
                                  ///< see ``Generator`` docstring.
 
+  /// Optional penalty cost [$/MWh] that turns the `pmin` lower bound
+  /// into a SOFT constraint.  When set (> 0), the hard floor
+  /// ``generation ≥ pmin`` is replaced by ``generation + unserved ≥
+  /// pmin`` with a non-negative ``unserved`` slack column priced at
+  /// ``pmin_fcost`` in the objective.  Lets a forced-dispatch / must-run
+  /// floor (e.g. a PLEXOS Fixed Load trajectory on a thermal unit) be
+  /// honoured economically while staying feasible when a transmission /
+  /// commitment / ramp limit drives the unit below ``pmin`` — instead of
+  /// rendering the LP primal-infeasible.  Unset keeps ``pmin`` hard.
+  OptTBRealFieldSched pmin_fcost {};
+
   /// Optional FK to a `Fuel` element.  When set together with
   /// `heat_rate` (scalar) OR `heat_rate_segments` (piecewise), the
   /// per-MWh fuel cost and combustion emissions are derived from the
@@ -155,6 +166,10 @@ struct Generator
                                  ///< ``GeneratorAttrs::gcost`` for accepted
                                  ///< JSON shapes.
 
+  /// Optional penalty cost [$/MWh] making `pmin` soft via an
+  /// ``unserved`` slack.  See ``GeneratorAttrs::pmin_fcost``.
+  OptTBRealFieldSched pmin_fcost {};
+
   /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
   OptSingleId fuel {};
 
@@ -217,6 +232,7 @@ struct Generator
     self.pmax = std::exchange(attrs.pmax, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.gcost = std::exchange(attrs.gcost, {});
+    self.pmin_fcost = std::exchange(attrs.pmin_fcost, {});
     self.fuel = std::exchange(attrs.fuel, {});
     self.heat_rate = std::exchange(attrs.heat_rate, {});
     self.pmax_segments = std::exchange(attrs.pmax_segments, {});

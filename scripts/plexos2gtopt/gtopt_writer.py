@@ -50,15 +50,20 @@ logger = logging.getLogger(__name__)
 DEFAULT_BLOCK_COUNT = 24
 DEFAULT_BLOCK_DURATION_H = 1.0
 
-# Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``):
-# the hard cap is set to ``_LINE_HEADROOM_FACTOR × rating`` and flow
-# between the rating and the hard cap is charged ``_LINE_OVERLOAD_PENALTY``
-# $/MWh.  Headroom 3× covers every observed CEN PCP overflow (worst
-# Capricornio110->LaNegra110 ≈ 2.7× rated).  The penalty sits below
-# ``demand_fail_cost`` (≈$467/MWh) so re-dispatch/overload always beats
-# shedding load, yet high enough that the LP won't gratuitously teleport
-# flow across an over-capacity line.
-_LINE_HEADROOM_FACTOR = 3.0
+# Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
+# Each soft-capped line gets a FREE band up to ``normal × rating`` and the
+# ``_LINE_OVERLOAD_PENALTY`` $/MWh only on flow between ``normal × rating``
+# and the hard cap ``hard × rating``.  Raising the free threshold to 2×
+# means the typical PLEXOS over-use (radial 110 kV at ~1.3–1.6×) flows
+# free — no penalty, no LMP inflation — while a hard cap at 5× still blocks
+# the DC-OPF teleport.  Lines named in ``--lift-line-caps`` (the radial
+# corridors PLEXOS itself runs hardest, e.g. Capricornio110->LaNegra110 at
+# 2.7×) get a wider free band (4×) and a 10× hard cap instead of being
+# uncapped — so they carry PLEXOS-like flow for free yet can't teleport.
+_LINE_SOFT_NORMAL_FACTOR = 2.0
+_LINE_SOFT_HARD_FACTOR = 5.0
+_LINE_LIFTED_NORMAL_FACTOR = 4.0
+_LINE_LIFTED_HARD_FACTOR = 10.0
 # The soft-cap overload penalty ($/MWh on flow between the rating and the
 # 3× hard cap) is COMPUTED per bundle, not hard-coded: it is
 # ``_compute_default_slack_cost(demands, gens) / _LINE_OVERLOAD_DIVISOR``,
@@ -209,12 +214,53 @@ def build_bus_array(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
 VIRTUAL_FUEL_NAME = "_VIRTUAL_FUEL_UNIT_PRICE"
 
 
+def _flatten_positive(seq):
+    """Yield positive floats from a (possibly nested) sequence."""
+    for x in seq:
+        if isinstance(x, list):
+            yield from _flatten_positive(x)
+        elif x is not None and x > 0:
+            yield float(x)
+
+
+def soft_penalty_cost(
+    gcost_values,
+    voll_values,
+    *,
+    override: float | None = None,
+) -> float:
+    """The single system-wide soft-penalty $/MWh used for BOTH the
+    forced-`pmin` (``Generator.pmin_fcost``) and the soft line-overload /
+    EL=1 slack cost.
+
+        soft_penalty = min(max(gcost) + 1, min(VoLL) - 1)
+
+    ``max(gcost) + 1`` makes running a unit STRICTLY cheaper than
+    leaving its forced floor unserved / shedding into the soft band;
+    the ``min(VoLL) - 1`` cap keeps the penalty below the cheapest
+    unserved-demand cost so load-serving always outranks it.  ``gcost``
+    is the emitted generator-cost field (not full SRMC, per design).
+    ``override`` (CLI ``--soft-penalty-cost``) forces an explicit value
+    for both consumers.
+    """
+    if override is not None and override > 0.0:
+        return override
+    gcosts = list(_flatten_positive(gcost_values))
+    penalty = (max(gcosts) + 1.0) if gcosts else 1.0
+    volls = list(_flatten_positive(voll_values))
+    if volls:
+        penalty = min(penalty, min(volls) - 1.0)
+    return penalty
+
+
 def build_generator_array(
     generators: tuple[GeneratorSpec, ...],
     fuels: tuple[FuelSpec, ...] = (),
     generators_with_commitment: frozenset[str] = frozenset(),
     *,
     block_layout: tuple[tuple[int, ...], ...] = (),
+    demand_voll: float | None = None,
+    soft_penalty_override: float | None = None,
 ) -> list[dict[str, Any]]:
     """One generator entry per :class:`GeneratorSpec`.
 
@@ -252,6 +298,12 @@ def build_generator_array(
     """
     fuel_price = {f.name: f.price for f in fuels}
     out: list[dict[str, Any]] = []
+    # Forced-dispatch (non-renewable Fixed Load) entries collected here;
+    # their soft-`pmin` penalty is assigned AFTER the loop, once every
+    # entry's ``gcost`` field is known.  The penalty is the single
+    # system-wide ``soft_penalty_cost(...)`` value (shared with the line
+    # overload / EL=1 slack cost) = ``min(max(gcost)+1, min(VoLL)-1)``.
+    forced_entries: list[dict[str, Any]] = []
     for i, gen in enumerate(generators):
         # Resolve the primary fuel price (used for both scalar gcost
         # and segment pre-multiplication).
@@ -338,26 +390,37 @@ def build_generator_array(
             entry["pmax"] = gen.pmax
 
         # PLEXOS ``Generator.Fixed Load`` (Gen_FixedLoad.csv): per-period
-        # forced-dispatch profile, modelled as ``pmin = pmax = fixed_load``
-        # ONLY at blocks where ``fixed_load[t] > 0``.  PLEXOS treats a
-        # zero-valued FixedLoad row as "no forced-dispatch constraint
-        # at this period" (= free dispatch within ``[Commitment.pmin,
-        # Gen_Rating[t]]``), NOT as "force dispatch to 0".  Verified
-        # on CEN PCP COCHRANE_1: 168/168 FixedLoad rows present, only
-        # hours 1-3 have positive values (the start-up trajectory
-        # PLEXOS uses to mirror commitment state from the prior week);
-        # hours 4-168 are FixedLoad=0 and the unit dispatches actively
-        # (13.6 GWh / week, peaking at 244.86 MW) — interpreting the
-        # zero rows as ``pmax=0`` zeros out a 244 MW thermal unit for
-        # 165h, then collides with ``initial_power=244.842 MW``
-        # carried by the Commitment row → ramp-down constraint
-        # ``0 <= -123.65`` and a primal-infeasible LP.
+        # *required generation* (PLEXOS fixes the generation variable to
+        # this value).  We honour it ONLY at blocks where
+        # ``fixed_load[t] > 0``; a zero-valued FixedLoad row means "no
+        # forced-dispatch constraint at this period" (= free dispatch
+        # within ``[Commitment.pmin, Gen_Rating[t]]``), NOT "force
+        # dispatch to 0".  Verified on CEN PCP COCHRANE_1: 168/168
+        # FixedLoad rows present, only hours 1-3 have positive values
+        # (the start-up trajectory PLEXOS uses to mirror commitment state
+        # from the prior week); hours 4-168 are FixedLoad=0 and the unit
+        # dispatches actively (13.6 GWh / week, peaking at 244.86 MW) —
+        # interpreting the zero rows as ``pmax=0`` zeros out a 244 MW
+        # thermal unit for 165h and yields a primal-infeasible LP.
         #
-        # The patch: where FixedLoad is non-zero we pin pmin=pmax to
-        # the FixedLoad value (hard equality); where FixedLoad=0 we
-        # restore the original ``pmax`` (Gen_Rating-derived
-        # block-profile or scalar) and leave ``pmin`` at the gen's
-        # always-on floor (``gen.pmin``, usually 0 — Commitment.pmin
+        # The forced value is mapped tech-dependently:
+        #
+        #   * Non-renewable (fuel + heat rate, piecewise segments, or a
+        #     per-unit fuel-price override → real marginal cost): pin
+        #     ``pmin = pmax = fixed_load`` (hard equality), matching
+        #     PLEXOS's fixed-generation semantics.  COCHRANE_1's hours
+        #     1-3 trajectory is honoured exactly.
+        #   * Renewable / RoR (no fuel, zero heat rate → zero marginal
+        #     cost): emit a curtailable cap ``pmin = 0, pmax = fixed_load``.
+        #     gcost≈0 keeps the LP maxing the free energy under merit
+        #     order (matching PLEXOS) while allowing curtailment under
+        #     congestion — avoiding a hard pmin=pmax infeasibility for
+        #     units whose output a transmission/commitment limit forces
+        #     lower.
+        #
+        # Where FixedLoad=0 we restore the original ``pmax`` (Gen_Rating-
+        # derived block-profile or scalar) and leave ``pmin`` at the
+        # gen's always-on floor (``gen.pmin``, usually 0 — Commitment.pmin
         # handles the commitment-conditional floor).
         if gen.fixed_load_profile:
             fl_profile = (
@@ -376,19 +439,25 @@ def build_generator_array(
                 else:
                     base_pmax = [float(entry["pmax"])] * len(fl_profile)
                 base_pmin = float(gen.pmin or 0.0)
+                # A real marginal energy cost marks a dispatchable
+                # thermal/fuel unit whose Fixed Load is a forced-dispatch
+                # / commitment trajectory PLEXOS pins exactly (pmin=pmax).
+                # No fuel and zero heat rate ⇒ zero-cost renewable / RoR ⇒
+                # curtailable cap (pmin=0).  See the block comment above.
+                has_fuel_cost = bool(gen.heat_rate_segments and gen.pmax_segments) or (
+                    gen.heat_rate > 0.0
+                    and (primary_fuel is not None or gen.fuel_price_override > 0.0)
+                )
                 pmin_blocks: list[float] = []
                 pmax_blocks: list[float] = []
                 for t, fl in enumerate(fl_profile):
                     if fl > 0.0:
-                        # Soft must-take: cap output at the FixedLoad/CF
-                        # value but leave pmin=0 so the unit is
-                        # CURTAILABLE.  gcost≈0 keeps the LP maxing free
-                        # renewables/RoR (matching PLEXOS) while allowing
-                        # curtailment under congestion — and it removes
-                        # the hard pmin=pmax infeasibility (gen pinned >0
-                        # while a transmission limit / commitment u-pin
-                        # forces it lower).
-                        pmin_blocks.append(0.0)
+                        # Non-renewable: honour the forced value EXACTLY
+                        # (pmin=pmax=fl).  Renewable/RoR: curtailable cap
+                        # (pmin=0, pmax=fl) — gcost≈0 still maxes the free
+                        # energy under merit order while avoiding the hard
+                        # pmin=pmax infeasibility under congestion.
+                        pmin_blocks.append(fl if has_fuel_cost else 0.0)
                         pmax_blocks.append(fl)
                     else:
                         pmin_blocks.append(base_pmin)
@@ -409,6 +478,16 @@ def build_generator_array(
                         entry["pmin"] = [pmin_blocks]
                 else:
                     entry.pop("pmin", None)
+                # Soft-pmin penalty (non-renewables only): a hard
+                # pmin=pmax forced floor can collide with a transmission /
+                # commitment / ramp limit and render the LP infeasible.
+                # Track forced (non-renewable) Fixed Load entries; the
+                # ``pmin_fcost`` soft-floor penalty is assigned post-loop
+                # from the system-wide ``soft_penalty_cost(...)`` value so
+                # gtopt relaxes the hard floor via an ``unserved`` slack
+                # instead of going infeasible under congestion.
+                if has_fuel_cost:
+                    forced_entries.append(entry)
 
         # PLEXOS ``Generator.Initial Generation`` is captured in
         # ``GeneratorSpec.initial_generation`` for downstream tooling
@@ -419,6 +498,20 @@ def build_generator_array(
         # failure at LP build.
 
         out.append(entry)
+
+    # Assign the shared system-wide soft-`pmin` penalty to every forced
+    # (non-renewable Fixed Load) entry: min(max(gcost)+1, min(VoLL)-1),
+    # or the explicit override.  Same value + option as the line
+    # overload / EL=1 slack cost (see ``soft_penalty_cost``).
+    if forced_entries:
+        penalty = soft_penalty_cost(
+            (e.get("gcost") for e in out),
+            [demand_voll] if demand_voll is not None else [],
+            override=soft_penalty_override,
+        )
+        if penalty > 0.0:
+            for e in forced_entries:
+                e["pmin_fcost"] = penalty
     return out
 
 
@@ -507,42 +600,28 @@ def _compute_default_slack_cost(
     generator_entries: list[dict[str, Any]],
     *,
     fallback: float = 285.81,
+    override: float | None = None,
 ) -> float:
-    """Compute the default EL=1 slack ``tcost`` from the bundle's own
-    demand fail-cost and generator marginal-cost values.
+    """Default soft line-overload / EL=1 slack ``tcost`` from the
+    bundle's own demand fail-cost and generator-cost values.
 
-    Recipe (per CEN PCP K=4-tangent calibration):
-        slack_cost = (min(demand.fcost) + max(generator.gcost)) / 2
+    Uses the SAME formula and override option as the forced-`pmin`
+    penalty (see ``soft_penalty_cost``):
 
-    Falls back to ``fallback`` if either pool is empty.  Scalars,
-    per-block lists, and per-block matrices are all flattened to their
-    positive values; non-positive entries are ignored.
+        slack_cost = min(max(gcost) + 1, min(VoLL) - 1)
+
+    High enough that re-dispatch beats the soft band, capped below the
+    cheapest unserved-demand cost so load-serving always outranks it.
+    Falls back to ``fallback`` if the generator-cost pool is empty.
     """
-
-    def _flatten_positive(seq):
-        for x in seq:
-            if isinstance(x, list):
-                yield from _flatten_positive(x)
-            elif x is not None and x > 0:
-                yield float(x)
-
-    fcosts = list(
-        _flatten_positive(
-            d.get("fcost") if isinstance(d.get("fcost"), list) else [d.get("fcost")]
-            for d in demand_entries
-            if d.get("fcost") is not None
-        )
-    )
-    gcosts = list(
-        _flatten_positive(
-            g.get("gcost") if isinstance(g.get("gcost"), list) else [g.get("gcost")]
-            for g in generator_entries
-            if g.get("gcost") is not None
-        )
-    )
-    if not fcosts or not gcosts:
+    gcosts = [g.get("gcost") for g in generator_entries if g.get("gcost") is not None]
+    if not list(_flatten_positive(gcosts)):
         return fallback
-    return (min(fcosts) + max(gcosts)) / 2.0
+    return soft_penalty_cost(
+        gcosts,
+        [d.get("fcost") for d in demand_entries if d.get("fcost") is not None],
+        override=override,
+    )
 
 
 def _int_loss_env(key: str, default: int) -> int:
@@ -786,16 +865,25 @@ def build_line_array(
             # of GW across them while keeping the radial pockets PLEXOS
             # over-serves feasible.  Orig EL=1/EL=2 stay plain hard caps.
             if line.soft_cap:
+                # Lifted corridors get the wider 4×/10× band; the rest 2×/5×.
+                normal_f = (
+                    _LINE_LIFTED_NORMAL_FACTOR
+                    if line.soft_cap_lifted
+                    else _LINE_SOFT_NORMAL_FACTOR
+                )
+                hard_f = (
+                    _LINE_LIFTED_HARD_FACTOR
+                    if line.soft_cap_lifted
+                    else _LINE_SOFT_HARD_FACTOR
+                )
                 if "tmax_ab" in entry:
-                    entry["tmax_normal_ab"] = entry["tmax_ab"]
-                    entry["tmax_ab"] = _scale_tmax(
-                        entry["tmax_ab"], _LINE_HEADROOM_FACTOR
-                    )
+                    rating_ab = entry["tmax_ab"]
+                    entry["tmax_normal_ab"] = _scale_tmax(rating_ab, normal_f)
+                    entry["tmax_ab"] = _scale_tmax(rating_ab, hard_f)
                 if "tmax_ba" in entry:
-                    entry["tmax_normal_ba"] = entry["tmax_ba"]
-                    entry["tmax_ba"] = _scale_tmax(
-                        entry["tmax_ba"], _LINE_HEADROOM_FACTOR
-                    )
+                    rating_ba = entry["tmax_ba"]
+                    entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
+                    entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
                 entry["overload_penalty"] = overload_penalty
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
@@ -2027,6 +2115,7 @@ def build_planning(
     default_uc_penalty: float | None = None,
     lp_relax: bool = False,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
+    soft_penalty_override: float | None = None,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -2048,6 +2137,10 @@ def build_planning(
                 "price": 1.0,
             }
         )
+    # Cheapest unserved-demand cost (VoLL) — caps the forced-floor
+    # ``pmin_fcost`` below it so load-serving always outranks a forced
+    # generation floor.  ``None`` when no demand carries a positive fcost.
+    _demand_volls = [d.fcost for d in case.demands if d.fcost > 0.0]
     generator_array = build_generator_array(
         case.generators,
         case.fuels,
@@ -2055,6 +2148,8 @@ def build_planning(
             c.generator_name for c in case.commitments
         ),
         block_layout=case.bundle.block_layout,
+        demand_voll=min(_demand_volls) if _demand_volls else None,
+        soft_penalty_override=soft_penalty_override,
     )
     demand_array = build_demand_array(
         case.demands,
@@ -2066,7 +2161,9 @@ def build_planning(
     # soft band before shedding load.  Computed from the bundle's own
     # cost data, not a magic constant.
     line_overload_penalty = (
-        _compute_default_slack_cost(demand_array, generator_array)
+        _compute_default_slack_cost(
+            demand_array, generator_array, override=soft_penalty_override
+        )
         / _LINE_OVERLOAD_DIVISOR
     )
     system: dict[str, Any] = {
@@ -2159,6 +2256,7 @@ def build_planning(
         penalty = _compute_default_slack_cost(
             system["demand_array"],
             system["generator_array"],
+            override=soft_penalty_override,
         )
         n_softened = augment_el1_with_soft_caps(
             system["line_array"], overload_penalty=penalty

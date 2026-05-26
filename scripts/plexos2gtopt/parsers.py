@@ -837,12 +837,16 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
     #
     # CSV semantics (per PLEXOS Help → Generator class properties):
     #
-    #   * ``Gen_FixedLoad.csv`` (Fixed Load, MW/period): hard
-    #     equality ``Generation[t] = Fixed Load[t]``.  Must-run
-    #     renewables and run-of-river hydro carry a per-hour CF
-    #     profile here so PLEXOS dispatches them at exactly that
-    #     value regardless of price.  We honour this by setting
-    #     ``pmax[t] = pmin[t] = fixed_load[t]`` in the writer.
+    #   * ``Gen_FixedLoad.csv`` (Fixed Load, MW/period): PLEXOS
+    #     *required generation* (the generation variable is fixed to
+    #     this value).  The writer maps it tech-dependently — hard
+    #     equality ``pmin[t] = pmax[t] = fixed_load[t]`` for
+    #     non-renewable units (real marginal cost: forced-dispatch /
+    #     commitment trajectory), but a curtailable cap
+    #     ``pmin[t] = 0, pmax[t] = fixed_load[t]`` for zero-cost
+    #     renewables / run-of-river hydro so a transmission/commitment
+    #     limit can't drive the LP infeasible.  See
+    #     ``gtopt_writer.py::build_generator_array``.
     #
     #   * ``Gen_UnitsOut.csv`` (Units Out, # of units): derate
     #     ``pmax[t] *= (max_units − units_out[t]) / max_units``.
@@ -1094,9 +1098,9 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         # generators with ALL values = −1 from CommitmentSpec
         # extraction — see ``extract_commitments``).
         #
-        # ``FixedLoad`` IS applied on the writer side as
-        # ``pmin = pmax = fixed_load`` (must-take equality), not as
-        # an extra pmax derating.  See
+        # ``FixedLoad`` IS applied on the writer side (``pmin = pmax``
+        # for non-renewables, curtailable ``pmax`` cap for zero-cost
+        # renewables/RoR), not as an extra pmax derating.  See
         # ``gtopt_writer.py::build_generator_array``.
 
         # PLEXOS-commit override: scale pmax_profile by per-period
@@ -1463,12 +1467,19 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
         _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
         soft_cap = False
+        soft_cap_lifted = False
         if line.name in _lift_set:
-            enforce_limits = 0
+            # Soft-cap (NOT uncap) with the wider 4×/10× band: lifting to
+            # EL=0 let the DC-OPF teleport (685 MW on the 76 MW
+            # Capricornio110->LaNegra110, 9× rated).  A 4× free band covers
+            # PLEXOS's own 2.7× over-use penalty-free, and the 10× hard cap
+            # blocks the teleport.
+            enforce_limits = 1
+            soft_cap = True
+            soft_cap_lifted = True
             logger.info(
-                "extract_lines: lifted cap on line '%s' (→ EL=0) via "
-                "--lift-line-caps — no hard limit (tmax_ab carried only "
-                "for the loss PWL).",
+                "extract_lines: '%s' (--lift-line-caps) → soft cap, free to "
+                "4x rating then penalised up to 10x (was uncapped EL=0).",
                 line.name,
             )
         elif enforce_limits == 0:
@@ -1492,6 +1503,7 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 wheeling_charge=wheeling,
                 enforce_limits=enforce_limits,
                 soft_cap=soft_cap,
+                soft_cap_lifted=soft_cap_lifted,
             )
         )
     return tuple(out)

@@ -1834,12 +1834,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
           // Mid-run snapshot drop — POST-sim-pass.  At this point
           // `run_scene_simulation` has finished: forward_pass solved
-          // every phase with crossover, `system.write_out()` ran for
-          // each phase (`m_output_written_=true`), and the parquet
-          // outputs are on disk.  No further consumer of this scene's
-          // flat-LP snapshot exists — `PlanningLP::write_out`'s end-of-
-          // run pass takes Fast Path A (`output_written()` returns
-          // early without ever calling `reconstruct_backend()`).
+          // every phase with crossover but output writing is deferred
+          // to the final `PlanningLP::write_out()` flush (see the
+          // "Output is NOT written here" comment above — the forward
+          // solve leaves each cell's primal/dual cache retained for the
+          // chunked post-solve pool).  No further consumer of this
+          // scene's flat-LP snapshot exists, so we can drop it here.
           //
           // Dropping here recovers the savings the previous reverted
           // commit (04638b53) tried for at convergence-time but

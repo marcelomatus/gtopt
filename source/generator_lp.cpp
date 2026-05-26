@@ -39,6 +39,7 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , pmax(ic, Element::class_name, id(), std::move(object().pmax))
     , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
     , gcost(ic, Element::class_name, id(), std::move(object().gcost))
+    , pmin_fcost(ic, Element::class_name, id(), std::move(object().pmin_fcost))
     , heat_rate(ic, Element::class_name, id(), std::move(object().heat_rate))
     , emission_rate(
           ic, Element::class_name, id(), std::move(object().emission_rate))
@@ -157,6 +158,7 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   const auto& blocks = stage.blocks();
 
   BIndexHolder<ColIndex> gcols;
+  BIndexHolder<ColIndex> ucols;  // soft-pmin `unserved` slack columns
   BIndexHolder<RowIndex> crows;
   map_reserve(gcols, blocks.size());
   // `crows` is populated only on the expansion branch
@@ -222,11 +224,21 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     const auto block_primary_slope_cost =
         primary_slope_cost_at(block_gcost, block_heat_rate);
 
+    // Soft-`pmin`: when `pmin_fcost` is set (> 0) and there is a real
+    // floor (`block_pmin > 0`), relax the hard lower bound to 0 and
+    // enforce the floor via an `unserved` slack + `pmin_soft` row
+    // (added below).  This keeps a forced-dispatch / must-run floor
+    // economically honoured while remaining feasible if a transmission
+    // / commitment / ramp limit drives the unit below `pmin`.
+    const auto block_pmin_fcost = pmin_fcost.optval(stage.uid(), block.uid());
+    const bool soft_pmin =
+        block_pmin > 0.0 && block_pmin_fcost.value_or(0.0) > 0.0;
+
     // Create generation variable for this time block.  Cost on the
     // primary column carries the cheapest-segment slope (or scalar
     // heat rate, or plain gcost when no fuel is set).
     const auto gcol = lp.add_col({
-        .lowb = block_pmin,
+        .lowb = soft_pmin ? 0.0 : block_pmin,
         .uppb = block_pmax,
         .cost = CostHelper::block_ecost(
             scenario, stage, block, block_primary_slope_cost),
@@ -269,6 +281,38 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
       crows[buid] = lp.add_row(std::move(crow));
     }
 
+    // ── Soft-`pmin` floor ──────────────────────────────────────────────
+    // `generation + unserved ≥ pmin`, `unserved ≥ 0` priced at
+    // `pmin_fcost`.  The slack is capped at `block_pmin` (the largest
+    // possible shortfall, since `generation ≥ 0`).  Whenever the unit
+    // can physically reach `pmin` the LP drives `unserved` to 0; under
+    // congestion it pays `pmin_fcost · (pmin − generation)` instead of
+    // going infeasible.
+    if (soft_pmin) {
+      const auto ucol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = block_pmin,
+          .cost = CostHelper::block_ecost(
+              scenario, stage, block, block_pmin_fcost.value_or(0.0)),
+          .class_name = Element::class_name.full_name(),
+          .variable_name = UnservedName,
+          .variable_uid = guid,
+          .context = block_ctx,
+      });
+      auto srow =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name = PminSoftName,
+              .variable_uid = guid,
+              .context = block_ctx,
+          }
+              .greater_equal(block_pmin);
+      srow[gcol] = 1.0;
+      srow[ucol] = 1.0;
+      [[maybe_unused]] const auto srow_idx = lp.add_row(std::move(srow));
+      ucols[buid] = ucol;
+    }
+
     // ── Piecewise heat-rate slacks ────────────────────────────────────
     // For each higher segment k = 1..K-1 add a slack `s_k ≥ 0` with
     // marginal cost `(h_k − h_{k-1}) × fuel.price` ($/MWh) and a kink
@@ -289,8 +333,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         heat_rate_kink_rows_.resize(K - 1);
       }
       if (heat_rate_kink_breakpoints_.size() < K - 1) {
-        heat_rate_kink_breakpoints_.assign(pmax_segs_arr.begin(),
-                                           pmax_segs_arr.begin() + (K - 1));
+        heat_rate_kink_breakpoints_.assign(
+            pmax_segs_arr.begin(),
+            pmax_segs_arr.begin() + static_cast<std::ptrdiff_t>(K - 1));
       }
       for (std::size_t k = 1; k < K; ++k) {
         const double marginal_slope = hr_segs[k] - hr_segs[k - 1];
@@ -352,6 +397,16 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   }
   if (!crows.empty()) {
     capacity_rows[st_key] = std::move(crows);
+  }
+  if (!ucols.empty()) {
+    unserved_cols[st_key] = std::move(ucols);
+    // Register the PAMPL-visible `unserved` slack columns.
+    sc.add_ampl_variable(ampl_name,
+                         guid,
+                         UnservedName,
+                         scenario,
+                         stage,
+                         unserved_cols.at(st_key));
   }
 
   // `capainst` is registered centrally by CapacityBase::add_to_lp.

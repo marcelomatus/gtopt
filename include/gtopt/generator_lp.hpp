@@ -36,6 +36,13 @@ public:
   /// PAMPL-visible row name for piecewise kink rows
   /// `p − s_k ≤ pmax_segments[k-1]`.
   static constexpr std::string_view HeatRateKinkName {"heat_rate_kink"};
+  /// PAMPL-visible slack column name for the soft-`pmin` encoding: the
+  /// non-negative shortfall `unserved ≥ pmin − generation`, priced at
+  /// `pmin_fcost`.  Present only on blocks where `pmin_fcost > 0`.
+  static constexpr std::string_view UnservedName {"unserved"};
+  /// PAMPL-visible row name for the soft-`pmin` floor
+  /// `generation + unserved ≥ pmin`.
+  static constexpr std::string_view PminSoftName {"pmin_soft"};
   /// Filter metadata keys published by `add_to_lp` for `sum(...)`
   /// predicate matching.
   static constexpr std::string_view TypeKey {"type"};
@@ -71,6 +78,17 @@ public:
                                  const StageLP& stage) const
   {
     return generation_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Per-(scenario, stage) map of `unserved` soft-`pmin` slack columns,
+  /// keyed by block uid.  Only populated for blocks where the soft-pmin
+  /// branch fired (`pmin_fcost > 0` and `pmin > 0`); tolerant lookup —
+  /// returns an empty inner map when the outer key is absent.
+  [[nodiscard]]
+  const auto& lookup_unserved_cols(const ScenarioLP& scenario,
+                                   const StageLP& stage) const noexcept
+  {
+    return find_or_empty_inner(unserved_cols, scenario, stage);
   }
 
   /// Tolerant inner-map lookup over `generation_cols`.  When every
@@ -184,10 +202,13 @@ private:
   OptTBRealSched pmax;
   OptTBRealSched lossfactor;
   OptTBRealSched gcost;
+  OptTBRealSched pmin_fcost;
   OptTBRealSched heat_rate;
   OptTBRealSched emission_rate;
 
   STBIndexHolder<ColIndex> generation_cols;
+  /// `unserved` soft-`pmin` slack columns (see `lookup_unserved_cols`).
+  STBIndexHolder<ColIndex> unserved_cols;
   STBIndexHolder<RowIndex> capacity_rows;
   /// `[segment_index] -> STBIndexHolder<ColIndex>` of piecewise slack
   /// columns.  Outer vector has size `K - 1` where `K` is the number

@@ -110,6 +110,21 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--soft-penalty-cost",
+        type=float,
+        default=None,
+        help=(
+            "explicit $/MWh override for the shared soft-penalty used by "
+            "BOTH the forced-`pmin` floor (Generator.pmin_fcost on "
+            "non-renewable Fixed Load units) AND the soft line-overload / "
+            "EL=1 slack cost.  When unset (default) the converter computes "
+            "min(max(gcost)+1, min(VoLL)-1) from the bundle's own cost "
+            "data: high enough to honour forced dispatch / re-dispatch, "
+            "capped below the cheapest unserved-demand cost so load-"
+            "serving always outranks it."
+        ),
+    )
+    parser.add_argument(
         "--water-fail-cost",
         type=float,
         default=10.0,
@@ -559,6 +574,7 @@ def main(argv: list[str] | None = None) -> None:
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
         "default_uc_penalty": args.default_uc_penalty,
+        "soft_penalty_cost": args.soft_penalty_cost,
         "water_fail_cost": args.water_fail_cost,
         "spill_fcost": args.spill_fcost,
         "spill_fcost_scale": args.spill_fcost_scale,

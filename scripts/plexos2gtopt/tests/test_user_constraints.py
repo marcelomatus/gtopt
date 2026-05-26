@@ -242,8 +242,10 @@ def test_extract_user_constraints_corridor_le(tmp_path: Path) -> None:
     assert 'line("L1").flow' in expr
     assert 'battery("B1").charge' in expr  # from Load Coefficient
     assert 'battery("B1").discharge' in expr  # from Generation Coefficient
-    # No penalty → hard constraint.
-    assert by_name["CORRIDOR_LE"].penalty == 0.0
+    # No explicit Penalty Price in XML; the code's soft-default
+    # ($10/MWh) applies because the constraint references generator
+    # and battery terms (not pure line flow or commitment refs).
+    assert by_name["CORRIDOR_LE"].penalty == 10.0
 
 
 def test_extract_user_constraints_eq_with_penalty(tmp_path: Path) -> None:

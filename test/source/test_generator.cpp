@@ -252,6 +252,106 @@ TEST_CASE("GeneratorLP - generator with pmin/pmax constraints")
   REQUIRE(result.has_value());
 }
 
+TEST_CASE("GeneratorLP — soft pmin via pmin_fcost keeps the LP feasible")
+{
+  // A single generator with a hard floor pmin=50 but only 30 MW of
+  // demand at its bus (no other sink) over-generates by 20 MW → the
+  // bus balance cannot close → primal-infeasible.  Setting
+  // `pmin_fcost` makes the floor soft (generation + unserved ≥ pmin)
+  // so the LP stays feasible: generation drops to 30 (the demand) and
+  // the 20 MW shortfall lands on the `unserved` slack, priced at
+  // `pmin_fcost`.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 30.0},
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+
+  SUBCASE("hard pmin (no pmin_fcost) is primal-infeasible")
+  {
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .pmin = 50.0,
+            .pmax = 100.0,
+            .gcost = 10.0,
+            .capacity = 100.0,
+        },
+    };
+    const System system = {
+        .name = "HardPmin",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    // Over-generation with no sink and a hard floor → infeasible.
+    CHECK_FALSE((result.has_value() && result.value() == 0));
+  }
+
+  SUBCASE("soft pmin (pmin_fcost set) is feasible with an unserved slack")
+  {
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .pmin = 50.0,
+            .pmax = 100.0,
+            .gcost = 10.0,
+            .pmin_fcost = 200.0,
+            .capacity = 100.0,
+        },
+    };
+    const System system = {
+        .name = "SoftPmin",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    const auto& gen_lps = system_lp.elements<GeneratorLP>();
+    REQUIRE(gen_lps.size() == 1);
+    const auto& gen_lp = gen_lps.front();
+
+    const auto& scenario_lp = simulation_lp.scenarios().front();
+    const auto& stage_lp = simulation_lp.stages().front();
+    const auto& block_lp = simulation_lp.blocks().front();
+    const auto col_sol = lp.get_col_sol();
+
+    // Generation pinned at the demand (30 MW), below the 50 MW floor.
+    const auto& gcols = gen_lp.generation_cols_at(scenario_lp, stage_lp);
+    const auto git = gcols.find(block_lp.uid());
+    REQUIRE(git != gcols.end());
+    CHECK(col_sol[git->second] == doctest::Approx(30.0).epsilon(1e-6));
+
+    // The 20 MW shortfall to pmin lands on the unserved slack.
+    const auto& ucols = gen_lp.lookup_unserved_cols(scenario_lp, stage_lp);
+    const auto uit = ucols.find(block_lp.uid());
+    REQUIRE(uit != ucols.end());
+    CHECK(col_sol[uit->second] == doctest::Approx(20.0).epsilon(1e-6));
+  }
+}
+
 TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

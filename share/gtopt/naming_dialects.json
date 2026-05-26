@@ -8,8 +8,7 @@
     {"class": "generator", "canonical": "pmin", "alt": "min_p_mw",         "dialect": "pandapower"},
     {"class": "generator", "canonical": "pmin", "alt": "GerMin",           "dialect": "sddp"},
     {"class": "generator", "canonical": "pmin", "alt": "PotMin",           "dialect": "plp"},
-    {"class": "generator", "canonical": "pmin", "alt": "Fixed Load",       "dialect": "plexos", "_note": "Forced-dispatch profile; plexos2gtopt emits as both pmin and pmax for hard equality Generation[t] = Fixed Load[t] (must-take renewables / run-of-river hydro)."},
-    {"class": "generator", "canonical": "pmax", "alt": "Fixed Load",       "dialect": "plexos", "_note": "See pmin entry — Fixed Load forces hard equality pmin=pmax=fixed_load."},
+    {"class": "generator", "canonical": "pmin", "alt": "Fixed Load",       "dialect": "plexos"},
 
     {"class": "generator", "canonical": "pmax", "alt": "max_power",   "dialect": "gtopt"},
     {"class": "generator", "canonical": "pmax", "alt": "p_max_pu",    "dialect": "pypsa"},
