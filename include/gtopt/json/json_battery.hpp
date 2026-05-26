@@ -37,6 +37,8 @@ struct json_data_contract<Battery>
       json_variant_null<"active", OptActive, jvtl_Active>,  ///< Activation
                                                             ///< status
       json_string_null<"type", OptName>,  ///< Optional battery type tag
+      json_string_null<"description", OptName>,  ///< Optional free-text
+                                                 ///< description
       json_variant_null<"bus",
                         OptSingleId,
                         jvtl_SingleId>,  ///< Bus (unified definition)
@@ -141,6 +143,7 @@ struct json_data_contract<Battery>
                                  battery.name,
                                  battery.active,
                                  battery.type,
+                                 battery.description,
                                  battery.bus,
                                  battery.source_generator,
                                  battery.input_efficiency,

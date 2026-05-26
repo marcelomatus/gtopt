@@ -41,6 +41,9 @@ struct ReserveZone
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   OptTBRealFieldSched urreq {};  ///< Up-reserve requirement schedule [MW]
   OptTBRealFieldSched drreq {};  ///< Down-reserve requirement schedule [MW]

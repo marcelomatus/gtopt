@@ -48,6 +48,9 @@ struct ReserveProvision
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId generator {unknown_uid};  ///< ID of the providing generator
   Array<SingleId> reserve_zones {};  ///< Typed array of ReserveZone IDs / names

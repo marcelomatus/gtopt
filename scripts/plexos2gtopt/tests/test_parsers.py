@@ -14,6 +14,7 @@ from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.entities import GeneratorSpec, PlexosCase
 from plexos2gtopt.parsers import (
     _build_plant_cap_ucs,
+    _extract_config_mutex_groups,
     extract_batteries,
     extract_demands,
     extract_fuels,
@@ -1234,3 +1235,58 @@ def test_build_plant_cap_ucs_no_mutex_falls_back_to_fuel_bands() -> None:
     case = PlexosCase(bundle=None, generators=gens)  # type: ignore[arg-type]
     ucs = _build_plant_cap_ucs(case, ())
     assert any(u.name == "PlantCap_R" for u in ucs)
+
+
+_UNIQ_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>10</object_id><class_id>2</class_id><name>GEN_A</name></t_object>
+  <t_object><object_id>11</object_id><class_id>2</class_id><name>GEN_B</name></t_object>
+  <t_object>
+    <object_id>100</object_id><class_id>70</class_id><name>PLANT_Uniq</name>
+  </t_object>
+  <t_object>
+    <object_id>101</object_id><class_id>70</class_id><name>OTHER_max</name>
+  </t_object>
+  <t_collection>
+    <collection_id>32</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>1</membership_id><collection_id>32</collection_id>
+    <parent_object_id>10</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>2</membership_id><collection_id>32</collection_id>
+    <parent_object_id>11</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>3</membership_id><collection_id>32</collection_id>
+    <parent_object_id>10</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+</MasterDataSet>
+"""
+
+
+def test_extract_config_mutex_groups_db_walk(tmp_path: Path) -> None:
+    """F1: ``_extract_config_mutex_groups`` reads ``*_Uniq`` Constraint
+    memberships and returns the exact set of member generators; non-Uniq
+    constraints are ignored."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UNIQ_XML)
+    db = load_xml(xml_path)
+    groups = _extract_config_mutex_groups(db)
+    assert len(groups) == 1
+    name, members = groups[0]
+    assert name == "PLANT_Uniq"
+    assert members == frozenset({"GEN_A", "GEN_B"})
+
+
+def test_extract_config_mutex_groups_no_uniq_returns_empty(tmp_path: Path) -> None:
+    """No ``*_Uniq`` Constraint objects → empty list (no crash)."""
+    xml = _UNIQ_XML.replace("PLANT_Uniq", "PLANT_max")
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(xml)
+    db = load_xml(xml_path)
+    assert _extract_config_mutex_groups(db) == []

@@ -15,6 +15,8 @@ struct json_data_contract<ReserveProvision>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"generator", SingleId>,
       // Typed array of ReserveZone references — each element is a
       // Uid (number) or Name (string).  Replaces the legacy
@@ -47,6 +49,8 @@ struct json_data_contract<ReserveProvision>
     return std::forward_as_tuple(obj.uid,
                                  obj.name,
                                  obj.active,
+                                 obj.type,
+                                 obj.description,
                                  obj.generator,
                                  obj.reserve_zones,
                                  obj.urmax,

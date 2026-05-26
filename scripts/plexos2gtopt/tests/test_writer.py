@@ -1111,3 +1111,26 @@ def test_build_provenance_documents_element_classes() -> None:
     # Classes with no emitted elements still document units/source (count 0).
     assert prov["elements"]["Battery"]["count"] == 0
     assert prov["elements"]["Reservoir"]["units"]["vmax"] == "hm³"
+
+
+def test_write_provenance_creates_valid_json(tmp_path) -> None:
+    """F5/B: write_provenance emits a parseable JSON sidecar with the
+    per-class records and counts derived from the planning."""
+    import json as _json
+
+    from plexos2gtopt.gtopt_writer import build_provenance, write_provenance
+
+    prov = build_provenance(
+        {
+            "options": {"model_options": {"demand_fail_cost": 467.19}},
+            "system": {"generator_array": [{"name": "g1"}, {"name": "g2"}]},
+        },
+        source_bundle="DATOS.zip",
+    )
+    path = write_provenance(prov, tmp_path / "case.provenance.json")
+    assert path.exists()
+    data = _json.loads(path.read_text())
+    assert data["source_bundle"] == "DATOS.zip"
+    assert data["elements"]["Generator"]["count"] == 2
+    assert "soft_penalty" in data["global_transforms"]
+    assert "rhs_custom" in data["global_transforms"]

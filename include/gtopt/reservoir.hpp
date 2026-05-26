@@ -99,6 +99,9 @@ struct Reservoir
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 

@@ -65,6 +65,9 @@ struct Waterway
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable waterway name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId junction_a {unknown_uid};  ///< Upstream junction ID
   SingleId junction_b {unknown_uid};  ///< Downstream junction ID

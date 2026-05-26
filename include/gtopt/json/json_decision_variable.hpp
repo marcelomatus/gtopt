@@ -27,14 +27,22 @@ struct json_data_contract<DecisionVariable>
       json_member_list<json_number<"uid", Uid>,
                        json_string<"name", Name>,
                        json_variant_null<"active", OptActive, jvtl_Active>,
+                       json_string_null<"type", OptName>,
+                       json_string_null<"description", OptName>,
                        json_number_null<"lower_bound", OptReal>,
                        json_number_null<"upper_bound", OptReal>,
                        json_number_null<"cost", OptReal>>;
 
   constexpr static auto to_json_data(DecisionVariable const& dv)
   {
-    return std::forward_as_tuple(
-        dv.uid, dv.name, dv.active, dv.lower_bound, dv.upper_bound, dv.cost);
+    return std::forward_as_tuple(dv.uid,
+                                 dv.name,
+                                 dv.active,
+                                 dv.type,
+                                 dv.description,
+                                 dv.lower_bound,
+                                 dv.upper_bound,
+                                 dv.cost);
   }
 };
 

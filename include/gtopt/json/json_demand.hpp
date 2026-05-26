@@ -25,6 +25,8 @@ template<>
 struct json_data_contract<DemandAttrs>
 {
   using type = json_member_list<
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
@@ -49,7 +51,9 @@ struct json_data_contract<DemandAttrs>
 
   constexpr static auto to_json_data(DemandAttrs const& attrs)
   {
-    return std::forward_as_tuple(attrs.bus,
+    return std::forward_as_tuple(attrs.type,
+                                 attrs.description,
+                                 attrs.bus,
                                  attrs.lmax,
                                  attrs.lmin,
                                  attrs.lossfactor,
@@ -77,6 +81,7 @@ struct json_data_contract<Demand>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
@@ -105,6 +110,7 @@ struct json_data_contract<Demand>
                                  demand.name,
                                  demand.active,
                                  demand.type,
+                                 demand.description,
                                  demand.bus,
                                  demand.lmax,
                                  demand.lmin,

@@ -49,6 +49,9 @@ namespace gtopt
  */
 struct DemandAttrs
 {
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
   OptTBRealFieldSched lmin {};  ///< Minimum served load [MW] per-(stage,
@@ -112,6 +115,8 @@ struct Demand
   OptActive active {};  ///< Activation status (default: active)
   OptName
       type {};  ///< Optional demand type tag (e.g. "residential", "industrial")
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
@@ -151,6 +156,8 @@ struct Demand
    */
   auto& set_attrs(this auto&& self, auto&& attrs)
   {
+    self.type = std::exchange(attrs.type, {});
+    self.description = std::exchange(attrs.description, {});
     self.bus = std::exchange(attrs.bus, {});
     self.lmax = std::exchange(attrs.lmax, {});
     self.lmin = std::exchange(attrs.lmin, {});

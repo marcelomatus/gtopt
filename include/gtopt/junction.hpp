@@ -51,6 +51,9 @@ struct Junction
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable junction name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   OptBool drain {};  ///< If true, excess water at this junction can leave the
                      ///< system through a free outflow column (the

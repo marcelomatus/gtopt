@@ -123,6 +123,9 @@ struct Fuel
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   /// Fuel price `[$/<fuel_unit>]`, stage-schedulable.  The fuel-unit is
   /// the user's choice (tonne, MMBtu, Nm³, GJ, …) and must match

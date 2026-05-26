@@ -350,6 +350,43 @@ TEST_CASE("GeneratorLP — soft pmin via pmin_fcost keeps the LP feasible")
     REQUIRE(uit != ucols.end());
     CHECK(col_sol[uit->second] == doctest::Approx(20.0).epsilon(1e-6));
   }
+
+  SUBCASE("pmin_fcost = 0 keeps the hard floor (zero-cost boundary)")
+  {
+    // pmin_fcost = 0 must NOT trigger the soft path (the guard is
+    // `value_or(0.0) > 0.0`): the floor stays hard, so over-generation
+    // with no sink is infeasible, exactly like the no-pmin_fcost case —
+    // and no `unserved` slack column is created.
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .pmin = 50.0,
+            .pmax = 100.0,
+            .gcost = 10.0,
+            .pmin_fcost = 0.0,
+            .capacity = 100.0,
+        },
+    };
+    const System system = {
+        .name = "ZeroFcost",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    CHECK_FALSE((result.has_value() && result.value() == 0));
+
+    const auto& gen_lp = system_lp.elements<GeneratorLP>().front();
+    const auto& scenario_lp = simulation_lp.scenarios().front();
+    const auto& stage_lp = simulation_lp.stages().front();
+    // Soft branch did not fire → no unserved slack columns.
+    CHECK(gen_lp.lookup_unserved_cols(scenario_lp, stage_lp).empty());
+  }
 }
 
 TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")

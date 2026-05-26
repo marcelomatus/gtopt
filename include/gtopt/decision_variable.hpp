@@ -51,6 +51,9 @@ struct DecisionVariable
   Uid uid {unknown_uid};
   Name name {};
   OptActive active {};
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   /// Lower bound on the LP column.  When unset the LP treats the
   /// column as ``≥ -LP_INFINITY`` (free below); set to ``0`` to enforce

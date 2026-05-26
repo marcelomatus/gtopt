@@ -17,8 +17,10 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from .entities import (
@@ -216,7 +218,7 @@ def build_bus_array(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
 VIRTUAL_FUEL_NAME = "_VIRTUAL_FUEL_UNIT_PRICE"
 
 
-def _flatten_positive(seq):
+def _flatten_positive(seq: Iterable[Any]) -> Iterator[float]:
     """Yield positive floats from a (possibly nested) sequence."""
     for x in seq:
         if isinstance(x, list):
@@ -226,8 +228,8 @@ def _flatten_positive(seq):
 
 
 def soft_penalty_cost(
-    gcost_values,
-    voll_values,
+    gcost_values: Iterable[Any],
+    voll_values: Iterable[Any],
     *,
     override: float | None = None,
 ) -> float:
@@ -643,7 +645,7 @@ def _compute_default_slack_cost(
     Falls back to ``fallback`` if the generator-cost pool is empty.
     """
     gcosts = [g.get("gcost") for g in generator_entries if g.get("gcost") is not None]
-    if not list(_flatten_positive(gcosts)):
+    if not any(_flatten_positive(gcosts)):
         return fallback
     return soft_penalty_cost(
         gcosts,
@@ -2357,6 +2359,14 @@ def build_planning(
         if j.get("uid", 0) == 0:
             j["uid"] = next_j_uid
             next_j_uid += 1
+    # Inline conversion-provenance: stamp every element with a coarse
+    # ``type`` tag + a standardized ``description`` (source class, units,
+    # files) so the planning JSON self-documents the PLEXOS→gtopt mapping
+    # (F5, option A).  Reuses the per-class metadata that drives the
+    # provenance sidecar; skips entries that already self-annotate
+    # (Generator) and never adds ``type`` to UserConstraints (no field).
+    _annotate_element_descriptions(system)
+
     # Drop empty arrays so the planning JSON stays compact and the
     # downstream JSON validator does not complain about empty schemas.
     system = {k: v for k, v in system.items() if v not in ((), [], {}) or k == "name"}
@@ -2620,7 +2630,7 @@ _PROVENANCE_CLASS_DOC: dict[str, dict[str, Any]] = {
             "water_value": "$/hm³",
         },
         "transforms": [
-            "1e30 Water Value → never-drain sentinel (hard efin=eini)",
+            "1e30 Water Value → never-drain sentinel (water_value dropped)",
             "pondage/tailrace Storages demoted to Junction-only",
         ],
     },
@@ -2718,6 +2728,37 @@ _PROVENANCE_CLASS_DOC: dict[str, dict[str, Any]] = {
 }
 
 
+def _annotate_element_descriptions(system: dict[str, Any]) -> None:
+    """Stamp a standardized conversion ``description`` (and a coarse
+    ``type`` tag) onto every emitted element, in place.
+
+    One source of truth: the per-class ``_PROVENANCE_CLASS_DOC`` (PLEXOS
+    source class, field units, source files).  Entries that already
+    carry a richer ``description`` (Generator, set in
+    ``build_generator_array``) are left untouched.  ``type`` is set only
+    where the gtopt schema has the field — i.e. NOT on UserConstraints
+    (which carry ``description`` but no ``type``).
+    """
+    for array_key, doc in _PROVENANCE_CLASS_DOC.items():
+        items = system.get(array_key, [])
+        if not items:
+            continue
+        gtopt_cls = doc["gtopt"]
+        unit_str = ", ".join(f"{k} [{v}]" for k, v in doc["units"].items())
+        files = " + ".join(doc["files"][:3])
+        type_tag = gtopt_cls.lower()
+        sets_type = array_key != "user_constraint_array"
+        for e in items:
+            if sets_type:
+                e.setdefault("type", type_tag)
+            if not e.get("description"):
+                name = e.get("name", "?")
+                e["description"] = (
+                    f"PLEXOS {doc['plexos']} '{name}' → gtopt {gtopt_cls}"
+                    f"{('; ' + unit_str) if unit_str else ''}; (File: {files})"
+                )
+
+
 def build_provenance(
     planning: dict[str, Any],
     *,
@@ -2769,6 +2810,161 @@ def write_provenance(provenance: dict[str, Any], output_path: Path) -> Path:
         fh.write("\n")
     logger.info("wrote conversion provenance: %s", output_path)
     return output_path
+
+
+# Per-family routing for the modular ``.pampl`` user-constraint files.
+# Order matters (first match wins); anything unmatched lands in "other".
+# Per-family routing for the modular ``.pampl`` files.  Ordered — FIRST
+# match wins — so put the specific families before the broad ones; anything
+# unmatched lands in ``operational`` (the genuine generation/flow floors,
+# ramps and caps that don't fit a named ancillary/security family).  Routed
+# on the ORIGINAL PLEXOS constraint name (before PAMPL-ident sanitisation).
+_UC_FAMILIES: tuple[tuple[str, Any], ...] = (
+    # Combined-cycle turbine mutexes — at most one config committed (HARD).
+    ("config_exclusivity", lambda n: n.endswith("_Uniq") or "ConfTG" in n),
+    # Daily gas/GNL fuel-operation caps (day-scoped, soft fuel-cap tier).
+    ("gas_offtake", lambda n: n.startswith("Gas_MaxOp")),
+    # Unit-commitment scheduling rows that drive the PLEXOS dispatch (HARD).
+    (
+        "commitment",
+        lambda n: n.endswith("_starting") or n == "NorthSecurity",
+    ),
+    # Ancillary-services / reserve: CPF/CSF/CTF products, RegRange limits,
+    # Special* north groupings, per-generator provision rows.
+    (
+        "reserve",
+        lambda n: bool(
+            re.search(
+                r"(CTF|CSF|CPF|RegRange|Provision|MinUnits|MAXCSF|SSCC)|^Special",
+                n,
+            )
+        ),
+    ),
+    # N-1 / contingency security rows (``SD_*`` and the dated numeric form
+    # ``2024…``); most ship ``inactive`` (excluded from the ST schedule).
+    (
+        "security",
+        lambda n: n.startswith("SD_") or "Security" in n or bool(re.match(r"^\d", n)),
+    ),
+    # PLEXOS↔gtopt validation/comparison rows (diagnostic, usually inactive).
+    ("comparison", lambda n: "Comparison" in n),
+)
+# Default family for the remaining operational floors / ramps / caps.
+_UC_DEFAULT_FAMILY = "operational"
+
+
+def _pampl_ident(name: str) -> str:
+    """Sanitise a PLEXOS constraint name into a PAMPL ``IDENT``.
+
+    PAMPL identifiers are ``[A-Za-z_][A-Za-z0-9_]*``; PLEXOS names may start
+    with a digit (``2024084134_…``) or contain ``+ > - . space``.  Replace
+    every invalid char with ``_`` and prefix ``uc_`` when the result would
+    not start with a letter/underscore.  The original name is preserved in
+    the constraint's description for traceability.
+    """
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if not safe or not (safe[0].isalpha() or safe[0] == "_"):
+        safe = "uc_" + safe
+    return safe
+
+
+# Canonical names for the converter's penalty tiers — good-AMPL named
+# constants instead of inline magic numbers.  Any other distinct PLEXOS
+# penalty gets a value-derived name (``penalty_467_19`` …).
+_PENALTY_TIER_NAMES: dict[float, str] = {10.0: "soft_floor_penalty"}
+# Source of the PLEXOS Constraint objects emitted to ``.pampl`` (the model
+# DB).  Recorded in each file/constraint comment for traceability.
+_UC_ORIGIN_FILE = "DBSEN_PRGDIARIO.xml"
+
+
+def _penalty_param_name(value: float) -> str:
+    """PAMPL ``param`` name for a given per-unit penalty tier."""
+    if value in _PENALTY_TIER_NAMES:
+        return _PENALTY_TIER_NAMES[value]
+    return "penalty_" + re.sub(r"[^0-9]", "_", f"{value:g}")
+
+
+def write_user_constraint_pampl(
+    uc_array: list[dict[str, Any]],
+    output_dir: Path,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Split user constraints into modular per-family ``.pampl`` files.
+
+    Scalar-RHS constraints are emitted as
+    ``[inactive ]constraint NAME ["desc"][ penalty N]: <expr>;`` grouped by
+    family (``uc_config_exclusivity.pampl`` …).  Constraints carrying a
+    per-block ``rhs`` profile (the day-scoped gas caps, curtailment shifts)
+    can't be written as a scalar ``.pampl`` row yet, so they stay inline in
+    the JSON.  Returns ``(pampl_filenames, json_remaining)``.
+    """
+    families: dict[str, list[dict[str, Any]]] = {}
+    json_remaining: list[dict[str, Any]] = []
+    for uc in uc_array:
+        if "rhs" in uc:  # per-block RHS profile — no scalar .pampl form
+            json_remaining.append(uc)
+            continue
+        name = str(uc.get("name", ""))
+        fam = next((f for f, pred in _UC_FAMILIES if pred(name)), _UC_DEFAULT_FAMILY)
+        families.setdefault(fam, []).append(uc)
+
+    # PAMPL identifiers must be unique across every loaded constraint.
+    # Sanitisation (``+ > - space`` → ``_``) can collapse distinct PLEXOS
+    # names onto one ident, so dedupe globally with a numeric suffix; the
+    # original name is preserved in the description.
+    seen_idents: set[str] = set()
+
+    def _unique_ident(raw: str) -> str:
+        base = _pampl_ident(raw)
+        cand = base
+        suffix = 2
+        while cand in seen_idents:
+            cand = f"{base}_{suffix}"
+            suffix += 1
+        seen_idents.add(cand)
+        return cand
+
+    filenames: list[str] = []
+    for fam, ucs in sorted(families.items()):
+        fname = f"uc_{fam}.pampl"
+        # Distinct soft-penalty tiers used in this file → declared once as
+        # named ``param`` constants and referenced below (no magic numbers).
+        pens = sorted(
+            {
+                round(float(uc.get("penalty") or 0.0), 6)
+                for uc in ucs
+                if (uc.get("penalty") or 0.0) > 0.0
+            }
+        )
+        lines = [
+            "# " + "=" * 72,
+            f"# {fam} user constraints ({len(ucs)}) — emitted by plexos2gtopt",
+            f"# Origin: PLEXOS Constraint objects ({_UC_ORIGIN_FILE})",
+            "# Hard rows carry no penalty; soft rows reference a tier param.",
+            "# " + "=" * 72,
+            "",
+        ]
+        if pens:
+            lines.append("# Penalty tiers — per-unit slack cost [$/unit]:")
+            lines.extend(f"param {_penalty_param_name(p)} = {p:g};" for p in pens)
+            lines.append("")
+        for uc in ucs:
+            # Per-constraint comment carries the PLEXOS semantics + origin
+            # file (from the description) for traceability.
+            lines.append(f"# {uc.get('description') or uc.get('name', '')}")
+            prefix = "inactive " if uc.get("active") is False else ""
+            pen = float(uc.get("penalty") or 0.0)
+            pen_txt = (
+                f" penalty {_penalty_param_name(round(pen, 6))}" if pen > 0.0 else ""
+            )
+            lines.append(
+                f"{prefix}constraint {_unique_ident(str(uc.get('name', '')))}{pen_txt}:"
+            )
+            lines.append(f"  {uc['expression']};")
+            lines.append("")
+        (output_dir / fname).write_text("\n".join(lines), encoding="utf-8")
+        filenames.append(fname)
+        logger.info("wrote %d %s constraint(s) → %s", len(ucs), fam, fname)
+    return filenames, json_remaining
 
 
 def write_planning(planning: dict[str, Any], output_path: Path) -> Path:

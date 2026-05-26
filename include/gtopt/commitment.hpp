@@ -68,6 +68,9 @@ struct Commitment
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId generator {unknown_uid};  ///< FK to the Generator
 

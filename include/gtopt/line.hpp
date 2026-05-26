@@ -83,6 +83,8 @@ struct Line
   Name name {};  ///< Line name
   OptActive active {};  ///< Activation status (default: active)
   OptName type {};  ///< Optional line type tag (e.g. "ac", "dc", "transformer")
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId bus_a {unknown_uid};  ///< Sending-end (from) bus ID
   SingleId bus_b {unknown_uid};  ///< Receiving-end (to) bus ID

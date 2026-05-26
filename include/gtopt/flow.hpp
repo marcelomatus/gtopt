@@ -57,6 +57,9 @@ struct Flow
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   OptInt direction {
       1};  ///< Flow direction: +1 = inflow, −1 = outflow [dimensionless]
