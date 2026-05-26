@@ -408,6 +408,72 @@ TEST_CASE("LinearInterface - Loading from FlatLinearProblem")
   REQUIRE(sol[1] == doctest::Approx(0.0));
 }
 
+TEST_CASE("LinearInterface - EPOPT optimality tolerance folds scale_objective")
+{
+  using namespace gtopt;
+
+  // The reduced-cost optimality tolerance (CPLEX EPOPT) is applied by the
+  // backend in RAW LP-objective space.  flatten() divides the objective by
+  // scale_objective, so rc_raw = rc_phys / scale_objective.  To keep the
+  // PHYSICAL reduced-cost floor invariant (base 1e-6 at scale_objective == 1),
+  // initial_solve()/resolve() must set the raw tolerance to
+  // 1e-6 / scale_objective.  See scale_optimality_tol_for_objective.
+  const auto build_and_solve =
+      [](double scale_obj,
+         std::optional<double> user_opt_eps) -> std::optional<double>
+  {
+    LinearProblem lp("EpoptScaleLP");
+    const auto col1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 2.0});
+    const auto col2 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 3.0});
+    const auto row1 = lp.add_row({.lowb = 5.0, .uppb = 15.0});
+    lp.set_coeff(row1, col1, 1.0);
+    lp.set_coeff(row1, col2, 1.0);
+
+    LpMatrixOptions flat_opts;
+    flat_opts.scale_objective = scale_obj;
+    auto flat_lp = lp.flatten(flat_opts);
+
+    LinearInterface interface;
+    interface.load_flat(flat_lp);
+    REQUIRE(interface.scale_objective() == doctest::Approx(scale_obj));
+
+    SolverOptions opts;
+    opts.optimal_eps = user_opt_eps;  // physical (scale_obj == 1) tolerance
+    auto result = interface.initial_solve(opts);
+    REQUIRE(result.has_value());
+    return interface.last_solver_options().optimal_eps;
+  };
+
+  SUBCASE("scale_objective == 1 leaves the tolerance unscaled")
+  {
+    // No-op: helper returns early, so optimal_eps stays as the user passed
+    // it (here unset → backend default).
+    const auto eps = build_and_solve(1.0, std::nullopt);
+    CHECK_FALSE(eps.has_value());
+  }
+
+  SUBCASE("scale_objective == 1000 → raw EPOPT = 1e-6 / 1000 = 1e-9")
+  {
+    const auto eps = build_and_solve(1000.0, std::nullopt);
+    REQUIRE(eps.has_value());
+    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-9));
+  }
+
+  SUBCASE("explicit physical optimal_eps is divided by scale_objective")
+  {
+    // user 1e-4 physical / 100 = 1e-6 raw (inside [1e-9, 1e-1]).
+    const auto eps = build_and_solve(100.0, 1e-4);
+    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-6));
+  }
+
+  SUBCASE("scaled tolerance is clamped to the EPOPT floor 1e-9")
+  {
+    // user 1e-6 physical / 1e6 = 1e-12 → clamped up to 1e-9.
+    const auto eps = build_and_solve(1.0e6, 1e-6);
+    CHECK(eps.value_or(-1.0) == doctest::Approx(1e-9));
+  }
+}
+
 TEST_CASE("LinearInterface - get/set problem name")
 {
   using namespace gtopt;

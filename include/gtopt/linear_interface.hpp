@@ -2553,6 +2553,20 @@ public:
     return m_scale_objective_;
   }
 
+  /**
+   * @brief The effective SolverOptions applied to the backend on the
+   *        last `initial_solve` / `resolve`.
+   *
+   * Includes backend-optimal defaults, user overlays, and the
+   * scale_objective fold applied to the reduced-cost optimality
+   * tolerance (`optimal_eps`).  Primarily for diagnostics / tests.
+   */
+  [[nodiscard]] constexpr const SolverOptions& last_solver_options()
+      const noexcept
+  {
+    return m_last_solver_options_;
+  }
+
   /// VariableScaleMap moved from FlatLinearProblem during load_flat().
   [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
   {

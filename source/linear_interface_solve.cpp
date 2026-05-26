@@ -26,6 +26,45 @@
 namespace gtopt
 {
 
+namespace
+{
+/// Fold @p scale_objective into the solver's reduced-cost optimality
+/// tolerance (CPLEX ``EPOPT`` / HiGHS dual-feasibility tolerance).
+///
+/// The optimality tolerance is applied by the backend in **raw**
+/// LP-objective space, but ``flatten()`` divides the objective by
+/// ``scale_objective`` (linear_problem.cpp), so a raw reduced cost is
+/// ``rc_raw = rc_phys / scale_objective``.  A *fixed* raw tolerance ``T``
+/// therefore declares optimality at a **physical** reduced-cost floor of
+/// ``T × scale_objective`` — i.e. the solver gets coarser (and the
+/// returned basis / reduced costs scale-dependent) as ``scale_objective``
+/// grows.  This is the one place where ``scale_objective`` leaks into an
+/// algorithmic decision rather than a pure objective rescaling.
+///
+/// Keep the *physical* floor invariant by setting the raw tolerance to
+/// ``phys_eps / scale_objective``, where ``phys_eps`` is the requested
+/// physical tolerance (default ``1e-6`` — the value that is correct at
+/// ``scale_objective == 1`` and matches the CPLEX default).  Clamped to
+/// the documented ``EPOPT`` range ``[1e-9, 1e-1]``.
+///
+/// No-op when ``scale_objective == 1`` (raw == physical) so backend
+/// defaults are preserved for the common case (and the new
+/// ``scale_objective = 1`` plp2gtopt default).
+void scale_optimality_tol_for_objective(SolverOptions& opts,
+                                        double scale_objective) noexcept
+{
+  if (scale_objective == 1.0) {
+    return;
+  }
+  constexpr double base_phys_eps = 1e-6;  // physical floor at scale_obj == 1
+  constexpr double epopt_min = 1e-9;  // CPLEX EPOPT lower clamp
+  constexpr double epopt_max = 1e-1;  // CPLEX EPOPT upper clamp
+  const double phys_eps = opts.optimal_eps.value_or(base_phys_eps);
+  opts.optimal_eps =
+      std::clamp(phys_eps / scale_objective, epopt_min, epopt_max);
+}
+}  // namespace
+
 std::expected<int, Error> LinearInterface::initial_solve(
     const SolverOptions& solver_options)
 {
@@ -39,6 +78,9 @@ std::expected<int, Error> LinearInterface::initial_solve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
+    // Keep the physical reduced-cost optimality floor invariant to
+    // scale_objective (the EPOPT scale-leak — see helper docstring).
+    scale_optimality_tol_for_objective(effective, m_scale_objective_);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
@@ -157,6 +199,9 @@ std::expected<int, Error> LinearInterface::resolve(
     // Start from backend-optimal defaults, overlay user settings on top.
     auto effective = m_backend_->optimal_options();
     effective.overlay(solver_options);
+    // Keep the physical reduced-cost optimality floor invariant to
+    // scale_objective (the EPOPT scale-leak — see helper docstring).
+    scale_optimality_tol_for_objective(effective, m_scale_objective_);
     m_last_solver_options_ = effective;
 
     m_backend_->apply_options(effective);
