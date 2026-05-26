@@ -14,7 +14,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .gtopt_writer import build_planning, write_planning
+from .gtopt_writer import (
+    build_planning,
+    build_provenance,
+    write_boundary_cut_csv,
+    write_planning,
+    write_provenance,
+)
 from .parsers import extract_case
 from .plexos_loader import locate_bundle
 
@@ -280,7 +286,36 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             model_opts["use_kirchhoff"] = False
 
         output_dir.mkdir(parents=True, exist_ok=True)
+        # End-of-horizon future-cost (boundary) cut from
+        # ``Hydro_StoWaterValues.csv`` (FCF intercept + per-reservoir
+        # water-value slopes).  Emitted as ``boundary_cuts.csv`` and
+        # wired via ``simulation.boundary_cuts_file`` so the monolithic
+        # method values terminal storage exactly like PLEXOS's FCF.
+        if case.boundary_cut is not None:
+            reservoir_names = frozenset(
+                r["name"] for r in planning["system"].get("reservoir_array", [])
+            )
+            cut_file = write_boundary_cut_csv(
+                case.boundary_cut, reservoir_names, output_dir
+            )
+            if cut_file is not None:
+                # The monolithic method reads the cut file from
+                # ``options.monolithic_options.boundary_cuts_file`` (the
+                # ``simulation`` field of the same name feeds the SDDP /
+                # cascade paths).  Default mode is ``separated`` (loads),
+                # so the filename alone enables it.
+                mono = planning.setdefault("options", {}).setdefault(
+                    "monolithic_options", {}
+                )
+                mono["boundary_cuts_file"] = cut_file
         write_planning(planning, output_file)
+
+        # Conversion-provenance sidecar (F5): documents each gtopt
+        # element class's PLEXOS source, units, and transforms.
+        write_provenance(
+            build_provenance(planning, source_bundle=input_path.name),
+            output_file.with_suffix(".provenance.json"),
+        )
 
         # Cache was already dumped before ``extract_case`` (see
         # the pre-extract block) so the fuel-offtake-caps extractor

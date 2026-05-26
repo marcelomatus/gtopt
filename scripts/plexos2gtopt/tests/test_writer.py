@@ -1058,3 +1058,56 @@ def test_commitment_omits_initial_power_when_zero() -> None:
     )
     out = build_commitment_array(commits, lp_relax=False)
     assert "initial_power" not in out[0]
+
+
+def test_generator_emits_type_and_description() -> None:
+    """F5/D: every generator carries a coarse tech ``type`` and a
+    standardized ``description`` (source + field units)."""
+    fuels = (FuelSpec(object_id=1, name="coal", price=50.0),)
+    gens = (
+        GeneratorSpec(
+            object_id=1,
+            name="THERM",
+            bus_name="b",
+            pmax=100.0,
+            heat_rate=0.3,
+            fuel_names=("coal",),
+        ),
+        GeneratorSpec(object_id=2, name="SOLAR", bus_name="b", pmax=50.0),
+    )
+    out = build_generator_array(gens, fuels=fuels)
+    by = {e["name"]: e for e in out}
+    assert by["THERM"]["type"] == "thermal"
+    assert by["SOLAR"]["type"] == "renewable"
+    for e in out:
+        assert "[MW]" in e["description"]
+        assert "(File:" in e["description"]
+
+
+def test_build_provenance_documents_element_classes() -> None:
+    """F5/B: the provenance sidecar documents each element class with its
+    PLEXOS source, units, transforms, and emitted count."""
+    from plexos2gtopt.gtopt_writer import build_provenance
+
+    planning = {
+        "options": {"model_options": {"demand_fail_cost": 467.19}},
+        "system": {
+            "generator_array": [{"name": "g1"}, {"name": "g2"}],
+            "line_array": [{"name": "l1"}],
+            "user_constraint_array": [{"name": "uc1"}],
+        },
+    }
+    prov = build_provenance(planning, source_bundle="DATOS.zip")
+    assert prov["source_bundle"] == "DATOS.zip"
+    assert prov["demand_fail_cost"] == 467.19
+    assert "soft_penalty" in prov["global_transforms"]
+    gen = prov["elements"]["Generator"]
+    assert gen["count"] == 2
+    assert gen["plexos_source"] == "Generator"
+    assert gen["units"]["pmax"] == "MW"
+    assert gen["units"]["pmin_fcost"] == "$/MWh"
+    assert prov["elements"]["Line"]["count"] == 1
+    assert prov["elements"]["UserConstraint"]["count"] == 1
+    # Classes with no emitted elements still document units/source (count 0).
+    assert prov["elements"]["Battery"]["count"] == 0
+    assert prov["elements"]["Reservoir"]["units"]["vmax"] == "hm³"

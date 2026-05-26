@@ -14,6 +14,7 @@ local.
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import shutil
@@ -22,6 +23,7 @@ from typing import Any
 
 from .entities import (
     BatterySpec,
+    BoundaryCutSpec,
     BundleSpec,
     CommitmentSpec,
     DecisionVariableSpec,
@@ -497,6 +499,21 @@ def build_generator_array(
         # triggers gtopt's strict daw::json "Could not find member"
         # failure at LP build.
 
+        # Conversion provenance (F5): coarse tech tag + standardized
+        # ``description`` documenting source + key field units.  No C++
+        # schema change — Generator already carries ``type``/``description``.
+        has_fuel = (
+            bool(gen.fuel_names)
+            or gen.heat_rate > 0.0
+            or (gen.fuel_price_override > 0.0)
+        )
+        entry["type"] = "thermal" if has_fuel else "renewable"
+        entry["description"] = (
+            f"PLEXOS Generator '{gen.name}' at bus '{gen.bus_name}' → gtopt "
+            f"Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate "
+            f"[fuel-unit/MWh]; (File: DBSEN_PRGDIARIO.xml + Gen_*.csv)"
+        )
+
         out.append(entry)
 
     # Assign the shared system-wide soft-`pmin` penalty to every forced
@@ -855,6 +872,25 @@ def build_line_array(
             # explicit EL=0 / lifted EL=1 lines stand out.
             if line.enforce_limits < 2:
                 entry["enforce_level"] = line.enforce_limits
+            # Per-block in-service flag from PLEXOS ``Lin_Units.csv``
+            # (maintenance / forced-outage windows).  Aggregate the
+            # per-hour 0/1 profile to blocks with the ``min`` reducer (a
+            # block is OUT if ANY of its hours is out — the conservative
+            # choice for line availability), and emit ``Line.in_service``
+            # only when at least one block is out.  An always-in profile
+            # keeps the schema default (line in service everywhere).
+            if line.in_service_profile:
+                blk = (
+                    _aggregate_to_blocks(
+                        [float(v) for v in line.in_service_profile],
+                        block_layout,
+                        reducer="min",
+                    )
+                    if block_layout
+                    else [float(v) for v in line.in_service_profile]
+                )
+                if any(v < 0.5 for v in blk):
+                    entry["in_service"] = [[1 if v >= 0.5 else 0 for v in blk]]
             # Soft-cap the ex-PLEXOS-EL=0 lines (parser flagged
             # ``soft_cap`` and promoted them to enforce_level=1): free
             # flow up to the rating (``tmax_normal_*``), penalised
@@ -1386,18 +1422,18 @@ def build_reservoir_array(
             # (otherwise the L_Maule reservoir balance becomes the
             # dominant infeasibility row).  Pin its slack at a HIGH
             # cost so the LP respects it whenever physically possible.
-            if res.name in soft_efin_reservoirs:
-                if res.never_drain:
-                    # Sentinel never-drain reservoir — high penalty so
-                    # slack is used only when no other option exists.
-                    entry["efin_cost"] = 1.0e6
-                elif res.water_value > 0.0:
-                    # Regular soft path — use PLEXOS Water Value.
-                    entry["efin_cost"] = res.water_value
-                # else: no water_value AND not never_drain → no slack
-                # column emitted (would be a no-op anyway).
-            # Reservoirs NOT in soft_efin_reservoirs: omit efin_cost,
-            # producing the HARD ``vol_end >= efin`` constraint.
+            # ``efin_cost`` is intentionally NOT emitted: terminal
+            # storage is now valued by the single end-of-horizon boundary
+            # cut (FCF + per-reservoir water-value slopes from
+            # ``Hydro_StoWaterValues.csv``, wired via
+            # ``simulation.boundary_cuts_file``).  A per-reservoir
+            # ``efin_cost`` would double-count that valuation, and the old
+            # sentinel ``efin_cost = 1e6`` for never-drain reservoirs is
+            # dropped per design: never_drain ⇒ no drain target priced,
+            # no cost.  ``efin`` is still emitted, so the LP keeps a HARD
+            # ``vol_end >= efin`` floor; the boundary cut prices storage
+            # above that floor.
+            _ = soft_efin_reservoirs  # retained for CLI compat; no longer gates efin_cost
         # Reservoir-internal drain is DISABLED by default, matching PLP's
         # convention: spillage leaves the basin via an explicit ``Vert_*``
         # Waterway routed to a ``<source>_ocean`` drain junction (added by
@@ -2329,6 +2365,304 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     return installed
 
 
+def write_boundary_cut_csv(
+    boundary_cut: BoundaryCutSpec,
+    reservoir_names: frozenset[str],
+    output_dir: Path,
+    *,
+    scene: int = 0,
+    filename: str = "boundary_cuts.csv",
+) -> str | None:
+    """Write the single FCF boundary cut as a gtopt ``boundary_cuts.csv``.
+
+    Format (one cut, one scene)::
+
+        scene,rhs,<res1>,<res2>,...
+        0,<FCF>,-<wv1>,-<wv2>,...
+
+    ``rhs`` is the FCF intercept; each reservoir coefficient is
+    ``-water_value`` (more stored water ⇒ lower future cost) on that
+    reservoir's terminal-volume state variable.  Only reservoirs that
+    exist in the bundle are emitted (the loader matches by element
+    name).  Returns the basename to set on ``simulation.boundary_cuts_file``,
+    or ``None`` when no slope maps onto a bundle reservoir.
+    """
+    cols = [name for name in boundary_cut.slopes if name in reservoir_names]
+    if not cols:
+        logger.warning(
+            "boundary cut: none of %d water-value reservoirs "
+            "(%s) match a bundle reservoir — skipping cut",
+            len(boundary_cut.slopes),
+            ", ".join(sorted(boundary_cut.slopes)),
+        )
+        return None
+    dropped = sorted(set(boundary_cut.slopes) - set(cols))
+    if dropped:
+        logger.info("boundary cut: skipping non-bundle reservoirs %s", dropped)
+    path = output_dir / filename
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["scene", "rhs", *cols])
+        writer.writerow(
+            [
+                scene,
+                repr(boundary_cut.fcf),
+                *(repr(-boundary_cut.slopes[c]) for c in cols),
+            ]
+        )
+    logger.info(
+        "wrote boundary cut: %s (scene=%d, rhs=%.3e, %d reservoir slopes)",
+        path,
+        scene,
+        boundary_cut.fcf,
+        len(cols),
+    )
+    return filename
+
+
+# Per-class conversion provenance (F5, option B): documents — for every
+# gtopt element class — its PLEXOS source class + files, the LP-variable /
+# field units, and the transforms applied during conversion.  Static
+# metadata; counts are filled from the built planning.  Keeps the LP JSON
+# lean (no per-element strings) while giving a machine-readable record of
+# WHAT each element is, its UNITS, and WHERE it came from.
+_PROVENANCE_CLASS_DOC: dict[str, dict[str, Any]] = {
+    "bus_array": {
+        "gtopt": "Bus",
+        "plexos": "Node",
+        "files": ["DBSEN_PRGDIARIO.xml"],
+        "units": {"voltage": "kV"},
+        "transforms": ["one Bus per PLEXOS Node"],
+    },
+    "generator_array": {
+        "gtopt": "Generator",
+        "plexos": "Generator",
+        "files": [
+            "DBSEN_PRGDIARIO.xml",
+            "Gen_Rating.csv",
+            "Gen_HeatRate.csv",
+            "Gen_FixedLoad.csv",
+            "Gen_Commit.csv",
+            "Fuel_Price.csv",
+        ],
+        "units": {
+            "pmin": "MW",
+            "pmax": "MW",
+            "gcost": "$/MWh",
+            "heat_rate": "fuel-unit/MWh",
+            "pmin_fcost": "$/MWh",
+            "lossfactor": "p.u.",
+        },
+        "transforms": [
+            "FixedLoad → pmin/pmax (non-renewable: hard pmin=pmax; "
+            "renewable/RoR: curtailable cap pmin=0)",
+            "pmin_fcost = min(max(gcost)+1, min(VoLL)-1) (soft forced floor)",
+            "Gen_Commit → Commitment.must_run / fixed_status",
+        ],
+    },
+    "line_array": {
+        "gtopt": "Line",
+        "plexos": "Line",
+        "files": ["DBSEN_PRGDIARIO.xml", "Lin_MaxRating.csv", "Lin_MinRating.csv"],
+        "units": {
+            "tmax_ab": "MW",
+            "tmax_ba": "MW",
+            "reactance": "p.u.",
+            "resistance": "p.u.",
+            "overload_penalty": "$/MWh",
+        },
+        "transforms": [
+            "EL=1 lines optionally soft-capped (overload_penalty = "
+            "min(max(gcost)+1, min(VoLL)-1))"
+        ],
+    },
+    "demand_array": {
+        "gtopt": "Demand",
+        "plexos": "Node (Load)",
+        "files": ["DBSEN_PRGDIARIO.xml", "Nod_Load.csv"],
+        "units": {"capacity": "MW", "fcost": "$/MWh"},
+        "transforms": ["per-Region VoLL → per-Demand fcost"],
+    },
+    "battery_array": {
+        "gtopt": "Battery",
+        "plexos": "Battery",
+        "files": ["DBSEN_PRGDIARIO.xml", "BESS_IniValue.csv"],
+        "units": {
+            "pmax": "MW",
+            "emax": "MWh",
+            "eini": "MWh",
+            "efin": "MWh",
+        },
+        "transforms": ["_AUX virtual reserve-buffer batteries dropped"],
+    },
+    "reservoir_array": {
+        "gtopt": "Reservoir",
+        "plexos": "Storage",
+        "files": [
+            "DBSEN_PRGDIARIO.xml",
+            "Hydro_MaxVolume.csv",
+            "Hydro_MinVolume.csv",
+            "Hydro_InitialVolume.csv",
+            "Hydro_StoWaterValues.csv",
+        ],
+        "units": {
+            "vmin": "hm³",
+            "vmax": "hm³",
+            "vini": "hm³",
+            "water_value": "$/hm³",
+        },
+        "transforms": [
+            "1e30 Water Value → never-drain sentinel (hard efin=eini)",
+            "pondage/tailrace Storages demoted to Junction-only",
+        ],
+    },
+    "waterway_array": {
+        "gtopt": "Waterway",
+        "plexos": "Waterway",
+        "files": ["DBSEN_PRGDIARIO.xml", "Hydro_WaterFlows.csv"],
+        "units": {"fmax": "m³/s", "fcost": "$/(m³/s)/h"},
+        "transforms": [
+            "forced-flow waterways → FlowRight at source junction",
+            "Vert_* spillways collapsed onto Junction.drain",
+        ],
+    },
+    "turbine_array": {
+        "gtopt": "Turbine",
+        "plexos": "Generator (hydro) + Waterway",
+        "files": ["DBSEN_PRGDIARIO.xml", "Hydro_EfficiencyIncr.csv"],
+        "units": {"production_factor": "MW/(m³/s)"},
+        "transforms": ["synthesised per-turbine zero-cost penstock waterways"],
+    },
+    "fuel_array": {
+        "gtopt": "Fuel",
+        "plexos": "Fuel",
+        "files": ["DBSEN_PRGDIARIO.xml", "Fuel_Price.csv", "Fuel_MaxOfftakeWeek.csv"],
+        "units": {"price": "$/fuel-unit", "max_offtake": "fuel-unit/period"},
+        "transforms": ["Fuel_MaxOfftakeWeek → Fuel.max_offtake (weekly budget)"],
+    },
+    "junction_array": {
+        "gtopt": "Junction",
+        "plexos": "Storage (pass-through) / synthetic sink",
+        "files": ["DBSEN_PRGDIARIO.xml"],
+        "units": {"drain_capacity": "m³/s", "drain_cost": "$/(m³/s)/h"},
+        "transforms": ["pass-through Storages + Vert_* sinks → Junction"],
+    },
+    "reserve_zone_array": {
+        "gtopt": "ReserveZone",
+        "plexos": "Reserve",
+        "files": ["DBSEN_PRGDIARIO.xml", "Res_Requirement.csv"],
+        "units": {"requirement": "MW"},
+        "transforms": [],
+    },
+    "reserve_provision_array": {
+        "gtopt": "ReserveProvision",
+        "plexos": "Reserve → Generator eligibility",
+        "files": ["DBSEN_PRGDIARIO.xml"],
+        "units": {"up": "MW", "dn": "MW"},
+        "transforms": ["zero-pmax gens filtered from eligibility"],
+    },
+    "commitment_array": {
+        "gtopt": "Commitment",
+        "plexos": "Generator UC params",
+        "files": [
+            "DBSEN_PRGDIARIO.xml",
+            "Gen_Commit.csv",
+            "Gen_StartCost.csv",
+            "Gen_MinStableLevel.csv",
+        ],
+        "units": {
+            "startup_cost": "$",
+            "ramp_up": "MW/h",
+            "ramp_down": "MW/h",
+            "pmin": "MW",
+            "initial_power": "MW",
+        },
+        "transforms": [
+            "Max Ramp Up/Down MW/min → MW/h (×60)",
+            "Gen_Commit ±1/0 → must_run / fixed_status",
+        ],
+    },
+    "flow_array": {
+        "gtopt": "Flow",
+        "plexos": "Waterway forced flow",
+        "files": ["DBSEN_PRGDIARIO.xml", "Hydro_WaterFlows.csv"],
+        "units": {"fmin": "m³/s", "fmax": "m³/s"},
+        "transforms": [],
+    },
+    "decision_variable_array": {
+        "gtopt": "DecisionVariable",
+        "plexos": "Decision Variable",
+        "files": ["DBSEN_PRGDIARIO.xml"],
+        "units": {"value": "per PLEXOS definition", "cost": "$/unit"},
+        "transforms": [],
+    },
+    "user_constraint_array": {
+        "gtopt": "UserConstraint",
+        "plexos": "Constraint",
+        "files": ["DBSEN_PRGDIARIO.xml", "Hydro_AntucoBounds.csv"],
+        "units": {"rhs": "per-LHS-variable (see each constraint description)"},
+        "transforms": [
+            "RHS Custom → RHS × 1000 / horizon_hours (daily gas caps)",
+            "_Uniq mutex groups → PlantCap config-exclusivity caps",
+            "see each UserConstraint.description for per-row provenance",
+        ],
+    },
+}
+
+
+def build_provenance(
+    planning: dict[str, Any],
+    *,
+    source_bundle: str = "",
+) -> dict[str, Any]:
+    """Build the conversion-provenance sidecar (F5, option B).
+
+    Per gtopt element class: PLEXOS source class + files, field/LP-variable
+    units, transforms applied, and the emitted count.  Plus global horizon
+    and the cross-cutting numeric transforms (with formulas).
+    """
+    system = planning.get("system", {})
+    model_opts = planning.get("options", {}).get("model_options", {})
+    elements: dict[str, Any] = {}
+    for array_key, doc in _PROVENANCE_CLASS_DOC.items():
+        items = system.get(array_key, [])
+        elements[doc["gtopt"]] = {
+            "plexos_source": doc["plexos"],
+            "count": len(items),
+            "units": doc["units"],
+            "source_files": doc["files"],
+            "transforms": doc["transforms"],
+        }
+    return {
+        "_comment": (
+            "plexos2gtopt conversion provenance — what each gtopt element is, "
+            "its units, source PLEXOS files, and transforms.  Companion to the "
+            "planning JSON; not consumed by gtopt."
+        ),
+        "source_bundle": source_bundle,
+        "demand_fail_cost": model_opts.get("demand_fail_cost"),
+        "global_transforms": {
+            "soft_penalty": "min(max(gcost)+1, min(VoLL)-1) — shared by "
+            "Generator.pmin_fcost and the line-overload/EL=1 slack cost",
+            "rhs_custom": "RHS_Custom × 1000 / horizon_hours — daily gas caps",
+            "config_exclusivity": "PLEXOS *_Uniq mutex groups → PlantCap caps",
+            "fixed_load": "non-renewable → hard pmin=pmax; renewable → "
+            "curtailable cap (pmin=0)",
+        },
+        "elements": elements,
+    }
+
+
+def write_provenance(provenance: dict[str, Any], output_path: Path) -> Path:
+    """Write the provenance sidecar JSON next to the planning file."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as fh:
+        json.dump(provenance, fh, indent=2)
+        fh.write("\n")
+    logger.info("wrote conversion provenance: %s", output_path)
+    return output_path
+
+
 def write_planning(planning: dict[str, Any], output_path: Path) -> Path:
     """Write the planning to ``output_path`` (parents created on demand).
 
@@ -2361,6 +2695,7 @@ __all__ = [
     "build_line_array",
     "build_options",
     "build_planning",
+    "build_provenance",
     "build_reservoir_array",
     "build_reserve_provision_array",
     "build_reserve_zone_array",
@@ -2370,4 +2705,5 @@ __all__ = [
     "build_waterway_array",
     "install_solver_param_files",
     "write_planning",
+    "write_provenance",
 ]
