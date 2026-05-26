@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .entities import (
     BatterySpec,
+    BoundaryCutSpec,
     BundleSpec,
     CommitmentSpec,
     DecisionVariableSpec,
@@ -1337,8 +1338,14 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         if bundle.has("Lin_MinRating.csv")
         else {}
     )
+    # Full-horizon read (``n_days × 24``): the hour-0 element still
+    # drives the parallel-unit count, while the complete per-hour vector
+    # feeds the per-block ``Line.in_service`` schedule (intra-week
+    # maintenance / forced-outage windows from ``Lin_Units.csv``).
     units_wide: dict[str, list[float]] = (
-        read_wide(bundle.csv("Lin_Units.csv"), drop_zero_cols=False)
+        read_wide(
+            bundle.csv("Lin_Units.csv"), drop_zero_cols=False, n_days=bundle.n_days
+        )
         if bundle.has("Lin_Units.csv")
         else {}
     )
@@ -1377,6 +1384,14 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 raw_units,
             )
             units = 1
+        # Per-hour in-service flag for ``Line.in_service``: 1 where the
+        # line has >=1 unit online, 0 during maintenance / forced-outage
+        # hours.  Only carried when there is at least one out-hour (else
+        # the line defaults to in-service everywhere and no schedule is
+        # emitted).  The writer aggregates this to per-block resolution.
+        in_service_profile: tuple[int, ...] = ()
+        if units_profile is not None and any(u <= 0.0 for u in units_profile):
+            in_service_profile = tuple(1 if u > 0.0 else 0 for u in units_profile)
         tmax_series = max_rating.get(line.name, [])
         tmin_series = min_rating.get(line.name, [])
         # Scalar tmax/tmin: use MAX of the per-hour profile so the LP
@@ -1504,6 +1519,7 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 enforce_limits=enforce_limits,
                 soft_cap=soft_cap,
                 soft_cap_lifted=soft_cap_lifted,
+                in_service_profile=in_service_profile,
             )
         )
     return tuple(out)
@@ -3976,6 +3992,19 @@ def extract_user_constraints(
     prop_include_st = db.property_by_name(
         sys_coll.collection_id, "Include in ST Schedule"
     )
+    # PLEXOS ``RHS Custom`` — the RHS over a *custom time period* (here
+    # the run horizon).  Used by the daily gas-offtake constraints
+    # (``Gas_MaxOpDay*``, 272 on CEN PCP) which carry NO plain ``RHS``,
+    # so without this they were dropped → gas plants over-dispatched.
+    # PLEXOS reports the constraint dimensionless and evaluates the
+    # effective RHS as ``RHS_Custom × 1000 / horizon_hours`` — verified
+    # against the RES solution (ratio = 1000/168 = 5.952, EXACTLY
+    # constant across all 124 binding Gas_MaxOpDay constraints / every
+    # fuel).  The result is a per-period (per-hour) cap, so the
+    # fuel-offtake per-block daily split below is bypassed for it.
+    prop_rhs_custom = db.property_by_name(sys_coll.collection_id, "RHS Custom")
+    horizon_hours = float((_bundle.n_days or 7) * 24)
+    rhs_custom_factor = 1000.0 / horizon_hours if horizon_hours > 0.0 else 0.0
     if prop_sense is None or prop_rhs is None:
         logger.debug("Sense / RHS properties absent; skipping user constraints")
         return ()
@@ -4183,6 +4212,18 @@ def extract_user_constraints(
         rhs_val = _horizon_value(
             db.data_for(mid, prop_rhs), horizon_start, prefer_min=True
         )
+        # Fall back to the custom-time-period RHS (Gas_MaxOpDay*): apply
+        # PLEXOS's ``× 1000 / horizon_hours`` evaluation so the value
+        # matches the solved effective RHS.  ``rhs_from_custom`` marks
+        # the result as a per-period cap (skip the daily /24 split).
+        rhs_from_custom = False
+        if rhs_val is None and prop_rhs_custom is not None and rhs_custom_factor > 0.0:
+            rhs_custom = _horizon_value(
+                db.data_for(mid, prop_rhs_custom), horizon_start, prefer_min=True
+            )
+            if rhs_custom is not None:
+                rhs_val = rhs_custom * rhs_custom_factor
+                rhs_from_custom = True
         if sense_val is None or rhs_val is None:
             continue
         op = _SENSE_OP.get(sense_val)
@@ -4306,7 +4347,7 @@ def extract_user_constraints(
         # ``rhs_shift_per_block`` (populated by curtailed /
         # available_capacity above) or — when no profile is available
         # yet — from a representative generator's pmax_profile length.
-        if is_fuel_offtake:
+        if is_fuel_offtake and not rhs_from_custom:
             horizon = max(
                 len(rhs_shift_per_block),
                 next(
@@ -5093,6 +5134,33 @@ def _build_plant_cap_ucs(
     return tuple(out)
 
 
+def _extract_boundary_cut(bundle: PlexosBundle) -> BoundaryCutSpec | None:
+    """Parse ``Hydro_StoWaterValues.csv`` into one future-cost cut.
+
+    The file is a single boundary point (all rows at PERIOD=1): the
+    ``FCF`` row is the cut intercept, every other row is a reservoir's
+    water value ($/GWh).  Returns ``None`` when the file is absent or
+    carries no reservoir slopes.
+    """
+    if not bundle.has("Hydro_StoWaterValues.csv"):
+        return None
+    # Long format NAME,YEAR,MONTH,DAY,PERIOD,VALUE — PERIOD=1 lands in
+    # slot 0 of each per-name series.
+    data = read_long(bundle.csv("Hydro_StoWaterValues.csv"), n_days=1)
+    values = {name: series[0] for name, series in data.items() if series}
+    fcf = values.pop("FCF", 0.0)
+    slopes = {name: v for name, v in values.items() if v != 0.0}
+    if not slopes:
+        logger.info("Hydro_StoWaterValues.csv carries no reservoir slopes")
+        return None
+    logger.info(
+        "boundary cut: FCF intercept %.3e + %d reservoir water values",
+        fcf,
+        len(slopes),
+    )
+    return BoundaryCutSpec(fcf=fcf, slopes=slopes)
+
+
 def extract_case(bundle: PlexosBundle) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
@@ -5488,6 +5556,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         )
         + extract_flow_rights(bundle, turbines, known_junction_names),
         decision_variables=extract_decision_variables(db),
+        boundary_cut=_extract_boundary_cut(bundle),
     )
 
     # Allow constraint references to any generator whose pmax is

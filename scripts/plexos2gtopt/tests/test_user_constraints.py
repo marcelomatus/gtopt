@@ -663,3 +663,77 @@ def test_reserve_provision_writer_emits_provision_factor_and_max() -> None:
     assert out[0]["dr_provision_factor"] == 1.0
     assert out[0]["urmax"] == 100.0
     assert out[0]["drmax"] == 80.0
+
+
+def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
+    """F2: a constraint with NO plain ``RHS`` but a ``RHS Custom`` value
+    (the daily gas-offtake ``Gas_MaxOpDay*`` pattern) is emitted with
+    ``RHS = RHS_Custom × 1000 / horizon_hours`` (PLEXOS's custom-time-
+    period evaluation, verified ratio 1000/168 on CEN PCP) instead of
+    being dropped for a missing RHS.
+    """
+    xml = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>G1</name></t_object>
+  <t_object>
+    <object_id>100</object_id><class_id>70</class_id><name>Gas_MaxOpDay0_X</name>
+  </t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>32</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>4390</property_id><collection_id>700</collection_id>
+    <name>RHS Custom</name>
+  </t_property>
+  <t_property>
+    <property_id>393</property_id><collection_id>32</collection_id>
+    <name>Generation Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>700001</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32001</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>1</data_id><membership_id>700001</membership_id>
+    <property_id>4369</property_id><value>-1</value>
+  </t_data>
+  <t_data>
+    <data_id>2</data_id><membership_id>700001</membership_id>
+    <property_id>4390</property_id><value>2.0</value>
+  </t_data>
+  <t_data>
+    <data_id>3</data_id><membership_id>32001</membership_id>
+    <property_id>393</property_id><value>1.0</value>
+  </t_data>
+</MasterDataSet>
+"""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(xml)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)  # n_days=1 → 24 h
+    db = load_xml(xml_path)
+    out = extract_user_constraints(db, bundle)
+    by_name = {c.name: c for c in out}
+    assert "Gas_MaxOpDay0_X" in by_name
+    expr = by_name["Gas_MaxOpDay0_X"].expression
+    assert 'generator("G1").generation' in expr
+    # RHS = 2.0 × 1000 / (1 day × 24 h) = 83.3333…
+    assert expr.endswith("<= 83.3333")
