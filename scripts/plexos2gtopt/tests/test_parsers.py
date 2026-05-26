@@ -1211,6 +1211,14 @@ def test_build_plant_cap_ucs_uniq_mutex_group_config_exclusivity() -> None:
     # The P variants are capped by exactly ONE UC (no fuel-band double-cap).
     assert sum(1 for u in ucs if "P-TG_GN_A" in u.expression) == 1
 
+    # F5: description states it's a config-exclusivity cap with the
+    # source mutex group, the [MW] unit, and the source file.
+    desc = by_name["PlantCap_P"].description
+    assert "config exclusivity" in desc
+    assert "[MW]" in desc
+    assert "P_Uniq" in desc
+    assert "(File: DBSEN_PRGDIARIO.xml)" in desc
+
     # Plant Q (no _Uniq) still gets a fuel-band fallback cap at its pmax 50.
     assert "PlantCap_Q" in by_name
     assert by_name["PlantCap_Q"].expression.endswith("<= 50.000000")

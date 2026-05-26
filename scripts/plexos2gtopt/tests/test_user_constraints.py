@@ -737,3 +737,7 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     assert 'generator("G1").generation' in expr
     # RHS = 2.0 × 1000 / (1 day × 24 h) = 83.3333…
     assert expr.endswith("<= 83.3333")
+    # F5: description carries meaning + variable units + source file.
+    desc = by_name["Gas_MaxOpDay0_X"].description
+    assert "generator dispatch [MW]" in desc
+    assert "(File: DBSEN_PRGDIARIO.xml)" in desc

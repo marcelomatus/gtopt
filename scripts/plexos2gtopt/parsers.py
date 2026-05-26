@@ -3490,7 +3490,13 @@ def extract_hydro_discharge_user_constraints(
                 name=f"discharge_{cstr_name}",
                 expression=expression,
                 penalty=uc_penalty,
-                description=f"PLEXOS Constraint {cstr_name} — Σ (gen/pf) {op} {rhs}",
+                description=(
+                    f"PLEXOS hydro discharge bound '{cstr_name}': "
+                    f"Σ generation/production_factor = turbine discharge "
+                    f"[m³/s] {op} {rhs:g} — multi-unit plant penstock/flow "
+                    f"limit (gen [MW] ÷ pf [MW/(m³/s)]) "
+                    f"(File: Hydro_AntucoBounds.csv)"
+                ),
             )
         )
     logger.info(
@@ -3933,6 +3939,63 @@ def extract_decision_variables(
     return tuple(out)
 
 
+_UC_OP_TXT = {"<=": "≤", ">=": "≥", "=": "="}
+
+
+def _describe_user_constraint(
+    name: str,
+    expression: str,
+    op: str,
+    rhs: float,
+    *,
+    source_file: str,
+    fuel_offtake: bool = False,
+    from_rhs_custom: bool = False,
+    inactive: bool = False,
+) -> str:
+    """Build a human-readable ``description`` for a UserConstraint: what
+    it is (PLEXOS provenance), what it means (LHS variable kinds), the
+    units of each LP variable it references, and the source file.
+
+    gtopt LP variables and their units:
+      ``generation`` / ``flow`` / ``charge`` / ``discharge`` — power [MW];
+      reserve ``up`` / ``dn`` — reserve power [MW];
+      ``status`` / ``startup`` / ``shutdown`` — commitment binary [0/1];
+      ``value`` — PLEXOS Decision Variable (units per its definition).
+    """
+    parts: list[str] = []
+    if "generator(" in expression and ".generation" in expression:
+        parts.append("generator dispatch [MW]")
+    if "line(" in expression and ".flow" in expression:
+        parts.append("line flow [MW]")
+    if "battery(" in expression and (
+        ".charge" in expression or ".discharge" in expression
+    ):
+        parts.append("battery charge/discharge [MW]")
+    if "reserve_provision(" in expression:
+        parts.append("reserve provision [MW]")
+    if "commitment(" in expression:
+        parts.append("commitment status [0/1]")
+    if "decision_variable(" in expression:
+        parts.append("decision variable")
+    op_txt = _UC_OP_TXT.get(op, op)
+    if fuel_offtake:
+        desc = (
+            f"PLEXOS fuel-offtake constraint '{name}': "
+            f"Σ heat_rate·generation [fuel-energy/h] {op_txt} {rhs:g}"
+        )
+        if from_rhs_custom:
+            desc += (
+                " — daily gas cap (RHS = PLEXOS 'RHS Custom' × 1000 / horizon_hours)"
+            )
+    else:
+        lhs = " + ".join(parts) if parts else "LP terms"
+        desc = f"PLEXOS Constraint '{name}': Σ {lhs} {op_txt} {rhs:g}"
+    if inactive:
+        desc += " — active=False (excluded from PLEXOS ST schedule / contingency row)"
+    return f"{desc} (File: {source_file})"
+
+
 def extract_user_constraints(
     db: PlexosDb,
     _bundle: PlexosBundle,
@@ -4005,6 +4068,10 @@ def extract_user_constraints(
     prop_rhs_custom = db.property_by_name(sys_coll.collection_id, "RHS Custom")
     horizon_hours = float((_bundle.n_days or 7) * 24)
     rhs_custom_factor = 1000.0 / horizon_hours if horizon_hours > 0.0 else 0.0
+    # Source file for the ``description`` provenance tag (PLEXOS XML DB).
+    _uc_source_file = getattr(getattr(_bundle, "xml_path", None), "name", None) or (
+        "DBSEN_PRGDIARIO.xml"
+    )
     if prop_sense is None or prop_rhs is None:
         logger.debug("Sense / RHS properties absent; skipping user constraints")
         return ()
@@ -4673,6 +4740,16 @@ def extract_user_constraints(
                 penalty=emitted_penalty,
                 active=False if is_inactive else None,
                 rhs_profile=rhs_profile_tuple,
+                description=_describe_user_constraint(
+                    constr.name,
+                    expression,
+                    op,
+                    rhs_val,
+                    source_file=_uc_source_file,
+                    fuel_offtake=is_fuel_offtake,
+                    from_rhs_custom=rhs_from_custom,
+                    inactive=is_inactive,
+                ),
             )
         )
     return tuple(out)
@@ -4905,6 +4982,13 @@ def _build_fuel_offtake_caps_ucs(
                 expression=expression,
                 rhs_profile=rhs_profile,
                 penalty=_FUEL_OFFTAKE_SOFT_PENALTY,
+                description=(
+                    f"PLEXOS weekly fuel-offtake cap 'FueMaxOff_{fuel_name}': "
+                    "Σ heat_rate·generation [fuel-energy/h] ≤ max_offtake — "
+                    "weekly LNG/gas budget per band (per-block uniform split), "
+                    "soft-priced as the 'buy incremental fuel' signal "
+                    "(File: Fuel_MaxOfftakeWeek.csv)"
+                ),
             )
         )
     if out:
@@ -5082,7 +5166,7 @@ def _build_plant_cap_ucs(
             return max(g.pmax_profile)
         return g.pmax or 0.0
 
-    def _emit_cap(name: str, variants: list[GeneratorSpec]) -> bool:
+    def _emit_cap(name: str, variants: list[GeneratorSpec], description: str) -> bool:
         active = [v for v in variants if _peak_pmax(v) > 0.0]
         if len(active) < 2:
             return False
@@ -5095,6 +5179,7 @@ def _build_plant_cap_ucs(
                 name=name,
                 expression=" + ".join(terms) + f" <= {cap:.6f}",
                 penalty=10000.0,
+                description=description,
             )
         )
         return True
@@ -5108,7 +5193,15 @@ def _build_plant_cap_ucs(
     for uniq_name, members in mutex_groups:
         variants = [spec_by_name[n] for n in members if n in spec_by_name]
         stem = uniq_name[:-5] if uniq_name.endswith("_Uniq") else uniq_name
-        if _emit_cap(f"PlantCap_{stem}", variants):
+        desc = (
+            f"Combined-cycle config exclusivity (synth from PLEXOS "
+            f"'{uniq_name}' mutex group): Σ generation [MW] over all "
+            f"{len(variants)} (config × fuel-band) variants of the physical "
+            f"plant ≤ its largest single-config pmax — stops the LP "
+            f"co-dispatching mutually-exclusive configurations "
+            f"(File: DBSEN_PRGDIARIO.xml)"
+        )
+        if _emit_cap(f"PlantCap_{stem}", variants, desc):
             n_mutex += 1
             covered.update(v.name for v in variants if _peak_pmax(v) > 0.0)
 
@@ -5118,7 +5211,13 @@ def _build_plant_cap_ucs(
     for stem, variants in sorted(families.items()):
         if any(v.name in covered for v in variants):
             continue
-        _emit_cap(f"PlantCap_{stem}", variants)
+        desc = (
+            f"Multi-fuel-band plant cap (synth, no PLEXOS '_Uniq' present): "
+            f"Σ generation [MW] over the fuel-band variants of '{stem}' ≤ the "
+            f"single-config pmax — caps fuel-band arbitrage within one config "
+            f"(File: DBSEN_PRGDIARIO.xml)"
+        )
+        _emit_cap(f"PlantCap_{stem}", variants, desc)
 
     if out:
         logger.info(
