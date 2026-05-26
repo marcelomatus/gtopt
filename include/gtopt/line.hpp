@@ -157,6 +157,16 @@ struct Line
 
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
+  /// Per-(stage, block) in-service flag mirroring PLEXOS ``Line.Units``
+  /// (the ``Lin_Units.csv`` DataFile): ``1`` = line in service, ``0`` =
+  /// line out (maintenance / forced outage) for that block.  Unlike the
+  /// per-stage ``active`` element-activation flag, this resolves at block
+  /// granularity so an intra-stage maintenance window can be modelled.
+  /// When a block resolves to ``0`` the LP emits **no** flow column,
+  /// capacity row, loss segment, balance contribution, or KVL angle row
+  /// for that block — the line is a true open circuit and its two buses
+  /// are decoupled.  Absent (default) = in service in every block.
+  OptTBIntBoolFieldSched in_service {};
   /// Thermal-limit enforcement mode, mirroring PLEXOS's
   /// ``Line.Enforce Limits`` property:
   ///

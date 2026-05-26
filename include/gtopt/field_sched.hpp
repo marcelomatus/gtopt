@@ -45,6 +45,13 @@ using FieldSched2 = FieldSched<Type, Vector2>;
 using RealFieldSched2 = FieldSched2<double>;
 using OptRealFieldSched2 = std::optional<RealFieldSched2>;
 
+// Two-level (stage, block) IntBool schedule — the per-block analog of the
+// single-level `IntBoolFieldSched` used by `Active`.  Backs per-block binary
+// flags such as `Line.in_service` (line open/closed by block) without
+// touching the per-stage `active` element-activation schedule.
+using IntBoolFieldSched2 = FieldSched2<IntBool>;
+using OptIntBoolFieldSched2 = std::optional<IntBoolFieldSched2>;
+
 template<typename Type,
          typename Vector3 = std::vector<std::vector<std::vector<Type>>>>
 using FieldSched3 = FieldSched<Type, Vector3>;
@@ -61,6 +68,9 @@ using OptTRealFieldSched = OptRealFieldSched;
 using OptTBRealFieldSched = OptRealFieldSched2;
 using OptSTRealFieldSched = OptRealFieldSched2;
 using OptSTBRealFieldSched = OptRealFieldSched3;
+
+using TBIntBoolFieldSched = IntBoolFieldSched2;
+using OptTBIntBoolFieldSched = OptIntBoolFieldSched2;
 
 // ─── Diagnostics: in-memory footprint of a FieldSched ───────────────────────
 //

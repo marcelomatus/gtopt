@@ -68,4 +68,12 @@ using jvtl_TBRealFieldSched = jvtl_RealFieldSched2;
 using jvtl_STBRealFieldSched = jvtl_RealFieldSched3;
 using jvtl_TRealFieldSched = jvtl_RealFieldSched1;
 
+using gtopt::OptTBIntBoolFieldSched;
+using gtopt::TBIntBoolFieldSched;
+using jvtl_IntBoolFieldSched2 =
+    json_variant_type_list<IntBool,
+                           json_link_no_name<std::vector<std::vector<IntBool>>>,
+                           FileSched>;
+using jvtl_TBIntBoolFieldSched = jvtl_IntBoolFieldSched2;
+
 }  // namespace daw::json

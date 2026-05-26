@@ -219,6 +219,11 @@ public:
 private:
   OptTBRealSched tmax_ba;
   OptTBRealSched tmax_ab;
+  /// Per-(stage, block) in-service flag (PLEXOS ``Line.Units``).  When a
+  /// block resolves to ``0`` the line is open for that block: no flow
+  /// column, capacity row, loss segment, balance contribution, or KVL
+  /// row is emitted.  Absent ⇒ in service in every block.
+  OptTBIntBoolSched in_service;
   OptTBRealSched tmax_normal_ba;
   OptTBRealSched tmax_normal_ab;
   OptTBRealSched tcost;

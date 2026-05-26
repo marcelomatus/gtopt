@@ -11,7 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from plexos2gtopt.entities import BundleSpec
+from plexos2gtopt.entities import GeneratorSpec, PlexosCase
 from plexos2gtopt.parsers import (
+    _build_plant_cap_ucs,
     extract_batteries,
     extract_demands,
     extract_fuels,
@@ -1172,3 +1174,55 @@ def test_extract_reservoirs_finite_water_value_is_passthrough(tmp_path: Path) ->
     res = out[0]
     assert res.never_drain is False
     assert res.water_value == 10000.0
+
+
+def test_build_plant_cap_ucs_uniq_mutex_group_config_exclusivity() -> None:
+    """F1: a PLEXOS ``*_Uniq`` mutex group caps Σ over ALL config × band
+    variants of one physical plant at the largest config's pmax (config
+    exclusivity), and the fuel-band fallback does NOT re-cap covered gens.
+    """
+    gens = (
+        # Plant P: config -TG (pmax 100) and -TG+TV (pmax 250), 2 bands each.
+        GeneratorSpec(object_id=1, name="P-TG_GN_A", bus_name="b", pmax=100.0),
+        GeneratorSpec(object_id=2, name="P-TG_GN_B", bus_name="b", pmax=100.0),
+        GeneratorSpec(object_id=3, name="P-TG+TV_GN_A", bus_name="b", pmax=250.0),
+        GeneratorSpec(object_id=4, name="P-TG+TV_GN_B", bus_name="b", pmax=250.0),
+        # Plant Q: single config, 2 fuel bands, NO _Uniq → fallback cap only.
+        GeneratorSpec(object_id=5, name="Q_GN_A", bus_name="b", pmax=50.0),
+        GeneratorSpec(object_id=6, name="Q_GN_B", bus_name="b", pmax=50.0),
+    )
+    case = PlexosCase(bundle=None, generators=gens)  # type: ignore[arg-type]
+    mutex = (
+        (
+            "P_Uniq",
+            frozenset({"P-TG_GN_A", "P-TG_GN_B", "P-TG+TV_GN_A", "P-TG+TV_GN_B"}),
+        ),
+    )
+    ucs = _build_plant_cap_ucs(case, mutex)
+    by_name = {u.name: u for u in ucs}
+
+    # Config-exclusivity cap over ALL 4 P variants, capped at max pmax 250.
+    assert "PlantCap_P" in by_name
+    expr = by_name["PlantCap_P"].expression
+    for n in ("P-TG_GN_A", "P-TG_GN_B", "P-TG+TV_GN_A", "P-TG+TV_GN_B"):
+        assert f'generator("{n}").generation' in expr
+    assert expr.endswith("<= 250.000000")
+
+    # The P variants are capped by exactly ONE UC (no fuel-band double-cap).
+    assert sum(1 for u in ucs if "P-TG_GN_A" in u.expression) == 1
+
+    # Plant Q (no _Uniq) still gets a fuel-band fallback cap at its pmax 50.
+    assert "PlantCap_Q" in by_name
+    assert by_name["PlantCap_Q"].expression.endswith("<= 50.000000")
+
+
+def test_build_plant_cap_ucs_no_mutex_falls_back_to_fuel_bands() -> None:
+    """Without any ``_Uniq`` group, the legacy fuel-band family cap still
+    fires (one cap per multi-band single-config family)."""
+    gens = (
+        GeneratorSpec(object_id=1, name="R_GN_A", bus_name="b", pmax=80.0),
+        GeneratorSpec(object_id=2, name="R_GN_B", bus_name="b", pmax=80.0),
+    )
+    case = PlexosCase(bundle=None, generators=gens)  # type: ignore[arg-type]
+    ucs = _build_plant_cap_ucs(case, ())
+    assert any(u.name == "PlantCap_R" for u in ucs)

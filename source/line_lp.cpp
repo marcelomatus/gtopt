@@ -16,6 +16,7 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     : CapacityBase(pline, ic, Element::class_name)
     , tmax_ba(ic, Element::class_name, id(), std::move(line().tmax_ba))
     , tmax_ab(ic, Element::class_name, id(), std::move(line().tmax_ab))
+    , in_service(ic, Element::class_name, id(), std::move(line().in_service))
     , tmax_normal_ba(
           ic, Element::class_name, id(), std::move(line().tmax_normal_ba))
     , tmax_normal_ab(
@@ -225,6 +226,17 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
+    // Per-block in-service flag (PLEXOS ``Line.Units`` / ``Lin_Units.csv``).
+    // A block resolving to ``0`` (False) means the line is out for that
+    // block (maintenance / forced outage): emit nothing — no flow column,
+    // capacity row, loss segment, balance contribution, or (downstream)
+    // KVL row.  The kirchhoff pass skips blocks with no flow column, so
+    // the two buses are genuinely decoupled — a true open circuit, not a
+    // ``tmax=0`` short (which would instead pin θ_a = θ_b).  Absent
+    // schedule ⇒ in service.
+    if (in_service.at(stage.uid(), buid).value_or(True) == False) {
+      continue;
+    }
     auto& brow_a = lp.row_at(balance_rows_a.at(buid));
     auto& brow_b = lp.row_at(balance_rows_b.at(buid));
 

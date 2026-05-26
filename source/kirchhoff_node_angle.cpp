@@ -82,6 +82,17 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
 
   for (const auto& block : blocks) {
     const auto buid = block.uid();
+    // Skip the KVL row for any block with no flow column.  LineLP omits
+    // the flow column when the line is open for this block (e.g. out of
+    // service via ``Line.in_service`` / ``Lin_Units.csv``).  Emitting the
+    // row anyway would leave ``-θ_a + θ_b = -φ``, forcing θ_a = θ_b — a
+    // zero-impedance short instead of an open circuit.  Skipping it keeps
+    // the two bus angles decoupled (true open line).
+    const bool has_flow = fpcols.contains(buid) || fncols.contains(buid)
+        || fpsegcols.contains(buid) || fnsegcols.contains(buid);
+    if (!has_flow) {
+      continue;
+    }
     auto trow =
         SparseRow {
             .class_name = inputs.class_name,

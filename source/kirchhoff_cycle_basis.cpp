@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
+#include <algorithm>
 #include <cassert>
 #include <numbers>
 #include <optional>
@@ -341,6 +342,28 @@ std::size_t add_kvl_rows(const SystemContext& sc,
   for (const auto& cycle : cycles) {
     for (const auto& block : blocks) {
       const auto buid = block.uid();
+
+      // If any line in this cycle is out of service for this block (no
+      // flow column emitted by LineLP — e.g. ``Line.in_service``=0 from
+      // ``Lin_Units.csv``), the loop is physically open and KVL does not
+      // apply: drop the entire cycle row for this block.  Summing the
+      // surviving branches instead would impose a spurious constraint on
+      // the now-radial path.  (A line out for all blocks is already
+      // excluded from the cycle topology via ``is_active``; this guard
+      // covers the per-block — intra-stage — maintenance window case.)
+      const bool cycle_intact = std::ranges::all_of(
+          cycle,
+          [&](const auto& ce)
+          {
+            const auto* edge_line = resolved[ce.line_index].line;
+            return edge_line->flowp_cols_at(scenario, stage).contains(buid)
+                || edge_line->flown_cols_at(scenario, stage).contains(buid)
+                || edge_line->flowp_seg_cols_at(scenario, stage).contains(buid)
+                || edge_line->flown_seg_cols_at(scenario, stage).contains(buid);
+          });
+      if (!cycle_intact) {
+        continue;
+      }
 
       double rhs = 0.0;
       auto row =

@@ -122,6 +122,11 @@ public:
 using ActiveSched = Schedule<IntBool, StageUid>;
 using OptActiveSched = OptSchedule<IntBool, StageUid>;
 
+// Per-(stage, block) IntBool schedule — the block-resolved analog of
+// `ActiveSched`.  Backs `Line.in_service` (line open/closed per block).
+using TBIntBoolSched = Schedule<IntBool, StageUid, BlockUid>;
+using OptTBIntBoolSched = OptSchedule<IntBool, StageUid, BlockUid>;
+
 using TRealSched = Schedule<Real, StageUid>;
 using STRealSched = Schedule<Real, ScenarioUid, StageUid>;
 using TBRealSched = Schedule<Real, StageUid, BlockUid>;

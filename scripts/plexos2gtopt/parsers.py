@@ -4964,11 +4964,63 @@ def _detect_plant_families(
     }
 
 
+def _extract_config_mutex_groups(db: PlexosDb) -> list[tuple[str, frozenset[str]]]:
+    """Mutually-exclusive generation-variant groups from PLEXOS ``*_Uniq``
+    Constraint objects (config exclusivity, F1).
+
+    Each ``<plant>_Uniq`` Constraint lists EVERY (configuration ×
+    fuel-band) generation variant of one physical combined-cycle plant
+    (e.g. ``SANISIDRO_Uniq`` → all 39 SAN_ISIDRO variants).  They are
+    mutually exclusive — sharing the same physical turbines — so at most
+    one configuration's worth of capacity can run at a time.
+
+    This is the DATA-DRIVEN source for the config-exclusivity cap: a
+    name-heuristic that merges by plant stem would wrongly merge
+    genuinely-parallel units (e.g. ``HUASCO`` U3/U4/U5, which carry NO
+    ``_Uniq``).  Returns ``[(uniq_name, frozenset(member_gen_names)), …]``
+    for groups with ≥ 2 members.
+    """
+    constraints = db.objects_of_class("Constraint")
+    uniq = {c.object_id: c.name for c in constraints if c.name.endswith("_Uniq")}
+    if not uniq:
+        return []
+    gen_coll = db.collection_for_named("Generator", "Constraint", "Constraints")
+    if gen_coll is None:
+        return []
+    objs = db.object_by_id()
+    constr_to_gens: dict[int, list[str]] = {}
+    for gen_oid, constr_oids in db.parent_to_children(gen_coll.collection_id).items():
+        gen = objs.get(gen_oid)
+        if gen is None:
+            continue
+        for coid in constr_oids:
+            if coid in uniq:
+                constr_to_gens.setdefault(coid, []).append(gen.name)
+    groups: list[tuple[str, frozenset[str]]] = []
+    for coid, name in sorted(uniq.items(), key=lambda kv: kv[1]):
+        gens = constr_to_gens.get(coid, [])
+        if len(gens) >= 2:
+            groups.append((name, frozenset(gens)))
+    return groups
+
+
 def _build_plant_cap_ucs(
     case: PlexosCase,
+    mutex_groups: tuple[tuple[str, frozenset[str]], ...] = (),
 ) -> tuple[UserConstraintSpec, ...]:
-    """Synthesise ``PlantCap_<stem>`` UserConstraints, one per multi-
-    config plant family.
+    """Synthesise ``PlantCap_<stem>`` UserConstraints capping a plant's
+    summed variant generation at its single-config envelope.
+
+    Two sources, in priority order:
+
+    1. **Config exclusivity (F1)** — one cap per PLEXOS ``*_Uniq`` mutex
+       group (``mutex_groups``): Σ over EVERY (config × band) variant of
+       a physical plant ≤ the largest config's pmax.  This is what stops
+       the LP co-dispatching multiple configurations of one combined-
+       cycle plant (the ATA / SAN_ISIDRO dispatch divergence).
+    2. **Fuel-band fallback** — the legacy name-heuristic family cap, for
+       gens NOT already covered by a ``_Uniq`` group (caps fuel-band
+       arbitrage within a single configuration).
 
     Each emitted UC has the form
 
@@ -4981,40 +5033,62 @@ def _build_plant_cap_ucs(
     LP infeasible.  ``active`` defaults to ``True`` (the UC binds in
     every block).
     """
-    families = _detect_plant_families(case.generators)
-    out: list[UserConstraintSpec] = []
-    for stem, variants in sorted(families.items()):
+
+    def _peak_pmax(g: GeneratorSpec) -> float:
         # Effective per-variant cap = peak over horizon (Gen_Rating
         # profile if present, else scalar pmax).
-        def _peak_pmax(g: GeneratorSpec) -> float:
-            if g.pmax_profile:
-                return max(g.pmax_profile)
-            return g.pmax or 0.0
+        if g.pmax_profile:
+            return max(g.pmax_profile)
+        return g.pmax or 0.0
 
-        active_variants = [v for v in variants if _peak_pmax(v) > 0.0]
-        if len(active_variants) < 2:
-            continue
-        cap = max(_peak_pmax(v) for v in active_variants)
+    def _emit_cap(name: str, variants: list[GeneratorSpec]) -> bool:
+        active = [v for v in variants if _peak_pmax(v) > 0.0]
+        if len(active) < 2:
+            return False
+        cap = max(_peak_pmax(v) for v in active)
         if cap <= 0.0:
-            continue
-
-        terms = [f'1 * generator("{v.name}").generation' for v in active_variants]
-        expression = " + ".join(terms) + f" <= {cap:.6f}"
+            return False
+        terms = [f'1 * generator("{v.name}").generation' for v in active]
         out.append(
             UserConstraintSpec(
-                name=f"PlantCap_{stem}",
-                expression=expression,
+                name=name,
+                expression=" + ".join(terms) + f" <= {cap:.6f}",
                 penalty=10000.0,
             )
         )
+        return True
+
+    spec_by_name = {g.name: g for g in case.generators}
+    out: list[UserConstraintSpec] = []
+    covered: set[str] = set()
+    n_mutex = 0
+
+    # 1. Config-exclusivity caps from PLEXOS ``*_Uniq`` mutex groups.
+    for uniq_name, members in mutex_groups:
+        variants = [spec_by_name[n] for n in members if n in spec_by_name]
+        stem = uniq_name[:-5] if uniq_name.endswith("_Uniq") else uniq_name
+        if _emit_cap(f"PlantCap_{stem}", variants):
+            n_mutex += 1
+            covered.update(v.name for v in variants if _peak_pmax(v) > 0.0)
+
+    # 2. Fuel-band fallback caps, skipping gens already covered by a
+    #    ``_Uniq`` group (whose cross-config cap subsumes them).
+    families = _detect_plant_families(case.generators)
+    for stem, variants in sorted(families.items()):
+        if any(v.name in covered for v in variants):
+            continue
+        _emit_cap(f"PlantCap_{stem}", variants)
+
     if out:
         logger.info(
             "synthesised %d PlantCap_* UserConstraint(s) "
-            "(one per multi-fuel-band Generator family; caps Σ "
-            "variant.generation at the family's max single-config "
-            "pmax to prevent LP from dispatching mutually-exclusive "
-            "configurations simultaneously)",
+            "(%d config-exclusivity from PLEXOS `_Uniq` mutex groups + "
+            "%d fuel-band fallback families); each caps Σ variant."
+            "generation at the single-config pmax envelope to stop the "
+            "LP co-dispatching mutually-exclusive configurations.",
             len(out),
+            n_mutex,
+            len(out) - n_mutex,
         )
     return tuple(out)
 
@@ -5501,11 +5575,14 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     case = dataclasses.replace(
         case, fuels=_apply_native_fuel_offtake_caps(bundle, case.fuels)
     )
-    # Plant-family configuration caps — one per multi-fuel-band
-    # Generator family (SAN_ISIDRO_2-TG+TV, QUINTERO_1A, NEHUENCO_2-TG,
-    # NUEVA_RENCA-TG+TV, etc.).  Closes the PLEXOS configuration-
-    # exclusivity gap when no ``ConfTG`` UC is present.
-    plant_cap_ucs = _build_plant_cap_ucs(case)
+    # Plant-family configuration caps.  Source 1: PLEXOS ``*_Uniq`` mutex
+    # groups (data-driven config exclusivity across configurations of one
+    # physical combined-cycle plant — SAN_ISIDRO, QUINTERO, NEHUENCO, …).
+    # Source 2: name-heuristic fuel-band families for the rest.  Closes
+    # the configuration-exclusivity gap that let the LP co-dispatch
+    # mutually-exclusive configurations of the same plant.
+    mutex_groups = tuple(_extract_config_mutex_groups(db))
+    plant_cap_ucs = _build_plant_cap_ucs(case, mutex_groups)
     case = dataclasses.replace(
         case,
         user_constraints=(tuple(base_ucs) + tuple(hydro_ucs) + tuple(plant_cap_ucs)),
