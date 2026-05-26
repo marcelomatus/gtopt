@@ -391,6 +391,17 @@ def build_generator_array(
         else:
             entry["pmax"] = gen.pmax
 
+        # PLEXOS ``Auxiliary Use`` (Gen_AuxUse.csv) → gtopt
+        # ``Generator.lossfactor``: the LP injects ``(1 − lossfactor) ×
+        # generation`` to the bus (generator_lp: ``brow[gcol] = 1 −
+        # lossfactor``), so station-service self-consumption is modelled
+        # exactly — gross generation is still dispatched and costed at
+        # ``gcost``, but only the net reaches the grid.  Preferred over a
+        # ``pmax`` derate, which would wrongly shrink the gross cap and
+        # price fuel on net output.
+        if 0.0 < gen.aux_use < 1.0:
+            entry["lossfactor"] = gen.aux_use
+
         # PLEXOS ``Generator.Fixed Load`` (Gen_FixedLoad.csv): per-period
         # *required generation* (PLEXOS fixes the generation variable to
         # this value).  We honour it ONLY at blocks where
@@ -2270,6 +2281,29 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
     }
+    # End-of-horizon future-cost valuation.  The ``boundary_cuts.csv``
+    # path only binds under SDDP; for the monolithic LP we encode the
+    # same FCF hyperplane explicitly as an ``alpha_fcf`` variable + a
+    # ``FCF_future_cost`` user constraint, which DOES bind in monolithic.
+    if case.boundary_cut is not None:
+        reservoir_names = frozenset(
+            r["name"] for r in system.get("reservoir_array", [])
+        )
+        dv_arr = system.setdefault("decision_variable_array", [])
+        uc_arr = system.setdefault("user_constraint_array", [])
+        next_dv_uid = max((int(v["uid"]) for v in dv_arr), default=0) + 1
+        next_uc_uid = max((int(u["uid"]) for u in uc_arr), default=0) + 1
+        fcf_terms = build_fcf_alpha_terms(
+            case.boundary_cut,
+            reservoir_names,
+            dv_uid=next_dv_uid,
+            uc_uid=next_uc_uid,
+            horizon_hours=float(DEFAULT_BLOCK_COUNT) * case.bundle.n_days,
+        )
+        if fcf_terms is not None:
+            alpha_dv, fcf_uc = fcf_terms
+            dv_arr.append(alpha_dv)
+            uc_arr.append(fcf_uc)
     # ── Default soft-EL=1 augmentation ────────────────────────────────
     # When the caller did NOT pass ``--lift-line-caps`` (empty env var),
     # add a parallel slack line on every EL=1 line so the LP has a
@@ -2363,6 +2397,80 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
         installed.append(dst)
         logger.info("installed solver param file: %s", dst)
     return installed
+
+
+# Conditioning scale for the future-cost (alpha) column — mirrors the
+# magnitude gtopt's SDDP uses (scale_alpha) so the ~1e9 cost-to-go lands
+# on a well-scaled column relative to ``scale_objective``.
+_FCF_SCALE_ALPHA = 1.0e5
+
+
+def build_fcf_alpha_terms(
+    boundary_cut: BoundaryCutSpec,
+    reservoir_names: frozenset[str],
+    *,
+    dv_uid: int,
+    uc_uid: int,
+    horizon_hours: float,
+    scale_alpha: float = _FCF_SCALE_ALPHA,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Encode the FCF boundary cut as an alpha variable + user constraint.
+
+    gtopt's ``boundary_cuts_file`` loader only feeds the SDDP path; in
+    the monolithic LP the loaded cut is inert.  So we encode the same
+    future-cost hyperplane explicitly, which DOES bind in monolithic:
+
+      * a non-negative ``alpha_fcf`` DecisionVariable carrying the
+        future cost.  Its objective ``cost = scale_alpha`` so the column
+        represents ``alpha' = future_cost / scale_alpha`` (~1e4) and
+        stays well-conditioned against the raw ~1e9 cost-to-go.
+      * a UserConstraint
+          ``scale_alpha · alpha_fcf + Σ wv_r · reservoir(r).efin >= FCF``
+        i.e. ``alpha_fcf >= (FCF − Σ wv·efin) / scale_alpha``.  The
+        objective then pays ``FCF − Σ wv·efin``, rewarding terminal
+        storage at each reservoir's water value — exactly PLEXOS's FCF
+        first-order effect.  ``FCF`` is a constant offset; the slopes
+        ``wv_r`` drive the hydro/thermal trade-off.
+
+    Returns ``(alpha_dv, fcf_uc)`` dicts, or ``None`` when no slope maps
+    onto a bundle reservoir.
+    """
+    cols = [
+        (name, boundary_cut.slopes[name])
+        for name in boundary_cut.slopes
+        if name in reservoir_names
+    ]
+    if not cols:
+        return None
+    # ``alpha_fcf`` is a per-(stage, block) DecisionVariable whose
+    # objective cost is duration-weighted and summed over every block,
+    # so a flat ``cost = scale_alpha`` would count the single
+    # end-of-horizon future cost once PER HORIZON HOUR (≈168× on the CEN
+    # PCP week).  Divide by the horizon hours so the duration-weighted
+    # sum collapses back to exactly one future-cost term.
+    horizon = horizon_hours if horizon_hours > 0.0 else 1.0
+    alpha_dv = {
+        "uid": dv_uid,
+        "name": "alpha_fcf",
+        "lower_bound": 0.0,
+        "cost": scale_alpha / horizon,
+    }
+    terms = [f'{scale_alpha:g} * decision_variable("alpha_fcf").value']
+    terms += [f'{wv:.6f} * reservoir("{name}").efin' for name, wv in cols]
+    expr = " + ".join(terms) + f" >= {boundary_cut.fcf:.6f}"
+    fcf_uc = {
+        "uid": uc_uid,
+        "name": "FCF_future_cost",
+        "expression": expr,
+    }
+    logger.info(
+        "FCF future-cost: alpha_fcf (cost=%.0f) + %d reservoir water-value "
+        "terms >= %.3e",
+        scale_alpha,
+        len(cols),
+        boundary_cut.fcf,
+    )
+    return alpha_dv, fcf_uc
 
 
 def write_boundary_cut_csv(

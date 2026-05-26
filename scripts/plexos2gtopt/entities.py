@@ -130,6 +130,11 @@ class GeneratorSpec:
     bus_name: str
     pmin: float = 0.0
     pmax: float = 0.0
+    # PLEXOS ``Auxiliary Use`` (``Gen_AuxUse.csv``): fraction of gross
+    # generation consumed by station service (e.g. 0.068 = 6.8%).  The
+    # writer derates net capacity by ``(1 − aux_use)`` so gtopt's
+    # injected MW matches PLEXOS's net-of-auxiliary output.  0 ⇒ none.
+    aux_use: float = 0.0
     heat_rate: float = 0.0
     vom_charge: float = 0.0
     fuel_transport: float = 0.0
@@ -230,6 +235,12 @@ class LineSpec:
     # PLEXOS itself runs hardest.  Carries PLEXOS-like over-flow for free
     # yet can't teleport.
     soft_cap_lifted: bool = False
+    # Per-period in-service flag from PLEXOS ``Lin_Units.csv`` (1 = in
+    # service, 0 = out for maintenance / forced outage).  Length =
+    # ``bundle.n_days × 24``; empty ⇒ always in service.  The writer
+    # aggregates this to per-block ``Line.in_service`` so an intra-stage
+    # outage window opens the line for those blocks only.
+    in_service_profile: tuple[int, ...] = field(default_factory=tuple)
     units: int = 1
     reactance: float = 0.0
     wheeling_charge: float = 0.0
@@ -659,6 +670,22 @@ class ReserveProvisionSpec:
 
 
 @dataclass(frozen=True)
+class BoundaryCutSpec:
+    """One end-of-horizon future-cost (boundary) cut.
+
+    Mirrors a single row of PLEXOS ``Hydro_StoWaterValues.csv``: the
+    ``FCF`` value is the cut intercept (``rhs``); ``slopes`` maps each
+    reservoir name to its water value ($/GWh).  Emitted to gtopt as a
+    ``boundary_cuts.csv`` row ``scene,rhs,<res...>`` with coefficients
+    ``-water_value`` (more stored water ⇒ lower future cost) on each
+    reservoir's terminal-volume state variable.
+    """
+
+    fcf: float
+    slopes: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PlexosCase:
     """The full set of parsed entities for one bundle.
 
@@ -684,3 +711,8 @@ class PlexosCase:
     flow_rights: tuple[FlowRightSpec, ...] = field(default_factory=tuple)
     decision_variables: tuple[DecisionVariableSpec, ...] = field(default_factory=tuple)
     user_constraints: tuple[UserConstraintSpec, ...] = field(default_factory=tuple)
+    # Single end-of-horizon boundary (future-cost) cut from PLEXOS
+    # ``Hydro_StoWaterValues.csv``: FCF intercept + per-reservoir water
+    # values (the SDDP terminal value function).  ``None`` when the
+    # bundle ships no water-value file.
+    boundary_cut: BoundaryCutSpec | None = None

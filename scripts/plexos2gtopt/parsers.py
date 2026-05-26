@@ -15,6 +15,7 @@ orchestrates the full set and returns one :class:`PlexosCase`.
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import logging
 import math
@@ -881,6 +882,21 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         if bundle.has("Gen_UnitsOut.csv")
         else {}
     )
+    # ``Gen_AuxUse.csv`` (PLEXOS ``Auxiliary Use``): per-generator scalar
+    # ``Name,Value`` fraction of gross generation consumed by station
+    # service.  The writer derates net capacity by ``(1 − aux)`` so
+    # gtopt's injected MW matches PLEXOS's net-of-auxiliary output.
+    aux_use_map: dict[str, float] = {}
+    if bundle.has("Gen_AuxUse.csv"):
+        with bundle.csv("Gen_AuxUse.csv").open(encoding="utf-8", newline="") as _aux_fh:
+            for _row in csv.DictReader(_aux_fh):
+                _nm = (_row.get("Name") or "").strip()
+                try:
+                    _val = float(_row.get("Value", "0") or "0")
+                except ValueError:
+                    continue
+                if _nm and 0.0 < _val < 1.0:
+                    aux_use_map[_nm] = _val
     # ``Gen_Commit.csv`` is loaded and applied on the commitment
     # side (``extract_commitments`` skips gens with ALL values = -1).
     # Initial generation is per-generator scalar (PLEXOS ships only
@@ -1283,6 +1299,7 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 bus_name=bus_name,
                 pmin=pmin,
                 pmax=pmax,
+                aux_use=aux_use_map.get(gen.name, 0.0),
                 heat_rate=heat_rate,
                 vom_charge=vom,
                 fuel_transport=fuel_transport,
