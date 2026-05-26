@@ -68,7 +68,7 @@ private:
                 auto&& rcost);
 
     OptTBRealSched req;
-    OptTRealSched cost;
+    OptTBRealSched cost;
     STBIndexHolder<ColIndex> requirement_cols;
     STBIndexHolder<RowIndex> requirement_rows;
   } rr;

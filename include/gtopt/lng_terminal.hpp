@@ -123,7 +123,10 @@ struct LngTerminal
                                 ///< schedule.
   OptTBRealFieldSched emax {};  ///< Maximum tank level [m³] — same shapes
                                 ///< as ``emin``.
-  OptTRealFieldSched ecost {};  ///< Storage holding cost [$/m³]
+  OptTBRealFieldSched ecost {};  ///< Storage holding cost [$/m³] —
+                                 ///< per-(stage, block); accepts a scalar
+                                 ///< (broadcasts), a 2-D nested array,
+                                 ///< or a file-backed schedule.
   OptReal eini {};  ///< Initial tank level [m³]
   OptReal efin {};  ///< End-of-horizon minimum level [m³]
   OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
@@ -151,11 +154,17 @@ struct LngTerminal
   // ── SDDP state coupling ────────────────────────────────────────────────
   OptBool use_state_variable {};  ///< Propagate tank level across stages
   OptReal mean_production_factor {};  ///< [MWh/m³] for scost computation
-  OptTRealFieldSched scost {};  ///< State penalty [$/m³]
+  OptTBRealFieldSched scost {};  ///< State penalty [$/m³] —
+                                 ///< per-(stage, block).
 
   // ── Soft minimum ───────────────────────────────────────────────────────
-  OptTRealFieldSched soft_emin {};  ///< Soft minimum tank level [m³]
-  OptTRealFieldSched soft_emin_cost {};  ///< Penalty for soft_emin [$/m³]
+  OptTBRealFieldSched soft_emin {};  ///< Soft minimum tank level [m³] —
+                                     ///< per-(stage, block); accepts a
+                                     ///< scalar (broadcasts), a 2-D
+                                     ///< nested array, or a file-backed
+                                     ///< schedule.
+  OptTBRealFieldSched soft_emin_cost {};  ///< Penalty for soft_emin [$/m³] —
+                                          ///< per-(stage, block).
 
   // ── Flow conversion ────────────────────────────────────────────────────
   OptReal flow_conversion_rate {};  ///< Converts m³/h × h → m³ (default 1.0)

@@ -12,7 +12,7 @@
  * - C3 (exclusion): v[t] + w[t] ≤ 1
  *
  * Also handles emission cost adder on the generation variable when the
- * generator has an emission_factor and the system defines emission_cost.
+ * generator has an emission_rate and the system defines emission_cost.
  */
 
 #pragma once
@@ -58,6 +58,20 @@ public:
     return GeneratorLPSId {commitment().generator};
   }
 
+  /// Tolerant lookup of the per-block status (u) columns for a given
+  /// (scenario, stage).  Returns nullptr when the commitment is
+  /// inactive for that cell or has no status columns yet (e.g.,
+  /// add_to_lp not yet called on this scenario/stage).  Used by
+  /// ``ReserveProvisionLP::add_to_lp`` to inject the
+  /// ``provision_col - urmin × u_commit ≥ 0`` linkage row that
+  /// gates PLEXOS-style ``Min Provision`` by the commit binary.
+  [[nodiscard]] const BIndexHolder<ColIndex>* find_status_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto it = status_cols_.find({scenario.uid(), stage.uid()});
+    return it != status_cols_.end() ? &it->second : nullptr;
+  }
+
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
@@ -69,13 +83,15 @@ private:
   ElementIndex<GeneratorLP> generator_index_;
   OptTRealSched startup_cost_;
   OptTRealSched shutdown_cost_;
-  OptTRealSched fuel_cost_;
-  OptTRealSched fuel_emission_factor_;
   /// Per-(stage, block) forced commitment schedule.  When set at a
   /// given block, the u column's bounds are pinned to that value
   /// (interpreted as 0 = off, 1 = on); blocks where the schedule has
   /// no entry leave u free (or governed by ``must_run``).
   OptTBRealSched fixed_status_;
+  /// Per-(stage, block) minimum stable level when committed [MW]
+  /// (PLEXOS ``Min Stable Level`` time series).  Resolved block-by-
+  /// block; unset blocks fall back to the gen column lower bound.
+  OptTBRealSched pmin_;
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> startup_cols_;
@@ -87,11 +103,10 @@ private:
   STBIndexHolder<RowIndex> ramp_up_rows_;
   STBIndexHolder<RowIndex> ramp_down_rows_;
 
-  /// Per-segment generation columns (outer key = segment index as int)
-  /// Each entry maps (scenario, stage) → block → ColIndex
-  std::vector<STBIndexHolder<ColIndex>> segment_cols_;
-  /// Linking rows: p - Pmin·u - Σ δ_k = 0
-  STBIndexHolder<RowIndex> segment_link_rows_;
+  // Piecewise-heat-rate cols and linking rows were removed from
+  // CommitmentLP on 2026-05-20 — that responsibility lives in
+  // GeneratorLP (Generator.pmax_segments + heat_rate_segments +
+  // fuel) as a pure-LP convex-slack formulation.
   STBIndexHolder<RowIndex> min_up_time_rows_;
   STBIndexHolder<RowIndex> min_down_time_rows_;
 

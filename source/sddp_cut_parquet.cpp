@@ -373,7 +373,18 @@ auto resolve_save_path(const std::string& filepath, bool append_mode)
     const auto& out = *open_result;
 
     parquet::WriterProperties::Builder props_builder;
-    props_builder.compression(parquet::Compression::SNAPPY);
+    // Codecs (snappy / lz4 / zstd) give essentially zero size
+    // reduction on cut tables — the row data is already mostly
+    // dense small doubles after parquet's RLE_DICTIONARY encoding.
+    // Skip the per-page codec framing overhead.
+    props_builder.compression(parquet::Compression::UNCOMPRESSED);
+    // Per-column min/max statistics are unused by the cut reader /
+    // SDDP recovery path; disabling them trims the per-file metadata
+    // footer.  Mirrors the same disable in `output_context.cpp`'s
+    // per-(scene, phase) parquet writer — keeps all gtopt-emitted
+    // parquets metadata-light by default.
+    props_builder.disable_statistics();
+    props_builder.disable_write_page_index();
     const auto props = props_builder.build();
 
     // `store_schema()` writes the Arrow schema (including its
@@ -451,7 +462,13 @@ auto resolve_save_path(const std::string& filepath, bool append_mode)
     const auto& out = *open_result;
 
     parquet::WriterProperties::Builder props_builder;
-    props_builder.compression(parquet::Compression::SNAPPY);
+    // Codecs (snappy / lz4 / zstd) give essentially zero size
+    // reduction on cut tables — the row data is already mostly
+    // dense small doubles after parquet's RLE_DICTIONARY encoding.
+    // Skip the per-page codec framing overhead.
+    props_builder.compression(parquet::Compression::UNCOMPRESSED);
+    props_builder.disable_statistics();  // see rationale at first writer above
+    props_builder.disable_write_page_index();
     const auto props = props_builder.build();
     if (auto s = parquet::arrow::WriteTable(*table,
                                             arrow::default_memory_pool(),

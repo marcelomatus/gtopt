@@ -464,9 +464,18 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   setup_trace_log(opts);
 
   try {
-    // Parse planning JSON files
-    auto parse_result =
-        parse_planning_files(opts.planning_files, opts.input_directory);
+    // Parse planning JSON files.  `opts.naming_dialect` arrives from the
+    // CLI flag `--naming-dialect <name>`; when set, the parse-time
+    // alias canonicalization emits a once-per-alias warning for any
+    // input key whose dialect tag differs.  Empty preserves the silent
+    // legacy behaviour.  A dialect set only via JSON (not CLI) is
+    // honoured at output rename time but does not trigger this input
+    // warn — surfacing that case would require a two-pass parse.
+    const std::string_view enforce_dialect = opts.naming_dialect.has_value()
+        ? std::string_view {*opts.naming_dialect}
+        : std::string_view {};
+    auto parse_result = parse_planning_files(
+        opts.planning_files, opts.input_directory, enforce_dialect);
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }

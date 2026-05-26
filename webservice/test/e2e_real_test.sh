@@ -105,7 +105,10 @@ LOG_DIR="$TEST_TMPDIR/logs"
 mkdir -p "$LOG_DIR"
 log "Starting web service on port $PORT with real gtopt binary..."
 cd "$WEBSERVICE_DIR"
+# See e2e_test.sh for rationale: force ``--write-out all`` so the c0
+# golden cost fixtures keep matching the gtopt lean default.
 GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
+  GTOPT_EXTRA_ARGS="--write-out all" \
   node_modules/.bin/next start -p "$PORT" --hostname 0.0.0.0 \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!

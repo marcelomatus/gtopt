@@ -41,7 +41,7 @@ def tiny_planning(tmp_path: Path) -> Path:
                     "pmin": 0,
                     "pmax": 100,
                     "gcost": 10.0,
-                    "emission_factor": 400.0,
+                    "emission_rate": 400.0,
                     "type": "thermal",
                 },
                 {
@@ -51,7 +51,7 @@ def tiny_planning(tmp_path: Path) -> Path:
                     "pmin": 0,
                     "pmax": 100,
                     "gcost": 80.0,
-                    "emission_factor": 700.0,
+                    "emission_rate": 700.0,
                     "type": "thermal",
                 },
             ],
@@ -134,5 +134,28 @@ def tiny_output_dir(tmp_path: Path) -> Path:
             "uid:2": [50.0],
         }
     ).to_csv(out / "Demand/load_sol.csv", index=False)
+
+    # Reduced cost on `generation`: g10 is interior at 50 MW (rc≈0,
+    # marginal), g20 is at its lower bound (rc = gcost − λ = 80 − 10 =
+    # 70).  Per-block SRMC: matches gcost on the primary segment.
+    pd.DataFrame(
+        {
+            "scenario": [1],
+            "stage": [1],
+            "block": [1],
+            "uid:10": [0.0],
+            "uid:20": [70.0],
+        }
+    ).to_csv(out / "Generator/generation_cost.csv", index=False)
+
+    pd.DataFrame(
+        {
+            "scenario": [1],
+            "stage": [1],
+            "block": [1],
+            "uid:10": [10.0],
+            "uid:20": [80.0],
+        }
+    ).to_csv(out / "Generator/srmc_sol.csv", index=False)
 
     return out

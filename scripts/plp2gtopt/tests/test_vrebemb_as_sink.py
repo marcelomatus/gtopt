@@ -225,13 +225,15 @@ def test_vrebemb_as_sink_non_vrebemb_unchanged():
 
 
 def test_vrebemb_as_sink_existing_ocean_drops_fcost():
-    """Vrebemb embalse with ser_ver = 0: _ver still goes to ocean, fcost dropped.
+    """Vrebemb embalse with ser_ver = 0: spillway encoded as junction drain.
 
-    LMAULE / RAPEL / CANUTILLAR / COLBUN already route ``_ver`` to a
-    synthetic ``<name>_ocean`` junction (they have ser_ver = 0); the
-    legacy spill-fallback path emits ``fmax = 1e30`` and
-    ``fcost = rebalse_cost``.  Flag ON drops both so the arc matches
-    PLP's qrb-to-sink semantics — uncapped, costless drain.
+    LMAULE / RAPEL / CANUTILLAR / COLBUN have ser_ver = 0; the
+    architectural fix collapses the legacy ``_ver → <central>_ocean``
+    arc + ocean Junction into ``Junction{drain: true}`` on the source.
+    Under ``--vrebemb-as-sink`` the rebalse cost is also dropped, so
+    ``drain_cost`` is omitted (no per-flow penalty) and
+    ``drain_capacity`` is omitted (PLP qrb-to-sink semantics:
+    uncapped, costless).
     """
     cent = _embalse_in_network("Term", 1, ser_hid=0, ser_ver=0)
     system = _run(
@@ -240,10 +242,14 @@ def test_vrebemb_as_sink_existing_ocean_drops_fcost():
         options={"vrebemb_as_sink": True},
     )
 
-    ver = _ver_waterway(system, "Term")
-    assert ver["junction_b"].endswith("_ocean")
-    assert "fcost" not in ver, f"unexpected fcost: {ver.get('fcost')!r}"
-    assert ver.get("fmax") == math.inf, f"expected math.inf fmax: {ver.get('fmax')!r}"
+    # No ``_ver`` arc — it collapsed into Junction.drain on the source.
+    ver = [w for w in system["waterway_array"] if "Term_ver" in w.get("name", "")]
+    assert ver == []
+    src = next(j for j in system["junction_array"] if j["name"] == "Term")
+    assert src["drain"] is True
+    # vrebemb-as-sink + qrb-to-sink: no cap, no cost on the drain column.
+    assert "drain_capacity" not in src, src.get("drain_capacity")
+    assert "drain_cost" not in src, src.get("drain_cost")
 
 
 # ---------------------------------------------------------------------------

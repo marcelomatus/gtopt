@@ -58,6 +58,12 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
   if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
     GRBsetdblparam(env, GRB_DBL_PAR_BARCONVTOL, *beps);
   }
+  // Target relative MIP optimality gap (`MIPGap`).  Ignored for
+  // continuous LPs.  Gurobi documents the parameter as a fraction
+  // (e.g. 0.01 = 1 %).
+  if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+    GRBsetdblparam(env, GRB_DBL_PAR_MIPGAP, *gap);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     GRBsetdblparam(env, GRB_DBL_PAR_TIMELIMIT, *tl);
   }

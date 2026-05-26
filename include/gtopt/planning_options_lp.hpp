@@ -139,22 +139,30 @@ public:
   static constexpr DataFormat default_output_format = DataFormat::parquet;
   /** @brief Default compression codec for Parquet output files.
    *
-   *  `lz4` matches snappy's decode speed (within a few percent on the
-   *  small Arrow buffers gtopt emits) while delivering a noticeably
-   *  better ratio on the highly-redundant primal/dual columns produced
-   *  by the per-(scene, phase) solution files, so the default disk
-   *  footprint shrinks without measurable read-side cost.  Set
-   *  `output_compression: zstd` in the JSON (or `--output-compression
-   *  zstd`) when archival ratio matters more than encode time, or
-   *  `output_compression: snappy` for compatibility with downstream
-   *  Spark / Athena consumers that prefer Snappy.
+   *  `zstd` since 2026-05-19 — empirically the best ratio × decode-speed
+   *  combo for the dense long-form value column produced by
+   *  `output_layout = long` (the matching default below).  On the
+   *  2-year case `zstd + long + BYTE_STREAM_SPLIT + round8` lands at
+   *  ~298 MB vs ~1 GB for `snappy + wide`.  All modern parquet readers
+   *  (Arrow ≥ 1.8, pandas, polars, duckdb, R `arrow`) read it natively.
+   *
+   *  Use `output_compression: snappy` when faster encode-side latency
+   *  matters more than archival ratio, or `output_compression: lz4`
+   *  when downstream consumers prefer the LZ4 frame format.
+   *
+   *  History: between 2026-05-18 and 2026-05-19 the default was
+   *  briefly flipped to `lz4`, but `resolve_parquet_codec` was missing
+   *  the `lz4` mapping — every column was silently written
+   *  UNCOMPRESSED.  The codec table was fixed; default flipped from
+   *  `snappy` to `zstd` once long-form + BYTE_STREAM_SPLIT made the
+   *  ratio win unambiguous.
    *
    *  `lp_compression` (LP debug files) keeps `zstd` as its default —
    *  those files are large textual dumps where the ratio matters and
    *  decode speed does not.
    */
   static constexpr CompressionCodec default_output_compression =
-      CompressionCodec::lz4;
+      CompressionCodec::zstd;
   /** @brief Default setting for using UIDs in filenames */
   static constexpr Bool default_use_uid_fname = true;
   /** @brief Default annual discount rate for multi-year planning */
@@ -222,12 +230,26 @@ public:
   /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
   /// still accepted as a JSON alias via the naming-dialects
   /// registry.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume), matching the
+  /// documentation on `ModelOptions::hydro_spill_cost`.  Callers
+  /// pricing a flow column `[m³/s]` via `CostHelper::block_ecost(...)`
+  /// (which multiplies by block duration `[h]`) MUST lift the value
+  /// by `× 3600` to convert to `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:396` for the reference pattern.  Direct
+  /// volume-based costs (`$/m³ × m³`) need no conversion.
   [[nodiscard]] constexpr auto hydro_spill_cost() const
   {
     return m_options_.model_options.hydro_spill_cost;
   }
 
   /// @brief Gets the hydro use value (benefit per m³) from model_options.
+  ///
+  /// **UNIT**: returned in `[$/m³]` (per-volume, like
+  /// `hydro_spill_cost`).  Same `× 3600` lift required when used as
+  /// a fallback for a flow-column benefit `[$/(m³/s)/h]` — see
+  /// `flow_right_lp.cpp:471` and the parallel comment on
+  /// `hydro_spill_cost()` above.
   [[nodiscard]] constexpr auto hydro_use_value() const
   {
     return m_options_.model_options.hydro_use_value;
@@ -245,18 +267,6 @@ public:
   [[nodiscard]] constexpr auto state_violation_cost() const
   {
     return m_options_.model_options.state_violation_cost;
-  }
-
-  /// @brief Gets the system-wide emission cost [$/tCO2].
-  [[nodiscard]] constexpr const auto& emission_cost() const
-  {
-    return m_options_.model_options.emission_cost;
-  }
-
-  /// @brief Gets the system-wide emission cap [tCO2/year] per stage.
-  [[nodiscard]] constexpr const auto& emission_cap() const
-  {
-    return m_options_.model_options.emission_cap;
   }
 
   /// @brief Whether a given phase should use continuous LP relaxation.
@@ -468,6 +478,72 @@ public:
     return m_options_.output_format.value_or(default_output_format);
   }
 
+  /// On-disk layout for the per-(scene, phase) solution tables.
+  ///
+  /// Default `long` (since 2026-05-19) — 6-column non-zero-only shape
+  /// `(scenario, stage, block, uid, value)` with `uint16_t` keys and
+  /// a `BYTE_STREAM_SPLIT`-encoded value column.  Combined with the
+  /// matching `zstd` compression default, this produces a 3-7× smaller
+  /// on-disk footprint on the typical 0.1 %-dense gtopt output
+  /// (e.g. 1 GB → 298 MB on the 2-year case).
+  ///
+  /// Two distinct compatibility questions to keep separate:
+  ///
+  ///   1. **Parquet file readability** — universal.  pandas, polars,
+  ///      duckdb, R `arrow`, Spark all read the file natively; nothing
+  ///      special needs to be installed.
+  ///
+  ///   2. **Downstream script compatibility** — NOT universal.  A
+  ///      script that hard-codes `df.iloc[:, 3:].sum().sum()` (wide
+  ///      assumption) or `df.groupby("uid")["value"].sum()` (long
+  ///      assumption) only works on the matching shape.  Scripts that
+  ///      need to work with both must sniff the schema (`"value" in
+  ///      df.columns` → long; else wide) and branch accordingly — see
+  ///      `scripts/gtopt_check_output/_reader.py::dataset_layout` for
+  ///      the reference sniff.  Or pivot long → wide once at read
+  ///      time: `df.pivot_table(index=["scenario","stage","block"],
+  ///      columns="uid", values="value", fill_value=0.0)`.
+  ///
+  /// Set `output_layout: "wide"` to restore the legacy shape (one
+  /// column per `uid`) for callers that depend on it — notably the
+  /// `gtopt_compare` e2e harness, which still reads `uid:N` columns
+  /// directly.  Long-mode readers must sniff the schema (presence
+  /// of a bare `uid` column → long; presence of `uid:N` columns →
+  /// wide) and dispatch accordingly; see
+  /// `scripts/gtopt_check_output/_reader.py::dataset_layout` for the
+  /// reference implementation.
+  static constexpr OutputLayout default_output_layout = OutputLayout::long_;
+  [[nodiscard]] constexpr auto output_layout() const noexcept -> OutputLayout
+  {
+    return m_options_.output_layout.value_or(default_output_layout);
+  }
+
+  /// Decimal places to keep on the on-disk value columns.
+  ///
+  /// Default `7` (since 2026-05-19) — triggers the **float32**
+  /// specialization in `make_field_arrays_long`.  Float32 has ~7
+  /// significant decimal digits, so rounding the double to 7
+  /// decimals first and then casting to float32 produces a lossless
+  /// (within float32 precision) representation that halves the raw
+  /// value-column byte budget.  Combined with `BYTE_STREAM_SPLIT +
+  /// zstd` this lands the 2-year case at ~265 MB (vs 305 MB at
+  /// double + d=8 + zstd; vs ~1 GB at the legacy wide + snappy
+  /// default).
+  ///
+  /// Values `1..7` → float32 storage.  Value `≥ 8` → double storage
+  /// with explicit `round_to_digits` (the "I need more than 7 decimal
+  /// digits" path).  Value `≤ 0` → no rounding, double storage (the
+  /// "verify all 15+ digits" opt-out).
+  ///
+  /// Bound to JSON `output_round_decimals` and CLI
+  /// `--output-round-decimals`.
+  static constexpr int default_output_round_decimals = 7;
+  [[nodiscard]] constexpr auto output_round_decimals() const noexcept -> int
+  {
+    return m_options_.output_round_decimals.value_or(
+        default_output_round_decimals);
+  }
+
   /**
    * @brief Gets the output compression codec as a string name
    * @return The compression codec name for output files
@@ -658,21 +734,50 @@ public:
   }
 
   /// Which output fields `OutputContext` should emit.  Default is
-  /// `solution | dual` — primal solutions plus row duals.  Reduced
-  /// costs (`col_cost`) are NOT emitted by default: of the 18 element
-  /// types that wire them, only `Generator/generation_cost`,
-  /// `Demand/fail_cost`, `Line/flowp_cost`, and `Line/flown_cost` have
-  /// any downstream consumer (the `gtopt_check_output` cost breakdown
-  /// plus `gtopt_marginal_units` congestion-rent proxy).  Users who
-  /// want those still get them via `--write-out sol,dual,reduced_cost`
-  /// or `--write-out all`.  Matches the default-output posture of
-  /// PSR SDDP / SDDP.jl / PyPSA / GenX / PLEXOS.
+  /// `OutputFlags::all` — primal solutions, row duals, and reduced
+  /// costs, all unscoped (every element class included).  The
+  /// reduced-cost streams are needed by `gtopt_marginal_units` to
+  /// identify the marginal unit at each (bus, scene, stage, block) —
+  /// without them the attribution must fall back to the static
+  /// `gcost` from the planning JSON, which silently fails for
+  /// piecewise generators and for hydro / battery units whose true MC
+  /// is a reservoir / battery shadow price.  Users who want a leaner
+  /// output footprint can pass any of:
+  ///
+  ///   - `--write-out sol`                  primal only
+  ///   - `--write-out sol,dual`             primal + LMPs
+  ///   - `--write-out sol,dual,rc:Generator`   primal + duals everywhere,
+  ///                                           rc only on Generator
   ///
   /// Bound to CLI `--write-out` and JSON `write_out`.
-  [[nodiscard]] constexpr auto write_out() const noexcept -> OutputFlags
+  [[nodiscard]] auto write_out() const noexcept -> OutputSelection
   {
-    return m_options_.write_out.value_or(OutputFlags::solution
-                                         | OutputFlags::dual);
+    // Default emits every primal solution + every dual everywhere, and
+    // reduced costs ONLY on Generator and Line — the union of what
+    // every current consumer reads:
+    //   * `gtopt_marginal_units` → Generator/generation_cost.
+    //   * `gtopt_check_output`   → since the rc-based cost-breakdown
+    //                              bug was fixed, no rc stream is
+    //                              needed; sol × coefficient suffices.
+    //   * `gtopt_results_summary` → Generator/generation_cost.
+    //   * `gtopt_compare`         → sol only.
+    // Line is included in the rc scope because the marginal-units
+    // pipeline documents it as part of the recommended recipe (kept
+    // forward-compat for any future congestion-rent analysis that may
+    // want flowp_cost / flown_cost — both currently emit only when the
+    // line has overload slacks, so cost is near-zero on typical cases).
+    // Extras (heat-rate slacks, vom/fuel decomposition, line losses,
+    // overload slacks, capacity duals) stay off by default; opt in via
+    // `--write-out all` or `--write-out ...,extras` /
+    // `...,extras:Generator`.
+    if (m_options_.write_out.has_value()) {
+      return *m_options_.write_out;
+    }
+    OutputSelection sel;
+    sel.atoms =
+        OutputFlags::solution | OutputFlags::dual | OutputFlags::reduced_cost;
+    sel.rc_classes = {"Generator", "Line"};
+    return sel;
   }
 
   /**

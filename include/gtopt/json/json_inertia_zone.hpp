@@ -25,7 +25,7 @@ struct json_data_contract<InertiaZone>
       json_variant_null<"requirement",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
-      json_variant_null<"cost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"cost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(InertiaZone const& obj)
   {

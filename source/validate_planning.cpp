@@ -106,7 +106,19 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
         result, line.bus_b, sys.bus_array, "Line", line.name, "bus_b", "Bus");
   }
 
-  // Turbine.waterway -> Waterway (optional), Turbine.generator -> Generator
+  // Turbine.waterway -> Waterway, Turbine.flow -> Flow (alternative),
+  // Turbine.generator -> Generator (all paths require generator).
+  //
+  // Critical invariant: a turbine MUST carry an electrical generator
+  // and MUST connect to either a waterway or a flow.  Without the
+  // generator there is no MW output to dispatch; without a waterway
+  // or flow there is no water volume to convert.  Either omission
+  // produces a silently-broken LP — `TurbineLP::add_to_lp` logs
+  // a `WARN` and returns false, leaving the model with a registered
+  // turbine that contributes no constraints or columns.  Promote
+  // both omissions to errors at the validation gate so the user
+  // sees the problem before the solver burns CPU on a degenerate
+  // LP.
   for (const auto& turb : sys.turbine_array) {
     if (turb.waterway.has_value()) {
       check_ref(result,
@@ -116,6 +128,21 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
                 turb.name,
                 "waterway",
                 "Waterway");
+    }
+    if (turb.flow.has_value()) {
+      check_ref(result,
+                turb.flow.value(),
+                sys.flow_array,
+                "Turbine",
+                turb.name,
+                "flow",
+                "Flow");
+    }
+    if (!turb.waterway.has_value() && !turb.flow.has_value()) {
+      result.errors.push_back(std::format(
+          "Turbine '{}' has neither a waterway nor a flow reference set "
+          "(at least one is required to drive the water-to-power conversion)",
+          turb.name));
     }
     check_ref(result,
               turb.generator,
@@ -224,17 +251,249 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     }
   }
 
-  // Commitment.fuel -> Fuel (optional FK)
-  for (const auto& cmt : sys.commitment_array) {
-    if (cmt.fuel.has_value()) {
+  // Commitment.fuel was removed on 2026-05-20.  Fuel FK validation
+  // for the dispatch-cost path now happens on Generator (see the
+  // Generator.fuel branch above).
+
+  // ── P0 referential checks added 2026-05-20 ────────────────────────
+  //
+  // All of the following elements have foreign-key fields that used to
+  // be silently accepted at validation time and then either crashed at
+  // LP-build (when the lookup throws) or — worse — emitted a
+  // `SPDLOG_WARN` + `return false` from the *_lp.cpp ``add_to_lp``,
+  // leaving a registered element that contributes no constraints or
+  // columns to the LP.  Promote every such case to a hard validation
+  // error so the user sees the broken model before the solver runs.
+  // See the matching audit notes in `validate_planning - <element>` test
+  // SUBCASEs.
+
+  // EmissionSource: generator (optional), zone (required),
+  // emission (required).  `emission_source_lp.cpp:79` used to
+  // silently skip a source without a generator.
+  for (const auto& src : sys.emission_source_array) {
+    if (src.generator.has_value()) {
       check_ref(result,
-                cmt.fuel.value(),
-                sys.fuel_array,
-                "Commitment",
-                cmt.name,
-                "fuel",
-                "Fuel");
+                src.generator.value(),
+                sys.generator_array,
+                "EmissionSource",
+                src.name,
+                "generator",
+                "Generator");
     }
+    check_ref(result,
+              src.zone,
+              sys.emission_zone_array,
+              "EmissionSource",
+              src.name,
+              "zone",
+              "EmissionZone");
+    check_ref(result,
+              src.emission,
+              sys.emission_array,
+              "EmissionSource",
+              src.name,
+              "emission",
+              "Emission");
+  }
+
+  // GeneratorProfile.generator -> Generator (required).
+  for (const auto& gp : sys.generator_profile_array) {
+    check_ref(result,
+              gp.generator,
+              sys.generator_array,
+              "GeneratorProfile",
+              gp.name,
+              "generator",
+              "Generator");
+  }
+
+  // DemandProfile.demand -> Demand (required).
+  for (const auto& dp : sys.demand_profile_array) {
+    check_ref(result,
+              dp.demand,
+              sys.demand_array,
+              "DemandProfile",
+              dp.name,
+              "demand",
+              "Demand");
+  }
+
+  // ReserveProvision.generator -> Generator (required).
+  // `reserve_zones` is an array of `ReserveZone` ids/names — each
+  // entry must resolve.
+  for (const auto& rp : sys.reserve_provision_array) {
+    check_ref(result,
+              rp.generator,
+              sys.generator_array,
+              "ReserveProvision",
+              rp.name,
+              "generator",
+              "Generator");
+    for (const auto& rz_id : rp.reserve_zones) {
+      check_ref(result,
+                rz_id,
+                sys.reserve_zone_array,
+                "ReserveProvision",
+                rp.name,
+                "reserve_zones",
+                "ReserveZone");
+    }
+  }
+
+  // InertiaProvision.generator -> Generator (required).
+  // `inertia_zones` is the analogous array reference.
+  for (const auto& ip : sys.inertia_provision_array) {
+    check_ref(result,
+              ip.generator,
+              sys.generator_array,
+              "InertiaProvision",
+              ip.name,
+              "generator",
+              "Generator");
+    for (const auto& iz_id : ip.inertia_zones) {
+      check_ref(result,
+                iz_id,
+                sys.inertia_zone_array,
+                "InertiaProvision",
+                ip.name,
+                "inertia_zones",
+                "InertiaZone");
+    }
+  }
+
+  // SimpleCommitment.generator -> Generator (required).
+  for (const auto& sc : sys.simple_commitment_array) {
+    check_ref(result,
+              sc.generator,
+              sys.generator_array,
+              "SimpleCommitment",
+              sc.name,
+              "generator",
+              "Generator");
+  }
+
+  // ReservoirProductionFactor.turbine -> Turbine,
+  //                         .reservoir -> Reservoir (both required).
+  // The production-factor row drives the water-to-MW LP coefficient;
+  // either invalid FK silently breaks SDDP dispatch.
+  for (const auto& rpf : sys.reservoir_production_factor_array) {
+    check_ref(result,
+              rpf.turbine,
+              sys.turbine_array,
+              "ReservoirProductionFactor",
+              rpf.name,
+              "turbine",
+              "Turbine");
+    check_ref(result,
+              rpf.reservoir,
+              sys.reservoir_array,
+              "ReservoirProductionFactor",
+              rpf.name,
+              "reservoir",
+              "Reservoir");
+  }
+
+  // ReservoirSeepage.waterway -> Waterway, .reservoir -> Reservoir
+  // (both required).  Seepage flow + reservoir-balance row depend on
+  // both FKs resolving.
+  for (const auto& seep : sys.reservoir_seepage_array) {
+    check_ref(result,
+              seep.waterway,
+              sys.waterway_array,
+              "ReservoirSeepage",
+              seep.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              seep.reservoir,
+              sys.reservoir_array,
+              "ReservoirSeepage",
+              seep.name,
+              "reservoir",
+              "Reservoir");
+  }
+
+  // ── P1 referential checks added 2026-05-20 ────────────────────────
+  //
+  // Optional FKs that should still be VALIDATED when set.  Today an
+  // invalid `bus` or `reservoir` uid on these structs just silently
+  // produces a wrong dispatch because the lookup gates the
+  // corresponding LP branch on `has_value()` but never on lookup
+  // success.
+
+  // Battery.bus -> Bus (optional FK).  When set, `System::expand_batteries()`
+  // auto-generates the discharge Generator + charge Demand + Converter
+  // wired to this bus.  Invalid uid here leaves the expansion silently
+  // wired to a non-existent bus.
+  // Battery.source_generator -> Generator (optional FK).  When set,
+  // `expand_batteries()` creates an internal bus and re-routes the
+  // source generator to it.  Invalid uid → wrong internal-bus wiring.
+  for (const auto& bat : sys.battery_array) {
+    if (bat.bus.has_value()) {
+      check_ref(result,
+                bat.bus.value(),
+                sys.bus_array,
+                "Battery",
+                bat.name,
+                "bus",
+                "Bus");
+    }
+    if (bat.source_generator.has_value()) {
+      check_ref(result,
+                bat.source_generator.value(),
+                sys.generator_array,
+                "Battery",
+                bat.name,
+                "source_generator",
+                "Generator");
+    }
+  }
+
+  // VolumeRight.reservoir -> Reservoir (optional FK, consumptive source).
+  // VolumeRight.right_reservoir -> VolumeRight (optional FK, hierarchical
+  // parent / child volume balance).  Each branch in `volume_right_lp.cpp`
+  // gates on `has_value()` but never on lookup success; invalid uid =
+  // silent contribution to wrong reservoir or wrong parent right.
+  for (const auto& vr : sys.volume_right_array) {
+    if (vr.reservoir.has_value()) {
+      check_ref(result,
+                vr.reservoir.value(),
+                sys.reservoir_array,
+                "VolumeRight",
+                vr.name,
+                "reservoir",
+                "Reservoir");
+    }
+    if (vr.right_reservoir.has_value()) {
+      check_ref(result,
+                vr.right_reservoir.value(),
+                sys.volume_right_array,
+                "VolumeRight",
+                vr.name,
+                "right_reservoir",
+                "VolumeRight");
+    }
+  }
+
+  // ReservoirDischargeLimit.waterway -> Waterway, .reservoir -> Reservoir
+  // (both required).  The discharge-limit piecewise row binds the
+  // waterway's flow column to the reservoir's volume state — invalid
+  // FK on either side silently drops the constraint from the LP.
+  for (const auto& rdl : sys.reservoir_discharge_limit_array) {
+    check_ref(result,
+              rdl.waterway,
+              sys.waterway_array,
+              "ReservoirDischargeLimit",
+              rdl.name,
+              "waterway",
+              "Waterway");
+    check_ref(result,
+              rdl.reservoir,
+              sys.reservoir_array,
+              "ReservoirDischargeLimit",
+              rdl.name,
+              "reservoir",
+              "Reservoir");
   }
 }
 
@@ -303,52 +562,51 @@ void check_heat_rate(ValidationResult& result, const System& sys)
     }
   }
 
-  // Commitment uses the same pmax_segments / heat_rate_segments shape.
-  for (const auto& cmt : sys.commitment_array) {
-    const bool has_pieces =
-        !cmt.heat_rate_segments.empty() || !cmt.pmax_segments.empty();
-    if (!has_pieces) {
-      continue;
-    }
+  // Commitment.pmax_segments / heat_rate_segments were removed on
+  // 2026-05-20.  The piecewise-curve validation above (on Generator)
+  // is the only path now.
 
-    if (cmt.pmax_segments.size() != cmt.heat_rate_segments.size()) {
-      result.errors.push_back(
-          std::format("Commitment '{}': `pmax_segments` (size {}) and "
-                      "`heat_rate_segments` (size {}) must have equal length.",
-                      cmt.name,
-                      cmt.pmax_segments.size(),
-                      cmt.heat_rate_segments.size()));
-    }
-
-    for (std::size_t k = 1; k < cmt.pmax_segments.size(); ++k) {
-      if (!(cmt.pmax_segments[k] > cmt.pmax_segments[k - 1])) {
-        result.errors.push_back(std::format(
-            "Commitment '{}': pmax_segments must be strictly increasing — "
-            "pmax_segments[{}] = {} is not > pmax_segments[{}] = {}.",
-            cmt.name,
-            k,
-            cmt.pmax_segments[k],
-            k - 1,
-            cmt.pmax_segments[k - 1]));
-        break;
-      }
-    }
-
-    for (std::size_t k = 1; k < cmt.heat_rate_segments.size(); ++k) {
-      if (!(cmt.heat_rate_segments[k] > cmt.heat_rate_segments[k - 1])) {
-        result.errors.push_back(std::format(
-            "Commitment '{}': heat_rate_segments must be strictly increasing "
-            "for the piecewise cost to be convex — heat_rate_segments[{}] = "
-            "{} is not > heat_rate_segments[{}] = {}.",
-            cmt.name,
-            k,
-            cmt.heat_rate_segments[k],
-            k - 1,
-            cmt.heat_rate_segments[k - 1]));
-        break;
-      }
+  // ── P2 fuel/heat-rate pairing (added 2026-05-20) ────────────────────
+  //
+  // The LP-side coefficient is
+  //   slope_cost_per_mwh = stage_fuel_price * heat_rate + block_gcost
+  // (see `source/generator_lp.cpp:138-153`).  When either factor is
+  // missing the code silently falls back to `block_gcost`, which is
+  // almost never the user's intent:
+  //
+  //   * fuel set, no heat_rate (and no heat_rate_segments)
+  //       → fuel_price coefficient drops to 0 → fuel cost ignored
+  //   * heat_rate (or heat_rate_segments) set, no fuel
+  //       → no per-fuel pricing applied → heat_rate ignored
+  //
+  // Both cases are flagged as warnings (not errors).  The LP still
+  // solves, but the resulting dispatch ignores half of the user's
+  // declared cost structure — better to surface the disagreement at
+  // the validation gate than to track it down post-solve.
+  for (const auto& gen : sys.generator_array) {
+    const bool has_fuel = gen.fuel.has_value();
+    const bool has_heat_rate =
+        gen.heat_rate.has_value() || !gen.heat_rate_segments.empty();
+    if (has_fuel && !has_heat_rate) {
+      result.warnings.push_back(std::format(
+          "Generator '{}': fuel='{}' set but no heat_rate or "
+          "heat_rate_segments — fuel price will be ignored at the LP "
+          "(per-MWh cost falls back to gcost only).  Set heat_rate or "
+          "heat_rate_segments to consume the fuel price.",
+          gen.name,
+          format_single_id(gen.fuel.value())));
+    } else if (has_heat_rate && !has_fuel) {
+      result.warnings.push_back(std::format(
+          "Generator '{}': heat_rate set but no fuel — heat_rate will "
+          "be ignored at the LP (per-MWh cost falls back to gcost only). "
+          "Set a fuel reference to consume the heat_rate.",
+          gen.name));
     }
   }
+
+  // Commitment.fuel / pmax_segments / heat_rate_segments were removed
+  // on 2026-05-20.  The dispatch-cost fuel + heat-rate pairing now
+  // lives entirely on Generator, validated above.
 }
 
 // ── Positivity helpers ────────────────────────────────────────────────

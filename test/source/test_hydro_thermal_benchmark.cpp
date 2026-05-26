@@ -886,13 +886,19 @@ TEST_CASE(
 //
 // Reservoir unit conversion
 // -------------------------
-// gtopt's `Reservoir` defaults to `flow_conversion_rate = 3.6`, i.e.
-// 1 m³/s flow over 1 h drains 3.6 m³ (= 3600 s × 1 m³/s / 1000 to
-// convert s to h and m³ to "1 unit"; see
-// `include/gtopt/reservoir_lp.hpp:53`).  Plugged into the Hydro_thermal
-// reference parameters (`reservoir [5, 15]`, `eini = 10`), the maximum
-// per-block draw is `(eini − emin) / 3.6 = 5 / 3.6 ≈ 1.3889` m³/s and
-// with `production_factor = 1.0` that becomes `1.3889` MW of hydro.
+// The SDDP.jl Hydro_thermal literature reference uses arbitrary
+// "1 unit of volume per 1 unit of flow per hour" semantics (no real
+// m³ ⇄ hm³ conversion).  This benchmark calibrates against that by
+// setting ``flow_conversion_rate = 3.6`` explicitly on the JSON
+// fixture below — matching the historical gtopt default that the
+// reference numbers were tuned to.  (The codebase default is now
+// the physical PLEXOS-native ``0.0036`` since commit fe268b716;
+// without the explicit field the LP would use 0.0036 instead and
+// the analytical optimum below would no longer match.)
+// Plugged into the Hydro_thermal reference parameters
+// (``reservoir [5, 15]``, ``eini = 10``), the maximum per-block draw
+// is ``(eini − emin) / 3.6 = 5 / 3.6 ≈ 1.3889`` m³/s and with
+// ``production_factor = 1.0`` that becomes ``1.3889`` MW of hydro.
 //
 // Analytical optimum (literature-derived)
 // ---------------------------------------
@@ -998,7 +1004,8 @@ constexpr std::string_view hydro_thermal_sddpjl_json = R"json(
           "capacity": 15.0,
           "emin": 5.0,
           "emax": 15.0,
-          "eini": 10.0
+          "eini": 10.0,
+          "flow_conversion_rate": 3.6
         }
       ],
       "flow_array": [

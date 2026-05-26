@@ -147,10 +147,20 @@ export async function runGtopt(token: string): Promise<void> {
     log.warn(`Job ${token}: could not list input directory contents: ${err}`);
   }
 
+  // Optional whitespace-separated extra args appended to every gtopt
+  // invocation.  Used by `webservice/test/e2e_test.sh` to force
+  // `--write-out all` (so the c0 golden fixtures under
+  // `cases/c0/output/Demand/*_cost.csv` keep matching the lean default
+  // emit set, which only writes reduced costs for Generator+Line).
+  // Empty / unset means production behaviour is unchanged.
+  const extraArgs = (process.env.GTOPT_EXTRA_ARGS ?? "")
+    .split(/\s+/)
+    .filter((s) => s.length > 0);
+
   return new Promise<void>((resolve) => {
     const proc = spawn(
       gtoptBin,
-      [job.systemFile, "--set", `output_directory=${outputDir}`],
+      [job.systemFile, "--set", `output_directory=${outputDir}`, ...extraArgs],
       {
         cwd: inputDir,
         stdio: ["ignore", "pipe", "pipe"],

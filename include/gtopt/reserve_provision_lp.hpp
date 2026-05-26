@@ -131,14 +131,20 @@ public:
               std::string_view cname,
               const Id& id,
               auto&& rmax,
+              auto&& rmin,
               auto&& rcost,
               auto&& rcapf,
               auto&& rprof);
 
     OptTBRealSched max;
-    OptTRealSched cost;
-    OptTRealSched capacity_factor;
-    OptTRealSched provision_factor;
+    OptTBRealSched min;  ///< PLEXOS Min Provision floor — when set,
+                         ///< clamps the provision col's lower bound to
+                         ///< the per-block value (always-on floor;
+                         ///< gen-status conditional behaviour is a
+                         ///< future refinement).
+    OptTBRealSched cost;
+    OptTBRealSched capacity_factor;
+    OptTBRealSched provision_factor;
     STBIndexHolder<ColIndex> provision_cols;
     STBIndexHolder<RowIndex> provision_rows;
     STBIndexHolder<RowIndex> capacity_rows;

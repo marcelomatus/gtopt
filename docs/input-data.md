@@ -70,7 +70,7 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
-| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_factor` incur an extra cost of `emission_cost × emission_factor` per MWh |
+| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_rate` incur an extra cost of `emission_cost × emission_rate` per MWh |
 | `emission_cap`         | number or schedule | *(none)* | tCO₂/year | Per-stage CO₂ emission cap. The dual of the cap constraint is the endogenous carbon price |
 | `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
@@ -743,7 +743,7 @@ A generation unit connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
-| `emission_factor`  | number\|array\|string| tCO₂/MWh   | No       | CO₂ emission rate. Used with `model_options.emission_cost` and `emission_cap`. See [Unit Commitment — Emission](unit-commitment.md#6-emission-cost-and-cap) |
+| `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | CO₂ emission rate. Used with `model_options.emission_cost` and `emission_cap`. See [Unit Commitment — Emission](unit-commitment.md#6-emission-cost-and-cap) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -1349,8 +1349,8 @@ System-wide modeling options that control emission pricing and LP relaxation.
 
 | Field | Type | Units | Required | Description |
 |-------|------|-------|----------|-------------|
-| `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_factor` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
-| `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_factor` |
+| `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_rate` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
+| `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_rate` |
 | `continuous_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
 
 ---

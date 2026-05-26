@@ -94,7 +94,8 @@ struct Line
   OptTRealFieldSched reactance {};  ///< Series reactance for DC power flow [Ω].
                                     ///< Use p.u. when voltage is omitted
                                     ///< (default). Susceptance: B = V² / X.
-  OptTRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Lumped loss factor [p.u.]
+                                      ///< per-(stage, block).
   OptBool use_line_losses {};  ///< @deprecated Use `line_losses_mode` instead.
                                ///< Kept for backward compatibility:
                                ///< `true` maps to the global default mode,
@@ -107,6 +108,16 @@ struct Line
                             ///< When unset, inherits from ModelOptions.
   OptInt loss_segments {};  ///< Number of piecewise-linear segments for
                             ///< quadratic losses (default: from Options)
+
+  OptName loss_pwl_layout {};  ///< Segment-layout strategy for the PWL
+                               ///< loss approximation.  See LinePwlLayout
+                               ///< for valid values: `"uniform"` (default,
+                               ///< equal-width secant chords), `"equal_error"`
+                               ///< (√-spaced minimax), `"tangent"` (outer
+                               ///< approximation, future).  Active only when
+                               ///< `line_losses_mode` selects a PWL flavour.
+                               ///< When unset, defaults to `uniform` —
+                               ///< preserving pre-2026-05 behaviour.
 
   OptName loss_allocation_mode {};  ///< How losses are allocated between
                                     ///< sender and receiver buses:
@@ -123,6 +134,16 @@ struct Line
     return std::nullopt;
   }
 
+  /// Parse loss_pwl_layout string to enum (defaults to `uniform`).
+  [[nodiscard]] constexpr LinePwlLayout loss_pwl_layout_enum() const noexcept
+  {
+    if (loss_pwl_layout.has_value()) {
+      return enum_from_name<LinePwlLayout>(*loss_pwl_layout)
+          .value_or(LinePwlLayout::uniform);
+    }
+    return LinePwlLayout::uniform;
+  }
+
   /// Parse loss_allocation_mode string to enum (receiver if unset).
   [[nodiscard]] constexpr LossAllocationMode loss_allocation_mode_enum()
       const noexcept
@@ -136,6 +157,33 @@ struct Line
 
   OptTBRealFieldSched tmax_ba {};  ///< Maximum power flow in B→A direction [MW]
   OptTBRealFieldSched tmax_ab {};  ///< Maximum power flow in A→B direction [MW]
+  /// Thermal-limit enforcement mode, mirroring PLEXOS's
+  /// ``Line.Enforce Limits`` property:
+  ///
+  ///   * ``0`` — never enforce.  The LP does NOT add the hard
+  ///     ``|flow| <= tmax_{ab,ba}`` bound; ``tmax_ab`` / ``tmax_ba``
+  ///     are carried purely for **loss-segment discretization** (the
+  ///     piecewise-linear loss approximation needs an upper envelope
+  ///     to pick segment widths; without it
+  ///     ``seg_width = DblMax / nseg`` produces meaningless
+  ///     segments).  Use this for lines that PLEXOS labels EL=0
+  ///     ("Never enforce") and for selectively-lifted EL=1 lines
+  ///     whose flow physically exceeds the rating (e.g.
+  ///     Capricornio110→LaNegra110 on the CEN PCP weekly bundle,
+  ///     where AC voltage support requires ~200 MW vs the 76 MW
+  ///     steady-state cap).
+  ///   * ``1`` — voltage-conditional (PLEXOS).  In our LP we treat
+  ///     this identically to level ``2`` (hard cap), because we have
+  ///     no AC voltage-feasibility iteration to consult.  PLEXOS
+  ///     empirically enforces EL=1 caps in its economic dispatch on
+  ///     the CEN PCP weekly bundle (88 of 89 EL=1 lines with flow
+  ///     stay at or below cap; the one outlier — Capricornio — is
+  ///     the line we lift to ``0`` explicitly).
+  ///   * ``2`` — always enforce (the historical hard-cap behaviour
+  ///     and the schema default).
+  ///
+  /// Default = ``2``.
+  OptInt enforce_level {};
   OptTBRealFieldSched tcost {};  ///< Variable transmission cost [$/MWh]
                                  ///< — per-(stage, block).  Accepts a
                                  ///< scalar (broadcasts), a 2-D nested

@@ -104,7 +104,7 @@ static constexpr std::string_view unified_battery_json = R"(
           "emax": 200,
           "pmax_charge": 60,
           "pmax_discharge": 60,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 200,
           "use_state_variable": true,
           "daily_cycle": true

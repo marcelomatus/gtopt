@@ -92,7 +92,7 @@ TEST_CASE(  // NOLINT
           .lossfactor = 0.02,
           .gcost = 25.0,
           .capacity = 150.0,
-          .emission_factor = 0.4,
+          .emission_rate = 0.4,
       },
   };
 
@@ -189,15 +189,15 @@ TEST_CASE(  // NOLINT
     const auto& gcols = gen_lp.generation_cols_at(scenario, stage);
     CHECK(!gcols.empty());
 
-    // Parameter accessors — pmax/pmin/lossfactor/gcost/emission_factor.
+    // Parameter accessors — pmax/pmin/lossfactor/gcost/emission_rate.
     CHECK(gen_lp.param_pmax(suid, buid).value_or(-1.0)
           == doctest::Approx(150.0));
     CHECK(gen_lp.param_pmin(suid, buid).value_or(-1.0) == doctest::Approx(0.0));
     CHECK(gen_lp.param_gcost(suid, buid).value_or(-1.0)
           == doctest::Approx(25.0));
-    CHECK(gen_lp.param_lossfactor(suid).value_or(-1.0)
+    CHECK(gen_lp.param_lossfactor(suid, buid).value_or(-1.0)
           == doctest::Approx(0.02));
-    CHECK(gen_lp.param_emission_factor(suid).value_or(-1.0)
+    CHECK(gen_lp.param_emission_rate(suid, buid).value_or(-1.0)
           == doctest::Approx(0.4));
   }
 
@@ -221,7 +221,7 @@ TEST_CASE(  // NOLINT
           == doctest::Approx(80.0));
     CHECK(dem_lp.param_fcost(suid, buid).value_or(-1.0)
           == doctest::Approx(1500.0));
-    CHECK(dem_lp.param_lossfactor(suid).value_or(-1.0)
+    CHECK(dem_lp.param_lossfactor(suid, buid).value_or(-1.0)
           == doctest::Approx(0.03));
   }
 
@@ -237,9 +237,9 @@ TEST_CASE(  // NOLINT
     CHECK(!finp.empty());
     CHECK(finp.size() == fout.size());
 
-    CHECK(bat_lp.param_input_efficiency(suid).value_or(-1.0)
+    CHECK(bat_lp.param_input_efficiency(suid, buid).value_or(-1.0)
           == doctest::Approx(0.92));
-    CHECK(bat_lp.param_output_efficiency(suid).value_or(-1.0)
+    CHECK(bat_lp.param_output_efficiency(suid, buid).value_or(-1.0)
           == doctest::Approx(0.91));
   }
 
@@ -490,8 +490,10 @@ TEST_CASE(  // NOLINT
     CHECK(fr_lp.param_fmax(suid, buid).value_or(-1.0) == doctest::Approx(40.0));
     CHECK(fr_lp.param_target(suid, buid).value_or(-1.0)
           == doctest::Approx(20.0));
-    CHECK(fr_lp.param_fcost(suid).value_or(-1.0) == doctest::Approx(5000.0));
-    CHECK(fr_lp.param_uvalue(suid).value_or(-1.0) == doctest::Approx(10.0));
+    CHECK(fr_lp.param_fcost(suid, buid).value_or(-1.0)
+          == doctest::Approx(5000.0));
+    CHECK(fr_lp.param_uvalue(suid, buid).value_or(-1.0)
+          == doctest::Approx(10.0));
   }
 
   SUBCASE("VolumeRightLP accessors")

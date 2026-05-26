@@ -1,20 +1,42 @@
 /**
  * @file      fuel_lp.cpp
- * @brief     Implementation of FuelLP (parameter carrier only)
+ * @brief     Implementation of FuelLP — parameter carrier + max-offtake cap
  * @date      2026-05-16
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * `FuelLP` resolves the three Fuel schedules (price, combustion EF,
- * upstream EF) at construction.  It contributes no LP variables or
- * rows — `add_to_lp` and `add_to_output` are inline no-ops in the
- * header.  GeneratorLP consumes the resolved schedules via the
- * `param_*` accessors when its `Generator.fuel` field references a
- * Fuel element.
+ * FuelLP resolves the Fuel schedules (price, heat content, emission
+ * factors, max offtake) at construction.  Generators consume the
+ * resolved schedules via the `param_*` accessors.
+ *
+ * When `Fuel.max_offtake` is set for a (scenario, stage), `add_to_lp`
+ * walks every active `GeneratorLP` whose `Generator.fuel == this_fuel`
+ * and creates a cap row.  Two modes are supported:
+ *
+ *   * default (per-stage SUM):
+ *       Σ_b Σ_g (heat_rate · gen · dur_b)  ≤  max_offtake(s)
+ *     — one row per (scenario, stage).
+ *
+ *   * `Fuel.max_offtake_per_block = true` (per-block, mirrors PLEXOS):
+ *       Σ_g (heat_rate · gen · dur_b)  ≤  max_offtake(s) · dur_b / Σ dur
+ *     — one row per (scenario, stage, block); the per-stage cap is
+ *     pro-rated by block duration.  Equivalent to enforcing a uniform
+ *     per-hour rate cap `= max_offtake / Σ dur`, matching the PLEXOS
+ *     `FueMaxOffWeek_<fuel>` Constraint's per-period semantics.
+ *
+ * Optional slack column priced at `max_offtake_cost(s)` is added with
+ * coefficient −1 so the cap can be violated at a per-unit price.  In
+ * per-block mode each block has its own slack column.
  */
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/fuel_lp.hpp>
+#include <gtopt/generator_lp.hpp>
+#include <gtopt/linear_problem.hpp>
+#include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -32,7 +54,246 @@ FuelLP::FuelLP(const Fuel& fuel, const InputContext& ic)
                    Element::class_name,
                    id(),
                    std::move(object().upstream_emission_factor))
+    , max_offtake_(
+          ic, Element::class_name, id(), std::move(object().max_offtake))
+    , max_offtake_cost_(
+          ic, Element::class_name, id(), std::move(object().max_offtake_cost))
 {
+}
+
+namespace
+{
+
+/// Per-generator (gen_col → coefficient) map indexed by block, built
+/// in one walk over `sc.elements<GeneratorLP>()`.  Used by both the
+/// per-stage SUM path and the per-block path.
+[[nodiscard]] BIndexHolder<std::vector<std::pair<ColIndex, double>>>
+collect_gen_coefficients(const SystemContext& sc,
+                         const FuelLP& this_fuel,
+                         const ScenarioLP& scenario,
+                         const StageLP& stage)
+{
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> per_block;
+  const auto stage_uid = stage.uid();
+
+  for (const auto& gen : sc.elements<GeneratorLP>()) {
+    const auto& fuel_ref = gen.generator().fuel;
+    if (!fuel_ref.has_value()) {
+      continue;
+    }
+    const auto& gfuel = sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
+    if (gfuel.uid() != this_fuel.uid()) {
+      continue;
+    }
+    if (!gen.is_active(stage)) {
+      continue;
+    }
+    // Tolerant accessor — see `lookup_generation_cols` in
+    // GeneratorLP for why this is preferred over `generation_cols_at`.
+    const auto& gcols = gen.lookup_generation_cols(scenario, stage);
+    for (const auto& block : stage.blocks()) {
+      const auto buid = block.uid();
+      const auto hr = gen.param_heat_rate(stage_uid, buid).value_or(0.0);
+      if (hr <= 0.0) {
+        continue;
+      }
+      const auto it = gcols.find(buid);
+      if (it == gcols.end()) {
+        continue;
+      }
+      // coefficient = heat_rate × block_duration so the LHS
+      // (sum of coef × gen_col) evaluates to fuel-units when gen is
+      // in MW.  Matches the unit basis of `max_offtake`.
+      per_block[buid].emplace_back(it->second, hr * block.duration());
+    }
+  }
+
+  return per_block;
+}
+
+}  // namespace
+
+bool FuelLP::add_to_lp(const SystemContext& sc,
+                       const ScenarioLP& scenario,
+                       const StageLP& stage,
+                       LinearProblem& lp)
+{
+  if (!is_active(stage)) {
+    return true;
+  }
+
+  const auto stage_uid = stage.uid();
+  const auto stage_cap = param_max_offtake(stage_uid);
+  if (!stage_cap) {
+    // No cap set for this stage — FuelLP stays purely passive.
+    return true;
+  }
+
+  const auto& blocks = stage.blocks();
+  if (blocks.empty()) {
+    return true;
+  }
+
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto scen_uid = scenario.uid();
+  const auto stage_ctx = make_stage_context(scen_uid, stage_uid);
+
+  // Walk generators once; reuse the (col → coefficient) map for
+  // either cap mode.  GeneratorLP runs BEFORE FuelLP in
+  // `lp_element_types_t`, so generation_cols_at() is already
+  // populated.
+  const auto gen_coefs = collect_gen_coefficients(sc, *this, scenario, stage);
+  if (gen_coefs.empty()) {
+    // No active generators reference this fuel at this stage — the
+    // cap is trivially satisfied; skip rows to keep the LP sparse.
+    return true;
+  }
+
+  // Slack cost (used in both modes if max_offtake_cost is set).
+  // Multiply by `cost_factor(prob, disc)` — the 2-arg overload with
+  // duration defaulting to 1.0 — so the slack-cost coefficient stays
+  // in $/fuel-unit terms.  Using `scenario_stage_ecost` here would
+  // additionally multiply by `stage.duration()`, over-penalising
+  // multi-hour stages because the slack is a stage-total quantity
+  // (not a per-time rate).
+  const auto stage_cost = param_max_offtake_cost(stage_uid);
+  const double slack_cost_per_unit = (stage_cost && *stage_cost > 0.0)
+      ? *stage_cost
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor())
+      : 0.0;
+
+  const bool per_block = fuel().max_offtake_per_block.value_or(false);
+
+  if (per_block) {
+    // ── Per-block mode ────────────────────────────────────────────────
+    // Pro-rate the stage cap by each block's share of stage duration
+    // — equivalent to enforcing a uniform per-hour rate cap
+    // `max_offtake / total_duration`.  Mirrors PLEXOS's per-period
+    // `FueMaxOffWeek_<fuel>` semantics.
+    double total_duration = 0.0;
+    for (const auto& block : blocks) {
+      total_duration += block.duration();
+    }
+    if (total_duration <= 0.0) {
+      return true;
+    }
+
+    BIndexHolder<RowIndex> brows;
+    BIndexHolder<ColIndex> bslacks;
+    map_reserve(brows, blocks.size());
+    if (slack_cost_per_unit > 0.0) {
+      map_reserve(bslacks, blocks.size());
+    }
+
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto coefs_it = gen_coefs.find(buid);
+      if (coefs_it == gen_coefs.end() || coefs_it->second.empty()) {
+        // No generator coefficient on this block — skip the row to
+        // keep the LP sparse.  The remaining blocks still get their
+        // cap rows; the missing block is effectively "uncapped" but
+        // also "no consumption", so the constraint is trivially met.
+        continue;
+      }
+      const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
+      SparseRow brow {
+          .class_name = cname,
+          .constraint_name = MaxOfftakeName,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      };
+      for (const auto& [gcol, coef] : coefs_it->second) {
+        const double existing = brow[gcol];
+        brow[gcol] = existing + coef;
+      }
+      if (slack_cost_per_unit > 0.0) {
+        const auto slack_col = lp.add_col(SparseCol {
+            .lowb = 0.0,
+            .cost = slack_cost_per_unit,
+            .class_name = cname,
+            .variable_name = MaxOfftakeSlackName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        brow[slack_col] = -1.0;
+        bslacks[buid] = slack_col;
+      }
+      const double block_cap = *stage_cap * block.duration() / total_duration;
+      brows[buid] = lp.add_row(std::move(brow).less_equal(block_cap));
+    }
+
+    const auto st_key = std::tuple {scen_uid, stage_uid};
+    if (!brows.empty()) {
+      max_offtake_block_rows_[st_key] = std::move(brows);
+    }
+    if (!bslacks.empty()) {
+      max_offtake_block_slack_cols_[st_key] = std::move(bslacks);
+    }
+  } else {
+    // ── Per-stage SUM mode (default) ──────────────────────────────────
+    SparseRow cap_row {
+        .class_name = cname,
+        .constraint_name = MaxOfftakeName,
+        .variable_uid = uid(),
+        .context = stage_ctx,
+    };
+    for (const auto& block : blocks) {
+      const auto coefs_it = gen_coefs.find(block.uid());
+      if (coefs_it == gen_coefs.end()) {
+        continue;
+      }
+      for (const auto& [gcol, coef] : coefs_it->second) {
+        const double existing = cap_row[gcol];
+        cap_row[gcol] = existing + coef;
+      }
+    }
+
+    if (slack_cost_per_unit > 0.0) {
+      const auto slack_col = lp.add_col(SparseCol {
+          .lowb = 0.0,
+          .cost = slack_cost_per_unit,
+          .class_name = cname,
+          .variable_name = MaxOfftakeSlackName,
+          .variable_uid = uid(),
+          .context = stage_ctx,
+      });
+      cap_row[slack_col] = -1.0;
+      max_offtake_slack_cols_[{scen_uid, stage_uid}] = slack_col;
+    }
+    max_offtake_rows_[{scen_uid, stage_uid}] =
+        lp.add_row(std::move(cap_row).less_equal(*stage_cap));
+  }
+
+  return true;
+}
+
+bool FuelLP::add_to_output(OutputContext& out) const
+{
+  if (max_offtake_rows_.empty() && max_offtake_block_rows_.empty()) {
+    return true;
+  }
+
+  static constexpr std::string_view cname = Element::class_name.full_name();
+  const auto pid = id();
+
+  if (!max_offtake_rows_.empty()) {
+    out.add_row_dual(cname, MaxOfftakeName, pid, max_offtake_rows_);
+  }
+  if (!max_offtake_slack_cols_.empty()) {
+    out.add_col_sol(cname, MaxOfftakeSlackName, pid, max_offtake_slack_cols_);
+    out.add_col_cost(cname, MaxOfftakeSlackName, pid, max_offtake_slack_cols_);
+  }
+  if (!max_offtake_block_rows_.empty()) {
+    out.add_row_dual(cname, MaxOfftakeName, pid, max_offtake_block_rows_);
+  }
+  if (!max_offtake_block_slack_cols_.empty()) {
+    out.add_col_sol(
+        cname, MaxOfftakeSlackName, pid, max_offtake_block_slack_cols_);
+    out.add_col_cost(
+        cname, MaxOfftakeSlackName, pid, max_offtake_block_slack_cols_);
+  }
+  return true;
 }
 
 }  // namespace gtopt

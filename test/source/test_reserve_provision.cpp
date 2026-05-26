@@ -136,9 +136,16 @@ TEST_CASE("ReserveProvision with time-varying factors")
 {
   ReserveProvision reserve_provision;
 
-  // Create vectors for time-varying provision factors
-  std::vector<Real> ur_provision_factor_schedule = {0.9, 1.0, 1.0, 0.9};
-  std::vector<Real> dr_provision_factor_schedule = {0.8, 0.9, 1.0, 0.8};
+  // Build per-(stage, block) schedules.  Since PR-C,
+  // `ReserveProvision::ur_provision_factor` / `dr_provision_factor`
+  // are `OptTBRealFieldSched`; the 2-D variant is
+  // ``std::vector<std::vector<Real>>`` with outer-index = stage and
+  // inner-index = block.  Four stages × one block each = legacy 1-D
+  // semantics.
+  std::vector<std::vector<Real>> ur_provision_factor_schedule = {
+      {0.9}, {1.0}, {1.0}, {0.9}};
+  std::vector<std::vector<Real>> dr_provision_factor_schedule = {
+      {0.8}, {0.9}, {1.0}, {0.8}};
 
   // Assign to reserve provision
   reserve_provision.ur_provision_factor = ur_provision_factor_schedule;
@@ -148,11 +155,13 @@ TEST_CASE("ReserveProvision with time-varying factors")
   REQUIRE(reserve_provision.ur_provision_factor.has_value());
   REQUIRE(reserve_provision.dr_provision_factor.has_value());
 
-  // Check that we have vectors, not scalars
-  auto* ur_provision_factor_vec_ptr = std::get_if<std::vector<Real>>(
-      &reserve_provision.ur_provision_factor.value());
-  auto* dr_provision_factor_vec_ptr = std::get_if<std::vector<Real>>(
-      &reserve_provision.dr_provision_factor.value());
+  // Check that we have 2-D vectors, not scalars
+  auto* ur_provision_factor_vec_ptr =
+      std::get_if<std::vector<std::vector<Real>>>(
+          &reserve_provision.ur_provision_factor.value());
+  auto* dr_provision_factor_vec_ptr =
+      std::get_if<std::vector<std::vector<Real>>>(
+          &reserve_provision.dr_provision_factor.value());
 
   REQUIRE(ur_provision_factor_vec_ptr != nullptr);
   REQUIRE(dr_provision_factor_vec_ptr != nullptr);
@@ -161,13 +170,13 @@ TEST_CASE("ReserveProvision with time-varying factors")
   CHECK(ur_provision_factor_vec_ptr->size() == 4);
   CHECK(dr_provision_factor_vec_ptr->size() == 4);
 
-  CHECK((*ur_provision_factor_vec_ptr)[0] == 0.9);
-  CHECK((*ur_provision_factor_vec_ptr)[1] == 1.0);
-  CHECK((*ur_provision_factor_vec_ptr)[2] == 1.0);
-  CHECK((*ur_provision_factor_vec_ptr)[3] == 0.9);
+  CHECK((*ur_provision_factor_vec_ptr)[0][0] == 0.9);
+  CHECK((*ur_provision_factor_vec_ptr)[1][0] == 1.0);
+  CHECK((*ur_provision_factor_vec_ptr)[2][0] == 1.0);
+  CHECK((*ur_provision_factor_vec_ptr)[3][0] == 0.9);
 
-  CHECK((*dr_provision_factor_vec_ptr)[0] == 0.8);
-  CHECK((*dr_provision_factor_vec_ptr)[1] == 0.9);
-  CHECK((*dr_provision_factor_vec_ptr)[2] == 1.0);
-  CHECK((*dr_provision_factor_vec_ptr)[3] == 0.8);
+  CHECK((*dr_provision_factor_vec_ptr)[0][0] == 0.8);
+  CHECK((*dr_provision_factor_vec_ptr)[1][0] == 0.9);
+  CHECK((*dr_provision_factor_vec_ptr)[2][0] == 1.0);
+  CHECK((*dr_provision_factor_vec_ptr)[3][0] == 0.8);
 }

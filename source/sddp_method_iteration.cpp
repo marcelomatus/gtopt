@@ -285,13 +285,27 @@ int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
     const auto prev_phase_index = previous(phase_index);
     auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
     sys.set_prev_phase_sys(&prev_sys);
-    // Under `LowMemoryMode::compress` collections are dropped at every
-    // `release_backend()`.  `physical_eini`'s cross-phase branch
-    // (storage_lp.hpp:347-358) reads `prev_sys->element<X>(sid)`,
-    // which throws if prev's collections are empty.  Rebuild them
-    // transparently so cross-phase reservoir efin lookup works under
-    // all low_memory modes.
-    prev_sys.rebuild_collections_if_needed();
+    // NOTE: we deliberately do NOT rebuild prev_sys's collections here.
+    //
+    // The cross-phase reservoir-eini lookup is served by the
+    // `ReservoirRefCache` path (`physical_eini_from_cache`), which reads
+    // the predecessor's final volume directly from its cached solver
+    // solution — `prev_li.get_col_sol()[efin_col]` — using a column index
+    // bound at build time.  It never traverses
+    // `prev_sys->element<ReservoirLP>` on any production path (see the
+    // `HasUpdateLP` doc in system_lp.hpp:163-171).  The element-walking
+    // `physical_eini` overload in storage_lp.hpp has no production callers.
+    //
+    // The previous `prev_sys.rebuild_collections_if_needed()` here was the
+    // single dominant memory allocator under `--memory-saving compress`
+    // with a memory limit (eviction on): it re-inflated the predecessor's
+    // FULL ~50-type collection tuple (~250 MB on the 2-year case, measured
+    // via jemalloc heap profiling) on every forward/backward phase, purely
+    // to protect a code path nothing uses — and the rebuilt collections
+    // then stayed resident, pinning RSS at ~num_cells × per-cell.  Dropping
+    // it is numerically identical (same `get_col_sol()[efin_col]` value)
+    // and is the keystone that lets collection-eviction actually bound the
+    // resident floor.
   } else {
     sys.set_prev_phase_sys(nullptr);
   }

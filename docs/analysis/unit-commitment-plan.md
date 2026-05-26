@@ -1060,7 +1060,7 @@ should be implemented as part of Phase 1 or even before UC.
 
 ```cpp
 // In generator.hpp — new optional field
-OptTRealFieldSched emission_factor {};  // tCO2/MWh, stage-schedule
+OptTRealFieldSched emission_rate {};  // tCO2/MWh, stage-schedule
 ```
 
 **New optional fields on `System` (or `PlanningOptions`):**
@@ -1073,7 +1073,7 @@ OptTRealFieldSched emission_cap {};   // tCO2/year (or GtCO2/year), stage-schedu
 
 **How it works in the LP:**
 
-1. **Emission cost**: For each generator with `emission_factor > 0` and
+1. **Emission cost**: For each generator with `emission_rate > 0` and
    system `emission_cost > 0`, add $\tau_s \cdot e_g$ to the generation
    variable's objective coefficient. This is a simple modification in
    `GeneratorLP::add_to_lp` — no new variables or constraints needed.
@@ -1107,12 +1107,12 @@ OptTRealFieldSched emission_cap {};   // tCO2/year (or GtCO2/year), stage-schedu
     "generator_array": [
       {
         "uid": 1, "name": "coal1", "bus": 1,
-        "emission_factor": 0.9,
+        "emission_rate": 0.9,
         "gcost": 25, "capacity": 500
       },
       {
         "uid": 2, "name": "gas_ccgt", "bus": 1,
-        "emission_factor": 0.36,
+        "emission_rate": 0.36,
         "gcost": 40, "capacity": 300
       },
       {
@@ -1124,7 +1124,7 @@ OptTRealFieldSched emission_cap {};   // tCO2/year (or GtCO2/year), stage-schedu
 }
 ```
 
-In this example: wind has no `emission_factor` (defaults to 0), coal pays
+In this example: wind has no `emission_rate` (defaults to 0), coal pays
 $0.9 × \$10 = \$9/MWh$ carbon cost in stage 1, gas pays $0.36 × \$10 =
 \$3.6/MWh$. The cap constrains total annual emissions to 50 MtCO2.
 
@@ -1464,12 +1464,12 @@ The dual variable $\lambda_s$ is the endogenous carbon price.
     "generator_array": [
       {
         "uid": 1, "name": "coal_unit", "bus": 1,
-        "emission_factor": 0.9,
+        "emission_rate": 0.9,
         "gcost": 25, "pmin": 100, "capacity": 500
       },
       {
         "uid": 2, "name": "gas_peaker", "bus": 1,
-        "emission_factor": 0.55,
+        "emission_rate": 0.55,
         "gcost": 60, "capacity": 200
       },
       {
@@ -1550,7 +1550,7 @@ Annual emissions are capped at 50 MtCO2 (stage 1), declining to 40 MtCO2.
 | `test/source/test_frequency_security.cpp` | Frequency constraint tests |
 
 **System integration:**
-1. `generator.hpp`: Add `OptTRealFieldSched emission_factor {}`
+1. `generator.hpp`: Add `OptTRealFieldSched emission_rate {}`
 2. `system.hpp`: Add `Array<Commitment>`, `Array<FrequencySecurity>`,
    `OptTRealFieldSched emission_cost {}`, `OptTRealFieldSched emission_cap {}`
 3. `system_lp.hpp`: Add collections after `GeneratorLP`; add emission cap row
@@ -1575,7 +1575,7 @@ Annual emissions are capped at 50 MtCO2 (stage 1), declining to 40 MtCO2.
 - [ ] LP relaxation mode (`relax` flag)
 - [ ] Must-run / must-not-run support
 - [ ] `Stage::chronological` field
-- [ ] `Generator::emission_factor` field (tCO2/MWh, stage-schedule)
+- [ ] `Generator::emission_rate` field (tCO2/MWh, stage-schedule)
 - [ ] `System::emission_cost` field ($/tCO2, stage-schedule)
 - [ ] `System::emission_cap` field (tCO2/year, stage-schedule)
 - [ ] Emission cost adder in generator objective coefficients

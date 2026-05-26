@@ -251,14 +251,17 @@ def test_parse_large_real_file() -> None:
     parser = CentralParser(test_file)
     parser.parse()
 
-    # Verify expected counts from the file header
-    assert parser.num_centrales == 2732  # Should be more than test case
+    # Verify expected counts from the file header.
+    # The plp_case_2y/plpcnfce.dat fixture was refreshed; values match
+    # the current header line (3055/10/78/980/132/112) plus the derived
+    # `num_termicas` count.
+    assert parser.num_centrales == 3055
     assert parser.num_embalses == 10
-    assert parser.num_series == 75
-    assert parser.num_pasadas == 129
-    assert parser.num_baterias == 25
-    assert parser.num_termicas == 1545
-    assert parser.num_fallas == 948
+    assert parser.num_series == 78
+    assert parser.num_pasadas == 132
+    assert parser.num_baterias == 112
+    assert parser.num_termicas == 1743
+    assert parser.num_fallas == 980
 
     # Verify some sample centrals
     centrals = parser.centrals

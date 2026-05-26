@@ -83,7 +83,7 @@ def test_battery_array_from_cenbat(tmp_path):
     assert b["bus"] == 1
     assert b["pmax_discharge"] == pytest.approx(0.0)  # no central_parser → 0
     assert b["pmax_charge"] == pytest.approx(0.0)
-    assert b["gcost"] == pytest.approx(0.0)
+    assert b["discharge_cost"] == pytest.approx(0.0)
 
 
 def test_battery_array_emin_from_emin_emax(tmp_path):
@@ -225,7 +225,7 @@ def test_process_with_battery(tmp_path):
     assert "bus" in bat
     assert "pmax_discharge" in bat
     assert "pmax_charge" in bat
-    assert "gcost" in bat
+    assert "discharge_cost" in bat
     # No separate converter/generator/demand for battery
     assert "converter_array" not in result
     assert len(result["generator_array"]) == 1  # only thermal
@@ -259,7 +259,7 @@ def test_battery_array_from_ess(tmp_path):
     assert b["bus"] == 1  # default bus
     assert b["pmax_discharge"] == pytest.approx(100.0)
     assert b["pmax_charge"] == pytest.approx(100.0)
-    assert b["gcost"] == pytest.approx(0.0)
+    assert b["discharge_cost"] == pytest.approx(0.0)
 
 
 def test_ess_generator_array(tmp_path):
@@ -349,7 +349,7 @@ def test_process_with_ess(tmp_path):
     assert "bus" in bat
     assert "pmax_discharge" in bat
     assert "pmax_charge" in bat
-    assert "gcost" in bat
+    assert "discharge_cost" in bat
     # No separate converter/generator/demand for battery
     assert "converter_array" not in result
     assert len(result["generator_array"]) == 1  # only thermal
@@ -392,7 +392,7 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
     assert "bus" in b
     assert "pmax_discharge" in b
     assert "pmax_charge" in b
-    assert "gcost" in b
+    assert "discharge_cost" in b
 
 
 def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
@@ -451,7 +451,7 @@ def test_ess_maintenance_sets_pmax_reference(tmp_path):
     """When maness provides maintenance with DCMax, gen pmax is file ref.
 
     DC-maintenance entries use the legacy multi-element approach, so the
-    battery does NOT have unified fields (bus, pmax_*, gcost).
+    battery does NOT have unified fields (bus, pmax_*, discharge_cost).
     """
     ep = _make_ess_parser(
         tmp_path,

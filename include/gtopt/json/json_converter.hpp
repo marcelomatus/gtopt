@@ -32,7 +32,11 @@ struct json_data_contract<Converter>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
-      json_bool_null<"integer_expmod", OptBool>>;
+      json_bool_null<"integer_expmod", OptBool>,
+      json_bool_null<"commitment", OptBool>  ///< Gate inner gen/demand
+                                             ///< floors with per-block
+                                             ///< integer u (MIP)
+      >;
 
   constexpr static auto to_json_data(Converter const& converter)
   {
@@ -49,7 +53,8 @@ struct json_data_contract<Converter>
                                  converter.capmax,
                                  converter.annual_capcost,
                                  converter.annual_derating,
-                                 converter.integer_expmod);
+                                 converter.integer_expmod,
+                                 converter.commitment);
   }
 };
 }  // namespace daw::json

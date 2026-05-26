@@ -2743,9 +2743,12 @@ inline auto make_2scene_backtracking_recovery_two_reservoir_planning(
   // forms are scenario-agnostic by construction).
   planning.system.name = "sddp_2scene_backtrack_10phase_2rsv";
   for (auto& flow : planning.system.flow_array) {
+    if (!flow.discharge.has_value()) {
+      continue;
+    }
     if (auto* sched3d =
             std::get_if<std::vector<std::vector<std::vector<double>>>>(
-                &flow.discharge);
+                &*flow.discharge);
         sched3d != nullptr && sched3d->size() == 1)
     {
       sched3d->push_back(sched3d->front());

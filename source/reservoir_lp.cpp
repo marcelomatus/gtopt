@@ -102,7 +102,12 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
 
   const auto mpf = reservoir().mean_production_factor.value_or(
       Reservoir::default_mean_production_factor);
-  const auto stage_scost = sc.state_violation_cost(stage, scost);
+  // `scost` is per-(stage, block) since PR-D; the StateVariable
+  // penalty is fundamentally per-stage (one state column per stage),
+  // so we sample the first block — the same choice taken by other
+  // stage-scoped consumers (e.g. PR-A's `ecost` fallback in DemandLP).
+  const auto& first_block = stage.blocks().front();
+  const auto stage_scost = sc.state_violation_cost(stage, first_block, scost);
   const double rsv_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {
@@ -114,22 +119,23 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
       .flow_scale = flow_scale,
       .scost = rsv_scost,
   };
-  if (!StorageBase::add_to_lp(cname,
-                              ampl_name,
-                              sc,
-                              scenario,
-                              stage,
-                              lp,
-                              flow_conversion_rate(),
-                              rcols,
-                              1.0,
-                              rcols,
-                              1.0,
-                              stage_capacity,
-                              std::nullopt,
-                              spillway_cost(),
-                              spillway_capacity(),
-                              opts))
+  if (!StorageBase::add_to_lp(
+          cname,
+          ampl_name,
+          sc,
+          scenario,
+          stage,
+          lp,
+          flow_conversion_rate(),
+          rcols,
+          [](BlockUid) { return 1.0; },
+          rcols,
+          [](BlockUid) { return 1.0; },
+          stage_capacity,
+          std::nullopt,
+          spillway_cost(),
+          spillway_capacity(),
+          opts))
   {
     SPDLOG_CRITICAL("Failed to add storage constraints for reservoir {}",
                     uid());
@@ -199,7 +205,11 @@ bool ReservoirLP::add_to_output(OutputContext& out) const
   out.add_col_sol(cname, ExtractionName, id(), extraction_cols);
   out.add_col_cost(cname, ExtractionName, id(), extraction_cols);
 
-  return StorageBase::add_to_output(out, Element::class_name.full_name());
+  // Publish the per-block volume-balance dual under `water_value`
+  // rather than the storage-generic `energy` stem.  See
+  // `ReservoirLP::WaterValueName` for the rationale.
+  return StorageBase::add_to_output(
+      out, Element::class_name.full_name(), WaterValueName);
 }
 
 }  // namespace gtopt

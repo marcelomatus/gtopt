@@ -36,7 +36,8 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       /*cpu_factor=*/2.0,
       /*cpu_threshold_override=*/0.0,
       /*scheduler_interval=*/std::chrono::milliseconds(50),
-      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb());
+      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb(),
+      /*pool_label=*/"MonolithicMethod solve pool");
 
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();

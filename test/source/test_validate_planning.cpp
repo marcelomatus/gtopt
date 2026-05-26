@@ -480,6 +480,53 @@ TEST_CASE("validate_planning - turbine refs")  // NOLINT
     auto result = validate_planning(p);
     CHECK_FALSE(result.ok());
   }
+
+  SUBCASE("turbine with neither waterway nor flow is an error")
+  {
+    // Critical invariant added 2026-05-20: a turbine without any
+    // water-source reference (waterway OR flow) leaves the LP with
+    // no water-to-power conversion row.  `TurbineLP::add_to_lp` used
+    // to log a WARN and return false silently; the validation gate
+    // now elevates this to a hard error.
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_orphan";
+    turb.generator = Uid {1};
+    // waterway and flow both unset on purpose.
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+    const auto found =
+        std::ranges::any_of(result.errors,
+                            [](const auto& msg)
+                            {
+                              return msg.find("t_orphan") != std::string::npos
+                                  && msg.find("waterway") != std::string::npos
+                                  && msg.find("flow") != std::string::npos;
+                            });
+    CHECK(found);
+  }
+
+  SUBCASE("turbine with flow only (no waterway) is valid")
+  {
+    // The `flow` field is the alternative water-source reference;
+    // setting it (without waterway) must NOT trigger the new
+    // "neither waterway nor flow" error.
+    Flow flw;
+    flw.uid = Uid {1};
+    flw.name = "f1";
+    flw.junction = Uid {1};
+    p.system.flow_array.push_back(flw);
+
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_flow_only";
+    turb.flow = Uid {1};
+    turb.generator = Uid {1};
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
 }
 
 TEST_CASE("ValidationResult - ok() semantics")  // NOLINT
@@ -1183,6 +1230,695 @@ TEST_CASE(  // NOLINT
   const auto piecewise_warns = std::ranges::count_if(
       result.warnings, [](const auto& w) { return w.contains("seep1"); });
   CHECK(piecewise_warns == 0);
+}
+
+// ── P0 referential checks added 2026-05-20 ──────────────────────────────────
+// One TEST_CASE per element class.  Each pins the new hard-error contract:
+// a broken FK (invalid uid or unset required FK) MUST fail validation.
+
+TEST_CASE("validate_planning - EmissionSource refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  Emission em;
+  em.uid = Uid {1};
+  em.name = "co2";
+  p.system.emission_array.push_back(em);
+
+  EmissionZone zone;
+  zone.uid = Uid {1};
+  zone.name = "ez1";
+  p.system.emission_zone_array.push_back(zone);
+
+  SUBCASE("valid refs pass")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.generator = Uid {1};
+    src.zone = Uid {1};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.generator = Uid {999};
+    src.zone = Uid {1};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid zone fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.zone = Uid {999};
+    src.emission = Uid {1};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid emission fails")
+  {
+    EmissionSource src;
+    src.uid = Uid {1};
+    src.name = "es1";
+    src.zone = Uid {1};
+    src.emission = Uid {999};
+    p.system.emission_source_array.push_back(src);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - GeneratorProfile refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("valid ref passes")
+  {
+    GeneratorProfile gp;
+    gp.uid = Uid {1};
+    gp.name = "gp1";
+    gp.generator = Uid {1};
+    p.system.generator_profile_array.push_back(gp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    GeneratorProfile gp;
+    gp.uid = Uid {1};
+    gp.name = "gp1";
+    gp.generator = Uid {999};
+    p.system.generator_profile_array.push_back(gp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - DemandProfile refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Demand dem;
+  dem.uid = Uid {1};
+  dem.name = "d1";
+  dem.bus = Uid {1};
+  p.system.demand_array.push_back(dem);
+
+  SUBCASE("valid ref passes")
+  {
+    DemandProfile dp;
+    dp.uid = Uid {1};
+    dp.name = "dp1";
+    dp.demand = Uid {1};
+    p.system.demand_profile_array.push_back(dp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid demand fails")
+  {
+    DemandProfile dp;
+    dp.uid = Uid {1};
+    dp.name = "dp1";
+    dp.demand = Uid {999};
+    p.system.demand_profile_array.push_back(dp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReserveProvision refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  ReserveZone rz;
+  rz.uid = Uid {1};
+  rz.name = "rz1";
+  p.system.reserve_zone_array.push_back(rz);
+
+  SUBCASE("valid refs pass")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {1};
+    rp.reserve_zones = {SingleId {Uid {1}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {999};
+    rp.reserve_zones = {SingleId {Uid {1}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reserve_zones element fails")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "rp1";
+    rp.generator = Uid {1};
+    rp.reserve_zones = {SingleId {Uid {999}}};
+    p.system.reserve_provision_array.push_back(rp);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - InertiaProvision refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  InertiaZone iz;
+  iz.uid = Uid {1};
+  iz.name = "iz1";
+  p.system.inertia_zone_array.push_back(iz);
+
+  SUBCASE("valid refs pass")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {1};
+    ip.inertia_zones = {SingleId {Uid {1}}};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {999};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid inertia_zones element fails")
+  {
+    InertiaProvision ip;
+    ip.uid = Uid {1};
+    ip.name = "ip1";
+    ip.generator = Uid {1};
+    ip.inertia_zones = {SingleId {Uid {999}}};
+    p.system.inertia_provision_array.push_back(ip);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - SimpleCommitment refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("valid ref passes")
+  {
+    SimpleCommitment sc;
+    sc.uid = Uid {1};
+    sc.name = "sc1";
+    sc.generator = Uid {1};
+    p.system.simple_commitment_array.push_back(sc);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid generator fails")
+  {
+    SimpleCommitment sc;
+    sc.uid = Uid {1};
+    sc.name = "sc1";
+    sc.generator = Uid {999};
+    p.system.simple_commitment_array.push_back(sc);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirProductionFactor refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Turbine turb;
+  turb.uid = Uid {1};
+  turb.name = "t1";
+  turb.waterway = Uid {1};
+  turb.generator = Uid {1};
+  p.system.turbine_array.push_back(turb);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {1};
+    rpf.reservoir = Uid {1};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid turbine fails")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {999};
+    rpf.reservoir = Uid {1};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirProductionFactor rpf;
+    rpf.uid = Uid {1};
+    rpf.name = "rpf1";
+    rpf.turbine = Uid {1};
+    rpf.reservoir = Uid {999};
+    p.system.reservoir_production_factor_array.push_back(rpf);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirSeepage refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {1};
+    seep.reservoir = Uid {1};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid waterway fails")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {999};
+    seep.reservoir = Uid {1};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirSeepage seep;
+    seep.uid = Uid {1};
+    seep.name = "seep1";
+    seep.waterway = Uid {1};
+    seep.reservoir = Uid {999};
+    p.system.reservoir_seepage_array.push_back(seep);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+// ── P1 referential checks added 2026-05-20 ──────────────────────────────────
+
+TEST_CASE("validate_planning - Battery refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Generator gen;
+  gen.uid = Uid {1};
+  gen.name = "g1";
+  gen.bus = Uid {1};
+  p.system.generator_array.push_back(gen);
+
+  SUBCASE("battery with valid bus passes")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("battery with invalid bus fails")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {999};
+    p.system.battery_array.push_back(bat);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("battery with valid source_generator passes")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    bat.source_generator = Uid {1};
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("battery with invalid source_generator fails")
+  {
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    bat.bus = Uid {1};
+    bat.source_generator = Uid {999};
+    p.system.battery_array.push_back(bat);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("battery with no bus or source_generator passes (standalone)")
+  {
+    // Neither optional FK is required at the validation gate — only
+    // *invalid* uids fail.  A battery without `bus` is a legacy raw-
+    // battery configuration where the user has wired the Converter
+    // explicitly; do not over-reject.
+    Battery bat;
+    bat.uid = Uid {1};
+    bat.name = "b1";
+    p.system.battery_array.push_back(bat);
+    CHECK(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - VolumeRight refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid reservoir ref passes")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.reservoir = Uid {999};
+    p.system.volume_right_array.push_back(vr);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("valid right_reservoir ref passes")
+  {
+    VolumeRight vr_parent;
+    vr_parent.uid = Uid {1};
+    vr_parent.name = "vr_parent";
+    vr_parent.reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr_parent);
+
+    VolumeRight vr_child;
+    vr_child.uid = Uid {2};
+    vr_child.name = "vr_child";
+    vr_child.right_reservoir = Uid {1};
+    p.system.volume_right_array.push_back(vr_child);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid right_reservoir fails")
+  {
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    vr.right_reservoir = Uid {999};
+    p.system.volume_right_array.push_back(vr);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("VolumeRight with no FKs passes (standalone right)")
+  {
+    // Both FKs are documented as optional; a standalone right with
+    // neither set is valid at the validation gate.  No silent failure
+    // because `volume_right_lp.cpp` gates each branch on
+    // `has_value()`.
+    VolumeRight vr;
+    vr.uid = Uid {1};
+    vr.name = "vr1";
+    p.system.volume_right_array.push_back(vr);
+    CHECK(validate_planning(p).ok());
+  }
+}
+
+TEST_CASE("validate_planning - ReservoirDischargeLimit refs")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+
+  Junction j1;
+  j1.uid = Uid {1};
+  j1.name = "j1";
+  p.system.junction_array.push_back(j1);
+  Junction j2;
+  j2.uid = Uid {2};
+  j2.name = "j2";
+  p.system.junction_array.push_back(j2);
+
+  Waterway ww;
+  ww.uid = Uid {1};
+  ww.name = "ww1";
+  ww.junction_a = Uid {1};
+  ww.junction_b = Uid {2};
+  p.system.waterway_array.push_back(ww);
+
+  Reservoir res;
+  res.uid = Uid {1};
+  res.name = "r1";
+  res.junction = Uid {1};
+  p.system.reservoir_array.push_back(res);
+
+  SUBCASE("valid refs pass")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {1};
+    rdl.reservoir = Uid {1};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK(validate_planning(p).ok());
+  }
+  SUBCASE("invalid waterway fails")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {999};
+    rdl.reservoir = Uid {1};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+  SUBCASE("invalid reservoir fails")
+  {
+    ReservoirDischargeLimit rdl;
+    rdl.uid = Uid {1};
+    rdl.name = "rdl1";
+    rdl.waterway = Uid {1};
+    rdl.reservoir = Uid {999};
+    p.system.reservoir_discharge_limit_array.push_back(rdl);
+    CHECK_FALSE(validate_planning(p).ok());
+  }
+}
+
+// ── P2 fuel/heat-rate pairing warnings (added 2026-05-20) ────────────────────
+
+TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  Fuel f;
+  f.uid = Uid {1};
+  f.name = "gas";
+
+  SUBCASE("fuel set + heat_rate set → no warning")
+  {
+    auto p = make_minimal_planning();
+    p.system.fuel_array.push_back(f);
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.fuel = Uid {1};
+    gen.heat_rate = 8.0;
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    const auto pair_warns = std::ranges::count_if(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && (w.find("fuel will be ignored") != std::string::npos
+                  || w.find("heat_rate will be ignored") != std::string::npos);
+        });
+    CHECK(pair_warns == 0);
+  }
+  SUBCASE("fuel set + no heat_rate → warning about ignored fuel")
+  {
+    auto p = make_minimal_planning();
+    p.system.fuel_array.push_back(f);
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.fuel = Uid {1};
+    // No heat_rate, no heat_rate_segments
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());  // warnings don't fail validation
+    const auto found = std::ranges::any_of(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && w.find("fuel price will be ignored") != std::string::npos;
+        });
+    CHECK(found);
+  }
+  SUBCASE("heat_rate set + no fuel → warning about ignored heat_rate")
+  {
+    auto p = make_minimal_planning();
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    gen.heat_rate = 8.0;
+    // No fuel reference
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());
+    const auto found = std::ranges::any_of(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && w.find("heat_rate will be ignored") != std::string::npos;
+        });
+    CHECK(found);
+  }
+  SUBCASE(
+      "neither fuel nor heat_rate set → no pairing warning (gcost only model)")
+  {
+    auto p = make_minimal_planning();
+    Generator gen;
+    gen.uid = Uid {1};
+    gen.name = "g1";
+    gen.bus = Uid {1};
+    // No fuel, no heat_rate — gcost-only model is a valid configuration
+    p.system.generator_array.push_back(gen);
+    auto r = validate_planning(p);
+    CHECK(r.ok());
+    const auto pair_warns = std::ranges::count_if(
+        r.warnings,
+        [](const auto& w)
+        {
+          return w.find("Generator 'g1'") != std::string::npos
+              && (w.find("fuel will be ignored") != std::string::npos
+                  || w.find("heat_rate will be ignored") != std::string::npos);
+        });
+    CHECK(pair_warns == 0);
+  }
 }
 
 }  // namespace

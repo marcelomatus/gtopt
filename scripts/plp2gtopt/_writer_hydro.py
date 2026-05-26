@@ -740,12 +740,16 @@ class HydroMixin:
         )
         writer.process(self.planning["system"])
 
-        # Create spillway at each soft FlowRight junction lacking an outlet
+        # Wire each soft FlowRight to an inline bypass column via
+        # ``FlowRight.bypass_junction``.  Replaces the legacy synthetic
+        # parallel ``_spill`` waterway with the inline mechanism added
+        # to the LP in 35d3bdb8a — see
+        # ``gtopt_expand.pmin_flowright_expand.ensure_bypass_for_flowrights``.
         from gtopt_expand.pmin_flowright_expand import (  # noqa: PLC0415
-            ensure_drain_for_flowrights,
+            ensure_bypass_for_flowrights,
         )
 
-        ensure_drain_for_flowrights(self.planning["system"])
+        ensure_bypass_for_flowrights(self.planning["system"])
 
     def process_flow_turbines(self, options):
         """Create Flow + Turbine(flow=ref) for hydro pasada centrals.

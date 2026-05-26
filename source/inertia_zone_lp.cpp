@@ -37,8 +37,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     return {};
   }
 
-  const auto stage_rcost = sc.reserve_shortage_cost(stage, rr.cost);
-
   BIndexHolder<ColIndex> rr_cols;
   BIndexHolder<RowIndex> rr_rows;
   map_reserve(rr_cols, blocks.size());
@@ -51,14 +49,19 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       continue;
     }
 
+    // `rr.cost` is now per-(stage, block): resolve per block via the
+    // overload that consults `model_options.reserve_shortage_cost` as
+    // fallback (mirrors the ReserveZoneLP path).
+    const auto block_rcost = sc.reserve_shortage_cost(stage, block, rr.cost);
+
     const auto block_context =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
-    const auto rcol = stage_rcost
+    const auto rcol = block_rcost
         ? lp.add_col({
               .lowb = 0.0,
               .uppb = block_rreq.value(),
               .cost = -CostHelper::block_ecost(
-                  scenario, stage, block, stage_rcost.value()),
+                  scenario, stage, block, block_rcost.value()),
               .class_name = cname,
               .variable_name = rname,
               .variable_uid = uid,

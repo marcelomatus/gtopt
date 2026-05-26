@@ -26,10 +26,12 @@ from plp2gtopt.plp2gtopt import (
     convert_plp_case,
     create_zip_output,
     generate_variable_scales_template,
+    install_solver_param_files,
     print_variable_scales_template,
     run_post_check,
     validate_plp_case,
 )
+from plp2gtopt import plp2gtopt as _plp2gtopt_mod
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
 
@@ -439,7 +441,7 @@ def test_build_options_defaults():
     assert opts["output_file"] == Path("output/output.json")
     assert opts["last_stage"] == -1
     assert opts["last_time"] == -1
-    assert opts["compression"] == "snappy"
+    assert opts["compression"] == "lz4"
     assert opts["hydrologies"] == "all"
     assert opts["probability_factors"] is None
     assert opts["discount_rate"] == pytest.approx(0.0)
@@ -1234,3 +1236,45 @@ def test_log_stats_all_zero_elements():
     }
     # Should not raise; exercises the fallback when no elements > 0
     _log_stats(planning, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# install_solver_param_files() — solvers/*.prm bundling
+# ---------------------------------------------------------------------------
+
+
+def test_install_solver_param_files_copies_bundled(tmp_path):
+    """install_solver_param_files copies every bundled ``*.prm``."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "cplex.prm").write_text(
+        "CPLEX Parameter File Version 22.1.1.0\nCPXPARAM_MIP_Cuts_Gomory   2\n"
+    )
+    (bundle / "highs.prm").write_text("solver = simplex\n")
+
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = bundle
+    try:
+        installed = install_solver_param_files(target)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    assert {p.name for p in installed} == {"cplex.prm", "highs.prm"}
+    cplex_dst = target / "solvers" / "cplex.prm"
+    assert cplex_dst.is_file()
+    assert "CPXPARAM_MIP_Cuts_Gomory" in cplex_dst.read_text()
+
+
+def test_install_solver_param_files_no_bundle(tmp_path):
+    """install_solver_param_files is a no-op when the bundle is missing."""
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = tmp_path / "does_not_exist"
+    try:
+        installed = install_solver_param_files(target)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    assert installed == []
+    assert not (target / "solvers").exists()

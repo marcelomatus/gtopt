@@ -62,7 +62,7 @@ def _load_cen_format(data: dict) -> Topology:
                 pmax=float(g.get("pmax", g.get("capacity", 0.0))),
                 declared_MC=_opt_float(g.get("declared_MC") or g.get("costo_variable")),
                 kind=str(g.get("kind", g.get("tecnologia", "thermal"))).lower(),
-                emission_factor=_opt_float(g.get("emission_factor")),
+                emission_rate=_opt_float(g.get("emission_rate")),
             )
         )
 

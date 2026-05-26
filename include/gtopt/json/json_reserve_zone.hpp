@@ -16,8 +16,8 @@ struct json_data_contract<ReserveZone>
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_variant_null<"urreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"urcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"drcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveZone const& obj)
   {

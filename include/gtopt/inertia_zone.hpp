@@ -55,7 +55,10 @@ struct InertiaZone
   OptActive active {};  ///< Activation status
 
   OptTBRealFieldSched requirement {};  ///< Min inertia requirement [MWs]
-  OptTRealFieldSched cost {};  ///< Inertia shortage penalty [$/MWs]
+  OptTBRealFieldSched cost {};  ///< Inertia shortage penalty [$/MWs] —
+                                ///< per-(stage, block); accepts a scalar
+                                ///< (broadcasts), a 2-D nested array, or
+                                ///< a file-backed schedule.
 };
 
 }  // namespace gtopt

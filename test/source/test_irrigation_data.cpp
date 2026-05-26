@@ -243,16 +243,17 @@ TEST_CASE("FlowRight uvalue field")
     FlowRight fr3;
     fr3.uid = 111;
     fr3.name = "scheduled_cost";
-    // 1D schedule: per-stage (post-narrowing).
-    const std::vector<Real> sched = {100.0, 200.0};
+    // 2-D schedule: per-(stage, block) since PR-C.  Two stages × one
+    // block each is the legacy per-stage equivalent.
+    const std::vector<std::vector<Real>> sched = {{100.0}, {200.0}};
     fr3.uvalue = sched;
 
     REQUIRE(fr3.uvalue.has_value());
-    auto* vec_ptr = std::get_if<std::vector<Real>>(&*fr3.uvalue);
+    auto* vec_ptr = std::get_if<std::vector<std::vector<Real>>>(&*fr3.uvalue);
     REQUIRE(vec_ptr != nullptr);
     CHECK(vec_ptr->size() == 2);
-    CHECK((*vec_ptr)[0] == doctest::Approx(100.0));
-    CHECK((*vec_ptr)[1] == doctest::Approx(200.0));
+    CHECK((*vec_ptr)[0][0] == doctest::Approx(100.0));
+    CHECK((*vec_ptr)[1][0] == doctest::Approx(200.0));
   }
 }
 
@@ -273,14 +274,15 @@ TEST_CASE("FlowRight fcost as schedule")
 
   SUBCASE("per-stage fcost schedule")
   {
-    // OptTRealFieldSched: per-stage (1D), matching Demand::fcost.
-    std::vector<Real> sched = {1000.0, 2000.0, 3000.0};
+    // OptTBRealFieldSched since PR-C: per-(stage, block).  Three stages
+    // × one block each is the legacy per-stage equivalent.
+    std::vector<std::vector<Real>> sched = {{1000.0}, {2000.0}, {3000.0}};
     fr.fcost = sched;
     REQUIRE(fr.fcost.has_value());
-    auto* vec_ptr = std::get_if<std::vector<Real>>(&*fr.fcost);
+    auto* vec_ptr = std::get_if<std::vector<std::vector<Real>>>(&*fr.fcost);
     REQUIRE(vec_ptr != nullptr);
     CHECK(vec_ptr->size() == 3);
-    CHECK((*vec_ptr)[1] == doctest::Approx(2000.0));
+    CHECK((*vec_ptr)[1][0] == doctest::Approx(2000.0));
   }
 }
 

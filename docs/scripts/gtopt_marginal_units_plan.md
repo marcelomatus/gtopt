@@ -59,8 +59,8 @@
 > * §4.12 added — marginal emission intensity ε_b
 >   [kgCO₂eq/MWh] computed in lockstep with the marginal price. Same
 >   merit-list pick drives both formulas; only the per-unit datum
->   differs (`emission_factor` vs `declared_MC`).
-> * §3.3.3 topology gains optional `emission_factor:float|None`
+>   differs (`emission_rate` vs `declared_MC`).
+> * §3.3.3 topology gains optional `emission_rate:float|None`
 >   column. §4.6 dataset gains a sibling
 >   `bus_emission_intensity_recipe.parquet`. CI invariant: identical
 >   `marginal_gen_uids` across the price and emission recipe tables.
@@ -604,7 +604,7 @@ TopologyFrame:                         # written once per feed
   bus(uid:int, name:str, region:str|None)
   generator(uid:int, name:str, bus_uid:int, pmin:float, pmax:float,
             declared_MC:float|None, kind:str, segments:list|None,
-            emission_factor:float|None)   # kgCO2eq/MWh (§4.12)
+            emission_rate:float|None)   # kgCO2eq/MWh (§4.12)
   line(uid:int, bus_a_uid:int, bus_b_uid:int,
        tmax_ab:float, tmax_ba:float, active:bool)
 
@@ -1509,7 +1509,7 @@ emission intensity** computer. The economic logic
 verbatim to "the marginal unit's emission factor sets the bus
 marginal emission intensity":
 
-> ε_b [kgCO₂/MWh] = emission_factor[g_marginal at b]
+> ε_b [kgCO₂/MWh] = emission_rate[g_marginal at b]
 
 The same recipe table machinery (§4.6.4) that lets a downstream
 consumer recompute λ_b under a new cost catalogue *trivially*
@@ -1520,11 +1520,11 @@ different. v1 ships this as a first-class output, not a follow-up.
 #### 4.12.1 Per-unit emission factor
 
 The canonical schema's `Topology.generator` row gains an optional
-`emission_factor:float|NA` column (kgCO₂-equivalent per MWh
+`emission_rate:float|NA` column (kgCO₂-equivalent per MWh
 delivered). Sources:
 
 * **simulated mode** — read from the planning JSON's
-  `system.generator_array[*].emission_factor` field if present
+  `system.generator_array[*].emission_rate` field if present
   (gtopt already supports it as an optional input attribute);
   otherwise NA;
 * **real mode** — `cen2gtopt` populates from CEN's per-unit
@@ -1539,7 +1539,7 @@ never silently dropped).
 For multi-pollutant analysis the user can pass repeated
 `--emission-attribute=co2,so2,nox,pm` to read additional columns
 of the same shape; v1 ships only `co2` (the column called
-`emission_factor` in the schema is a CO₂-equivalent in
+`emission_rate` in the schema is a CO₂-equivalent in
 kgCO₂eq/MWh). Multi-pollutant is v1.1 work.
 
 #### 4.12.2 The emission-intensity recipe table
@@ -1576,9 +1576,9 @@ emission recipe by construction.
 
 | Kind | ε_b formula |
 |---|---|
-| `single_unit`           | `ε_b = emission_factor[g₀]` |
-| `tied_units`            | `ε_b = Σ w_i · emission_factor[g_i]` (weights sum to 1) |
-| `forced_pmin_marginal`  | `ε_b = emission_factor[g₀]` (the must-run unit's factor) |
+| `single_unit`           | `ε_b = emission_rate[g₀]` |
+| `tied_units`            | `ε_b = Σ w_i · emission_rate[g_i]` (weights sum to 1) |
+| `forced_pmin_marginal`  | `ε_b = emission_rate[g₀]` (the must-run unit's factor) |
 | `hydro_marginal`        | `ε_b = 0` (zero-emission proxy; reservoir/hydro turbines emit nothing at the bus bar) |
 | `demand_fail`           | `ε_b = 0` (load shedding has no associated generation) — flagged in audit |
 | `renewable_curtailment` | `ε_b = 0` |
@@ -1619,7 +1619,7 @@ the dataset lets them join without an LP rerun.
 #### 4.12.4 CI invariants
 
 The same writer-side and reader-side round-trip checks (§4.6.4
-invariants 1–2 and §4.10.1) apply, with `emission_factor` substituted
+invariants 1–2 and §4.10.1) apply, with `emission_rate` substituted
 for `MC` and `recomputed_emission_intensity` for `recomputed_lmp`.
 The two recipe tables share `marginal_gen_uids` exactly (CI test:
 inner join on `(cell_key, bus_uid)`, asserting the two UID lists
@@ -1726,7 +1726,7 @@ Confirmed for v1:
 * `bus_emission_intensity_recipe.parquet` with the same
   `formula_kind` enumeration as price (§4.12.2) — vindicated by
   Lin & Tang.
-* CO₂-only emission factor; `emission_factor` topology column
+* CO₂-only emission factor; `emission_rate` topology column
   (multi-pollutant deferred).
 * Zone-based attribution per §4.7 R3 — matches CEN's *subsistema
   desacoplado* procedure.
@@ -1736,7 +1736,7 @@ Confirmed for v1:
 
 Targeted for v1.1:
 
-* **Multi-pollutant**: extend `emission_factor` to a list of
+* **Multi-pollutant**: extend `emission_rate` to a list of
   `(pollutant, factor)` pairs; PJM publishes CO₂/SO₂/NOₓ together
   and the recipe table generalises trivially since each pollutant
   is just a different `cᵢ`-vs-`eᵢ` substitution.
@@ -1987,7 +1987,7 @@ tests, fanned out via parallel agents per
 | `test_merit_ladder.py` | §4.9 ladder construction on a hand-built 5-unit zone: rank-0 = anchor, rank +1/+2/+3 are next-up units in cost order with correct `headroom_up_mw`/`hypothetical_lmp`; rank −1/−2/−3 are next-down; ladder shorter than `2K+1` near zone endpoints; tied-MC collapse to single rung with audit row; synthetic anchor → only rank-0 row; piecewise unit's `hypothetical_lmp` reflects the active segment under the displaced anchor. |
 | `test_recipes.py` | §4.10 consumer API round-trips: `recompute_lmp(unit_costs=captured)` → `lmp_delta=0` everywhere; missing-UID returns `NA` with a `missing_units_count` summary; `outage_sensitivity(g)` agrees with merit-ladder rank+1 for every cell where g was actual marginal; manifest hash mismatch on open raises; every `formula_kind` exercised end-to-end including `demand_fail` and `renewable_curtailment`. |
 | `test_writer_invariants.py` | The writer's pre-persist check `|recomputed_lmp − zone_lmp| ≤ tol_price` aborts with exit 3 on a synthetic recipe-table-vs-zone-LMP mismatch (covers §4.6.4 invariant 1). |
-| `test_emission_intensity.py` | §4.12 emission-intensity recipe round-trip on a 3-unit fixture (gas / coal / hydro emission factors): `single_unit` formula yields the expected ε_b; `tied_units` weighted sum; `hydro_marginal` and `renewable_curtailment` produce ε_b = 0; `demand_fail` produces ε_b = 0 with audit-flag set; missing `emission_factor` yields NA + `formula_kind=unattributed`. CI invariant: `bus_price_recipe.marginal_gen_uids == bus_emission_intensity_recipe.marginal_gen_uids` for every cell. |
+| `test_emission_intensity.py` | §4.12 emission-intensity recipe round-trip on a 3-unit fixture (gas / coal / hydro emission factors): `single_unit` formula yields the expected ε_b; `tied_units` weighted sum; `hydro_marginal` and `renewable_curtailment` produce ε_b = 0; `demand_fail` produces ε_b = 0 with audit-flag set; missing `emission_rate` yields NA + `formula_kind=unattributed`. CI invariant: `bus_price_recipe.marginal_gen_uids == bus_emission_intensity_recipe.marginal_gen_uids` for every cell. |
 
 ### 7.2 Integration tests (against the existing IEEE benchmarks)
 
@@ -2240,7 +2240,7 @@ filter operated under.
 
 #### 9.2.5 Per-unit emission factor source
 
-To populate the `Topology.generator.emission_factor` column (§4.12),
+To populate the `Topology.generator.emission_rate` column (§4.12),
 `cen2gtopt` reads CEN's per-unit emission-factor register. The
 relevant published artifacts:
 

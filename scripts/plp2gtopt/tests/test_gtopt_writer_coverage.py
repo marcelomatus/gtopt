@@ -457,7 +457,8 @@ class TestProcessOptionsModelOpts:
     """Tests for model_options sub-fields in process_options."""
 
     def test_reserve_fail_cost(self, tmp_path):
-        """process_options sets reserve_fail_cost when provided."""
+        """process_options accepts legacy reserve_fail_cost (renamed to
+        reserve_shortage_cost in §11.10)."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -473,7 +474,7 @@ class TestProcessOptionsModelOpts:
         }
         writer.process_options(opts)
         mo = writer.planning["options"]["model_options"]
-        assert mo["reserve_fail_cost"] == 500.0
+        assert mo["reserve_shortage_cost"] == 500.0
         assert mo["use_line_losses"] is True
 
 

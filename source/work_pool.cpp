@@ -51,7 +51,7 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
         stats.process_rss_mb,
         swap_tail,
         stats.active_threads,
-        max_threads_,
+        max_threads_.load(std::memory_order_relaxed),
         stats.tasks_pending,
         stats.tasks_completed);
 
@@ -120,8 +120,8 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
         reason = std::format("swap thrashing {:.0f} pg/s >= {:.0f} pg/s",
                              stats.swap_io_rate,
                              max_swap_io_per_sec_);
-      } else if (stats.active_threads + 1
-                     >= static_cast<int>(max_threads_ * 0.8)
+      } else if (stats.active_threads + 1 >= static_cast<int>(
+                     max_threads_.load(std::memory_order_relaxed) * 0.8)
                  && stats.current_cpu_load >= max_cpu_threshold_)
       {
         reason = std::format("CPU load {:.1f}% >= {:.1f}%",
@@ -170,7 +170,7 @@ void BasicWorkPool<Key, KeyCompare>::log_periodic_stats()
           "throttle_counters[cpu={} mem%={} free={} rss={} swap={} sw_io={}]",
           name_,
           workers_alive,
-          max_threads_,
+          max_threads_.load(std::memory_order_relaxed),
           stats.active_threads,
           stats.current_memory_percent,
           max_memory_percent_,

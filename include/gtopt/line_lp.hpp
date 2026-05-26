@@ -206,9 +206,9 @@ public:
   {
     return phase_shift_deg.at(s);
   }
-  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  [[nodiscard]] auto param_lossfactor(StageUid s, BlockUid b) const
   {
-    return lossfactor.at(s);
+    return lossfactor.at(s, b);
   }
   [[nodiscard]] auto param_resistance(StageUid s) const
   {
@@ -223,7 +223,7 @@ private:
   OptTBRealSched tmax_normal_ab;
   OptTBRealSched tcost;
   OptTBRealSched overload_penalty;
-  OptTRealSched lossfactor;
+  OptTBRealSched lossfactor;
   OptTRealSched reactance;
   OptTRealSched voltage;
   OptTRealSched resistance;

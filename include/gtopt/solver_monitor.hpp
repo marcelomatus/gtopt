@@ -82,22 +82,27 @@ namespace gtopt
     double cpu_threshold_override = 0.0,
     std::chrono::milliseconds scheduler_interval =
         std::chrono::milliseconds(50),
-    double memory_limit_mb = 0.0)
+    double memory_limit_mb = 0.0,
+    std::string_view pool_label = "SolverWorkPool")
 {
   WorkPoolConfig pool_config {};
-  pool_config.name = "SolverWorkPool";
+  pool_config.name = std::string {pool_label};
   // Use physical cores as the base — hyperthreads add little for
-  // compute-bound LP solves and inflate the thread count.
-  // Clamp to at least 1 thread — otherwise a tiny `cpu_factor`
-  // (e.g. `--cpu-factor 0.01` on a 20-core box yields `lround(0.2)=0`)
-  // produces a dead pool whose `submit()` calls never run.  A 1-thread
-  // pool is the expected "serial baseline" behavior.
-  pool_config.max_threads = std::max(
-      1, static_cast<int>(std::lround(cpu_factor * physical_concurrency())));
+  // compute-bound LP solves and inflate the thread count.  With a memory
+  // limit the pool starts at ONE thread and grows toward the
+  // `cpu_factor × cores` ceiling under the live measured-memory controller
+  // (no fixed per-task estimate); with no limit it runs at the ceiling.
+  const auto clamp =
+      memory_clamp_threads(cpu_factor, memory_limit_mb, pool_config.name);
+  pool_config.max_threads = clamp.initial_threads;
+  pool_config.max_threads_ceiling = clamp.ceiling_threads;
+  // CPU saturation threshold is computed from the growth ceiling (the
+  // eventual thread count), not the clamped start, so a memory-clamped
+  // pool that later grows is not left with an over-tight CPU gate.
   pool_config.max_cpu_threshold = (cpu_threshold_override > 0.0)
       ? cpu_threshold_override
-      : static_cast<int>(
-            100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+      : static_cast<int>(100.0
+                         - (50.0 / static_cast<double>(clamp.ceiling_threads)));
   pool_config.max_process_rss_mb = memory_limit_mb;
   pool_config.scheduler_interval = scheduler_interval;
   pool_config.enable_periodic_stats = false;

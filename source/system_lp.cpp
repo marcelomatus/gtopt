@@ -14,6 +14,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -21,6 +22,7 @@
 #include <ranges>
 #include <unordered_map>
 
+#include <gtopt/ampl_dispatch_registry.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/gtopt_main.hpp>
@@ -107,7 +109,15 @@ constexpr auto add_to_lp(auto& collections,
   {
     using T = std::decay_t<decltype(e)>;
 
-    if constexpr (std::is_same_v<T, BusLP>) {
+    // Passive parameter-carrier elements (Fuel, Emission Commit-1, …)
+    // have no `add_to_lp` method by design — they exist in the
+    // collection only so `SystemContext::element<T>(...)` can resolve
+    // them.  Skip them at compile time.  The `AddToLP` concept is the
+    // single source of truth for "this element type contributes LP
+    // rows / cols / coefficients".
+    if constexpr (!AddToLP<T>) {
+      return true;
+    } else if constexpr (std::is_same_v<T, BusLP>) {
       return !use_single_bus || system_context.system().is_single_bus(e.id())
           ? e.add_to_lp(system_context, scenario, stage, lp)
           : true;
@@ -302,95 +312,6 @@ void fix_stage_islands(const auto& collections,
   }
 }
 
-/// @brief Resolve a stage-indexed OptTRealFieldSched to a scalar value.
-///
-/// Handles the three cases: scalar → return directly, vector → index by stage
-/// ordinal index (dense position), FileSched → unsupported (returns 0).
-double resolve_stage_field(const OptTRealFieldSched& field,
-                           StageIndex stage_index)
-{
-  if (!field.has_value()) {
-    return 0.0;
-  }
-  const auto& val = *field;
-  if (std::holds_alternative<Real>(val)) {
-    return std::get<Real>(val);
-  }
-  if (std::holds_alternative<std::vector<Real>>(val)) {
-    const auto& vec = std::get<std::vector<Real>>(val);
-    if (stage_index < std::ssize(vec)) {
-      return vec[stage_index];
-    }
-  }
-  return 0.0;
-}
-
-/// @brief Add emission cap constraint for a (scenario, stage) pair.
-///
-/// If the system options define an emission_cap for this stage, adds a single
-/// constraint row:
-///   sum_g sum_b (emission_factor_g × duration_b × p_{g,b}) <= emission_cap_s
-///
-/// This aggregates across all generators that have a non-zero emission factor.
-///
-/// @note For generators with piecewise heat rate segments and per-segment
-/// fuel_emission_factor, this uses the flat generator emission_factor on the
-/// total generation variable p.  A more accurate formulation would use
-/// per-segment emission coefficients (fuel_emission_factor × heat_rate_k)
-/// on each segment variable δ_k, but that requires cross-collection access
-/// to CommitmentLP segment columns.  TODO: refine when segment-level emission
-/// accounting is needed for emission-cap-binding scenarios.
-void add_emission_cap(const auto& collections,
-                      SystemContext& system_context,
-                      const ScenarioLP& scenario,
-                      const StageLP& stage,
-                      LinearProblem& lp)
-{
-  const auto stage_cap = resolve_stage_field(
-      system_context.options().emission_cap(), stage.index());
-  if (stage_cap <= 0.0) {
-    return;
-  }
-
-  const auto& generators =
-      std::get<Collection<GeneratorLP>>(collections).elements();
-
-  auto row =
-      SparseRow {
-          .class_name = system_class_name,
-          .constraint_name = emission_cap_constraint_name,
-          .context = make_stage_context(scenario.uid(), stage.uid()),
-      }
-          .less_equal(stage_cap);
-
-  bool has_terms = false;
-
-  for (const auto& gen : generators) {
-    if (!gen.is_active(stage)) {
-      continue;
-    }
-    const auto ef = gen.param_emission_factor(stage.uid()).value_or(0.0);
-    if (ef <= 0.0) {
-      continue;
-    }
-
-    const auto& gen_cols = gen.generation_cols_at(scenario, stage);
-    for (const auto& block : stage.blocks()) {
-      const auto it = gen_cols.find(block.uid());
-      if (it == gen_cols.end()) {
-        continue;
-      }
-      const auto coeff = ef * block.duration();
-      row[it->second] = coeff;
-      has_terms = true;
-    }
-  }
-
-  if (has_terms) {
-    std::ignore = lp.add_row(std::move(row));
-  }
-}
-
 /// Build the LinearProblem from collections + flatten it, returning the
 /// flat LP, fingerprint, and the LabelMaker used.  Used by the eager
 /// `create_linear_interface` path (one-shot build at construction).
@@ -489,9 +410,6 @@ constexpr auto flatten_from_collections(auto& collections,
       if (check_islands) {
         fix_stage_islands(collections, scenario, stage, lp);
       }
-
-      // Add system-wide emission cap constraint if configured
-      add_emission_cap(collections, system_context, scenario, stage, lp);
     }
   }
 
@@ -610,18 +528,44 @@ void create_collections(const auto& system_context,
       make_collection<CapacityProfileLP>(ic, sys.capacity_profile_array);
   std::get<Collection<BatteryLP>>(colls) =
       make_collection<BatteryLP>(ic, sys.battery_array);
-  std::get<Collection<ConverterLP>>(colls) =
-      make_collection<ConverterLP>(ic, sys.converter_array);
+  std::get<Collection<ThermalNodeLP>>(colls) =
+      make_collection<ThermalNodeLP>(ic, sys.thermal_node_array);
+  std::get<Collection<ThermalStorageLP>>(colls) =
+      make_collection<ThermalStorageLP>(ic, sys.thermal_storage_array);
+  std::get<Collection<HydrogenNodeLP>>(colls) =
+      make_collection<HydrogenNodeLP>(ic, sys.hydrogen_node_array);
+  std::get<Collection<HydrogenStorageLP>>(colls) =
+      make_collection<HydrogenStorageLP>(ic, sys.hydrogen_storage_array);
+  std::get<Collection<AmmoniaNodeLP>>(colls) =
+      make_collection<AmmoniaNodeLP>(ic, sys.ammonia_node_array);
+  std::get<Collection<AmmoniaStorageLP>>(colls) =
+      make_collection<AmmoniaStorageLP>(ic, sys.ammonia_storage_array);
+  std::get<Collection<CarrierConverterLP>>(colls) =
+      make_collection<CarrierConverterLP>(ic, sys.carrier_converter_array);
+  std::get<Collection<AllowancePoolLP>>(colls) =
+      make_collection<AllowancePoolLP>(ic, sys.allowance_pool_array);
   std::get<Collection<ReserveZoneLP>>(colls) =
       make_collection<ReserveZoneLP>(ic, sys.reserve_zone_array);
   std::get<Collection<ReserveProvisionLP>>(colls) =
       make_collection<ReserveProvisionLP>(ic, sys.reserve_provision_array);
   std::get<Collection<FuelLP>>(colls) =
       make_collection<FuelLP>(ic, sys.fuel_array);
+  std::get<Collection<EmissionLP>>(colls) =
+      make_collection<EmissionLP>(ic, sys.emission_array);
+  std::get<Collection<EmissionZoneLP>>(colls) =
+      make_collection<EmissionZoneLP>(ic, sys.emission_zone_array);
+  std::get<Collection<EmissionSourceLP>>(colls) =
+      make_collection<EmissionSourceLP>(ic, sys.emission_source_array);
   std::get<Collection<CommitmentLP>>(colls) =
       make_collection<CommitmentLP>(ic, sys.commitment_array);
   std::get<Collection<SimpleCommitmentLP>>(colls) =
       make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
+  // ConverterLP runs after CommitmentLP/SimpleCommitmentLP so the
+  // battery's synthesized u_commit columns (created by
+  // `expand_batteries`) are already stamped on the LP and can be
+  // reused for charge-side gating — "one true source for u_commit".
+  std::get<Collection<ConverterLP>>(colls) =
+      make_collection<ConverterLP>(ic, sys.converter_array);
   std::get<Collection<InertiaZoneLP>>(colls) =
       make_collection<InertiaZoneLP>(ic, sys.inertia_zone_array);
   std::get<Collection<InertiaProvisionLP>>(colls) =
@@ -657,6 +601,13 @@ void create_collections(const auto& system_context,
   // Fuel storage
   std::get<Collection<LngTerminalLP>>(colls) =
       make_collection<LngTerminalLP>(ic, sys.lng_terminal_array);
+
+  // DecisionVariableLP sits just before UserConstraintLP so its free
+  // columns are registered with the AMPL resolver before any user
+  // constraint that references ``decision_variable("X").value`` is
+  // assembled.
+  std::get<Collection<DecisionVariableLP>>(colls) =
+      make_collection<DecisionVariableLP>(ic, sys.decision_variable_array);
 
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
@@ -700,10 +651,22 @@ void register_element_names(SimulationLP& sim, const Array& arr)
 void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 {
   register_element_names<BatteryLP>(sim, sys.battery_array);
+  register_element_names<ThermalNodeLP>(sim, sys.thermal_node_array);
+  register_element_names<ThermalStorageLP>(sim, sys.thermal_storage_array);
+  register_element_names<HydrogenNodeLP>(sim, sys.hydrogen_node_array);
+  register_element_names<HydrogenStorageLP>(sim, sys.hydrogen_storage_array);
+  register_element_names<AmmoniaNodeLP>(sim, sys.ammonia_node_array);
+  register_element_names<AmmoniaStorageLP>(sim, sys.ammonia_storage_array);
+  register_element_names<CarrierConverterLP>(sim, sys.carrier_converter_array);
+  register_element_names<AllowancePoolLP>(sim, sys.allowance_pool_array);
   register_element_names<BusLP>(sim, sys.bus_array);
   register_element_names<ConverterLP>(sim, sys.converter_array);
   register_element_names<DemandLP>(sim, sys.demand_array);
+  register_element_names<EmissionLP>(sim, sys.emission_array);
+  register_element_names<EmissionZoneLP>(sim, sys.emission_zone_array);
+  register_element_names<EmissionSourceLP>(sim, sys.emission_source_array);
   register_element_names<FlowLP>(sim, sys.flow_array);
+  register_element_names<DecisionVariableLP>(sim, sys.decision_variable_array);
   register_element_names<FlowRightLP>(sim, sys.flow_right_array);
   register_element_names<FuelLP>(sim, sys.fuel_array);
   register_element_names<GeneratorLP>(sim, sys.generator_array);
@@ -711,6 +674,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<LineLP>(sim, sys.line_array);
   register_element_names<ReserveProvisionLP>(sim, sys.reserve_provision_array);
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
+  register_element_names<CommitmentLP>(sim, sys.commitment_array);
   register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
   register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
   register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
@@ -731,6 +695,11 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
       sim.register_ampl_element(class_name, obj.name, obj.uid);
     }
   }
+
+  // AMPL parameter + iterator dispatch tables — populate via the helpers
+  // in `ampl_dispatch_registry.cpp` (shims + registration glue).
+  register_ampl_param_dispatchers(sim);
+  register_ampl_iterator_dispatchers(sim);
 
   // Class-level compound: `line.flow = +flowp − flown`.
   // Registered once globally; the resolver expands it per-(uid, block).
@@ -889,6 +858,21 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 
 namespace gtopt
 {
+// Process-wide instrumentation for `SystemLP::write_out`.  Updated from
+// every cell's write path (parallel under the cell pool) and read once
+// at the end of the run by the LP runner.  See
+// `SystemLP::total_write_ms` (header) for the rationale and the wall
+// vs. cumulative-wall semantics.  Defined inside `namespace gtopt`
+// (not in the file-anonymous namespace at the top of this TU) so the
+// `SystemLP::write_out` body — which lives here — can name them
+// directly, and so the static-getter implementations at the bottom of
+// the file can reach the same storage.
+namespace
+{
+std::atomic<double> g_write_out_total_ms {0.0};  // NOLINT
+std::atomic<std::size_t> g_write_out_cells {0};  // NOLINT
+}  // namespace
+
 void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
 {
   // Inject scale_objective from planning options if not already set,
@@ -944,6 +928,106 @@ void SystemLP::clear_disposable_collections()
   //  - Code paths that need the disposable types alive (write_out) check
   //    `m_disposable_collections_built_` and trigger a full rebuild via
   //    `rebuild_collections_if_needed()` if false.
+  m_disposable_collections_built_ = false;
+}
+
+void SystemLP::drop_for_write_out_done() noexcept
+{
+  // No-op under `LowMemoryMode::off` — the caller's invariant under
+  // off is "backend stays live, collections stay live", and the
+  // SDDP/cascade paths that drive off mode rely on it.  Also no-op
+  // on the "off" path because there's no per-cell memory pressure
+  // there to recover.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+    return;
+  }
+
+  // Drop the entire collection tuple — strictly more aggressive than
+  // `clear_disposable_collections()` because we also empty the
+  // HasUpdateLP types that the disposable variant preserves for
+  // `update_lp_for_phase`.  On the write_out-done path that future
+  // update will never happen, so the wrappers are pure waste.
+  //
+  // Use `std::apply` to walk every Collection<T> in the tuple and
+  // move-assign an empty Collection of the same type, freeing both
+  // the element vector and its capacity.
+  try {
+    std::apply(
+        [](auto&... colls)
+        {
+          const auto drop = [](auto& coll) noexcept
+          {
+            using CollT = std::remove_cvref_t<decltype(coll)>;
+            coll = CollT {};
+          };
+          (drop(colls), ...);
+        },
+        m_collections_);
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // `noexcept` contract — Collection move-assign is itself nothrow
+    // on every used type, but defend against future changes that
+    // could throw (e.g. allocator-aware move).  Best-effort: continue.
+  }
+  m_collections_built_ = false;
+  m_disposable_collections_built_ = false;
+
+  // Drop the cut replay journal.  On recovery hot-starts this is
+  // typically the largest residue per cell — see
+  // `LinearInterface::clear_replay` doc.
+  m_linear_interface_.clear_replay();
+
+  // Drop the cached primal/dual/reduced-cost vectors.  After
+  // `write_out()` ran, downstream code reads only the parquet on
+  // disk; no consumer needs `get_col_sol()` etc. on this cell.
+  m_linear_interface_.drop_cached_primal_only();
+
+  // Snapshot may already have been cleared by the caller's
+  // `clear_snapshot()`, but be idempotent — `clear()` on an empty
+  // holder is a no-op assignment.
+  m_linear_interface_.clear_snapshot();
+}
+
+void SystemLP::clear_collections_for_eviction() noexcept
+{
+  // Memory-limited eviction: drop the ENTIRE collection tuple (both the
+  // disposable types AND the HasUpdateLP types) while leaving the
+  // LinearInterface's compressed snapshot + replay journal intact, so the
+  // cell can still reconstruct its backend and replay cuts.  This is the
+  // lever that bounds the compress-mode floor — the kept HasUpdateLP
+  // wrappers are ~the entire ~25 MB/cell resident state, and keeping them
+  // for all `num_cells` is what pinned RSS at ~num_cells × per-cell.
+  //
+  // Differs from `clear_disposable_collections()` (drops only disposables,
+  // keeps HasUpdateLP for `update_lp`) and from `drop_for_write_out_done()`
+  // (also tears down snapshot/replay/cache — for cells that will NEVER be
+  // touched again).  Here the cell WILL be touched again: `update_lp()` and
+  // the other collection readers call `rebuild_collections_if_needed()`,
+  // which re-creates the full tuple from the shared `System` on demand.
+  //
+  // No-op under `off` (collections must stay live) and when already empty.
+  if (m_flat_opts_.low_memory_mode == LowMemoryMode::off) {
+    return;
+  }
+  if (!m_collections_built_) {
+    return;
+  }
+  try {
+    std::apply(
+        [](auto&... colls)
+        {
+          const auto drop = [](auto& coll) noexcept
+          {
+            using CollT = std::remove_cvref_t<decltype(coll)>;
+            coll = CollT {};
+          };
+          (drop(colls), ...);
+        },
+        m_collections_);
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Collection move-assign is nothrow on every used type; defend
+    // against future allocator-aware changes.  Best-effort.
+  }
+  m_collections_built_ = false;
   m_disposable_collections_built_ = false;
 }
 
@@ -1249,7 +1333,7 @@ void SystemLP::write_out()
   // implies emission (compress + diagnostics-only runs).  Mark
   // `m_output_written_` so the idempotence guard fires on subsequent
   // calls from PlanningLP's pool.
-  if (options().write_out() == OutputFlags::none) {
+  if (options().write_out().atoms == OutputFlags::none) {
     if (options().lp_fingerprint()) {
       const auto fname = as_label(
           "lp_fingerprint", "scene", scene().uid(), "phase", phase().uid());
@@ -1298,8 +1382,20 @@ void SystemLP::write_out()
       system_context(), linear_interface(), scene().uid(), phase().uid());
   const auto t_oc = clock::now();
 
-  auto count = visit_elements(
-      collections(), [&oc](const auto& e) { return e.add_to_output(oc); });
+  auto count = visit_elements(collections(),
+                              [&oc](const auto& e)
+                              {
+                                using T = std::decay_t<decltype(e)>;
+                                // Passive parameter carriers (e.g. `FuelLP`)
+                                // have no `add_to_output`; skip them at compile
+                                // time.  Matches the gating in `add_to_lp`
+                                // above.
+                                if constexpr (!AddToLP<T>) {
+                                  return true;
+                                } else {
+                                  return e.add_to_output(oc);
+                                }
+                              });
   const auto t_visit = clock::now();
 
   if (count <= 0) {
@@ -1309,6 +1405,9 @@ void SystemLP::write_out()
 
   oc.write();
   const auto t_write = clock::now();
+
+  const auto total_cell_ms =
+      std::chrono::duration<double, std::milli>(t_write - t_start).count();
 
   spdlog::trace(
       "SystemLP::write_out [scene={} phase={}]: "
@@ -1320,7 +1419,13 @@ void SystemLP::write_out()
       std::chrono::duration<double, std::milli>(t_oc - t_rebuild).count(),
       std::chrono::duration<double, std::milli>(t_visit - t_oc).count(),
       std::chrono::duration<double, std::milli>(t_write - t_visit).count(),
-      std::chrono::duration<double, std::milli>(t_write - t_start).count());
+      total_cell_ms);
+
+  // Feed the process-wide counters used by the runner's final
+  // "Write output time" report.  See `SystemLP::total_write_ms` doc
+  // for why the runner's own stopwatch is misleading under SDDP.
+  g_write_out_total_ms.fetch_add(total_cell_ms, std::memory_order_relaxed);
+  g_write_out_cells.fetch_add(1, std::memory_order_relaxed);
 
   // Write LP fingerprint if requested
   if (options().lp_fingerprint()) {
@@ -1452,7 +1557,61 @@ auto SystemLP::write_lp(const std::string& filename) const
 
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
-  return linear_interface().resolve(solver_options);
+  auto& li = linear_interface();
+  auto result = li.resolve(solver_options);
+  if (!result) {
+    return result;
+  }
+
+  // ── Fix-integers dual-recovery pass ───────────────────────────────────
+  //
+  // A MIP solution carries no LP duals (shadow prices) or reduced costs,
+  // so a UC run with binary commitment columns would write empty
+  // `balance_dual.parquet` and no bus LMPs.  When the caller requested
+  // duals and/or reduced costs AND the problem actually contains integer
+  // columns, run the standard recovery technique: pin every integer to
+  // its rounded MIP value, relax integrality, and re-solve the resulting
+  // pure LP — whose row duals / reduced costs are the correct marginal
+  // prices given the committed integer solution.  The primal stays the
+  // MIP primal (integers pinned to their optimal values).
+  //
+  // Gated tightly so pure-LP solves and runs that don't need duals pay
+  // nothing: the `has_integer_cols()` scan only runs when dual/rc output
+  // is requested, and `fix_integers_and_resolve` itself is a no-op when
+  // no integer column exists.  Enable crossover on the follow-up solve so
+  // a barrier backend produces clean vertex duals.
+  const auto sel = options().write_out();
+  const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
+      || has_flag(sel.atoms, OutputFlags::reduced_cost);
+  if (wants_duals && li.has_integer_cols()) {
+    auto lp_opts = solver_options;
+    lp_opts.crossover = true;
+    auto fix = li.fix_integers_and_resolve(lp_opts);
+    if (!fix) {
+      // The MIP solve already succeeded; a failed dual-recovery re-solve
+      // should not fail the whole cell.  Warn and keep the MIP result
+      // (duals stay empty, primal is intact).
+      spdlog::warn(
+          "SystemLP::resolve [scene={} phase={}]: fix-integers dual "
+          "recovery re-solve failed: {} (keeping MIP primal, duals "
+          "unavailable)",
+          scene().uid(),
+          phase().uid(),
+          fix.error().message);
+      return result;  // original MIP status
+    }
+    if (fix->fixed_columns > 0) {
+      SPDLOG_DEBUG(
+          "SystemLP::resolve [scene={} phase={}]: fixed {} integer "
+          "column(s) and re-solved LP for duals (status {})",
+          scene().uid(),
+          phase().uid(),
+          fix->fixed_columns,
+          fix->status.value_or(0));
+    }
+  }
+
+  return result;
 }
 
 int SystemLP::update_lp()
@@ -1464,13 +1623,23 @@ int SystemLP::update_lp()
     return 0;
   }
 
-  // No `rebuild_collections_if_needed()` here: the constructor's
-  // `clear_disposable_collections()` keeps HasUpdateLP types alive
-  // (their per-(scen, stg) update state must persist across SDDP
-  // iterations), and `visit_elements` below only acts on those types.
-  // Iterating empty disposable Collection<X>'s is a fast no-op.
-  // Triggering a full rebuild here would re-create those disposable
-  // types on every iter for nothing.
+  // Rebuild collections if they were dropped.  Self-gating
+  // (`rebuild_collections_if_needed` returns immediately when both
+  // built-flags are set), so this is a NO-OP under the default
+  // keep-resident behaviour (P3) and under disposable-only drop —
+  // `visit_elements` below walks the still-resident HasUpdateLP types.
+  //
+  // It only does work under the memory-limited *full* eviction path
+  // (`clear_collections_for_eviction()` on release), where the
+  // HasUpdateLP types this loop iterates were also dropped: without the
+  // rebuild, `visit_elements` would silently walk EMPTY collections and
+  // skip the per-(scene,stage) coefficient updates (seepage, production
+  // factors, …) — a silent-wrong-result bug, not a crash.  The rebuild
+  // is the optimized flatten (`skip_matrix_build`, no equilibration /
+  // labels / stats), ~5-10× cheaper than a full flatten — the CPU side
+  // of the bounded-memory trade, paid only when a memory limit forces
+  // eviction.
+  rebuild_collections_if_needed();
 
   int total = 0;
 
@@ -1489,6 +1658,19 @@ int SystemLP::update_lp()
   }
 
   return total;
+}
+
+// Static getters for the process-wide write_out counters defined in
+// the anonymous namespace.  Implemented here (rather than inline in
+// the header) so the atomics' definition stays in the .cpp TU.
+double SystemLP::total_write_ms() noexcept
+{
+  return g_write_out_total_ms.load(std::memory_order_relaxed);
+}
+
+std::size_t SystemLP::total_write_cells() noexcept
+{
+  return g_write_out_cells.load(std::memory_order_relaxed);
 }
 
 }  // namespace gtopt

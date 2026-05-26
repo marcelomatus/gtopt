@@ -247,7 +247,8 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             /*cpu_factor=*/2.0,
             /*cpu_threshold_override=*/0.0,
             /*scheduler_interval=*/std::chrono::milliseconds(50),
-            /*memory_limit_mb=*/m_options_.pool_memory_limit_mb)
+            /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
+            /*pool_label=*/"SDDP aux pool")
       : std::unique_ptr<AdaptiveWorkPool> {};
   m_pool_ = sddp_pool.get();
   m_aux_pool_ = aux_pool.get();  // nullptr when not needed
@@ -333,6 +334,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
                    gtopt::uid_of(iteration_index));
       auto fwd =
           run_forward_pass_all_scenes(*sddp_pool, fwd_opts, iteration_index);
+      planning_lp().log_lp_memory_breakdown("post-forward");
       if (!fwd.has_value()) {
         monitor.stop();
         return std::unexpected(std::move(fwd.error()));
@@ -1384,13 +1386,24 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       return result;
     }
 
-    // Write output for this scene's phases
-    for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-      planning_lp().system(scene_index, phase_index).write_out();
-    }
-
+    // Output is NOT written here.  Writing per-scene inline (serial over
+    // this scene's 51 phases, with `num_scenes` scene-tasks concurrent)
+    // rebuilt the full ~per-cell collections for every written cell and
+    // kept them resident — RSS grew as ~num_cells × per-cell (measured:
+    // ~34 GB on the 2-year case, the dominant floor + livelock trigger) —
+    // AND capped write parallelism at the scene count, leaving cores idle
+    // on low-scene cases.
+    //
+    // Instead, the forward solve (crossover=true) leaves every cell
+    // `release_backend()`-ed with its primal/dual/reduced-cost cache
+    // retained.  The final `PlanningLP::write_out` flush then writes ALL
+    // (scene, phase) cells through its hybrid CHUNKED, memory-gated,
+    // cell-parallel pool — Fast-path-B emits from the cache without a
+    // reconstruct and drops each cell after.  That uses every core
+    // regardless of scene count and bounds resident memory to the active
+    // chunk set.  See `PlanningLP::write_out` (planning_lp.cpp).
     SPDLOG_INFO(
-        "{}: outputs written",
+        "{}: simulation solved (write deferred to chunked flush)",
         sddp_log(
             "Sim", gtopt::uid_of(sim_iteration_index), uid_of(scene_index)));
     return result;

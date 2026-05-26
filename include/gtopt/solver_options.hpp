@@ -41,17 +41,18 @@ struct SolverOptions
 
   /** @brief Whether to apply presolve optimizations (default: true).
    *
-   * Pass `--no-presolve` on the CLI to disable for SDDP cell-replay
-   * runs (the cuts being re-installed were already vetted on first
-   * insertion, so presolve has no real reductions to find — only
-   * fixed-cost setup overhead per call).  Default kept at `true`
-   * because:
+   * Pass `--set solver_options.presolve=false` on the CLI to disable
+   * for SDDP cell-replay runs (the cuts being re-installed were
+   * already vetted on first insertion, so presolve has no real
+   * reductions to find — only fixed-cost setup overhead per call).
+   * Default kept at `true` because:
    *   - HiGHS benchmark regresses 2.5x with presolve off
    *     (`docs/analysis/highs-benchmark-results.md:18, 27`).
    *   - Several SDDP unit tests depend on the presolve-induced LP
    *     basis for their analytical-dual / KKT-prediction checks; these
    *     would need fixture-level opt-in if the default flipped.
-   * For Juan/IPLP-style hot-start runs, set `--no-presolve` explicitly.
+   * For Juan/IPLP-style hot-start runs, set
+   * `--set solver_options.presolve=false` explicitly.
    */
   bool presolve {true};
 
@@ -66,6 +67,21 @@ struct SolverOptions
   /** @brief Convergence tolerance for barrier algorithm (nullopt = use solver
    * default) */
   std::optional<double> barrier_eps {};
+
+  /** @brief Target relative MIP optimality gap (nullopt = use solver default).
+   *
+   *  Backends translate this to their native "stop when
+   *  `|best_obj − bound| / |best_obj| ≤ gap`" parameter:
+   *  - CPLEX:   `CPX_PARAM_EPGAP`
+   *  - HiGHS:   `mip_rel_gap`
+   *  - Gurobi:  `MIPGap`
+   *  - MindOpt: `MIP/RelGap`
+   *  - CBC:     `ratioGap` (Cbc_setAllowableFractionGap)
+   *
+   *  Has no effect on continuous LPs; safely ignored when no integer or
+   *  binary variables are present.  Pair with `time_limit` to bound MIP
+   *  wall-clock when gap targets are loose. */
+  std::optional<double> mip_gap {};
 
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
@@ -122,6 +138,22 @@ struct SolverOptions
    */
   bool crossover {true};
 
+  /** @brief Path to a backend-native parameter file applied before the
+   *  fields above (so the typed gtopt fields keep priority on conflict).
+   *
+   *  Backend mapping:
+   *  - CPLEX: ``CPXreadcopyparam(env, path)`` — reads the standard
+   *    CPLEX ``.prm`` format (one ``CPX_PARAM_<NAME> <value>`` pair
+   *    per line, ``#`` for comments).  Lets users pin the full ~150
+   *    CPLEX parameter surface without growing this struct further.
+   *  - HiGHS / MindOpt / CLP: ignored (each has its own native parser
+   *    that we may wire later via the same field).
+   *
+   *  Unset (``nullopt``, default) ⇒ no file is read, backend defaults
+   *  apply as before.
+   */
+  std::optional<std::string> param_file {};
+
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
    *  When a solve returns non-optimal, the solver cycles through
@@ -167,10 +199,12 @@ struct SolverOptions
     merge_opt(optimal_eps, other.optimal_eps);
     merge_opt(feasible_eps, other.feasible_eps);
     merge_opt(barrier_eps, other.barrier_eps);
+    merge_opt(mip_gap, other.mip_gap);
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
     merge_opt(memory_emphasis, other.memory_emphasis);
+    merge_opt(param_file, other.param_file);
   }
 
   /**
@@ -219,10 +253,12 @@ struct SolverOptions
     merge_opt(optimal_eps, user.optimal_eps);
     merge_opt(feasible_eps, user.feasible_eps);
     merge_opt(barrier_eps, user.barrier_eps);
+    merge_opt(mip_gap, user.mip_gap);
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
     merge_opt(memory_emphasis, user.memory_emphasis);
+    merge_opt(param_file, user.param_file);
   }
 };
 

@@ -16,19 +16,29 @@
 #include <optional>
 #include <stdexcept>
 
+#include <gtopt/allowance_pool_lp.hpp>
+#include <gtopt/ammonia_node_lp.hpp>
+#include <gtopt/ammonia_storage_lp.hpp>
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_profile_lp.hpp>
+#include <gtopt/carrier_converter_lp.hpp>
 #include <gtopt/collection.hpp>
 #include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/demand_profile_lp.hpp>
+#include <gtopt/emission_lp.hpp>
+#include <gtopt/emission_source_lp.hpp>
+#include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
+#include <gtopt/hydrogen_node_lp.hpp>
+#include <gtopt/hydrogen_storage_lp.hpp>
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
@@ -54,6 +64,8 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/thermal_node_lp.hpp>
+#include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
@@ -92,10 +104,31 @@ static_assert(AddToLP<GeneratorProfileLP>);
 static_assert(AddToLP<DemandProfileLP>);
 static_assert(AddToLP<CapacityProfileLP>);
 static_assert(AddToLP<BatteryLP>);
+static_assert(AddToLP<ThermalNodeLP>);
+static_assert(AddToLP<ThermalStorageLP>);
+static_assert(AddToLP<HydrogenNodeLP>);
+static_assert(AddToLP<HydrogenStorageLP>);
+static_assert(AddToLP<AmmoniaNodeLP>);
+static_assert(AddToLP<AmmoniaStorageLP>);
+static_assert(AddToLP<CarrierConverterLP>);
+static_assert(AddToLP<AllowancePoolLP>);
 static_assert(AddToLP<ConverterLP>);
 static_assert(AddToLP<ReserveZoneLP>);
 static_assert(AddToLP<ReserveProvisionLP>);
+// `FuelLP` is mostly a passive parameter carrier (price, heat content,
+// emission factors), but contributes a per-(scenario, stage) cap row
+// when `Fuel.max_offtake` is set — mirrors PLEXOS
+// `FueMaxOffWeek_<fuel>` Constraints.  The cap aggregates
+// heat-rate-weighted dispatch across every generator referencing the
+// fuel, so FuelLP must run AFTER GeneratorLP in the visitor order
+// (verified by its position in `lp_element_types_t`).  `EmissionLP`
+// remains a passive parameter carrier.
 static_assert(AddToLP<FuelLP>);
+// `EmissionZoneLP` (Commit 3) owns the production col + balance row +
+// optional cap row; `EmissionSourceLP` (same commit) injects its
+// `-rate · dur` coefficient into the matching balance row.
+static_assert(AddToLP<EmissionZoneLP>);
+static_assert(AddToLP<EmissionSourceLP>);
 static_assert(AddToLP<CommitmentLP>);
 static_assert(AddToLP<SimpleCommitmentLP>);
 static_assert(AddToLP<InertiaZoneLP>);
@@ -113,6 +146,7 @@ static_assert(AddToLP<ReservoirProductionFactorLP>);
 static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
+static_assert(AddToLP<DecisionVariableLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -230,6 +264,13 @@ public:
   /// Tuple of collections for all LP component types.
   /// `UserConstraintLP` is placed LAST so that user-constraint rows are
   /// added to the LP after all other elements whose columns they reference.
+  // NOTE: this tuple ordering governs the LP-construction order via
+  // `visit_elements`.  ConverterLP intentionally runs AFTER
+  // CommitmentLP / SimpleCommitmentLP so that the battery's
+  // synthesized u_commit columns (created by `expand_batteries`)
+  // are already stamped on the LP and reusable for charge-side
+  // gating — "one true source for u_commit".  Keep in sync with
+  // `lp_element_types_t` in `lp_element_types.hpp`.
   using collections_t = std::tuple<Collection<BusLP>,
                                    Collection<DemandLP>,
                                    Collection<GeneratorLP>,
@@ -238,12 +279,23 @@ public:
                                    Collection<DemandProfileLP>,
                                    Collection<CapacityProfileLP>,
                                    Collection<BatteryLP>,
-                                   Collection<ConverterLP>,
+                                   Collection<ThermalNodeLP>,
+                                   Collection<ThermalStorageLP>,
+                                   Collection<HydrogenNodeLP>,
+                                   Collection<HydrogenStorageLP>,
+                                   Collection<AmmoniaNodeLP>,
+                                   Collection<AmmoniaStorageLP>,
+                                   Collection<CarrierConverterLP>,
+                                   Collection<AllowancePoolLP>,
                                    Collection<ReserveZoneLP>,
                                    Collection<ReserveProvisionLP>,
                                    Collection<FuelLP>,
+                                   Collection<EmissionLP>,
+                                   Collection<EmissionZoneLP>,
+                                   Collection<EmissionSourceLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
+                                   Collection<ConverterLP>,
                                    Collection<InertiaZoneLP>,
                                    Collection<InertiaProvisionLP>,
                                    Collection<JunctionLP>,
@@ -258,6 +310,7 @@ public:
                                    Collection<FlowRightLP>,
                                    Collection<VolumeRightLP>,
                                    Collection<LngTerminalLP>,
+                                   Collection<DecisionVariableLP>,
                                    Collection<UserConstraintLP>>;
 
   /// @return The full collections tuple.
@@ -273,6 +326,16 @@ public:
   [[nodiscard]] constexpr auto&& collections(this Self&& self) noexcept
   {
     return std::forward<Self>(self).m_collections_;
+  }
+
+  /// Diagnostic: are the per-cell XLP collection wrappers currently
+  /// resident?  Under compress they are dropped after construction and
+  /// rebuilt-and-retained on first `update_lp_for_phase` — used by the
+  /// memory-accounting pass to count how many cells hold their ~per-cell
+  /// collection footprint simultaneously.
+  [[nodiscard]] constexpr bool collections_resident() const noexcept
+  {
+    return m_collections_built_;
   }
 
   /**
@@ -463,6 +526,28 @@ public:
    */
   void write_out();
 
+  /// Process-wide write_out instrumentation.  These accumulate the
+  /// per-cell wall time and cell count across every `SystemLP::write_out`
+  /// call in the process — used by the runner to print an honest "total
+  /// per-cell write_out wall" line at the end of the run.
+  ///
+  /// **Why this exists**: the `Write output time X.Xs` line in the
+  /// runner only measures the final `PlanningLP::write_out()` flush.
+  /// Under SDDP every cell is written during the forward pass (each
+  /// iteration's `oc.write` is dispatched to a thread pool), so by the
+  /// time the final flush runs there is nothing left to write — the
+  /// "Write output time" line shows 0.x s for runs that actually wrote
+  /// gigabytes of parquet, confusingly.  This counter restores the real
+  /// number.
+  ///
+  /// Wall time semantics: this is *cumulative per-cell wall*, not
+  /// process wall.  Per-cell writes run in parallel under the cell
+  /// pool, so the wall clock spent in writes is `total_write_ms /
+  /// concurrency`.  The cumulative number is the useful one to compare
+  /// against other costs (e.g. cumulative solve time).
+  [[nodiscard]] static double total_write_ms() noexcept;
+  [[nodiscard]] static std::size_t total_write_cells() noexcept;
+
   /// True when `write_out()` has already emitted this cell's element
   /// tables (set by the SDDP simulation pass right after its final
   /// per-cell solve).  Callers that iterate every cell to write output
@@ -585,6 +670,17 @@ private:
   /// output.
   bool m_output_skipped_ {false};
 
+  /// When true, `release_backend()` also drops the disposable XLP
+  /// collection wrappers (`clear_disposable_collections()`), bounding the
+  /// resident-collections footprint to the active working set instead of
+  /// keeping all `num_cells` resident for the whole solve (the dominant
+  /// floor under compress on large models).  Set by the solve method only
+  /// when a process memory limit is configured — the rebuild-on-next-touch
+  /// cost (the reason P3 stopped dropping by default) is paid only when
+  /// memory is actually the binding constraint.  Default false preserves
+  /// the keep-resident behaviour when no limit is set.
+  bool m_drop_collections_on_release_ {false};
+
   /// Deferred dependent-variable links recorded during this phase's
   /// `add_to_lp` pass.  Under parallel phase construction within a
   /// scene, phase N+1 cannot safely call `add_dependent_variable` on
@@ -658,6 +754,17 @@ public:
     m_flat_opts_.memory_codec = codec;
   }
 
+  /// Opt into dropping the disposable XLP collection wrappers on every
+  /// `release_backend()` (see `m_drop_collections_on_release_`).  Enabled
+  /// by the solve method when a process memory limit is configured, so the
+  /// resident-collections floor is bounded to the active working set at the
+  /// cost of a rebuild on the next touch.  No-op under `LowMemoryMode::off`
+  /// (collections must stay live there).
+  void set_drop_collections_on_release(bool enable) noexcept
+  {
+    m_drop_collections_on_release_ = enable;
+  }
+
   /// Release the solver backend and (under any non-`off` low-memory
   /// mode) drop the per-cell collection wrappers.  The memory ceiling
   /// under compress becomes `active_workers × per-cell` instead
@@ -682,20 +789,31 @@ public:
   void release_backend()
   {
     m_linear_interface_.release_backend();
-    // P3 — keep `m_collections_` alive across release_backend cycles.
-    // Previously dropped under non-`off` modes to save ~30 MB of XLP
-    // wrappers per cell; the saving was outweighed by the cost of
-    // re-running `flatten_from_collections` inside
-    // `rebuild_collections_if_needed` on every `update_lp_for_phase`
-    // call (forward AND backward — the latter added by the backward
-    // `update_lp_for_phase` fix in commit 3e73f68c).  The dominant
-    // memory saving comes from releasing the solver backend itself,
-    // which dwarfs the wrapper footprint by an order of magnitude.
-    // Collections are still dropped once at end of construction
-    // (system_lp.cpp ctor ~line 1099) under compress to avoid the
-    // initial-build memory peak; subsequent `update_lp_for_phase`
-    // rebuilds them lazily and they then persist for the rest of the
-    // solve.
+    // P3 default — keep `m_collections_` alive across release_backend
+    // cycles.  The XLP wrappers are ~30 MB/cell; keeping them resident for
+    // all cells dominates the compress-mode floor on large models
+    // (≈ num_cells × 30 MB).  P3 chose to keep them because re-running
+    // `flatten_from_collections` inside `rebuild_collections_if_needed` on
+    // every `update_lp_for_phase` was costly when memory was NOT the
+    // binding constraint.
+    //
+    // When a process memory limit IS configured, that trade flips: drop
+    // the disposable wrappers here so the resident-collections footprint
+    // is bounded to the active working set (`active_workers × per-cell`)
+    // instead of `num_cells × per-cell`.  `clear_disposable_collections()`
+    // keeps the `HasUpdateLP` collections that `update_lp_for_phase`
+    // needs, so this stays correctness-safe; read sites (write_out,
+    // aperture bound updates, elastic fcut) already call
+    // `rebuild_collections_if_needed()` to rehydrate on demand.  The
+    // rebuild cost is paid only under memory pressure — exactly when it is
+    // worth trading CPU for RAM.
+    // FULL drop (not just disposables): the kept `HasUpdateLP` wrappers
+    // are the dominant ~25 MB/cell floor, so reclaiming them is the point.
+    // `update_lp()` and other collection readers rebuild on demand from
+    // the shared `System`.
+    if (m_drop_collections_on_release_) {
+      clear_collections_for_eviction();
+    }
   }
 
   void reconstruct_backend() { m_linear_interface_.reconstruct_backend(); }
@@ -757,6 +875,44 @@ public:
   /// would throw out-of-range — production paths that reach this code
   /// after the drop must first call `rebuild_collections_if_needed()`.
   void clear_disposable_collections();
+
+  /// Memory-limited eviction: drop the ENTIRE collection tuple (disposable
+  /// AND `HasUpdateLP` types) while keeping the LinearInterface snapshot +
+  /// replay intact, so the cell can reconstruct on next touch.  Unlike
+  /// `clear_disposable_collections()` (keeps HasUpdateLP for `update_lp`),
+  /// this reclaims the dominant compress-mode floor — but requires every
+  /// collection reader, including `update_lp()`, to call
+  /// `rebuild_collections_if_needed()` first (they do).  No-op under `off`
+  /// or when already empty.  See `release_backend()`'s memory-limited path.
+  void clear_collections_for_eviction() noexcept;
+
+  /// End-of-life drop for a cell whose parquet output is already on
+  /// disk and which will never see another LP touch (read, mutate, or
+  /// solve) in the process lifetime.  Strictly more aggressive than
+  /// `clear_disposable_collections()` + `release_backend()` +
+  /// `clear_snapshot()` because it also drops:
+  ///
+  ///   * The HasUpdateLP collections that `clear_disposable_collections()`
+  ///     deliberately preserves for subsequent `update_lp_for_phase`
+  ///     calls (~30 MB / cell on juan-scale).  Those calls will never
+  ///     happen on the write_out path.
+  ///   * The cut replay journal in `LinearInterface::m_replay_`.  On
+  ///     recovery hot-starts that loaded tens of thousands of cuts
+  ///     into the journal this is the dominant per-cell residue —
+  ///     several GiB on the 2-year case.
+  ///   * The cached primal/dual/reduced-cost vectors in `m_cache_`.
+  ///     No downstream consumer reads them after write_out.
+  ///
+  /// Must be called *after* `write_out()` completes for this cell.
+  /// The caller (typically `PlanningLP::write_out`'s `emit_cell`
+  /// closure) must have already invoked `release_backend()` and
+  /// `clear_snapshot()` — this method only adds drops; it does not
+  /// duplicate those calls.  Idempotent: safe to invoke multiple
+  /// times.  After this returns, the cell still has its scalar
+  /// metadata (UIDs, options, fingerprint) but any
+  /// `elements<X>()` / `get_col_sol()` access would now read from an
+  /// empty cache — production paths must avoid touching such cells.
+  void drop_for_write_out_done() noexcept;
 
   /// Forward accessor to the LP's cumulative solver counters.
   [[nodiscard]] constexpr const SolverStats& solver_stats() const noexcept

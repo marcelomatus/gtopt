@@ -36,7 +36,9 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
+#include <gtopt/solve_outcome.hpp>
 #include <gtopt/solver_stats.hpp>
+#include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/waterway.hpp>
 #include <spdlog/spdlog.h>
@@ -66,7 +68,7 @@ namespace
       + field_sched_dynamic_bytes(g.capacity)
       + field_sched_dynamic_bytes(g.expcap)
       + field_sched_dynamic_bytes(g.lossfactor)
-      + field_sched_dynamic_bytes(g.emission_factor);
+      + field_sched_dynamic_bytes(g.emission_rate);
 }
 
 [[nodiscard]] inline std::size_t sum_field_sched_bytes(const Demand& d)
@@ -573,11 +575,35 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
+  // Auto-discover a per-solver parameter file at
+  //   <input_directory>/solvers/<solver_name>.prm
+  // when `solver_options.param_file` has not been set explicitly (CLI
+  // --set or JSON).  This is the convention emitted by plexos2gtopt /
+  // plp2gtopt next to the case JSON so backend-native tuning travels
+  // with the case data.
+  if (auto& so = planning.options.solver_options;
+      !so.param_file.has_value() || so.param_file->empty())
+  {
+    if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+      const std::filesystem::path candidate =
+          std::filesystem::path(
+              planning.options.input_directory.value_or(std::string {"input"}))
+          / "solvers" / (solver_key + ".prm");
+      std::error_code ec;
+      if (std::filesystem::exists(candidate, ec) && !ec) {
+        so.param_file = candidate.string();
+        spdlog::info("Auto-loaded {} parameter file: {}",
+                     solver_key,
+                     so.param_file.value());
+      }
+    }
+  }
+
   return flat_opts;
 }
 
 /// Run the solver and return whether an optimal solution was found.
-[[nodiscard]] bool run_solver(PlanningLP& planning_lp)
+[[nodiscard]] SolveOutcome run_solver(PlanningLP& planning_lp)
 {
   const spdlog::stopwatch solve_sw;
 
@@ -601,19 +627,23 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   // / kappa rows, so the operator sees a single coherent
   // Solution-statistics block.
 
-  if (result.has_value()) {
-    return true;
+  // Classification lives in `gtopt/solve_outcome.hpp` so the tri-state
+  // dispatch (Optimal / Partial / Failed) is also reachable from
+  // unit tests without standing up a real solver.
+  const auto outcome = classify_solve_outcome(result);
+  if (outcome == SolveOutcome::Optimal) {
+    return outcome;
   }
 
   const auto& err = result.error();
-  // Use warn for non-optimal (e.g. time-limit with feasible incumbent),
-  // error only for hard failures such as infeasibility.
+  const bool is_partial = (outcome == SolveOutcome::Partial);
+
   const auto msg = std::format(
       "Solver did not find an optimal solution: "
       "{} (code={})",
       err.message,
       static_cast<int>(err.code));
-  if (err.code == ErrorCode::SolverError) {
+  if (is_partial) {
     spdlog::warn(msg);
   } else {
     spdlog::error(msg);
@@ -633,7 +663,7 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       eps_str(solver_opts.feasible_eps),
       eps_str(solver_opts.barrier_eps),
       solver_opts.log_level);
-  return false;
+  return is_partial ? SolveOutcome::Partial : SolveOutcome::Failed;
 }
 
 /// Write solution output and save planning JSON to the output directory.
@@ -662,7 +692,29 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
     }
   }
 
-  spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
+  // The `out_sw` stopwatch only measures the final
+  // `PlanningLP::write_out()` flush + planning.json sidecar.  Under SDDP
+  // every per-cell parquet was already written during the forward pass
+  // (each iteration dispatches its own `SystemLP::write_out` calls to
+  // the cell pool), so by the time we get here there is nothing left
+  // to flush — `out_sw` reports a misleading 0.x s for runs that
+  // actually wrote gigabytes.  Print *both* numbers so the report is
+  // honest: the runner stopwatch, plus the process-wide cumulative
+  // per-cell write_out wall fed by `SystemLP::write_out`.
+  const auto cells = SystemLP::total_write_cells();
+  const auto cum_ms = SystemLP::total_write_ms();
+  if (cells > 0) {
+    spdlog::info(
+        "  Write output time {:.3f}s "
+        "(final flush; cumulative per-cell write_out wall {:.3f}s "
+        "across {} cells, avg {:.1f} ms/cell)",
+        out_sw.elapsed().count(),
+        cum_ms / 1000.0,
+        cells,
+        cum_ms / static_cast<double>(cells));
+  } else {
+    spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
+  }
   return {};
 }
 
@@ -756,37 +808,96 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
       planning_lp.build_all_lps_eagerly();
     }
 
+    // Runner-level LP dump:
+    //
+    //  * ``--lp-file <path>``: always honour the explicit path.
+    //  * ``--lp-only --lp-debug`` (monolithic, no explicit ``--lp-file``):
+    //    write a single ``<log_directory>/monolithic.lp`` here, because
+    //    ``run_solver`` (and therefore ``MonolithicMethod::solve``
+    //    → ``LpDebugWriter``) is skipped under ``--lp-only`` and would
+    //    leave the user with no LP file.
+    //
+    // For a normal ``--lp-debug`` run that DOES reach the solver, the
+    // ``LpDebugWriter`` inside ``MonolithicMethod::solve`` produces the
+    // per-(scene, phase) ``gtopt_lp_scene_0_phase_0.lp`` file.
+    // Writing ``monolithic.lp`` here too would produce a byte-identical
+    // duplicate (verified 2026-05-21, docs/analysis/lp-debug-two-files.md)
+    // and would ignore the lp_debug compression / filter options that
+    // ``LpDebugWriter`` honours.  Restrict to the ``--lp-only`` case.
+    const bool monolithic_lp_only_debug = want_lp_only
+        && opts.lp_debug.value_or(false)
+        && planning_lp.options().method_type_enum() == MethodType::monolithic
+        && !opts.lp_file.has_value();
+
     if (opts.lp_file) {
       planning_lp.write_lp(opts.lp_file.value());
+    } else if (monolithic_lp_only_debug) {
+      const auto log_dir = planning_lp.options().log_directory();
+      std::error_code ec;
+      std::filesystem::create_directories(log_dir, ec);
+      const auto lp_path =
+          (std::filesystem::path(log_dir) / "monolithic.lp").string();
+      spdlog::info("lp_debug (monolithic --lp-only): writing LP to {}",
+                   lp_path);
+      planning_lp.write_lp(lp_path);
     }
 
     if (do_stats) {
       log_lp_coefficient_stats(planning_lp);
     }
 
+    // Short-circuit: under `--lp-only`, exit once the LP file is on
+    // disk and the coefficient histogram has been printed.  Stats
+    // remain enabled — only the downstream solver setup is skipped.
     if (want_lp_only) {
-      spdlog::info("lp_only: all LP matrices built, skipping solve");
+      spdlog::info("lp_only: LP written, skipping solve");
       return 0;
     }
 
     // Solve the LP
     spdlog::info("=== System optimization ===");
-    const bool optimal = run_solver(planning_lp);
+    const auto outcome = run_solver(planning_lp);
+    const bool optimal = (outcome == SolveOutcome::Optimal);
 
     if (do_stats) {
       log_post_solve_stats(planning_lp, optimal);
     }
 
-    if (!optimal) {
-      return 1;
+    if (outcome == SolveOutcome::Failed) {
+      return 1;  // hard failure — nothing useful to persist
     }
 
-    // Write solution output
+    if (outcome == SolveOutcome::Partial) {
+      // Time-limit, MIP gap, or sentinel-stop: the cell still holds a
+      // feasible (or near-feasible) solution from the last successful
+      // iteration / forward pass.  Persist whatever the cells have so
+      // the operator can inspect / resume / use the partial result.
+      // SDDP + cascade also produced their per-iter cut + state files
+      // via `save_per_iteration` / `cascade_progress.json`; those
+      // already on-disk artifacts complement the per-element parquets
+      // written below.
+      spdlog::warn(
+          "=== Writing PARTIAL output ===  the solver returned a "
+          "non-optimal solution (time-limit / gap / sentinel-stop); "
+          "what follows is the last-known feasible state.");
+    }
+
+    // Write solution output (runs for both Optimal and Partial).
     if (auto wr = write_solution_output(planning_lp); !wr) {
+      // Soften the failure mode under Partial: a write_out error on a
+      // partial cell is not fatal — the user already has the SDDP cuts
+      // and cascade progress file from earlier in the run.
+      if (outcome == SolveOutcome::Partial) {
+        spdlog::warn(
+            "Partial write_out failed: {} — earlier-iteration "
+            "artifacts (cuts, progress file) are unaffected.",
+            wr.error());
+        return 1;
+      }
       return std::unexpected(std::move(wr.error()));
     }
 
-    return 0;
+    return optimal ? 0 : 1;
 
   } catch (const std::exception& ex) {
     return std::unexpected(

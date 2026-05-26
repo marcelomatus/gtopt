@@ -40,13 +40,8 @@ struct json_data_contract<ModelOptions>
                        json_number_null<"hydro_use_value", OptReal>,
                        json_number_null<"state_violation_cost", OptReal>,
                        json_bool_null<"demand_fail_rhs_shift", OptBool>,
-                       json_variant_null<"emission_cost",
-                                         OptTRealFieldSched,
-                                         jvtl_TRealFieldSched>,
-                       json_variant_null<"emission_cap",
-                                         OptTRealFieldSched,
-                                         jvtl_TRealFieldSched>,
                        json_string_null<"continuous_phases", OptName>,
+                       json_string_null<"naming_dialect", OptName>,
                        json_bool_null<"strict_storage_emin", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
@@ -70,9 +65,8 @@ struct json_data_contract<ModelOptions>
                                  opt.hydro_use_value,
                                  opt.state_violation_cost,
                                  opt.demand_fail_rhs_shift,
-                                 opt.emission_cost,
-                                 opt.emission_cap,
                                  opt.continuous_phases,
+                                 opt.naming_dialect,
                                  opt.strict_storage_emin);
   }
 };

@@ -26,7 +26,7 @@ COL_GEN_PMIN = "pmin"
 COL_GEN_PMAX = "pmax"
 COL_GEN_DECLARED_MC = "declared_MC"
 COL_GEN_KIND = "kind"
-COL_GEN_EMISSION_FACTOR = "emission_factor"
+COL_GEN_EMISSION_FACTOR = "emission_rate"
 
 COL_LINE_UID = "uid"
 COL_LINE_BUS_A = "bus_a_uid"
@@ -53,7 +53,7 @@ class Generator:
     pmax: float
     declared_MC: Optional[float] = None
     kind: str = "thermal"  # thermal | hydro | battery | profile
-    emission_factor: Optional[float] = None  # kgCO2eq/MWh, §4.12
+    emission_rate: Optional[float] = None  # kgCO2eq/MWh, §4.12
 
 
 @dataclass(slots=True, frozen=True)
@@ -119,7 +119,7 @@ class Topology:
                     COL_GEN_PMAX: g.pmax,
                     COL_GEN_DECLARED_MC: g.declared_MC,
                     COL_GEN_KIND: g.kind,
-                    COL_GEN_EMISSION_FACTOR: g.emission_factor,
+                    COL_GEN_EMISSION_FACTOR: g.emission_rate,
                 }
                 for g in self.generators
             ]
@@ -164,7 +164,7 @@ class Topology:
                 pmax=float(row[COL_GEN_PMAX]),
                 declared_MC=_opt_float(row.get(COL_GEN_DECLARED_MC)),
                 kind=str(row.get(COL_GEN_KIND, "thermal")),
-                emission_factor=_opt_float(row.get(COL_GEN_EMISSION_FACTOR)),
+                emission_rate=_opt_float(row.get(COL_GEN_EMISSION_FACTOR)),
             )
             for _, row in generators_df.iterrows()
         ]

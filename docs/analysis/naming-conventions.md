@@ -988,7 +988,7 @@ is standard.
 | `capmax` | `Max Capacity Built` | `PotMax` | $P_g^{\max,total}$ | |
 | `annual_capcost` | `Build Cost` × `WACC` | `CFix` / `FixedCost` | $c_g^{inv}$ | |
 | `annual_derating` | (Outage rate / De-rating Factor) | `TaxaIndispoForcada` / `FOR` | — | |
-| `emission_factor` | `CO2 Production Rate` | `FatorEmissao` / `EmissionFactor` | — | |
+| `emission_rate` | `CO2 Production Rate` | `FatorEmissao` / `EmissionFactor` | — | |
 
 ### C.3 Demand / Load
 
@@ -3192,3 +3192,109 @@ ergonomics work that a rename would otherwise have to.
 Apply this principle when considering any future option-rename
 proposal: classify Tier-J vs Tier-C first; reject Tier-C renames
 unless the existing name is actively misleading.
+
+---
+
+## 12. Implementation Status — 2026-05 (post §10 Phase 1)
+
+What's actually shipping versus what §10 originally proposed.
+
+### 12.1 `--naming-dialect <name>` (CLI + JSON, IMPLEMENTED)
+
+`model_options.naming_dialect` (canonical) / `--naming-dialect` (CLI).
+Recognised values are the `dialect` tags in
+`share/gtopt/naming_dialects.json` — currently `gtopt`,
+`gtopt-legacy`, `plp`, `sddp`, `plexos`, `pypsa`, `pandapower`.
+
+**Input warn** — when set, the alias canonicalization at JSON parse
+time consults `NamesRegistry::dialect_for(alias)` for every alias it
+rewrites.  When the alias's source dialect differs from the
+enforced dialect, a once-per-alias warning fires through
+`spdlog::warn`.  Reduces silent dialect drift — e.g. a PLEXOS
+`Max Capacity` slipping into a `--naming-dialect=gtopt` run.
+
+**Output rename** — at `planning.json` write time the JSON
+canonicalize pass runs in reverse:
+`decanonicalize_json_keys(text, dialect)` rewrites each canonical
+key to the chosen dialect's alias from
+`NamesRegistry::alias_for(canonical, dialect)`.  Canonicals without
+a matching alias in the requested dialect pass through unchanged
+(partial coverage degrades gracefully).
+
+**NOT YET WIRED** — parquet column rename on element output files
+(`Generator/generation_sol.parquet`, …).  The JSON write path is the
+only output channel currently dialect-aware.
+
+### 12.2 Unit dictionary — `share/gtopt/unit_dialects.json` (IMPLEMENTED)
+
+Sibling registry to `naming_dialects.json`, loaded via
+`UnitRegistry::instance()`.  Each entry annotates the canonical
+attribute of a class with the physical unit expected by a given
+dialect:
+
+    {"class": "reservoir", "canonical": "emax", "dialect": "gtopt", "unit": "Mm3"},
+    {"class": "reservoir", "canonical": "emax", "dialect": "plp",   "unit": "hm3"}
+
+The `--naming-dialect` input warn pass consults
+`UnitRegistry::class_agnostic_unit_for(canonical, dialect)` for the
+alias's source dialect and the enforced dialect.  When both lookups
+succeed and the units differ, the warning escalates to
+`spdlog::error` with both units named:
+
+    UNIT MISMATCH on input alias 'VolMax' (dialect 'plp', unit 'hm3')
+    vs --naming-dialect 'gtopt' (unit 'Mm3') for canonical 'emax'
+
+**Known limitation** — the unit lookup is class-blind because
+`canonicalize_json_keys` operates on the JSON token stream before
+the element class is known.  When the same canonical name lives on
+two classes with different units (e.g. `cost` is USD/MWh on
+generator, USD/MMBtu on fuel), `class_agnostic_unit_for` returns
+nullopt and the warn falls back to the dialect-only line.
+
+**NOT YET WIRED** — auto-conversion at parse time (the "phase 3"
+mentioned in the original proposal).  The unit table is purely
+diagnostic for now; numeric values are passed through verbatim.
+
+### 12.3 `--list-dialects [<dialect>]` (IMPLEMENTED)
+
+Diagnostic dump of the merged naming + unit registries.  Without an
+argument, prints every `(canonical, dialect, alias, unit)` row,
+tab-separated.  With an argument, restricts to that dialect:
+
+    $ gtopt --list-dialects plp
+    # canonical    dialect    alias       unit
+    pmax           plp        PotMax      MW
+    emax           plp        VolMax      hm3
+    fmax           plp        QMax        m3/s
+    ...
+
+Errors with exit code 1 and lists the registered dialects when the
+filter does not match any known dialect.  The footer line names the
+source file each registry loaded from
+(`naming_dialects.json` / `unit_dialects.json`), making the dump
+self-documenting under environment overrides.
+
+### 12.4 igtopt template integration (IMPLEMENTED)
+
+`scripts/igtopt/_options_meta.py` exposes the three new fields in
+the Excel template:
+
+* `naming_dialect` and `continuous_phases` in `MODEL_OPTION_KEYS`
+  (so they nest correctly into `model_options.*`).
+* `mip_gap` in `SOLVER_OPTION_KEYS` (so `solver_mip_gap` nests into
+  `solver_options.mip_gap`).
+
+### 12.5 Deferred to future commits
+
+* **Parquet column rename** under `--naming-dialect` (the second half
+  of "output rename" — currently only `planning.json` is renamed).
+* **Auto-conversion** at parse time (phase 3) — needs a unit algebra
+  engine before a one-line conversion factor can be safely applied.
+* **`--list-dialects --format json`** machine-readable variant of
+  the tab-separated dump.
+* **Fill remaining missing element classes** in
+  `naming_dialects.json` (Junction, Pump, VolumeRight, LngTerminal,
+  GeneratorProfile, DemandProfile, reservoir sub-records).  The
+  external-tool mappings for those are best-effort-from-memory
+  and have been left out of the registry until verified against
+  real exports.

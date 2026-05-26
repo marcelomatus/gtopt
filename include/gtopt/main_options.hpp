@@ -196,10 +196,20 @@ template<typename T>
        po::value<std::string>().implicit_value(""),
        "run the LinearInterface test suite against all solvers, or a specific "
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
+      ("list-dialects",
+       po::value<std::string>().implicit_value(""),
+       "list the entries in share/gtopt/naming_dialects.json (and the "
+       "matching units from share/gtopt/unit_dialects.json) then exit.  "
+       "Without an argument, dumps every (canonical, dialect, alias, "
+       "unit) row.  With an argument, filters by that dialect name "
+       "(e.g. --list-dialects plexos).")  //
       ("solver",
        po::value<std::string>(),
-       "LP solver backend: cplex, highs, cbc, clp "
-       "(default: auto-detect by priority cplex > highs > cbc > clp)")  //
+       "LP/MIP solver backend: cplex, gurobi, highs, mindopt, cbc, clp "
+       "(default: auto-detect by priority "
+       "cplex > highs > mindopt > cbc > clp).  "
+       "Use --solvers to list backends compiled into the current build.")
+      //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -289,20 +299,19 @@ template<typename T>
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
       ("memory-saving",
-       po::value<std::string>().implicit_value("compress"),
-       "coordinated memory-saving: sets both the SDDP flat-LP release "
-       "policy (sddp_options.low_memory_mode) AND the solver-native "
-       "memory hint (solver_options.memory_emphasis, e.g. CPLEX "
-       "CPX_PARAM_MEMORYEMPHASIS).  Values: off, "
-       "compress (release solver, keep compressed flat LP — best "
-       "balance, also the resolved default for SDDP/cascade and the "
-       "implicit value when the flag is given without an argument).  "
-       "The legacy `rebuild` value is accepted as a back-compat alias "
-       "for `compress`.  Overridden by direct JSON settings for either "
+       po::value<std::string>(),
+       "coordinated memory-saving (arg = off | compress, default compress "
+       "for SDDP/cascade): sets both the SDDP flat-LP release policy "
+       "(sddp_options.low_memory_mode) AND the solver-native memory "
+       "hint (solver_options.memory_emphasis, e.g. CPLEX "
+       "CPX_PARAM_MEMORYEMPHASIS).  `compress` releases the solver and "
+       "keeps a compressed flat LP — the best balance.  The legacy "
+       "`rebuild` value is accepted as a back-compat alias for "
+       "`compress`.  Overridden by direct JSON settings for either "
        "option.")  //
       // Deprecated alias for `--memory-saving` — hidden from help.
       ("low-memory",
-       po::value<std::string>().implicit_value("compress"),
+       po::value<std::string>(),
        "")  //
       ("memory-limit",
        po::value<std::string>(),
@@ -325,10 +334,10 @@ template<typename T>
       ("write-out",
        po::value<std::string>(),
        "comma-separated list of output fields the solver should emit "
-       "(default: sol,dual — reduced costs are NOT emitted by default; "
-       "use 'all' or add 'reduced_cost' to opt in).  Atoms: solution "
-       "(alias: sol), dual, reduced_cost (aliases: cost, rcost, rc), "
-       "all, none.  Example: --write-out sol,dual  or  --write-out all")  //
+       "(default: all — primal solutions, row duals, and reduced costs).  "
+       "Atoms: solution (alias: sol), dual, reduced_cost (aliases: cost, "
+       "rcost, rc), all, none.  Example: --write-out sol,dual to skip "
+       "reduced costs, or --write-out sol to skip duals as well.")  //
       ("build-mode",
        po::value<std::string>(),
        "LP build parallelism: serial, scene-parallel, full-parallel, "
@@ -341,6 +350,55 @@ template<typename T>
        "lp_matrix_options.equilibration_method=none).  Intended for "
        "debug / physical-unit validation of coefficients and RHS.  "
        "Overrides JSON values for the affected fields.")  //
+      // `--no-presolve` and `--no-crossover` removed (2026-05-21):
+      // too solver-specific for the top-level CLI surface.  The
+      // generic `--set solver_options.presolve=false` and
+      // `--set solver_options.crossover=false` still work for the
+      // narrow set of users who actually need them.
+      ("no-mip",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "LP-relax every phase (all binary / integer variables become "
+       "continuous).  Shorthand for "
+       "`--set model_options.continuous_phases=all`.  Applied at LP "
+       "assembly time via SimulationLP, so the relaxation is uniform "
+       "across the monolithic, SDDP, and cascade methods.  Useful for "
+       "quick LP-only smoke tests on cases that would otherwise solve a "
+       "MIP (commitment, segment-based costs, etc.); the relaxation "
+       "gives a lower bound on the true MIP optimum but loses on/off "
+       "semantics.")
+      //
+      ("naming-dialect",
+       po::value<std::string>(),
+       "enforce a specific naming dialect for input + output.  On "
+       "input: emits a once-per-alias warning when a JSON key matches "
+       "an alias whose `dialect` tag in "
+       "share/gtopt/naming_dialects.json differs from <name>.  On "
+       "output: rewrites canonical keys to the dialect's aliases when "
+       "emitting `planning.json` (parquet column rename is a follow-up).  "
+       "Recognised values: gtopt, plp, sddp, plexos, pypsa, pandapower "
+       "(see naming_dialects.json for the authoritative list).  "
+       "Shorthand for --set model_options.naming_dialect=<name>.")
+      //
+      ("mip-gap",
+       po::value<double>(),
+       "Target relative MIP optimality gap (e.g. 0.01 = 1 %); ignored on "
+       "continuous LPs.  Shorthand for "
+       "--set solver_options.mip_gap=<value>.  Backend mapping: "
+       "CPLEX CPX_PARAM_EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap.  Pair "
+       "with --time-limit to bound MIP wall-clock when the gap target "
+       "is loose.")
+      //
+      ("time-limit",
+       po::value<double>(),
+       "Per-solve time limit in seconds (0 = no limit).  Shorthand for "
+       "--set solver_options.time_limit=<value>.  Applied to every LP / "
+       "MIP solve the backend issues (forward + backward passes in "
+       "SDDP, every aperture clone in cascade); the solver aborts the "
+       "current solve when wall-clock exceeds the limit.  Backend "
+       "mapping: CPLEX TILIM, HiGHS time_limit, Gurobi TimeLimit, "
+       "MindOpt MAX_TIME, CLP setMaximumSeconds.  Callers should check "
+       "`is_optimal()` after solve to detect timeouts.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -390,19 +448,23 @@ template<typename T>
       ("output-compression,C",
        po::value<std::string>(),
        "Parquet output compression codec: lz4 | snappy | zstd | gzip | none "
-       "(default: lz4); shorthand for --set output_compression=<codec>")  //
+       "(default: zstd); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
        "copper-plate (single-bus) mode: ignore network topology and line "
-       "limits; shorthand for --set model_options.use_single_bus=true")  //
+       "limits; shorthand for --set model_options.use_single_bus=<bool> "
+       "(default when flag is given without value: true)")  //
       ("use-kirchhoff,k",
        po::value<bool>().implicit_value(/*v=*/true),
        "apply DC-OPF Kirchhoff voltage-angle constraints (default: true); "
        "shorthand for --set model_options.use_kirchhoff=<bool>")  //
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
-       "save per-(scene, phase) LP files for every SDDP pass selected by "
-       "sddp_options.lp_debug_passes; shorthand for --set lp_debug=true")  //
+       "save LP debug files to log_directory: a single monolithic.lp for "
+       "the monolithic solver, or one per-(scene, phase) LP file for every "
+       "SDDP pass selected by sddp_options.lp_debug_passes; shorthand for "
+       "--set lp_debug=<bool> (default when flag is given without "
+       "value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
        "compression codec for LP debug files: gzip | zstd | none "
@@ -436,11 +498,11 @@ template<typename T>
       ("sddp-min-iterations",
        po::value<int>(),
        "minimum SDDP iterations before convergence is considered "
-       "(default: 2); shorthand for --set "
+       "(default: 1); shorthand for --set "
        "sddp_options.min_iterations=<n>")  //
       ("sddp-convergence-tol",
        po::value<double>(),
-       "relative gap tolerance for SDDP convergence (default: 1e-4); "
+       "relative gap tolerance for SDDP convergence (default: 0.01); "
        "shorthand for --set sddp_options.convergence_tol=<eps>")  //
       ("sddp-elastic-penalty",
        po::value<double>(),
@@ -792,6 +854,33 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
+  if (opts.no_mip.value_or(false)) {
+    // `--no-mip` LP-relaxes every phase by forcing
+    // `model_options.continuous_phases = "all"`.  Overrides any JSON
+    // value so the shortcut is uniformly authoritative — users who want
+    // a partial relaxation should drop the flag and set
+    // `continuous_phases` directly via `--set`.
+    planning.options.model_options.continuous_phases = OptName {"all"};
+  }
+
+  if (opts.naming_dialect.has_value()) {
+    planning.options.model_options.naming_dialect = opts.naming_dialect;
+  }
+
+  if (opts.mip_gap.has_value()) {
+    // CLI shortcut wins over any prior JSON setting — `--set
+    // solver_options.mip_gap=…` is still available for full control,
+    // but the bespoke flag is uniformly authoritative when both fire.
+    planning.options.solver_options.mip_gap = opts.mip_gap;
+  }
+
+  if (opts.time_limit.has_value()) {
+    // CLI wins over JSON, same pattern as --mip-gap.  0 means "no
+    // limit" — the SolverOptions::time_limit field is optional so we
+    // pass the raw value through; backends apply only when *value > 0.
+    planning.options.solver_options.time_limit = opts.time_limit;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -896,7 +985,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
 
   if (opts.write_out) {
-    planning.options.write_out = parse_output_flags(*opts.write_out);
+    planning.options.write_out = parse_output_selection(*opts.write_out);
   }
 
   // CLI solver shortcuts → solver_options
@@ -1018,6 +1107,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       }(),
       .threads = get_opt<int>(vm, "threads"),
       .no_scale = get_opt<bool>(vm, "no-scale"),
+      .no_mip = get_opt<bool>(vm, "no-mip"),
+      .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
+      .mip_gap = get_opt<double>(vm, "mip-gap"),
+      .time_limit = get_opt<double>(vm, "time-limit"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1305,6 +1398,10 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.no_scale, defaults.no_scale);
+  merge(opts.no_mip, defaults.no_mip);
+  merge(opts.naming_dialect, defaults.naming_dialect);
+  merge(opts.mip_gap, defaults.mip_gap);
+  merge(opts.time_limit, defaults.time_limit);
   merge(opts.memory_limit, defaults.memory_limit);
   merge(opts.memory_quota, defaults.memory_quota);
   merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);

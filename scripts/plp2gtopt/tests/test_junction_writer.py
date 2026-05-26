@@ -275,19 +275,20 @@ def test_to_json_array_single_plant():
 
 
 def test_drain_junction():
-    """Terminal central (ser_hid=0, ser_ver=0, vert_max>0) gets exactly one
-    shared synthetic ocean drain — the gen+ver paths converge to the same
-    drain junction, not two separate _spill / _ocean drains.
+    """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
+    capacity is encoded as ``Junction.drain_capacity`` + ``drain_cost``
+    on the central's own junction, and only the gen waterway (which the
+    turbine needs) still routes to a synthetic ``<central>_ocean``.
 
-    Pre-86616b80: ``ser_ver = 0`` was modelled by setting ``drain=True`` on
-    the central's own junction; only one waterway (`_gen` to `_ocean`) was
-    created.
-
-    Post-86616b80 + drain-merge: ``ser_ver = 0`` emits an explicit ``_ver``
-    arc with the rebalse fcost, AND the gen+ver arcs share a single
-    ``_ocean`` drain junction.  This pins the merged shape: 2 junctions
-    (source + drain), 2 arcs (gen + ver) — both arcs targeting the same
-    drain UID.
+    Pre-Junction-drain-capacity patch the spillway was modelled as a
+    separate ``_ver`` Waterway from ``<central> → <central>_ocean``
+    with ``fmax = VertMax`` and ``fcost = CVert``; that pair has been
+    collapsed into ``Junction{drain: True, drain_capacity: VertMax,
+    drain_cost: CVert}`` on the source junction — same LP (same
+    per-block drain column, same upper bound, same cost), one less
+    Waterway.  The ``<central>_ocean`` Junction is still created for
+    the gen-path fallback (the turbine references it), so the
+    junction count stays at 2.
     """
     central = {
         "name": "PlantDrain",
@@ -307,33 +308,33 @@ def test_drain_junction():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Exactly two junctions: the source + ONE shared synthetic drain.
+    # Source junction + ocean junction for the gen waterway = 2.
     assert len(result["junction_array"]) == 2
 
     plant_junction = next(
         j for j in result["junction_array"] if j["name"] == "PlantDrain"
     )
     assert plant_junction["uid"] == 5
-    # Post-86616b80 the source carries no drain flag — the explicit `_ver`
-    # arc routes spillage out, with the rebalse fcost on the arc.
-    assert plant_junction["drain"] is False
+    # The source junction now carries the spillway capacity as its own
+    # drain column (replacing the legacy ``_ver`` arc).
+    assert plant_junction["drain"] is True
+    assert plant_junction["drain_capacity"] == pytest.approx(50.0)
+    # drain_cost is omitted when ``plpmat_parser`` is absent — no
+    # CVert default available, so the drain column gets cost 0.
+    assert "drain_cost" not in plant_junction
 
     drain_junction = next(
         j for j in result["junction_array"] if j["name"] == "PlantDrain_ocean"
     )
     assert drain_junction["drain"] is True
-    drain_uid = drain_junction["uid"]
 
-    # Both `_gen` and `_ver` waterways exist and target the SAME drain.
+    # Only the gen waterway remains; the legacy ``_ver`` arc is gone
+    # because its constraint has migrated to Junction.drain_capacity.
     waterways = result["waterway_array"]
-    assert len(waterways) == 2
-    gen_ww = next(w for w in waterways if "_gen_" in w["name"])
-    ver_ww = next(w for w in waterways if "_ver_" in w["name"])
+    assert len(waterways) == 1
+    gen_ww = waterways[0]
+    assert "_gen_" in gen_ww["name"]
     assert gen_ww["junction_b"] == drain_junction["name"]
-    assert ver_ww["junction_b"] == drain_junction["name"]
-    # Pin the merge invariant on UIDs too: both arcs end at the same uid.
-    assert int(gen_ww["name"].split("_")[-1]) == drain_uid
-    assert int(ver_ww["name"].split("_")[-1]) == drain_uid
 
 
 def test_no_turbine_creation():
@@ -357,9 +358,17 @@ def test_no_turbine_creation():
     result = writer.to_json_array()[0]
 
     assert len(result["turbine_array"]) == 0
-    # Two waterways: `_gen` (to junction 7) + `_ver` (to synthetic spill drain
-    # since ser_ver=0 and vert_max>0).
-    assert len(result["waterway_array"]) == 2
+    # Single waterway: `_gen` (to junction 7).  The legacy ``_ver`` to a
+    # synthetic spill drain has been collapsed into Junction.drain_capacity
+    # / drain_cost on the source junction (``PlantNoBus``).
+    assert len(result["waterway_array"]) == 1
+    junctions = {j["name"]: j for j in result["junction_array"]}
+    src = junctions["PlantNoBus"]
+    assert src["drain"] is True
+    assert src["drain_capacity"] == pytest.approx(50.0)
+    # drain_cost is omitted when ``plpmat_parser`` is absent — no
+    # CVert default available, so the drain column gets cost 0.
+    assert "drain_cost" not in src
 
 
 def test_process_reservoirs(reservoir_parser):
@@ -471,14 +480,17 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     # ser_ver=3 references PlantC as a downstream drain junction.
     assert len(result["junction_array"]) == 5
 
-    # PlantA: gen+ver (2),  PlantB: gen(ocean)+ver (2),
-    # PlantC: gen(ocean)+ver(ocean) sharing drain (2),  extraction (1) = 7.
-    # Post-86616b80 PlantC's ser_ver=0+vert_max>0 emits an explicit `_ver`
-    # arc to its synthetic ocean drain (replacing the pre-refactor
-    # ``drain=True`` shortcut on the source junction).  The drain-merge
-    # change keeps PlantC at 2 junctions (source + 1 shared `_ocean` drain)
-    # and 2 arcs both terminating at that drain.
-    assert len(result["waterway_array"]) == 7
+    # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
+    # PlantB: gen(ocean, ser_hid=0) + ver (in-network → PlantC) = 2.
+    # PlantC (ser_hid=0 AND ser_ver=0): gen(ocean) only — the legacy
+    #   ver-to-ocean arc collapsed into Junction.drain_capacity on
+    #   PlantC = 1.
+    # plus 1 extraction = 6 total.
+    assert len(result["waterway_array"]) == 6
+    # PlantC carries the spillway capacity as a junction-level drain.
+    plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
+    assert plantc["drain"] is True
+    assert plantc["drain_capacity"] == pytest.approx(50.0)
 
     # PlantA (bus=101) + PlantB (bus=102) = 2 turbines (PlantC bus=0, no turbine)
     assert len(result["turbine_array"]) == 2
@@ -789,27 +801,29 @@ def test_embalse_ocean_junction_created():
 
 
 def test_embalse_ocean_junction_waterways_created():
-    """Both `_gen` and `_ver` waterways target the same shared ocean drain
-    junction (post-86616b80 + drain-merge).
+    """Only the `_gen` waterway targets the synthetic ocean drain.
 
-    Pre-86616b80 the spillway (ser_ver=0) was modelled by ``drain=True`` on
-    the central's own junction, with only the gen arc reaching the ocean.
-    Post-refactor, an explicit ``_ver`` arc carries the rebalse fcost out of
-    the system, and both arcs share the same synthetic ``_ocean`` drain.
+    The legacy ``_ver`` arc that used to share the same ocean drain has
+    been collapsed into ``Junction.drain_capacity`` + ``drain_cost`` on
+    the source junction.  The gen path stays untouched because the
+    turbine references its waterway by name.
     """
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Both gen and ver waterways now target the shared ocean drain.
+    # Only the gen arc terminates at the ocean drain now.
     to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"]
-    assert len(to_ocean) == 2
-    assert {w["junction_a"] for w in to_ocean} == {"RAPEL"}
-    assert {w["name"].split("_")[1] for w in to_ocean} == {"gen", "ver"}
+    assert len(to_ocean) == 1
+    assert to_ocean[0]["junction_a"] == "RAPEL"
+    assert "_gen_" in to_ocean[0]["name"]
 
-    # The RAPEL source junction is no longer a drain — the explicit `_ver`
-    # arc routes spillage out of the system.
+    # The RAPEL source junction carries the spillway capacity (drain
+    # column with uppb = 50).  drain_cost is omitted because the test
+    # parser has no plpmat (no CVert default available).
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is False
+    assert rapel_junction["drain"] is True
+    assert rapel_junction["drain_capacity"] == pytest.approx(6000.0)
+    assert "drain_cost" not in rapel_junction
 
 
 def test_embalse_ocean_junction_turbine_created():
@@ -901,28 +915,32 @@ def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
 
 
 def test_embalse_no_ver_waterway_junction_is_drain():
-    """Embalse with ser_ver==0 emits an explicit `_ver` arc to the
-    synthetic ocean drain — pinning the post-86616b80 physical model.
+    """Embalse with ser_ver==0 encodes the spillway as Junction.drain_*.
 
     Pre-86616b80 the spillway (ser_ver=0) was modelled by ``drain=True``
-    on the central's own junction, and no separate spillway waterway was
-    created.  That free-drain shortcut caused LMAULE / RALCO cascade
-    infeasibilities.  The current physical model adds an explicit `_ver`
-    arc carrying the rebalse fcost; the source junction is therefore NOT
-    a drain anymore — water leaves through arcs, not by teleportation.
+    on the central's own junction with no bound or cost — that
+    free-drain shortcut caused LMAULE / RALCO cascade infeasibilities.
+    The 2026-04-28 fix routed the spill via an explicit ``_ver`` arc to
+    a synthetic ``<central>_ocean`` Junction with ``fmax = VertMax`` /
+    ``fcost = CVert``.  The current architectural fix collapses that
+    arc + ocean Junction pair into ``Junction.drain_capacity`` /
+    ``drain_cost`` on the source junction itself — same LP behaviour
+    (per-block drain column with the same bound and cost), without
+    the per-central topology boilerplate.
     """
-    # RAPEL has ser_ver=0 → an explicit `_ver` arc to RAPEL_ocean exists,
-    # and the RAPEL source junction is NOT marked drain.
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is False
+    assert rapel_junction["drain"] is True
+    assert rapel_junction["drain_capacity"] == pytest.approx(6000.0)
+    # drain_cost is omitted when the test parser has no plpmat — no
+    # CVert default to apply.
+    assert "drain_cost" not in rapel_junction
 
-    # Explicit `_ver` arc must exist, terminating at the shared ocean drain.
+    # No `_ver` arc exists — the constraint moved to Junction.drain_*.
     ver_ww = [w for w in result["waterway_array"] if w["name"].startswith("RAPEL_ver")]
-    assert len(ver_ww) == 1
-    assert ver_ww[0]["junction_b"] == "RAPEL_ocean"
+    assert ver_ww == []
 
 
 def test_embalse_with_ver_waterway_junction_not_drain():
@@ -1248,11 +1266,20 @@ class _MockWaterValueResolver:
 
 
 def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
-    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost)."""
+    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost).
+
+    With both ``spillway_cost`` and ``spillway_capacity`` collapsed to 0
+    the drain teleport contributes nothing to the LP, so
+    ``_spillway_fields`` omits both keys entirely (gtopt's
+    ``storage_lp.cpp`` only creates the drain column when
+    ``spillway_cost`` is set; with the field absent no column is
+    allocated, saving one LP variable per (scene, stage, block) per
+    reservoir that the LP would have presolved away).
+    """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 0.0}
+    assert not fields
 
 
 def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
@@ -1274,12 +1301,17 @@ def test_spillway_cost_unchanged_when_resolver_inactive():
 def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
     """--vrebemb-as-sink alone (without --auto-water-fail-cost) also zeros
     the drain-teleport spillway_cost for vrebemb centrals.  Aligns with
-    the flag's design intent of dropping every vrebemb-derived cost."""
+    the flag's design intent of dropping every vrebemb-derived cost.
+
+    The zero-cost / zero-capacity combination triggers the no-op
+    omission described on the ``--auto-water-fail-cost`` test above:
+    no LP column is created (gtopt drops the drain when
+    ``spillway_cost`` is absent).
+    """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._vrebemb_as_sink = True
     fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields["spillway_cost"] == 0.0
-    assert fields["spillway_capacity"] == 0.0
+    assert not fields
 
 
 def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():

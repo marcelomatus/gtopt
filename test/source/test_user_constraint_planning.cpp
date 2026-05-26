@@ -725,6 +725,7 @@ static constexpr std::string_view single_bus_uc_raw_json = R"json(
       "annual_discount_rate": 0.1,
       "output_format": "csv",
       "output_compression": "uncompressed",
+      "output_layout": "wide",
       "model_options": {
         "use_single_bus": true,
         "scale_objective": 1,
@@ -986,7 +987,7 @@ static constexpr std::string_view uc_multi_component_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],
@@ -1282,7 +1283,7 @@ static constexpr std::string_view uc_sum_ref_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],
@@ -2379,7 +2380,7 @@ static constexpr std::string_view uc_energy_type_json = R"json(
           "eini": 25,
           "pmax_charge": 100,
           "pmax_discharge": 100,
-          "gcost": 0,
+          "discharge_cost": 0,
           "capacity": 50
         }
       ],

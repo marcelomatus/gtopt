@@ -518,6 +518,33 @@ def test_compute_global_wetness_sums_all_stages(tmp_path: Path) -> None:
     assert w_global[2] == pytest.approx(11.0)
 
 
+def test_global_wetness_aggregates_across_multiple_centrals(tmp_path: Path) -> None:
+    """``compute_global_wetness`` sums each hydro's flow×duration across
+    every central, looking up duration by **block number** (not row index).
+
+    Central B intentionally lists its blocks in reverse order ([2, 1]) so
+    a buggy row-index lookup would attribute block 2's duration (3.0) to
+    block 1's flow row — this test pins the by-number lookup invariant.
+    """
+    # Two blocks, both stage 1: durations 2.0 and 3.0.
+    # Central A: blocks [1, 2], h1 contrib = 10*2 + 10*3 = 50;
+    #                          h2 contrib =  1*2 +  1*3 =  5.
+    # Central B: blocks [2, 1] (reversed!); first row pairs with block 2
+    # (duration 3.0), second row with block 1 (duration 2.0):
+    #   h1 contrib = 2*3 + 2*2 = 10; h2 contrib = 7*3 + 7*2 = 35.
+    # Totals: w[1] = 50 + 10 = 60; w[2] = 5 + 35 = 40.
+    aflce = _make_aflce(
+        [
+            ("A", [1, 2], [[10.0, 1.0], [10.0, 1.0]]),
+            ("B", [2, 1], [[2.0, 7.0], [2.0, 7.0]]),
+        ]
+    )
+    block_parser = _make_block_parser([(1, 1, 2.0), (2, 1, 3.0)])
+    w = compute_global_wetness(aflce, block_parser, num_stages=1)
+    assert w[1] == pytest.approx(60.0)
+    assert w[2] == pytest.approx(40.0)
+
+
 def test_compute_global_wetness_empty_without_parsers() -> None:
     """Missing parsers → empty dict (callers fall back to UID order)."""
     assert not compute_global_wetness(None, None, num_stages=3)

@@ -63,7 +63,17 @@ namespace
   const auto loss_mode =
       line_losses::resolve_mode(raw_line, sc.options(), has_expansion);
 
-  const auto lf = self.param_lossfactor(stage.uid()).value_or(0.0);
+  // `lossfactor` is now per-(stage, block) (PR-B).  The `LossConfig`
+  // structure is built once per (line, stage) and reused across
+  // blocks for performance — sample at the FIRST block of the stage
+  // as the representative value.  Scalar schedules broadcast
+  // uniformly so this matches the previous semantics exactly.  True
+  // per-block lossfactor schedules see only the first block's value
+  // on the loss-link rows; full per-block lossfactor on those rows
+  // is a follow-up requiring `line_losses::add_block` to accept a
+  // block-overridable `lf` parameter.
+  const auto first_buid = blocks.empty() ? BlockUid {} : blocks.front().uid();
+  const auto lf = self.param_lossfactor(stage.uid(), first_buid).value_or(0.0);
   const auto R = self.param_resistance(stage.uid()).value_or(0.0);
   const auto V = self.param_voltage(stage.uid()).value_or(0.0);
   const int nseg = std::max(
@@ -218,8 +228,25 @@ bool LineLP::add_to_lp(SystemContext& sc,
     auto& brow_a = lp.row_at(balance_rows_a.at(buid));
     auto& brow_b = lp.row_at(balance_rows_b.at(buid));
 
-    const auto [block_tmax_ab, block_tmax_ba] = sc.block_maxmin_at(
-        stage, block, tmax_ab, tmax_ba, stage_capacity, -stage_capacity);
+    // Both ``tmax_ab`` and ``tmax_ba`` are MAGNITUDES of the forward
+    // and reverse maximum flow respectively (both ≥ 0 by convention).
+    // Reading them via ``block_maxmin_at`` was a misuse — that helper
+    // treats its 4th argument as a ``min`` slot whose default also
+    // serves as a floor (``max(capacity_min, lmin_at)``), with the
+    // pre-existing call passing ``-stage_capacity``.  That made
+    // ``block_tmax_ba`` default to ``-DblMax`` for any line without
+    // explicit reverse capacity, which then propagated into
+    // ``line_losses.cpp:370`` as ``flowp.lowb = -block_tmax_ba = +DblMax``,
+    // a positive lower bound on a non-negative flow variable.  After
+    // Ruiz equilibration that landed at ``flowp >= 1.07e+20`` and made
+    // every multi-bus run with at least one unconstrained line
+    // (``enforce_limits=0`` in PLEXOS, ``tmax_ab/tmax_ba`` unset in
+    // the JSON) trip CPLEX presolve infeasibility.  Discovered while
+    // wiring the CEN PCP daily case (DATOS20260422) end-to-end.
+    const auto block_tmax_ab =
+        tmax_ab.at(stage.uid(), block.uid()).value_or(stage_capacity);
+    const auto block_tmax_ba =
+        tmax_ba.at(stage.uid(), block.uid()).value_or(stage_capacity);
     // ``tcost`` is per-(stage, block); read its block-specific value
     // and let CostHelper apply the per-block duration scaling.
     const auto block_tcost_phys =
@@ -227,6 +254,21 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto block_tcost =
         CostHelper::block_ecost(scenario, stage, block, block_tcost_phys);
 
+    // ``Line.enforce_level`` mirrors PLEXOS ``Line.Enforce Limits``:
+    //   0 = never enforce  → pass ``enforce_capacity = false`` to
+    //       ``line_losses::add_block`` so the loss model relaxes
+    //       BOTH the directional flow columns AND the per-segment
+    //       column upper bounds (DblMax instead of seg_width).
+    //       Crucially the loss coefficients (which use ``seg_width
+    //       × R × (2k−1) / V²``) still see the REAL ``seg_width``,
+    //       so the PWL approximation stays numerically well-formed
+    //       — relaxing seg_width itself would blow up loss-row
+    //       coefficients to ~1e+306 and break solver presolve.
+    //   1 = voltage-conditional (PLEXOS) → treated identically to
+    //       level 2 in our LP (no AC iteration available).
+    //   2 = always enforce → hard cap (historical behaviour, schema
+    //       default).
+    const auto enforce_lvl = line().enforce_level.value_or(2);
     auto result = line_losses::add_block(loss_config,
                                          scenario,
                                          stage,
@@ -238,7 +280,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          block_tmax_ba,
                                          block_tcost,
                                          capacity_col,
-                                         uid());
+                                         uid(),
+                                         /*enforce_capacity=*/enforce_lvl > 0);
 
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
@@ -520,20 +563,26 @@ bool LineLP::add_to_output(OutputContext& out) const
   }
 
   // Loss solutions: piecewise / bidirectional only.  none / linear /
-  // piecewise_direct don't create loss vars so these are no-ops.
-  out.add_col_sol(cname, LosspName, pid, lossp_cols);
-  out.add_col_sol(cname, LossnName, pid, lossn_cols);
+  // piecewise_direct don't create loss vars so these are no-ops.  No
+  // current consumer reads per-line losses — congestion analysis works
+  // off the net flow (already in flowp/flown_sol).  Demoted to
+  // `extras`; opt in via `--write-out ...,extras:Line`.
+  out.add_col_sol_extras(cname, LosspName, pid, lossp_cols);
+  out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
 
   // Overload-slack solutions and costs: only populated when the
   // soft-cap feature is active for this line (see `add_to_lp`).
   // No-op for lines without `tmax_normal_*` + `overload_penalty`.
+  // Used today only by audits that look for "did the LP violate the
+  // soft tmax_normal cap?" — `extras`-gated so the default footprint
+  // doesn't pay for them on cases where the feature is unused.
   if (!overloadp_cols.empty()) {
-    out.add_col_sol(cname, OverloadpName, pid, overloadp_cols);
-    out.add_col_cost(cname, OverloadpName, pid, overloadp_cols);
+    out.add_col_sol_extras(cname, OverloadpName, pid, overloadp_cols);
+    out.add_col_cost_extras(cname, OverloadpName, pid, overloadp_cols);
   }
   if (!overloadn_cols.empty()) {
-    out.add_col_sol(cname, OverloadnName, pid, overloadn_cols);
-    out.add_col_cost(cname, OverloadnName, pid, overloadn_cols);
+    out.add_col_sol_extras(cname, OverloadnName, pid, overloadn_cols);
+    out.add_col_cost_extras(cname, OverloadnName, pid, overloadn_cols);
   }
 
   return CapacityBase::add_to_output(out);

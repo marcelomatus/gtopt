@@ -660,6 +660,36 @@ public:
     return it->second.cols_at(block_uid);
   }
 
+  /// Is the (class, element_uid, attribute) triple registered as an LP
+  /// variable somewhere — any (scene, phase, scenario, stage)?  Used by
+  /// the user-constraint resolver to distinguish "attribute is real
+  /// but the element has no column in THIS specific (scene, phase,
+  /// scenario, stage, block)" (treat-as-zero) from "attribute is a
+  /// typo or not supported on this element" (strict-mode error).
+  ///
+  /// Scans every (scene, phase) cell, matching any AmplVariableKey
+  /// with the given class+uid+attribute regardless of scenario/stage.
+  /// Cost is O(cells × variables) but only triggered on the failure
+  /// path of `resolve_col_to_row` — never on the hot success path.
+  [[nodiscard]] bool find_ampl_variable_for_element(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute) const
+  {
+    for (const auto& by_phase : m_ampl_lp_cells_) {
+      for (const auto& cell : by_phase) {
+        for (const auto& [key, _] : cell.variables) {
+          if (key.class_name == class_name && key.element_uid == element_uid
+              && key.attribute == attribute)
+          {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   /// Register an element's name so that user-expressions like
   /// `generator("G1")` resolve to its Uid.
   ///
@@ -848,6 +878,53 @@ public:
     return std::nullopt;
   }
 
+  // ── Class-level parameter dispatch table ─────────────────────────────
+  //
+  // Each `*LP` class registers its `param_*` accessors with the
+  // simulation under `(class_name, attribute)` keys.  The
+  // user-constraint resolver in `element_column_resolver.cpp` then
+  // performs a single map lookup followed by a function-pointer call,
+  // replacing the former 200-line per-class if/else chain.  Same
+  // call_once lifetime as element names / compounds — populated once,
+  // read-only thereafter, no synchronization needed at lookup time.
+
+  /// Register one (class, attribute) -> resolver entry.  Called once
+  /// per attribute from `system_lp.cpp`'s AMPL call_once block.
+  void register_ampl_param(std::string_view class_name,
+                           std::string_view attribute,
+                           AmplParamFn fn)
+  {
+    m_ampl_params_.insert_or_assign(
+        AmplParamKey {.class_name = class_name, .attribute = attribute}, fn);
+  }
+
+  /// Look up the resolver for (class, attribute).  Returns nullptr when
+  /// the pair is not registered — the caller falls back to the legacy
+  /// path or returns nullopt.
+  [[nodiscard]] AmplParamFn find_ampl_param(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    const auto it = m_ampl_params_.find(
+        AmplParamKey {.class_name = class_name, .attribute = attribute});
+    return (it != m_ampl_params_.end()) ? it->second : nullptr;
+  }
+
+  /// Register a class-level iterator function.  Called once per class
+  /// from `system_lp.cpp`'s AMPL call_once block.
+  void register_ampl_iter(std::string_view class_name, AmplIterFn fn)
+  {
+    m_ampl_iters_.insert_or_assign(class_name, fn);
+  }
+
+  /// Look up the iterator for a class.  Returns nullptr when the class
+  /// is not registered.
+  [[nodiscard]] AmplIterFn find_ampl_iter(
+      std::string_view class_name) const noexcept
+  {
+    const auto it = m_ampl_iters_.find(class_name);
+    return (it != m_ampl_iters_.end()) ? it->second : nullptr;
+  }
+
   // ── Element metadata registry (F9) ───────────────────────────────────
   //
   // Elements register a small `{key → value}` bundle so that
@@ -940,6 +1017,12 @@ private:
   flat_map<std::string_view, std::string_view> m_ampl_suppressed_classes_;
   flat_map<std::pair<std::string_view, std::string_view>, std::string_view>
       m_ampl_suppressed_attrs_;
+
+  // Class-level parameter and iterator dispatch tables.  Populated
+  // exactly once via `register_all_ampl_element_names`'s call_once
+  // block; read-only thereafter, no synchronization needed.
+  AmplParamMap m_ampl_params_;
+  AmplIterMap m_ampl_iters_;
 
 public:
   /// Exposed so that `SystemLP`'s constructor can wrap the one-shot

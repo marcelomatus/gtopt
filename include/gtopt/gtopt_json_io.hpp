@@ -31,9 +31,16 @@ namespace gtopt
 ///
 /// Iterates over each path in @p planning_files, reads the JSON, and merges
 /// it into a single Planning.  Returns an error string on the first failure.
+///
+/// @p enforce_dialect optionally drives the input-warn pass on every
+/// alias canonicalization (see `canonicalize_json_keys`): when non-empty
+/// and an alias's source dialect differs from this value, a
+/// once-per-alias `spdlog::warn` is emitted.  Empty preserves the
+/// pre-feature silent behaviour.
 [[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
     const std::vector<std::string>& planning_files,
-    const std::optional<std::string>& input_directory = {});
+    const std::optional<std::string>& input_directory = {},
+    std::string_view enforce_dialect = {});
 
 /// Write the merged Planning to a JSON file.
 [[nodiscard]] std::expected<void, std::string> write_json_output(

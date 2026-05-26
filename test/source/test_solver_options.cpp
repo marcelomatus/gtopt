@@ -42,6 +42,7 @@ TEST_CASE("SolverOptions - Default construction")
   CHECK_FALSE(options.optimal_eps.has_value());
   CHECK_FALSE(options.feasible_eps.has_value());
   CHECK_FALSE(options.barrier_eps.has_value());
+  CHECK_FALSE(options.mip_gap.has_value());
 }
 
 TEST_CASE("SolverLogMode - enumeration values and names")
@@ -130,6 +131,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
         .optimal_eps = 1e-6,
         .feasible_eps = 1e-5,
         .barrier_eps = 1e-7,
+        .mip_gap = 1e-4,
         .log_level = 1,
     };
 
@@ -149,6 +151,8 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
           == doctest::Approx(original.feasible_eps.value_or(-1.0)));
     CHECK(deserialized.barrier_eps.value_or(-1.0)
           == doctest::Approx(original.barrier_eps.value_or(-1.0)));
+    CHECK(deserialized.mip_gap.value_or(-1.0)
+          == doctest::Approx(original.mip_gap.value_or(-1.0)));
     CHECK(deserialized.log_level == original.log_level);
   }
 
@@ -164,6 +168,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
     CHECK_FALSE(deserialized.optimal_eps.has_value());
     CHECK_FALSE(deserialized.feasible_eps.has_value());
     CHECK_FALSE(deserialized.barrier_eps.has_value());
+    CHECK_FALSE(deserialized.mip_gap.has_value());
   }
 }
 

@@ -22,6 +22,12 @@ from gtopt_marginal_units._classify import classify
 from gtopt_marginal_units._gtopt_reader import read_gtopt
 from gtopt_marginal_units._io import write_dataset
 from gtopt_marginal_units._ladder import build_ladder
+from gtopt_marginal_units._lp_duals import (
+    COL_GEN_RC,
+    COL_GEN_SRMC,
+    GtoptLpDuals,
+    check_write_out_flags,
+)
 from gtopt_marginal_units._recipes import build_recipes_for_cell
 from gtopt_marginal_units._reconstruct import reconstruct_all_zones
 from gtopt_marginal_units._report import write_report
@@ -60,8 +66,19 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Identify marginal generating units and attribute the bus LMP "
             "and emission intensity. See "
-            "docs/scripts/gtopt_marginal_units_plan.md for the full design."
+            "docs/scripts/gtopt_marginal_units_plan.md for the full design.\n"
+            "\n"
+            "Recommended `gtopt` write_out for the source run:\n"
+            "    --write-out 'sol,dual,rc:Generator,Line'\n"
+            "Emits exactly the streams this tool consumes "
+            "(Generator/generation_sol, Generator/generation_cost, "
+            "Generator/srmc_sol, Bus/balance_dual, Junction/balance_dual, "
+            "Battery/energy_dual, Reservoir/water_value_dual, "
+            "Line/flowp_sol, Line/flown_sol, Demand/load_sol, "
+            "Demand/fail_sol) and skips the per-element reduced costs "
+            "no consumer reads — keeps the on-disk footprint lean."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
         "--input-kind",
@@ -151,6 +168,26 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("--report", type=Path, help="Path to write a Markdown report.")
+    p.add_argument(
+        "--require-reduced-cost",
+        action="store_true",
+        default=True,
+        help=(
+            "Require gtopt reduced-cost output (Generator/generation_cost) "
+            "under --output. Recommended source-run flag: "
+            "`gtopt --write-out 'sol,dual,rc:Generator,Line'` — emits only "
+            "the streams this tool consumes. Default: on."
+        ),
+    )
+    p.add_argument(
+        "--no-require-reduced-cost",
+        action="store_false",
+        dest="require_reduced_cost",
+        help=(
+            "Skip the reduced-cost check and fall back to declared_MC from "
+            "the planning JSON. Useful for legacy outputs."
+        ),
+    )
     p.add_argument("-v", "--verbose", action="count", default=0)
     p.add_argument("-q", "--quiet", action="store_true")
     return p
@@ -201,13 +238,19 @@ def _run(args: argparse.Namespace) -> int:
     # 2. Validate (--input-kind, --mode) combination.
     _validate_kind_mode(kind, args.mode)
 
-    # 3. Load Topology + Cells.
+    # 3. Load Topology + Cells (+ LP-dual extras when input is a gtopt run).
+    lp_duals: GtoptLpDuals = GtoptLpDuals.empty()
     if kind == "gtopt-dir":
         if args.planning is None or args.output is None:
             raise InputValidationError(
                 "--input-kind gtopt-dir requires both --planning and --output"
             )
-        topology, cells = read_gtopt(args.planning, args.output)
+        # Fail-fast on missing reduced-cost stems before we melt huge parquets.
+        check_write_out_flags(
+            args.output,
+            require_reduced_cost=args.require_reduced_cost,
+        )
+        topology, cells, lp_duals = read_gtopt(args.planning, args.output)
     else:  # feed-parquet
         from gtopt_marginal_units._feed_reader import read_canonical_feed  # noqa: PLC0415
 
@@ -234,6 +277,7 @@ def _run(args: argparse.Namespace) -> int:
     summary = _process_cells(
         topology=topology,
         cells=cells,
+        lp_duals=lp_duals,
         tol=tol,
         merit_ladder_depth=max(0, int(args.merit_ladder_depth)),
         single_bus=args.single_bus,
@@ -305,6 +349,7 @@ def _process_cells(
     *,
     topology: Topology,
     cells: Cells,
+    lp_duals: GtoptLpDuals,
     tol: Tolerances,
     merit_ladder_depth: int,
     single_bus: bool,
@@ -343,6 +388,19 @@ def _process_cells(
         _group_by_cell(cells.load, "bus_uid", "load") if cells.load is not None else {}
     )
 
+    # Index LP-dual extras. Empty dict iff the parquet was not written
+    # (legacy run or --no-require-reduced-cost path).
+    gen_rc_by_cell = (
+        _group_by_cell(lp_duals.gen_reduced_cost, "gen_uid", COL_GEN_RC)
+        if lp_duals.has_gen_reduced_cost()
+        else {}
+    )
+    gen_srmc_by_cell = (
+        _group_by_cell(lp_duals.gen_srmc, "gen_uid", COL_GEN_SRMC)
+        if lp_duals.has_gen_srmc()
+        else {}
+    )
+
     for _, key_row in cell_keys.iterrows():
         cell_key = tuple(
             key_row[c]
@@ -351,6 +409,8 @@ def _process_cells(
         dispatch_by_uid = dispatch_by_cell.get(cell_key, {})
         lmp_by_bus = lmp_by_cell.get(cell_key, {})
         load_by_bus = load_by_cell.get(cell_key, {})
+        gen_rc_by_uid = gen_rc_by_cell.get(cell_key, {})
+        gen_srmc_by_uid = gen_srmc_by_cell.get(cell_key, {})
 
         # Zone partition.
         if single_bus or not topology.lines:
@@ -369,6 +429,8 @@ def _process_cells(
                 topology=topology,
                 lmp_by_bus=lmp_by_bus,
                 dispatch_by_uid=dispatch_by_uid,
+                gen_rc_by_uid=gen_rc_by_uid,
+                gen_srmc_by_uid=gen_srmc_by_uid,
                 tol=tol,
                 merit_eligible=merit_eligible,
                 demand_fail_cost=demand_fail_cost,
@@ -541,6 +603,8 @@ def _zone_results_from_lp_duals(
     topology,
     lmp_by_bus: dict[int, float],
     dispatch_by_uid: dict[int, float],
+    gen_rc_by_uid: Optional[dict[int, float]] = None,
+    gen_srmc_by_uid: Optional[dict[int, float]] = None,
     tol: Tolerances,
     merit_eligible: dict[int, bool],
     demand_fail_cost: float,
@@ -551,9 +615,26 @@ def _zone_results_from_lp_duals(
     need to (a) bucket buses by λ_b value and (b) find the marginal
     unit(s) at each bucket so the recipe table is consistent.
 
+    When ``gen_rc_by_uid`` is populated (gtopt was run with
+    ``--write-out ...,rc``), the primary basic-vs-bound test is
+    ``|rc| ≤ tol.tol_price`` on a generator with strictly interior
+    dispatch. The reduced-cost test is the LP-textbook definition of
+    "basic at its current value", and is strictly stronger than the
+    legacy ``|declared_MC - λ_z| ≤ tol`` fallback because the latter
+    misses (a) piecewise generators on a non-primary segment,
+    (b) hydro / battery units whose JSON ``gcost`` is zero but whose
+    true MC is the reservoir / battery shadow price.
+
+    When ``gen_srmc_by_uid`` is populated, we still record the
+    per-block SRMC for downstream price-recipe attribution, but the
+    rc-based test does not need it for the basic-vs-bound decision.
+
     Imports lazy to keep the main module's import surface small.
     """
     from gtopt_marginal_units._reconstruct import ZoneR3Result  # noqa: PLC0415
+
+    rc_by_uid: dict[int, float] = gen_rc_by_uid or {}
+    srmc_by_uid: dict[int, float] = gen_srmc_by_uid or {}
 
     # Bucket bus uids by LMP value (within tol_price).
     sorted_buses = sorted(lmp_by_bus.keys())
@@ -572,23 +653,21 @@ def _zone_results_from_lp_duals(
         bus_to_zone[b] = zid
 
     # For each zone, find candidate marginal units: interior gens
-    # at that zone's buses whose MC matches λ_z.
+    # at that zone's buses whose reduced cost ≈ 0 (preferred), or
+    # whose declared_MC matches λ_z (fallback when rc is missing).
     zone_results: dict[int, ZoneR3Result] = {}
     for zid, lam in enumerate(rep_lmps):
         zone_bus_uids = {b for b, z in bus_to_zone.items() if z == zid}
-        candidates = [
-            g
-            for g in topology.generators
-            if g.bus_uid in zone_bus_uids
-            and merit_eligible.get(g.uid, True)
-            and g.declared_MC is not None
-            and (g.pmin + tol.eps)
-            < dispatch_by_uid.get(g.uid, 0.0)
-            < (g.pmax - tol.eps)
-            and abs(float(g.declared_MC) - lam)
-            <= max(tol.tol_price, tol.tol_price * abs(lam))
-        ]
-        candidates.sort(key=lambda g: g.uid)
+        candidates, reason = _select_marginal_candidates(
+            topology=topology,
+            zone_bus_uids=zone_bus_uids,
+            lam=lam,
+            dispatch_by_uid=dispatch_by_uid,
+            rc_by_uid=rc_by_uid,
+            srmc_by_uid=srmc_by_uid,
+            tol=tol,
+            merit_eligible=merit_eligible,
+        )
         if candidates:
             kind = "single_unit" if len(candidates) == 1 else "tied_units"
             zone_results[zid] = ZoneR3Result(
@@ -598,7 +677,7 @@ def _zone_results_from_lp_duals(
                 marginal_gen_uids=[g.uid for g in candidates],
                 confidence=Confidence.LP_DUAL,
                 degenerate=False,
-                reason="interior_match_lp_dual",
+                reason=reason,
                 clamped=False,
             )
         elif abs(lam - demand_fail_cost) <= tol.tol_price:
@@ -626,6 +705,65 @@ def _zone_results_from_lp_duals(
                 clamped=False,
             )
     return bus_to_zone, zone_results
+
+
+def _select_marginal_candidates(
+    *,
+    topology,
+    zone_bus_uids: set[int],
+    lam: float,
+    dispatch_by_uid: dict[int, float],
+    rc_by_uid: dict[int, float],
+    srmc_by_uid: dict[int, float],
+    tol: Tolerances,
+    merit_eligible: dict[int, bool],
+):
+    """Pick the marginal-unit candidates for one zone.
+
+    Priority:
+      1. If reduced costs are available, return interior generators
+         (``pmin + ε < dispatch < pmax − ε``) with ``|rc| ≤ tol.tol_price``.
+         This is the LP-textbook definition of "basic at its current
+         value".  Two reasons it beats the legacy match:
+           - Piecewise generators on a non-primary segment have a
+             ``declared_MC`` from the JSON that does not equal the
+             active-segment slope; the rc test does not care.
+           - Hydro / battery units have JSON ``gcost ≈ 0`` and their
+             true MC is the reservoir / battery shadow price.  Their
+             ``rc`` is still ≈ 0 when they set the price, even though
+             ``declared_MC ≠ lam``.
+      2. If reduced costs are missing, fall back to the legacy
+         ``|declared_MC − lam| ≤ tol_price`` match on interior gens.
+
+    Returns ``(candidates, reason)`` where ``reason`` tags which
+    branch was taken.  Sorted by uid for determinism.
+    """
+    interior = [
+        g
+        for g in topology.generators
+        if g.bus_uid in zone_bus_uids
+        and merit_eligible.get(g.uid, True)
+        and (g.pmin + tol.eps) < dispatch_by_uid.get(g.uid, 0.0) < (g.pmax - tol.eps)
+    ]
+
+    if rc_by_uid:
+        rc_match = [
+            g for g in interior if abs(rc_by_uid.get(g.uid, 0.0)) <= tol.tol_price
+        ]
+        if rc_match:
+            rc_match.sort(key=lambda g: g.uid)
+            return rc_match, "interior_rc_zero_lp_dual"
+
+    # Legacy / fallback: declared_MC match.
+    mc_match = [
+        g
+        for g in interior
+        if g.declared_MC is not None
+        and abs(float(g.declared_MC) - lam)
+        <= max(tol.tol_price, tol.tol_price * abs(lam))
+    ]
+    mc_match.sort(key=lambda g: g.uid)
+    return mc_match, "interior_match_lp_dual"
 
 
 def _per_bus_row(

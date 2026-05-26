@@ -282,4 +282,71 @@ struct AmplMetadataKey
 /// multi-predicate filters without re-reading the element's fields.
 using AmplElementMetadataMap = flat_map<AmplMetadataKey, AmplElementMetadata>;
 
+// ── Class-level parameter dispatch table ────────────────────────────────────
+//
+// Each LP class registers its `param_*` accessors with the simulation once
+// per `(class_name, attribute)` pair.  The resolver in
+// `element_column_resolver.cpp::resolve_single_param` becomes a single map
+// lookup followed by a function-pointer call — no per-class if/else chain
+// and no string compares beyond the registry probe.
+//
+// Function pointers (not `std::function`) are used because:
+//   * Every registered resolver is a stateless free function (a thin
+//     `sc.get_element(...).param_X(s, b)` shim).
+//   * The dispatch is on the hot LP-build path; we want a single indirect
+//     call, not a `std::function` heap allocation + virtual-style call.
+//   * The set of registrations is fixed at `register_all_ampl_element_names`
+//     time and read-only thereafter — safe to share lock-free.
+
+class SystemContext;  // forward
+
+/// Resolver signature for a class+attribute parameter.  Returns the
+/// physical (scaled) value of the parameter at this (stage, block), or
+/// `nullopt` when the schedule has no entry.  Element type is fixed by
+/// the registration; the function knows internally which `*LP` class to
+/// look up via `SystemContext::get_element`.
+using AmplParamFn = std::optional<double> (*)(const SystemContext& sc,
+                                              Uid element_uid,
+                                              StageUid stage_uid,
+                                              BlockUid block_uid);
+
+/// Key: (class_name, attribute) — same dispatcher serves every element
+/// of the class.  Element identity is supplied at call time via the
+/// `element_uid` argument to the function pointer.
+struct AmplParamKey
+{
+  std::string_view class_name;  ///< e.g. "generator", "line"
+  std::string_view attribute;  ///< e.g. "pmax", "tcost"
+
+  [[nodiscard]] friend auto operator<=>(const AmplParamKey&,
+                                        const AmplParamKey&) noexcept = default;
+};
+
+/// Parameter dispatch table: (class, attribute) -> resolver.
+using AmplParamMap = flat_map<AmplParamKey, AmplParamFn>;
+
+// ── Class-level iterator dispatch table ─────────────────────────────────────
+//
+// `collect_sum_cols` needs to enumerate every element of a class for the
+// `sum(class(all)...)` syntactic form.  Each LP class registers an
+// iterator that walks its `Collection<T>` and yields one `Uid` per
+// element.  The resolver then applies metadata-predicate filters and
+// stamps the row.
+
+/// Captureless callback: forwarded the `state` pointer the iterator was
+/// invoked with.  Used by `AmplIterFn` so that the iterator's signature
+/// stays a plain function pointer (no `std::function`, no template).
+using AmplIterCallback = void (*)(void* state, Uid uid);
+
+/// Iterator signature: walk every element of the registered class and
+/// call `cb(state, uid)` per element.  Filtering by `SumPredicate` is
+/// the caller's responsibility — the iterator emits unfiltered uids so
+/// the registry stays decoupled from `constraint_expr.hpp`.
+using AmplIterFn = void (*)(const SystemContext& sc,
+                            void* state,
+                            AmplIterCallback cb);
+
+/// Iterator dispatch table: class_name -> iterator.
+using AmplIterMap = flat_map<std::string_view, AmplIterFn>;
+
 }  // namespace gtopt

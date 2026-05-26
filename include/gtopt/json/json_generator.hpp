@@ -2,6 +2,8 @@
 
 #include <daw/json/daw_json_link.h>
 #include <gtopt/generator.hpp>
+#include <gtopt/json/json_emission_capture.hpp>
+#include <gtopt/json/json_emission_source.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
 
@@ -16,10 +18,14 @@ struct json_data_contract<GeneratorAttrs>
       json_variant<"bus", SingleId>,
       json_variant_null<"pmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"pmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"lossfactor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"gcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
-      json_variant_null<"heat_rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"heat_rate",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_array_null<"pmax_segments", Array<Real>, json_number_no_name<Real>>,
       json_array_null<"heat_rate_segments",
                       Array<Real>,
@@ -71,10 +77,14 @@ struct json_data_contract<Generator>
       json_variant<"bus", SingleId>,
       json_variant_null<"pmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"pmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"lossfactor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"gcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
-      json_variant_null<"heat_rate", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"heat_rate",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_array_null<"pmax_segments", Array<Real>, json_number_no_name<Real>>,
       json_array_null<"heat_rate_segments",
                       Array<Real>,
@@ -90,9 +100,13 @@ struct json_data_contract<Generator>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
-      json_variant_null<"emission_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+      json_variant_null<"emission_rate",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_array_null<"emissions", Array<EmissionSource>, EmissionSource>,
+      json_array_null<"emission_captures",
+                      Array<EmissionCapture>,
+                      EmissionCapture>>;
 
   constexpr static auto to_json_data(Generator const& generator)
   {
@@ -117,7 +131,9 @@ struct json_data_contract<Generator>
                                  generator.annual_capcost,
                                  generator.annual_derating,
                                  generator.integer_expmod,
-                                 generator.emission_factor);
+                                 generator.emission_rate,
+                                 generator.emissions,
+                                 generator.emission_captures);
   }
 };
 

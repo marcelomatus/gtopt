@@ -261,7 +261,7 @@ def test_happy_path_explicit_list(tmp_path: Path):
     assert ra["emin"] == 0.0
     assert ra["emax"] == 1.25
     assert ra["capacity"] == 1.25
-    assert ra["annual_loss"] == 0.0
+    assert "annual_loss" not in ra  # zero, intentionally omitted
     assert ra["daily_cycle"] is True
 
     rb = _find_ror(system, "CentB")
@@ -421,10 +421,17 @@ def test_ror_promotion_no_bypass_when_plp_spillway_exists(tmp_path: Path):
     When the PLP case already has a spillway waterway, the reservoir has
     two outlets from its upper junction (gen + ver), so no bypass is
     needed and no extra drain flag is added by the RoR promotion.
+
+    A non-zero ``vert_max`` is required for the spillway arc to survive
+    plp2gtopt's dead-zero suppression — ``vert_max = 0`` (the default
+    from ``_make_serie``) means PLP "no spill allowed", and the
+    resulting fmin = fmax = 0 LP column is dropped at emission time
+    because solver presolve would collapse it anyway.
     """
     csv = _write_csv(tmp_path, ["CentA,1.5"])
     cent = _make_serie("CentA", 1)
     cent["ser_ver"] = 2  # points at a downstream sink
+    cent["vert_max"] = 1000.0  # real spillway capacity
     sink = _make_serie("Sink", 2)
     system = _run(
         [cent, sink],

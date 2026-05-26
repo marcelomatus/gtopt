@@ -98,20 +98,10 @@ class ManemWriter(BaseWriter):
         cols["emin"] = df_emin.columns.tolist() if not df_emin.empty else []
         cols["emax"] = df_emax.columns.tolist() if not df_emax.empty else []
 
-        try:
-            # Ensure output directory exists
-            output_dir.mkdir(parents=True, exist_ok=True)
-            if not df_emin.empty:
-                self.write_dataframe(df_emin, output_dir, "emin")
-            if not df_emax.empty:
-                self.write_dataframe(df_emax, output_dir, "emax")
-        except Exception as e:
-            raise IOError(f"Failed to write Parquet files: {str(e)}") from e
-        finally:
-            # Explicitly clear and delete DataFrames
-            if "df_emin" in locals():
-                del df_emin
-            if "df_emax" in locals():
-                del df_emax
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if not df_emin.empty:
+            self.write_dataframe(df_emin, output_dir, "emin")
+        if not df_emax.empty:
+            self.write_dataframe(df_emax, output_dir, "emax")
 
         return cols

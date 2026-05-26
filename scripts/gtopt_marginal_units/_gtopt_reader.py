@@ -41,6 +41,10 @@ from gtopt_canonical_feed.cells import (
     COL_STAGE,
 )
 from gtopt_check_output._reader import load_planning, read_table
+from gtopt_marginal_units._lp_duals import (
+    GtoptLpDuals,
+    load_gtopt_lp_duals,
+)
 from gtopt_marginal_units.errors import (
     ExpansionNotSupportedError,
     InputValidationError,
@@ -114,7 +118,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=float(g.get("pmax", g.get("capacity", 0.0))),
                 declared_MC=declared_mc,
                 kind=kind,
-                emission_factor=_opt_float(g.get("emission_factor")),
+                emission_rate=_opt_float(g.get("emission_rate")),
             )
         )
 
@@ -130,7 +134,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=g.pmax,
                 declared_MC=g.declared_MC,
                 kind="profile" if g.uid in profile_uids else g.kind,
-                emission_factor=g.emission_factor,
+                emission_rate=g.emission_rate,
             )
             for g in generators
         ]
@@ -147,7 +151,7 @@ def topology_from_planning(planning: dict) -> Topology:
                 pmax=g.pmax,
                 declared_MC=g.declared_MC,
                 kind="battery" if g.uid in battery_uids else g.kind,
-                emission_factor=g.emission_factor,
+                emission_rate=g.emission_rate,
             )
             for g in generators
         ]
@@ -233,8 +237,16 @@ def _wide_to_long(
     uid_col: str,
     value_col: str,
 ) -> pd.DataFrame | None:
-    """Melt a (scenario, stage, block, uid:1, uid:2, …) gtopt frame
-    into long form (cell-key cols + uid_col + value_col).
+    """Melt a gtopt output frame into the canonical long form
+    (cell-key cols + uid_col + value_col).
+
+    Accepts both gtopt output layouts:
+
+    * ``output_layout=wide`` (legacy): one ``uid:N`` column per element;
+      we melt and split the column name to recover the uid.
+    * ``output_layout=long`` (default since 2026-05-19): the frame is
+      already long — we just rename ``uid``/``value`` to the caller's
+      names.
 
     Returns None if ``wide`` is None or empty.
     """
@@ -242,17 +254,25 @@ def _wide_to_long(
         return None
 
     key_cols = [c for c in ("scenario", "stage", "block") if c in wide.columns]
-    uid_cols = [c for c in wide.columns if c.startswith("uid:")]
-    if not uid_cols:
-        return None
 
-    melted = wide.melt(
-        id_vars=key_cols,
-        value_vars=uid_cols,
-        var_name=uid_col,
-        value_name=value_col,
-    )
-    melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
+    # Long-form sniff (matches the C++ writer in output_context.cpp).
+    if "uid" in wide.columns and "value" in wide.columns:
+        melted = wide[key_cols + ["uid", "value"]].rename(
+            columns={"uid": uid_col, "value": value_col}
+        )
+        melted[uid_col] = melted[uid_col].astype(int)
+    else:
+        uid_cols = [c for c in wide.columns if c.startswith("uid:")]
+        if not uid_cols:
+            return None
+
+        melted = wide.melt(
+            id_vars=key_cols,
+            value_vars=uid_cols,
+            var_name=uid_col,
+            value_name=value_col,
+        )
+        melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
     # Map gtopt's (scenario, stage, block) into the canonical cell key,
     # leaving (date_utc, hour) NA and tagging data_source="simulated".
     out = pd.DataFrame()
@@ -272,11 +292,19 @@ def _wide_to_long(
 # ---------------------------------------------------------------------------
 
 
-def read_gtopt(planning_path: Path, output_dir: Path) -> tuple[Topology, Cells]:
-    """Read a gtopt planning JSON + its output directory; return
-    the canonical Topology + Cells. Used by main.py when
-    ``--input-kind gtopt-dir``."""
+def read_gtopt(
+    planning_path: Path, output_dir: Path
+) -> tuple[Topology, Cells, GtoptLpDuals]:
+    """Read a gtopt planning JSON + its output directory.
+
+    Returns ``(Topology, Cells, GtoptLpDuals)``. The third element is
+    optional in the sense that every field on it may be ``None`` when
+    gtopt was run without the corresponding ``--write-out`` flag; the
+    fast-fail check lives in :func:`_lp_duals.check_write_out_flags`,
+    not here.
+    """
     planning = load_planning(Path(planning_path))
     topology = topology_from_planning(planning)
     cells = cells_from_gtopt_output(Path(output_dir))
-    return topology, cells
+    lp_duals = load_gtopt_lp_duals(Path(output_dir))
+    return topology, cells, lp_duals

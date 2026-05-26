@@ -778,6 +778,211 @@ TEST_CASE(
   CHECK(f3.value().get() == 3);
 }
 
+// ─── Measured-memory dispatch controller (no fixed per-task estimates) ───────
+
+TEST_CASE("WorkPoolConfig max_threads_ceiling default is 0")  // NOLINT
+{
+  const WorkPoolConfig cfg;
+  CHECK(cfg.max_threads_ceiling == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "Measured gate never deadlocks when limit is below the resident floor")
+{
+  // CRITICAL safety contract.  Set the process-RSS limit to 1 MB — far
+  // below the live RSS of the test process (tens of MB).  The measured gate
+  // projects `rss + measured_per_task`, which trivially exceeds 1 MB, so a
+  // naive gate would block EVERY dispatch and wedge the pool forever (no
+  // running task can free memory to reopen the gate).
+  //
+  // The gate's "always admit one task when nothing is in flight" rule
+  // guarantees forward progress: tasks run strictly serially but ALL of
+  // them complete.  We assert completion within a generous timeout rather
+  // than calling .get() unguarded so a regression surfaces as a failed
+  // CHECK instead of a hung test binary.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent (relaxed so only the RSS gate is in play)
+      1.0,  // max_process_rss_mb — absurdly low, below live RSS
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "RssDeadlockPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+      4,  // max_threads_ceiling
+  });
+  pool.start();
+
+  constexpr int kNumTasks = 6;
+  std::atomic<int> ran {0};
+  std::vector<std::future<int>> futures;
+  futures.reserve(kNumTasks);
+  for (int i = 0; i < kNumTasks; ++i) {
+    auto f = pool.submit(
+        [&ran, i]
+        {
+          ran.fetch_add(1, std::memory_order_relaxed);
+          return i;
+        });
+    REQUIRE(f.has_value());
+    futures.push_back(std::move(f.value()));
+  }
+
+  // Every task must complete despite the 1 MB limit — proves no deadlock.
+  for (auto& f : futures) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  CHECK(ran.load() == kNumTasks);
+}
+
+TEST_CASE(  // NOLINT
+    "System-memory-percent gate never deadlocks (idle-progress guarantee)")
+{
+  // Regression guard for the livelock that hung the box on the 2-year
+  // simulation pass: with `max_memory_percent` set impossibly low (0%),
+  // the system-memory gate `mem_pct >= threshold` is ALWAYS true, so a
+  // gate without the idle-progress guarantee would refuse every task
+  // forever (observed as "18 pending, 0 active, no progress for 88
+  // intervals", mem% 92% >= 90%).  The universal "admit one when
+  // active == 0" rule must let tasks drain strictly serially instead.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      99.0,  // max_cpu_threshold
+      0.0,  // min_free_memory_mb (disabled)
+      0.0,  // max_memory_percent — impossibly low: mem% always over
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "MemPctDeadlockPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+      4,  // max_threads_ceiling
+  });
+  pool.start();
+
+  constexpr int kNumTasks = 6;
+  std::atomic<int> ran {0};
+  std::vector<std::future<void>> futures;
+  futures.reserve(kNumTasks);
+  for (int i = 0; i < kNumTasks; ++i) {
+    auto f =
+        pool.submit([&ran] { ran.fetch_add(1, std::memory_order_relaxed); });
+    REQUIRE(f.has_value());
+    futures.push_back(std::move(f.value()));
+  }
+  for (auto& f : futures) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  CHECK(ran.load() == kNumTasks);
+}
+
+TEST_CASE(  // NOLINT
+    "Measured gate with limit disabled (0) admits work at full ceiling")
+{
+  // max_process_rss_mb == 0 disables the controller entirely: the pool runs
+  // at its full thread count immediately — the "no behavior change" contract.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "RssDisabledPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      0,  // max_threads_ceiling (unset → equals max_threads)
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 4);
+
+  auto f1 = pool.submit([] { return 1; });
+  auto f2 = pool.submit([] { return 2; });
+  auto f3 = pool.submit([] { return 3; });
+  REQUIRE(f1.has_value());
+  REQUIRE(f2.has_value());
+  REQUIRE(f3.has_value());
+  CHECK(f1.value().get() == 1);
+  CHECK(f2.value().get() == 2);
+  CHECK(f3.value().get() == 3);
+}
+
+// ─── max_threads runtime growth toward the CPU ceiling ───────────────────────
+
+TEST_CASE(  // NOLINT
+    "WorkPool: ceiling unset (0) means max_threads never grows")
+{
+  // Back-compat contract: with no ceiling configured, the effective
+  // ceiling equals max_threads, so growth is disabled.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "NoGrowPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      0,  // max_threads_ceiling (unset → equals max_threads)
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 2);
+  CHECK(pool.max_threads_ceiling() == 2);
+
+  std::vector<std::future<int>> fs;
+  for (int i = 0; i < 6; ++i) {
+    auto f = pool.submit([] { return 0; });
+    REQUIRE(f.has_value());
+    fs.push_back(std::move(f.value()));
+  }
+  for (auto& f : fs) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  // Never grows past the initial value.
+  CHECK(pool.max_threads() == 2);
+}
+
+TEST_CASE(  // NOLINT
+    "WorkPool: no RSS limit grows straight to ceiling")
+{
+  // With max_process_rss_mb == 0 there is no memory constraint, so the pool
+  // grows max_threads straight to the ceiling.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      1,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "GrowNoLimitPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      3,  // max_threads_ceiling
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 1);
+
+  std::vector<std::future<int>> fs;
+  for (int i = 0; i < 6; ++i) {
+    auto f = pool.submit([] { return 0; });
+    REQUIRE(f.has_value());
+    fs.push_back(std::move(f.value()));
+  }
+  for (auto& f : fs) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  for (int i = 0; i < 200 && pool.max_threads() < 3; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  CHECK(pool.max_threads() == 3);
+}
+
 // ─── SlotReleaseGuard ─────────────────────────────────────────────────────
 //
 // Pin the contract for the in-task blocking guard: while a guard is alive

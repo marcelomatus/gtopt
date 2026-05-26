@@ -210,7 +210,12 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   for (const auto& [buid, row] : frows) {
     // Anchor on efin only — see add_to_lp() above for rationale.
     li.set_coeff(row, state.efin_col, -new_slope);
-    li.set_rhs(row, new_rhs);
+    // Equality row (constructed with ``.equal(effective_rhs)`` above).
+    // Use the explicit ``set_row_equal_to`` form; the legacy
+    // ``set_rhs`` API was removed because the same call on a
+    // ``<=`` row silently force-equality'd it (the RALCO discharge-
+    // limit regression in commit 488555548).
+    li.set_row_equal_to(row, new_rhs);
     ++total;
   }
 

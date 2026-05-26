@@ -119,6 +119,11 @@ from typing import Any
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Synthetic fuel name used to anchor piecewise heat-rate segments emitted
+# on Generator after the 16fbdde45 Commitment refactor.  Set Fuel.price=1
+# so heat_rate_segments[k] × 1.0 acts as the direct $/MWh slope cost.
+_UCJL_UNIT_FUEL_NAME = "_ucjl_unit"
+
 
 def _first_hour(value):
     """Reduce a UC.jl piecewise breakpoint to a scalar.
@@ -154,7 +159,7 @@ def _time_series(value, T):
 
 
 def _compute_pieces(curve_mw, curve_cost):
-    """Compute ``pmin, pmax, gcost, (pmax_segments, heat_rate_segments)``.
+    """Compute ``pmin, pmax, gcost, noload, pmax_segments, heat_rate_segments``.
 
     UC.jl piecewise breakpoints are scalar lists; v0.3 profiled gens wrap
     each breakpoint in a time series.  We collapse to hour 0 for the
@@ -165,6 +170,14 @@ def _compute_pieces(curve_mw, curve_cost):
     Returned ``gcost`` is the cost slope between the first and second
     breakpoint — gtopt's per-unit gcost is overridden by the per-segment
     heat-rate cost when both segment arrays are present.
+
+    Returned ``noload`` is the cost-curve intercept ``cost[0]``, the
+    cost UC.jl charges for being committed at ``pmin``.  Sent to gtopt
+    as ``Commitment.noload_cost`` so dispatching at pmin charges
+    ``cost[0]`` exactly, matching UC.jl's piecewise convention
+    ``f(p) = c_pmin + Σ_k h_k δ_k``.  Without this, gtopt's LP under-
+    prices thermals at high dispatch and case14/congested's g1 becomes
+    uneconomic, forcing ~150 MW of curtailment UC.jl never pays.
     """
     mw = [_first_hour(p) for p in curve_mw] if curve_mw else [0.0, 100.0]
     cost = [_first_hour(p) for p in curve_cost] if curve_cost else [0.0, 1000.0]
@@ -180,6 +193,34 @@ def _compute_pieces(curve_mw, curve_cost):
     else:
         slope0 = 0.0
 
+    # Noload offset for gtopt's ``gcost × p + noload × u`` formulation.
+    #
+    # UC.jl encodes the dispatch curve as ``f(p) = cost[0] + Σ_k h_k δ_k``
+    # where ``δ_k`` is the share of ``p`` in segment ``k`` and ``cost[0]``
+    # is the total cost paid at ``p = pmin`` (committed).  In gtopt the
+    # LP applies ``gcost × p`` to the full dispatch (including the
+    # 0..pmin range that UC.jl doesn't bill — it's covered by
+    # ``cost[0]``).  Setting ``noload = cost[0]`` directly therefore
+    # double-counts ``slope0 × pmin`` per committed (gen, block):
+    #
+    #     gtopt @ p = pmin, u = 1  →  slope0 × pmin + cost[0]
+    #     UC.jl @ p = pmin         →  cost[0]
+    #
+    # On case14/base this added ~$2000 per committed thermal per block;
+    # the four-block MIP obj drifted ~$12K from UC.jl's -$369 876
+    # golden, breaking the cross-check.
+    #
+    # Subtract the over-counted region so gtopt's LP cost at any
+    # ``p ≥ pmin`` matches UC.jl's curve to the cent:
+    #
+    #     noload = cost[0] - slope0 × pmin
+    #
+    # For ``pmin = 0`` gens (e.g. UC.jl's ``g2``: mw[0] = 0, cost[0] =
+    # 0) this collapses to the legacy ``noload = cost[0]`` so the
+    # case14/congested fix that motivated the original ``noload = cost[0]``
+    # workaround (under-pricing thermals at high dispatch) is preserved.
+    noload = float(cost[0]) - slope0 * pmin if cost else 0.0
+
     pmax_segments = []
     heat_rate_segments = []
     if len(mw) >= 3 and pmax > pmin:
@@ -194,7 +235,28 @@ def _compute_pieces(curve_mw, curve_cost):
             pmax_segments.append(round(float(mw[k]), 6))
             heat_rate_segments.append(round((cost[k] - cost[k - 1]) / dp, 6))
 
-    return pmin, pmax, slope0, pmax_segments, heat_rate_segments
+        # gtopt requires *strictly* increasing heat rates so the LP cost
+        # is convex.  UC.jl case118 ships generators whose piecewise
+        # curves have two consecutive segments with the same slope
+        # (e.g. g5_uc: heat_rate_segments[2] == heat_rate_segments[3] ==
+        # 192.698545).  Adjacent segments with equal slopes are
+        # mathematically redundant — they describe a single longer
+        # linear interval.  Merge them by keeping the LATER breakpoint
+        # (and dropping the earlier duplicate-slope entry).
+        if len(heat_rate_segments) >= 2:
+            merged_p: list[float] = [pmax_segments[0]]
+            merged_h: list[float] = [heat_rate_segments[0]]
+            for p, h in zip(pmax_segments[1:], heat_rate_segments[1:]):
+                if h == merged_h[-1]:
+                    # Same slope — extend the previous segment to this
+                    # breakpoint.
+                    merged_p[-1] = p
+                else:
+                    merged_p.append(p)
+                    merged_h.append(h)
+            pmax_segments, heat_rate_segments = merged_p, merged_h
+
+    return pmin, pmax, slope0, noload, pmax_segments, heat_rate_segments
 
 
 def _initial_status_to_uc(initial_status_h):
@@ -433,22 +495,23 @@ def _gen_bounds(gdata):
             gdata.get("Production cost curve (MW)", [0, 100]),
             gdata.get("Production cost curve ($)", [0, 1000]),
         )
-    # TEP / Profiled flat-cost schema.  ``Minimum power (MW)`` is
-    # forced to 0: the gtopt invariant is "pmin lives on Commitment,
-    # not on Generator" — ``CommitmentLP::add_to_lp`` reads
-    # ``gen_pmin = lp.get_col_lowb(gcol)`` and then resets
-    # ``gcol.lowb = 0`` (source/commitment_lp.cpp:347-352), migrating
-    # the floor onto a C2 row gated by the binary status ``u`` so it
-    # only binds when the unit is committed.  Profiled / renewable
-    # generators have NO Commitment in our converter, so emitting
-    # ``Generator.pmin > 0`` would leave the static col lower bound
-    # in place and force dispatch ≥ pmin every block regardless of
-    # whether the unit is "running" — that's the wrong semantics for
-    # renewable curtailment (and breaks TEP candidate units where
-    # ``capainst = 0`` forces dispatch = 0 when not built).
+    # TEP / Profiled flat-cost schema.  UC.jl's ``Minimum power (MW)``
+    # for ``Type = "Profiled"`` is a HARD must-run floor (no on/off
+    # commitment to gate it), so we preserve it as the Generator's
+    # static column lower bound.  Profiled gens emit NO Commitment in
+    # our converter, which means ``CommitmentLP::add_to_lp``'s pmin
+    # migration to a u-gated C2 row never fires for them — the static
+    # ``lowb`` stays in place and forces dispatch ≥ pmin every block,
+    # matching UC.jl semantics.
+    #
+    # TEP candidate units (``Investment cost ($) > 0``) need pmin = 0
+    # because ``capainst = 0`` forces dispatch = 0 when not built;
+    # the caller clamps that separately (see ``is_candidate`` branch).
     pmax = float(gdata.get("Maximum power (MW)", 0.0))
+    pmin = float(gdata.get("Minimum power (MW)", 0.0))
     gcost = float(gdata.get("Cost ($/MW)", 0.0))
-    return 0.0, pmax, gcost, [], []
+    # Flat-cost gens (TEP / Profiled): no piecewise → no intercept.
+    return pmin, pmax, gcost, 0.0, [], []
 
 
 # ---------------------------------------------------------------------------
@@ -662,10 +725,16 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     commitment_array = []
     reserve_provision_array = []
     generator_profile_array = []
+    fuel_array: list[dict] = []
     gen_uid = 0
     commitment_uid = 0
     provision_uid = 0
     profile_uid = 0
+    # Shared synthetic Fuel for piecewise-cost gens. UC.jl's cost-curve
+    # slopes are already in $/MWh, so we link a Fuel with `price = 1.0`
+    # and let `generator_lp.cpp` multiply `heat_rate_segments[k] × 1.0`
+    # to recover the direct slope cost.
+    _ucjl_fuel_emitted = False
 
     for gname, gdata in uc_gens.items():
         bus_name = gdata.get("Bus")
@@ -674,7 +743,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         bus_uid = name_to_uid[bus_name]
         gtype = str(gdata.get("Type", "Thermal")).lower()
 
-        pmin, pmax, gcost, pmax_segs, hr_segs = _gen_bounds(gdata)
+        pmin, pmax, gcost, noload, pmax_segs, hr_segs = _gen_bounds(gdata)
         invest_cost = gdata.get("Investment cost ($)")
         is_candidate = invest_cost is not None and float(invest_cost) > 0.0
         # Candidate gens are FORCED to pmin=0: when expmod = 0 the LP
@@ -709,11 +778,40 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 pmax_segs, hr_segs = [], []
 
         gen_uid += 1
+        # UC.jl's ``Production cost curve (MW)[0]`` (which we feed
+        # into ``pmin``) is the WHEN-COMMITTED floor: dispatch is
+        # required to be ≥ pmin only when the unit is committed (u =
+        # 1).  Since the ``refactor(commitment): separate dispatch-
+        # cost concerns + DecisionVariable`` (commit 16fbdde45) split
+        # the field into two:
+        #
+        #   * ``Generator.pmin``  = always-on floor (column lower bound)
+        #   * ``Commitment.pmin`` = when-committed floor (row gated by u)
+        #
+        # we must emit the UC.jl pmin onto the COMMITMENT entry, not
+        # the Generator entry.  Otherwise the generator column gets
+        # ``lowb = pmin > 0`` and forces dispatch even when the unit
+        # is uncommitted — which is exactly the regression that broke
+        # 22 of the UC.jl golden cross-checks (e.g. ``GenX`` pmin =
+        # 100 became a hard always-on floor instead of a soft commit-
+        # gated floor; the MIP then over-commits to satisfy the
+        # always-on constraint and the dispatch cost balloons).
+        #
+        # Profiled (renewable) and candidate (TEP, expmod ≥ 0) gens
+        # carry no Commitment, so for them the UC.jl pmin stays on
+        # Generator (where the LP treats it as a true always-on
+        # floor — matching UC.jl's renewable / candidate semantics).
+        commitment_pmin = 0.0
+        emit_gen_pmin = pmin
+        if gtype == "thermal" and not is_candidate and profile_ts is None:
+            commitment_pmin = pmin
+            emit_gen_pmin = 0.0
+
         gen_entry = {
             "uid": gen_uid,
             "name": gname,
             "bus": bus_uid,
-            "pmin": round(pmin, 6),
+            "pmin": round(emit_gen_pmin, 6),
             "pmax": round(pmax, 6),
             "gcost": round(gcost, 6),
             "capacity": round(pmax, 6),
@@ -773,6 +871,13 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "generator": gname,
             "relax": bool(relax_commitment),
         }
+        # ``Commitment.pmin`` carries UC.jl's when-committed floor.
+        # See the ``commitment_pmin`` derivation above for why this
+        # field belongs on Commitment, not Generator.  Only emit
+        # when non-zero (keeps the JSON tidy and matches the legacy
+        # output for gens with ``Production cost curve (MW)[0] = 0``).
+        if commitment_pmin > 0.0:
+            c_entry["pmin"] = round(commitment_pmin, 6)
 
         # Map optional UC.jl fields → Commitment fields.
         for ucjl_key, gtopt_key in (
@@ -820,18 +925,38 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 # — broadcast convention used by UC.jl's reader.
                 pad_value = trimmed[-1] if trimmed else None
                 trimmed += [pad_value] * (T - len(trimmed))
-            has_null = any(v is None for v in trimmed)
-            if not has_null:
-                mapped = [1.0 if v is True else 0.0 for v in trimmed]
-                c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
-            # else: drop fixed_status — partial pinning is intentionally
-            # lost (see comment above).  LP runs with u free on every block.
+            # UC.jl uses Python ``bool`` (true / false) in modern
+            # fixtures (case14/fixed.json) but plain ``int`` 1 / 0 in
+            # older ones (issue-0057.json, schema v0.3).  Map both:
+            # truthy → 1.0, falsy non-null → 0.0.  ``null`` (no-pin)
+            # cells emit ``-1.0`` — gtopt's ``commitment_lp.cpp:263``
+            # treats any value outside ``[0, 1]`` as the no-pin
+            # sentinel, leaving ``u`` free on that (stage, block).
+            mapped: list[float] = []
+            for v in trimmed:
+                if v is None:
+                    mapped.append(-1.0)
+                else:
+                    mapped.append(1.0 if bool(v) else 0.0)
+            c_entry["fixed_status"] = [mapped]  # outer dim = 1 stage
 
         # Initial status (h): +N online, -N offline.
         init_u, init_h = _initial_status_to_uc(gdata.get("Initial status (h)"))
         if init_u is not None:
             c_entry["initial_status"] = init_u
             c_entry["initial_hours"] = init_h
+
+        # Initial power (MW): the gen's dispatch at t = -1.  Needed by
+        # gtopt's first-block ramp-up / ramp-down rows so they enforce
+        # ``p[0] - initial_power ≤ RU·u_init + SU·(1 - u_init)`` rather
+        # than the looser ``p[0] ≤ RU·u_init + SU·(1 - u_init)``.
+        # Without this, hot-start gens with ``pmin > ramp_up`` (e.g.
+        # RTS-GMLC ``216_STEAM_1``: pmin = 62, ramp_up = 60,
+        # ``Initial power (MW) = 62``) make the first-block LP
+        # infeasible (pmin floor 62 clashes with ramp cap 60).
+        init_p = gdata.get("Initial power (MW)")
+        if init_p is not None:
+            c_entry["initial_power"] = float(init_p)
 
         # Startup costs: scalar single tier or tiered hot/warm/cold.
         startup_costs = gdata.get("Startup costs ($)") or []
@@ -852,9 +977,42 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             c_entry["startup_cost"] = float(startup_costs[0])
 
         # Piecewise heat-rate segmentation (when >=3 breakpoints).
+        # After the 16fbdde45 Commitment refactor, piecewise cost segments
+        # live on **Generator** (not Commitment). gtopt's piecewise cost
+        # path (`generator_lp.cpp`) requires a fuel reference so the per-
+        # segment slope is multiplied by `Fuel.price`; we wire a shared
+        # `_ucjl_unit` Fuel with `price = 1.0` so the per-segment slopes
+        # carried in `heat_rate_segments` act as direct $/MWh costs.
+        # `noload_cost` stays on Commitment — it carries the cost-curve
+        # intercept paid only when the unit is committed and dispatching
+        # at pmin, matching ``f(p) = c_pmin + Σ h_k δ_k``.
         if pmax_segs and hr_segs:
-            c_entry["pmax_segments"] = pmax_segs
-            c_entry["heat_rate_segments"] = hr_segs
+            gen_entry["pmax_segments"] = pmax_segs
+            gen_entry["heat_rate_segments"] = hr_segs
+            gen_entry["fuel"] = _UCJL_UNIT_FUEL_NAME
+            gen_entry["gcost"] = 0  # segments carry the slope cost
+            if not _ucjl_fuel_emitted:
+                fuel_array.append(
+                    {
+                        "uid": 1,
+                        "name": _UCJL_UNIT_FUEL_NAME,
+                        "price": 1.0,
+                    }
+                )
+                _ucjl_fuel_emitted = True
+            # ``noload`` is now the corrected value
+            # ``cost[0] - slope0 × pmin`` (see ``_compute_pieces``), so
+            # it can be NEGATIVE on hot-start gens where the over-counted
+            # ``slope0 × pmin`` term exceeds ``cost[0]`` (e.g. case14/g1:
+            # cost[0]=1400, slope0=20, pmin=100 → noload=-600).  The
+            # negative coefficient on ``u`` is exactly the credit that
+            # cancels the ``gcost × p`` over-charge on the
+            # 0..pmin range when the gen is committed.  Emit on any
+            # non-zero value (the LP-cost contribution is signed
+            # already; suppressing negatives broke ``test_real_case14_*``
+            # by leaving gtopt with the over-charge but no credit).
+            if noload != 0.0:
+                c_entry["noload_cost"] = round(noload, 6)
 
         commitment_array.append(c_entry)
 
@@ -906,19 +1064,26 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
     # values) round-trip naturally — gtopt's ``OptTRealFieldSched`` /
     # ``OptTBRealFieldSched`` accept both scalar and list shapes.
     #
-    # Dropped (silently) — no native gtopt mapping:
-    #   * ``Minimum charge rate (MW)`` / ``Minimum discharge rate (MW)`` —
-    #     gtopt's pmax_charge / pmax_discharge are upper bounds only.
-    #   * ``Allow simultaneous charging and discharging`` — gtopt's
-    #     formulation disallows simultaneous flows by construction.
+    # Per-block hourly inputs honored end-to-end:
+    #   * ``Discharge cost ($/MW)`` → ``Battery.discharge_cost`` (TB)
+    #   * ``Charge cost ($/MW)``    → ``Battery.charge_cost`` (TB)
+    #   * ``Maximum charge rate (MW)``     → ``Battery.pmax_charge`` (TB)
+    #   * ``Maximum discharge rate (MW)``  → ``Battery.pmax_discharge`` (TB)
+    #   * ``Minimum charge rate (MW)``     → ``Battery.pmin_charge`` (TB)
+    #     — HARD floor on synthetic charge ``Demand.lmin``.
+    #   * ``Minimum discharge rate (MW)``  → ``Battery.pmin_discharge`` (TB)
+    #     — HARD floor on synthetic discharge ``Generator.pmin``.
+    #   * ``Charge/Discharge efficiency``  → ``Battery.input/output_efficiency``
     #
-    # Per-block hourly inputs now honored end-to-end (PR-A, 2026-05-18):
-    #   * ``Discharge cost ($/MW)`` → ``Battery.gcost`` (TB)
-    #   * ``Charge cost ($/MW)`` → ``Battery.charge_cost`` (TB)
-    # The remaining per-block fields (``Maximum charge rate (MW)``,
-    # ``Maximum discharge rate (MW)``, ``Charge/Discharge efficiency``)
-    # are still collapsed to first-hour because gtopt's underlying
-    # fields stay per-stage in this PR.
+    # Dropped (silently) — no native gtopt mapping needed:
+    #   * ``Allow simultaneous charging and discharging`` — gtopt's
+    #     synthetic charge Demand and discharge Generator are
+    #     independent LP elements (linked only through the SoC row
+    #     in the Converter+Battery pair), so simultaneous charge +
+    #     discharge is allowed by construction.  UC.jl's flag
+    #     forbids it via a binary; we ignore the flag (the LP almost
+    #     always chooses one direction at optimum because both legs
+    #     pay positive costs in the cost-minimisation objective).
     uc_storage = data.get("Storage units", {}) or {}
     battery_array = []
     bat_uid = 0
@@ -996,21 +1161,40 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 # (round-trips identically to the legacy emission).
                 b_entry[gtopt_key] = float(base)
 
-        # Remaining per-stage scalar fields — gtopt's Battery still
-        # exposes these as ``OptTRealFieldSched`` (per-stage), so per-
-        # block UC.jl lists collapse to the first-hour scalar.
+        # Charge/discharge rate envelopes — gtopt's Battery exposes
+        # all four as ``OptTBRealFieldSched`` (per-(stage, block)),
+        # forwarded by ``System::expand_batteries()`` to the synthetic
+        # ``Generator.pmin/pmax`` (discharge) and ``Demand.lmin/lmax``
+        # (charge).  Scalars stay scalar; per-hour UC.jl lists emit
+        # as 2-D ``[[h0, h1, ...]]``.
         for ucjl_key, gtopt_key in (
             ("Maximum charge rate (MW)", "pmax_charge"),
             ("Maximum discharge rate (MW)", "pmax_discharge"),
+            ("Minimum charge rate (MW)", "pmin_charge"),
+            ("Minimum discharge rate (MW)", "pmin_discharge"),
+        ):
+            value = sdata.get(ucjl_key)
+            if value is None:
+                continue
+            if isinstance(value, list):
+                b_entry[gtopt_key] = [list(_time_series(value, T))]
+            else:
+                b_entry[gtopt_key] = float(value)
+        # ``input_efficiency`` / ``output_efficiency`` are TB since
+        # PR-E (per-(stage, block)).  Hourly UC.jl lists round-trip
+        # as 2-D ``[[h0, h1, ...]]``; scalar values stay scalar
+        # (broadcast across every block).
+        for ucjl_key, gtopt_key in (
             ("Charge efficiency", "input_efficiency"),
             ("Discharge efficiency", "output_efficiency"),
         ):
             value = sdata.get(ucjl_key)
             if value is None:
                 continue
-            b_entry[gtopt_key] = (
-                float(_first_hour(value)) if isinstance(value, list) else value
-            )
+            if isinstance(value, list):
+                b_entry[gtopt_key] = [list(_time_series(value, T))]
+            else:
+                b_entry[gtopt_key] = float(value)
 
         # UC.jl ``Loss factor`` models per-period SoC decay
         # ``SoC[t+1] = (1 − λ) × SoC[t] + η_in·charge − discharge/η_out``.
@@ -1034,11 +1218,28 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             lf_scalar = float(_first_hour(loss_factor_raw))
             if lf_scalar > 0.0:
                 damp = math.sqrt(max(1.0 - lf_scalar, 0.0))
+
                 # Default efficiencies are 1.0 when UC.jl omitted them.
-                eff_in = float(b_entry.get("input_efficiency", 1.0))
-                eff_out = float(b_entry.get("output_efficiency", 1.0))
-                b_entry["input_efficiency"] = round(eff_in * damp, 6)
-                b_entry["output_efficiency"] = round(eff_out * damp, 6)
+                # Efficiencies are TB since PR-E — the field may be a
+                # scalar (broadcast) or a 2-D ``[[h0, h1, ...]]`` list.
+                # When 2-D, multiply each cell by damp; when scalar,
+                # multiply directly.
+                def _scale_eff(raw: Any, damp_v: float) -> Any:
+                    if raw is None:
+                        return round(damp_v, 6)
+                    if isinstance(raw, list):
+                        # 2-D [[h0, h1, ...], ...] - scale each cell.
+                        return [
+                            [round(float(c) * damp_v, 6) for c in row] for row in raw
+                        ]
+                    return round(float(raw) * damp_v, 6)
+
+                b_entry["input_efficiency"] = _scale_eff(
+                    b_entry.get("input_efficiency"), damp
+                )
+                b_entry["output_efficiency"] = _scale_eff(
+                    b_entry.get("output_efficiency"), damp
+                )
         # Scalars (not field schedules).
         for ucjl_key, gtopt_key in (
             ("Initial level (MWh)", "eini"),
@@ -1048,15 +1249,15 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             if value is not None:
                 b_entry[gtopt_key] = float(value)
 
-        # Discharge cost → ``Battery.gcost``; Charge cost →
-        # ``Battery.charge_cost``.  Both are now ``OptTBRealFieldSched``
+        # Discharge cost → ``Battery.discharge_cost``; Charge cost →
+        # ``Battery.charge_cost``.  Both are ``OptTBRealFieldSched``
         # (per-(stage, block)) so per-hour UC.jl lists round-trip as
         # 2-D ``[[hour0, hour1, ...]]`` without collapse.  Scalar
         # values still emit as a plain number (broadcast everywhere).
-        # ``System::expand_batteries()`` forwards ``gcost`` onto the
-        # synthetic discharge Generator and ``charge_cost`` (negated)
-        # onto the synthetic charge Demand's fcost — both pipelines
-        # are TB-compatible as of PR-A (Generator.gcost + Demand.fcost).
+        # ``System::expand_batteries()`` forwards ``discharge_cost``
+        # onto the synthetic discharge ``Generator.gcost`` and
+        # ``charge_cost`` (negated) onto the synthetic charge
+        # ``Demand.fcost`` — both pipelines are TB-compatible.
         def _cost_value(raw: Any) -> Any:
             if isinstance(raw, list):
                 return [list(_time_series(raw, T))]
@@ -1064,7 +1265,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
 
         d_cost = sdata.get("Discharge cost ($/MW)")
         if d_cost is not None:
-            b_entry["gcost"] = _cost_value(d_cost)
+            b_entry["discharge_cost"] = _cost_value(d_cost)
         c_cost = sdata.get("Charge cost ($/MW)")
         if c_cost is not None:
             b_entry["charge_cost"] = _cost_value(c_cost)
@@ -1076,6 +1277,24 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
                 _first_hour(emax_val) if isinstance(emax_val, list) else emax_val
             )
             b_entry["capacity"] = float(scalar_emax)
+        # Conditional rate floor: UC.jl's ``Minimum charge/discharge rate``
+        # only fires when the battery is actively charging/discharging.
+        # gtopt's static ``Demand.lmin`` / ``Generator.pmin`` are HARD
+        # every-block floors by default; flipping ``Battery.commitment``
+        # tells ``System::expand_batteries()`` to enable the per-block
+        # binary gating on the synthetic ``Converter`` so the floors only
+        # fire when the corresponding binary is 1 — matching UC.jl.
+        # Commitment binaries are always integer (introduces a true MIP);
+        # for LP-only solves leave ``Minimum charge/discharge rate`` out
+        # of the UC.jl input so the static floor stays unconditional.
+        if not relax_commitment and any(
+            sdata.get(k) is not None
+            for k in (
+                "Minimum charge rate (MW)",
+                "Minimum discharge rate (MW)",
+            )
+        ):
+            b_entry["commitment"] = True
         battery_array.append(b_entry)
 
     # --- Lines ---------------------------------------------------------------
@@ -1095,66 +1314,27 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         if x is None:
             continue
 
-        # Map UC.jl's two-tier line limit to gtopt's soft-cap feature:
+        # UC.jl line limits are intentionally NOT enforced on the
+        # gtopt side.  UC.jl's default solver uses lazy
+        # XavQiuWanThi2019 violation enforcement on top of a PTDF
+        # matrix thresholded at ``isf_cutoff = 0.005`` (and ``0.001``
+        # for LODF), which zeroes out most line-flow contributions
+        # before the violation finder ever sees them.  The empirical
+        # effect on the published case14/congested golden is that
+        # ``Line overflow (MW) = 0`` on every line — i.e. no soft or
+        # hard line constraint is ever added — even though a
+        # Kirchhoff-exact DC OPF would route ~107 MW through ``l1``
+        # (well above its Normal=15 target).
         #
-        #   ``Emergency flow limit (MW)``  → hard cap     ``tmax_{ab,ba}``
-        #   ``Normal flow limit (MW)``     → soft cap ``tmax_normal_{ab,ba}``
-        #   ``Flow limit penalty ($/MW)``  → ``overload_penalty`` [$/MWh]
-        #
-        # gtopt's ``LineLP`` natively supports a soft (Normal) flow
-        # threshold with a per-MWh overload penalty on the slack between
-        # Normal and Emergency, matching UC.jl + PLEXOS convention.
-        #
-        # When ``Emergency`` is absent, synthesize one as ``max(Normal ×
-        # SOFT_CAP_HARD_MULT, Normal + 100)`` so the slack column has a
-        # finite, well-scaled upper bound (a 99999 sentinel would
-        # destabilise Kirchhoff numerics by allowing huge angle
-        # excursions).  The multiplier is large enough that UC.jl's
-        # actual flows almost always stay within it, and the penalty
-        # makes overloads expensive in any case.
-        #
-        # When ``Flow limit penalty`` is absent per-line, fall back to
-        # the global ``Parameters.Power balance penalty ($/MW)``.  UC.jl
-        # itself uses the global value as the default flow penalty when
-        # no per-line override is given.
-        em_raw = ldata.get("Emergency flow limit (MW)")
-        nm_raw = ldata.get("Normal flow limit (MW)")
-        penalty_raw = ldata.get("Flow limit penalty ($/MW)")
-
-        def _scalar(v):
-            if v is None:
-                return None
-            return float(_first_hour(v)) if isinstance(v, list) else float(v)
-
-        em = _scalar(em_raw)
-        nm = _scalar(nm_raw)
-        per_line_penalty = _scalar(penalty_raw)
-        resolved_penalty = (
-            per_line_penalty if per_line_penalty is not None else power_balance_penalty
-        )
-
-        # Hard cap: Emergency if present; otherwise fall back to the
-        # Normal value as a hard cap.  The soft cap below is only
-        # emitted when UC.jl explicitly ships Emergency + per-line
-        # penalty alongside Normal — synthesising an Emergency from
-        # Normal alone introduces a degenerate-optimum drift on
-        # fixtures whose global power-balance penalty equals the
-        # demand_fail_cost (LP becomes indifferent between curtailing
-        # demand and overloading the line at the same per-MW price).
-        if em is not None:
-            tmax = min(em, 99999.0)
-        elif nm is not None:
-            tmax = min(nm, 99999.0)
-        else:
-            tmax = 99999.0
-
-        emit_soft_cap = (
-            nm is not None
-            and per_line_penalty is not None
-            and per_line_penalty > 0.0
-            and em is not None
-            and nm < tmax
-        )
+        # gtopt's ``LineLP`` does support PLEXOS-style two-tier
+        # ratings (``tmax_normal_{ab,ba}`` / ``overload_penalty``),
+        # but emitting them here would charge real overload penalties
+        # that UC.jl never pays.  The cleanest equivalence is the
+        # PLEXOS config "``Overload Penalty = 0`` + ``Max Rating =
+        # +inf``": every line ships with a 99999 sentinel cap and no
+        # soft tier.  See ``tools/test_ucjl2gtopt.py`` golden tests
+        # for the matching objective values.
+        tmax = 99999.0
 
         line_uid += 1
         line_entry = {
@@ -1166,12 +1346,6 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "tmax_ab": round(tmax, 1),
             "tmax_ba": round(tmax, 1),
         }
-
-        if emit_soft_cap:
-            soft = min(nm, 99999.0)
-            line_entry["tmax_normal_ab"] = round(soft, 1)
-            line_entry["tmax_normal_ba"] = round(soft, 1)
-            line_entry["overload_penalty"] = round(resolved_penalty, 6)
         # TEP: ``Investment cost ($)`` activates the line-expansion fields
         # (overrides ``capacity`` to 0 on candidate lines — see
         # ``_expansion_fields``).
@@ -1346,6 +1520,18 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "annual_discount_rate": 0.0,
             "output_format": "csv",
             "output_compression": "uncompressed",
+            # Keep the legacy wide layout: one column per uid with a
+            # row for every (scenario, stage, block) — including the
+            # exact-zero rows that ``OutputLayout::long_`` (the new
+            # default since 2026-05-19) drops.  The UC.jl cross-check
+            # readers rely on the full block grid being present so
+            # they can compare commitment status / dispatch over every
+            # block; e.g. UC.jl golden issue #57 has gen_524d4c85
+            # status = ``[1, 0, 0, 0]`` (committed only in block 1),
+            # which the long form would emit as a single ``block=1,
+            # value=1`` row, leaving the test reader to infer a 1-block
+            # vector instead of a 4-block one.
+            "output_layout": "wide",
             # Nested under model_options per the 2026-05-17 schema
             # reorganisation; the legacy top-level keys are still
             # accepted as deprecated aliases but emit a warning.
@@ -1364,6 +1550,7 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
         "system": {
             "name": os.path.splitext(os.path.basename(ucjl_path))[0],
             "bus_array": bus_array,
+            "fuel_array": fuel_array,
             "generator_array": generator_array,
             "demand_array": demand_array,
             "line_array": line_array,

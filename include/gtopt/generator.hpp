@@ -32,6 +32,8 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/emission_capture.hpp>
+#include <gtopt/emission_source.hpp>
 #include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
@@ -49,7 +51,10 @@ struct GeneratorAttrs
 
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).  Accepts a
+                                      ///< scalar (broadcast), a 2-D nested
+                                      ///< array, or a file-backed schedule.
   OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
                                  ///< per-(stage, block).  Accepts a scalar
                                  ///< (broadcast), a 2-D nested array
@@ -65,9 +70,9 @@ struct GeneratorAttrs
   ///
   ///   effective_gcost   = fuel.price        × heat_rate + gcost
   ///   effective_ef      = (fuel.combustion_ef + fuel.upstream_ef)
-  ///                       × heat_rate + emission_factor
+  ///                       × heat_rate + emission_rate
   ///
-  /// Both `gcost` and `emission_factor` are kept as additive offsets
+  /// Both `gcost` and `emission_rate` are kept as additive offsets
   /// (variable non-combustion O&M / process emissions respectively).
   /// Mirrors PLEXOS `Generator.Fuel` / SDDP `Combustível`.
   OptSingleId fuel {};
@@ -76,7 +81,7 @@ struct GeneratorAttrs
   /// PLEXOS "Heat Rate" / "Heat Rate Incr" / SDDP "Consumo Específico".
   /// MUTUALLY EXCLUSIVE with `heat_rate_segments` — setting both
   /// raises a validation error.
-  OptTRealFieldSched heat_rate {};
+  OptTBRealFieldSched heat_rate {};
 
   /// Piecewise-linear convex heat-rate function.  When both arrays
   /// are present, the generation range `[pmin, pmax]` is decomposed
@@ -141,7 +146,10 @@ struct Generator
 
   OptTBRealFieldSched pmin {};  ///< Minimum active power output [MW]
   OptTBRealFieldSched pmax {};  ///< Maximum active power output [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).  Accepts a
+                                      ///< scalar (broadcast), a 2-D nested
+                                      ///< array, or a file-backed schedule.
   OptTBRealFieldSched gcost {};  ///< Variable generation cost [$/MWh]
                                  ///< per-(stage, block); see
                                  ///< ``GeneratorAttrs::gcost`` for accepted
@@ -150,9 +158,9 @@ struct Generator
   /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
   OptSingleId fuel {};
 
-  /// Constant (or per-stage) heat rate slope [`<fuel_unit>`/MWh].
+  /// Per-(stage, block) heat rate slope [`<fuel_unit>`/MWh].
   /// See `GeneratorAttrs::heat_rate`.
-  OptTRealFieldSched heat_rate {};
+  OptTBRealFieldSched heat_rate {};
 
   /// Piecewise-linear convex heat-rate function.  See
   /// `GeneratorAttrs::heat_rate_segments`.  Mutually exclusive with
@@ -174,13 +182,14 @@ struct Generator
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
-  OptTRealFieldSched emission_factor {};  ///< Direct CO₂ emission rate
-                                          ///< [tCO₂/MWh].  Additive with
-                                          ///< fuel-derived combustion+upstream
-                                          ///< when `fuel`+`heat_rate` are set
-                                          ///< (treats `emission_factor` as a
-                                          ///< non-combustion adder, e.g.
-                                          ///< process / venting / fugitive).
+  OptTBRealFieldSched emission_rate {};  ///< Direct CO₂ emission rate
+                                         ///< [tCO₂/MWh] per-(stage, block).
+                                         ///< Additive with fuel-derived
+                                         ///< combustion+upstream when
+                                         ///< `fuel`+`heat_rate` are set
+                                         ///< (treats `emission_rate` as a
+                                         ///< non-combustion adder, e.g.
+                                         ///< process / venting / fugitive).
 
   /**
    * @brief Sets generator attributes from a GeneratorAttrs object
@@ -223,6 +232,22 @@ struct Generator
 
     return self;
   }
+
+  /// Inline emission contributions — list of `EmissionSource` rows
+  /// scoped to THIS generator.  Each entry carries the destination
+  /// zone FK and the per-MWh emission rate; `generator` is set
+  /// automatically by `System::expand_emission_sources()` and the
+  /// row is appended to the flat `emission_source_array`.  Mirrors
+  /// `Reservoir.seepage[]` / `Battery.bus` inline expansion.
+  ///
+  Array<EmissionSource> emissions {};
+
+  /// Inline CCS / abatement rows for THIS generator, one per pollutant
+  /// kind captured.  Each entry's `(1 − rate)` factor scales the
+  /// matching `EmissionSource` contribution to its zone's balance row
+  /// AND adds `rate × (combustion + upstream) × cost` to the
+  /// generator's dispatch-column cost (paid per MWh generated).
+  Array<EmissionCapture> emission_captures {};
 };
 
 }  // namespace gtopt

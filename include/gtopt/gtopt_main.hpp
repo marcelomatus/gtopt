@@ -305,6 +305,36 @@ struct MainOptions
    * leaves unset). */
   std::optional<bool> no_scale {};
 
+  /** @brief LP-relax every phase (`continuous_phases = "all"`).
+   *
+   * Bound to the CLI flag `--no-mip`.  When set, every integer / binary
+   * variable becomes continuous regardless of phase configuration —
+   * useful for quick LP smoke tests on cases that would otherwise solve
+   * a MIP (commitment, segment-based costs, etc.).  Equivalent to
+   * `--set model_options.continuous_phases=all`. */
+  std::optional<bool> no_mip {};
+
+  /** @brief Naming dialect enforced on input + output (CLI shortcut).
+   *
+   * Bound to the CLI flag `--naming-dialect <name>`.  Forwards to
+   * `model_options.naming_dialect`; see the docstring there for the
+   * full semantics (input warn + output JSON rename). */
+  std::optional<std::string> naming_dialect {};
+
+  /** @brief Target relative MIP optimality gap (CLI shortcut).
+   *
+   * Bound to the CLI flag `--mip-gap <value>`.  Forwards to
+   * `solver_options.mip_gap`; see the docstring there for backend
+   * mapping (CPLEX EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap). */
+  std::optional<double> mip_gap {};
+
+  /** @brief Per-solve time limit in seconds (CLI shortcut).
+   *
+   * Bound to the CLI flag `--time-limit <seconds>`.  Forwards to
+   * `solver_options.time_limit`.  Applied to every LP / MIP solve;
+   * the solver aborts when wall-clock exceeds the limit. */
+  std::optional<double> time_limit {};
+
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.
    *

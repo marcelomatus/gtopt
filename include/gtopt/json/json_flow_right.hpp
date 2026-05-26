@@ -16,8 +16,10 @@
  * round-tripped parquet output (one row per (scenario, stage, block))
  * parses without "duplicate uid" warnings.  Scalar / 1-D shapes still
  * parse via the variant fallback and broadcast across blocks.  The
- * cost fields (`fcost`, `uvalue`) remain per-stage `OptTRealFieldSched`
- * — block-duration weighting is applied at LP-build time via
+ * cost fields (`fcost`, `uvalue`) are also `OptTBRealFieldSched`
+ * (since PR-C) so a per-(stage, block) cost surface round-trips
+ * through parquet; scalar shapes still broadcast.  Block-duration
+ * weighting is applied at LP-build time via
  * `CostHelper::block_ecost`.
  */
 
@@ -42,23 +44,24 @@ using gtopt::RightBoundRule;
 /// back-compat with existing fixtures.
 struct FlowRightConstructor
 {
-  [[nodiscard]] FlowRight operator()(
-      Uid uid,
-      Name name,
-      OptActive active,
-      OptName purpose,
-      OptSingleId junction,
-      OptInt direction,
-      OptTBRealFieldSched fmin,
-      OptTBRealFieldSched fmax,
-      OptTBRealFieldSched target,
-      OptTBRealFieldSched discharge,
-      OptName flow_mode,
-      OptBool use_average,
-      OptTRealFieldSched fcost,
-      OptTRealFieldSched uvalue,
-      OptReal priority,
-      std::optional<RightBoundRule> bound_rule) const
+  [[nodiscard]] FlowRight operator()(Uid uid,
+                                     Name name,
+                                     OptActive active,
+                                     OptName purpose,
+                                     OptSingleId junction,
+                                     OptInt direction,
+                                     OptTBRealFieldSched fmin,
+                                     OptTBRealFieldSched fmax,
+                                     OptTBRealFieldSched target,
+                                     OptTBRealFieldSched discharge,
+                                     OptName flow_mode,
+                                     OptBool use_average,
+                                     OptTBRealFieldSched fcost,
+                                     OptTBRealFieldSched uvalue,
+                                     OptReal priority,
+                                     std::optional<RightBoundRule> bound_rule,
+                                     OptSingleId bypass_junction,
+                                     OptReal bypass_cost) const
   {
     // Back-compat alias: `discharge` is the legacy name of `target`.
     // Setting both is a JSON error — pick one.
@@ -87,6 +90,8 @@ struct FlowRightConstructor
         .uvalue = std::move(uvalue),
         .priority = priority,
         .bound_rule = std::move(bound_rule),
+        .bypass_junction = std::move(bypass_junction),
+        .bypass_cost = bypass_cost,
     };
   }
 };
@@ -111,10 +116,12 @@ struct json_data_contract<FlowRight>
                         jvtl_TBRealFieldSched>,
       json_string_null<"flow_mode", OptName>,
       json_bool_null<"use_average", OptBool>,
-      json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"uvalue", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"uvalue", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"priority", OptReal>,
-      json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
+      json_class_null<"bound_rule", std::optional<RightBoundRule>>,
+      json_variant_null<"bypass_junction", OptSingleId, jvtl_SingleId>,
+      json_number_null<"bypass_cost", OptReal>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
   {
@@ -137,7 +144,9 @@ struct json_data_contract<FlowRight>
                                  fr.fcost,
                                  fr.uvalue,
                                  fr.priority,
-                                 fr.bound_rule);
+                                 fr.bound_rule,
+                                 fr.bypass_junction,
+                                 fr.bypass_cost);
   }
 };
 }  // namespace daw::json

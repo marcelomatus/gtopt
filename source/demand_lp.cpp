@@ -20,6 +20,7 @@ namespace gtopt
 DemandLP::DemandLP(const Demand& pdemand, const InputContext& ic)
     : CapacityBase(pdemand, ic, Element::class_name)
     , lmax(ic, Element::class_name, id(), std::move(object().lmax))
+    , lmin(ic, Element::class_name, id(), std::move(object().lmin))
     , lossfactor(ic, Element::class_name, id(), std::move(object().lossfactor))
     , fcost(ic, Element::class_name, id(), std::move(object().fcost))
     , emin(ic, Element::class_name, id(), std::move(object().emin))
@@ -97,7 +98,6 @@ bool DemandLP::add_to_lp(SystemContext& sc,
 
   const auto [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
-  const auto stage_lossfactor = lossfactor.optval(stage.uid()).value_or(0.0);
 
   const auto& bus_balance_rows = bus_lp.balance_rows_at(scenario, stage);
   const auto& blocks = stage.blocks();
@@ -234,6 +234,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto block_lmax = sc.block_max_at(stage, block, lmax, stage_capacity);
+    const auto block_lossfactor =
+        lossfactor.optval(stage.uid(), buid).value_or(0.0);
     const bool has_load = block_lmax > 0.0;
     const bool has_lman = stage_emin && emin_row;
     // P1 LP-size: when block_lmax == 0 AND no emin (lman) work is
@@ -282,7 +284,13 @@ bool DemandLP::add_to_lp(SystemContext& sc,
     // When block_lmax == 0 every entry below is a no-op (zero
     // coefficients, zero RHS shift, zero cost contribution).
     if (has_load) {
-      double col_lowb = is_forced ? block_lmax : 0.0;
+      // ``lmin`` provides a HARD floor on served load (per-(stage, block));
+      // used to propagate ``Battery.pmin_charge`` onto the synthetic
+      // charge demand so the LP must charge at least that rate every
+      // block.  Floor at 0 (no negative floors).
+      const auto block_lmin =
+          std::max(0.0, lmin.optval(stage.uid(), buid).value_or(0.0));
+      double col_lowb = std::max(block_lmin, is_forced ? block_lmax : 0.0);
       double col_uppb = block_lmax;
       double lcol_cost = 0.0;
       if (fail_substituted) {
@@ -316,7 +324,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       // Cache the post-capacity-clamp `lmax` so `add_to_output` can
       // reconstruct `load` / `fail` without re-walking `block_max_at`.
       block_lmaxs[buid] = block_lmax;
-      bus_brow[lcol] = -(1.0 + stage_lossfactor);
+      bus_brow[lcol] = -(1.0 + block_lossfactor);
 
       if (use_option_c) {
         // AMPL offset = lmax so `demand.load = col + lmax` for
@@ -325,7 +333,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         // Bus balance RHS shift: +(1+loss)·lmax per elastic-demand
         // block.  Bus balance is an equality row (default
         // lowb == uppb == 0), so we shift both bounds equally.
-        const double bus_rhs_shift = (1.0 + stage_lossfactor) * block_lmax;
+        const double bus_rhs_shift = (1.0 + block_lossfactor) * block_lmax;
         bus_brow.lowb += bus_rhs_shift;
         bus_brow.uppb += bus_rhs_shift;
       }
@@ -372,7 +380,7 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       mcols[buid] = mcol;
       (*emin_row)[mcol] = bdur;
 
-      bus_brow[mcol] = -(1.0 + stage_lossfactor);
+      bus_brow[mcol] = -(1.0 + block_lossfactor);
     }
   }
 

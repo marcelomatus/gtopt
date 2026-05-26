@@ -1,12 +1,15 @@
 #include <format>
 #include <iostream>
+#include <set>
 #include <string>
 
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/main_options.hpp>
+#include <gtopt/names_registry.hpp>
 #include <gtopt/resolve_planning_args.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <gtopt/unit_registry.hpp>
 #include <gtopt/version.hpp>
 #include <unistd.h>
 
@@ -114,6 +117,23 @@ int main(int argc, char** argv)
   Tighten / loosen SDDP convergence:
     gtopt case.json --set sddp_options.max_iterations=200 \
                     --set sddp_options.convergence_tol=1e-5
+
+  MIP-aware solve with a 1 % gap target and 10-minute wall-clock cap:
+    gtopt case.json --mip-gap 0.01 --time-limit 600
+
+  Quick LP-only smoke test on a MIP case (relaxes commitment binaries
+  to continuous; gives a lower bound on the true MIP optimum):
+    gtopt case.json --no-mip
+
+  Enforce a naming dialect on input + output JSON (warns on
+  cross-dialect aliases at parse time, renames canonical keys to the
+  dialect's aliases at write time):
+    gtopt case.json --naming-dialect plp
+
+  Discover what aliases / units each dialect uses (no run, just
+  prints the registry table — pipe to grep / awk to filter):
+    gtopt --list-dialects
+    gtopt --list-dialects plexos
 
 Outputs
 =======
@@ -225,6 +245,81 @@ record — `--quiet` further silences the log file too.
       std::cout << std::format(
           "\n  {} passed, {} failed\n", report.n_passed(), report.n_failed());
       return report.passed() ? 0 : 1;
+    }
+
+    if (vm.contains("list-dialects")) {
+      // Diagnostic dump of the naming + unit dictionaries.  Format is
+      // one row per (canonical, dialect, alias, unit) tuple, tab-
+      // separated for grep/awk friendliness.  The optional `--list-
+      // dialects <name>` filter restricts the output to a single
+      // dialect — useful when migrating from one tool to another.
+      //
+      // Class context is NOT printed: the global-alias index inside
+      // NamesRegistry loses the per-alias class after build, and the
+      // class-agnostic unit lookup is enough for the diagnostic
+      // use-case (which is "what does PLEXOS call my pmax field?").
+      const auto filter =
+          get_opt<std::string>(vm, "list-dialects").value_or("");
+      const auto& names = gtopt::NamesRegistry::instance();
+      const auto& units = gtopt::UnitRegistry::instance();
+
+      // Single forward sweep through the per-alias index also gives us
+      // the set of registered dialect names — we use it for an
+      // unknown-filter error so `--list-dialects mistype` does not
+      // print zero rows silently.
+      std::set<std::string> known_dialects;
+      for (const auto& [canonical, aliases] : names.canonical_to_aliases()) {
+        for (const auto& alias : aliases) {
+          if (const auto d = names.dialect_for(alias); d.has_value()) {
+            known_dialects.emplace(*d);
+          }
+        }
+      }
+      if (!filter.empty() && !known_dialects.contains(filter)) {
+        std::cerr << std::format(
+            "ERROR: --list-dialects: unknown dialect '{}'.  Known "
+            "dialects: ",
+            filter);
+        bool first = true;
+        for (const auto& d : known_dialects) {
+          std::cerr << (first ? "" : ", ") << d;
+          first = false;
+        }
+        std::cerr << '\n';
+        return 1;
+      }
+
+      std::cout << "# canonical\tdialect\talias\tunit\n";
+      std::size_t printed = 0;
+      for (const auto& [canonical, aliases] : names.canonical_to_aliases()) {
+        for (const auto& alias : aliases) {
+          const auto dialect = names.dialect_for(alias).value_or("");
+          if (!filter.empty() && dialect != filter) {
+            continue;
+          }
+          const auto unit =
+              units.class_agnostic_unit_for(canonical, dialect).value_or("");
+          std::cout << std::format(
+              "{}\t{}\t{}\t{}\n", canonical, dialect, alias, unit);
+          ++printed;
+        }
+      }
+      if (filter.empty()) {
+        std::cout << std::format(
+            "\n# {} rows ({} canonicals, {} dialects, names from {}, "
+            "units from {})\n",
+            printed,
+            names.canonical_to_aliases().size(),
+            known_dialects.size(),
+            names.source_path().has_value() ? names.source_path()->string()
+                                            : std::string("<built-in>"),
+            units.source_path().has_value() ? units.source_path()->string()
+                                            : std::string("<built-in>"));
+      } else {
+        std::cout << std::format(
+            "\n# {} rows matching dialect '{}'\n", printed, filter);
+      }
+      return 0;
     }
 
     // --solver validation is handled lazily: SolverRegistry::create()

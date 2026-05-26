@@ -10,12 +10,14 @@
  */
 
 #include <gtopt/battery_lp.hpp>
+#include <gtopt/commitment_lp.hpp>
 #include <gtopt/converter_lp.hpp>
 #include <gtopt/demand_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>
 
 namespace gtopt
 {
@@ -121,6 +123,183 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       crow[dcol] = -1;
 
       crows[buid] = lp.add_row(std::move(crow));
+    }
+  }
+
+  // Conditional commitment: when ``Converter.commitment`` is set,
+  // gate the synthetic charge ``Demand`` and discharge ``Generator``
+  // bounds with per-block binaries.  Mirrors PLEXOS
+  // ``Battery.Commitment Status``.
+  //
+  // "One true source for u_commit" — when the generator side has a
+  // CommitmentLP (always true for batteries via
+  // ``System::expand_batteries()`` synthesis), the discharge
+  // gating ``gen ≤ pmax × u`` / ``gen ≥ Commitment.pmin × u`` is
+  // already emitted by ``CommitmentLP::add_to_lp``.  ConverterLP
+  // then reuses that same ``u_commit`` column to gate the
+  // charge-side demand bounds — no duplicate ``u_discharge`` /
+  // ``u_charge`` cols are introduced.
+  //
+  // Fallback (legacy, kept for non-synthesized cases): when no
+  // CommitmentLP matches the converter's generator, fall back to
+  // creating local ``u_charge`` / ``u_discharge`` binaries (integer
+  // by convention — the original ``Converter.commitment`` API).
+  if (converter().commitment.value_or(false)) {
+    // Look up the CommitmentLP that points at this converter's
+    // discharge generator.  The synthesized commitment (uid named
+    // ``uc_<bat>_gen``) ``relax = true`` by default — fractional u
+    // is fine for an LP-only run.
+    const BIndexHolder<ColIndex>* shared_ucol = nullptr;
+    for (const auto& cmt : sc.elements<CommitmentLP>()) {
+      if (cmt.generator_sid() != generator_sid()) {
+        continue;
+      }
+      shared_ucol = cmt.find_status_cols(scenario, stage);
+      if (shared_ucol != nullptr) {
+        break;
+      }
+    }
+
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), buid);
+      const auto gcol = gen_cols.at(buid);
+      const auto dcol = demand_cols.at(buid);
+      const auto block_pmin = lp.get_col_lowb(gcol);
+      const auto block_pmax = lp.get_col_uppb(gcol);
+      const auto block_lmin = lp.get_col_lowb(dcol);
+      const auto block_lmax = lp.get_col_uppb(dcol);
+
+      // ── Shared-u_commit path ────────────────────────────────────
+      if (shared_ucol != nullptr) {
+        const auto uc_it = shared_ucol->find(buid);
+        if (uc_it == shared_ucol->end()) {
+          continue;
+        }
+        const auto ucol = uc_it->second;
+
+        // Discharge side is already gated by CommitmentLP via
+        // ``gen_upper`` / ``gen_lower`` rows; nothing to add here.
+        // Charge side: mirror the discharge gating onto the
+        // synthetic demand col using the same shared u_commit.
+        if (block_lmax > 0.0) {
+          lp.col_at(dcol).lowb = 0.0;
+          {
+            auto row =
+                SparseRow {
+                    .class_name = Element::class_name.full_name(),
+                    .constraint_name = ChargeUpperName,
+                    .variable_uid = uid(),
+                    .context = block_ctx,
+                }
+                    .less_equal(0.0);
+            row[dcol] = 1.0;
+            row[ucol] = -block_lmax;
+            static_cast<void>(lp.add_row(std::move(row)));
+          }
+          if (block_lmin > 0.0) {
+            auto row =
+                SparseRow {
+                    .class_name = Element::class_name.full_name(),
+                    .constraint_name = ChargeLowerName,
+                    .variable_uid = uid(),
+                    .context = block_ctx,
+                }
+                    .greater_equal(0.0);
+            row[dcol] = 1.0;
+            row[ucol] = -block_lmin;
+            static_cast<void>(lp.add_row(std::move(row)));
+          }
+        }
+        continue;
+      }
+
+      // ── Legacy fallback (no CommitmentLP) ──────────────────────
+      // Discharge side: migrate ``Generator.pmin`` from a static col
+      // floor to a u-gated row.  ``u_discharge`` exists only when the
+      // discharge envelope is non-degenerate (pmax > 0).
+      if (block_pmax > 0.0) {
+        lp.col_at(gcol).lowb = 0.0;
+        const auto u_disc = lp.add_col({
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = 0.0,
+            .is_integer = true,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = UDischargeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = DischargeUpperName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .less_equal(0.0);
+          row[gcol] = 1.0;
+          row[u_disc] = -block_pmax;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+        if (block_pmin > 0.0) {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = DischargeLowerName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .greater_equal(0.0);
+          row[gcol] = 1.0;
+          row[u_disc] = -block_pmin;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+      }
+
+      // Charge side fallback: mirror the discharge gating onto the
+      // synthetic ``Demand.lmin`` / ``Demand.lmax``.
+      if (block_lmax > 0.0) {
+        lp.col_at(dcol).lowb = 0.0;
+        const auto u_chg = lp.add_col({
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = 0.0,
+            .is_integer = true,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = UChargeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        });
+        {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = ChargeUpperName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .less_equal(0.0);
+          row[dcol] = 1.0;
+          row[u_chg] = -block_lmax;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+        if (block_lmin > 0.0) {
+          auto row =
+              SparseRow {
+                  .class_name = Element::class_name.full_name(),
+                  .constraint_name = ChargeLowerName,
+                  .variable_uid = uid(),
+                  .context = block_ctx,
+              }
+                  .greater_equal(0.0);
+          row[dcol] = 1.0;
+          row[u_chg] = -block_lmin;
+          static_cast<void>(lp.add_row(std::move(row)));
+        }
+      }
     }
   }
 

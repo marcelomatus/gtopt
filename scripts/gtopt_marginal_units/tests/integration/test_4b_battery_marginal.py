@@ -94,7 +94,7 @@ def four_bus_feed(tmp_path: Path) -> Path:
             pmax=_CHEAP_PMAX,
             declared_MC=_CHEAP_MC,
             kind="thermal",
-            emission_factor=400.0,
+            emission_rate=400.0,
         ),
         Generator(
             uid=_PEAKER_UID,
@@ -104,7 +104,7 @@ def four_bus_feed(tmp_path: Path) -> Path:
             pmax=_PEAKER_PMAX,
             declared_MC=_PEAKER_MC,
             kind="thermal",
-            emission_factor=700.0,
+            emission_rate=700.0,
         ),
         Generator(
             uid=_BATTERY_UID,
@@ -114,7 +114,7 @@ def four_bus_feed(tmp_path: Path) -> Path:
             pmax=_BATTERY_PMAX,
             declared_MC=_BATTERY_MC,
             kind="battery",
-            emission_factor=400.0 / 0.85,  # marginal-EF-at-charge / η
+            emission_rate=400.0 / 0.85,  # marginal-EF-at-charge / η
         ),
     ]
     lines = [

@@ -530,6 +530,34 @@ def run_post_check(
     return critical_count
 
 
+_BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
+
+
+def install_solver_param_files(output_dir: Path) -> list[Path]:
+    """Copy every bundled ``<solver>.prm`` into ``<output_dir>/solvers/``.
+
+    gtopt's ``prepare_matrix_options`` auto-loads
+    ``<input_directory>/solvers/<solver_name>.prm`` when the user does
+    not pass ``solver_options.param_file`` explicitly, so shipping the
+    curated parameter files next to the JSON case means a fresh
+    plp2gtopt output is solver-tuned out of the box.
+
+    Returns the list of installed file paths (empty when no bundled prm).
+    """
+    if not _BUNDLED_SOLVERS_DIR.is_dir():
+        return []
+    target_dir = output_dir / "solvers"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    installed: list[Path] = []
+    logger = logging.getLogger(__name__)
+    for src in sorted(_BUNDLED_SOLVERS_DIR.glob("*.prm")):
+        dst = target_dir / src.name
+        shutil.copyfile(src, dst)
+        installed.append(dst)
+        logger.info("installed solver param file: %s", dst)
+    return installed
+
+
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
     """Create a ZIP archive containing the JSON file and all data files.
 
@@ -735,6 +763,12 @@ def convert_plp_case(options: dict[str, Any]) -> int:
             # Mark last build step done before printing tables
             progress.step("validate")
             progress.done()
+
+        # Install any bundled <solver>.prm files into <output_dir>/solvers/
+        # so gtopt's prepare_matrix_options auto-loads them when this case
+        # is later solved (source/gtopt_lp_runner.cpp).  See the
+        # ``solvers/`` package directory for the curated parameter files.
+        install_solver_param_files(output_dir)
 
         # --- Outside the progress context: print tables ---
         _log_stats(writer.planning, elapsed, options)

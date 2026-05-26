@@ -122,17 +122,9 @@ public:
     return ReturnType {};
   }
 
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
-                                                const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().demand_fail_cost();
-  }
-
-  /// Per-(stage, block) variant: resolves a `Demand.fcost`
-  /// (`OptTBRealSched`) at the block grain, with the same fallback
-  /// to the global `model_options.demand_fail_cost` when unset.
+  /// Resolves a `Demand.fcost` (`OptTBRealSched`) at the (stage, block)
+  /// grain, falling back to the global `model_options.demand_fail_cost`
+  /// when unset.  Returned in `[$/MWh]`.
   template<typename FailCost>
   [[nodiscard]] constexpr auto demand_fail_cost(const StageLP& stage,
                                                 const BlockLP& block,
@@ -142,27 +134,28 @@ public:
     return fc ? fc : options().demand_fail_cost();
   }
 
-  template<typename FailCost>
-  [[nodiscard]] constexpr auto hydro_spill_cost(const StageLP& stage,
-                                                const FailCost& fcost) const
-  {
-    const auto fc = fcost.optval(stage.uid());
-    return fc ? fc : options().hydro_spill_cost();
-  }
-
+  /// Resolves a `ReserveZone.urcost` / `ReserveZone.drcost` /
+  /// `InertiaZone.cost` (`OptTBRealSched`) at the (stage, block) grain,
+  /// falling back to the global `model_options.reserve_shortage_cost`.
+  /// Returned in `[$/MW]` (reserves) or `[$/MWs]` (inertia).
   template<typename FailCost>
   [[nodiscard]] constexpr auto reserve_shortage_cost(
-      const StageLP& stage, const FailCost& fcost) const
+      const StageLP& stage, const BlockLP& block, const FailCost& fcost) const
   {
-    const auto fc = fcost.optval(stage.uid());
+    const auto fc = fcost.optval(stage.uid(), block.uid());
     return fc ? fc : options().reserve_shortage_cost();
   }
 
+  /// Resolves an `OptTBRealSched`-typed state cost (e.g. `Reservoir.scost`,
+  /// `LngTerminal.scost`) at the (stage, block) grain, falling back to
+  /// the global `model_options.state_violation_cost`.  Returned in
+  /// `[$/MWh]` (energy-equivalent — multiplied by element-specific
+  /// `mean_production_factor` at the caller).
   template<typename StateCost>
   [[nodiscard]] constexpr auto state_violation_cost(
-      const StageLP& stage, const StateCost& scost) const
+      const StageLP& stage, const BlockLP& block, const StateCost& scost) const
   {
-    const auto sc = scost.optval(stage.uid());
+    const auto sc = scost.optval(stage.uid(), block.uid());
     return sc ? sc : options().state_violation_cost();
   }
 
@@ -534,6 +527,22 @@ public:
     return simulation().lookup_ampl_element_uid(class_name, element_name);
   }
 
+  /// Is the (class, element_uid, attribute) triple registered as an LP
+  /// variable somewhere in the simulation?  Used by the user-constraint
+  /// resolver to distinguish "element/attribute exist, just no column
+  /// for this specific (scene, phase, scenario, stage, block)"
+  /// (treat-as-zero) from "attribute is a typo or unsupported on this
+  /// element" (strict-mode error).  Delegates to
+  /// `SimulationLP::find_ampl_variable_for_element`.
+  [[nodiscard]] bool find_ampl_variable_for_element(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute) const
+  {
+    return simulation().find_ampl_variable_for_element(
+        class_name, element_uid, attribute);
+  }
+
   /// Look up a compound PAMPL attribute by (class, compound_name).
   [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
       std::string_view class_name,
@@ -560,6 +569,27 @@ public:
       std::string_view class_name, std::string_view attribute) const noexcept
   {
     return simulation().find_ampl_suppression(class_name, attribute);
+  }
+
+  /// Look up the class-level parameter resolver for (class, attribute).
+  /// Returns nullptr when the pair is not registered — see
+  /// `SimulationLP::register_ampl_param` for the population side.  Used
+  /// by `element_column_resolver.cpp::resolve_single_param` to replace
+  /// the legacy per-class if/else dispatch with a single map lookup +
+  /// indirect call.
+  [[nodiscard]] AmplParamFn find_ampl_param(
+      std::string_view class_name, std::string_view attribute) const noexcept
+  {
+    return simulation().find_ampl_param(class_name, attribute);
+  }
+
+  /// Look up the class-level iterator function for `class_name`.
+  /// Returns nullptr when the class is not registered (means the class
+  /// does not participate in `sum(class(all)...)` enumeration).
+  [[nodiscard]] AmplIterFn find_ampl_iter(
+      std::string_view class_name) const noexcept
+  {
+    return simulation().find_ampl_iter(class_name);
   }
 
   /// Register filter metadata for one element (F9).

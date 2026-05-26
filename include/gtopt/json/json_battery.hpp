@@ -44,11 +44,11 @@ struct json_data_contract<Battery>
                         OptSingleId,
                         jvtl_SingleId>,  ///< Source generator for coupled mode
       json_variant_null<"input_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Input efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Input efficiency schedule
       json_variant_null<"output_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Output efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Output efficiency schedule
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
@@ -63,8 +63,8 @@ struct json_data_contract<Battery>
                                                  ///< — scalar or 2-D
                                                  ///< per-(stage, block)
       json_variant_null<"ecost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Voltage cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Storage usage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
       json_number_null<"efin", OptReal>,  ///< Final energy (optional)
       json_number_null<"efin_cost", OptReal>,  ///< Soft-efin slack cost
@@ -73,20 +73,32 @@ struct json_data_contract<Battery>
                                                ///< value, otherwise hard
                                                ///< efin row.
       json_variant_null<"soft_emin",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft minimum energy
-      json_variant_null<"soft_emin_cost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft emin penalty cost
-      json_variant_null<"pmax_charge",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Max charging power
-      json_variant_null<"pmax_discharge",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Max discharging power
-      json_variant_null<"gcost",
                         OptTBRealFieldSched,
-                        jvtl_TBRealFieldSched>,  ///< Discharge cost
+                        jvtl_TBRealFieldSched>,  ///< Soft minimum energy
+      json_variant_null<"soft_emin_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Soft emin penalty cost
+      json_variant_null<"pmax_charge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Max charging power
+                                                 ///< (TB schedule)
+      json_variant_null<"pmax_discharge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Max discharging power
+                                                 ///< (TB schedule)
+      json_variant_null<"pmin_charge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Min charging power
+                                                 ///< — UC.jl Minimum
+                                                 ///< charge rate
+      json_variant_null<"pmin_discharge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Min discharging power
+                                                 ///< — UC.jl Minimum
+                                                 ///< discharge rate
+      json_variant_null<"discharge_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Per-MWh discharge cost
       json_variant_null<"charge_cost",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,  ///< Charge cost
@@ -110,7 +122,10 @@ struct json_data_contract<Battery>
                         jvtl_TRealFieldSched>,  ///< Annual derating factor
       json_bool_null<"integer_expmod", OptBool>,  ///< Integer expansion modules
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
-      json_bool_null<"daily_cycle", OptBool>  ///< Daily cycle operation
+      json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
+      json_bool_null<"commitment", OptBool>  ///< Conditional rate floors
+                                             ///< via Converter integer
+                                             ///< binary
       >;
 
   /**
@@ -141,7 +156,9 @@ struct json_data_contract<Battery>
                                  battery.soft_emin_cost,
                                  battery.pmax_charge,
                                  battery.pmax_discharge,
-                                 battery.gcost,
+                                 battery.pmin_charge,
+                                 battery.pmin_discharge,
+                                 battery.discharge_cost,
                                  battery.charge_cost,
                                  battery.capacity,
                                  battery.expcap,
@@ -151,7 +168,8 @@ struct json_data_contract<Battery>
                                  battery.annual_derating,
                                  battery.integer_expmod,
                                  battery.use_state_variable,
-                                 battery.daily_cycle);
+                                 battery.daily_cycle,
+                                 battery.commitment);
   }
 };
 }  // namespace daw::json

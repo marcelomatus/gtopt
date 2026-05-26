@@ -411,6 +411,29 @@ public:
     return m_cache_.row_dual().size();
   }
 
+  /// Diagnostic resident-byte breakdown for the memory-accounting pass.
+  /// Read-only; sums the retainers this interface holds between solves.
+  struct DiagResidentBytes
+  {
+    std::size_t cache_bytes {};  ///< col_sol + col_cost + row_dual vectors
+    std::size_t compressed_bytes {};  ///< persistent compressed flat-LP buffer
+    std::size_t active_cuts {};  ///< accumulated cut rows (count, a proxy)
+    bool flat_resident {};  ///< decompressed flat LP currently held (≈0 normal)
+  };
+  [[nodiscard]] DiagResidentBytes diag_resident_bytes() const noexcept
+  {
+    constexpr std::size_t kDbl = sizeof(double);
+    DiagResidentBytes r {};
+    r.cache_bytes = (m_cache_.col_sol().size() + m_cache_.col_cost().size()
+                     + m_cache_.row_dual().size())
+        * kDbl;
+    const auto& snap = m_snapshot_holder_.snapshot();
+    r.compressed_bytes = snap.compressed_lp.data.size();
+    r.active_cuts = m_replay_.active_cuts_size();
+    r.flat_resident = !snap.flat_lp.matbeg.empty();
+    return r;
+  }
+
   /// Span-out solution-fill wrappers — public API delegating to the
   /// underlying `SolverBackend::fill_col_sol/fill_col_cost/fill_row_dual`.
   /// Used by `populate_solution_cache_post_solve` to write directly
@@ -632,6 +655,27 @@ public:
   /// `reconstruct_backend()` would have nothing to reload from — only
   /// call when the LP is truly done.
   void clear_snapshot() noexcept { m_snapshot_holder_.clear(); }
+
+  /// Drop the cut replay journal in `m_replay_`.
+  ///
+  /// The replay buffer accumulates every dynamic column, every
+  /// dynamic / cut row, and every pending bound / coefficient / RHS
+  /// override applied to the LP since the last `load_flat`.  It exists
+  /// so that `reconstruct_backend()` can rebuild the in-memory backend
+  /// after a `release_backend()` cycle (cuts and overrides are replayed
+  /// onto the freshly-loaded flat LP).
+  ///
+  /// On the end-of-life drop path (post-write_out, no future
+  /// reconstruct) the journal is dead weight.  On recovery hot-starts
+  /// it can be sizeable — 36 800 loaded boundary cuts × ~45 cuts/cell
+  /// over 816 cells = several GiB of SparseRow records that never
+  /// replay again.  Calling this after the cell's parquet write
+  /// completes recovers that budget.
+  ///
+  /// Safe to call multiple times (idempotent).  Must NOT be called
+  /// while a `ReplayGuard` is active — the caller is responsible for
+  /// ensuring the cell is truly done.
+  void clear_replay() noexcept { m_replay_.clear(); }
 
   /// Install a flat LP snapshot **without** loading the backend.
   ///
@@ -1352,16 +1396,32 @@ public:
   }
 
   // ── Row bound setters (raw: LP/solver units) ──
+  //
+  // Naming parallels ``set_col_*``:
+  //   * ``set_row_low``     — update lower bound only (preserve upper)
+  //   * ``set_row_upp``     — update upper bound only (preserve lower)
+  //   * ``set_row_bounds``  — set both bounds (matches ``set_col_bounds``)
+  //   * ``set_row_equal_to``— force the row to ``lowb = uppb = value``
+  //                           (explicit name for the equality case)
+  //
+  // The legacy ``set_rhs`` name was removed (commit fa…) because it
+  // didn't actually update "the RHS" — it overwrote BOTH bounds to
+  // the given value and silently flipped ``<=`` / ``>=`` rows into
+  // equalities (the RALCO discharge-limit regression in commit
+  // 488555548).  Pick the one-sided setter for ``<=`` / ``>=`` rows
+  // and the explicit ``set_row_equal_to`` for equality rows.
 
-  void set_rhs_raw(RowIndex row, double rhs);
   void set_row_low_raw(RowIndex index, double value);
   void set_row_upp_raw(RowIndex index, double value);
+  void set_row_bounds_raw(RowIndex row, double lowb, double uppb);
+  void set_row_equal_to_raw(RowIndex row, double value);
 
   // ── Row bound setters (physical: descaled) ──
 
-  void set_rhs(RowIndex row, double physical_rhs);
   void set_row_low(RowIndex index, double physical_value);
   void set_row_upp(RowIndex index, double physical_value);
+  void set_row_bounds(RowIndex row, double physical_lowb, double physical_uppb);
+  void set_row_equal_to(RowIndex row, double physical_value);
 
   // ── Coefficient accessors (raw: LP/solver units) ──
 
@@ -1970,6 +2030,74 @@ public:
    * @return Number of columns relaxed from integer to continuous.
    */
   Index relax_integers();
+
+  /**
+   * @brief Outcome of `fix_integers_and_resolve`.
+   *
+   * `fixed_columns` is the number of integer columns that were pinned
+   * to their (rounded) MIP-optimal value and relaxed to continuous.
+   * When it is 0, the LP carried no integer columns and no re-solve was
+   * performed — the caller's existing (LP) duals are already valid.
+   * `status` carries the solver status of the follow-up LP solve when
+   * `fixed_columns > 0` (0 = optimal); it is `std::nullopt` when no
+   * re-solve ran.
+   */
+  struct FixIntegersOutcome
+  {
+    Index fixed_columns {0};
+    std::optional<int> status {};
+  };
+
+  /**
+   * @brief Fix every integer column to its MIP-optimal value, relax
+   *        integrality, and re-solve as a pure LP to recover duals.
+   *
+   * A MIP solution carries no LP duals (shadow prices) or reduced
+   * costs.  The standard recovery technique — used by CPLEX/PLEXOS and
+   * most unit-commitment tools to report LMPs — is: after the MIP is
+   * solved, FIX every integer variable to its optimal (rounded) value,
+   * relax integrality so the problem becomes a pure LP, and re-solve.
+   * The resulting LP has well-defined row duals and column reduced
+   * costs, which are the correct marginal prices given the committed
+   * integer solution.
+   *
+   * Pre-condition: a successful MIP `resolve()` / `initial_solve()`
+   * must have just completed on a live (or reconstructable) backend so
+   * `get_col_sol_raw()` returns the MIP-optimal primal vector.  The
+   * MIP primal values are read into a local copy BEFORE any bound
+   * mutation (the first `set_col_bounds_raw` invalidates the cached
+   * solution).
+   *
+   * For every integer column `c` this:
+   *   1. reads its MIP value `v = round(col_sol_raw[c])`,
+   *   2. fixes both bounds to `v` (`set_col_bounds_raw` with 'B'),
+   *   3. flips it continuous (`relax_integers()` after the bound pins).
+   * It then calls `resolve(opts)`.  After the re-solve the primal
+   * `col_sol` is unchanged (integers pinned to the MIP values) while
+   * `row_dual` / `col_cost` now hold the LP duals / reduced costs.
+   *
+   * Solver-agnostic: routes entirely through `set_col_bounds_raw`,
+   * `relax_integers()` (backend `relax_all_integers`), and `resolve()`.
+   * No backend is hard-coded.
+   *
+   * When the LP has no integer columns this is a cheap no-op: it
+   * returns `{.fixed_columns = 0}` without touching bounds or
+   * re-solving, so a pure-LP solve keeps its native duals untouched.
+   *
+   * @param opts Solver options for the follow-up LP solve (the caller
+   *             typically enables `crossover` so vertex duals are
+   *             produced).
+   * @return Outcome with the fixed-column count and the re-solve status
+   *         (status absent when no integers were found).
+   */
+  [[nodiscard]] std::expected<FixIntegersOutcome, Error>
+  fix_integers_and_resolve(const SolverOptions& opts = {});
+
+  /// True iff at least one column is currently flagged integer.
+  /// Cheap linear scan; short-circuits on the first integer column.
+  /// Used to gate the fix-integers dual-recovery pass so pure-LP solves
+  /// pay nothing.
+  [[nodiscard]] bool has_integer_cols() const;
 
   /**
    * @brief Sets a time limit for the solver

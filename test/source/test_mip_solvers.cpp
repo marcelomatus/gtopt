@@ -237,7 +237,8 @@ TEST_CASE(  // NOLINT
               .uid = Uid {1},
               .name = "g1",
               .bus = Uid {1},
-              .pmin = 30.0,
+              // pmin moves to Commitment.pmin (when-committed floor).
+              .pmin = 0.0,
               .pmax = 100.0,
               .gcost = 50.0,
               .capacity = 100.0,
@@ -250,6 +251,7 @@ TEST_CASE(  // NOLINT
               .generator = Uid {1},
               .startup_cost = 100.0,
               .shutdown_cost = 50.0,
+              .pmin = 30.0,
               .initial_status = 0.0,
           },
       };
@@ -308,12 +310,15 @@ TEST_CASE(  // NOLINT
       REQUIRE(v2.has_value());
       REQUIRE(w2.has_value());
 
+      // Tight formulation: only status u is integer; startup/shutdown
+      // are continuous in [0,1] but resolve to clean binary values via
+      // the logic + exclusion constraints (see commitment_lp.cpp).
       CHECK(lp.is_integer(*u0));
       CHECK(lp.is_integer(*u1));
       CHECK(lp.is_integer(*u2));
-      CHECK(lp.is_integer(*v1));
-      CHECK(lp.is_integer(*v2));
-      CHECK(lp.is_integer(*w2));
+      CHECK(!lp.is_integer(*v1));
+      CHECK(!lp.is_integer(*v2));
+      CHECK(!lp.is_integer(*w2));
 
       CHECK(sol[*u0] == doctest::Approx(0.0).epsilon(1e-4));
       CHECK(sol[*u1] == doctest::Approx(1.0).epsilon(1e-4));

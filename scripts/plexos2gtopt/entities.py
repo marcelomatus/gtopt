@@ -1,0 +1,679 @@
+"""Typed dataclasses for parsed PLEXOS entities.
+
+Each extractor in :mod:`plexos2gtopt.parsers` returns one of these.
+They deliberately stay close to PLEXOS semantics (units, English
+field names matching ``share/gtopt/naming_dialects.json`` ``dialect:
+plexos`` aliases) so the writer can perform unit conversion in one
+place rather than scattering it across parsers.
+
+All entities are frozen dataclasses so they can be hashed and used as
+dict keys / set members when building topology indexes.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class BundleSpec:
+    """Top-level bundle parameters extracted from ``PLEXOS_Param.xml``.
+
+    Attributes:
+        bundle_date: Calendar date of the daily PCP run (``YYYY-MM-DD``).
+        step_count: Number of periods (24 for hourly daily PCP).
+        step_type: Period type — ``"Hour"`` is the only one supported
+            in v0; ``"Minute"`` / ``"Day"`` reject loudly.
+        day_beginning: Hour-of-day for stage 1 block 1 (usually 0).
+        currency: Currency tag (``"USD"`` / ``"CLP"``); pass-through.
+        bundle_name: Original archive basename for diagnostics.
+    """
+
+    bundle_date: str = ""
+    step_count: int = 24
+    step_type: str = "Hour"
+    day_beginning: int = 0
+    currency: str = "USD"
+    bundle_name: str = ""
+    # PLEXOS Region.VoLL ($/MWh) — Value of Lost Load — maps to gtopt's
+    # ``model_options.demand_fail_cost``.  When every Region carries a
+    # consistent non-zero VoLL the parser surfaces it here; CEN PCP
+    # ships 467.19 $/MWh on both Central-Southern and Northern.
+    # Defaults to 1000 (gtopt's traditional default) when PLEXOS leaves
+    # VoLL unset / inconsistent across regions.
+    demand_fail_cost: float = 1000.0
+    # Horizon length in days.  ``1`` (default) keeps the legacy day-1
+    # PCP behaviour; ``7`` reconstructs the full CEN PCP forward-look
+    # week.  All time-varying CSV readers
+    # (:func:`plexos_csv.read_wide` / :func:`read_long`) are widened
+    # via their ``n_days`` parameter; the simulation emits
+    # ``n_days × step_count`` hourly blocks in the ``hourly`` mode.
+    n_days: int = 1
+    # Block layout for the PLEXOS-native mode.  Empty tuple ⇒ emit
+    # ``n_days × step_count`` uniform hourly blocks (``hourly`` mode).
+    # Non-empty ⇒ each inner tuple is the 1-indexed hourly intervals
+    # that constitute one block, in calendar order.  CEN PCP daily
+    # produces 111 blocks across 7 days; ``len(block_layout) == 111``,
+    # ``sum(len(b) for b in block_layout) == 168``.  Quantities are
+    # aggregated per block in the writer: ``mean`` for time-average
+    # values (demand, hydro inflow), ``min`` for capacity (line units,
+    # availability), and the block duration = ``len(intervals)``
+    # hours.
+    block_layout: tuple[tuple[int, ...], ...] = ()
+
+
+@dataclass(frozen=True)
+class NodeSpec:
+    """A bus / node (``t_class[Node]``, class_id=22)."""
+
+    object_id: int
+    name: str
+    region: str | None = None
+    zone: str | None = None
+
+
+@dataclass(frozen=True)
+class FuelSpec:
+    """A fuel record (``t_class[Fuel]``, class_id=4).
+
+    ``price`` is the day-of-bundle scalar from ``Fuel_Price.csv``
+    (monthly series collapsed to one value); ``heat_content`` ships
+    from the PLEXOS attribute ``Heat Content`` when present.
+
+    ``co2_rate`` / ``co2_upstream_rate`` carry the per-fuel-unit CO₂
+    combustion / upstream emission factor (``tCO₂ / GJ`` when the
+    matching ``Generator.heat_rate`` is in ``GJ / MWh``).  PLEXOS
+    exposes these either as a direct property on the Fuel object
+    (``CO2 Production Rate`` / ``Emissions Rate``) or as a property
+    on the ``Emission → Fuel`` membership (``Production Rate``,
+    matched by the Emission object's name carrying ``CO2`` /
+    ``CO₂``).  The writer emits a :class:`FuelEmissionFactor` row
+    with ``emission = "co2"`` when either rate is non-zero.
+    """
+
+    object_id: int
+    name: str
+    price: float = 0.0
+    heat_content: float = 0.0
+    co2_rate: float = 0.0
+    co2_upstream_rate: float = 0.0
+    #: Weekly fuel offtake cap from ``Fuel_MaxOfftakeWeek.csv`` (one
+    #: scalar per fuel, for the week containing the bundle's
+    #: reference date).  Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>``
+    #: Constraint object.  ``None`` when no row applies (e.g. the
+    #: fuel ships in the CSV with VALUE = 0 on the binding week — a
+    #: legitimate "shut" signal — distinct from "not in the CSV at
+    #: all", which means the cap is irrelevant for the bundle).
+    max_offtake: float | None = None
+    #: Per-unit soft penalty ``[$/<fuel_unit>]`` for exceeding
+    #: ``max_offtake`` (gtopt ``Fuel.max_offtake_cost``).  PLEXOS treats
+    #: the ``FueMaxOffWeek_*`` caps as SOFT and routinely violates them
+    #: (the solved model burns gas above the contract band), so we emit
+    #: a finite cost rather than a hard wall — a hard cap throttles the
+    #: central/north LNG combined-cycles by ~100 GWh and forces coal.
+    #: ``None`` ⇒ hard cap.
+    max_offtake_cost: float | None = None
+
+
+@dataclass(frozen=True)
+class GeneratorSpec:
+    """A generating unit (``t_class[Generator]``, class_id=2).
+
+    ``pmax_profile`` is the per-block (24 floats) availability series
+    from ``Gen_Rating.csv``; renewable units carry the time-varying
+    profile here and the writer emits a matching ``GeneratorProfile``.
+    Thermal units typically expose a constant series at nameplate.
+    """
+
+    object_id: int
+    name: str
+    bus_name: str
+    pmin: float = 0.0
+    pmax: float = 0.0
+    heat_rate: float = 0.0
+    vom_charge: float = 0.0
+    fuel_transport: float = 0.0
+    start_cost: float = 0.0
+    shutdown_cost: float = 0.0
+    fuel_names: tuple[str, ...] = field(default_factory=tuple)
+    pmax_profile: tuple[float, ...] = field(default_factory=tuple)
+    # 118-Bus-style schemas ship fuel price on the Generator object
+    # (``Fuel Price`` property on the System→Generators collection)
+    # instead of on the Fuel object. When set, the writer uses this
+    # value directly and skips the fuel-name → fuel-price lookup.
+    fuel_price_override: float = 0.0
+    # Piecewise heat-rate (cumulative MW breakpoints + per-segment
+    # slopes in fuel-unit / MWh). Populated only when PLEXOS ships the
+    # quadratic form (``Heat Rate Base`` + ``Heat Rate Incr`` +
+    # ``Heat Rate Incr2``); mutually exclusive with scalar ``heat_rate``.
+    pmax_segments: tuple[float, ...] = field(default_factory=tuple)
+    heat_rate_segments: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Fixed Load`` per-period profile
+    # (``Gen_FixedLoad.csv``).  When non-empty, the writer emits both
+    # ``pmin`` and ``pmax`` matching the per-period fixed-load value:
+    # the LP is forced to dispatch EXACTLY this amount
+    # (``Generation[t] = Fixed Load[t]``).  Used by must-take
+    # renewables (solar / wind CF profile) and forced run-of-river
+    # hydro.  Empty for free-dispatch generators (the common case for
+    # thermal / battery-driven).
+    fixed_load_profile: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Initial Generation`` (``Gen_IniGeneration.csv``):
+    # the dispatch level at t=0 (start of horizon), used for ramp /
+    # commitment continuity across SDDP / cascade rolling windows.
+    # Scalar (single value per generator) — PLEXOS only ships the
+    # period-1 value.  Defaults to 0 when the CSV doesn't list the
+    # generator.
+    initial_generation: float = 0.0
+
+
+@dataclass(frozen=True)
+class LineSpec:
+    """A transmission line (``t_class[Line]``)."""
+
+    object_id: int
+    name: str
+    bus_from: str
+    bus_to: str
+    tmax_ab: float = 0.0
+    tmin_ab: float = 0.0
+    # Series resistance in per-unit (same unit basis as ``reactance``).
+    # Used by the writer to emit a ``resistance`` field on the Line
+    # entry so gtopt's piecewise loss model can compute the
+    # K-segment loss curve `P_loss = R · f² / V²`.  Zero or unset →
+    # no losses on this line (matches gtopt's default).
+    resistance: float = 0.0
+    # Optional per-hour profile (length = bundle.n_days × 24) for
+    # DLR (Dynamic Line Rating) corridors whose Lin_MaxRating.csv ships
+    # different ratings per period (e.g. LoAguirre500->Polpaico500: 900
+    # MW overnight, 2078 MW for periods 7-23).  When non-empty, the
+    # writer aggregates this to per-block tmax_ab and falls back to the
+    # scalar above only if the profile is invariant.
+    tmax_ab_profile: tuple[float, ...] = ()
+    tmin_ab_profile: tuple[float, ...] = ()
+    # PLEXOS exposes TWO rating tiers per line:
+    #   * Max Flow (pid 1880) — steady-state / continuous rating;
+    #     this is what ``Lin_MaxRating.csv`` actually ships
+    #     (despite the misleading filename) and what fills
+    #     ``tmax_ab`` above.
+    #   * Max Rating (pid 1882) — short-term / emergency rating
+    #     used by PLEXOS for scheduling-time exceedances.  Lives
+    #     only in the input XML t_data (no CSV mirror).  Typically
+    #     1.5-2× Max Flow on the CEN PCP bundle (e.g. Capricornio110
+    #     ->LaNegra110: Max Flow=76 MW, Max Rating=137 MW).
+    # The writer feeds these two into gtopt's soft/hard limit pair:
+    #   * tmax_ab          ← Max Rating   (emergency hard cap)
+    #   * tmax_normal_ab   ← Max Flow     (steady-state soft cap)
+    #   * overload_penalty ← default ($/MWh, applied between the two)
+    max_rating: float = 0.0
+    min_rating: float = 0.0
+    # PLEXOS Enforce Limits (0=Never, 1=Voltage, 2=Always) controls
+    # whether the LP applies thermal limits.  Per the Energy Exemplar
+    # docs (Line.EnforceLimits): "0=Never → line thermal limits are
+    # never enforced; the LP allows unbounded flow with no violation
+    # cost".  The converter maps this onto gtopt's soft/hard limit
+    # pair:
+    #   * EL=0 → drop the hard cap (tmax = +inf via unset)
+    #   * EL=1/2 → keep the hard cap (current default behaviour)
+    # CEN PCP carries 185 lines at EL=0, 96 at EL=1, 63 at EL=2.
+    enforce_limits: int = 2  # default per PLEXOS docs ("Always enforce")
+    # Set by ``extract_lines`` for ex-PLEXOS-EL=0 lines (promoted to
+    # ``enforce_limits = 1``): the writer turns these into a SOFT cap
+    # (free up to the rating, penalised between the rating and
+    # ``headroom × rating``, hard at ``headroom × rating``) instead of
+    # a plain hard cap.  Orig EL=1/EL=2 lines keep ``soft_cap = False``
+    # (plain hard cap); ``--lift-line-caps`` lines stay EL=0/uncapped.
+    soft_cap: bool = False
+    units: int = 1
+    reactance: float = 0.0
+    wheeling_charge: float = 0.0
+
+
+@dataclass(frozen=True)
+class DemandSpec:
+    """A consumer attached to a bus (one per non-zero column in ``Nod_Load.csv``).
+
+    ``fcost`` is the demand-curtailment penalty (``$/MWh`` of unserved
+    energy) emitted on the gtopt ``Demand.fcost`` field.  When set it
+    overrides the global ``model_options.demand_fail_cost`` for this
+    Demand, letting per-Region PLEXOS ``Region.VoLL`` values surface
+    natively without the lossy ``max(VoLLs)`` collapse the converter
+    used to apply.
+    """
+
+    name: str
+    bus_name: str
+    lmax_profile: tuple[float, ...] = field(default_factory=tuple)
+    fcost: float = 0.0
+
+
+@dataclass(frozen=True)
+class BatterySpec:
+    """A battery energy-storage system (``t_class[Battery]``, class_id=7)."""
+
+    object_id: int
+    name: str
+    bus_name: str
+    emin: float = 0.0
+    emax: float = 0.0
+    eini: float = 0.0
+    efin: float = 0.0
+    pmax_charge: float = 0.0
+    pmax_discharge: float = 0.0
+    input_efficiency: float = 1.0
+    output_efficiency: float = 1.0
+    # PLEXOS Min Charge / Min Discharge Level (MW): minimum power when
+    # actively charging / discharging.  Maps to gtopt's
+    # ``Battery.pmin_charge`` / ``pmin_discharge``.  CEN PCP carries
+    # these only on 2 batteries (BAT_DEL_DESIERTO, BAT_TOCOPILLA).
+    pmin_charge: float = 0.0
+    pmin_discharge: float = 0.0
+
+
+@dataclass(frozen=True)
+class ReservoirSpec:
+    """A hydro reservoir (``t_class[Storage]``, class_id=8).
+
+    Volumes in hm³, water value in $/hm³, spill penalty in $/MWh
+    (PLEXOS native — writer converts to $/(m³/s)/h via ``fp_med``).
+    """
+
+    object_id: int
+    name: str
+    emin: float = 0.0
+    emax: float = 0.0
+    eini: float = 0.0
+    efin: float = 0.0
+    water_value: float = 0.0
+    # True when PLEXOS shipped the 1e+30 "never drain" sentinel on
+    # `Water Value`.  The writer must then emit `efin = eini` as a HARD
+    # `vol_end >= eini` constraint and skip `efin_cost` entirely (the
+    # soft-slack path would let the LP buy out of the sentinel at the
+    # clamped price, which is exactly what the sentinel forbids).
+    never_drain: bool = False
+    spill_penalty_per_mwh: float = 0.0
+    # Optional per-block emin/emax profiles (length = n_blocks).  When
+    # set, the writer emits the inline ``[[per-block]]`` matrix instead
+    # of the scalar ``emin`` / ``emax`` fields.  Used by PLEXOS-style
+    # "tight at boundaries, loose interior" reservoir bounds: block 0
+    # and block N-1 carry the operational ``Hydro_*Volume.csv`` floor/
+    # cap for that day; interior blocks carry the static (physical)
+    # ``Min Volume`` / ``Max Volume`` so the LP has free dispatch
+    # space mid-week.  Empty tuple ⇒ scalar fallback.
+    emin_profile: tuple[float, ...] = field(default_factory=tuple)
+    emax_profile: tuple[float, ...] = field(default_factory=tuple)
+    inflow_profile: tuple[float, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class WaterwaySpec:
+    """A waterway / spillway (``t_class[Waterway]``, class_id=9)."""
+
+    object_id: int
+    name: str
+    storage_from: str | None = None
+    storage_to: str | None = None
+    fmin: float = 0.0
+    fmax: float = 0.0
+    # Per-hour forced-flow profile (length = bundle.n_days × 24) for
+    # waterways whose ``Hydro_WaterFlows.csv`` column carries a
+    # TIME-VARYING value.  When non-empty, the writer emits
+    # ``fmin``/``fmax`` as a per-block matrix matching this series,
+    # overriding the scalar ``fmin``/``fmax`` above.  Without this,
+    # pinning ``fmin = fmax = max(profile)`` over-constrains the LP
+    # on every hour where the natural inflow is below the peak —
+    # forcing the upstream cascade (e.g. ``penstock_LOMA_ALTA`` into
+    # ``B_Maule``) to dispatch turbines that wouldn't run physically,
+    # producing phantom hydro generation and accumulating water at
+    # synthetic sinks.
+    forced_flow_profile: tuple[float, ...] = ()
+    # PLEXOS ``Max Flow Penalty`` ($/(m³/s)/h or $/MWh-equivalent) —
+    # per-flow cost on the waterway column.  Maps to gtopt's
+    # ``Waterway.fcost``.  ``-1.0`` in PLEXOS means "feature disabled"
+    # (sentinel), translated to 0 by the parser.  CEN PCP uses 3.6
+    # on most Vert_* spillway arcs and 7200/360 on a handful of
+    # high-cost gas-storage spillways.
+    fcost: float = 0.0
+    # When True (default), the ``forced_flow_profile`` is emitted as
+    # BOTH ``fmin`` AND ``fmax`` — the LP physically pins the waterway
+    # to the PLEXOS-mandated per-hour value (correct for irrigation
+    # diversions, ecological flows, and filtration sinks where the
+    # water IS removed at exactly that rate).  When False, the profile
+    # is emitted as ``fmin`` only and ``fmax`` is left unbounded — the
+    # LP can route ADDITIONAL flow above the minimum (correct for
+    # bypass / overflow waterways like ``B_Maule`` where PLEXOS lets
+    # surplus water flow naturally above the published Min Flow).
+    pin_fmax_from_profile: bool = True
+
+
+@dataclass(frozen=True)
+class JunctionSpec:
+    """A hydraulic node synthesised from a PLEXOS Storage object.
+
+    gtopt models hydro topology as Junctions (nodes) joined by
+    Waterways (edges), with Reservoirs attached at junctions. PLEXOS
+    keeps Storage and topology fused — we explode them so each Storage
+    becomes one Junction plus one Reservoir co-located there.
+
+    ``drain_capacity`` and ``drain_cost`` are optional and carry the
+    ``Waterway.Max Flow`` / ``Waterway.Max Flow Penalty`` from PLEXOS's
+    ``Vert_<src>`` spillway arc when we collapse the legacy
+    ``Vert_<src> → <src>_ocean`` (Waterway + synthetic ocean Junction)
+    encoding into a single ``Junction{drain: true, drain_capacity,
+    drain_cost}`` row on the source junction.  Both are optional —
+    when None the LP-side default (``DblMax`` / ``0.0``) applies.
+    """
+
+    name: str
+    drain: bool = False  # True for terminal cascades (water leaves the system)
+    drain_capacity: float | None = None
+    drain_cost: float | None = None
+
+
+@dataclass(frozen=True)
+class TurbineSpec:
+    """A hydro turbine — Generator with a Head Storage membership.
+
+    PLEXOS encodes turbines as Generator objects with a Storage link;
+    gtopt has an explicit Turbine entity that references both the
+    Generator (for power output on the electrical bus) and the
+    upstream Reservoir (``main_reservoir``) for water balance.
+
+    ``tail_reservoir_name`` captures PLEXOS's *Tail Storage* link when
+    present — the downstream reservoir / junction the turbine
+    discharges into.  Used by the writer to synthesise a per-turbine
+    penstock with correct junctions when the PLEXOS spillway
+    (``Vert_*``) routes to a different downstream than the turbine
+    tailrace.
+    """
+
+    generator_name: str
+    reservoir_name: str
+    production_factor: float = 0.0  # MW per m³/s (Hydro_EfficiencyIncr fp_med)
+    tail_reservoir_name: str | None = None
+
+
+@dataclass(frozen=True)
+class FlowSpec:
+    """A natural inflow into a Junction (``Hydro_WaterFlows.csv`` row).
+
+    gtopt's ``Flow`` class is a per-(scene, stage, block) discharge
+    pushed into a Junction; we map per-PLEXOS-Storage inflow profiles
+    to one Flow per Junction. Inflow units are m³/s.
+
+    When ``fcost > 0`` the writer emits gtopt ``Flow.fcost`` so the
+    LP column relaxes from the default hard ``flow = discharge``
+    equality to a soft, costed slack column (unbounded above,
+    ``[0, +inf)`` with penalty ``fcost``).  Used by the PLEXOS
+    "Non-physical Inflow Penalty" → gtopt slack mapping: the
+    reservoir gets a per-junction inflow slack the LP only activates
+    when balance can't otherwise close.  ``discharge_profile`` is
+    typically left empty for slack flows since the upper bound is
+    intentionally uncapped.
+    """
+
+    name: str
+    junction_name: str
+    discharge_profile: tuple[float, ...] = field(default_factory=tuple)
+    fcost: float = 0.0
+
+
+@dataclass(frozen=True)
+class ReserveSpec:
+    """A reserve zone (``t_class[Reserve]``).
+
+    PLEXOS distinguishes up- and down-reserve via a name-suffix
+    convention in CEN PCP: ``_LW`` (lower / down) vs ``_RS`` (raise /
+    spinning / up). ``Res_Requirement.csv`` uses a custom
+    ``NAME, PATTERN, VALUE`` layout where PATTERN encodes the
+    day-of-week + hour (e.g. ``"DO_1,H17"`` = day 1, hour 17). The
+    parser collapses to the daily PCP horizon (DO_1 only) and builds
+    a 24-element requirement profile.
+    """
+
+    object_id: int
+    name: str
+    ur_requirement: tuple[float, ...] = field(default_factory=tuple)
+    dr_requirement: tuple[float, ...] = field(default_factory=tuple)
+    eligible_generators: tuple[str, ...] = field(default_factory=tuple)
+    # PLEXOS Reserve.Type encodes the ancillary-service class:
+    # 1=Regulation, 2=Spinning, 3=Regulation Raise, 4=Regulation Lower,
+    # 5=Replacement, 6=Tertiary.  Used by extract_reserve_provisions to
+    # split per-generator provisions by type so the type-specific
+    # Min Provision floors (Min Spinning Provision, Min Regulation
+    # Provision, Min Replacement Provision) map to the correct urmin.
+    plexos_type: int = 0  # 0 = unknown / no type set
+    # Type tag derived from plexos_type for downstream grouping.
+    # Values: "regulation", "spinning", "replacement", "tertiary", "other".
+    type_tag: str = "other"
+    # Shortage-penalty costs ($/MWh) on the reserve-balance row.  Mapped
+    # to ``ReserveZone.urcost`` (raise/up direction: PLEXOS Type 1/2/3/
+    # 5/6) and ``ReserveZone.drcost`` (lower/down: PLEXOS Type 4).  The
+    # PLEXOS source property is one of ``Violation Cost`` / ``Shortage
+    # Penalty`` / ``Penalty Cost`` / ``VoRS``  (CEN PCP exposes ``VoRS``
+    # ``= Value of Reserve Shortage``).  Negative PLEXOS values (e.g.
+    # the ``-1`` sentinel meaning "use default / disabled") are clamped
+    # to ``0.0``.
+    urcost: float = 0.0
+    drcost: float = 0.0
+
+
+@dataclass(frozen=True)
+class DecisionVariableSpec:
+    """A PLEXOS ``Decision Variable`` translated to a gtopt
+    :class:`DecisionVariable`.
+
+    PLEXOS auto-creates a free continuous LP variable for each
+    Decision Variable object (class_id 72); constraint coefficients
+    reference its value via ``Value Coefficient``. gtopt maps the same
+    semantics through the small :file:`decision_variable.hpp` LP class,
+    which materialises one column per (scenario, stage, block) with
+    optional bounds and cost — and registers it for AMPL/UserConstraint
+    resolution as ``decision_variable("X").value``.
+    """
+
+    name: str
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    cost: float = 0.0
+
+
+@dataclass(frozen=True)
+class UserConstraintSpec:
+    """A PLEXOS ``Constraint`` object translated to a gtopt UserConstraint.
+
+    The expression carries the LHS + operator + RHS as a single string
+    in the AMPL-inspired grammar that
+    :file:`include/gtopt/constraint_parser.hpp` consumes. ``penalty``
+    is set when the PLEXOS constraint ships a ``Penalty Price``
+    (turning the row into a soft constraint with a visible slack).
+
+    ``active`` (default ``None`` ⇒ unset ⇒ gtopt's default = active)
+    controls whether the constraint is enforced in the LP.  PLEXOS
+    contingency constraints (post-trip reserve allocations, N-1
+    security rows, etc.) are translated with ``active = False`` so
+    they ship in the JSON for inspection / future contingency
+    simulation but the monolithic deterministic LP skips them — they
+    would otherwise be infeasible-as-written because PLEXOS models
+    them with implicit slacks that only fire under simulated trips.
+    """
+
+    name: str
+    expression: str
+    penalty: float = 0.0
+    description: str = ""
+    active: bool | None = None
+    # Per-block RHS override.  When supplied, gets serialised to the
+    # gtopt-side ``user_constraint.rhs`` TB-schedule field and overrides
+    # the scalar parsed from the inline ``<op> NUMBER`` tail of
+    # ``expression``.  Empty tuple ⇒ no override (legacy scalar-RHS
+    # behaviour).  Multi-day cases must already match the writer's
+    # ``block_count`` / ``block_layout`` (24-element daily patterns
+    # are tiled by ``n_days`` upstream).
+    rhs_profile: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class FlowRightSpec:
+    """An irrigation / environmental flow envelope on a Junction.
+
+    PLEXOS encodes these as auxiliary rows in ``Hydro_AntucoBounds.csv``
+    (Laja basin) or similar overlays. gtopt's :class:`FlowRight` LP
+    class applies an fmin/fmax bound at a Junction over the run
+    horizon, optionally annotated with a ``purpose`` string for
+    diagnostics.
+    """
+
+    name: str
+    junction_name: str | None
+    purpose: str = "irrigation"
+    fmin: float = 0.0  # >0 = enforce lower bound
+    fmax: float = 0.0  # >0 = enforce upper bound
+    # Soft kink point [m³/s].  When >0, the LP layer
+    # (``flow_right_lp.cpp``) penalises any flow BELOW ``target`` at
+    # ``fcost`` and rewards any flow ABOVE ``target`` at ``uvalue``.
+    # When zero/unset, the column degenerates to a plain hard band
+    # ``[fmin, fmax]`` with no fcost activation — so ``target`` must
+    # be set for any soft-pin behaviour.
+    target: float = 0.0
+    # Per-(stage, block) slack-violation penalty in $/(m³/s)/h. The
+    # writer broadcasts this scalar across the 24-block horizon when
+    # emitting the FlowRight; matches gtopt's
+    # ``OptTBRealFieldSched`` shape (same as ``Demand.fcost``).
+    fcost: float = 0.0
+    # Optional pass-through downstream junction.  When set, the
+    # writer emits ``FlowRight.bypass_junction`` / ``bypass_cost`` on
+    # the JSON entry — the LP layer (``flow_right_lp.cpp``) then adds
+    # a per-block bypass column priced at ``bypass_cost·cf`` that
+    # contributes -1 to ``junction_name``'s balance and +1 to
+    # ``bypass_junction``'s, replacing the legacy synthetic
+    # ``bypass_<name>`` Waterway pressure-release path.  Pure consumer
+    # behaviour is preserved when this is left at None.
+    bypass_junction: str | None = None
+    bypass_cost: float = 0.0
+
+
+@dataclass(frozen=True)
+class CommitmentSpec:
+    """Unit-commitment parameters for a thermal generator.
+
+    Sourced from the six ``Gen_*.csv`` UC files in CEN PCP plus
+    ``t_data`` fallbacks on the Generator System collection for
+    Min Up/Down time and ramp limits. Mapped 1:1 onto gtopt's
+    ``Commitment`` LP class (see ``json_commitment.hpp``).
+    """
+
+    generator_name: str
+    startup_cost: float = 0.0
+    shutdown_cost: float = 0.0
+    min_up_time: float = 0.0
+    min_down_time: float = 0.0
+    initial_status: float = 0.0  # 1 = online at t=0, 0 = offline
+    initial_hours: float = 0.0  # signed: + hours up, - hours down
+    ramp_up: float = 0.0  # MW/h
+    ramp_down: float = 0.0  # MW/h
+    # PLEXOS ``Min Stable Level`` (MW per-unit, when committed) maps
+    # to gtopt's ``Commitment.pmin`` — distinct from
+    # ``Generator.pmin`` (always-on hard floor).  Per PLEXOS docs
+    # (ReserveGenerators.MinStableFactor): Min Stable Level applies
+    # only when the unit is committed.
+    pmin: float = 0.0  # MW (when-committed floor)
+    # Per-period ``Min Stable Level`` profile (``Gen_MinStableLevel.csv``,
+    # length = bundle.n_days × 24).  PLEXOS ships Min Stable Level as a
+    # time series — CEN PCP coal units carry e.g. 98.53 MW for most of
+    # the week and 170.53 MW for a few peak hours.  When this varies the
+    # writer aggregates it to per-block values and emits ``pmin`` as a
+    # vector schedule; otherwise the scalar ``pmin`` above is used.
+    pmin_profile: tuple[float, ...] = field(default_factory=tuple)
+    # PLEXOS ``Generator.Commit`` per-period forcing (Gen_Commit.csv),
+    # one value per horizon hour, VALUE in {-1, 0, +1}:
+    #   +1 = forced ON, 0 = forced OFF, -1 = MIP-endogenous (free).
+    # The writer turns this into gtopt's ``Commitment.must_run`` (when
+    # every value is +1) or per-block ``fixed_status`` (pins the ``u``
+    # status variable to 1/0 and leaves -1 blocks free).  Empty = no
+    # forcing.  Forcing is applied via the commitment variable only —
+    # ``pmax`` is left untouched.
+    commit_status_profile: tuple[int, ...] = field(default_factory=tuple)
+    # PLEXOS ``Run Up Rate`` (MW/min) → gtopt's ``Commitment.startup_ramp``
+    # (MW max output in the startup block).  Converted to MW by
+    # multiplying by 60 (per-hour startup ramp).  11 generators in CEN
+    # PCP carry this, mostly KELAR fuel variants.
+    startup_ramp: float = 0.0  # MW (per-block startup envelope)
+    # No-load cost ($/hr): fixed cost when the unit is committed,
+    # independent of power output. For PLEXOS quadratic heat-rate
+    # formulations, ``noload_cost = Heat Rate Base × Fuel Price``.
+    noload_cost: float = 0.0
+    # PLEXOS ``Generator.Initial Generation`` (``Gen_IniGeneration.csv``)
+    # in MW.  Maps to gtopt's ``Commitment.initial_power`` — the
+    # dispatch level at ``t = -1`` used in the first-block ramp /
+    # commitment continuity rows:
+    #   p[0] − initial_power ≤ RU·u_init + SU·(1 − u_init)
+    #   initial_power − p[0] ≤ RD·u[0] + SD·w[0]
+    # When 0 (the default), gtopt's legacy "cold-start" behaviour
+    # (``p_prev = 0``) is preserved, which is correct for genuinely
+    # offline units and for any case where PLEXOS didn't ship an
+    # Initial Generation entry.  73 generators on CEN PCP weekly
+    # 2026-04-22 carry a non-zero value (mostly hydro turbines at
+    # the start of their dispatch window).
+    initial_power: float = 0.0
+
+
+@dataclass(frozen=True)
+class ReserveProvisionSpec:
+    """A Generator's eligibility to provide reserve to one or more zones.
+
+    PLEXOS exposes a Reserve→Generator membership table; gtopt's
+    ``ReserveProvision`` is the inverse view (one row per Generator,
+    listing the reserve zones it can serve).
+    """
+
+    generator_name: str
+    reserve_zones: tuple[str, ...] = field(default_factory=tuple)
+    # urmax / drmax cap the per-block up / down reserve column. PLEXOS
+    # doesn't surface this directly; the converter defaults them to
+    # the parent generator's pmax (the maximum possible provision MW)
+    # so gtopt unconditionally materialises the LP column for any
+    # user constraint that references it.
+    urmax: float = 0.0
+    drmax: float = 0.0
+    # urmin / drmin floor the per-block up / down reserve column.
+    # Sourced from PLEXOS Reserve→Generator Min Provision / Min
+    # Spinning Provision / Min Replacement Provision properties (the
+    # maximum of these across an up-direction reserve gives urmin;
+    # likewise for down).  When > 0, gtopt's reserve_provision_lp
+    # enforces ``provision_col >= urmin × ur_provision_factor``.
+    urmin: float = 0.0
+    drmin: float = 0.0
+    # PLEXOS reserve type tag — one of "regulation" / "spinning" /
+    # "replacement" / "tertiary" / "other".  When the converter emits
+    # per-type provisions (Option B), this tag distinguishes the
+    # provision rows for the same gen across types; the JSON name
+    # becomes ``provision_<gen>_<type_tag>``.
+    type_tag: str = "other"
+
+
+@dataclass(frozen=True)
+class PlexosCase:
+    """The full set of parsed entities for one bundle.
+
+    The writer takes this as a single argument and emits one gtopt
+    planning JSON.
+    """
+
+    bundle: BundleSpec
+    nodes: tuple[NodeSpec, ...] = field(default_factory=tuple)
+    fuels: tuple[FuelSpec, ...] = field(default_factory=tuple)
+    generators: tuple[GeneratorSpec, ...] = field(default_factory=tuple)
+    lines: tuple[LineSpec, ...] = field(default_factory=tuple)
+    demands: tuple[DemandSpec, ...] = field(default_factory=tuple)
+    batteries: tuple[BatterySpec, ...] = field(default_factory=tuple)
+    reservoirs: tuple[ReservoirSpec, ...] = field(default_factory=tuple)
+    waterways: tuple[WaterwaySpec, ...] = field(default_factory=tuple)
+    junctions: tuple[JunctionSpec, ...] = field(default_factory=tuple)
+    turbines: tuple[TurbineSpec, ...] = field(default_factory=tuple)
+    flows: tuple[FlowSpec, ...] = field(default_factory=tuple)
+    reserves: tuple[ReserveSpec, ...] = field(default_factory=tuple)
+    reserve_provisions: tuple[ReserveProvisionSpec, ...] = field(default_factory=tuple)
+    commitments: tuple[CommitmentSpec, ...] = field(default_factory=tuple)
+    flow_rights: tuple[FlowRightSpec, ...] = field(default_factory=tuple)
+    decision_variables: tuple[DecisionVariableSpec, ...] = field(default_factory=tuple)
+    user_constraints: tuple[UserConstraintSpec, ...] = field(default_factory=tuple)

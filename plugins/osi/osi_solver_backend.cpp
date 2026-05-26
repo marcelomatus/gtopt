@@ -23,6 +23,7 @@
 #include <gtopt/utils.hpp>
 
 #ifdef GTOPT_OSI_HAS_CBC
+#  include <coin/CbcModel.hpp>
 #  include <coin/OsiCbcSolverInterface.hpp>
 #endif
 
@@ -93,6 +94,26 @@ void apply_options_to_solver(OsiSolverInterface* solver,
   if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
     solver->setDblParam(OsiPrimalTolerance, *feps);
   }
+
+  // Target relative MIP optimality gap.  Only meaningful under CBC —
+  // CLP is LP-only and silently ignores integrality, so the param is
+  // applied via the CbcModel rather than the OsiSolverInterface.  The
+  // `*gap > 0` guard matches the other backends; a misconfigured zero
+  // would tell CBC "any feasible MIP solution is acceptable" which is
+  // never what the user meant.
+#ifdef GTOPT_OSI_HAS_CBC
+  if (type == OsiSolverBackend::OsiSolverType::cbc) {
+    if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+      if (auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(solver);
+          cbc != nullptr)
+      {
+        if (auto* model = cbc->getModelPtr(); model != nullptr) {
+          model->setAllowableFractionGap(*gap);
+        }
+      }
+    }
+  }
+#endif
 
   // Time limit (CLP supports this natively via ClpSimplex)
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {

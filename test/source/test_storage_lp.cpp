@@ -550,7 +550,8 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(10.0));
   CHECK(bat_lp.param_emax(stage_uid, block_uid).value_or(-1.0)
         == doctest::Approx(90.0));
-  CHECK(bat_lp.param_ecost(stage_uid).value_or(-1.0) == doctest::Approx(5.0));
+  CHECK(bat_lp.param_ecost(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(5.0));
 }
 
 // ─── Per-(stage, block) emin/emax wiring on Battery ─────────────────────────
@@ -1066,8 +1067,11 @@ TEST_CASE(  // NOLINT
           .eini = 10.0,
           .efin = 80.0,
           .efin_cost = 5.0,  // soft efin
-          .soft_emin = std::vector<double> {15.0, 0.0},  // tight at stage 1
-          .soft_emin_cost = std::vector<double> {5.0, 0.0},
+          // soft_emin / soft_emin_cost are TB since PR-D — outer dim
+          // is stage, inner dim is block.  This fixture has 2 stages
+          // × 1 block, so the per-stage vectors wrap once.
+          .soft_emin = std::vector<std::vector<double>> {{15.0}, {0.0}},
+          .soft_emin_cost = std::vector<std::vector<double>> {{5.0}, {0.0}},
           .pmax_charge = 5.0,
           .pmax_discharge = 5.0,
           .capacity = 100.0,

@@ -34,7 +34,7 @@ Algorithm — for each (bus, hour):
   d. Pick the candidate whose ``|CV − λ_target|`` is smallest as
      **the marginal unit**. (When the gap > tol, fall back: the
      dispatched unit with CV ≤ λ_target and highest CV.)
-  e. ``ε[bus, hour] = emission_factor(marginal.fuel_type)`` from the
+  e. ``ε[bus, hour] = emission_rate(marginal.fuel_type)`` from the
      IPCC 2006 GL Vol. 2 Tab. 1.4 derived table.
   f. Special cases:
      * λ_CEN = 0 → renewable curtailment regime → ε = 0.

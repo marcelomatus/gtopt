@@ -10,6 +10,7 @@
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <format>
 #include <memory>
@@ -2929,24 +2930,36 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
   invalidate_cached_optimal_on_mutation();
 }
 
-void LinearInterface::set_rhs_raw(const RowIndex row, const double rhs)
+void LinearInterface::set_row_bounds_raw(const RowIndex row,
+                                         const double lowb,
+                                         const double uppb)
 {
-  // Match the rest of the raw-mutation setters above: ensure the
-  // backend is live before delegating.  Without this, a mutation
-  // issued after `release_backend()` would null-deref `m_backend_`
-  // (flagged by clang-analyzer-core.CallAndMessage).
+  // Mirror the single-side ``set_row_low_raw`` / ``set_row_upp_raw``
+  // entry contract: ensure the backend is live before delegating.
+  // A mutation issued after ``release_backend()`` would null-deref
+  // ``m_backend_`` (flagged by clang-analyzer-core.CallAndMessage).
   ensure_backend();
   if (m_validation_options_.effective_enable()) {
     const double infy_guard = m_backend_->infinity() * 0.999;
-    if (std::abs(rhs) < infy_guard) {
-      m_validation_stats_.note_rhs(rhs, row, m_validation_options_);
+    if (std::abs(lowb) < infy_guard) {
+      m_validation_stats_.note_rhs(lowb, row, m_validation_options_);
+    }
+    if (std::abs(uppb) < infy_guard && uppb != lowb) {
+      m_validation_stats_.note_rhs(uppb, row, m_validation_options_);
     }
   }
-  m_backend_->set_row_bounds(row, rhs, rhs);
+  m_backend_->set_row_bounds(row, normalize_bound(lowb), normalize_bound(uppb));
   invalidate_cached_optimal_on_mutation();
-  // Companion replay record — see `set_coeff_raw` above for rationale.
-  if (!m_replay_.replaying() && !m_is_throwaway_clone_) {
-    m_replay_.set_pending_rhs(row, rhs);
+  // Companion replay record — equality rows record into the legacy
+  // ``pending_rhs`` channel so the Seepage / RDL-equality replay
+  // path under ``LowMemoryMode::compress`` keeps working without
+  // schema changes.  Non-equality bounds (``lowb != uppb``) are NOT
+  // currently replayed; callers that need to survive a backend
+  // reconstruct between sets should use the per-phase
+  // ``update_lp_for_phase`` path which re-issues the writes from
+  // its own state.  See ``set_coeff_raw`` for the wider rationale.
+  if (!m_replay_.replaying() && !m_is_throwaway_clone_ && lowb == uppb) {
+    m_replay_.set_pending_rhs(row, lowb);
   }
 }
 
@@ -2966,10 +2979,28 @@ void LinearInterface::set_row_upp(const RowIndex index,
   set_row_upp_raw(index, physical_value / scale);
 }
 
-void LinearInterface::set_rhs(const RowIndex row, const double physical_rhs)
+void LinearInterface::set_row_bounds(const RowIndex row,
+                                     const double physical_lowb,
+                                     const double physical_uppb)
 {
   const double scale = get_row_scale(row);
-  set_rhs_raw(row, physical_rhs / scale);
+  set_row_bounds_raw(row, physical_lowb / scale, physical_uppb / scale);
+}
+
+void LinearInterface::set_row_equal_to_raw(const RowIndex row,
+                                           const double value)
+{
+  // Convenience: equality is just both bounds at the same value.
+  // Replaces the legacy ``set_rhs_raw`` name — see the header for
+  // why the old name was removed.
+  set_row_bounds_raw(row, value, value);
+}
+
+void LinearInterface::set_row_equal_to(const RowIndex row,
+                                       const double physical_value)
+{
+  const double scale = get_row_scale(row);
+  set_row_equal_to_raw(row, physical_value / scale);
 }
 
 Index LinearInterface::get_numrows() const
@@ -3044,6 +3075,97 @@ Index LinearInterface::relax_integers()
   // a per-column dispatch loop on the hot SDDP aperture path.
   ensure_backend();
   return Index {m_backend_->relax_all_integers()};
+}
+
+bool LinearInterface::has_integer_cols() const
+{
+  // `is_integer` reads the live backend flags; trigger a reconstruct
+  // under compress / rebuild so post-snapshot integrality (installed by
+  // `load_flat` from `flat_lp.colint`) is visible.  Const method, but
+  // `ensure_backend()` is non-const — route through the mutable
+  // `backend()` accessor which performs the reconstruct internally.
+  const auto n = backend().get_num_cols();
+  for (int i = 0; i < n; ++i) {
+    if (m_backend_->is_integer(i)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::expected<LinearInterface::FixIntegersOutcome, Error>
+LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
+{
+  ensure_backend();
+
+  // Snapshot the MIP-optimal primal vector BEFORE any mutation: the
+  // first `set_col_bounds_raw` below invalidates the cached solution
+  // (and may detach the backend pointer view), so we must own a copy.
+  const auto mip_sol = get_col_sol_raw();
+  const auto ncols = static_cast<size_t>(get_numcols());
+  if (mip_sol.size() < ncols) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InternalError,
+        .message = std::format(
+            "fix_integers_and_resolve: MIP solution size {} < numcols {} "
+            "for problem {}",
+            mip_sol.size(),
+            ncols,
+            get_prob_name()),
+    });
+  }
+
+  // Collect the integer columns and the rounded value each should be
+  // pinned to.  Single backend scan; build the bulk-bound arrays in one
+  // pass so the fix is a single `set_col_bounds_raw` dispatch (CPLEX
+  // collapses it to one `CPXchgbds`).
+  std::vector<ColIndex> idx;
+  std::vector<char> lu;
+  std::vector<double> vals;
+  idx.reserve(ncols);
+  lu.reserve(ncols);
+  vals.reserve(ncols);
+  for (size_t c = 0; c < ncols; ++c) {
+    const auto col = ColIndex {static_cast<Index>(c)};
+    if (!m_backend_->is_integer(static_cast<int>(c))) {
+      continue;
+    }
+    // Round to the nearest integer: integer columns may report a value
+    // a hair off the lattice (e.g. 0.9999997) under solver tolerance.
+    // The bound is in LP-raw space, matching `get_col_sol_raw`.
+    const double pinned = std::round(mip_sol[c]);
+    idx.push_back(col);
+    lu.push_back('B');  // pin both lower and upper
+    vals.push_back(pinned);
+  }
+
+  if (idx.empty()) {
+    // Pure LP — caller's existing duals are already valid; do nothing.
+    return FixIntegersOutcome {.fixed_columns = 0, .status = std::nullopt};
+  }
+
+  // 1. Pin every integer column to its rounded MIP value (one dispatch).
+  set_col_bounds_raw(idx, lu, vals);
+
+  // 2. Relax integrality so the follow-up solve is a pure LP that yields
+  //    well-defined row duals and column reduced costs.  `relax_integers`
+  //    is idempotent and routes through the backend's native bulk
+  //    `relax_all_integers` (solver-agnostic).
+  const auto relaxed = relax_integers();
+
+  // 3. Re-solve the now-continuous LP.  `resolve` re-populates the LI
+  //    cache (col_sol / row_dual / col_cost) with the LP solution: the
+  //    primal is unchanged (integers pinned to the MIP values) while the
+  //    duals / reduced costs are now well-defined.
+  auto result = resolve(opts);
+  if (!result) {
+    return std::unexpected(std::move(result.error()));
+  }
+
+  return FixIntegersOutcome {
+      .fixed_columns = relaxed,
+      .status = *result,
+  };
 }
 
 // ── Names & LP file output ─ moved to linear_interface_labels.cpp

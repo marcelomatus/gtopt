@@ -244,6 +244,51 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
     // Capture status before any release — release loses specific codes.
     const auto solve_status = li.get_status();
 
+    // ── Fix-integers dual-recovery pass (simulation pass only) ──────────
+    //
+    // During the simulation pass we want clean LP duals / reduced costs
+    // for the per-cell output (bus LMPs, marginal costs).  When the cell
+    // carries integer commitment columns, the just-completed solve was a
+    // MIP and has no duals.  Recover them with the standard technique:
+    // pin every integer to its (rounded) MIP-optimal value, relax
+    // integrality, and re-solve the resulting pure LP.  The integer
+    // decisions made during this simulation-pass solve ARE the committed
+    // values, so the LP duals are the correct marginal prices.
+    //
+    // Gated on `m_in_simulation_` so training-pass solves (whose
+    // primal/reduced-cost values feed cut generation) are untouched, and
+    // on the dual/rc write-out request + actual integer presence so
+    // pure-LP runs and runs that don't need duals pay nothing.  Skipped on
+    // a non-optimal solve (handled by the elastic branch below).  The
+    // follow-up solve uses `effective_opts` (crossover already true in the
+    // sim pass) so a barrier backend yields clean vertex duals.
+    if (m_in_simulation_ && result.has_value() && solve_status == 0) {
+      const auto sel = planning_lp().options().write_out();
+      const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
+          || has_flag(sel.atoms, OutputFlags::reduced_cost);
+      if (wants_duals && li.has_integer_cols()) {
+        auto fix = li.fix_integers_and_resolve(effective_opts);
+        if (!fix) {
+          SPDLOG_WARN(
+              "SDDP Forward [i{} s{} p{}]: fix-integers dual recovery "
+              "re-solve failed: {} (keeping MIP primal, duals unavailable)",
+              gtopt::uid_of(iteration_index),
+              uid_of(scene_index),
+              uid_of(phase_index),
+              fix.error().message);
+        } else if (fix->fixed_columns > 0) {
+          SPDLOG_DEBUG(
+              "SDDP Forward [i{} s{} p{}]: fixed {} integer column(s) and "
+              "re-solved LP for duals (status {})",
+              gtopt::uid_of(iteration_index),
+              uid_of(scene_index),
+              uid_of(phase_index),
+              fix->fixed_columns,
+              fix->status.value_or(0));
+        }
+      }
+    }
+
     if (!result.has_value() || solve_status != 0) {
       if (m_options_.solve_timeout > 0.0
           && (solve_status == 1 || solve_status == 3))

@@ -29,7 +29,7 @@ def _gen_thermal(uid: int, mc: float, ef: float) -> Generator:
         pmax=100,
         declared_MC=mc,
         kind="thermal",
-        emission_factor=ef,
+        emission_rate=ef,
     )
 
 
@@ -63,7 +63,7 @@ def test_three_unit_emission_attribution():
                 pmax=100,
                 declared_MC=None,
                 kind="hydro",
-                emission_factor=0.0,
+                emission_rate=0.0,
             ),
         ],
         lines=[],

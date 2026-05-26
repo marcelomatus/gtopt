@@ -119,16 +119,24 @@ struct VolumeRight
                                 ///< a file-backed schedule.
   OptTBRealFieldSched emax {};  ///< Maximum accumulated right volume [hm³]
                                 ///< — same shapes as ``emin``.
-  OptTRealFieldSched ecost {};  ///< Shadow cost of accumulated rights [$/hm³]
+  OptTBRealFieldSched ecost {};  ///< Shadow cost of accumulated rights
+                                 ///< [$/hm³] — per-(stage, block); accepts
+                                 ///< a scalar (broadcasts), a 2-D nested
+                                 ///< array, or a file-backed schedule.
   OptReal eini {};  ///< Initial accumulated volume at start of horizon [hm³]
   OptReal efin {};  ///< Minimum required accumulated volume at end [hm³]
   OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
                          ///< [$/hm³].  Mirrors `Reservoir.efin_cost`
                          ///< — see storage_lp.hpp for semantics.
 
-  OptTRealFieldSched soft_emin {};  ///< Soft minimum volume per stage [hm³]
-  OptTRealFieldSched
-      soft_emin_cost {};  ///< Penalty cost for soft_emin violation [$/hm³]
+  OptTBRealFieldSched soft_emin {};  ///< Soft minimum volume [hm³] —
+                                     ///< per-(stage, block); accepts a
+                                     ///< scalar (broadcasts), a 2-D
+                                     ///< nested array, or a file-backed
+                                     ///< schedule.
+  OptTBRealFieldSched
+      soft_emin_cost {};  ///< Penalty cost for soft_emin violation
+                          ///< [$/hm³] — per-(stage, block).
 
   // ── Right demand fields ────────────────────────────────────────────
 

@@ -117,7 +117,12 @@ struct Reservoir
                                  ///< falls back to ``+DblMax`` (clamped to
                                  ///< solver +inf at flatten time), so the
                                  ///< drain teleport is unbounded.
-  OptReal spillway_cost {};  ///< Penalty cost per unit of spilled water [$/hm³]
+  OptReal spillway_cost {};  ///< Penalty cost per unit of spillway flow
+                             ///< [$/(m³/s)/h] — applied via
+                             ///< CostHelper::block_ecost(...) on the drain
+                             ///< column (m³/s), so the LP pays
+                             ///< ``spillway_cost · q · duration`` per block.
+                             ///< Same unit convention as ``Waterway.fcost``.
 
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
   OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
@@ -128,8 +133,10 @@ struct Reservoir
                                 ///< file-backed schedule.
   OptTBRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³] —
                                 ///< same shapes as ``emin``.
-  OptTRealFieldSched
+  OptTBRealFieldSched
       ecost {};  ///< Shadow cost of stored water (water value) [$/hm³]
+                 ///< per-(stage, block); accepts a scalar (broadcasts),
+                 ///< a 2-D nested array, or a file-backed schedule.
   OptReal eini {};  ///< Initial stored volume at start of horizon [hm³].
                     ///< Sets an equality constraint vol_start = eini in the
                     ///< first stage of the first phase only.
@@ -155,24 +162,28 @@ struct Reservoir
                                       ///< `state_violation_cost` ($/MWh) into
                                       ///< reservoir-specific units ($/hm³).
                                       ///< Defaults to 5.0 MWh/hm³.
-  OptTRealFieldSched
+  OptTBRealFieldSched
       scost {};  ///< State cost: elastic penalty for SDDP state variable
-                 ///< violations [$/hm³].  If not set, computed as
+                 ///< violations [$/hm³] — per-(stage, block).  If not
+                 ///< set, computed as
                  ///< `state_fail_cost × mean_production_factor`.
 
-  OptTRealFieldSched
-      soft_emin {};  ///< Soft minimum volume per stage [hm³].
+  OptTBRealFieldSched
+      soft_emin {};  ///< Soft minimum volume [hm³] — per-(stage, block);
+                     ///< accepts a scalar (broadcasts), a 2-D nested
+                     ///< array, or a file-backed schedule.
                      ///< Creates a penalized constraint: efin + slack >=
                      ///< soft_emin, where the slack variable has a penalty cost
                      ///< (soft_emin_cost) in the objective.  Unlike emin (a
                      ///< hard variable bound), this allows the volume to drop
                      ///< below the threshold at a cost.  Corresponds to PLP's
                      ///< plpminembh.dat "holgura" (slack) constraint.
-  OptTRealFieldSched
+  OptTBRealFieldSched
       soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
-                          ///< violation [$/hm³].  Applied to the slack
-                          ///< variable that relaxes the soft_emin constraint.
-                          ///< Must be > 0 for the constraint to be active.
+                          ///< violation [$/hm³] — per-(stage, block).
+                          ///< Applied to the slack variable that relaxes
+                          ///< the soft_emin constraint.  Must be > 0 for
+                          ///< the constraint to be active.
 
   OptReal fmin {};  ///< Minimum net flow into the reservoir junction [m³/s].
                     ///< When unset, ``ReservoirLP::add_to_lp`` falls back to

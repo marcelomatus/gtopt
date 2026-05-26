@@ -118,17 +118,17 @@ public:
   {
     return gcost.at(s, b);
   }
-  [[nodiscard]] auto param_heat_rate(StageUid s) const
+  [[nodiscard]] auto param_heat_rate(StageUid s, BlockUid b) const
   {
-    return heat_rate.at(s);
+    return heat_rate.at(s, b);
   }
-  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  [[nodiscard]] auto param_lossfactor(StageUid s, BlockUid b) const
   {
-    return lossfactor.at(s);
+    return lossfactor.at(s, b);
   }
-  [[nodiscard]] auto param_emission_factor(StageUid s) const
+  [[nodiscard]] auto param_emission_rate(StageUid s, BlockUid b) const
   {
-    return emission_factor.at(s);
+    return emission_rate.at(s, b);
   }
   /// @}
 
@@ -155,13 +155,37 @@ public:
     return heat_rate_slack_cols_;
   }
 
+  /// `[segment_index] -> STBIndexHolder<RowIndex>` of piecewise kink
+  /// rows.  Same shape as ``heat_rate_slack_cols_``.  Exposed so
+  /// ``CommitmentLP::add_to_lp`` can retro-fit the rows with the
+  /// ``-pmax_segs[k-1] · u`` term that gates the segment by the
+  /// commitment binary — the refactor that moved piecewise off
+  /// Commitment dropped that u-link, producing an over-loose LP-relax
+  /// (fractional ``u`` could dispatch full piecewise capacity).  See
+  /// ``commitment_lp.cpp`` "u-gate piecewise heat-rate kink rows".
+  [[nodiscard]] const auto& heat_rate_kink_rows() const noexcept
+  {
+    return heat_rate_kink_rows_;
+  }
+
+  /// Per-segment cumulative breakpoints (cumulative MW) used by the
+  /// u-gating retro-fit in ``CommitmentLP::add_to_lp``.  Mirrors
+  /// ``Generator.pmax_segments[0..K-2]`` (the kink RHS values) — the
+  /// generator-side accessor avoids forcing CommitmentLP to re-read
+  /// the OptTBRealSched and re-resolve the per-block sample.  Empty
+  /// when no segments are configured.
+  [[nodiscard]] const auto& heat_rate_kink_breakpoints() const noexcept
+  {
+    return heat_rate_kink_breakpoints_;
+  }
+
 private:
   OptTBRealSched pmin;
   OptTBRealSched pmax;
-  OptTRealSched lossfactor;
+  OptTBRealSched lossfactor;
   OptTBRealSched gcost;
-  OptTRealSched heat_rate;
-  OptTRealSched emission_factor;
+  OptTBRealSched heat_rate;
+  OptTBRealSched emission_rate;
 
   STBIndexHolder<ColIndex> generation_cols;
   STBIndexHolder<RowIndex> capacity_rows;
@@ -169,6 +193,29 @@ private:
   /// columns.  Outer vector has size `K - 1` where `K` is the number
   /// of heat-rate segments.  Empty when no segments are configured.
   std::vector<STBIndexHolder<ColIndex>> heat_rate_slack_cols_;
+  /// Companion to ``heat_rate_slack_cols_``: the row indices of the
+  /// kink rows ``p - δ_k ≤ pmax_segs[k-1]``.  CommitmentLP retrieves
+  /// these to add the ``- pmax_segs[k-1] · u`` term that gates the
+  /// segment by the commit binary.
+  std::vector<STBIndexHolder<RowIndex>> heat_rate_kink_rows_;
+  /// Per-segment breakpoint values used as the RHS of the kink rows
+  /// at emission time.  CommitmentLP reads this to compute the
+  /// retro-fit coefficient ``- pmax_segs[k-1]`` on ``ucol``.
+  std::vector<double> heat_rate_kink_breakpoints_;
+
+  /// Cached per-block cost-stack components (physical $/MWh, source-
+  /// schedule path — Path A in the design doc).  Populated during
+  /// `add_to_lp` and emitted as
+  /// `Generator/{vom_cost,fuel_cost,srmc}_sol.parquet` by `add_to_output`.
+  /// PLEXOS-aligned naming:
+  ///   - VOM Cost: `Generator.gcost(stage, block)`.
+  ///   - Fuel Cost: `heat_rate · fuel.price` (primary segment for piecewise).
+  ///   - SRMC: VOM + Fuel (Short-Run Marginal Cost; matches the
+  ///     coefficient on the primary generation column).  Emission
+  ///     tax adds in via EmissionZone.price on a separate column.
+  STBIndexHolder<double> vom_cost_values_;
+  STBIndexHolder<double> fuel_cost_values_;
+  STBIndexHolder<double> srmc_values_;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;

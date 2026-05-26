@@ -27,7 +27,7 @@ def _gen(
         pmax=pmax,
         declared_MC=mc,
         kind=kind,
-        emission_factor=400.0,
+        emission_rate=400.0,
     )
 
 
@@ -195,7 +195,7 @@ def test_multi_zone_independent_pricing():
         pmax=100,
         declared_MC=10.0,
         kind="thermal",
-        emission_factor=400.0,
+        emission_rate=400.0,
     )
     gens[1] = Generator(
         uid=20,
@@ -205,7 +205,7 @@ def test_multi_zone_independent_pricing():
         pmax=100,
         declared_MC=80.0,
         kind="thermal",
-        emission_factor=700.0,
+        emission_rate=700.0,
     )
     topo = Topology(buses=[], generators=gens, lines=[])
     zone_of = {1: 0, 2: 1}
@@ -292,7 +292,7 @@ def test_hydro_only_interior_with_no_declared_mc_is_degenerate():
             pmax=100,
             declared_MC=None,
             kind="hydro",
-            emission_factor=0.0,
+            emission_rate=0.0,
         ),
     ]
     res = reconstruct_zone_lambda(
@@ -403,7 +403,7 @@ def test_reconstruct_all_zones_emits_result_for_pure_sink_zone():
             pmax=100,
             declared_MC=10.0,
             kind="thermal",
-            emission_factor=400.0,
+            emission_rate=400.0,
         ),
     ]
     topo = Topology(buses=[], generators=gens, lines=[])
@@ -436,7 +436,7 @@ def test_reconstruct_all_zones_pure_sink_with_zero_load_is_unattributed():
             pmax=100,
             declared_MC=10.0,
             kind="thermal",
-            emission_factor=400.0,
+            emission_rate=400.0,
         ),
     ]
     topo = Topology(buses=[], generators=gens, lines=[])

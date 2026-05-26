@@ -688,7 +688,8 @@ TEST_CASE(  // NOLINT
       // FileSched>; the base fixture stores the 3-D form (scenario × stage ×
       // block). Append two more scenarios.
       using Vec3D = std::vector<std::vector<std::vector<double>>>;
-      auto& vec3d = std::get<Vec3D>(flow.discharge);
+      REQUIRE(flow.discharge.has_value());
+      auto& vec3d = std::get<Vec3D>(*flow.discharge);
       vec3d.push_back(make_inflow(/*base=*/15.0, /*phase0_boost=*/60.0));
       vec3d.push_back(make_inflow(/*base=*/25.0, /*phase0_boost=*/100.0));
     }

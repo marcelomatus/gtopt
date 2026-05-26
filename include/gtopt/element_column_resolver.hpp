@@ -85,10 +85,33 @@ struct ResolvedCol
 /// param_shift` so user constraints like `demand('d').load <= X` remain
 /// physically correct even though the LP column actually stores
 /// `neg_fail`.
+///
+/// `element_known` is true when the (element_type, element_id) pair was
+/// found in the AMPL element registry, regardless of whether a column
+/// was emitted for this (scenario, stage, block).  This distinguishes
+/// the two `emitted = false` cases:
+///   * `element_known = true`  — the element exists in the registry
+///                                 but has no LP column for this
+///                                 specific (scenario, stage, block)
+///                                 (e.g. a generator with pmax=0 on
+///                                 that block — GeneratorLP omits the
+///                                 column).  Caller should treat the
+///                                 term's contribution as 0 silently;
+///                                 the constraint stays well-formed.
+///   * `element_known = false` — the element name or UID is unknown
+///                                 to the registry (typo, deleted
+///                                 element, suppressed-by-mode, …).
+///                                 Strict-mode caller should raise an
+///                                 error; lenient-mode caller should
+///                                 warn-and-skip.
+///
+/// Pre-existing callers can ignore `element_known`; only the strict
+/// vs lenient branch in `user_constraint_lp.cpp` uses it.
 struct ResolveColResult
 {
   bool emitted {false};
   double offset_shift {0.0};
+  bool element_known {false};
 };
 
 /**

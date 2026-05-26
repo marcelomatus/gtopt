@@ -78,9 +78,15 @@ TEST_CASE("ReserveZone with time-varying costs")
 {
   ReserveZone reserve_zone;
 
-  // Create vectors for time-varying costs
-  std::vector<Real> urcost_schedule = {900.0, 1000.0, 1200.0, 950.0};
-  std::vector<Real> drcost_schedule = {700.0, 800.0, 850.0, 750.0};
+  // Build per-(stage, block) schedules.  Since PR-C, `ReserveZone::urcost`
+  // / `drcost` are `OptTBRealFieldSched`; the 2-D variant is
+  // ``std::vector<std::vector<Real>>`` with outer-index = stage and
+  // inner-index = block.  This test pins four stages each with one
+  // block — equivalent to the legacy 1-D schedule.
+  std::vector<std::vector<Real>> urcost_schedule = {
+      {900.0}, {1000.0}, {1200.0}, {950.0}};
+  std::vector<std::vector<Real>> drcost_schedule = {
+      {700.0}, {800.0}, {850.0}, {750.0}};
 
   // Assign to reserve zone
   reserve_zone.urcost = urcost_schedule;
@@ -90,11 +96,11 @@ TEST_CASE("ReserveZone with time-varying costs")
   REQUIRE(reserve_zone.urcost.has_value());
   REQUIRE(reserve_zone.drcost.has_value());
 
-  // Check that we have vectors, not scalars
+  // Check that we have 2-D vectors, not scalars
   auto* urcost_vec_ptr =
-      std::get_if<std::vector<Real>>(&reserve_zone.urcost.value());
+      std::get_if<std::vector<std::vector<Real>>>(&reserve_zone.urcost.value());
   auto* drcost_vec_ptr =
-      std::get_if<std::vector<Real>>(&reserve_zone.drcost.value());
+      std::get_if<std::vector<std::vector<Real>>>(&reserve_zone.drcost.value());
 
   REQUIRE(urcost_vec_ptr != nullptr);
   REQUIRE(drcost_vec_ptr != nullptr);
@@ -103,15 +109,15 @@ TEST_CASE("ReserveZone with time-varying costs")
   CHECK(urcost_vec_ptr->size() == 4);
   CHECK(drcost_vec_ptr->size() == 4);
 
-  CHECK((*urcost_vec_ptr)[0] == 900.0);
-  CHECK((*urcost_vec_ptr)[1] == 1000.0);
-  CHECK((*urcost_vec_ptr)[2] == 1200.0);
-  CHECK((*urcost_vec_ptr)[3] == 950.0);
+  CHECK((*urcost_vec_ptr)[0][0] == 900.0);
+  CHECK((*urcost_vec_ptr)[1][0] == 1000.0);
+  CHECK((*urcost_vec_ptr)[2][0] == 1200.0);
+  CHECK((*urcost_vec_ptr)[3][0] == 950.0);
 
-  CHECK((*drcost_vec_ptr)[0] == 700.0);
-  CHECK((*drcost_vec_ptr)[1] == 800.0);
-  CHECK((*drcost_vec_ptr)[2] == 850.0);
-  CHECK((*drcost_vec_ptr)[3] == 750.0);
+  CHECK((*drcost_vec_ptr)[0][0] == 700.0);
+  CHECK((*drcost_vec_ptr)[1][0] == 800.0);
+  CHECK((*drcost_vec_ptr)[2][0] == 850.0);
+  CHECK((*drcost_vec_ptr)[3][0] == 750.0);
 }
 
 TEST_CASE("ReserveZoneLP - basic reserve zone with up requirement")

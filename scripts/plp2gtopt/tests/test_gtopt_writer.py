@@ -194,7 +194,7 @@ class TestGTOptWriterProcessMethods:
         # well below the threshold, leaving genuine policy
         # improvement on the table.  See ``gtopt_writer.py`` L0–L3
         # sddp_options comments for the per-level rationale.
-        expected_stationary_tol = [0.00005, 0.0001, 0.001, 0.005]
+        expected_stationary_tol = [0.00005, 0.0001, 0.0005, 0.001]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.5
@@ -218,7 +218,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.0005  # 0.05 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
@@ -227,7 +227,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[3]["name"] == "full_network"
         assert "num_apertures" not in levels[3]["sddp_options"]
         assert "aperture_selection_mode" not in levels[3]["sddp_options"]
-        assert levels[3]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[3]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
 
     def test_process_options_cascade_iteration_split(self):
         """Level budgets: L0 = 2·PDMaxIte, L1 = L2 = L3 = PDMaxIte.

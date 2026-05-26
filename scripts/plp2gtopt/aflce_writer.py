@@ -68,21 +68,6 @@ class AflceWriter(BaseWriter):
         ]
         return cast(List[Dict[str, Any]], json_flows)
 
-    def _create_dataframe_for_hydrology(
-        self, hydro_idx: int, items: list
-    ) -> pd.DataFrame:
-        """Create a DataFrame for a specific hydrology."""
-        df = self._create_dataframe(
-            items=items,
-            unit_parser=self.central_parser,
-            index_parser=self.block_parser,
-            value_field="flow",
-            index_field="block",
-            fill_field="afluent",
-            value_oper=lambda v: v[hydro_idx],
-        )
-        return df
-
     def _build_base_columns(
         self, items: list
     ) -> tuple[
@@ -157,7 +142,7 @@ class AflceWriter(BaseWriter):
             items = self.items
 
         if not items:
-            return []
+            return pd.DataFrame()
 
         # Collect valid scenarios
         valid_scenarios = []

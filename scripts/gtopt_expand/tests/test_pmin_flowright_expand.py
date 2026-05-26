@@ -16,6 +16,8 @@ from gtopt_expand.pmin_flowright_expand import (
     DEFAULT_PMIN_CSV,
     DEFAULT_UID_START,
     PminFlowRightSpec,
+    ensure_bypass_for_flowrights,
+    ensure_drain_for_flowrights,
     expand_pmin_flowright,
     expand_pmin_flowright_from_file,
     parse_pmin_flowright_file,
@@ -403,3 +405,182 @@ class TestPminFlowRightCli:
             ]
         )
         assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# ensure_bypass_for_flowrights — inline-bypass migration
+#
+# 35d3bdb8a added ``FlowRight.bypass_junction`` / ``bypass_cost`` on the
+# C++ side; the LP layer then emits a per-block bypass column inline
+# instead of relying on a parallel synthetic ``_spill`` waterway.  These
+# tests pin the new wiring.
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureBypassForFlowrights:
+    """Bypass-wiring helper for soft FlowRights."""
+
+    def test_soft_flow_right_reuses_existing_ocean_drain(self) -> None:
+        """A FlowRight with ``fcost`` reuses a sibling ``_ocean`` drain
+        when one is already present in the topology (the typical case
+        when plp2gtopt's ocean-fallback created it for a terminal
+        central)."""
+        system = {
+            "junction_array": [
+                {"uid": 1, "name": "PANGUE_DS"},
+                {"uid": 2, "name": "PANGUE_DS_ocean", "drain": True},
+            ],
+            "flow_right_array": [
+                {
+                    "uid": 10,
+                    "name": "PANGUE_pmin_as_flow_right",
+                    "junction": "PANGUE_DS",
+                    "fcost": 1000.0,
+                }
+            ],
+        }
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 1
+        fr = system["flow_right_array"][0]
+        assert fr["bypass_junction"] == "PANGUE_DS_ocean"
+        assert fr["bypass_cost"] == 0.0
+
+    def test_soft_flow_right_skips_bypass_when_no_drain_available(self) -> None:
+        """When the FlowRight's source junction has no sibling drain
+        (no ``_ocean`` from plp2gtopt's ocean fallback, no legacy
+        ``_spill`` from an older run), the helper LEAVES
+        ``bypass_junction`` unset and does NOT synthesise a new drain
+        at the source.  Adding a free drain to a real cascade
+        junction would let the LP shed upstream water through a
+        no-cost outflow path; the FlowRight's kink slack
+        (``fail_b`` × ``fcost``) already absorbs non-delivery on its
+        own.
+        """
+        system = {
+            "junction_array": [{"uid": 1, "name": "RALCO"}],
+            "flow_right_array": [
+                {
+                    "uid": 10,
+                    "name": "fr1",
+                    "junction": "RALCO",
+                    "fcost": 100.0,
+                }
+            ],
+        }
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 0
+        fr = system["flow_right_array"][0]
+        assert "bypass_junction" not in fr
+        # No synthetic ``_spill`` drain was added.
+        spill_junctions = [
+            j for j in system["junction_array"] if j["name"] == "RALCO_spill"
+        ]
+        assert spill_junctions == []
+
+    def test_no_synthetic_parallel_waterway_emitted(self) -> None:
+        """``waterway_array`` is not mutated — the bypass column lives
+        on the FlowRight JSON entry, not on a parallel Waterway."""
+        system = {
+            "junction_array": [{"uid": 1, "name": "RALCO"}],
+            "waterway_array": [],
+            "flow_right_array": [
+                {
+                    "uid": 10,
+                    "name": "fr1",
+                    "junction": "RALCO",
+                    "fcost": 100.0,
+                }
+            ],
+        }
+        ensure_bypass_for_flowrights(system)
+        assert system["waterway_array"] == []
+
+    def test_idempotent_on_explicit_bypass_junction(self) -> None:
+        """When a FlowRight already declares ``bypass_junction``, the
+        helper leaves both that field and the topology unchanged."""
+        system = {
+            "junction_array": [
+                {"uid": 1, "name": "RALCO"},
+                {"uid": 2, "name": "CUSTOM_SINK", "drain": True},
+            ],
+            "flow_right_array": [
+                {
+                    "uid": 10,
+                    "name": "fr1",
+                    "junction": "RALCO",
+                    "fcost": 100.0,
+                    "bypass_junction": "CUSTOM_SINK",
+                    "bypass_cost": 3.0,
+                }
+            ],
+        }
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 0
+        fr = system["flow_right_array"][0]
+        # Existing values preserved verbatim.
+        assert fr["bypass_junction"] == "CUSTOM_SINK"
+        assert fr["bypass_cost"] == 3.0
+        # No synthetic ``_spill`` junction was added.
+        assert all(j["name"] != "RALCO_spill" for j in system["junction_array"])
+
+    def test_hard_flow_right_without_fcost_skipped(self) -> None:
+        """A FlowRight with no ``fcost`` (hard bound) is left untouched."""
+        system = {
+            "junction_array": [{"uid": 1, "name": "RALCO"}],
+            "flow_right_array": [
+                {"uid": 10, "name": "fr_hard", "junction": "RALCO", "fmax": 5.0}
+            ],
+        }
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 0
+        fr = system["flow_right_array"][0]
+        assert "bypass_junction" not in fr
+
+    def test_shares_ocean_drain_across_multiple_flowrights(self) -> None:
+        """Two FlowRights on the same junction share a single sibling
+        ``<j>_ocean`` drain (the ocean comes from plp2gtopt's ocean
+        fallback for terminal centrals)."""
+        system = {
+            "junction_array": [
+                {"uid": 1, "name": "RALCO"},
+                {"uid": 2, "name": "RALCO_ocean", "drain": True},
+            ],
+            "flow_right_array": [
+                {"uid": 10, "name": "fr1", "junction": "RALCO", "fcost": 100.0},
+                {"uid": 11, "name": "fr2", "junction": "RALCO", "fcost": 200.0},
+            ],
+        }
+        wired = ensure_bypass_for_flowrights(system)
+        assert wired == 2
+        # Both FlowRights point at the same ocean drain.
+        targets = {fr["bypass_junction"] for fr in system["flow_right_array"]}
+        assert targets == {"RALCO_ocean"}
+        # No synthetic ``_spill`` drain was added.
+        assert all(j["name"] != "RALCO_spill" for j in system["junction_array"])
+
+    def test_legacy_alias_still_callable(self) -> None:
+        """``ensure_drain_for_flowrights`` is preserved as an alias and
+        returns the same count regardless of the underlying behaviour."""
+        system_a = {
+            "junction_array": [
+                {"uid": 1, "name": "J"},
+                {"uid": 2, "name": "J_ocean", "drain": True},
+            ],
+            "flow_right_array": [
+                {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
+            ],
+        }
+        system_b = {
+            "junction_array": [
+                {"uid": 1, "name": "J"},
+                {"uid": 2, "name": "J_ocean", "drain": True},
+            ],
+            "flow_right_array": [
+                {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
+            ],
+        }
+        a = ensure_bypass_for_flowrights(system_a)
+        b = ensure_drain_for_flowrights(system_b)
+        assert a == b == 1
+        assert system_a == system_b
+        assert system_a["flow_right_array"][0]["bypass_junction"] == "J_ocean"

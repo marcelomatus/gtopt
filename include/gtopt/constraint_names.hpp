@@ -83,9 +83,6 @@ inline constexpr std::string_view kirchhoff_cycle_constraint_name = "cycle";
 /// Cascade-target / state-link constraint.
 inline constexpr std::string_view cascade_target_constraint_name = "target";
 
-/// Per-stage emission cap (Σ generation × emission_factor ≤ cap).
-inline constexpr std::string_view emission_cap_constraint_name = "emission_cap";
-
 /// Storage / reservoir end-of-horizon closure constraint.
 /// Renamed from the legacy `"eclose"` for clarity.
 inline constexpr std::string_view storage_close_constraint_name =

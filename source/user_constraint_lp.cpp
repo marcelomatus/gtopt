@@ -389,13 +389,42 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
             term.element->attribute,
             ctx.block.uid(),
             *suppression);
+      } else if (res.element_known) {
+        // The element exists in the AMPL registry but has no LP
+        // column for this specific (scenario, stage, block) —
+        // typically a generator with ``pmax = 0`` on this block
+        // (GeneratorLP omits the column), or a battery with the
+        // same condition on charge/discharge.  The term contributes
+        // 0 to the LHS by construction (the underlying variable is
+        // implicitly 0); silently skipping it keeps the constraint
+        // well-formed without forcing the caller to per-block
+        // expressions.  Trace at DEBUG so the diagnostic is still
+        // available when needed.
+        //
+        // This was the root cause of the CEN PCP weekly LNG +229%
+        // over-dispatch: plexos2gtopt deliberately dropped startup-
+        // staged generators from FueMaxOff_<fuel> expressions to
+        // avoid this exact strict-mode error, but that under-counted
+        // the cap LHS by entire generators (NEHUENCO_2-TG+TV_GNL_C
+        // dispatched 30,843 MWh vs PLEXOS 244 MWh).  With this
+        // tolerance, plexos2gtopt can include those gens and the
+        // cap stays well-defined.
+        SPDLOG_DEBUG(
+            "user_constraint '{}': element '{}({}).{}' has no LP column "
+            "for block {} (inactive: pmax=0 or similar) — term contributes "
+            "0 to LHS",
+            ctx.uc.name,
+            term.element->element_type,
+            term.element->element_id,
+            term.element->attribute,
+            ctx.block.uid());
       } else if (ctx.is_strict) {
         // The element ref resolved neither as an LP column (no
         // matching variable in the AMPL registry) nor as a data
-        // parameter — most commonly a typo, an inactive element, or
-        // a missing element.  Silent skipping here is the most
-        // insidious failure mode: the constraint becomes vacuously
-        // satisfied while the LP still solves.
+        // parameter — most commonly a typo or a missing element.
+        // Silent skipping here is the most insidious failure mode:
+        // the constraint becomes vacuously satisfied while the LP
+        // still solves.
         throw std::runtime_error(std::format(
             "user_constraint '{}': cannot resolve element reference "
             "'{}({}).{}' (block {}) — element is missing or inactive, "
@@ -672,6 +701,7 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     , m_scale_type_(enum_from_name<ConstraintScaleType>(
                         uc.constraint_type.value_or("power"))
                         .value_or(ConstraintScaleType::Power))
+    , m_rhs_(ic, Element::class_name, id(), std::move(object().rhs))
 {
   // Parse `penalty_class` at construction so the hot per-block loop can
   // dispatch on a plain enum.  An unrecognised value is a hard error —
@@ -810,6 +840,25 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     // Move parameter terms to the RHS: vars + params [op] rhs
     // becomes vars [op] rhs - params
     auto adjusted_expr = expr;
+    // ``UserConstraint.rhs`` (TB-schedule field on the source object,
+    // stored in ``m_rhs_``) overrides the scalar parsed from the inline
+    // ``<op> NUMBER`` at the tail of ``expression``.  When the schedule
+    // returns ``std::nullopt`` for the current (stage, block) — or when
+    // the source ``UserConstraint`` left ``rhs`` unset entirely — we
+    // keep the expression's scalar.  Scalar JSON RHS therefore stays
+    // backward-compatible (a ``double`` constant on the schedule is
+    // simply a per-cell value matching the expression's scalar).
+    if (m_rhs_.has_value()) {
+      if (const auto rhs_override = m_rhs_.optval(stage.uid(), block.uid())) {
+        adjusted_expr.rhs = *rhs_override;
+        if (adjusted_expr.lower_bound) {
+          *adjusted_expr.lower_bound = *rhs_override;
+        }
+        if (adjusted_expr.upper_bound) {
+          *adjusted_expr.upper_bound = *rhs_override;
+        }
+      }
+    }
     adjusted_expr.rhs -= param_shift;
     if (adjusted_expr.lower_bound) {
       *adjusted_expr.lower_bound -= param_shift;
