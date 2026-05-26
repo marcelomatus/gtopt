@@ -4290,13 +4290,13 @@ def extract_user_constraints(
     # ``discharge_ANTUCOmin`` penalty).  Thermal/mixed constraints
     # stay HARD as before.
     _HYDRO_UC_SOFT_PENALTY = 10.0
-    # Gas/GNL daily fuel-operation caps (``Gas_MaxOpDay*``, flagged by
-    # ``rhs_from_custom``) are PHYSICAL fuel-supply limits, not hydro
-    # operational floors — they must bind, so they carry a high fuel-cap
-    # penalty instead of the $10 hydro soft floor (which let cheap
-    # gas/GNL units over-run their gas allocation, e.g. SAN_ISIDRO_2
-    # +45%).  Distinct constant so the two families never share a tier.
-    _FUEL_CAP_PENALTY = 500.0
+    # NOTE: a high fuel-cap penalty tier + per-day RHS scoping for the
+    # ``Gas_MaxOpDay*`` caps was trialled (binding them ~$500) but proved a
+    # net dispatch regression: PLEXOS itself runs the gas units high and
+    # treats these caps as soft (violates them), so over-enforcing crushed
+    # NEHUENCO/NUEVA_RENCA far below PLEXOS while CAMPICHE (uncapped coal)
+    # absorbed the load.  The gas caps therefore stay on the $10 soft tier
+    # (PLEXOS-soft behaviour); their RHS calibration is a separate item.
 
     out: list[UserConstraintSpec] = []
     unsupported_rhs_shift_warns: set[str] = set()
@@ -4691,26 +4691,7 @@ def extract_user_constraints(
         # available_capacity coefficient contributed; otherwise leave
         # ``rhs_profile`` empty so the writer keeps the inline scalar.
         rhs_profile_tuple: tuple[float, ...] = ()
-        # Day-scope the daily gas-operation caps (``Gas_MaxOpDay{N}``).
-        # PLEXOS ships one cap per day (Day0..Day7) over the SAME
-        # generators with a per-day RHS (e.g. Enel Day0=0.131 vs
-        # Day1=6.55); emitting each as a scalar cap applied to ALL blocks
-        # made the tightest day bind the whole week (Day0 crushed every
-        # gas unit).  Instead emit a per-period RHS profile that holds the
-        # per-hour cap on day N's 24 hours and a non-binding sentinel
-        # elsewhere, so each daily budget binds only on its own day.  The
-        # per-hour rate (``×1000/horizon_hours``) is unchanged — gtopt
-        # duration-weights the row across the stage.
-        if rhs_from_custom:
-            day_match = re.match(r"Gas_MaxOpDay(\d+)", constr.name)
-            if day_match:
-                day_n = int(day_match.group(1))
-                horizon = int(horizon_hours)
-                lo, hi = day_n * 24, (day_n + 1) * 24
-                rhs_profile_tuple = tuple(
-                    rhs_val if lo <= p < hi else 1.0e9 for p in range(horizon)
-                )
-        if not rhs_profile_tuple and any(abs(s) > 0.0 for s in rhs_shift_per_block):
+        if any(abs(s) > 0.0 for s in rhs_shift_per_block):
             rhs_profile_tuple = tuple(rhs_val - shift for shift in rhs_shift_per_block)
         # Soften UCs whose ENTIRE Generator-side LHS references hydros
         # — PLEXOS gates these per-reservoir floors / ramps on the
@@ -4784,11 +4765,7 @@ def extract_user_constraints(
                 and "decision_variable(" not in expression
             )
             if not references_commitment and not is_pure_line_flow:
-                # Gas/GNL fuel caps (rhs_from_custom) must bind → fuel-cap
-                # tier; hydro / reserve operational floors stay soft.
-                emitted_penalty = (
-                    _FUEL_CAP_PENALTY if rhs_from_custom else _HYDRO_UC_SOFT_PENALTY
-                )
+                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
         out.append(
             UserConstraintSpec(
                 name=constr.name,

@@ -647,9 +647,11 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     #    ``<stem>.json`` (current plexos2gtopt output).  Look for
     #    either.
     bundle_path: Path | None = None
-    for cand in case_dir.glob("*.json"):
+    for cand in sorted(case_dir.glob("*.json")):
         if cand.name == "planning.json":
             continue  # gtopt's writer copies; not the source bundle
+        if cand.name.endswith(".provenance.json"):
+            continue  # plexos2gtopt run-metadata sidecar; not the bundle
         bundle_path = cand
         break
     if bundle_path is None or not bundle_path.is_file():

@@ -6,8 +6,10 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -192,8 +194,109 @@ private:
 
 // ── Param value parsing ──────────────────────────────────────────────────────
 
-/// Parse `param name = value;` or `param name[month] = [v1, ..., v12];`
-UserParam parse_param(Scanner& sc)
+// ── Scalar arithmetic evaluator for param values ────────────────────────────
+//
+// Lets a ``param`` value be a small arithmetic expression rather than a bare
+// literal, so derived constants document their own derivation, e.g.
+//   param fuel_cap_penalty = 1000 / 24 / 7;   # daily-budget per-hour rate
+// Grammar (standard precedence, left-associative):
+//   expr   := term (('+' | '-') term)*
+//   term   := factor (('*' | '/') factor)*
+//   factor := NUMBER | IDENT | '(' expr ')'
+// ``read_number`` already consumes a leading sign and scientific notation,
+// so ``1e-5`` is a single literal while ``a - b`` is a subtraction.  An
+// ``IDENT`` factor resolves to the scalar value of a param declared EARLIER
+// in the file (``param a = 1800; param b = a / 7;``).
+double resolve_scalar_param(const std::vector<UserParam>& params,
+                            std::string_view ref)
+{
+  const auto it = std::ranges::find_if(
+      params, [&ref](const UserParam& p) { return p.name == ref; });
+  if (it == params.end() || !it->value) {
+    throw std::invalid_argument(
+        std::format("PAMPL: value references unknown or non-scalar "
+                    "param '{}'",
+                    ref));
+  }
+  return *it->value;
+}
+
+double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params);
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_factor(Scanner& sc, const std::vector<UserParam>& params)
+{
+  sc.skip_ws_comments();
+  const char c = sc.peek_char();
+  // Unary sign on a factor (covers ``-(a/4)`` and ``-ident`` where
+  // ``read_number`` — which only eats ``-<digits>`` — cannot).
+  if (c == '-') {
+    sc.consume('-');
+    return -parse_value_factor(sc, params);
+  }
+  if (c == '+') {
+    sc.consume('+');
+    return parse_value_factor(sc, params);
+  }
+  if (c == '(') {
+    sc.consume('(');
+    const double inner = parse_value_expr(sc, params);
+    if (!sc.consume(')')) {
+      throw std::invalid_argument(
+          "PAMPL: expected ')' to close param value sub-expression");
+    }
+    return inner;
+  }
+  if (std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_') {
+    return resolve_scalar_param(params, sc.read_ident());
+  }
+  return sc.read_number();
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_term(Scanner& sc, const std::vector<UserParam>& params)
+{
+  double acc = parse_value_factor(sc, params);
+  while (true) {
+    sc.skip_ws_comments();
+    const char op = sc.peek_char();
+    if (op == '*') {
+      sc.consume('*');
+      acc *= parse_value_factor(sc, params);
+    } else if (op == '/') {
+      sc.consume('/');
+      acc /= parse_value_factor(sc, params);
+    } else {
+      break;
+    }
+  }
+  return acc;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params)
+{
+  double acc = parse_value_term(sc, params);
+  while (true) {
+    sc.skip_ws_comments();
+    const char op = sc.peek_char();
+    if (op == '+') {
+      sc.consume('+');
+      acc += parse_value_term(sc, params);
+    } else if (op == '-') {
+      sc.consume('-');
+      acc -= parse_value_term(sc, params);
+    } else {
+      break;
+    }
+  }
+  return acc;
+}
+
+/// Parse `param name = value;` or `param name[month] = [v1, ..., v12];`.
+/// ``params`` holds the params declared earlier in the file so a value
+/// expression may reference them (``param b = a / 7;``).
+UserParam parse_param(Scanner& sc, const std::vector<UserParam>& params)
 {
   UserParam param;
 
@@ -243,7 +346,7 @@ UserParam parse_param(Scanner& sc)
         sc.consume(']');
         break;
       }
-      values.push_back(sc.read_number());
+      values.push_back(parse_value_expr(sc, params));
       sc.skip_ws_comments();
       sc.consume(',');  // optional trailing comma
     }
@@ -256,8 +359,9 @@ UserParam parse_param(Scanner& sc)
     }
     param.monthly = std::move(values);
   } else {
-    // Scalar value
-    param.value = sc.read_number();
+    // Scalar value — arithmetic expression over literals + earlier params
+    // (e.g. ``1000 / 24 / 7`` or ``a / 7``).
+    param.value = parse_value_expr(sc, params);
   }
 
   // Expect ';'
@@ -290,6 +394,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     bool active = true;
     std::string name;
     std::string description;
+    std::optional<double> penalty;
     bool has_header = false;
 
     // Save position so we can rewind if "inactive"/"constraint" are not found
@@ -300,7 +405,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     if (first_word == "param") {
       // Parameter declaration
-      result.params.push_back(parse_param(sc));
+      result.params.push_back(parse_param(sc, result.params));
       continue;
     }
 
@@ -340,6 +445,26 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
         description = sc.read_string();
       }
 
+      // Optional 'penalty <value-expr>' clause → soft constraint with a
+      // per-unit slack cost (mirrors UserConstraint.penalty).  Absent ⇒
+      // hard constraint.  Sits after the optional description and before
+      // the mandatory colon:  constraint NAME ["desc"] penalty 500 :
+      // The value is the same arithmetic-expression grammar used for param
+      // values, so it may be a literal, a param reference, or arithmetic
+      // over both (``penalty soft_floor_penalty``, ``penalty 1000/24/7``).
+      sc.skip_ws_comments();
+      if (!sc.at_end() && sc.peek_char() != ':') {
+        const std::string kw = sc.read_ident();
+        if (kw != "penalty") {
+          throw std::invalid_argument(
+              std::format("PAMPL: expected 'penalty' or ':' after constraint "
+                          "name '{}', got '{}'",
+                          name,
+                          kw));
+        }
+        penalty = parse_value_expr(sc, result.params);
+      }
+
       // Mandatory colon
       if (!sc.consume(':')) {
         throw std::invalid_argument(std::format(
@@ -371,6 +496,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     if (!active) {
       uc.active = false;
     }
+    uc.penalty = penalty;  // unset ⇒ hard; set ⇒ soft slack cost
     if (!description.empty()) {
       uc.description = std::move(description);
     }

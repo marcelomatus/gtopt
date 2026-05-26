@@ -20,6 +20,7 @@ from .gtopt_writer import (
     write_boundary_cut_csv,
     write_planning,
     write_provenance,
+    write_user_constraint_pampl,
 )
 from .parsers import extract_case
 from .plexos_loader import locate_bundle
@@ -308,6 +309,20 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     "monolithic_options", {}
                 )
                 mono["boundary_cuts_file"] = cut_file
+
+        # Move user constraints into modular per-family ``.pampl`` files
+        # (loaded via ``system.user_constraint_files``).  Constraints with
+        # a per-block ``rhs`` profile stay inline in the JSON.
+        sys_d = planning.get("system", {})
+        uc_arr = sys_d.get("user_constraint_array", [])
+        if uc_arr:
+            pampl_files, json_rem = write_user_constraint_pampl(uc_arr, output_dir)
+            if pampl_files:
+                sys_d["user_constraint_files"] = pampl_files
+                if json_rem:
+                    sys_d["user_constraint_array"] = json_rem
+                else:
+                    sys_d.pop("user_constraint_array", None)
         write_planning(planning, output_file)
 
         # Conversion-provenance sidecar (F5): documents each gtopt

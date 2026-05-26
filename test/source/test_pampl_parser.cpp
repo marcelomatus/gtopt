@@ -47,6 +47,70 @@ TEST_SUITE("PamplParser")
     CHECK(ucs[0].name == "gen_limit");
     CHECK(ucs[0].active.value_or(true) == true);
     CHECK_FALSE(ucs[0].description.has_value());
+    CHECK_FALSE(ucs[0].penalty.has_value());  // no clause ⇒ hard
+  }
+
+  // ── Header: penalty clause → soft constraint ─────────────────────────────
+  TEST_CASE("constraint header with penalty sets soft cost")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    SUBCASE("penalty after name")
+    {
+      const auto& ucs = PamplParser::parse(
+                            "constraint gas_cap penalty 500: "
+                            "generator('G1').generation <= 100;")
+                            .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].name == "gas_cap");
+      REQUIRE(ucs[0].penalty.has_value());
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(500.0));
+    }
+
+    SUBCASE("penalty after description")
+    {
+      const auto& ucs = PamplParser::parse(
+                            "constraint gas_cap \"daily gas\" penalty 71.45: "
+                            "generator('G1').generation <= 100;")
+                            .constraints;
+      REQUIRE(ucs.size() == 1);
+      REQUIRE(ucs[0].description.has_value());
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(71.45));
+    }
+
+    SUBCASE("inactive + penalty")
+    {
+      const auto& ucs =
+          PamplParser::parse(
+              "inactive constraint c penalty 10: line('L1').flow <= 5;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].active.value_or(true) == false);
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(10.0));
+    }
+
+    SUBCASE("penalty references a scalar param")
+    {
+      const auto& ucs = PamplParser::parse(
+                            "param fuel_cap_penalty = 500;\n"
+                            "constraint gas_cap penalty fuel_cap_penalty: "
+                            "generator('G1').generation <= 100;")
+                            .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(500.0));
+    }
+
+    SUBCASE("penalty referencing an unknown param raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c penalty nope: line('L1').flow <= 5;"));
+    }
+
+    SUBCASE("missing penalty/colon raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c bogus generator('G1').generation <= 1;"));
+    }
   }
 
   // ── Header: constraint NAME "desc" : ─────────────────────────────────────
@@ -255,6 +319,48 @@ constraint gen_limit:
     CHECK(result.params[0].name == "pct_elec");
     CHECK(result.params[0].value.value_or(0) == doctest::Approx(35.0));
     CHECK_FALSE(result.params[0].monthly.has_value());
+  }
+
+  TEST_CASE("Scalar param value supports arithmetic + param refs")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    SUBCASE("division chain (1000/24/7)")
+    {
+      const auto r = PamplParser::parse("param p = 1000 / 24 / 7;");
+      CHECK(r.params[0].value.value_or(0) == doctest::Approx(1000.0 / 24 / 7));
+    }
+    SUBCASE("precedence: * / before + -")
+    {
+      const auto r = PamplParser::parse("param p = 2 + 3 * 4 - 1;");
+      CHECK(r.params[0].value.value_or(0) == doctest::Approx(13.0));
+    }
+    SUBCASE("parentheses override precedence")
+    {
+      const auto r = PamplParser::parse("param p = 1000 / (24 * 7);");
+      CHECK(r.params[0].value.value_or(0)
+            == doctest::Approx(1000.0 / (24 * 7)));
+    }
+    SUBCASE("param references an earlier param (a=1800; b=a/7)")
+    {
+      const auto r = PamplParser::parse("param a = 1800;\nparam b = a / 7;");
+      REQUIRE(r.params.size() == 2);
+      CHECK(r.params[1].value.value_or(0) == doctest::Approx(1800.0 / 7));
+    }
+    SUBCASE("unary minus on a parenthesised param ref: -(a/4) + 1/24")
+    {
+      const auto r =
+          PamplParser::parse("param a = 1800;\nparam b = -(a / 4) + 1 / 24;");
+      REQUIRE(r.params.size() == 2);
+      CHECK(r.params[1].value.value_or(0)
+            == doctest::Approx(-(1800.0 / 4) + (1.0 / 24)));
+    }
+
+    SUBCASE("forward reference to a later param raises")
+    {
+      CHECK_THROWS(
+          (void)PamplParser::parse("param b = a / 7;\nparam a = 1800;"));
+    }
   }
 
   TEST_CASE("Monthly param declaration")
