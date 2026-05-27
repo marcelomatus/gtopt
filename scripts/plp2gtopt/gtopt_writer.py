@@ -1110,6 +1110,18 @@ class GTOptWriter(
         else:
             input_dir_val = str(output_dir)
 
+        # `output_directory` is written RELATIVE TO the input directory so each
+        # case's results are isolated.  When the JSON lives outside the data
+        # dir (`-f` elsewhere, input_dir_val != "."), a bare "results" would
+        # resolve against gtopt's CWD and every case launched from a shared
+        # parent would clobber a common ./results.  Nesting it under the
+        # case-scoped input dir (e.g. `<case>/results`) keeps outputs beside
+        # their inputs.  When input_dir_val == "." the JSON already lives in
+        # the data dir, so "results" is already case-local.
+        output_dir_val = (
+            "results" if input_dir_val == "." else f"{input_dir_val}/results"
+        )
+
         src_model = options.get("model_options", {})
 
         # PLP parity: the curtailment cost is applied PER-DEMAND via each
@@ -1235,7 +1247,7 @@ class GTOptWriter(
             "method": method,
             "input_directory": input_dir_val,
             "input_format": input_format,
-            "output_directory": "results",
+            "output_directory": output_dir_val,
             "output_format": output_format,
             "output_compression": compression,
             "model_options": model_opts,

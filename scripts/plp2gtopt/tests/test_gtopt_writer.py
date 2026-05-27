@@ -136,6 +136,39 @@ class TestGTOptWriterWithRealParser:
         result = writer.to_json(opts)
         assert result["options"]["method"] == "monolithic"
 
+    def test_output_directory_colocated_json_is_results(self, tmp_path):
+        """JSON inside the data dir (output_file.parent == output_dir) keeps
+        the bare ``results`` (resolves case-local against the JSON location)."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        # _make_opts places output_file inside output_dir -> input_directory ".".
+        result = writer.to_json(_make_opts(tmp_path))
+        opts = result["options"]
+        assert opts["input_directory"] == "."
+        assert opts["output_directory"] == "results"
+
+    def test_output_directory_nests_under_input_dir_when_json_elsewhere(self, tmp_path):
+        """When the JSON lives outside the data dir, ``output_directory`` is
+        nested under the data dir so results land beside their inputs rather
+        than in a shared ``./results`` clobbered by sibling cases."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        data_dir = tmp_path / "case_data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        opts = _make_opts(tmp_path)
+        # JSON sits in tmp_path, data lives in tmp_path/case_data -> mismatch.
+        opts["output_dir"] = data_dir
+        opts["output_file"] = tmp_path / "case_data.json"
+        result = writer.to_json(opts)
+        out = result["options"]
+        assert out["input_directory"] == str(data_dir)
+        # output_directory parallels input_directory: <data_dir>/results.
+        assert out["output_directory"] == f"{data_dir}/results"
+
 
 class TestGTOptWriterProcessMethods:
     """Unit tests for individual process_* methods."""
