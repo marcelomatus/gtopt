@@ -3158,11 +3158,54 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
     return tuple(out)
 
 
+def _uc_reserve_provision_gens(db: PlexosDb) -> frozenset[str]:
+    """Generator names referenced by a UserConstraint ``reserve_provision``
+    coefficient (the ``Generator``-parent ``*Reserve Provision
+    Coefficient`` kinds in :data:`_DIRECT_COEFFS`).
+
+    PLEXOS allows a Constraint to force a generator's reserve provision
+    even when that generator is NOT a member of any Reserve→Generator
+    eligibility table.  Such a gen never appears in any reserve's
+    ``eligible_generators`` so :func:`extract_reserve_provisions` would
+    not emit its ``provision_<gen>`` row — the constraint reference would
+    dangle and trip the strict converter's hard-fail.  Collecting these
+    names lets the provision extractor synthesise the missing rows.
+    """
+    objs = db.object_by_id()
+    out: set[str] = set()
+    for (
+        parent_class,
+        coll_suffix,
+        prop_name,
+        gtopt_class,
+        _acc,
+        _tmpl,
+    ) in _DIRECT_COEFFS:
+        if gtopt_class != "reserve_provision" or parent_class != "Generator":
+            continue
+        coll = db.collection_for_named(parent_class, "Constraint", coll_suffix)
+        if coll is None:
+            continue
+        prop_id = db.property_by_name(coll.collection_id, prop_name)
+        if prop_id is None:
+            continue
+        for gen_name, _coeff in (
+            pair
+            for pairs in _index_coefficient_rows(
+                db, coll.collection_id, prop_id, objs
+            ).values()
+            for pair in pairs
+        ):
+            out.add(gen_name)
+    return frozenset(out)
+
+
 def extract_reserve_provisions(
     reserves: tuple[ReserveSpec, ...],
     generators: tuple[GeneratorSpec, ...] = (),
     db: PlexosDb | None = None,
     committed_gens: frozenset[str] = frozenset(),
+    extra_provision_gens: frozenset[str] = frozenset(),
 ) -> tuple[ReserveProvisionSpec, ...]:
     """Invert Reserve→Generator memberships into per-Generator
     provisions.
@@ -3195,22 +3238,53 @@ def extract_reserve_provisions(
         g.name: bool(g.pmax_profile) and (max(g.pmax_profile) != min(g.pmax_profile))
         for g in generators
     }
-    # Restrict eligibility to generators with positive ``pmax``.
-    # Gens forced offline by PLEXOS (``Gen_UnitsOut = 1`` or
-    # ``Gen_Rating = 0`` across the whole horizon — TOCOPILLA-TG1/2,
-    # COLMITO_DIE, all _GNL_INF configurations, …) keep an LP
-    # placeholder column bounded to zero, but they CANNOT provide
-    # reserve.  Without this filter the writer emits 395+
-    # ``ReserveProvision`` rows attached to zero-capacity gens; the
-    # reserve-requirement constraint then can't be satisfied because
-    # the LP can't dispatch them — LP becomes primal-infeasible.
-    eligible_gens = {n for n, pmax in pmax_by_gen.items() if pmax > 0.0}
+    # Generators carrying real capacity (scalar ``pmax > 0`` OR a
+    # non-empty ``pmax_profile``).  These keep their real ``urmax`` /
+    # ``drmax`` caps and the urmin/drmin floor logic below.
+    capacity_gens = {
+        n for n, pmax in pmax_by_gen.items() if pmax > 0.0 or pmax_varies.get(n, False)
+    }
+    # Emit a ``ReserveProvision`` for EVERY generator a reserve
+    # references — including zero-capacity combined-cycle config
+    # variants (``TOCOPILLA-TG3_GN_A``, ``…_GNL_INF``, COLMITO_DIE, …).
+    # PLEXOS reserve user_constraints (``CPF/CSF/CTF*MinProvision``,
+    # ``*_Max_Operativo``, ``Special*``, ``SD_*``) reference
+    # ``reserve_provision("provision_<config>")`` for ALL config
+    # variants of a plant; if we drop the zero-capacity ones their refs
+    # dangle and the strict converter/gtopt fail hard.
+    #
+    # The old code filtered these out because emitting provisions with
+    # nonzero bounds / urmin floors on undispatchable gens made the
+    # reserve-requirement constraint primal-infeasible.  The safe shape
+    # is a STRICTLY ZERO-BOUNDED provision: ``urmax = drmax = pmax``
+    # (== 0 here) AND ``urmin = drmin = 0`` (no floor).  A ``[0,0]``
+    # column contributes exactly 0 to any reserve sum and forces
+    # nothing, so it cannot recreate that infeasibility — it just makes
+    # the reference resolve (config-exclusivity means only the single
+    # active config is online, so a zero-capacity config is correctly a
+    # 0-contribution).
     by_gen: dict[str, list[str]] = {}
     for rsv in reserves:
         for gen_name in rsv.eligible_generators:
-            if gen_name not in eligible_gens:
+            # Only attach to generators that actually exist as a
+            # generator (have an LP column).  A reserve referencing an
+            # unknown gen name is reported elsewhere, not synthesised.
+            if gen_name not in pmax_by_gen:
                 continue
             by_gen.setdefault(gen_name, []).append(rsv.name)
+    # Generators referenced by a ``reserve_provision("provision_<gen>")``
+    # coefficient in a UserConstraint but NOT a member of any
+    # Reserve→Generator eligibility table (``MACHICURA_U1/U2``,
+    # ``SAN_CLEMENTE`` in ``SD_2025084573_PteNegro_Colbun`` on CEN PCP
+    # v22).  PLEXOS lets a constraint reference a provision variable for
+    # a non-eligibility gen; the variable simply has no reserve-zone
+    # requirement attached.  Emit a zone-less provision so the reference
+    # resolves: a capacity-bearing gen (``MACHICURA_U*``, pmax > 0) gets
+    # its real ``urmax = drmax = pmax`` cap; a zero-capacity one
+    # (``SAN_CLEMENTE``, pmax == 0) stays the safe ``[0, 0]`` column.
+    for gen_name in sorted(extra_provision_gens):
+        if gen_name in pmax_by_gen:
+            by_gen.setdefault(gen_name, [])
     urmin_by_gen: dict[str, float] = {}
     drmin_by_gen: dict[str, float] = {}
     if db is not None:
@@ -3234,6 +3308,13 @@ def extract_reserve_provisions(
                     if rsv_obj is None or gen_obj is None:
                         continue
                     if pmax_varies.get(gen_obj.name, False):
+                        continue
+                    # Never floor a zero-capacity config variant: its
+                    # provision must stay strictly ``[0, 0]`` (no urmin /
+                    # drmin) so the column can't force any dispatch and
+                    # re-introduce the reserve-requirement infeasibility
+                    # the legacy ``pmax > 0`` filter prevented.
+                    if gen_obj.name not in capacity_gens:
                         continue
                     if gen_obj.name not in committed_gens:
                         continue
@@ -6440,7 +6521,9 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
                 c.generator_name
                 for c in extract_commitments(db, bundle, generators, fuels)
             ),
-        ),
+            extra_provision_gens=_uc_reserve_provision_gens(db),
+        )
+        + extract_sscc_bess_provisions(db, bundle, extract_batteries(db, bundle)),
         commitments=extract_commitments(db, bundle, generators, fuels),
         flow_rights=_synthesise_pinned_flow_rights(
             forced_waterway_targets, known_junction_names

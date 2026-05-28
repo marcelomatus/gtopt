@@ -201,6 +201,84 @@ def test_extract_reserve_provisions_inverts_eligibility() -> None:
     assert set(by_gen["g2"].reserve_zones) == {"ZONE_A"}
 
 
+def test_extract_reserve_provisions_zero_pmax_config_variants() -> None:
+    """Zero-capacity reserve-eligible gens get a STRICTLY ``[0, 0]``-bounded
+    provision (no urmin/drmin floor) so PLEXOS reserve user_constraints
+    referencing ``reserve_provision("provision_<config>")`` resolve.
+
+    PLEXOS CEN PCP emits one Generator per combined-cycle config variant
+    (e.g. ``TOCOPILLA-TG3_GN_A``, ``…_GNL_INF``); only the operating
+    config carries pmax > 0, the rest are scalar pmax == 0.  Without the
+    provision row, ~2095 ``CPF/CSF/CTF*MinProvision`` references would
+    dangle.  The provision must be ``urmax = drmax = 0`` with NO floor
+    so it contributes exactly 0 to any reserve sum and cannot recreate
+    the primal-infeasibility the old ``pmax > 0`` filter prevented.
+    """
+    reserves = (
+        ReserveSpec(
+            object_id=20,
+            name="CPF_RS",
+            eligible_generators=("g_on", "g_off1", "g_off2"),
+        ),
+    )
+    gens = (
+        GeneratorSpec(object_id=1, name="g_on", bus_name="b", pmax=50.0),
+        GeneratorSpec(object_id=2, name="g_off1", bus_name="b", pmax=0.0),
+        GeneratorSpec(object_id=3, name="g_off2", bus_name="b", pmax=0.0),
+    )
+    provisions = extract_reserve_provisions(reserves, generators=gens)
+    by_gen = {p.generator_name: p for p in provisions}
+    # Every reserve-eligible gen — including the zero-pmax configs —
+    # gets a provision so the reference resolves.
+    assert set(by_gen) == {"g_on", "g_off1", "g_off2"}
+    # Capacity gen keeps real urmax/drmax = pmax.
+    assert by_gen["g_on"].urmax == 50.0
+    assert by_gen["g_on"].drmax == 50.0
+    # Zero-capacity configs are strictly [0, 0] AND have NO floor —
+    # this is the "safe shape" that cannot force any dispatch.
+    for nm in ("g_off1", "g_off2"):
+        p = by_gen[nm]
+        assert p.urmax == 0.0, f"{nm}: urmax must be 0 (got {p.urmax})"
+        assert p.drmax == 0.0, f"{nm}: drmax must be 0 (got {p.drmax})"
+        assert p.urmin == 0.0, f"{nm}: urmin must be 0 (got {p.urmin})"
+        assert p.drmin == 0.0, f"{nm}: drmin must be 0 (got {p.drmin})"
+
+
+def test_extract_reserve_provisions_extra_provision_gens() -> None:
+    """A generator referenced by a UserConstraint
+    ``reserve_provision("provision_<gen>")`` coefficient but NOT a member
+    of any Reserve→Generator eligibility table still gets a provision row
+    (via the ``extra_provision_gens`` set), so the UC reference resolves.
+
+    A capacity-bearing gen gets its real ``urmax = drmax = pmax``; a
+    zero-pmax gen stays the safe ``[0, 0]`` column.  Neither carries a
+    floor.
+    """
+    reserves: tuple[ReserveSpec, ...] = ()  # not a reserve member
+    gens = (
+        GeneratorSpec(object_id=1, name="cap_gen", bus_name="b", pmax=40.0),
+        GeneratorSpec(object_id=2, name="zero_gen", bus_name="b", pmax=0.0),
+    )
+    provisions = extract_reserve_provisions(
+        reserves,
+        generators=gens,
+        extra_provision_gens=frozenset({"cap_gen", "zero_gen"}),
+    )
+    by_gen = {p.generator_name: p for p in provisions}
+    assert set(by_gen) == {"cap_gen", "zero_gen"}
+    # Capacity-bearing → real cap from pmax.
+    assert by_gen["cap_gen"].urmax == 40.0
+    assert by_gen["cap_gen"].drmax == 40.0
+    # Both are zone-less (no reserve membership) and floor-less.
+    for nm in ("cap_gen", "zero_gen"):
+        assert by_gen[nm].reserve_zones == ()
+        assert by_gen[nm].urmin == 0.0
+        assert by_gen[nm].drmin == 0.0
+    # Zero-pmax stays [0, 0].
+    assert by_gen["zero_gen"].urmax == 0.0
+    assert by_gen["zero_gen"].drmax == 0.0
+
+
 def test_build_reserve_zone_array_emits_matrix() -> None:
     """urreq / drreq emit as [[24-block]] matrices when present."""
     reserves = (

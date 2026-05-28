@@ -62,6 +62,32 @@ _skip_if_no_gtopt = pytest.mark.skipif(
     reason="gtopt binary not available (set GTOPT_BIN or build standalone)",
 )
 
+# The CEN PCP 2026-04-22 bundle currently carries ~2319 UserConstraint
+# coefficient terms that reference gtopt elements the converter never
+# emits (mostly per-generator ``reserve_provision("provision_<gen>")``
+# rows for alternate-fuel-mode / secondary-unit generators whose
+# ReserveProvision row is not emitted, plus a handful of unemitted
+# lines / waterways / commitments).  Under the strict fail-hard contract
+# (mirroring gtopt's strict JSON parser, see
+# ``parsers.UnresolvedConstraintReferenceError``) ``extract_case`` /
+# ``convert_plexos_bundle`` now RAISE on this bundle rather than silently
+# dropping those terms.  These references are a DATA / name-mapping gap
+# to be fixed at the source — the converter must not paper over them.
+# Until the gap is closed, the end-to-end real-bundle assertions below
+# are expected to fail at ``extract_case``; the dedicated
+# ``test_real_bundle_unresolved_uc_refs_fail_hard`` test pins the
+# fail-hard contract itself.
+_xfail_unresolved_uc = pytest.mark.xfail(
+    REAL_BUNDLE.is_file(),
+    reason=(
+        "real bundle has unresolved UserConstraint references; "
+        "extract_case raises UnresolvedConstraintReferenceError "
+        "(strict fail-hard, no silent drop)"
+    ),
+    raises=UnresolvedConstraintReferenceError,
+    strict=True,
+)
+
 
 @_skip_if_missing
 def test_real_bundle_locate_and_extract() -> None:
@@ -166,6 +192,44 @@ def test_real_bundle_user_constraints() -> None:
 
 
 @_skip_if_missing
+def test_real_bundle_unresolved_uc_refs_fail_hard() -> None:
+    """Strict contract: the real bundle FAILS HARD on dangling UC refs.
+
+    ``extract_case`` must raise ``UnresolvedConstraintReferenceError``
+    listing every UserConstraint term that references an element gtopt
+    never emits — NOT silently drop them.  The bundle currently carries
+    many such references; this test pins the fail-hard behaviour and
+    the shape of the reported list (constraint name + the offending
+    ``class("name").attr`` + a closest-emitted-name hint).
+    """
+    with locate_bundle(REAL_BUNDLE) as bundle:
+        with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
+            extract_case(bundle)
+    msg = str(excinfo.value)
+    # The error opens with a count and the strict-parser rationale.
+    assert "UserConstraint term(s) reference" in msg
+    assert "refusing to write a bundle" in msg
+    # Each offending line names a constraint, a typed reference, and a hint.
+    assert "constraint " in msg
+    assert "closest emitted name:" in msg
+    # The per-generator ``reserve_provision("provision_<gen>")`` family
+    # is RESOLVED by the converter — ``extract_reserve_provisions``
+    # emits a strictly ``[0, 0]``-bounded provision for every
+    # reserve-eligible config variant (including combined-cycle
+    # zero-pmax configs) AND for every Generator referenced by a UC
+    # ``reserve_provision`` coefficient even when it's not a reserve
+    # member.  The residual unresolved refs in the bundle are now the
+    # genuinely-unmodeled line / commitment / waterway names (renamed
+    # circuits, alternate-fuel solar/wind config variants that lack a
+    # Commitment row, Vert_* spillage waterways) — to be handled in a
+    # separate name-mapping pass.
+    assert "reserve_provision(" not in msg
+    # At least one of the remaining residual families is named.
+    assert ("line(" in msg) or ("commitment(" in msg) or ("waterway(" in msg)
+
+
+@_skip_if_missing
+@_xfail_unresolved_uc
 def test_real_bundle_p7_flow_rights() -> None:
     """P7: ``Hydro_AntucoBounds.csv`` no longer emits FlowRights for
     Junction-level rights (that interpretation was wrong — PLEXOS
