@@ -2294,6 +2294,47 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
     return tuple(out)
 
 
+def _vert_waterways_referenced_by_constraints(db: PlexosDb) -> frozenset[str]:
+    """Return the names of every ``Vert_*`` waterway referenced by some
+    PLEXOS UserConstraint via a ``Constraints`` membership (i.e. carrying
+    a ``Flow Coefficient`` for that constraint).
+
+    These spillway arcs MUST stay emitted as real ``Waterway`` rows in
+    ``case.waterways`` rather than being collapsed onto
+    ``Junction.drain_*``: collapsing them drops the LP column the
+    constraint term binds to, forcing the converter to omit
+    ``waterway("Vert_<X>").flow`` and leaving a stricter gen-only LHS
+    than PLEXOS uses (e.g. ``ANGOSTURAeco`` becomes ``gen ≥ 38.5``
+    instead of the faithful ``gen + 0.43·Vert_ANGOSTURA.flow ≥ 38.5``).
+
+    Kept arcs are routed by the consumer
+    (``extract_waterways``) per **PLEXOS-published topology**: when the
+    Waterway carries a ``Storage To`` membership the arc connects
+    source junction → that downstream reservoir (cascade routing,
+    matches PLEXOS's water balance — e.g. ``Vert_PANGUE → ANGOSTURA``,
+    ``Vert_B_Maule → COLBUN``); when no ``Storage To`` exists the arc
+    falls back to a synthetic ``<source>_ocean`` drain junction
+    (``Vert_ANGOSTURA`` is genuinely terminal in PLEXOS).  Active
+    constraints are already emitted with ``penalty soft_floor_penalty``
+    so a tighter LHS can never produce infeasibility — only a penalty
+    (matches the "hydro min-flow must be soft" rule).
+
+    The set is derived from the PLEXOS input — NOT a fixed allowlist —
+    so if a bundle adds another ``Vert_*``-referencing constraint the
+    converter auto-keeps that waterway too.
+    """
+    coll = db.collection_for_named("Waterway", "Constraint", "Constraints")
+    if coll is None:
+        return frozenset()
+    p2c = db.parent_to_children(coll.collection_id)
+    objs = db.object_by_id()
+    return frozenset(
+        objs[wid].name
+        for wid, child_ids in p2c.items()
+        if child_ids and wid in objs and objs[wid].name.startswith("Vert_")
+    )
+
+
 def extract_waterways(
     db: PlexosDb,
     bundle: PlexosBundle | None = None,
@@ -2336,6 +2377,14 @@ def extract_waterways(
     out: list[WaterwaySpec] = []
     pinned_count = 0
     synthetic_sinks: list[str] = []
+    # ``Vert_*`` waterways referenced by some PLEXOS UserConstraint via
+    # a ``Constraints`` membership — these MUST NOT be collapsed onto a
+    # ``Junction.drain_*`` row (the constraint's ``waterway(...).flow``
+    # term would then have no LP column to bind to and would be dropped,
+    # producing a stricter gen-only LHS than PLEXOS uses).  Auto-derived
+    # from the input so adding a new spillway constraint in PLEXOS
+    # transparently keeps its waterway emitted.
+    keep_as_waterway: frozenset[str] = _vert_waterways_referenced_by_constraints(db)
     # ``Vert_*`` spillways are redirected to a synthetic
     # ``<source>_ocean`` drain junction (mirrors PLP's terminal /
     # vrebemb-as-sink topology).  Collected here so the caller can
@@ -2426,7 +2475,23 @@ def extract_waterways(
             # and SKIP emitting the Waterway entirely.  This replaces
             # the synthetic ``<src>_ocean`` Waterway+Junction pair
             # with a single drain row on the source junction.
-            if junction_drain_configs_out is not None:
+            #
+            # EXCEPTION: ``Vert_*`` arcs in ``keep_as_waterway`` are
+            # explicitly referenced by UserConstraint Flow Coefficient
+            # memberships (e.g. ``ANGOSTURAeco`` carries
+            # ``0.43 * waterway("Vert_ANGOSTURA").flow``).  Collapsing
+            # them would force the converter to drop the term and emit
+            # a stricter gen-only LHS than PLEXOS.  Skip the collapse
+            # for those names and fall through to the ocean-redirect
+            # path so the Waterway is emitted (LP-equivalent: same
+            # ``fmax``/``fcost``, spill still leaves the basin via the
+            # synthetic ``<source>_ocean`` drain Junction).  The set is
+            # auto-derived from the PLEXOS input — not a fixed allowlist
+            # — so this stays correct when new spillway constraints land.
+            if (
+                junction_drain_configs_out is not None
+                and ww.name not in keep_as_waterway
+            ):
                 fmax_raw = db.static_property("Waterway", ww.object_id, "Max Flow")
                 fcost_raw = db.static_property(
                     "Waterway", ww.object_id, "Max Flow Penalty"
@@ -2539,7 +2604,32 @@ def extract_waterways(
             import os
 
             _routing = os.environ.get("GTOPT_VERT_ROUTING", "ocean").lower()
-            if _routing == "cascade" and t_name is not None:
+            # ──────────────────────────────────────────────────────────
+            # UC-referenced spillways (``keep_as_waterway``) default to
+            # cascade routing — i.e. keep the PLEXOS-published
+            # ``Storage To`` as the downstream junction — for topology
+            # faithfulness with the cascade water balance the UC's
+            # ``waterway(...).flow`` term refers to.
+            #
+            # Rationale: the dispatch-matching ocean default above was
+            # justified for the *uniform* ocean-redirect of all
+            # ``Vert_*`` arcs; for the *selective* UC-referenced keep
+            # set the trade-off shifts.  Because PLEXOS itself attaches
+            # a Flow Coefficient to these arcs, the constraint physics
+            # cares about where the spilled water ends up — over-
+            # routing to ocean creates a "water lost forever" penalty
+            # the LP feels (e.g. ``PEHUENCHEmin``: ocean-redirecting
+            # ``Vert_B_Maule`` makes spilling free-money lost and
+            # pushes the LP to over-turbine PEHUENCHE to meet the
+            # ≥ 18 floor, whereas PLEXOS recovers the spill at COLBUN).
+            #
+            # Falls back to ocean when PLEXOS publishes no
+            # ``Storage To`` (genuinely terminal arc — e.g.
+            # ``Vert_ANGOSTURA``).  ``GTOPT_VERT_ROUTING`` stays as a
+            # manual override for diagnostic / dispatch-tuning runs.
+            # ──────────────────────────────────────────────────────────
+            kept_default_cascade = ww.name in keep_as_waterway
+            if (_routing == "cascade" or kept_default_cascade) and t_name is not None:
                 # Keep the PLEXOS-published junction_b — no override.
                 pass
             else:
@@ -6435,9 +6525,15 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         if _rs_mode == "strict":
             real_res_names = {r.name for r in reservoirs}
             ww_to_drop: list[str] = []
+            keep_vert = _vert_waterways_referenced_by_constraints(db)
             for w in waterways:
-                # 1. Surviving Vert_<X> (defensive)
-                if w.name.startswith("Vert_"):
+                # 1. Surviving Vert_<X> (defensive).  Exception: arcs
+                #    referenced by some UserConstraint Flow Coefficient
+                #    membership (``keep_vert``, auto-derived from the
+                #    PLEXOS input) are kept on purpose so the UC terms
+                #    resolve — dropping them here would re-introduce the
+                #    gen-only-LHS divergence we just fixed upstream.
+                if w.name.startswith("Vert_") and w.name not in keep_vert:
                     ww_to_drop.append(w.name)
                     continue
                 # 2. Pure-spillway: unbounded fmax + positive fcost from
