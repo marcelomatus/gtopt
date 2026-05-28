@@ -164,6 +164,16 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   if (const auto gap = opts.mip_gap; gap && *gap > 0) {
     CPXsetdblparam(env, CPX_PARAM_EPGAP, *gap);
   }
+  // Target ABSOLUTE MIP optimality gap (CPLEX `CPX_PARAM_EPAGAP`).
+  // Unlike the relative EPGAP, the absolute gap is invariant to a constant
+  // objective offset (e.g. an FCF cost-to-go folded in via
+  // `add_obj_constant`), so it stays meaningful when the objective carries
+  // a large baseline.  Value is in the solver's (scale_objective-scaled)
+  // objective units.  The bundled `cplex.prm` may also set
+  // `CPXPARAM_MIP_Tolerances_AbsMIPGap`, which overrides this.
+  if (const auto gap_abs = opts.mip_gap_abs; gap_abs && *gap_abs > 0.0) {
+    CPXsetdblparam(env, CPX_PARAM_EPAGAP, *gap_abs);
+  }
   if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
     CPXsetdblparam(env, CPX_PARAM_TILIM, *tl);
   }

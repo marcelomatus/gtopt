@@ -186,6 +186,23 @@ inline constexpr auto line_losses_mode_entries =
  *   until the alternative LP structure (1 col + K rows per (line,
  *   block) instead of K cols + 1 row) is wired up.
  *
+ * - `midpoint` (3): de-biased secant chords.  Same K segment columns,
+ *   same chord SLOPES `(R/V²)·width·(2k−1)`, and the same single
+ *   loss-tracking row as `uniform` — but the row is an INEQUALITY
+ *   `loss ≥ Σ loss_k·seg_k − (R/V²)·(width/2)²` so the whole PWL is
+ *   shifted DOWN by the constant `(R/V²)·width²/4`.  This turns each
+ *   secant chord into the tangent of `ℓ(f)=(R/V²)·f²` at the segment
+ *   MIDPOINT `m_k=(2k−1)·width/2`.  Because adjacent midpoint tangents
+ *   intersect EXACTLY at the breakpoints `b_k=k·width`, the offset is a
+ *   FLAT constant `(R/V²)·width²/4` for every flow `f>0` (it does NOT
+ *   accumulate per segment).  Result: an UNBIASED estimator — exact at
+ *   the segment midpoints, at most `(R/V²)·width²/4` UNDER at the
+ *   breakpoints — versus `uniform`'s strict (all-positive) overstatement
+ *   of up to `(R/V²)·width²/4` at the midpoints.  Removes the systematic
+ *   loss-overstatement of the secant layout while keeping the exact LP
+ *   structure (K cols + 1 row).  `uniform` is preserved as the default
+ *   for callers that need a guaranteed upper bound on losses.
+ *
  * Theory references:
  *   - Imamura et al., *On piecewise linear approximation of quadratic
  *     functions* (2003).
@@ -199,6 +216,7 @@ enum class LinePwlLayout : uint8_t
   equal_error = 1,  ///< √-spaced secant chords (minimax error)
   tangent =
       2,  ///< Outer-approximation tangents (future; falls back to uniform)
+  midpoint = 3,  ///< De-biased secant chords (midpoint-tangent shift)
 };
 
 inline constexpr auto line_pwl_layout_entries =
@@ -206,6 +224,7 @@ inline constexpr auto line_pwl_layout_entries =
         {.name = "uniform", .value = LinePwlLayout::uniform},
         {.name = "equal_error", .value = LinePwlLayout::equal_error},
         {.name = "tangent", .value = LinePwlLayout::tangent},
+        {.name = "midpoint", .value = LinePwlLayout::midpoint},
     });
 
 [[nodiscard]] constexpr auto enum_entries(LinePwlLayout /*tag*/) noexcept

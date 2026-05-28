@@ -21,6 +21,7 @@ from plexos2gtopt.gtopt_writer import (
     augment_el1_with_soft_caps,
     build_battery_array,
     build_demand_array,
+    build_emission_array,
     build_fuel_array,
     build_generator_array,
     build_line_array,
@@ -140,6 +141,57 @@ def test_line_units_scales_capacity() -> None:
     assert out[0]["tmax_ba"] == 200.0
 
 
+def test_el0_extended_soft_caps_inflate_tmax() -> None:
+    """--el0-lines extended: a soft-capped line inflates tmax above nominal."""
+    lines = (
+        LineSpec(
+            object_id=3,
+            name="el0_soft",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+            tmin_ab=-100.0,
+            units=1,
+            enforce_limits=1,
+            soft_cap=True,  # how extract_lines flags EL=0 under "extended"
+        ),
+    )
+    out = build_line_array(lines)
+    # Soft cap: tmax_ab is the inflated HARD cap (> nominal), tmax_normal_ab
+    # the free-band threshold (also > nominal), and loss_envelope preserves
+    # the true nominal rating (100).
+    assert out[0]["tmax_ab"] > 100.0
+    assert out[0]["tmax_normal_ab"] > 100.0
+    assert out[0]["loss_envelope"] == 100.0
+    assert "overload_penalty" in out[0]
+
+
+def test_el0_strict_acts_like_el2_hard_cap() -> None:
+    """--el0-lines strict: the line is a plain hard cap at the nominal rating.
+
+    extract_lines emits ``enforce_limits=2`` + ``soft_cap=False`` in strict
+    mode, so the writer keeps tmax at the nominal rating with no free band.
+    """
+    lines = (
+        LineSpec(
+            object_id=4,
+            name="el0_strict",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+            tmin_ab=-100.0,
+            units=1,
+            enforce_limits=2,
+            soft_cap=False,
+        ),
+    )
+    out = build_line_array(lines)
+    assert out[0]["tmax_ab"] == 100.0  # nominal, not inflated
+    assert "tmax_normal_ab" not in out[0]  # no soft-cap band
+    assert "overload_penalty" not in out[0]
+    assert "enforce_level" not in out[0]  # EL=2 is the schema default
+
+
 def test_battery_emits_efficiency_and_power() -> None:
     """P2: build_battery_array writes pmax_charge / input_efficiency."""
     batts = (
@@ -177,6 +229,45 @@ def test_battery_omits_unity_efficiency() -> None:
     out = build_battery_array(batts)
     assert "input_efficiency" not in out[0]
     assert "output_efficiency" not in out[0]
+
+
+def test_battery_emits_max_cycles_day_and_capacity() -> None:
+    """max_cycles_day > 0 (with emax > 0) emits both ``capacity`` (= emax,
+    the usable energy) and ``max_cycles_day`` so gtopt builds the daily
+    energy-throughput limit row."""
+    batts = (
+        BatterySpec(
+            object_id=20,
+            name="bess_cyc",
+            bus_name="bus_a",
+            emax=100.0,
+            eini=50.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+            max_cycles_day=1.0,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert entry["max_cycles_day"] == 1.0
+    assert entry["capacity"] == 100.0
+
+
+def test_battery_omits_max_cycles_day_when_zero() -> None:
+    """No ``max_cycles_day`` / ``capacity`` keys when the cycle limit is
+    unset (0.0) — keeps the daily-cycle row out of the LP."""
+    batts = (
+        BatterySpec(
+            object_id=21,
+            name="bess_nocyc",
+            bus_name="bus_a",
+            emax=100.0,
+            pmax_charge=50.0,
+            pmax_discharge=50.0,
+        ),
+    )
+    entry = build_battery_array(batts)[0]
+    assert "max_cycles_day" not in entry
+    assert "capacity" not in entry
 
 
 # ---------------------------------------------------------------------------
@@ -528,9 +619,9 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     assert out[0]["voltage"] == 10.0
     assert out[0]["line_losses_mode"] == "piecewise"
     assert out[0]["loss_segments"] == 4
-    # Default layout (post-2026-05) is `tangent`; emitted only when
-    # non-`uniform` so the JSON stays minimal for the older default.
-    assert out[0].get("loss_pwl_layout") == "tangent"
+    # Default layout (post-2026-05) is `midpoint` (de-biased secant);
+    # emitted only when non-`uniform` so the JSON stays minimal.
+    assert out[0].get("loss_pwl_layout") == "midpoint"
 
 
 def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
@@ -1137,27 +1228,46 @@ def test_write_provenance_creates_valid_json(tmp_path) -> None:
 
 
 def test_build_fcf_alpha_terms_normal_path() -> None:
-    """F6/B: FCF boundary cut → alpha_fcf DecisionVariable (cost
-    normalised by horizon) + FCF_future_cost UserConstraint with the
-    reservoir water-value slopes and the FCF intercept as RHS."""
+    """F6/B: FCF boundary cut → alpha_fcf DecisionVariable + FCF_future_cost
+    UserConstraint scoped to the LAST block (end-of-horizon `.efin`).
+    The cut is α-rebased (α = α' + c) where c = FCF − Σ wv·state is the cut
+    value at each reservoir's expected terminal state (the efin target):
+    the shifted RHS becomes Σ wv·state and obj_constant = c is added back so
+    the reported objective is unchanged.  alpha_fcf is free, raw,
+    single-last-block."""
     from plexos2gtopt.entities import BoundaryCutSpec
     from plexos2gtopt.gtopt_writer import _FCF_SCALE_ALPHA, build_fcf_alpha_terms
 
     cut = BoundaryCutSpec(fcf=1_000_000.0, slopes={"RES_A": 50.0, "RES_B": 30.0})
+    # Terminal states (efin) → Σ wv·state = 50*100 + 30*200 = 11000.
+    reservoir_state = {"RES_A": 100.0, "RES_B": 200.0}
     result = build_fcf_alpha_terms(
-        cut, frozenset({"RES_A", "RES_B"}), dv_uid=1, uc_uid=2, horizon_hours=168.0
+        cut,
+        reservoir_state,
+        dv_uid=1,
+        uc_uid=2,
+        last_block_uid=111,
     )
     assert result is not None
     alpha_dv, fcf_uc = result
     assert alpha_dv["uid"] == 1
     assert alpha_dv["name"] == "alpha_fcf"
-    assert alpha_dv["lower_bound"] == 0.0
-    # Cost is /horizon so the per-block × duration sum collapses to one term.
-    assert alpha_dv["cost"] == pytest.approx(_FCF_SCALE_ALPHA / 168.0)
+    # α' is FREE — the cut bounds it; no explicit lower_bound is emitted.
+    assert "lower_bound" not in alpha_dv
+    # Single last-block column via DecisionVariable.block scope.
+    assert alpha_dv["block"] == 111
+    # Raw money variable: cost = scale_alpha (= 1), discount-only scaling.
+    assert alpha_dv["cost"] == pytest.approx(_FCF_SCALE_ALPHA)
+    assert alpha_dv["cost_type"] == "raw"
+    # Restitution constant = c = FCF − Σ wv·mid = 1e6 − 11000 = 989000.
+    assert alpha_dv["obj_constant"] == pytest.approx(989_000.0)
     assert fcf_uc["uid"] == 2
     assert 'decision_variable("alpha_fcf").value' in fcf_uc["expression"]
     assert 'reservoir("RES_A").efin' in fcf_uc["expression"]
-    assert fcf_uc["expression"].rstrip().endswith(">= 1000000.000000")
+    # Constraint is scoped to the last block → emits ONE row, not one per block.
+    assert "for(block in {111})" in fcf_uc["expression"]
+    # Shifted RHS = Σ wv·mid = 11000 (was the raw FCF intercept).
+    assert ">= 11000.000000" in fcf_uc["expression"]
 
 
 def test_build_fcf_alpha_terms_no_reservoir_match_returns_none() -> None:
@@ -1168,22 +1278,22 @@ def test_build_fcf_alpha_terms_no_reservoir_match_returns_none() -> None:
     cut = BoundaryCutSpec(fcf=1e6, slopes={"UNKNOWN": 50.0})
     assert (
         build_fcf_alpha_terms(
-            cut, frozenset({"RES_A"}), dv_uid=1, uc_uid=2, horizon_hours=168.0
+            cut,
+            {"RES_A": 100.0},
+            dv_uid=1,
+            uc_uid=2,
+            last_block_uid=24,
         )
         is None
     )
 
 
-def test_build_fcf_alpha_terms_zero_horizon_clamps() -> None:
-    """horizon_hours=0 must not divide by zero — clamps the denominator
-    to 1.0 so the cost equals the raw scale_alpha."""
-    from plexos2gtopt.entities import BoundaryCutSpec
-    from plexos2gtopt.gtopt_writer import _FCF_SCALE_ALPHA, build_fcf_alpha_terms
-
-    cut = BoundaryCutSpec(fcf=1e6, slopes={"RES_A": 50.0})
-    result = build_fcf_alpha_terms(
-        cut, frozenset({"RES_A"}), dv_uid=1, uc_uid=2, horizon_hours=0.0
-    )
-    assert result is not None
-    alpha_dv, _ = result
-    assert alpha_dv["cost"] == pytest.approx(_FCF_SCALE_ALPHA)
+def test_build_emission_array_co2() -> None:
+    """emission_array['co2'] is emitted iff a fuel carries a CO2 rate."""
+    no_co2 = (FuelSpec(object_id=1, name="coal", price=4.0),)
+    assert build_emission_array(no_co2) == []
+    with_co2 = (FuelSpec(object_id=1, name="coal", price=4.0, co2_rate=0.34),)
+    assert build_emission_array(with_co2) == [{"uid": 1, "name": "co2"}]
+    # upstream-only rate also triggers the pollutant definition.
+    up_only = (FuelSpec(object_id=2, name="lng", co2_upstream_rate=0.05),)
+    assert build_emission_array(up_only) == [{"uid": 1, "name": "co2"}]

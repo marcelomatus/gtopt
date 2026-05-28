@@ -21,6 +21,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/work_pool.hpp>
@@ -52,11 +53,37 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     SPDLOG_INFO("MonolithicMethod: loading boundary cuts from '{}'",
                 boundary_cuts_file);
 
-    // Build temporary SDDPOptions with boundary cut settings
+    // Build temporary SDDPOptions with boundary cut settings.
     SDDPOptions bc_opts;
     bc_opts.boundary_cuts_file = boundary_cuts_file;
     bc_opts.boundary_cuts_mode = boundary_cuts_mode;
     bc_opts.boundary_max_iterations = boundary_max_iterations;
+    // Mirror the SDDP α-rebase opt-in / scale onto the monolithic path so
+    // the efin-based offset `c` is computed identically (see TASK 2).  The
+    // planning-level SDDP options are the single source of truth for both
+    // methods.
+    bc_opts.boundary_cuts_mean_shift =
+        planning_lp.options().sddp_boundary_cuts_mean_shift();
+    bc_opts.missing_cut_var_mode =
+        planning_lp.options().sddp_missing_cut_var_mode();
+    bc_opts.cut_coeff_eps = planning_lp.options().sddp_cut_coeff_eps();
+
+    // ── Register α (future-cost) state variables ──
+    // The boundary-cut loader installs each cut as `α + Σ wvᵣ·efinᵣ ≥ FCF`
+    // and *skips* the cut entirely when `find_alpha_state_var` returns
+    // nullptr.  SDDP registers α via `SDDPMethod::initialize_alpha_variables`;
+    // the monolithic path never did, so every boundary cut was silently
+    // dropped (0 "Boundary" rows in the assembled LP).  Register α here —
+    // on every (scene, phase), mirroring `register_alpha_variables` — before
+    // loading so the loader binds the cuts.  α carries the same objective
+    // coefficient (respecting `scale_alpha` / auto-scale) and is freed from
+    // its bootstrap pin by the cut install (`bound_alpha_for_cut`).
+    const double scale_alpha = effective_scale_alpha(
+        planning_lp, planning_lp.options().sddp_scale_alpha());
+    bc_opts.scale_alpha = scale_alpha;
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      register_alpha_variables(planning_lp, scene_index, scale_alpha);
+    }
 
     // Build per-scene phase state info (alpha columns + outgoing links)
     const auto num_phases_bc = planning_lp.systems().empty()
@@ -80,6 +107,31 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
           "MonolithicMethod: loaded {} boundary cuts (max iteration {})",
           bc_result->count,
           bc_result->max_iteration);
+
+      // ── α-rebase restitution (mean-shift) ──
+      // When `boundary_cuts_mean_shift` is on (default), the loader
+      // subtracts the per-scene offset `c` (the cut value at each
+      // reservoir's efin target — see TASK 2) from every cut RHS and
+      // returns it in `alpha_offsets_per_scene`.  The substitution α =
+      // α' + c shifts the LP's reported objective by −c, so we add `c`
+      // back via `add_obj_constant` on each scene's last-phase
+      // LinearInterface — exactly the Python oracle's `obj_constant`
+      // restitution (`build_fcf_alpha_terms`).  SDDP instead folds the
+      // offset into UB/LB at display via `scene_alpha_offset`; the
+      // monolithic path reports `get_obj_value()` directly, so the
+      // restitution must live on the LP.  Offsets are zero when the
+      // shift is disabled, making this a no-op then.
+      const auto& offsets = bc_result->alpha_offsets_per_scene;
+      const auto last_phase = planning_lp.simulation().last_phase_index();
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        const auto si = static_cast<std::size_t>(scene_index);
+        const double c = (si < offsets.size()) ? offsets[scene_index] : 0.0;
+        if (c != 0.0) {
+          planning_lp.system(scene_index, last_phase)
+              .linear_interface()
+              .add_obj_constant(c);
+        }
+      }
     } else {
       SPDLOG_WARN("MonolithicMethod: failed to load boundary cuts: {}",
                   bc_result.error().message);

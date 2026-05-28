@@ -96,6 +96,29 @@ def run_plp2gtopt(
     return result.returncode
 
 
+def run_plexos2gtopt(
+    plexos2gtopt_bin: str,
+    input_bundle: Path,
+    output_dir: Path,
+    extra_args: list[str] | None = None,
+) -> int:
+    """Run plexos2gtopt to convert a PLEXOS bundle to gtopt format.
+
+    Mirrors :func:`run_plp2gtopt`.  The converter auto-runs its
+    PLEXOS↔gtopt comparison + structural validation and returns the
+    CRITICAL finding count as its exit code (nonzero ⇒ abort).
+    """
+    cmd = [plexos2gtopt_bin, str(input_bundle), "-o", str(output_dir)]
+    if extra_args:
+        cmd.extend(extra_args)
+
+    log.info("running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        log.error("plexos2gtopt failed with exit code %d", result.returncode)
+    return result.returncode
+
+
 def _build_gtopt_cmd(
     gtopt_bin: str,
     case_dir: Path,

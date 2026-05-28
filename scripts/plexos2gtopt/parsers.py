@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import dataclasses
+import difflib
 import logging
 import math
 import re
@@ -42,6 +43,7 @@ from .entities import (
     ReserveSpec,
     TurbineSpec,
     UserConstraintSpec,
+    UserConstraintStats,
     WaterwaySpec,
 )
 from .plexos_csv import DEFAULT_PERIODS, read_long, read_wide
@@ -50,6 +52,20 @@ from .plexos_xml import PlexosDb, PlexosObject, load_xml
 
 
 logger = logging.getLogger(__name__)
+
+
+class UnresolvedConstraintReferenceError(RuntimeError):
+    """A UserConstraint term references an element gtopt never emits.
+
+    Raised by :func:`extract_user_constraints` after processing ALL
+    constraints when one or more direct-coefficient terms point at an
+    element name that is not in the emitted-name set and could not be
+    reconciled (e.g. the BESS zone-suffix Fix).  The converter MUST
+    fail loudly — analogous to gtopt's strict JSON parser erroring on
+    an unknown field — rather than silently dropping the term or the
+    whole constraint.  The message lists every offending reference with
+    the closest emitted name as a hint.
+    """
 
 
 # PLEXOS Sense → gtopt operator. CEN PCP uses {-1: LE, 1: GE, 0: EQ}.
@@ -143,12 +159,22 @@ _DIRECT_COEFFS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "dn",
         "provision_{name}",
     ),
+    # GENERIC Battery reserve provision (no Raise/Lower in the kind).  The
+    # accessor is the empty-string sentinel ``""`` rather than a guessed
+    # ``up``: a battery reference always routes through the zone-suffix
+    # reconciliation (``_bess_provision_direction`` /
+    # ``_bess_matching_provisions``), where ``""`` signals "direction is
+    # NOT carried by the coefficient kind — take it from the CONSTRAINT
+    # NAME" (``*_LW*`` / ``*Down*`` → dn, ``*_RS*`` / ``*Up*`` → up).
+    # The sentinel never leaks into an emitted ``var_ref`` because the
+    # bare ``provision_<bat>`` it would produce is never in
+    # ``emitted_names`` (the SSCC emitter only ships zone-suffixed names).
     (
         "Battery",
         "Constraints",
         "Reserve Provision Coefficient",
         "reserve_provision",
-        "up",
+        "",
         "provision_{name}",
     ),
     (
@@ -247,6 +273,44 @@ _DIRECT_COEFFS: tuple[tuple[str, str, str, str, str, str], ...] = (
         "status",
         "uc_{name}",
     ),
+    # Battery commitment-unit coefficients.  gtopt's ``expand_batteries``
+    # creates a ``uc_<bat>_gen`` Commitment UNCONDITIONALLY for every
+    # battery (relaxed continuous ``u`` when the battery carries no
+    # commitment economics — see ``source/system.cpp``), exposing
+    # ``.status`` / ``.startup`` / ``.shutdown`` on the synthetic
+    # ``<bat>_gen`` discharge generator.  PLEXOS Battery
+    # ``Units Generating / Started / Shutdown Coefficient`` rows
+    # therefore route to ``commitment("uc_<bat>_gen").<attr>`` via the
+    # ``uc_{name}_gen`` template (the ``Reserve Units Coefficient`` on a
+    # Battery is handled separately by the
+    # ``forward_to_battery_gen_commit`` derived mode below — kept there
+    # so the gtopt aliasing rationale stays adjacent to it).  These
+    # property kinds are absent from the CEN PCP DB today; wired for
+    # robustness so a future export resolves them instead of failing.
+    (
+        "Battery",
+        "Constraints",
+        "Units Generating Coefficient",
+        "commitment",
+        "status",
+        "uc_{name}_gen",
+    ),
+    (
+        "Battery",
+        "Constraints",
+        "Units Started Coefficient",
+        "commitment",
+        "startup",
+        "uc_{name}_gen",
+    ),
+    (
+        "Battery",
+        "Constraints",
+        "Units Shutdown Coefficient",
+        "commitment",
+        "shutdown",
+        "uc_{name}_gen",
+    ),
 )
 
 
@@ -273,6 +337,92 @@ _RESERVE_PROVISION_EXPANSION = (
     "Constraints",
     "Provision Coefficient",
 )
+
+
+# ── BESS reserve-provision name reconciliation ──────────────────────────
+# The SSCC BESS emitter (``extract_sscc_bess_provisions``) names each
+# battery's reserve provisions with a ZONE suffix —
+# ``provision_<bat>_gen__<ZONE>`` where ``<ZONE>`` is the ``*_BESS``
+# reserve (``CSF_LW_BESS`` / ``CSF_RS_BESS`` / ``CPF_LW_BESS`` /
+# ``CPF_RS_BESS``).  A PLEXOS Battery reserve-provision coefficient,
+# however, references the BARE battery name, which the direct-
+# coefficient builder maps to the plain (never-emitted)
+# ``provision_<bat>``.  Rather than silently dropping the term we route
+# it to EVERY zone-suffixed provision the SSCC emitter actually
+# produced that matches the coefficient's DIRECTION (``.up`` /
+# ``.dn``) and the constraint's reserve TYPE (CPF / CSF / both).  This
+# generalises the original per-battery ``CSF_LW_MIN_BAT_<bat>`` prefix
+# fix to the aggregate ``CPF_*MinProvision`` / ``UP/DOWNStorageBound_*``
+# constraints, which carry the direction in the coefficient KIND
+# (``Regulation Raise`` / ``Lower``) rather than a name prefix.
+
+#: Zone suffix carried by each up/down BESS reserve, by reserve type.
+#: ``provision_<bat>_gen__<TYPE>_<DIR>_BESS``.
+_BESS_ZONE_UP_SUFFIX = "_RS_BESS"
+_BESS_ZONE_DN_SUFFIX = "_LW_BESS"
+
+
+def _bess_provision_direction(constraint_name: str, accessor: str) -> str | None:
+    """Resolve the BESS provision direction (``"up"`` / ``"dn"``).
+
+    The coefficient KIND is authoritative: a ``Regulation Raise`` /
+    ``Raise`` / ``*Raise*`` coefficient already arrives with
+    ``accessor == "up"`` and a ``Lower`` one with ``accessor == "dn"``
+    (see ``_DIRECT_COEFFS``).  When the kind is the generic
+    ``Reserve Provision Coefficient`` (which the direct builder maps to
+    the placeholder ``"up"``), the constraint NAME breaks the tie:
+    ``*_LW*`` / ``*Down*`` → ``"dn"``; ``*_RS*`` / ``*Up*`` → ``"up"``.
+    Returns ``None`` when neither the kind nor the name carries a
+    recognisable direction.
+    """
+    if accessor in ("up", "dn"):
+        return accessor
+    upper = constraint_name.upper()
+    if "_LW" in upper or "DOWN" in upper:
+        return "dn"
+    if "_RS" in upper or "UP" in upper:
+        return "up"
+    return None
+
+
+def _bess_provision_zone_types(constraint_name: str) -> tuple[str, ...]:
+    """Reserve TYPE filter (``CPF`` / ``CSF``) from the constraint name.
+
+    A name containing ``CPF`` restricts to ``CPF_*`` zones; ``CSF`` to
+    ``CSF_*`` zones.  When neither token appears (e.g.
+    ``UP/DOWNStorageBound_BAT_*``) BOTH types are eligible — the term
+    is a legitimate SUM over the matching-direction zones of both types.
+    """
+    upper = constraint_name.upper()
+    types: list[str] = []
+    if "CPF" in upper:
+        types.append("CPF")
+    if "CSF" in upper:
+        types.append("CSF")
+    return tuple(types) if types else ("CPF", "CSF")
+
+
+def _bess_matching_provisions(
+    bat_name: str,
+    direction: str,
+    constraint_name: str,
+    allowed_ref: frozenset[str] | None,
+) -> list[str]:
+    """Zone-suffixed SSCC provisions a battery term should route to.
+
+    Builds the candidate ``provision_<bat>_gen__<TYPE>_<DIR>_BESS`` names
+    for every reserve TYPE permitted by the constraint name and the given
+    DIRECTION, then keeps only the names the SSCC emitter actually
+    produced (``allowed_ref``).  An empty result means the battery is not
+    SSCC-eligible for that direction → genuinely unmappable.
+    """
+    dir_suffix = _BESS_ZONE_UP_SUFFIX if direction == "up" else _BESS_ZONE_DN_SUFFIX
+    out: list[str] = []
+    for ztype in _bess_provision_zone_types(constraint_name):
+        ref = f"provision_{bat_name}_gen__{ztype}{dir_suffix}"
+        if allowed_ref is None or ref in allowed_ref:
+            out.append(ref)
+    return out
 
 
 # Coefficient kinds that are *derived expressions* over the generator's
@@ -1382,30 +1532,34 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
         if units_profile is not None and not any(u > 0.0 for u in units_profile):
             # All-zero across the day = mothballed; PLEXOS would drop it.
             continue
-        raw_units = int(units_profile[0]) if units_profile else 1
-        units = raw_units
-        if units <= 0:
-            # First-hour offline but back later — clamp to 1 so the
-            # daily LP can still dispatch the line.  A per-block
-            # tmax_ab matrix would honour the per-hour availability
-            # exactly; not needed for the current daily PCP horizon.
-            # Visible WARN so the clamp doesn't hide a fully-offline
-            # line (PLEXOS would drop those at the top of this loop).
-            logger.warning(
-                "Line '%s' (uid=%s): hour-0 units=%d in profile — "
-                "clamping to 1 (LP needs a dispatchable line for the "
-                "daily horizon).  Inspect Units_Built / Commissioned "
-                "schedule if this isn't a transient first-hour outage.",
-                line.name,
-                line.object_id,
-                raw_units,
-            )
+        # Parallel-circuit count = the line's genuine capacity multiplier
+        # (``tmax_ab × units`` in the writer).  Use the MAX over the
+        # horizon, NOT hour-0: when hour-0 lands inside a maintenance
+        # window the profile reads 0/1 there, and an hour-0 slice would
+        # clamp a healthy 2-circuit corridor down to a single circuit (or
+        # to the clamp-to-1 fallback).  The per-hour on/off availability
+        # is carried separately by ``Line.in_service`` below, so the
+        # scalar here should be the full circuit count; ``in_service``
+        # then zeroes out the maintenance hours block-by-block.
+        units = int(max(units_profile)) if units_profile else 1
+        if units <= 0:  # defensive — all-zero already dropped above
             units = 1
         # Per-hour in-service flag for ``Line.in_service``: 1 where the
         # line has >=1 unit online, 0 during maintenance / forced-outage
-        # hours.  Only carried when there is at least one out-hour (else
-        # the line defaults to in-service everywhere and no schedule is
-        # emitted).  The writer aggregates this to per-block resolution.
+        # hours (gtopt honours this per (stage, block) — line_lp.cpp:255).
+        # Only carried when there is at least one out-hour (else the line
+        # defaults to in-service everywhere and no schedule is emitted).
+        # The writer aggregates this to per-block resolution with a
+        # conservative ``min`` reducer (block OUT if any hour is out).
+        #
+        # NOTE: ``in_service`` is binary (full on/off) and that is the
+        # correct granularity here — we deliberately do NOT scale
+        # ``tmax_ab`` by the per-hour circuit count.  The operator-defined
+        # rating already follows an N-1 security criterion: a 2-circuit
+        # corridor is rated for safe single-circuit operation (or its
+        # equivalent), so when one circuit drops for maintenance the
+        # thermal limit is unchanged.  Per-block-units scaling would
+        # double-count capacity the rating intentionally withholds.
         in_service_profile: tuple[int, ...] = ()
         if units_profile is not None and any(u <= 0.0 for u in units_profile):
             in_service_profile = tuple(1 if u > 0.0 else 0 for u in units_profile)
@@ -1498,6 +1652,12 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
 
         _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
         _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
+        # EL=0 ("Never enforce") handling mode (CLI ``--el0-lines``):
+        #   "extended" (default) — relax: soft cap with a free over-rating
+        #       band + penalty (the behaviour described above).
+        #   "strict" — treat EL=0 like EL=2: a plain hard cap at the nominal
+        #       rating (no free band, no headroom).
+        _el0_mode = _os_lift.environ.get("GTOPT_EL0_LINES", "extended").strip().lower()
         soft_cap = False
         soft_cap_lifted = False
         if line.name in _lift_set:
@@ -1505,7 +1665,8 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
             # EL=0 let the DC-OPF teleport (685 MW on the 76 MW
             # Capricornio110->LaNegra110, 9× rated).  A 4× free band covers
             # PLEXOS's own 2.7× over-use penalty-free, and the 10× hard cap
-            # blocks the teleport.
+            # blocks the teleport.  ``--lift-line-caps`` is an explicit user
+            # override, so it stays soft regardless of ``--el0-lines``.
             enforce_limits = 1
             soft_cap = True
             soft_cap_lifted = True
@@ -1515,8 +1676,12 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
                 line.name,
             )
         elif enforce_limits == 0:
-            enforce_limits = 1
-            soft_cap = True
+            if _el0_mode == "strict":
+                # Act like EL=2: hard cap at the nominal rating.
+                enforce_limits = 2
+            else:
+                enforce_limits = 1
+                soft_cap = True
         out.append(
             LineSpec(
                 object_id=line.object_id,
@@ -1729,6 +1894,13 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         pmin_discharge = (
             db.static_property("Battery", batt.object_id, "Min Discharge Level") or 0.0
         )
+        # PLEXOS ``Max Cycles Day``: daily energy-throughput limit N
+        # (cycles/day).  1.0 for all 41 CEN PCP batteries.  Mapped to
+        # gtopt's ``Battery.max_cycles_day`` (HARD Σ discharge·Δt ≤
+        # N·capacity per day, not a cost).  0.0 ⇒ no limit emitted.
+        max_cycles_day = (
+            db.static_property("Battery", batt.object_id, "Max Cycles Day") or 0.0
+        )
         # Drop infeasible charge/discharge minima — PLEXOS-CEN
         # occasionally ships ``Min Charge Level > Max Power`` on
         # small placeholder batteries (e.g. BAT_DEL_DESIERTO:
@@ -1792,6 +1964,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 pmax_discharge=max_power,
                 pmin_charge=pmin_charge,
                 pmin_discharge=pmin_discharge,
+                max_cycles_day=max_cycles_day,
                 # PLEXOS reports efficiency as a percentage (97 → 0.97).
                 input_efficiency=charge_eff_pct / 100.0,
                 output_efficiency=discharge_eff_pct / 100.0,
@@ -1842,22 +2015,40 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         if bundle.has("Hydro_InitialVolume.csv")
         else {}
     )
-    # PLEXOS-solution End Volume (prop 646 at the LAST horizon period)
-    # for every Storage object — used to pin gtopt's ``Reservoir.efin``
-    # so the reservoir trajectory matches PLEXOS exactly instead of
-    # draining to the loose operational floor.  Returns ``None`` when
-    # the bundle has no solution .accdb cache; falls back to the
-    # last-day floor from ``Hydro_MinVolume.csv`` in that case.
+    # DEBUG-ONLY: pin gtopt's ``Reservoir.efin`` to the PLEXOS-solution
+    # End Volume (prop 646 at the LAST horizon period).  This reads the
+    # SOLVED reservoir trajectory endpoint out of the solution .accdb —
+    # i.e. it curve-fits gtopt's terminal storage to PLEXOS's answer, so it
+    # is gated behind ``GTOPT_USE_PLEXOS_EFIN`` / ``--use-plexos-efin``
+    # (default OFF), exactly like ``--use-plexos-commit`` /
+    # ``--use-plexos-gen-cap``.  By DEFAULT the end-of-horizon target is the
+    # INPUT last-day floor from ``Hydro_MinVolume.csv`` (the operational
+    # target PLEXOS encodes by raising the min-volume floor at the final
+    # period — e.g. CIPRESES 54.59 → 598.75), applied in the
+    # ``elif emin_series`` branch below.  This keeps a standard convert
+    # purely input-driven (no solution dependency for reservoir state).
     solution_efin: dict[str, float] = {}
-    if bundle.accdb_cache_dir is not None and bundle.accdb_cache_dir.is_dir():
+    import os
+
+    use_plexos_efin = os.environ.get("GTOPT_USE_PLEXOS_EFIN", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if (
+        use_plexos_efin
+        and bundle.accdb_cache_dir is not None
+        and bundle.accdb_cache_dir.is_dir()
+    ):
         from .plexos_block_layout import extract_storage_solution_efin
 
         sol = extract_storage_solution_efin(bundle.accdb_cache_dir)
         if sol:
             solution_efin = sol
             logger.info(
-                "extract_reservoirs: pinned efin to PLEXOS-solution "
-                "End Volume for %d storages",
+                "extract_reservoirs: GTOPT_USE_PLEXOS_EFIN=1 — pinned efin to "
+                "PLEXOS-solution End Volume for %d storages (DEBUG; default "
+                "uses the Hydro_MinVolume.csv last-day input floor)",
                 len(solution_efin),
             )
 
@@ -1924,10 +2115,14 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         if block_layout and (emin_series or emax_series):
             # Hard per-block emin clamp from ``Hydro_MinVolume.csv`` —
             # at end-of-day 1 (hour 24) only, controlled by
-            # ``GTOPT_EMIN_EOD_DAY1`` env var (default ON).  Honours
-            # the PLEXOS operational floor at the close of the first
-            # operating day, which is the binding daily-coordination
-            # signal in the CEN PCP weekly schedule.
+            # ``GTOPT_EMIN_EOD_DAY1`` env var (default OFF).  When ON,
+            # honours the PLEXOS operational floor at the close of the
+            # first operating day.  Default OFF because the hard hour-24
+            # clamp pins reservoirs near full at midnight of day 1,
+            # blocking day-1 drawdown and inflating reservoir water-value
+            # duals well above PLEXOS's storage Shadow Price (CANUTILLAR
+            # 2.6×, ELTORO/L_Maule ~1.1-1.2×); the soft end-of-week
+            # ``efin`` slack already carries the terminal valuation.
             #
             # The last-day EOD floor (hour 168 on a weekly run) is
             # carried independently as the soft ``efin`` + ``efin_cost``
@@ -1939,15 +2134,15 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             # offending bindings on the 2026-04-22 bundle, so it stays
             # hard.
             #
-            # Set ``GTOPT_EMIN_EOD_DAY1=0`` (or unset and patch this
-            # set) to revert to the all-soft behaviour.
+            # Set ``GTOPT_EMIN_EOD_DAY1=1`` (or pass ``--emin-eod-day1``)
+            # to enable the hard hour-24 clamp; default is the all-soft
+            # behaviour.
             import os as _os
 
-            _eod_day1 = _os.environ.get("GTOPT_EMIN_EOD_DAY1", "1") not in (
-                "0",
-                "false",
-                "False",
-                "",
+            _eod_day1 = _os.environ.get("GTOPT_EMIN_EOD_DAY1", "0") in (
+                "1",
+                "true",
+                "True",
             )
             allowed_eod_hours: set[int] = {24} if _eod_day1 else set()
             emin_per_block: list[float] = []
@@ -1987,16 +2182,17 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             if len(set(emax_per_block)) > 1:
                 emax_profile = tuple(emax_per_block)
         # ── End-of-horizon target ─────────────────────────────────────
-        # Preferred: pin to the PLEXOS-solution End Volume (prop 646)
-        # at the last horizon period, so gtopt's reservoir trajectory
-        # matches PLEXOS exactly.  Without this, the LP is allowed to
-        # drain all the way to the operational floor below, which lets
-        # COLBUN/RALCO/CANUTILLAR over-dispatch by thousands of CMD
-        # (and inflates hydro generation by ~80 % vs PLEXOS on the
-        # CEN PCP weekly bundle).
-        # Fallback: the LAST-day end-of-day floor from
-        # ``Hydro_MinVolume.csv`` (PLEXOS slot ``bundle.n_days * 24 - 1``)
-        # — used when no solution .accdb is available.
+        # DEFAULT (input-driven): the LAST-day end-of-day floor from
+        # ``Hydro_MinVolume.csv`` (PLEXOS slot ``bundle.n_days * 24 - 1``).
+        # PLEXOS encodes the end-of-horizon storage target by RAISING the
+        # min-volume floor at the final period (e.g. CIPRESES 54.59 →
+        # 598.75), so this input value IS the operational terminal target.
+        # DEBUG override (``solution_efin``, populated only under
+        # ``--use-plexos-efin``): the PLEXOS-SOLVED End Volume (prop 646),
+        # which curve-fits gtopt's reservoir trajectory to PLEXOS's answer.
+        # When the override is off (the default) ``solution_efin`` is empty
+        # and the input last-day floor below is used — no solution
+        # dependency for reservoir state.
         efin: float = 0.0
         if name in solution_efin:
             efin = float(solution_efin[name])
@@ -2698,27 +2894,71 @@ def extract_flows(
     return tuple(out)
 
 
+def _parse_res_timeslice_csv(path: Path, n_days: int = 1) -> list[str]:
+    """Parse ``Res_Timeslice.csv`` → the active day-type slice per day.
+
+    Layout: ``YEAR, MONTH, DAY, <slice_1>, <slice_2>, …`` with one row
+    per calendar day.  Exactly one slice column carries the activation
+    sentinel (``-1`` in CEN PCP; ``1`` is also accepted) marking the
+    day-type pattern (``DO_1``/``LU_2``/``SA_2``/``TR_2`` — Domingo /
+    Lunes / Sábado / Trabajo, variants 1-2) that governs that day's
+    reserve requirements in :func:`_parse_res_requirement_csv`.
+
+    Returns a list of ``n_days`` slice names (e.g.
+    ``["TR_2", "TR_2", "TR_2", "SA_2", "DO_2", "LU_2", "TR_2"]``).  Days
+    beyond the CSV (or with no active slice) get ``""`` so the caller
+    falls back to its last-wins behaviour for those days.
+    """
+    slices: list[str] = []
+    with Path(path).open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+        if header is None:
+            return [""] * n_days
+        slice_cols = header[3:]  # skip YEAR, MONTH, DAY
+        for row in reader:
+            active = ""
+            for i, col in enumerate(slice_cols, start=3):
+                if i < len(row) and row[i].strip() in ("-1", "1"):
+                    active = col.strip()
+                    break
+            slices.append(active)
+    # Pad / truncate to the LP horizon so each stage-day has a slice.
+    if len(slices) < n_days:
+        slices += [""] * (n_days - len(slices))
+    return slices[:n_days]
+
+
 def _parse_res_requirement_csv(
     path: Path,
     reserve_names: frozenset[str],
     n_days: int = 1,
+    day_slices: list[str] | None = None,
 ) -> dict[str, list[float]]:
     """Parse ``Res_Requirement.csv``'s ``NAME, PATTERN, VALUE`` layout.
 
-    Only rows whose ``NAME`` matches a known Reserve object are kept;
-    PATTERN ``"DO_d,Hh"`` is parsed for ``Hh`` (1..24). Day-of-week
-    field ``DO_d`` is ignored — CEN PCP is a daily run.
+    Only rows whose ``NAME`` matches a known Reserve object are kept.
+    PATTERN ``"<slice>,Hh"`` carries the day-type slice (``DO_1`` …
+    ``TR_2``) and the hour ``Hh`` (1..24).
 
-    Returns ``{reserve_name -> (24*n_days)-element profile}``.  The
-    24-hour daily pattern is replicated ``n_days`` times so the per-
-    block requirement matches the LP's horizon; without this gtopt's
-    ``FieldSched::optval`` would read past the end of the array for
-    blocks beyond day 0 — observed as ``2.83e+256`` lower bounds on
-    ``reservezone_drequirement_12_<scene>_<stage>_<block>`` columns on
-    the 7-day CEN PCP case.
+    When ``day_slices`` is supplied (from :func:`_parse_res_timeslice_csv`)
+    the requirement is resolved **per calendar day**: day ``d`` uses the
+    24-hour profile of ``day_slices[d]`` so weekdays / weekends / holidays
+    get their distinct reserve targets.  Without it (legacy / no
+    ``Res_Timeslice.csv``) the day-type field is ignored and the last-seen
+    value per hour is replicated across all days.
+
+    Returns ``{reserve_name -> (24*n_days)-element profile}`` matching the
+    LP horizon; otherwise gtopt's ``FieldSched::optval`` reads past the
+    array end (observed as ``2.83e+256`` lower bounds on
+    ``reservezone_drequirement_*`` columns on the 7-day CEN PCP case).
     """
 
     hour_re = re.compile(r"H(\d+)")
+    use_slices = bool(day_slices) and any(day_slices or [])
+    # Per-reserve, per-(slice, hour) value table — only populated when we
+    # have a timeslice mapping; otherwise we keep the flat last-wins path.
+    by_slice: dict[str, dict[tuple[str, int], float]] = {}
     out: dict[str, list[float]] = {}
     with Path(path).open("r", encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -2737,8 +2977,29 @@ def _parse_res_requirement_csv(
                 continue
             if hour < 1 or hour > 24:
                 continue
-            series = out.setdefault(name, [0.0] * 24)
-            series[hour - 1] = value
+            if use_slices:
+                slc = pattern.split(",")[0].strip().strip('"')
+                by_slice.setdefault(name, {})[(slc, hour)] = value
+            else:
+                series = out.setdefault(name, [0.0] * 24)
+                series[hour - 1] = value
+
+    if use_slices:
+        assert day_slices is not None
+        for name, table in by_slice.items():
+            profile: list[float] = []
+            for d in range(n_days):
+                slc = day_slices[d] if d < len(day_slices) else ""
+                for hour in range(1, 25):
+                    # Fall back to any slice's value for this hour when the
+                    # active slice is missing (empty day or absent row).
+                    val = table.get((slc, hour))
+                    if val is None:
+                        val = next((v for (s, h), v in table.items() if h == hour), 0.0)
+                    profile.append(val)
+            out[name] = profile
+        return out
+
     if n_days > 1:
         for k, daily in out.items():
             out[k] = list(daily) * n_days
@@ -2759,12 +3020,22 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
     if not reserves_objs:
         return ()
     reserve_names = frozenset(r.name for r in reserves_objs)
+    # Day-type slice per calendar day (``Res_Timeslice.csv``) selects which
+    # of the 8 day-type reserve-requirement patterns governs each day, so
+    # weekday / weekend / holiday targets are honoured instead of collapsing
+    # all 8 to a single replicated 24-hour profile.
+    day_slices: list[str] | None = None
+    if bundle.has("Res_Timeslice.csv"):
+        day_slices = _parse_res_timeslice_csv(
+            bundle.csv("Res_Timeslice.csv"), n_days=bundle.n_days
+        )
     csv_profiles: dict[str, list[float]] = {}
     if bundle.has("Res_Requirement.csv"):
         csv_profiles = _parse_res_requirement_csv(
             bundle.csv("Res_Requirement.csv"),
             reserve_names,
             n_days=bundle.n_days,
+            day_slices=day_slices,
         )
 
     # Pull the Reserve→Generator membership for eligibility.
@@ -2995,6 +3266,163 @@ def extract_reserve_provisions(
     )
 
 
+def _parse_sscc_activation_bess_csv(
+    path: Path, n_days: int = 1
+) -> dict[str, list[float]]:
+    """Parse ``SSCC_Activation_BESS.csv`` → ``{reserve_zone -> per-block frac}``.
+
+    Layout: ``Year, Pattern, <zone_1>, <zone_2>, …`` where the zone
+    columns are the ``*_BESS`` reserve names (``CPF_RS_BESS`` …) and
+    ``Pattern`` is a 2-hour band ``H<a>-<b>`` spanning the 24-hour day.
+    Values are activation **percentages** (0..100) → divided by 100 to a
+    p.u. fraction.  The 24-hour profile is replicated ``n_days`` times to
+    match the LP horizon.
+
+    Returns ``{zone -> (24*n_days)-element fraction profile}``.
+    """
+    band_re = re.compile(r"H(\d+)\s*-\s*(\d+)")
+    with Path(path).open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        zone_cols = [
+            c for c in (reader.fieldnames or []) if c not in ("Year", "Pattern")
+        ]
+        daily: dict[str, list[float]] = {z: [0.0] * 24 for z in zone_cols}
+        for row in reader:
+            m = band_re.search(row.get("Pattern") or "")
+            if m is None:
+                continue
+            lo, hi = int(m.group(1)), int(m.group(2))
+            for z in zone_cols:
+                try:
+                    frac = float(row.get(z) or 0.0) / 100.0
+                except ValueError:
+                    continue
+                for hour in range(lo, hi + 1):
+                    if 1 <= hour <= 24:
+                        daily[z][hour - 1] = frac
+    # Drop all-zero columns; replicate the 24-hour pattern across days.
+    out: dict[str, list[float]] = {}
+    for z, prof in daily.items():
+        if any(v != 0.0 for v in prof):
+            out[z] = prof * n_days if n_days > 1 else prof
+    return out
+
+
+def _bess_zone_eligibility(
+    db: PlexosDb, battery_names: frozenset[str]
+) -> dict[str, set[str]]:
+    """``{*_BESS reserve zone -> set of eligible battery names}``.
+
+    A battery is eligible for a ``*_BESS`` reserve when it (or one of its
+    ``<bat>_CF_GEN_COMP`` / ``_CF_LOAD_COMP`` reserve-companion objects) is
+    a member of the reserve's membership table.
+    """
+    out: dict[str, set[str]] = {}
+    reserves = [r for r in db.objects_of_class("Reserve") if r.name.endswith("_BESS")]
+    if not reserves:
+        return out
+    objs = db.object_by_id()
+    by_id = {r.object_id: r.name for r in reserves}
+    # The eligible batteries live in the ``Reserve → Battery`` collection
+    # (``Batteries``) as direct battery objects; the ``Generators``
+    # collection is checked too for completeness.  ``*_CF_*`` companion
+    # objects are Constraint-class and intentionally ignored here.
+    for child_class, coll_name in (
+        ("Battery", "Batteries"),
+        ("Generator", "Generators"),
+    ):
+        coll = db.collection_for_named("Reserve", child_class, coll_name)
+        if coll is None:
+            continue
+        for m in db.memberships_of(coll.collection_id):
+            zone = by_id.get(m.parent_object_id)
+            child = objs.get(m.child_object_id)
+            if zone is None or child is None:
+                continue
+            if child.name in battery_names:
+                out.setdefault(zone, set()).add(child.name)
+    return out
+
+
+def extract_sscc_bess_provisions(
+    db: PlexosDb,
+    bundle: PlexosBundle,
+    batteries: tuple[BatterySpec, ...],
+) -> tuple[ReserveProvisionSpec, ...]:
+    """BESS ancillary-services provisions from ``SSCC_Activation_BESS.csv``.
+
+    Maps the per-time-pattern activation fraction onto the synthetic
+    ``<battery>_gen`` discharge generator (``system.cpp::expand_batteries``)
+    that gtopt auto-creates: one :class:`ReserveProvisionSpec` per
+    (battery, eligible ``*_BESS`` zone), carrying the activation fraction
+    as the per-block ``ur``/``dr`` provision factor (``_RS_BESS`` →
+    up-reserve, ``_LW_BESS`` → down-reserve) and the battery's discharge
+    power as ``urmax``/``drmax``.  Names are made unique per zone so the
+    shared ``<battery>_gen`` generator can carry several provisions.
+    """
+    if not bundle.has("SSCC_Activation_BESS.csv") or not batteries:
+        return ()
+    factors = _parse_sscc_activation_bess_csv(
+        bundle.csv("SSCC_Activation_BESS.csv"), n_days=bundle.n_days
+    )
+    if not factors:
+        return ()
+    bat_by_name = {b.name: b for b in batteries}
+    eligibility = _bess_zone_eligibility(db, frozenset(bat_by_name))
+    out: list[ReserveProvisionSpec] = []
+    for zone, frac in sorted(factors.items()):
+        members = eligibility.get(zone)
+        if not members:
+            continue
+        is_up = "_RS_BESS" in zone
+        for bname in sorted(members):
+            batt = bat_by_name.get(bname)
+            power = batt.pmax_discharge if batt else 0.0
+            if power <= 0.0:
+                continue
+            prof = tuple(frac)
+            out.append(
+                ReserveProvisionSpec(
+                    generator_name=f"{bname}_gen",
+                    reserve_zones=(zone,),
+                    urmax=power if is_up else 0.0,
+                    drmax=0.0 if is_up else power,
+                    ur_provision_factor_profile=prof if is_up else (),
+                    dr_provision_factor_profile=() if is_up else prof,
+                    name=f"provision_{bname}_gen__{zone}",
+                )
+            )
+    return tuple(out)
+
+
+def _cpf_ramp_series(
+    bundle: PlexosBundle, gen_name: str, direction: str
+) -> list[float]:
+    """Per-unit per-period ramp series [MW/h] from the ``CFdata`` CPF curve.
+
+    ``CFdata/CPF/CPF_<gen>_MRU.csv`` / ``..._MRD.csv`` is the authoritative
+    daily-PCP per-unit ramp source — already in MW/h (per-period), distinct
+    from the DB ``Max Ramp Up/Down`` (MW/min).  These live in the ``CFdata``
+    sub-directory, which ``PlexosBundle.csv()`` excludes, so they are read
+    directly off ``bundle.root``.  Returns the full per-period list (empty
+    when the file is absent or all-zero, so the caller falls back to the DB
+    static value).
+    """
+    path = bundle.root / "CFdata" / "CPF" / f"CPF_{gen_name}_{direction}.csv"
+    if not path.is_file():
+        return []
+    vals: list[float] = []
+    with path.open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.reader(fh):
+            if not row:
+                continue
+            try:
+                vals.append(float(row[-1]))  # VALUE is the last column
+            except ValueError:
+                continue  # header row ("VALUE")
+    return vals if any(v > 0.0 for v in vals) else []
+
+
 def extract_commitments(
     db: PlexosDb,
     bundle: PlexosBundle,
@@ -3124,8 +3552,33 @@ def extract_commitments(
         # primal-infeasible on the very first block.
         raw_ramp_up = db.static_property("Generator", gen.object_id, "Max Ramp Up")
         raw_ramp_down = db.static_property("Generator", gen.object_id, "Max Ramp Down")
-        ramp_up = raw_ramp_up * 60.0 if raw_ramp_up else 0.0
-        ramp_down = raw_ramp_down * 60.0 if raw_ramp_down else 0.0
+        # Reconcile with the CPF (``CFdata``) per-unit ramp curve, which is
+        # the authoritative daily-PCP ramp source and covers 39 CEN PCP
+        # units the DB leaves at 0.  Rule (issue audit, 0/73 curves agree
+        # with the DB): use the CPF value when present (>0), else fall back
+        # to the DB static ``Max Ramp Up/Down`` (×60, MW/min → MW/h) so
+        # units with a DB ramp but no CPF curve (CAMPICHE, COCHRANE, …)
+        # keep theirs.
+        cpf_ru_series = _cpf_ramp_series(bundle, gen.name, "MRU")
+        cpf_rd_series = _cpf_ramp_series(bundle, gen.name, "MRD")
+        db_ru = raw_ramp_up * 60.0 if raw_ramp_up else 0.0
+        db_rd = raw_ramp_down * 60.0 if raw_ramp_down else 0.0
+        # Scalar ramp = CPF max when present, else the DB static value.
+        ramp_up = max(cpf_ru_series) if cpf_ru_series else db_ru
+        ramp_down = max(cpf_rd_series) if cpf_rd_series else db_rd
+        # Per-block ramp profile (gtopt Commitment.ramp_up/down TB schedule):
+        # carried only when the CPF curve genuinely varies intra-horizon;
+        # constant curves keep the scalar above.
+        ramp_up_profile: tuple[float, ...] = (
+            tuple(cpf_ru_series)
+            if cpf_ru_series and len(set(cpf_ru_series)) > 1
+            else ()
+        )
+        ramp_down_profile: tuple[float, ...] = (
+            tuple(cpf_rd_series)
+            if cpf_rd_series and len(set(cpf_rd_series)) > 1
+            else ()
+        )
         # PLEXOS ``Run Up Rate`` is expressed in MW/min.  gtopt's
         # ``Commitment.startup_ramp`` is the maximum output [MW] the
         # unit can reach in the startup block.  Block duration in CEN
@@ -3352,6 +3805,8 @@ def extract_commitments(
                 initial_hours=initial_hours,
                 ramp_up=ramp_up,
                 ramp_down=ramp_down,
+                ramp_up_profile=ramp_up_profile,
+                ramp_down_profile=ramp_down_profile,
                 startup_ramp=startup_ramp,
                 noload_cost=noload_cost,
                 pmin=cmt_pmin,
@@ -3732,47 +4187,6 @@ def _format_coefficient(value: float, first: bool) -> str:
     return f" + {value:g} * "
 
 
-#: Constraint-name prefixes / suffixes whose UCs MUST be active in
-#: the gtopt LP even when PLEXOS marks ``Include in ST Schedule ≤ 0``.
-#: PLEXOS enforces these implicitly through its commitment solver
-#: (config mutual-exclusion, startup logic, commitment branches);
-#: gtopt's LP build needs them as explicit UCs or the LP can ghost-
-#: double physical capacity (e.g. NEHUENCO_2-TG and NEHUENCO_2-TG+TV
-#: — the same unit in two configurations — running in parallel).
-#:
-#: Discovered while diagnosing CEN PCP weekly LNG +229% over-dispatch
-#: (combined with the FueMaxOff missing-gens fix in
-#: ``_build_fuel_offtake_caps_ucs`` and the per-stage SUM mode for
-#: ``Fuel.max_offtake`` in ``build_fuel_array``).
-#:
-#: Patterns are deliberately conservative: the structural-infeasibility
-#: contingency filter still applies on top, so genuinely-broken UCs
-#: (all-negative coefficients with ``>= positive RHS``) remain off.
-#: Tokens that MUST appear (as a substring) in the constraint name for
-#: PLEXOS names commonly carry a unit prefix before the family token
-#: (``NEHUENCO_2_ConfTG``, ``ATA_CC_1_ConfTGA``, ``BAT_*_OFF``, …), so
-#: a prefix-only matcher would miss them.
-_FORCE_ACTIVE_PATTERNS: tuple[str, ...] = (
-    "Commit_",  # commitment branches (TG/CC dispatch logic)
-    "CTFOFF",  # Configuration Turn-Off
-    "Conf",  # *_Conf, *_ConfTG, *_ConfFSTVU, _ConfFA, …
-    "MutuallyExclusive",  # explicit physical-machine mutex
-    "_Uniq",  # unique-config selectors (NEHUENCO_Uniq, …)
-    "_Startings",  # start-event limits
-    "Startings_",  # alternate placement
-    "_Comparison",  # band-comparison rows (NEHUENCO_2_DIE_Comparison)
-    "_OFF",  # *_GNL_INF_OFF (LNG-import sentinel turn-off)
-    # Excluded — these families reference gtopt-side commitments
-    # that don't exist for some entities (e.g. CSF_MinUnits hits
-    # `commitment(uc_BAT_*_gen).status`, but gtopt doesn't model
-    # batteries with separate _gen commitments).  Re-enable a
-    # specific family AFTER auditing its expressions against the
-    # gtopt entity registry.
-    #   "CTF_", "CSF_", "CSFLW", "CPF_", "CPFN", "InertiaCommit",
-    #   "InertiaGlobal", "InertiaNR", "GxAtacama", "GxCTM3"
-)
-
-
 def _is_contingency_constraint(
     name: str,  # noqa: ARG001  # reserved for future name-based recognisers
     coefficients: list[float],
@@ -3884,6 +4298,30 @@ def _horizon_value(
     if prefer_min:
         return min(vals)
     return min(candidates, key=lambda r: r.data_id).value
+
+
+def _has_active_rhs_row(rows: list, horizon_start) -> bool:
+    """True if any row is undated OR its ``[date_from, date_to]`` window
+    covers ``horizon_start``.
+
+    Distinguishes a genuinely-active value from one that ``_horizon_value``
+    only returns as an *expired-window* fallback (all rows dated to a window
+    that does not cover the run date).  Used to let an active ``RHS Day``
+    override an RHS that is present only as a stale historical override
+    (e.g. ``PANGUEcaudal_min_diario``: expired ``RHS=0.48`` for Nov–Dec 2025
+    vs active ``RHS Day=0.691`` → 28.79 on the Apr-2026 run date).
+    """
+    for r in rows:
+        df, dt_ = r.date_from, r.date_to
+        if df is None and dt_ is None:
+            return True
+        if (
+            horizon_start is not None
+            and (df is None or df <= horizon_start)
+            and (dt_ is None or dt_ >= horizon_start)
+        ):
+            return True
+    return False
 
 
 def _build_membership_pair_index(
@@ -4024,6 +4462,71 @@ def _describe_user_constraint(
     return f"{desc} (File: {source_file})"
 
 
+def _parse_hydro_maxrampday_csv(path: Path) -> dict[str, list[float]]:
+    """Parse ``Hydro_MaxRampDay.csv`` → ``{constraint_name -> per-day RHS}``.
+
+    Layout (long): ``NAME, YEAR, MONTH, DAY, PERIOD, VALUE`` with one row
+    per calendar day (PERIOD always 1).  These are the **daily ramp
+    limits** that form the right-hand side of PLEXOS hydro ramp
+    UserConstraints (e.g. ``RALCOramp_max_e1``).  PLEXOS ships the limit
+    as a per-day time series; the constraint's ``t_data`` RHS is a single
+    scalar, so without this overlay the daily variation is lost.
+
+    Returns ``{name -> [day0, day1, …]}`` in calendar order.
+    """
+    out: dict[str, list[float]] = {}
+    with Path(path).open("r", encoding="utf-8", newline="") as fh:
+        for row in csv.reader(fh):
+            if not row or not row[0] or row[0] == "NAME":
+                continue
+            try:
+                out.setdefault(row[0].strip(), []).append(float(row[5]))
+            except (ValueError, IndexError):
+                continue
+    return out
+
+
+#: GWh→MWh scale for PLEXOS daily-ENERGY budgets (``RHS Day`` /
+#: ``Hydro_MaxRampDay.csv``).  ``RHS Day`` ships in GWh
+#: (``CANUTILLARreserve`` = 4.12 GWh ≈ 99.7% of CANUTILLAR's 172 MW × 24 h
+#: daily max; ``RALCOramp_max_e*`` = 4.2 GWh ≈ 51% CF on RALCO_U1's 345 MW);
+#: gtopt's ``daily_sum`` + ``constraint_type=energy`` row sums ``gen·Δt``
+#: in MWh, so the LP RHS must be ``RHS_Day × 1000``.
+_DAILY_ENERGY_RHS_SCALE = 1000.0
+
+
+#: PLEXOS encodes "this SD_* line-security contingency is INACTIVE today" as an
+#: undated base RHS at a no-limit sentinel (100000 MW — no CEN line flow nears
+#: 100 GW), only overridden by dated rows on the specific contingency dates.
+#: When the run date hits no override the active RHS is this sentinel, so the
+#: constraint is inert (never binds, in gtopt OR PLEXOS); emitting it only
+#: wrecks LP conditioning (kappa).  Pure-line-flow constraints at/above it are
+#: dropped (see :func:`_is_nolimit_line_sentinel`).
+_SD_NOLIMIT_RHS_SENTINEL = 100000.0
+
+
+def _is_nolimit_line_sentinel(expression: str, rhs_val: float) -> bool:
+    """True for a PURE line-flow constraint whose RHS is the no-limit sentinel.
+
+    Restricted to expressions that reference ONLY ``line(...)`` terms (no
+    generator / commitment / battery / reserve / decision-variable terms) so a
+    big RHS on a mixed constraint is never mistaken for the line-security
+    sentinel.  Such a constraint never binds (no real line flow approaches
+    ``_SD_NOLIMIT_RHS_SENTINEL`` MW) and is dropped to keep the LP
+    well-conditioned — which also matches PLEXOS (it isn't enforcing the
+    contingency on the run date).
+    """
+    pure_line_flow = (
+        "line(" in expression
+        and "generator(" not in expression
+        and "commitment(" not in expression
+        and "battery(" not in expression
+        and "reserve_provision(" not in expression
+        and "decision_variable(" not in expression
+    )
+    return pure_line_flow and abs(rhs_val) >= _SD_NOLIMIT_RHS_SENTINEL
+
+
 def extract_user_constraints(
     db: PlexosDb,
     _bundle: PlexosBundle,
@@ -4032,6 +4535,7 @@ def extract_user_constraints(
     heat_rate_by_gen: dict[str, float] | None = None,
     pmax_by_gen: dict[str, float] | None = None,
     pmax_profiles_by_gen: dict[str, tuple[float, ...]] | None = None,
+    stats_out: dict[str, int] | None = None,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -4053,11 +4557,21 @@ def extract_user_constraints(
       2. Walk every direct-coefficient kind in ``_DIRECT_COEFFS`` plus
          the special ``Fuel.Offtake Coefficient`` expansion, building
          per-Constraint term lists.
-      3. ``emitted_names`` filters out terms that reference PLEXOS
-         objects we didn't actually emit (gens without bus, lines
-         below capacity, gens dropped from commitment / reserve
-         provision, …). Pass ``None`` to skip filtering (unit-test
-         convenience).
+      3. ``emitted_names`` is the set of every element gtopt will
+         actually emit (ALL generators regardless of pmax — gtopt
+         resolves an offline / ``pmax==0`` gen leniently to a 0
+         contribution; lines; batteries; synthetic ``<bat>_gen``
+         generators; commitments ``uc_<gen>`` / ``uc_<bat>_gen``;
+         reserve_provisions by their ACTUAL emitted names; decision
+         variables; waterways; reservoirs).  A direct-coefficient term
+         whose referenced element is NOT in that set — and which the
+         BESS zone-suffix reconciliation (Fix 1) cannot repair — is
+         NOT silently dropped.  It is COLLECTED.  After ALL constraints
+         are processed, if any unresolved references were collected,
+         ONE :class:`UnresolvedConstraintReferenceError` is raised
+         listing every offending reference (with the closest emitted
+         name as a hint), and the converter exits non-zero.  Pass
+         ``None`` to skip validation entirely (unit-test convenience).
       4. Drop Constraints whose LHS ends up empty after filtering.
       5. Map Sense → ``<=`` / ``>=`` / ``=`` and emit
          ``LHS <op> RHS`` as the final expression string.
@@ -4094,7 +4608,30 @@ def extract_user_constraints(
     # fuel).  The result is a per-period (per-hour) cap, so the
     # fuel-offtake per-block daily split below is bypassed for it.
     prop_rhs_custom = db.property_by_name(sys_coll.collection_id, "RHS Custom")
-    horizon_hours = float((_bundle.n_days or 7) * 24)
+    # PLEXOS ``RHS Day`` — the right-hand side of a per-DAY budget,
+    # shipped in GWh.  Used by the daily-ENERGY constraints
+    # (``CANUTILLARreserve`` = 4.12 GWh ≈ 99.7% of CANUTILLAR's 172 MW ×
+    # 24 h max).  Combined with a ``generator(...).generation`` LHS this
+    # becomes a gtopt ``daily_sum`` + ``constraint_type=energy`` row:
+    # ``Σ_day gen·Δt ≤ RHS_Day × 1000`` [MWh].  The ×1000 GWh→MWh scale
+    # is applied once below (``_DAILY_ENERGY_RHS_SCALE``).
+    prop_rhs_day = db.property_by_name(sys_coll.collection_id, "RHS Day")
+    # PLEXOS evaluates ``RHS Custom`` over the full RUN HORIZON, so the
+    # divisor must be the real horizon length (168 h on CEN PCP), NOT
+    # ``bundle.n_days × 24``: ``n_days`` is the input-CSV day count (== 1
+    # here), so the old expression collapsed to 24 h and inflated every
+    # ``Gas_MaxOpDay`` RHS by ``168 / 24 = 7×`` (confirmed against the RES
+    # solution: gtopt = PLEXOS × 7 across all 124 constraints).  Take the
+    # horizon-day count from the XML ``Horizon`` object name (the
+    # authoritative CEN signal, e.g. ``Coordinador_diario_1H_7d`` → 7);
+    # fall back to ``n_days or 7`` only when the name is unparseable.
+    from .plexos_block_layout import infer_horizon_days_from_input
+
+    _xml_path = getattr(_bundle, "xml_path", None)
+    _horizon_days = (
+        infer_horizon_days_from_input(_xml_path) if _xml_path is not None else None
+    ) or (_bundle.n_days or 7)
+    horizon_hours = float(_horizon_days * 24)
     rhs_custom_factor = 1000.0 / horizon_hours if horizon_hours > 0.0 else 0.0
     # Source file for the ``description`` provenance tag (PLEXOS XML DB).
     _uc_source_file = getattr(getattr(_bundle, "xml_path", None), "name", None) or (
@@ -4299,8 +4836,29 @@ def extract_user_constraints(
     # (PLEXOS-soft behaviour); their RHS calibration is a separate item.
 
     out: list[UserConstraintSpec] = []
+    # Constraints dropped because their LHS cannot be faithfully represented
+    # (no supported terms, or a partial form after dropping unsupported
+    # coefficients).  Reported via ``stats_out`` for the conversion report.
+    lhs_dropped = 0
+    sd_sentinel_dropped = 0  # no-limit line-security sentinels (see helper)
+    # Unresolvable UserConstraint references collected across ALL
+    # constraints.  Each entry is ``(constraint_name, "class(\"name\").attr",
+    # gtopt_key)`` for a direct-coefficient term whose referenced element is
+    # NOT in ``emitted_names`` and could NOT be reconciled (Fix 1).  Instead
+    # of silently dropping the term — or the whole constraint — we COLLECT
+    # every such reference and, after the build loop, raise ONE big error
+    # listing all of them (with the closest emitted name as a hint).  This
+    # mirrors gtopt's strict JSON parser, which errors on an unknown field
+    # rather than ignoring it.  Empty list ⇒ clean convert.
+    unresolved_refs: list[tuple[str, str, str | None]] = []
     unsupported_rhs_shift_warns: set[str] = set()
     horizon_start = db.horizon_start
+    # Per-day hydro ramp RHS overlay (``Hydro_MaxRampDay.csv``): supplies
+    # the daily-varying right-hand side for the ``*ramp*`` hydro
+    # UserConstraints whose ``t_data`` carries only a static scalar.
+    ramp_day_rhs: dict[str, list[float]] = {}
+    if _bundle.has("Hydro_MaxRampDay.csv"):
+        ramp_day_rhs = _parse_hydro_maxrampday_csv(_bundle.csv("Hydro_MaxRampDay.csv"))
     for constr in constraints:
         mid = sys_mid_by_constr.get(constr.object_id)
         if mid is None:
@@ -4311,8 +4869,14 @@ def extract_user_constraints(
         # by mistake, forcing units committed (e.g. CAMPICHE / coal staying
         # on all week instead of shutting down like PLEXOS).  See
         # ``_horizon_value``.
-        rhs_val = _horizon_value(
-            db.data_for(mid, prop_rhs), horizon_start, prefer_min=True
+        rhs_rows = db.data_for(mid, prop_rhs)
+        rhs_val = _horizon_value(rhs_rows, horizon_start, prefer_min=True)
+        # ``_horizon_value`` falls back to an expired dated row when no row is
+        # active at the run date and no undated base exists — that value is a
+        # stale historical override, not the live bound.  Flag it so an active
+        # ``RHS Day`` (below) can take over.
+        rhs_from_expired_only = bool(rhs_rows) and not _has_active_rhs_row(
+            rhs_rows, horizon_start
         )
         # Fall back to the custom-time-period RHS (Gas_MaxOpDay*): apply
         # PLEXOS's ``× 1000 / horizon_hours`` evaluation so the value
@@ -4326,6 +4890,37 @@ def extract_user_constraints(
             if rhs_custom is not None:
                 rhs_val = rhs_custom * rhs_custom_factor
                 rhs_from_custom = True
+        # PLEXOS ``RHS Day`` — a per-DAY budget in GWh.  Some daily-energy
+        # constraints (e.g. ``CANUTILLARreserve`` = 4.12 GWh) carry NO plain
+        # ``RHS`` / ``RHS Custom``, only ``RHS Day``; without seeding it here
+        # they hit the ``rhs_val is None`` guard below and are dropped.  Seed
+        # the scalar from ``RHS Day`` (GWh) — the GWh→MWh ×1000 scale is
+        # applied later, only when this turns out to be a daily-ENERGY
+        # (``generator(...).generation`` LHS) constraint.
+        rhs_from_day = False
+        if prop_rhs_day is not None:
+            day_rows = db.data_for(mid, prop_rhs_day)
+            # Use RHS Day when there is no plain RHS, OR when the only plain
+            # RHS is an expired historical override AND an ACTIVE RHS Day
+            # exists (the live daily budget then wins — e.g. PANGUE).
+            use_day = rhs_val is None or (
+                rhs_from_expired_only and _has_active_rhs_row(day_rows, horizon_start)
+            )
+            if use_day:
+                rhs_day = _horizon_value(day_rows, horizon_start, prefer_min=True)
+                if rhs_day is not None:
+                    rhs_val = rhs_day
+                    rhs_from_day = True
+        # Hydro daily-ramp constraints (e.g. ``RALCOramp_max_e1``) carry NO
+        # ``RHS`` / ``RHS Custom`` in the PLEXOS DB — their right-hand side
+        # lives entirely in ``Hydro_MaxRampDay.csv``.  Without seeding it
+        # here the constraint hits the ``rhs_val is None`` guard below and
+        # is silently dropped.  Use the first per-day value as the scalar
+        # seed; the per-block overlay further down replaces it with the
+        # full day-varying schedule.
+        ramp_day_present = bool(ramp_day_rhs.get(constr.name))
+        if rhs_val is None and ramp_day_present:
+            rhs_val = ramp_day_rhs[constr.name][0]
         if sense_val is None or rhs_val is None:
             continue
         op = _SENSE_OP.get(sense_val)
@@ -4387,10 +4982,64 @@ def extract_user_constraints(
                 else None
             )
             for parent_name, coeff in per_constr.get(constr.object_id, ()):
-                if allowed_parent is not None and parent_name not in allowed_parent:
-                    continue
                 ref_name = name_tmpl.format(name=parent_name)
-                if allowed_ref is not None and ref_name not in allowed_ref:
+                # The term is unresolvable when EITHER the underlying
+                # PLEXOS parent object was not emitted (``allowed_parent``)
+                # OR the synthesized gtopt element name was not emitted
+                # (``allowed_ref``).  Both funnel into the same
+                # collect-and-fail path below — a parent that gtopt
+                # never emits cannot have a resolvable child reference.
+                parent_missing = (
+                    allowed_parent is not None and parent_name not in allowed_parent
+                )
+                ref_missing = allowed_ref is not None and ref_name not in allowed_ref
+                if parent_missing or ref_missing:
+                    # A Battery reserve-provision coefficient references
+                    # the BARE battery name, so the direct builder produced
+                    # the plain ``provision_<bat>`` — which the SSCC emitter
+                    # never creates (its names are ZONE-suffixed,
+                    # ``provision_<bat>_gen__<ZONE>``).  Route the term to
+                    # EVERY zone-suffixed provision matching the
+                    # coefficient's DIRECTION (from the KIND-derived
+                    # ``accessor``, else the constraint name) and the
+                    # constraint's reserve TYPE (CPF / CSF / both).  A
+                    # per-battery row (``CSF_LW_MIN_BAT_<bat>``) yields one
+                    # zone; an aggregate / storage-bound row
+                    # (``CPF_DownMinProvision``, ``UP/DOWNStorageBound_*``)
+                    # may yield a SUM over both reserve types — emit one
+                    # term per matching zone.
+                    if gtopt_class == "reserve_provision" and parent_class == "Battery":
+                        direction = _bess_provision_direction(constr.name, accessor)
+                        bess_refs = (
+                            _bess_matching_provisions(
+                                parent_name, direction, constr.name, allowed_ref
+                            )
+                            if direction is not None
+                            else []
+                        )
+                        if bess_refs:
+                            for rn in bess_refs:
+                                terms.append(
+                                    _format_coefficient(coeff, first=not terms)
+                                    + f'reserve_provision("{rn}").{direction}'
+                                )
+                                coefficients.append(coeff)
+                            continue
+                    # Fix 2: the referenced element was never emitted and
+                    # could not be reconciled (BESS Fix above did not
+                    # apply).  Do NOT silently drop the term, and do NOT
+                    # quietly drop the whole constraint — COLLECT the bad
+                    # reference and FAIL HARD after every constraint has
+                    # been walked (one big error listing them all).  This
+                    # mirrors gtopt's strict JSON parser, which errors on
+                    # an unknown field rather than ignoring it.
+                    unresolved_refs.append(
+                        (
+                            constr.name,
+                            f'{gtopt_class}("{ref_name}").{accessor}',
+                            gtopt_key,
+                        )
+                    )
                     continue
                 var_ref = f'{gtopt_class}("{ref_name}").{accessor}'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
@@ -4593,7 +5242,15 @@ def extract_user_constraints(
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
                 coefficients.append(coeff)
 
+        # Fix 2: an unresolvable direct-coefficient term (element never
+        # emitted, BESS Fix could not repair it) was already RECORDED in
+        # ``unresolved_refs`` above and skipped from ``terms``.  We do
+        # NOT drop the whole constraint here: the collected references
+        # trigger ONE hard-fail error after the build loop (see below).
+        # Continue assembling this constraint normally so the error path
+        # can still surface its surviving terms in context if needed.
         if not terms:
+            lhs_dropped += 1
             continue
         # If ANY term was unsupported, skip the entire constraint
         # rather than emit a partial form: a constraint missing key
@@ -4610,7 +5267,62 @@ def extract_user_constraints(
                 "WARNs for the specific term(s)",
                 constr.name,
             )
+            lhs_dropped += 1
             continue
+        # ── Daily-ENERGY budget classification (PLEXOS ``RHS Day`` /
+        #    ``Hydro_MaxRampDay.csv``) ─────────────────────────────────────
+        # A constraint is a per-day ENERGY budget when its RHS comes from
+        # ``RHS Day`` (DB property) OR from the ramp-day overlay AND its LHS
+        # references ``generator(...).generation`` (the only physical-energy
+        # accessor).  These map onto gtopt's ``daily_sum`` +
+        # ``constraint_type=energy`` row: ``Σ_day gen·Δt ≤ RHS`` [MWh].
+        # ``RHS Day`` ships in GWh, so the effective LP RHS is ``× 1000``.
+        # Scale the scalar ``rhs_val`` (inline ``<op> NUMBER`` tail) here and
+        # the per-block ``rhs_profile_tuple`` further below — exactly once.
+        references_generation = any(".generation" in t for t in terms)
+        # Fuel-offtake daily caps (``Diesel_OffTakeDay``, ``Gas_*``) expand to
+        # ``heat_rate · generator.generation`` terms, so they spuriously pass
+        # ``references_generation`` — but their RHS is a FUEL-UNIT budget, not
+        # a GWh generation-energy budget, and must NOT get the ×1000 GWh→MWh
+        # scale (it inflated Diesel_OffTakeDay to 9.27e6, ~1000× the correct
+        # ~9277 = PLEXOS 386.54/h × 24).  The fuel-offtake path already splits
+        # the daily cap into a per-block budget above.
+        is_daily_energy = (
+            (rhs_from_day or ramp_day_present)
+            and references_generation
+            and not is_fuel_offtake
+        )
+        # Crew / commitment-start-count daily caps (e.g. ``Guacolda_Crew``:
+        # Σ_day (startup+shutdown) ≤ 2) carry ``RHS Day`` as a COUNT, not a
+        # GWh energy budget.  They DO get gtopt's ``daily_sum`` (so the cap
+        # binds per DAY — matching PLEXOS spreading the daily 2 to 2/24 = 0.083
+        # per hour) but with ``constraint_type=""`` (unweighted per-day count,
+        # NOT Δt-weighted energy) and WITHOUT the ×1000 GWh→MWh scale.
+        references_commit_count = any(
+            (".startup" in t or ".shutdown" in t) for t in terms
+        )
+        is_daily_count = (
+            (rhs_from_day or ramp_day_present)
+            and references_commit_count
+            and not references_generation
+            and not is_fuel_offtake
+        )
+        # Daily-RHS constraints with neither a generation-energy nor a
+        # commitment-count LHS (pure fuel / other) stay DEFERRED — different
+        # units/semantics.
+        if (
+            (rhs_from_day or ramp_day_present)
+            and not references_generation
+            and not is_daily_count
+        ):
+            logger.debug(
+                "constraint %s carries a daily RHS but no generation / "
+                "commit-count LHS (fuel/other) — daily_sum mapping deferred "
+                "(different units/semantics)",
+                constr.name,
+            )
+        if is_daily_energy:
+            rhs_val *= _DAILY_ENERGY_RHS_SCALE
         expression = "".join(terms) + f" {op} {rhs_val:g}"
         # PLEXOS-authoritative activation flag.  Two recognisers:
         #   (a) ``Include in ST Schedule`` ∈ {-1, 0} ⇒ PLEXOS itself
@@ -4626,35 +5338,14 @@ def extract_user_constraints(
             constr.name, coefficients, op, rhs_val
         )
 
-        # ── ST-include override ─────────────────────────────────────
-        # PLEXOS marks ~91% of constraints with ``Include in ST
-        # Schedule ≤ 0`` to exclude them from the daily run, but a
-        # subset of those flagged exclusions are STILL needed for
-        # gtopt to produce a PLEXOS-comparable dispatch: physical-
-        # machine config mutual-exclusion (Conf*), commitment logic
-        # (Commit_*), startup-event limits (*_Startings, CTFOFF*),
-        # and offer-comparison rows (*_Comparison, *_Uniq).  PLEXOS
-        # enforces these implicitly via its commitment solver, but
-        # gtopt's LP build needs them as explicit UCs.  Without the
-        # override, NEHUENCO_2-TG and NEHUENCO_2-TG+TV (the same
-        # physical machine in different configs) can run in PARALLEL,
-        # ghost-doubling capacity — root cause of a chunk of the LNG
-        # +229% over-dispatch on CEN PCP weekly.
-        #
-        # ``_FORCE_ACTIVE_PREFIXES`` and ``_FORCE_ACTIVE_SUFFIXES``
-        # capture the constraint families to keep active regardless
-        # of the PLEXOS ST-include flag.  Structurally-infeasible
-        # contingency rows (cap rule (b)) still get active=False.
-        # Substring matcher: PLEXOS names commonly carry a unit prefix
-        # before the family token (NEHUENCO_2_ConfTG, ATA_CC_1_ConfTGA,
-        # BAT_*_OFF, …), so prefix/suffix-only matching misses them.
-        # Check ``substring in name`` for every family pattern.
-        is_force_active_family = any(p in constr.name for p in _FORCE_ACTIVE_PATTERNS)
-        if is_excluded_by_plexos and is_force_active_family:
-            # ST-exclude flag suppressed; keep this UC active because
-            # its family (Conf/Commit/Startings/etc.) is required for
-            # PLEXOS-comparable dispatch.
-            is_excluded_by_plexos = False
+        # PLEXOS ``Include in ST Schedule == 0`` is honoured DIRECTLY: such
+        # constraints are emitted ``active=False`` (disabled), matching
+        # PLEXOS's own exclusion.  A prior ``_FORCE_ACTIVE_PATTERNS`` override
+        # that kept Conf/Commit/CTFOFF/*_OFF/*_Startings/*_Comparison families
+        # active *despite* flag==0 was removed — it diverged from PLEXOS by
+        # enforcing 25 rows PLEXOS had disabled (gtopt potentially tighter than
+        # PLEXOS).  NB: config-exclusivity rows PLEXOS keeps active carry
+        # flag!=0 and so are unaffected — they stay active via this same flag.
 
         # Battery-disable UCs (``Almacenamiento_BAT_*: battery.energy
         # = 0``) are PLEXOS's internal way of pinning a battery's SoC
@@ -4693,6 +5384,24 @@ def extract_user_constraints(
         rhs_profile_tuple: tuple[float, ...] = ()
         if any(abs(s) > 0.0 for s in rhs_shift_per_block):
             rhs_profile_tuple = tuple(rhs_val - shift for shift in rhs_shift_per_block)
+        # Hydro daily-ramp RHS overlay: expand the per-day limit across
+        # that day's 24 hours so the writer aggregates it to per-block
+        # ``user_constraint.rhs``.  Overrides any scalar/shift RHS for the
+        # named ramp constraints (e.g. ``RALCOramp_max_e1``).
+        day_rhs = ramp_day_rhs.get(constr.name)
+        if day_rhs:
+            rhs_profile_tuple = tuple(v for v in day_rhs for _ in range(24))
+        # GWh→MWh scale for daily-ENERGY budgets.  The scalar ``rhs_val`` was
+        # already scaled above (it feeds the inline ``<op> NUMBER`` tail); the
+        # per-block ``rhs_profile_tuple`` here carries the RAW ``RHS Day`` /
+        # ramp-day GWh values (the ``day_rhs`` overlay re-reads the un-scaled
+        # CSV), so scale it the same ×1000 — exactly once, only for the
+        # daily-energy rows.  (The curtailment-shift branch above already used
+        # the scaled scalar; those constraints are never daily-energy.)
+        if is_daily_energy and rhs_profile_tuple:
+            rhs_profile_tuple = tuple(
+                v * _DAILY_ENERGY_RHS_SCALE for v in rhs_profile_tuple
+            )
         # Soften UCs whose ENTIRE Generator-side LHS references hydros
         # — PLEXOS gates these per-reservoir floors / ramps on the
         # unit's commitment status internally, but we emit them as
@@ -4766,6 +5475,19 @@ def extract_user_constraints(
             )
             if not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
+        # Drop no-limit-sentinel line-security constraints (SD_* etc.) — a
+        # PURE line-flow constraint at the 100000 "contingency off" sentinel
+        # is inert and only wrecks LP conditioning (see helper docstring).
+        if _is_nolimit_line_sentinel(expression, rhs_val):
+            sd_sentinel_dropped += 1
+            logger.debug(
+                "dropping no-limit line-security constraint %s "
+                "(RHS=%g >= %g sentinel; PLEXOS contingency inactive today)",
+                constr.name,
+                rhs_val,
+                _SD_NOLIMIT_RHS_SENTINEL,
+            )
+            continue
         out.append(
             UserConstraintSpec(
                 name=constr.name,
@@ -4773,6 +5495,8 @@ def extract_user_constraints(
                 penalty=emitted_penalty,
                 active=False if is_inactive else None,
                 rhs_profile=rhs_profile_tuple,
+                daily_sum=is_daily_energy or is_daily_count,
+                constraint_type="energy" if is_daily_energy else "",
                 description=_describe_user_constraint(
                     constr.name,
                     expression,
@@ -4784,6 +5508,42 @@ def extract_user_constraints(
                     inactive=is_inactive,
                 ),
             )
+        )
+    if stats_out is not None:
+        stats_out["raw_total"] = len(constraints)
+        stats_out["lhs_dropped"] = lhs_dropped
+        stats_out["sd_sentinel_dropped"] = sd_sentinel_dropped
+        stats_out["unresolved_refs"] = len(unresolved_refs)
+        stats_out["emitted_base"] = len(out)
+    # FAIL HARD on any unresolvable UserConstraint reference.  We held
+    # off until every constraint was walked so the user sees the FULL
+    # list in one error (not just the first).  This mirrors gtopt's
+    # strict JSON parser: an unknown element name is a fatal error, not
+    # a silent drop.  Each line carries the closest emitted name as a
+    # hint (e.g. ``provision_X`` → ``provision_X_gen__CSF_LW_BESS``).
+    if unresolved_refs:
+        lines: list[str] = []
+        for constr_name, ref_expr, gtopt_key in unresolved_refs:
+            hint = ""
+            # Extract the bad element name from ``class("name").attr`` to
+            # suggest the nearest emitted name within the same class.
+            name_match = re.search(r'\("([^"]*)"\)', ref_expr)
+            bad_name = name_match.group(1) if name_match else ""
+            candidates = (
+                sorted(emitted_names.get(gtopt_key, frozenset()))
+                if emitted_names is not None and gtopt_key is not None
+                else []
+            )
+            if bad_name and candidates:
+                close = difflib.get_close_matches(bad_name, candidates, n=1, cutoff=0.4)
+                if close:
+                    hint = f"  (closest emitted name: {close[0]!r})"
+            lines.append(f"  - constraint {constr_name!r}: {ref_expr}{hint}")
+        raise UnresolvedConstraintReferenceError(
+            f"{len(unresolved_refs)} UserConstraint term(s) reference "
+            "element name(s) that gtopt never emits — refusing to write a "
+            "bundle with dangling references.  Fix the source data or the "
+            "name mapping; do NOT silently drop these terms:\n" + "\n".join(lines)
         )
     return tuple(out)
 
@@ -5690,53 +6450,56 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         boundary_cut=_extract_boundary_cut(bundle),
     )
 
-    # Allow constraint references to any generator whose pmax is
-    # active in AT LEAST ONE block of the horizon.  PLEXOS Constraint
-    # expressions are LHS-scoped to "all blocks", and gtopt previously
-    # required every block to have ``pmax > 0`` to avoid dangling
-    # references at zero-pmax blocks.  That over-tightened filter
-    # silently dropped UC terms for generators like NUEVA_VENTANAS
-    # (8/111 blocks at pmax=0 due to Gen_UnitsOut, 103/111 active) —
-    # which made critical PLEXOS-side constraints
-    # (``SD_2024131550_Campiche_NuevaVentanas``,
-    # ``SD_2025128381_Campiche_o_NVentanas``) lose their NV term and
-    # mis-emit as if they bound CAMPICHE alone, letting the LP
-    # over-dispatch NV by +32 GWh / week.
+    # Valid-reference set for UserConstraint VALIDATION.  This is the
+    # set of EVERY element gtopt will actually emit — NOT a feasibility /
+    # always-active filter.  Critically it includes generators with
+    # ``pmax == 0`` or a per-block ``pmax_profile`` that is zero in some
+    # (or all) blocks: gtopt MODELS such a generator (it gets a
+    # dispatch column) and its UserConstraint resolver is LENIENT —
+    # references at zero-pmax blocks silently contribute 0 to the LHS
+    # (element_known via the per-stage block scan in
+    # ``element_column_resolver.cpp``).  An offline-but-emitted gen is
+    # therefore a VALID reference, and excluding it here (the old
+    # ``_gen_always_active`` filter) would wrongly classify a real
+    # reference as unresolvable and trip the hard-fail below.  The only
+    # thing that must NOT be in this set is a name gtopt never emits at
+    # all — that is the genuine dangling-reference case the hard-fail
+    # exists to catch.
     #
-    # Safe with the resolver-leniency fix (element_known + silent
-    # zero contribution at blocks where the gen is not registered):
-    # references at the 8 zero-pmax blocks silently contribute 0
-    # to the LHS, the other 103 blocks contribute correctly.
-    def _gen_always_active(g: GeneratorSpec) -> bool:
-        if (g.pmax or 0.0) > 0.0:
-            return True
-        if g.pmax_profile:
-            return any(p > 0.0 for p in g.pmax_profile)
-        return False
-
+    # Synthetic ``<bat>_gen`` discharge generators (created
+    # UNCONDITIONALLY by ``system.cpp::expand_batteries`` for every
+    # bus-coupled battery) are valid Generator references too; their
+    # companion ``uc_<bat>_gen`` Commitment (also unconditional) is a
+    # valid Commitment reference (used by the Battery ``Reserve Units``
+    # → ``forward_to_battery_gen_commit`` rewrite).
+    battery_gen_names = frozenset(f"{b.name}_gen" for b in case.batteries)
     emitted_names: dict[str, frozenset[str]] = {
-        "Generator": frozenset(
-            g.name for g in case.generators if _gen_always_active(g)
+        "Generator": frozenset(g.name for g in case.generators).union(
+            battery_gen_names
         ),
         "Line": frozenset(line.name for line in case.lines),
         "Battery": frozenset(b.name for b in case.batteries),
         # gtopt element names for synthesised commitment / reserve
         # provision rows. The constraint writer routes coefficients via
-        # the templated names (``uc_<gen>`` / ``provision_<gen>``) and
-        # needs to drop references for generators that didn't emit a
-        # matching Commitment / ReserveProvision row.
-        # Commitment binaries come from ``CommitmentSpec`` rows;
-        # emitted as ``uc_<gen_name>``.  We deliberately do NOT add
-        # battery-synth names (``uc_<battery>_gen``) here — gtopt
-        # does not currently register a per-battery commitment binary
-        # (batteries get a ``<bat>_gen`` continuous variable but no
-        # ``uc_<bat>_gen`` commitment), so any UC term referencing
-        # ``commitment("uc_<bat>_gen").status`` (e.g.
-        # ``CSF_MinUnits``) would crash gtopt's resolver.  Filtering
-        # them out here drops the term silently, mirroring the
-        # legacy behaviour.
-        "Commitment": frozenset(f"uc_{c.generator_name}" for c in case.commitments),
-        "ReserveProvision": frozenset(
+        # the templated names (``uc_<gen>`` / ``provision_<gen>``).
+        # Commitment binaries come from ``CommitmentSpec`` rows
+        # (emitted as ``uc_<gen_name>``) PLUS the per-battery synthetic
+        # ``uc_<bat>_gen`` commitments that ``expand_batteries`` creates
+        # unconditionally (relaxed continuous u when the battery carries
+        # no commitment economics — see ``source/system.cpp``).  The
+        # Battery ``Reserve Units`` coefficient forwards to
+        # ``commitment("uc_<bat>_gen").status``, so these names MUST be
+        # recognised as valid references.
+        "Commitment": frozenset(
+            f"uc_{c.generator_name}" for c in case.commitments
+        ).union(f"uc_{b.name}_gen" for b in case.batteries),
+        # ReserveProvision allow-list carries the ACTUAL emitted
+        # provision name (``p.name``) so that zone-suffixed SSCC BESS
+        # provisions (``provision_<bat>_gen__<ZONE>``) resolve — plus
+        # the legacy ``provision_<gen>`` form for the per-generator
+        # reserve path (whose ``p.name`` is itself ``provision_<gen>``,
+        # but kept explicit for clarity / robustness).
+        "ReserveProvision": frozenset(p.name for p in case.reserve_provisions).union(
             f"provision_{p.generator_name}" for p in case.reserve_provisions
         ),
         # DecisionVariable: PLEXOS DV.Value coefficient references the
@@ -5755,6 +6518,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     pmax_profiles_by_gen = {
         g.name: g.pmax_profile for g in case.generators if g.pmax_profile
     }
+    uc_stats_raw: dict[str, int] = {}
     base_ucs = extract_user_constraints(
         db,
         bundle,
@@ -5762,6 +6526,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         heat_rate_by_gen=heat_rate_by_gen,
         pmax_by_gen=pmax_by_gen_for_uc,
         pmax_profiles_by_gen=pmax_profiles_by_gen,
+        stats_out=uc_stats_raw,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators
@@ -5783,9 +6548,36 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     # mutually-exclusive configurations of the same plant.
     mutex_groups = tuple(_extract_config_mutex_groups(db))
     plant_cap_ucs = _build_plant_cap_ucs(case, mutex_groups)
+    uc_stats = UserConstraintStats(
+        raw_plexos_constraints=uc_stats_raw.get("raw_total", 0),
+        empty_lhs_dropped=uc_stats_raw.get("lhs_dropped", 0),
+        base_emitted=uc_stats_raw.get("emitted_base", len(base_ucs)),
+        hydro_synthesized=len(hydro_ucs),
+        plant_cap_synthesized=len(plant_cap_ucs),
+    )
+    # Raw PLEXOS object counts (pre-drop), for the conversion drop funnel and
+    # the emissions guard (``Emission`` objects carry carbon caps the
+    # converter only partially handles — see ``build_emission_array``).
+    raw_class_counts = {
+        cls: len(db.objects_of_class(cls))
+        for cls in ("Line", "Battery", "Storage", "Waterway", "Generator", "Emission")
+    }
+    n_emission = raw_class_counts.get("Emission", 0)
+    if n_emission > 0 and not any(
+        f.co2_rate != 0.0 or f.co2_upstream_rate != 0.0 for f in case.fuels
+    ):
+        logger.warning(
+            "extract_case: %d PLEXOS Emission object(s) present but no fuel "
+            "carries a CO2 rate — carbon caps/prices are NOT converted "
+            "(gtopt EmissionZone cap/price unsupported by the converter yet). "
+            "Dispatch will ignore the emission limit.",
+            n_emission,
+        )
     case = dataclasses.replace(
         case,
         user_constraints=(tuple(base_ucs) + tuple(hydro_ucs) + tuple(plant_cap_ucs)),
+        uc_stats=uc_stats,
+        raw_class_counts=raw_class_counts,
     )
     logger.info(
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "
@@ -5813,6 +6605,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
 
 
 __all__ = [
+    "UnresolvedConstraintReferenceError",
     "extract_batteries",
     "extract_bundle_spec",
     "extract_case",

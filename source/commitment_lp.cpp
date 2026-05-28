@@ -32,6 +32,12 @@ CommitmentLP::CommitmentLP(const Commitment& commitment, const InputContext& ic)
     , fixed_status_(
           ic, Element::class_name, id(), std::move(object().fixed_status))
     , pmin_(ic, Element::class_name, id(), std::move(object().pmin))
+    , ramp_up_(ic, Element::class_name, id(), std::move(object().ramp_up))
+    , ramp_down_(ic, Element::class_name, id(), std::move(object().ramp_down))
+    , startup_ramp_(
+          ic, Element::class_name, id(), std::move(object().startup_ramp))
+    , shutdown_ramp_(
+          ic, Element::class_name, id(), std::move(object().shutdown_ramp))
 {
 }
 
@@ -96,10 +102,17 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   const auto is_relax = commitment().relax.value_or(false)
       || sc.simulation().phases()[stage.phase_index()].is_continuous();
   const auto is_must_run = commitment().must_run.value_or(false);
-  const auto opt_ramp_up = commitment().ramp_up;
-  const auto opt_ramp_down = commitment().ramp_down;
-  const auto opt_startup_ramp = commitment().startup_ramp;
-  const auto opt_shutdown_ramp = commitment().shutdown_ramp;
+  // Ramp limits / startup-shutdown envelopes are now per-(stage, block)
+  // schedules (``OptTBRealSched``), resolved block-by-block below exactly
+  // like ``pmin_``.  ``has_value()`` here reports whether the field was
+  // supplied at all (scalar or per-block); a scalar input resolves to the
+  // same constant on every block, preserving the legacy ``OptReal``
+  // behaviour byte-for-byte.  The per-block ``value_or(gen_pmax)``
+  // "unset ⇒ pmax (no limit)" fallback is applied inside the loop.
+  const auto has_ramp_up = ramp_up_.has_value();
+  const auto has_ramp_down = ramp_down_.has_value();
+  const auto has_startup_ramp = startup_ramp_.has_value();
+  const auto has_shutdown_ramp = shutdown_ramp_.has_value();
 
   // Resolve piecewise heat rate curve.
   //
@@ -272,10 +285,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // Unit Commitment Problem", INFORMS J. Comput. 32(4); and
     // Morales-España, Latorre & Ramos (2013), "Tight and Compact MILP
     // Formulation ...", IEEE Trans. Power Syst.
-    const auto v_cost = has_startup_tiers
-        ? 0.0
-        : CostHelper::block_ecost(
-              scenario, stage, rep_block, stage_startup_cost);
+    // Startup is a once-per-EVENT cost ($/start), NOT a per-hour power cost,
+    // so it must NOT be multiplied by the block duration (Δt).  Use the
+    // no-duration ``cost_factor`` (probability · discount) — present-valued
+    // but face-value in magnitude.  Multiplying by ``rep_block.duration()``
+    // (as ``block_ecost`` does) would inflate it by the block length.
+    const auto v_cost = has_startup_tiers ? 0.0
+                                          : stage_startup_cost
+            * CostHelper::cost_factor(scenario.probability_factor(),
+                                      stage.discount_factor());
     auto vcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
@@ -289,8 +307,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     vcols[rep_buid] = vcol;
     period_vcol[p] = vcol;
 
-    const auto w_cost = CostHelper::block_ecost(
-        scenario, stage, rep_block, stage_shutdown_cost);
+    // Shutdown, like startup, is a once-per-EVENT cost ($/stop), NOT a
+    // per-hour power cost — use the no-duration ``cost_factor`` so it is
+    // not inflated by the block length.
+    const auto w_cost = stage_shutdown_cost
+        * CostHelper::cost_factor(scenario.probability_factor(),
+                                  stage.discount_factor());
     auto wcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
@@ -448,9 +470,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── C4: Ramp up: p[t] - p[t-1] ≤ RU·u[t-1] + SU·v[t] ──
-    if (opt_ramp_up.has_value() || opt_startup_ramp.has_value()) {
-      const auto ru = opt_ramp_up.value_or(gen_pmax) * block.duration();
-      const auto su = opt_startup_ramp.value_or(gen_pmax);
+    if (has_ramp_up || has_startup_ramp) {
+      // Per-block resolution mirrors ``pmin_`` above: ``optval`` returns
+      // the scheduled rate at this (stage, block), or nullopt for unset
+      // blocks → ``value_or(gen_pmax)`` keeps the legacy "no limit ⇒
+      // pmax" semantics.  A scalar JSON input resolves to the same value
+      // on every block.
+      const auto ru = ramp_up_.optval(stage.uid(), buid).value_or(gen_pmax)
+          * block.duration();
+      const auto su =
+          startup_ramp_.optval(stage.uid(), buid).value_or(gen_pmax);
 
       // First block uses ``initial_p`` as ``p_prev`` and ``initial_u``
       // as ``u_prev``; subsequent blocks reach back to ``prev_gcol``
@@ -478,9 +507,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
 
     // ── C5: Ramp down: p[t-1] - p[t] ≤ RD·u[t] + SD·w[t] ──
-    if (opt_ramp_down.has_value() || opt_shutdown_ramp.has_value()) {
-      const auto rd = opt_ramp_down.value_or(gen_pmax) * block.duration();
-      const auto sd = opt_shutdown_ramp.value_or(gen_pmax);
+    if (has_ramp_down || has_shutdown_ramp) {
+      // Per-block resolution, mirroring the ramp-up branch / ``pmin_``.
+      const auto rd = ramp_down_.optval(stage.uid(), buid).value_or(gen_pmax)
+          * block.duration();
+      const auto sd =
+          shutdown_ramp_.optval(stage.uid(), buid).value_or(gen_pmax);
 
       // Mirror the ramp-up first-block convention: ``p_prev`` on the
       // LHS becomes ``initial_p`` on the RHS for the first block.
@@ -894,11 +926,19 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
       const auto bctx =
           make_block_context(scenario.uid(), stage.uid(), rep_buid);
-      const auto& rep_block = blocks[period_starts[p]];
+      // Start-up tier costs (hot/warm/cold) are once-per-EVENT costs
+      // ($/start), NOT per-hour power costs — exactly like the plain
+      // startup ``v`` above, they must NOT be multiplied by the block
+      // duration (Δt).  Use the no-duration ``cost_factor`` (probability ·
+      // discount).  When ``has_startup_tiers`` is set these tiers carry the
+      // ENTIRE startup cost (``v_cost`` is forced to 0), so a
+      // ``block_ecost`` here would re-introduce the exact Δt inflation the
+      // ``v``/``w`` fix removed.
+      const auto tier_factor = CostHelper::cost_factor(
+          scenario.probability_factor(), stage.discount_factor());
 
       // Create tier variables with their respective costs
-      const auto h_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, hot_cost);
+      const auto h_cost = hot_cost * tier_factor;
       auto hcol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
@@ -911,8 +951,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       });
       hcols[rep_buid] = hcol;
 
-      const auto wm_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, warm_cost);
+      const auto wm_cost = warm_cost * tier_factor;
       auto wmcol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
@@ -925,8 +964,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       });
       wmcols[rep_buid] = wmcol;
 
-      const auto c_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, cold_cost);
+      const auto c_cost = cold_cost * tier_factor;
       auto ccol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,

@@ -92,6 +92,15 @@ private:
   /// (PLEXOS ``Min Stable Level`` time series).  Resolved block-by-
   /// block; unset blocks fall back to the gen column lower bound.
   OptTBRealSched pmin_;
+  /// Per-(stage, block) ramp limits / startup-shutdown output envelopes,
+  /// resolved block-by-block exactly like ``pmin_``.  A scalar JSON input
+  /// resolves to the same constant on every block (back-compat with the
+  /// legacy scalar ``OptReal`` fields); unset blocks fall back to
+  /// ``gen_pmax`` ("no limit") in the ramp rows.
+  OptTBRealSched ramp_up_;  ///< Ramp-up limit [MW/hr] while online
+  OptTBRealSched ramp_down_;  ///< Ramp-down limit [MW/hr] while online
+  OptTBRealSched startup_ramp_;  ///< Max output in startup block [MW]
+  OptTBRealSched shutdown_ramp_;  ///< Max output in shutdown block [MW]
 
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<ColIndex> startup_cols_;

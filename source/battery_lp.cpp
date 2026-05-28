@@ -112,6 +112,7 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
+      .max_cycles_day = battery().max_cycles_day.value_or(0.0),
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = es,

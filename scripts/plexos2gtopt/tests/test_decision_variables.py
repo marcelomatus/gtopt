@@ -15,9 +15,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from plexos2gtopt.entities import DecisionVariableSpec
 from plexos2gtopt.gtopt_writer import build_decision_variable_array
 from plexos2gtopt.parsers import (
+    UnresolvedConstraintReferenceError,
     extract_decision_variables,
     extract_user_constraints,
 )
@@ -211,11 +214,18 @@ def test_user_constraint_routes_dv_value_coefficient(tmp_path: Path) -> None:
     assert expr.endswith("= 5")
 
 
-def test_user_constraint_drops_unknown_dv(tmp_path: Path) -> None:
-    """A DV not in ``emitted_names`` causes the term to be filtered out."""
+def test_user_constraint_unknown_dv_fails_hard(tmp_path: Path) -> None:
+    """A DV not in ``emitted_names`` makes the convert FAIL HARD.
+
+    New contract: a term referencing a decision variable gtopt never
+    emits is collected and raised as ``UnresolvedConstraintReferenceError``
+    — never silently dropped.
+    """
     bundle, xml_path = _build_bundle(tmp_path)
     db = load_xml(xml_path)
     allow = {"DecisionVariable": frozenset()}  # nothing allowed
-    out = extract_user_constraints(db, bundle, emitted_names=allow)
-    # DV_BALANCE had only one term (DV_A.value); after filter → empty LHS → drop.
-    assert all(c.name != "DV_BALANCE" for c in out)
+    with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
+        extract_user_constraints(db, bundle, emitted_names=allow)
+    msg = str(excinfo.value)
+    assert "DV_BALANCE" in msg
+    assert 'decision_variable("DV_A").value' in msg

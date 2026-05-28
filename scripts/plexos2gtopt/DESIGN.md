@@ -100,7 +100,7 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Hydro_MinVolume.csv` | reservoir min volume (hm³) | `Reservoir.emin` |
 | `Hydro_InitialVolume.csv` | reservoir initial volume (hm³) | `Reservoir.eini` |
 | `Hydro_StoWaterValues.csv` | water value ($/hm³) | `Reservoir.water_value` |
-| `Hydro_MaxRampDay.csv` | daily ramp limits | (skipped in v0) |
+| `Hydro_MaxRampDay.csv` | daily ramp limits | per-day RHS overlay on the `*ramp*` hydro UserConstraints |
 | `Hydro_AntucoBounds.csv` | irrigation envelope (Laja) | `FlowRight` overlay (P4) |
 | `Hydro_EfficiencyIncr.csv` | piecewise productibility | `Turbine.efficiency` (P3) |
 | `Lin_MaxRating.csv` | line forward rating (MW) | `Line.tmax_ab` |
@@ -108,9 +108,9 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Lin_Units.csv` | parallel-line count | `Line.capacity` factor |
 | `Nod_Load.csv` | per-bus per-hour load (wide CSV) | `Demand.lmax` |
 | `Res_Requirement.csv` | reserve requirements (MW) | `ReserveZone.urreq` |
-| `Res_Timeslice.csv` | reserve time-slice mapping | `ReserveZone.timeslice` |
-| `SSCC_Activation_BESS.csv` | BESS in ancillary services | `Battery.reserve_provision` |
-| `ReserveUsageTxCompensation.csv` | reserve cross-zone allocation | (skipped in v0) |
+| `Res_Timeslice.csv` | reserve time-slice mapping | per-day day-type selector for `Res_Requirement` → `ReserveZone.urreq`/`drreq` |
+| `SSCC_Activation_BESS.csv` | BESS in ancillary services | per-block `ur`/`dr_provision_factor` on each eligible `<battery>_gen` ReserveProvision |
+| `ReserveUsageTxCompensation.csv` | per-BESS reserve Tx-usage compensation fractions | not modelled — settlement/cost-allocation only (no dispatch-LP effect) |
 | `BESS_IniValue.csv` | battery initial SOC | `Battery.eini` |
 | `CFdata/CPF/*.csv` | per-unit ramp curves (MRU/MRD) | `Commitment.ramp_up`/`ramp_down` |
 

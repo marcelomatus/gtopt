@@ -26,6 +26,7 @@ import collections
 import csv
 import logging
 import lzma
+import re
 import shutil
 import subprocess
 import tempfile
@@ -120,6 +121,146 @@ def load_block_layout_from_accdb(
         sum(len(b) for b in layout),
     )
     return layout
+
+
+def infer_horizon_days_from_input(xml_path: Path) -> int | None:
+    """Infer the solve horizon length (days) from the PLEXOS INPUT.
+
+    Used for the uniform-hourly fallback when no solution ``.accdb`` is
+    available: the per-period block grid is then uniform 1-hour, but we
+    still want the right NUMBER of blocks (``days × 24``).
+
+    The CEN PCP input encodes the horizon ONLY in the ``Horizon`` object's
+    NAME (e.g. ``Coordinador_diario_1H_7d`` → 7 days); the explicit length
+    properties ship as ``0`` and the per-class CSVs carry a *superset* of
+    days, so the name is the authoritative signal.  Parses the first
+    ``<digits>d`` token in the Horizon object name.
+
+    Returns the inferred day count (1..366), or ``None`` when no Horizon
+    object / no parseable ``Nd`` token is found.
+    """
+    if not xml_path.is_file():
+        return None
+    try:
+        text = xml_path.read_text(encoding="latin1", errors="ignore")
+    except OSError:
+        return None
+    # Horizon class id (from the <t_class> table).
+    horizon_cls: str | None = None
+    for m in re.finditer(r"<t_class>(.*?)</t_class>", text, re.DOTALL):
+        blk = m.group(1)
+        nm = re.search(r"<name>([^<]+)</name>", blk)
+        cid = re.search(r"<class_id>(\d+)</class_id>", blk)
+        if nm and cid and nm.group(1) == "Horizon":
+            horizon_cls = cid.group(1)
+            break
+    if horizon_cls is None:
+        return None
+    # First Horizon-class object name with an ``Nd`` token.
+    for m in re.finditer(r"<t_object>(.*?)</t_object>", text, re.DOTALL):
+        blk = m.group(1)
+        cid = re.search(r"<class_id>(\d+)</class_id>", blk)
+        nm = re.search(r"<name>([^<]+)</name>", blk)
+        if not (cid and nm and cid.group(1) == horizon_cls):
+            continue
+        day_tok = re.search(r"(\d+)\s*[dD]\b", nm.group(1))
+        if day_tok:
+            days = int(day_tok.group(1))
+            if 1 <= days <= 366:
+                logger.info(
+                    "inferred horizon = %d days from Horizon name %r",
+                    days,
+                    nm.group(1),
+                )
+                return days
+    return None
+
+
+def parse_user_block_layout(spec: str) -> tuple[tuple[int, ...], ...]:
+    """Build the interval→block grouping from a USER block-layout spec.
+
+    Lets the user define the block structure WITHOUT a PLEXOS solution
+    ``.accdb``.  ``spec`` is either:
+
+    * **a path to a CSV file** with a header and a ``duration`` (or
+      ``hours`` / ``dur``) column — one row per block, in chronological
+      order.  An optional ``block_uid`` (or ``block`` / ``uid``) column
+      sets the order explicitly; otherwise row order is used.  Example::
+
+          block_uid,duration
+          1,1
+          2,4
+          3,2
+
+    * **an inline mapping string** ``"{1:1,2:4,3:2}"`` (``block_uid:duration``)
+      or a bare comma list ``"1,4,2"`` (durations in block order).
+
+    ``duration`` is the number of consecutive 1-hour intervals the block
+    spans.  Returns the chronological interval grouping (1-indexed hour
+    ids) in the same shape as :func:`load_block_layout_from_accdb`:
+    block ``k`` covers the next ``duration[k]`` hours, and
+    ``sum(durations)`` is the horizon length in hours.
+
+    Raises ``ValueError`` when no positive durations can be parsed.
+    """
+    durations: list[float] = []
+    path = Path(spec)
+    if path.is_file():
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            cols = {(c or "").strip().lower(): c for c in (reader.fieldnames or [])}
+            dur_col = next(
+                (cols[k] for k in ("duration", "hours", "dur") if k in cols), None
+            )
+            blk_col = next(
+                (cols[k] for k in ("block_uid", "block", "uid") if k in cols), None
+            )
+            if dur_col is None:
+                raise ValueError(
+                    f"block-layout CSV {spec!r} needs a 'duration' column "
+                    f"(got {reader.fieldnames})"
+                )
+            rows: list[tuple[float, float]] = []
+            for i, row in enumerate(reader):
+                try:
+                    dur = float(row[dur_col])
+                except (TypeError, ValueError):
+                    continue
+                order = float(row[blk_col]) if blk_col and row.get(blk_col) else i
+                rows.append((order, dur))
+            durations = [d for _, d in sorted(rows)]
+    else:
+        # Inline string: dict form "{1:1,2:4}" or bare list "1,4,2".
+        body = spec.strip().lstrip("{").rstrip("}")
+        pairs: list[tuple[float, float]] = []
+        for idx, tok in enumerate(body.split(",")):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if ":" in tok:
+                key, val = tok.split(":", 1)
+                pairs.append((float(key), float(val)))
+            else:
+                pairs.append((float(idx), float(tok)))
+        durations = [d for _, d in sorted(pairs)]
+
+    layout: list[tuple[int, ...]] = []
+    hour = 1
+    for dur in durations:
+        n = int(round(dur))
+        if n <= 0:
+            continue
+        layout.append(tuple(range(hour, hour + n)))
+        hour += n
+    if not layout:
+        raise ValueError(f"block-layout spec {spec!r} yielded no positive durations")
+    logger.info(
+        "Loaded USER block layout from %s: %d blocks across %d hours",
+        "CSV" if path.is_file() else "inline spec",
+        len(layout),
+        sum(len(b) for b in layout),
+    )
+    return tuple(layout)
 
 
 def extract_accdb_from_res_zip(res_zip_path: Path) -> Path | None:
@@ -256,9 +397,12 @@ def cache_plexos_tables(
         # zstd-compress the CSV bytes via subprocess to avoid a hard
         # Python-side zstandard dep (the project already ships zstd
         # binaries through apt — see CLAUDE.md ``apt install zstd``).
+        # Level 3 (fast), NOT 19: this is a transient re-run cache, and
+        # ``-19`` on the multi-hundred-MB ``t_data_0`` solution table took
+        # >120 s and timed out into a half-written, undecompressable file.
         try:
             proc = subprocess.run(
-                ["zstd", "-q", "-f", "-19", "-o", str(out_path)],
+                ["zstd", "-q", "-f", "-3", "-o", str(out_path)],
                 input=result.stdout,
                 capture_output=True,
                 check=True,

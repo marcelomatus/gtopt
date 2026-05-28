@@ -23,9 +23,10 @@
  * }
  * ```
  *
- * The optional ``cost`` adds the column to the LP objective with
- * ``cost × value × duration`` (block-energy-scaled, same convention as
- * other gtopt LP elements).  Bounds default to the free LP range
+ * The optional ``cost`` adds the column to the LP objective.  How it
+ * folds in depends on ``cost_type``; the default is ``"raw"`` (face value,
+ * NO probability/discount/duration weighting), matching the PLEXOS penalty
+ * DecisionVariables.  Bounds default to the free LP range
  * (``[-LP_INFINITY, LP_INFINITY]``) when unset.
  */
 
@@ -64,9 +65,47 @@ struct DecisionVariable
   /// column as ``≤ LP_INFINITY`` (free above).
   OptReal upper_bound {};
 
-  /// Per-MW objective contribution.  Scaled by block duration via
-  /// ``CostHelper::block_ecost`` so the units match ``Generator.gcost``.
+  /// Objective contribution per unit of ``value``.
+  ///
+  /// How it folds into the objective depends on ``cost_type``:
+  ///  - ``"raw"`` (default): ``value`` is a face-value money / unitless
+  ///    amount (a PLEXOS penalty knob, reserve VoRS, the FCF cost-to-go
+  ///    ``alpha_fcf``, …), so the term is just ``cost · value`` at face
+  ///    value — NO probability, discount, or block-duration weighting.
+  ///  - ``"power"``: ``value`` is a rate (MW), so the term is
+  ///    ``cost · value · block_duration`` (``CostHelper::block_ecost`` —
+  ///    same convention as ``Generator.gcost``).
+  ///  - ``"energy"``: ``value`` is already a total (MWh), so the term is
+  ///    ``cost · value`` with NO block-duration multiply — only
+  ///    probability × discount.
   OptReal cost {};
+
+  /// Cost interpretation for the objective: ``"raw"`` (default, face value,
+  /// no prob/discount/duration), ``"power"`` (duration-weighted) or
+  /// ``"energy"`` (prob × discount, not duration-weighted).  Parsed as
+  /// ``ConstraintScaleType``.
+  OptName cost_type {};
+
+  /// Optional single-block scope (block ``uid``).  When set, the LP
+  /// creates the column ONLY on that block instead of one per block —
+  /// used for end-of-horizon quantities like the FCF cost-to-go
+  /// ``alpha_fcf``, which must be a single last-block variable (a
+  /// per-block column lets the unconstrained blocks distort the
+  /// objective).  When unset, the default per-(scenario, stage, block)
+  /// column set is created.
+  OptUid block {};
+
+  /// Optional objective constant for a mean-shifted (rebased) variable.
+  /// When the variable is α-rebased as ``value = value' + obj_constant``
+  /// (the LP column holds ``value'``), the objective loses the constant
+  /// term ``cost · obj_constant``.  When set, the LP adds that term back
+  /// via ``LinearProblem::add_obj_constant`` (using the column's resolved
+  /// cost coefficient, so the discount is applied correctly), keeping the
+  /// reported objective algebraically equal to the un-rebased model.
+  /// Intended for single-``block`` columns (added once per created
+  /// column); the FCF cost-to-go ``alpha_fcf`` sets it to the mean cut
+  /// RHS.
+  OptReal obj_constant {};
 };
 
 }  // namespace gtopt

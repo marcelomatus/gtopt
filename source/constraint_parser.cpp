@@ -270,6 +270,20 @@ ConstraintParser::Token ConstraintParser::Lexer::next()
           .value = "}",
           .start_pos = start,
       };
+    case '[':
+      ++m_pos_;
+      return Token {
+          .type = TokenType::LBRACKET,
+          .value = "[",
+          .start_pos = start,
+      };
+    case ']':
+      ++m_pos_;
+      return Token {
+          .type = TokenType::RBRACKET,
+          .value = "]",
+          .start_pos = start,
+      };
     case '.':
       ++m_pos_;
       return Token {
@@ -411,6 +425,10 @@ std::string_view ConstraintParser::Parser::token_type_name(
       return "'{'";
     case TokenType::RBRACE:
       return "'}'";
+    case TokenType::LBRACKET:
+      return "'['";
+    case TokenType::RBRACKET:
+      return "']'";
     case TokenType::DOT:
       return "'.'";
     case TokenType::STAR:
@@ -559,7 +577,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     {
       return t.element.has_value() || t.sum_ref.has_value()
           || t.param_name.has_value() || t.abs_expr || t.minmax_expr
-          || t.if_expr;
+          || t.if_expr || t.coeff_profile.has_value();
     };
 
     // Extract lower bound from lhs_terms
@@ -614,7 +632,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     {
       return t.element.has_value() || t.sum_ref.has_value()
           || t.param_name.has_value() || t.abs_expr || t.minmax_expr
-          || t.if_expr;
+          || t.if_expr || t.coeff_profile.has_value();
     };
 
     // LHS terms stay as-is
@@ -639,6 +657,22 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     result.terms = std::move(all_terms);
     result.constraint_type = ctype;
     result.rhs = rhs_const;
+  }
+
+  // A per-block coefficient profile must always be attached to a
+  // variable-bearing term (via `[...] * variable`).  A profile that
+  // survived parsing without a variable (e.g. a bare `[1,2,3] <= 0`)
+  // would silently contribute nothing at LP assembly — reject it here.
+  for (const auto& t : result.terms) {
+    if (t.coeff_profile
+        && !(t.element || t.sum_ref || t.param_name || t.abs_expr
+             || t.minmax_expr || t.if_expr))
+    {
+      error_at_current(
+          "a per-block coefficient profile must multiply a variable term",
+          "write `[1,2,3] * generator(\"G1\").generation`, not a bare "
+          "profile");
+    }
   }
 
   // Parse optional for clause
@@ -667,15 +701,16 @@ namespace
 // below manipulate such vectors while preserving linearity.
 
 /// Return the sum of coefficients if every term is a pure constant;
-/// return nullopt if any term references a variable, parameter, or
-/// nonlinear wrapper (`abs`, `min`/`max`, `if`).
+/// return nullopt if any term references a variable, parameter,
+/// nonlinear wrapper (`abs`, `min`/`max`, `if`), or carries a per-block
+/// coefficient profile (a profile is not a plain scalar constant).
 std::optional<double> extract_constant(
     const std::vector<ConstraintTerm>& terms) noexcept
 {
   double acc = 0.0;
   for (const auto& t : terms) {
     if (t.element || t.sum_ref || t.param_name || t.abs_expr || t.minmax_expr
-        || t.if_expr)
+        || t.if_expr || t.coeff_profile)
     {
       return std::nullopt;
     }
@@ -684,16 +719,51 @@ std::optional<double> extract_constant(
   return acc;
 }
 
+/// If @p terms is exactly one pure-profile term (a per-block coefficient
+/// profile with no element/sum/param/wrapper), return its profile values;
+/// otherwise nullopt.  Used by `multiply_terms` to detect the
+/// `[v0, v1, ...] * variable` form.  A pure-profile term's scalar
+/// `coefficient` is always 1.0 (any scaling is folded into the profile
+/// entries by `scale_terms`), so the profile alone is authoritative.
+std::optional<std::vector<double>> extract_profile(
+    const std::vector<ConstraintTerm>& terms)
+{
+  if (terms.size() != 1) {
+    return std::nullopt;
+  }
+  const auto& t = terms.front();
+  if (t.element || t.sum_ref || t.param_name || t.abs_expr || t.minmax_expr
+      || t.if_expr || !t.coeff_profile)
+  {
+    return std::nullopt;
+  }
+  // `t.coeff_profile` is the same `std::optional<std::vector<double>>` as
+  // the return type and is guaranteed engaged here — return it directly
+  // (a `*`-dereference + re-wrap would be flagged as an error-prone
+  // optional round-trip).
+  return t.coeff_profile;
+}
+
 void scale_terms(std::vector<ConstraintTerm>& terms, double k) noexcept
 {
   for (auto& t : terms) {
-    t.coefficient *= k;
+    if (t.coeff_profile) {
+      // Profile terms keep `coefficient == 1.0` and fold the scalar into
+      // every profile entry so the profile remains authoritative (and
+      // `extract_profile` need not re-apply `coefficient`).
+      for (auto& v : *t.coeff_profile) {
+        v *= k;
+      }
+    } else {
+      t.coefficient *= k;
+    }
   }
 }
 
 /// Multiply two linear expressions.  At least one side must be a pure
-/// constant; any product of two variable-bearing expressions is
-/// non-linear and rejected at parse time.
+/// constant (or a per-block coefficient profile, which then attaches to
+/// the variable term on the other side); any product of two
+/// variable-bearing expressions is non-linear and rejected at parse time.
 std::vector<ConstraintTerm> multiply_terms(std::vector<ConstraintTerm> lhs,
                                            std::vector<ConstraintTerm> rhs)
 {
@@ -706,6 +776,60 @@ std::vector<ConstraintTerm> multiply_terms(std::vector<ConstraintTerm> lhs,
         },
     };
   }
+
+  // Per-block coefficient profile `[...]` on one side (F9).  Two cases:
+  //   - constant × profile  → scaled profile (still a pure profile),
+  //   - profile  × variable → profile attaches to the single variable
+  //                           term.
+  // A profile times a sum of several terms, or two profiles, is rejected
+  // (the profile-to-term mapping would be ambiguous or non-linear).
+  auto l_prof = extract_profile(lhs);
+  auto r_prof = extract_profile(rhs);
+  if (l_prof || r_prof) {
+    if (l_prof && r_prof) {
+      throw std::invalid_argument(
+          "Non-linear product: both sides of '*' are per-block coefficient "
+          "profiles; a profile must multiply a single variable term");
+    }
+    std::vector<double> profile =
+        l_prof ? std::move(*l_prof) : std::move(*r_prof);
+    // constant × profile → scale the profile, keep it a pure-profile term.
+    if (const auto other_const = l_prof ? r_const : l_const) {
+      for (auto& v : profile) {
+        v *= *other_const;
+      }
+      return {
+          ConstraintTerm {
+              .coeff_profile = std::move(profile),
+          },
+      };
+    }
+    // profile × (single variable term) → attach the profile to it.
+    auto& var_terms = l_prof ? rhs : lhs;
+    if (var_terms.size() != 1) {
+      throw std::invalid_argument(
+          "A per-block coefficient profile must multiply a single variable "
+          "term (e.g. `[1,2,3] * generator(\"G1\").generation`); it cannot "
+          "multiply a sum of terms or another profile");
+    }
+    auto& vt = var_terms.front();
+    if (!(vt.element || vt.sum_ref || vt.param_name || vt.abs_expr
+          || vt.minmax_expr || vt.if_expr))
+    {
+      throw std::invalid_argument(
+          "A per-block coefficient profile must multiply a variable, sum, "
+          "or parameter term, not a bare constant");
+    }
+    // Fold the variable term's scalar coefficient into the profile so the
+    // profile carries the full per-block multiplier.
+    for (auto& v : profile) {
+      v *= vt.coefficient;
+    }
+    vt.coefficient = 1.0;
+    vt.coeff_profile = std::move(profile);
+    return std::move(var_terms);
+  }
+
   if (r_const) {
     scale_terms(lhs, *r_const);
     return lhs;
@@ -822,6 +946,17 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     };
   }
 
+  // Per-block coefficient profile `[v0, v1, ...]` (F9).  Stands in for a
+  // leading scalar multiplier of a single variable-bearing term.  Parsed
+  // here as a pure-profile term (no element/sum/param/wrapper); the
+  // multiplicative fold in `multiply_terms` attaches it to the variable
+  // term on the other side of the `*`.  A profile may not be combined
+  // (added/multiplied) with another profile — that is rejected at fold
+  // time.
+  if (m_current_.type == TokenType::LBRACKET) {
+    return parse_coeff_profile();
+  }
+
   // sum(...) aggregation
   if (m_current_.type == TokenType::IDENT && m_current_.value == "sum") {
     return {
@@ -912,6 +1047,64 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
                   m_current_.value.empty() ? "end of input" : m_current_.value),
       "valid primary: a number, `(expr)`, `element('id').attr`, `sum(...)`, "
       "or a parameter name");
+}
+
+std::vector<ConstraintTerm> ConstraintParser::Parser::parse_coeff_profile()
+{
+  // Current token is '['.  Parse a comma-separated list of (optionally
+  // signed) numeric literals, with an optional trailing comma, e.g.
+  // `[1, 2, 3]` or `[1.5, -0.5,]`.
+  const auto open_col = m_current_.start_pos;
+  advance();  // consume '['
+
+  std::vector<double> profile;
+  while (m_current_.type != TokenType::RBRACKET) {
+    double sign = 1.0;
+    // Allow a unary +/- in front of each profile entry.
+    while (m_current_.type == TokenType::PLUS
+           || m_current_.type == TokenType::MINUS)
+    {
+      if (m_current_.type == TokenType::MINUS) {
+        sign = -sign;
+      }
+      advance();
+    }
+    if (m_current_.type != TokenType::NUMBER) {
+      error_at_current(
+          std::format(
+              "expected number in coefficient profile, got '{}'",
+              m_current_.value.empty() ? "end of input" : m_current_.value),
+          "a profile is a bracketed list of numbers, e.g. [1, 2, 3]");
+    }
+    profile.push_back(sign * std::stod(m_current_.value));
+    advance();
+    if (m_current_.type == TokenType::COMMA) {
+      advance();  // consume ',' (trailing comma tolerated)
+    } else if (m_current_.type != TokenType::RBRACKET) {
+      error_at_current(
+          std::format(
+              "expected ',' or ']' in coefficient profile, got '{}'",
+              m_current_.value.empty() ? "end of input" : m_current_.value),
+          "separate profile entries with ',' and close with ']'");
+    }
+  }
+  advance();  // consume ']'
+
+  if (profile.empty()) {
+    error_at(open_col,
+             "empty coefficient profile '[]'",
+             "a profile must list at least one number, e.g. [1, 2, 3]");
+  }
+
+  // Encode as a pure-profile term: no element/sum/param/wrapper, but
+  // `coeff_profile` set.  `coefficient` is left at its default 1.0 so the
+  // scalar path (when this profile is *not* multiplied by a variable, an
+  // error caught at fold time) stays well-defined.
+  return {
+      ConstraintTerm {
+          .coeff_profile = std::move(profile),
+      },
+  };
 }
 
 ConstraintTerm ConstraintParser::Parser::parse_sum_expr()

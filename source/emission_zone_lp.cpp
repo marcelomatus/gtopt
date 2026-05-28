@@ -149,14 +149,18 @@ bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
     // Soft cap: introduce a slack column with cap_cost penalty so the
     // LP can violate the cap at a (per-ton) cost rather than infeasing.
     if (stage_cap_cost) {
-      // Apply the same probability / discount / scale chain to the
-      // slack penalty as we did to the production-col tax above.  Use
-      // a representative duration of 1h — the slack is a per-stage
-      // quantity, not a per-block one, so the duration cancels out
-      // when the cap row aggregates already-duration-scaled
-      // production contributions.
-      const auto slack_cost =
-          CostHelper::scenario_stage_ecost(scenario, stage, *stage_cap_cost);
+      // The cap row sums already-duration-weighted production
+      // (Σ_b prod_b·Δt, see the `block.duration()` coefficients above)
+      // against an absolute per-stage tonnage cap, so the overage
+      // ``slack`` is itself an absolute tonnage [tons].  Its penalty is
+      // therefore the per-ton ``cap_cost`` scaled only by probability ·
+      // discount — NO duration.  Using ``scenario_stage_ecost`` (which
+      // multiplies by ``stage.duration()``) would over-charge the overage
+      // by the stage length; the duration already lives on the matrix
+      // coefficients, not on this slack's objective cost.
+      const auto slack_cost = *stage_cap_cost
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor());
       const auto slack = lp.add_col(SparseCol {
           .lowb = 0.0,
           .cost = slack_cost,

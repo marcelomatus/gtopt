@@ -39,6 +39,14 @@ struct StorageOptions
   /// use_state_variable=false.
   bool daily_cycle {false};
 
+  /// Daily energy-throughput cap N (PLEXOS ``Max Cycles Day``).
+  /// 0 = off; >0 = emit per-day ``cycle_limit`` rows enforcing
+  /// ``Σ_{b∈window} (fcr / fout_eff_b) · duration(b) · dc_stage_scale ·
+  /// fout[b] ≤ N · capacity``.  Generic to all storage elements; only the
+  /// parameter is element-supplied (Battery passes
+  /// ``battery().max_cycles_day``; Reservoir/VolumeRight leave it at 0).
+  double max_cycles_day {0.0};
+
   /// Skip linking sini to the previous phase's efin at this cross-phase
   /// boundary.  When true, the sini column is left free (within emin/emax
   /// bounds) so that the caller can fix it to a provisioned value (e.g.,
@@ -120,6 +128,10 @@ public:
   static constexpr std::string_view EfinSlackName {"efin_slack"};
   static constexpr std::string_view CapacityName {"capacity"};
   static constexpr std::string_view SeminGeName {"semin_ge"};
+  /// LP row label for the daily energy-throughput limit
+  /// (``StorageOptions::max_cycles_day`` / PLEXOS ``Max Cycles Day``).
+  /// Duals surface as ``<class>/cycle_limit_…``.
+  static constexpr std::string_view CycleLimitName {"cycle_limit"};
 
   [[nodiscard]] constexpr auto&& storage(this auto&& self) noexcept
   {
@@ -929,6 +941,80 @@ public:
     // absent-key default of 1.0.
     output_dual_scale[stg_ctx] = -dc_stage_scale;
 
+    // Daily energy-throughput limit (PLEXOS `Max Cycles Day`).  HARD
+    // constraint, NOT an objective cost:
+    //
+    //     Σ_{b∈W} (flow_conversion_rate / fout_eff_b) · duration(b)
+    //             · dc_stage_scale · fout[b]   ≤   N · capacity
+    //
+    // The per-block coefficient is IDENTICAL to the SoC-drain term in the
+    // energy balance above, so it measures cell-side throughput: the
+    // `/fout_eff_b` makes discharge losses count toward a cycle (one full
+    // discharge of the usable capacity == one cycle).  Generic to every
+    // storage element; only the cap `N` is element-supplied via
+    // `opts.max_cycles_day`.  Emitted only when `max_cycles_day > 0` AND the
+    // stage capacity is finite.
+    if (opts.max_cycles_day > 0.0 && stage_capacity < LinearProblem::DblMax) {
+      const double rhs = opts.max_cycles_day * stage_capacity;
+
+      // `cycle_rows` is an STBIndexHolder = (scenario, stage) → per-block
+      // map.  We collect each window's row keyed by the window's first block
+      // (one entry per window) and store the per-stage map once below.
+      BIndexHolder<RowIndex> cyc_rows;
+
+      // Emit one `cycle_limit` row per window, keyed by the window's first
+      // block.  Daily-cycle: one window spanning ALL blocks of the stage
+      // (the stage already represents one rescaled day).  Chronological:
+      // rolling 24 h windows walked in chronological block order — each
+      // consecutive 24 h span is one clean per-day group (blocks never
+      // straddle a day boundary), and a stage ≤ 24 h yields a single window.
+      const auto emit_window =
+          [&](BlockUid first_buid, auto block_first, auto block_last)
+      {
+        auto row =
+            SparseRow {
+                .class_name = cname,
+                .constraint_name = CycleLimitName,
+                .variable_uid = opts.variable_uid,
+                .context =
+                    make_block_context(scenario.uid(), stage.uid(), first_buid),
+            }
+                .less_equal(rhs);
+        for (auto it = block_first; it != block_last; ++it) {
+          const auto buid = it->uid();
+          if (!fout_cols.contains(buid)) {
+            continue;
+          }
+          const auto fout_col = fout_cols.at(buid);
+          const auto fout_eff_b = fout_efficiency_at(buid);
+          row[fout_col] = (flow_conversion_rate / fout_eff_b) * it->duration()
+              * dc_stage_scale;
+        }
+        cyc_rows[first_buid] = lp.add_row(std::move(row));
+      };
+
+      if (use_daily_cycle) {
+        // One row summing all blocks of the stage.
+        emit_window(blocks.front().uid(), blocks.begin(), blocks.end());
+      } else {
+        // Rolling 24 h windows in chronological order.
+        auto win_begin = blocks.begin();
+        double win_hours = 0.0;
+        for (auto it = blocks.begin(); it != blocks.end(); ++it) {
+          win_hours += it->duration();
+          const auto next = std::next(it);
+          // Close the window once it spans (at least) 24 h, or at the end.
+          if (win_hours >= 24.0 || next == blocks.end()) {
+            emit_window(win_begin->uid(), win_begin, next);
+            win_begin = next;
+            win_hours = 0.0;
+          }
+        }
+      }
+
+      cycle_rows[stg_ctx] = std::move(cyc_rows);
+    }
+
     // storing the indices for this scenario and stage
     if (is_cross_phase) {
       // Cross-phase SDDP state variable (sini): stored only in sini_cols.
@@ -1018,6 +1104,10 @@ public:
     out.add_col_sol(cname, DrainName, pid, drain_cols);
     out.add_col_cost(cname, DrainName, pid, drain_cols);
 
+    // Daily energy-throughput limit duals (<class>/cycle_limit_…).  Empty
+    // map when max_cycles_day is off, so no columns are emitted.
+    out.add_row_dual(cname, CycleLimitName, pid, cycle_rows);
+
     return true;
   }
 
@@ -1076,6 +1166,15 @@ private:
   STIndexHolder<ColIndex> soft_emin_slack_cols;  ///< Soft emin slack variable
                                                  ///< per (scenario, stage).
   STIndexHolder<RowIndex> soft_emin_rows;  ///< Soft emin >= constraint rows.
+
+  /// Daily energy-throughput limit rows (``CycleLimitName``).  Each row is
+  /// keyed by the first block of its window: in PLP daily-cycle mode there
+  /// is exactly one row per (scenario, stage) keyed by the stage's first
+  /// block; in chronological mode there is one row per rolling 24 h window
+  /// keyed by that window's first block.  Empty when
+  /// ``StorageOptions::max_cycles_day`` is unset/zero or the stage capacity
+  /// is unbounded.
+  STBIndexHolder<RowIndex> cycle_rows;
 
   /// Combined dual correction factor per (scenario, stage):
   ///   dual_physical = dual_LP * output_dual_scale[{suid, tuid}]

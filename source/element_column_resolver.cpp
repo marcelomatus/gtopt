@@ -148,9 +148,15 @@ namespace
   }();
 
   if (!uid_opt) {
-    SPDLOG_WARN("user_constraint: unknown {} name '{}'",
-                ref.element_type,
-                ref.element_id);
+    // Unknown element name.  Returning nullopt here flows back to
+    // `stamp_ref`, where `element_known` is computed as false, so the
+    // strict caller in `user_constraint_lp.cpp` raises an informative,
+    // process-terminating error (with a "did you mean ...?" hint).  The
+    // throw is the authoritative diagnostic; this is just a trace so we
+    // do NOT double-log a WARN that wrongly implies tolerance.
+    SPDLOG_DEBUG("user_constraint: unknown {} name '{}' (column resolution)",
+                 ref.element_type,
+                 ref.element_id);
     return std::nullopt;
   }
 
@@ -195,11 +201,14 @@ namespace
         };
       }
     } catch (const std::exception& ex) {
-      SPDLOG_WARN("user_constraint: cannot resolve {}.{}('{}'): {}",
-                  ref.element_type,
-                  ref.attribute,
-                  ref.element_id,
-                  ex.what());
+      // The bus id did not resolve to a BusLP.  nullopt flows back to the
+      // strict caller, which raises the authoritative informative error;
+      // trace only here.
+      SPDLOG_DEBUG("user_constraint: cannot resolve {}.{}('{}'): {}",
+                   ref.element_type,
+                   ref.attribute,
+                   ref.element_id,
+                   ex.what());
     }
     return std::nullopt;
   }
@@ -383,16 +392,23 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
       if (ref.attribute == StageLP::DurationName) {
         return stage.duration();
       }
-      SPDLOG_WARN("user_constraint: unknown stage attribute '{}'",
-                  ref.attribute);
+      // Unknown `stage.*` attribute.  Returning nullopt flows back to
+      // the element-term branch in `user_constraint_lp.cpp`, which then
+      // raises an informative, process-terminating error.  Trace only —
+      // do NOT WARN-and-imply-tolerance here.
+      SPDLOG_DEBUG("user_constraint: unknown stage attribute '{}'",
+                   ref.attribute);
       return std::nullopt;
     }
     if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
       return val;
     }
-    SPDLOG_WARN("user_constraint: unknown scalar {}.{}",
-                ref.element_type,
-                ref.attribute);
+    // Unknown singleton scalar (e.g. `options.bogus`).  Same contract as
+    // above: nullopt → strict caller throws an informative error; trace
+    // only here.
+    SPDLOG_DEBUG("user_constraint: unknown scalar {}.{}",
+                 ref.element_type,
+                 ref.attribute);
     return std::nullopt;
   }
 
@@ -433,9 +449,12 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   }();
 
   if (!uid_opt) {
-    SPDLOG_WARN("user_constraint: unknown {} name '{}' (param resolution)",
-                ref.element_type,
-                ref.element_id);
+    // Unknown element name on the parameter path.  nullopt flows back to
+    // the caller, which raises the authoritative informative error; trace
+    // only here to avoid double-logging a WARN that implies tolerance.
+    SPDLOG_DEBUG("user_constraint: unknown {} name '{}' (param resolution)",
+                 ref.element_type,
+                 ref.element_id);
     return std::nullopt;
   }
 
@@ -468,7 +487,11 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     }
     return std::nullopt;
   } catch (const std::exception& ex) {
-    SPDLOG_WARN(
+    // The registered param accessor threw (e.g. out-of-range lookup).
+    // nullopt flows back to the caller; in the element-term path the
+    // strict resolver then raises the authoritative informative error.
+    // Trace only here.
+    SPDLOG_DEBUG(
         std::format("user_constraint: cannot resolve param {}.{}('{}'): {}",
                     ref.element_type,
                     ref.attribute,

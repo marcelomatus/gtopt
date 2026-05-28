@@ -126,6 +126,22 @@ struct Line
                                     ///< `"receiver"` (default), `"sender"`,
                                     ///< or `"split"` (50/50, PLP default).
 
+  OptTRealFieldSched loss_envelope {};  ///< Upper envelope [MW] over which the
+                                        ///< K loss-PWL segments are spread.
+                                        ///< DECOUPLED from the flow cap
+                                        ///< (`tmax_ab`/`tmax_ba`): set this to
+                                        ///< the ORIGINAL line rating when the
+                                        ///< cap is inflated by a soft-cap /
+                                        ///< `enforce_level` lift, so the
+                                        ///< segments concentrate over the
+                                        ///< realistic loading range instead of
+                                        ///< the lifted cap.  When unset
+                                        ///< (default), the envelope falls back
+                                        ///< to `fmax = max(tmax_ab, tmax_ba)`
+                                        ///< (backward compatible).  Flow past
+                                        ///< the envelope extrapolates on the
+                                        ///< last segment's slope.
+
   /// Parse line_losses_mode string to enum (nullopt = inherit from global).
   [[nodiscard]] constexpr std::optional<LineLossesMode> line_losses_mode_enum()
       const noexcept

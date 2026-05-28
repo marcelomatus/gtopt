@@ -117,6 +117,8 @@ private:
     RPAREN,
     LBRACE,
     RBRACE,
+    LBRACKET,  ///< `[` — opens a per-block coefficient profile (F9)
+    RBRACKET,  ///< `]` — closes a per-block coefficient profile (F9)
     DOT,
     STAR,
     SLASH,
@@ -188,6 +190,12 @@ private:
     [[nodiscard]] std::vector<ConstraintTerm> parse_mul_expr();
     [[nodiscard]] std::vector<ConstraintTerm> parse_unary();
     [[nodiscard]] std::vector<ConstraintTerm> parse_primary();
+    /// Parse a per-block coefficient profile `[v0, v1, ...]` (F9).
+    /// Called when the current token is `[`.  Returns a single
+    /// "pure-profile" `ConstraintTerm` (no element/sum/param/wrapper) whose
+    /// `coeff_profile` holds the bracketed values; the multiplicative fold
+    /// in `multiply_terms` then attaches it to a single variable term.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_coeff_profile();
     [[nodiscard]] ElementRef parse_element_ref(std::string type_name);
     [[nodiscard]] ConstraintTerm parse_sum_expr();
     /// Parse `abs(linear_expr)` (F5).  Called when the current token is

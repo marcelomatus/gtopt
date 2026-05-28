@@ -551,6 +551,32 @@ public:
     return simulation().find_ampl_compound(class_name, compound_name);
   }
 
+  /// Diagnostic-only: registered element names for @p class_name nearest
+  /// to @p target (edit-distance ordered).  Used to build a
+  /// "did you mean ...?" hint when a user constraint references an
+  /// unknown element name.  Only called on the strict-mode error path.
+  [[nodiscard]] std::vector<std::string_view> ampl_element_name_candidates(
+      std::string_view class_name,
+      std::string_view target,
+      std::size_t max_names = 5) const
+  {
+    return simulation().ampl_element_name_candidates(
+        class_name, target, max_names);
+  }
+
+  /// Diagnostic-only: attribute names registered as LP variables for the
+  /// (class_name, element_uid) pair.  Used to build a "valid attributes
+  /// are ..." hint when a user constraint references a known element with
+  /// an unknown attribute.  Only called on the strict-mode error path.
+  [[nodiscard]] std::vector<std::string_view> ampl_attribute_candidates(
+      std::string_view class_name,
+      Uid element_uid,
+      std::size_t max_attrs = 12) const
+  {
+    return simulation().ampl_attribute_candidates(
+        class_name, element_uid, max_attrs);
+  }
+
   /// Look up a class-level scalar (e.g. `options.scale_objective`).
   /// Returns nullopt when the (class, attribute) pair is not in the
   /// allow-list registered by `system_lp.cpp::register_all_ampl_element_names`.

@@ -25,8 +25,81 @@
 #include <gtopt/decision_variable.hpp>
 #include <gtopt/json/json_decision_variable.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
+#include <gtopt/linear_interface.hpp>
+#include <gtopt/planning_options_lp.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/system_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Build a one-bus system with a single DecisionVariable pinned to value 1
+/// over a single block of ``block_hours``, solve, and return the raw
+/// objective (= the DV column's objective coefficient, since the pinned
+/// value is 1 and there is no other cost).  ``scale_objective=1`` so the
+/// raw objective is in face-value $.
+double dv_objective_coeff(const std::optional<std::string>& cost_type,
+                          double cost,
+                          double block_hours)
+{
+  System sys;
+  sys.name = "dv_cost_test";
+  sys.bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  DecisionVariable dv {
+      .uid = Uid {1},
+      .name = "knob",
+      // Pin the column to value 1 so obj == its objective coefficient.
+      .lower_bound = 1.0,
+      .upper_bound = 1.0,
+      .cost = cost,
+  };
+  if (cost_type) {
+    dv.cost_type = *cost_type;
+  }
+  sys.decision_variable_array = {dv};
+
+  Simulation simulation;
+  simulation.block_array = {
+      {
+          .uid = Uid {0},
+          .duration = block_hours,
+      },
+  };
+  simulation.stage_array = {
+      {
+          .uid = Uid {0},
+          .first_block = 0,
+          .count_block = 1,
+          .chronological = true,
+      },
+  };
+  simulation.scenario_array = {
+      {
+          .uid = Uid {0},
+      },
+  };
+
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+  return li.get_obj_value_raw();
+}
+
+}  // namespace
 
 TEST_CASE("DecisionVariable — default-constructed")  // NOLINT
 {
@@ -99,6 +172,46 @@ TEST_CASE("DecisionVariable — JSON round-trip preserves all fields")  // NOLIN
   CHECK(dv2.cost.value_or(99.0) == doctest::Approx(0.0));
 }
 
+TEST_CASE("DecisionVariable — block scope + cost_type round-trip")  // NOLINT
+{
+  // The single-block scope (`block`) and the cost interpretation
+  // (`cost_type` = power/energy/raw) feed the FCF cost-to-go `alpha_fcf`:
+  // one last-block column, raw money (discount-only, not duration-scaled).
+  constexpr std::string_view input = R"({
+    "uid": 44,
+    "name": "alpha_fcf",
+    "cost": 1,
+    "cost_type": "raw",
+    "block": 111,
+    "obj_constant": 1158518300.0
+  })";
+  const auto dv =
+      daw::json::from_json<DecisionVariable>(input, StrictParsePolicy);
+  CHECK(dv.name == "alpha_fcf");
+  CHECK(dv.cost.value_or(0.0) == doctest::Approx(1.0));
+  CHECK(dv.cost_type.value_or("") == "raw");
+  CHECK(dv.block.value_or(Uid {0}) == Uid {111});
+  CHECK(dv.obj_constant.value_or(0.0) == doctest::Approx(1158518300.0));
+  // α' is free — no explicit lower bound on the rebased FCF column.
+  CHECK_FALSE(dv.lower_bound.has_value());
+
+  // Re-emit + re-parse preserves the new fields.
+  const auto dv2 = daw::json::from_json<DecisionVariable>(
+      daw::json::to_json(dv), StrictParsePolicy);
+  CHECK(dv2.cost_type.value_or("") == "raw");
+  CHECK(dv2.block.value_or(Uid {0}) == Uid {111});
+  CHECK(dv2.obj_constant.value_or(0.0) == doctest::Approx(1158518300.0));
+
+  // Defaults: block + cost_type + obj_constant are absent when not
+  // supplied (→ per-block column; the C++ LP build defaults an absent
+  // cost_type to "raw" = face value, see the LP cost tests below).
+  const auto bare = daw::json::from_json<DecisionVariable>(
+      R"({"uid": 1, "name": "x"})", StrictParsePolicy);
+  CHECK_FALSE(bare.block.has_value());
+  CHECK_FALSE(bare.cost_type.has_value());
+  CHECK_FALSE(bare.obj_constant.has_value());
+}
+
 TEST_CASE("DecisionVariable — JSON parses minimal (uid + name only)")  // NOLINT
 {
   // All non-uid/name fields are optional.  A minimal DecisionVariable
@@ -158,5 +271,46 @@ TEST_CASE(
     REQUIRE(expr.terms[0].element.has_value());
     CHECK(expr.terms[0].element.value_or(ElementRef {}).element_type
           == "simple_commitment");
+  }
+}
+
+TEST_CASE("DecisionVariableLP — cost_type controls objective weighting")
+{
+  // The DV column is pinned to value 1 over a single 8 h block, so the
+  // raw objective equals the column's objective coefficient.
+  constexpr double cost = 7.0;
+  constexpr double block_hours = 8.0;
+
+  SUBCASE("default (no cost_type) is RAW face value — NOT ×duration")
+  {
+    // REGRESSION (cost-weighting bug): the converter emits PLEXOS
+    // DecisionVariables (penalties, reserve VoRS, BESS knobs) WITHOUT a
+    // cost_type.  These are discrete face-value $ amounts; the default
+    // must be "raw" so they are NOT Δt-weighted.  Before the fix the
+    // default was "power", inflating the cost by the block length (×8).
+    const auto obj = dv_objective_coeff(std::nullopt, cost, block_hours);
+    CHECK(obj == doctest::Approx(cost));  // face value ×1
+    CHECK(obj != doctest::Approx(cost * block_hours));  // not ×8
+  }
+
+  SUBCASE("explicit cost_type=power STILL Δt-weights (regression)")
+  {
+    const auto obj = dv_objective_coeff("power", cost, block_hours);
+    CHECK(obj == doctest::Approx(cost * block_hours));  // 7 × 8 = 56
+  }
+
+  SUBCASE("explicit cost_type=energy is prob·discount (no duration)")
+  {
+    // prob = discount = 1 here → energy coefficient is the face value,
+    // and crucially NOT multiplied by the 8 h block duration.
+    const auto obj = dv_objective_coeff("energy", cost, block_hours);
+    CHECK(obj == doctest::Approx(cost));
+    CHECK(obj != doctest::Approx(cost * block_hours));
+  }
+
+  SUBCASE("explicit cost_type=raw is face value")
+  {
+    const auto obj = dv_objective_coeff("raw", cost, block_hours);
+    CHECK(obj == doctest::Approx(cost));
   }
 }

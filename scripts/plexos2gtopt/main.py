@@ -16,7 +16,12 @@ from pathlib import Path
 
 from .auto_lift_lines import DEFAULT_THRESHOLD
 from .info_display import display_plexos_info
-from .plexos2gtopt import convert_plexos_bundle, validate_plexos_bundle
+from .parsers import UnresolvedConstraintReferenceError
+from .plexos2gtopt import (
+    compare_plexos_bundle,
+    convert_plexos_bundle,
+    validate_plexos_bundle,
+)
 
 
 __version__ = "0.1.0"
@@ -93,6 +98,27 @@ def make_parser() -> argparse.ArgumentParser:
         help="run schema sanity checks and exit (0 = ok)",
     )
     parser.add_argument(
+        "--compare",
+        dest="compare_json",
+        default=None,
+        metavar="GTOPT_JSON",
+        help=(
+            "standalone re-comparison: parse the PLEXOS bundle and compare it "
+            "against an already-converted gtopt planning JSON (element counts, "
+            "user-constraint families, global indicators), then exit. No "
+            "conversion is performed."
+        ),
+    )
+    parser.add_argument(
+        "--no-check",
+        dest="run_check",
+        action="store_false",
+        help=(
+            "skip the post-conversion PLEXOS↔gtopt comparison and structural "
+            "validation (on by default, mirroring plp2gtopt)"
+        ),
+    )
+    parser.add_argument(
         "--use-single-bus",
         action="store_true",
         help="collapse the multi-bus topology to a single bus (copperplate)",
@@ -107,6 +133,69 @@ def make_parser() -> argparse.ArgumentParser:
             "Soft-cap diagnostic: keeps the LP feasible so the solver "
             "reports per-constraint violations instead of returning "
             "infeasible. Typical: 10000."
+        ),
+    )
+    parser.add_argument(
+        "--pampl-uc-mode",
+        choices=("hard", "soft", "off"),
+        default="hard",
+        help=(
+            "how to emit the per-family user-constraint .pampl files: "
+            "'hard' (default) keeps each PLEXOS row's own penalty (rows "
+            "without one stay hard); 'soft' forces a slack penalty on EVERY "
+            "row (uses --default-uc-penalty, or 10000 if unset) so the MIP "
+            "stays feasible and reports violations instead of going "
+            "infeasible; 'off' drops the user constraints entirely (no "
+            ".pampl files, no inline rows). Diagnostic: the hard PLEXOS UCs "
+            "can over-constrain integer commitment into infeasibility."
+        ),
+    )
+    parser.add_argument(
+        "--pampl-uc-only",
+        default=None,
+        metavar="FAM[,FAM...]",
+        help=(
+            "emit ONLY these user-constraint families (comma-separated), "
+            "dropping all others.  Diagnostic for isolating which group "
+            "over-constrains the MIP — e.g. --pampl-uc-only config_exclusivity. "
+            "Families: config_exclusivity, gas_offtake, commitment, reserve, "
+            "security, comparison, terminal_value, operational."
+        ),
+    )
+    parser.add_argument(
+        "--pampl-uc-off",
+        default=None,
+        metavar="FAM[,FAM...]",
+        help=(
+            "drop these user-constraint families (comma-separated), keeping "
+            "the rest (leave-one-out diagnostic).  Same family names as "
+            "--pampl-uc-only."
+        ),
+    )
+    parser.add_argument(
+        "--fcf-scale-alpha",
+        type=float,
+        default=None,
+        help=(
+            "column scale for the FCF cost-to-go variable alpha_fcf (default "
+            "1e6).  The cut/objective coefficient on alpha is this value, so "
+            "alpha carries future_cost/scale_alpha; pick it near the "
+            "cost-to-go magnitude (~1e6) to land the alpha column at O(1-1e3) "
+            "like the other LP variables.  Tune (1 / 1e3 / 1e6 …) to study LP "
+            "conditioning; independent of the alpha-rebase shift."
+        ),
+    )
+    parser.add_argument(
+        "--uc-emit",
+        choices=("pampl", "inline"),
+        default="pampl",
+        help=(
+            "where to emit user constraints: 'pampl' (default) writes the "
+            "modular per-family .pampl files (system.user_constraint_files); "
+            "'inline' keeps them in system.user_constraint_array in the JSON "
+            "(the legacy path).  Diagnostic: generate the case both ways and "
+            "diff the LPs to check whether gtopt's PAMPL parser and JSON "
+            "parser produce the same matrix."
         ),
     )
     parser.add_argument(
@@ -144,46 +233,57 @@ def make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--loss-pwl-layout",
-        choices=("uniform", "equal_error", "tangent"),
-        default="tangent",
+        choices=("uniform", "equal_error", "tangent", "midpoint"),
+        default="midpoint",
         help=(
             "Segment-layout strategy for the PWL line-loss approximation, "
             "emitted on every lossy ``Line.loss_pwl_layout`` entry.  "
-            "``tangent`` (default since CEN PCP K=3/K=4 sweeps showed "
-            "best obj and closest match to PLEXOS losses; outer-"
-            "approximation tangents at uniform midpoints — bounds loss "
-            "BELOW the true quadratic curve, exact at the touching point).  "
-            "``uniform``: equal-width secant chords; max chord error "
-            "peaks on the outer segment.  ``equal_error``: √-spaced "
-            "secant chords (minimax) — same K, same LP row count, "
-            "max chord error drops by ~√K (currently aliases to "
-            "uniform — see line_losses.cpp seg_geom docstring)."
+            "``midpoint`` (DEFAULT): de-biased secant — the chord with the "
+            "uniform secant slope shifted DOWN to the mid-point tangent so "
+            "the PWL is unbiased (exact at segment midpoints) instead of an "
+            "upper bound.  On the CEN PCP daily case (with envelope "
+            "decoupling auto-emitted on softened lines) K=4 midpoint matches "
+            "PLEXOS losses to -1.6%% and operational cost to +0.6%%, vs the old "
+            "uniform secant's +41%% loss / +5%% cost — segment count barely "
+            "matters once de-biased.  ``uniform``: equal-width secant chords "
+            "(strict UPPER bound; max chord error peaks on the outer "
+            "segment — overstates losses).  ``tangent``: outer-approximation "
+            "tangents (lower bound, exact at touch points; inequality rows "
+            "resist presolve binary-fixing — heavier MIP).  ``equal_error``: "
+            "√-spaced secant chords (aliases to uniform for the convex "
+            "quadratic — see line_losses.cpp seg_geom docstring)."
         ),
     )
     parser.add_argument(
         "--emin-eod-day1",
         dest="emin_eod_day1",
         action="store_true",
-        default=True,
+        default=False,
         help=(
             "enforce the PLEXOS operational reservoir floor from "
             "``Hydro_MinVolume.csv`` at the end of day 1 (hour 24) as "
             "a HARD per-block ``emin`` clamp.  Recovers the daily-"
             "coordination signal PLEXOS uses to keep reservoirs above "
             "their published operational floor at midnight of day 1.  "
-            "Default ON.  Pass ``--no-emin-eod-day1`` to disable.  "
-            "End-of-week (last day) floors are honoured separately as "
-            "a soft ``efin`` + ``efin_cost`` slack.  Mid-week (hour 48, "
-            "72, …) floors stay disabled to avoid the L_Maule "
-            "infeasibility chain that prompted removing per-block "
-            "clamps in the first place."
+            "Default OFF.  Pass ``--emin-eod-day1`` to enable.  This "
+            "hard hour-24 clamp pins reservoirs near full at midnight of "
+            "day 1, blocking day-1 drawdown and inflating reservoir "
+            "water-value duals well above PLEXOS (e.g. CANUTILLAR 2.6×, "
+            "ELTORO/L_Maule ~1.1-1.2×); disabling it brings the duals "
+            "back in line with PLEXOS's storage Shadow Price.  End-of-"
+            "week (last day) floors are honoured separately as a soft "
+            "``efin`` + ``efin_cost`` slack.  Mid-week (hour 48, 72, …) "
+            "floors stay disabled to avoid the L_Maule infeasibility "
+            "chain that prompted removing per-block clamps in the first "
+            "place."
         ),
     )
     parser.add_argument(
         "--no-emin-eod-day1",
         dest="emin_eod_day1",
         action="store_false",
-        help="disable the hour-24 hard emin floor (see --emin-eod-day1).",
+        help="disable the hour-24 hard emin floor (now the default; "
+        "see --emin-eod-day1).",
     )
     parser.add_argument(
         "--battery-efin-pin",
@@ -245,32 +345,12 @@ def make_parser() -> argparse.ArgumentParser:
             "overestimate on the outer segment."
         ),
     )
-    parser.add_argument(
-        "--loss-tangent-top-pct",
-        type=float,
-        default=30.0,
-        metavar="PCT",
-        help=(
-            "Enable the loading-classified HYBRID loss layout: the top "
-            "PCT%% of lossy lines BY STATIC LOSS MAGNITUDE R·P² "
-            "(resistance × rating², the V²-free part of the full-flow "
-            "loss (R/V²)·P²) get the accurate ``tangent`` layout with "
-            "``--nseg-tangent`` segments; the remaining lossy lines get "
-            "the cheaper, presolve-friendly ``uniform`` layout with "
-            "``--nseg-uniform`` segments.  PCT=0 → all uniform; PCT=100 "
-            "→ all tangent; PCT=20 → the 20%% highest-loss lossy lines "
-            "are tangent.  DEFAULT 30 (covers ~50%% of the realised "
-            "losses on CEN PCP while keeping ~70%% of lines on the fast "
-            "uniform layout — best accuracy/MIP-size trade-off found).  "
-            "R·P² ranks far better than rating alone (a "
-            "high-rating low-R trunk carries little loss).  Spends the "
-            "MIP-heavy tangent rows only where loss concentrates (Sun et "
-            "al. 2019, line-loading classification).  Overrides "
-            "``--loss-pwl-layout`` / ``--nseg-losses`` when set.  Combine "
-            "with ``--loss-tangent-lines`` to additionally force specific "
-            "lines to tangent regardless of loss."
-        ),
-    )
+    # NOTE: ``--loss-tangent-top-pct`` (the loading-classified R·P²
+    # percentile RANKING that put the top-P% lossiest lines on the tangent
+    # layout) was REMOVED.  The ``midpoint`` de-bias + per-line
+    # ``loss_envelope`` decoupling match PLEXOS losses to ~2% at K=4 without
+    # the MIP-heavy hybrid tangent tier, so the ranking is obsolete.  The
+    # explicit ``--loss-tangent-lines`` escape hatch remains below.
     parser.add_argument(
         "--loss-tangent-lines",
         type=str,
@@ -278,8 +358,9 @@ def make_parser() -> argparse.ArgumentParser:
         metavar="NAME[,NAME...]",
         help=(
             "Comma-separated line names forced to the ``tangent`` loss "
-            "layout regardless of rating (also activates hybrid mode on "
-            "its own).  Useful for known binding interconnections."
+            "layout (with ``--nseg-tangent`` segments); all other lines use "
+            "the ``--loss-pwl-layout`` base layout.  Useful for known "
+            "binding interconnections."
         ),
     )
     parser.add_argument(
@@ -295,11 +376,15 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nseg-uniform",
         type=int,
-        default=8,
+        default=4,
         help=(
-            "Segment count for ``uniform``-layout lines in hybrid mode "
-            "(default 8).  Uniform uses segment-variable equalities that "
-            "presolve handles cheaply, so it can afford more segments."
+            "Segment count for the base (``uniform``/``midpoint``) layout "
+            "lines — i.e. ALL lines except those in ``--loss-tangent-lines`` "
+            "(the default).  DEFAULT 4: with the ``midpoint`` de-bias + "
+            "envelope decoupling, K=4 already matches PLEXOS losses to "
+            "~-1.6%% (the loss-accuracy sweet spot); more segments drift "
+            "slightly under and add LP rows for no benefit.  These layouts "
+            "use segment-variable rows that presolve handles cheaply."
         ),
     )
     parser.add_argument(
@@ -403,6 +488,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--el0-lines",
+        choices=("extended", "strict"),
+        default="extended",
+        help=(
+            "How to model PLEXOS EL=0 ('Never enforce') transmission lines:\n"
+            "  'extended' (default, a.k.a. relaxed): soft cap — flow is free "
+            "up to the rating, penalised between the rating and a headroom "
+            "multiple, hard-capped at that multiple.  Mirrors PLEXOS, which "
+            "leaves these lines uncapped yet runs the radial pockets above "
+            "rating; stops the DC-OPF from teleporting GWs across them.\n"
+            "  'strict': treat EL=0 like EL=2 — a plain hard cap at the "
+            "nominal rating (no free band, no headroom).  Use when you want "
+            "every line rating enforced.  (Lines named in --lift-line-caps "
+            "stay soft regardless.)"
+        ),
+    )
+    parser.add_argument(
         "--reservoir-spillway",
         nargs="?",
         const="basic",
@@ -440,6 +542,20 @@ def make_parser() -> argparse.ArgumentParser:
             "Restricted to HYDRO TURBINE generators to avoid the "
             "ReserveProvisionLP::flat_map::at defect at zero-pmax "
             "blocks on thermal units."
+        ),
+    )
+    parser.add_argument(
+        "--use-plexos-efin",
+        action="store_true",
+        default=False,
+        help=(
+            "DEBUG: pin Reservoir.efin to the PLEXOS-SOLVED End Volume "
+            "(prop 646, last period) from the solution .accdb cache, "
+            "curve-fitting gtopt's terminal storage to PLEXOS's answer. "
+            "DEFAULT (flag off) is fully input-driven: the end-of-horizon "
+            "target is the last-day floor from Hydro_MinVolume.csv (the "
+            "operational target PLEXOS encodes by raising the min-volume "
+            "floor at the final period)."
         ),
     )
     parser.add_argument(
@@ -516,6 +632,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--block-layout",
+        default=None,
+        metavar="CSV|SPEC",
+        help=(
+            "user-defined block layout for ``--horizon-mode plexos`` when "
+            "no PLEXOS solution .accdb is available (the 111-block grouping "
+            "lives only in the solution).  Accepts EITHER a path to a CSV "
+            "with a 'duration' column (one row per block, optional "
+            "'block_uid' column for order), OR an inline string: "
+            "'{1:1,2:4,3:2}' (block_uid:duration) or '1,4,2' (durations in "
+            "block order).  duration = consecutive 1-hour intervals per "
+            "block; the converter builds the chronological grouping and "
+            "sets the horizon from the total.  Falls back to uniform hourly "
+            "when neither a solution nor this flag is provided."
+        ),
+    )
+    parser.add_argument(
         "--lp-relax",
         action="store_true",
         default=False,
@@ -574,6 +707,11 @@ def main(argv: list[str] | None = None) -> None:
         "output_dir": args.output_dir,
         "use_single_bus": args.use_single_bus,
         "default_uc_penalty": args.default_uc_penalty,
+        "pampl_uc_mode": args.pampl_uc_mode,
+        "pampl_uc_only": args.pampl_uc_only,
+        "pampl_uc_off": args.pampl_uc_off,
+        "uc_emit": args.uc_emit,
+        "fcf_scale_alpha": args.fcf_scale_alpha,
         "soft_penalty_cost": args.soft_penalty_cost,
         "water_fail_cost": args.water_fail_cost,
         "spill_fcost": args.spill_fcost,
@@ -581,9 +719,9 @@ def main(argv: list[str] | None = None) -> None:
         "vert_routing": args.vert_routing,
         "use_plexos_commit": args.use_plexos_commit,
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
+        "use_plexos_efin": args.use_plexos_efin,
         "nseg_losses": args.nseg_losses,
         "loss_pwl_layout": args.loss_pwl_layout,
-        "loss_tangent_top_pct": args.loss_tangent_top_pct,
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,
         "nseg_uniform": args.nseg_uniform,
@@ -596,11 +734,24 @@ def main(argv: list[str] | None = None) -> None:
         "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,
         "lift_line_caps": args.lift_line_caps,
+        "el0_lines": args.el0_lines,
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,
+        "block_layout": args.block_layout,
         "plexos_solution_accdb": args.plexos_solution_accdb,
         "lp_relax": args.lp_relax,
+        "run_check": args.run_check,
+        "compare_json": args.compare_json,
     }
+
+    if args.compare_json:
+        # Standalone re-comparison against an existing gtopt JSON; no convert.
+        try:
+            critical = compare_plexos_bundle(options) or 0
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(1 if critical > 0 else 0)
 
     if args.show_info:
         try:
@@ -620,6 +771,15 @@ def main(argv: list[str] | None = None) -> None:
     except NotImplementedError as exc:
         print(f"plexos2gtopt: {exc}", file=sys.stderr)
         sys.exit(2)
+    except UnresolvedConstraintReferenceError as exc:
+        # A UserConstraint term referenced an element gtopt never emits.
+        # Fail loudly with the FULL list — never write a bundle that
+        # carries dangling references (mirrors gtopt's strict parser).
+        print(
+            f"error: unresolved UserConstraint reference(s):\n{exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(1)

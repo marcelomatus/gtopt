@@ -242,12 +242,20 @@ def test_locate_bundle_missing_path(tmp_path: Path) -> None:
 
 def test_locate_bundle_inner_datos_zip(tmp_path: Path) -> None:
     """A ``DATOS{date}.zip`` extracts directly into a tempdir."""
+    import os
+    import tempfile
+
     inner = tmp_path / "DATOS20260101.zip"
     with zipfile.ZipFile(inner, "w") as zf:
         zf.writestr(DBSEN_FILENAME, _TINY_XML)
     with locate_bundle(inner) as bundle:
         assert bundle.xml_path.is_file()
-        assert str(bundle.root).startswith("/tmp/")
+        # ``locate_bundle`` uses ``tempfile.mkdtemp()``, which honours
+        # ``$TMPDIR``.  Assert against ``$TMPDIR`` rather than a hard-coded
+        # ``/tmp/`` — this environment sets ``TMPDIR=~/tmp`` (never use
+        # ``/tmp`` directly; see CLAUDE/memory convention).
+        tmp_root = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()).resolve()
+        assert bundle.root.resolve().is_relative_to(tmp_root)
 
 
 def test_locate_bundle_outer_wrapper(tmp_path: Path) -> None:
@@ -414,30 +422,60 @@ def test_convert_requires_input_bundle() -> None:
         convert_plexos_bundle({})
 
 
-def test_convert_plexos_bundle_plexos_mode_fails_without_accdb(
+def test_convert_plexos_mode_falls_back_to_hourly_without_accdb(
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``--horizon-mode=plexos`` requires the PLEXOS solution .accdb
-    to recover the t_phase_3 block grouping.  Without it, the
-    converter MUST fail loudly — silently falling back to uniform-
-    hourly would solve a different LP than PLEXOS (e.g. 168 hourly
-    vs 111 variable-duration blocks) and any downstream comparison
-    becomes meaningless.
-
-    Locks the explicit hard-fail introduced after a silent-fallback
-    bug shipped a "successful" conversion that compared apples to
-    oranges with PLEXOS.
+    """``--horizon-mode=plexos`` PREFERS the PLEXOS solution .accdb (for the
+    exact t_phase_3 block grouping), but the 111-block structure exists ONLY
+    in the solution.  When neither the solution nor a ``--block-layout`` is
+    available, the converter now GRACEFULLY FALLS BACK to uniform hourly
+    blocks (rather than the old hard-fail) so a standard input-only convert
+    still works — at a finer grid than PLEXOS's aggregation.  A WARNING makes
+    the fallback explicit.
     """
+    import logging
+
     bundle_dir = _make_dir_bundle(tmp_path)
-    # Synthetic bundle without a RES sibling; horizon_mode=plexos
-    # has no .accdb to read t_phase_3 from.
-    with pytest.raises(FileNotFoundError, match="t_phase_3"):
-        convert_plexos_bundle(
+    # Synthetic bundle without a RES sibling and no --block-layout.
+    with caplog.at_level(logging.WARNING):
+        rc = convert_plexos_bundle(
             {
                 "input_bundle": bundle_dir,
                 "horizon_mode": "plexos",
+                "horizon_days": 1,
             }
         )
+    assert rc == 0  # falls back to hourly, no FileNotFoundError
+    assert any(
+        "falling back to" in r.message and "uniform hourly" in r.message
+        for r in caplog.records
+    )
+    inferred = bundle_dir.parent / f"gtopt_{bundle_dir.name}"
+    assert (inferred / f"{bundle_dir.name}.json").is_file()
+
+
+def test_convert_plexos_mode_user_block_layout_without_accdb(
+    tmp_path: Path,
+) -> None:
+    """``--block-layout`` lets the user define a variable-duration grouping
+    without the solution .accdb (inline ``"{uid:dur}"`` / ``"d1,d2,..."`` or
+    a CSV).  Here a 2-block inline spec drives a 2-block simulation."""
+    bundle_dir = _make_dir_bundle(tmp_path)
+    out_dir = tmp_path / "out_user_layout"
+    rc = convert_plexos_bundle(
+        {
+            "input_bundle": bundle_dir,
+            "horizon_mode": "plexos",
+            "block_layout": "{1:1,2:1}",  # two 1-hour blocks
+            "output_dir": out_dir,
+        }
+    )
+    assert rc == 0
+    import json
+
+    planning = json.loads((out_dir / f"{bundle_dir.name}.json").read_text())
+    assert len(planning["simulation"]["block_array"]) == 2
 
 
 def test_convert_inferred_output_dir(tmp_path: Path) -> None:

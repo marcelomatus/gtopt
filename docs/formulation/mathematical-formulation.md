@@ -1169,9 +1169,29 @@ the `user_constraint_array` (inline) or `user_constraint_file`
 
 Each user constraint defines:
 - A **sense** (`<=`, `>=`, or `=`)
-- A **right-hand side** value
+- A **right-hand side** value, optionally a per-(stage, block)
+  schedule (`rhs [v_0, v_1, ...]`) that overrides the inline scalar
+  block-by-block
 - A set of **coefficient entries** mapping (component class, element
-  UID, variable name) triples to scalar coefficients
+  UID, variable name) triples to coefficients
+
+Coefficients are scalar by default but may also be **per-block
+profiles** (the symmetric LHS analog of the per-block `rhs` schedule).
+A term written `[c_0, c_1, \dots] * x` contributes, in the row built
+for block ordinal $b$ within the stage,
+
+$$
+c_{\min(b,\,K-1)} \cdot x_{s,t,b}
+$$
+
+where $K$ is the profile length; the last entry broadcasts to every
+trailing block, so a profile shorter than the stage's block count still
+resolves. A plain scalar coefficient $c$ is the special case of a
+length-one profile (equivalently $c_b = c$ for all $b$). The resolved
+per-block coefficient is treated identically to a scalar by the
+dual-output scaling and variable-descaling paths. This models PLEXOS
+constraints whose `Generation Coefficient` / `Units Coefficient` varies
+within the horizon.
 
 User constraints are added to the LP after all built-in constraints and
 can reference any LP variable (generator output, line flow, battery SoC,

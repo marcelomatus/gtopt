@@ -95,10 +95,25 @@
  *
  * expr         := term (('+' | '-') term)*
  *
- * term         := [number '*'] element_ref
- *              |  [number '*'] state_ref
- *              |  [number '*'] sum_expr
+ * term         := [coeff '*'] element_ref
+ *              |  [coeff '*'] state_ref
+ *              |  [coeff '*'] sum_expr
  *              |  ['-'] number
+ *
+ * coeff        := number
+ *              |  coeff_profile          // F9 per-block coefficient
+ *
+ * coeff_profile := '[' number (',' number)* [','] ']'
+ *              // A bracketed list of per-block coefficients standing in
+ *              // for the leading scalar multiplier of a single
+ *              // variable-bearing term.  Block ordinal `b` (0-based,
+ *              // within the stage's block list) selects entry
+ *              // `profile[min(b, size-1)]`; a short profile broadcasts
+ *              // its last value.  Example:
+ *              //     [1, 2, 3] * generator("G1").generation <= 100
+ *              // Mirrors the per-block `rhs [v0, v1, ...]` schedule on
+ *              // the LHS.  May appear at most once per term and only as
+ *              // the term's leading multiplier.
  *
  * element_ref  := element_type '(' string ')' '.' attribute
  *
@@ -420,6 +435,38 @@ struct ConstraintTerm
       minmax_expr {};  ///< `min`/`max` wrapper (F7)
   std::shared_ptr<const IfExpr>
       if_expr {};  ///< `if ... then ... else ...` (F8)
+
+  /// Optional **per-block coefficient profile** (F9).
+  ///
+  /// When set, the term's effective coefficient at block ordinal `b`
+  /// (0-based position within the stage's block list) is
+  /// `coeff_profile[min(b, size()-1)]` — the last entry broadcasts to
+  /// every trailing block, so a profile shorter than the stage's block
+  /// count still resolves.  The `coefficient` scalar is folded into the
+  /// profile at parse time (see `scale_terms`), so a profile is always
+  /// the authoritative per-block value when present.
+  ///
+  /// Authored in the grammar as a bracketed list standing in for the
+  /// leading scalar multiplier of a single variable-bearing term, e.g.
+  /// `[1, 2, 3] * generator("G1").generation`.  Mirrors the per-block
+  /// `UserConstraint.rhs` schedule on the LHS.  Unset ⇒ the scalar
+  /// `coefficient` is used uniformly across all blocks (backward
+  /// compatible).
+  std::optional<std::vector<double>> coeff_profile {};
+
+  /// Resolve the effective coefficient for the given 0-based block
+  /// ordinal within the stage.  Returns the profile entry (clamped to
+  /// the last when the ordinal runs past the profile) when a per-block
+  /// profile is set, otherwise the scalar `coefficient`.
+  [[nodiscard]] constexpr double coeff_at(
+      std::size_t block_ordinal) const noexcept
+  {
+    if (coeff_profile && !coeff_profile->empty()) {
+      const auto idx = std::min(block_ordinal, coeff_profile->size() - 1);
+      return (*coeff_profile)[idx];
+    }
+    return coefficient;
+  }
 };
 
 /**

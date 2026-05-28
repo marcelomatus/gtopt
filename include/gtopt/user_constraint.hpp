@@ -106,6 +106,19 @@ struct UserConstraint
   OptName penalty_class {};  ///< Penalty unit hint: "raw" (default) or
                              ///< "hydro_flow".  See `PenaltyClass`.
 
+  /// Per-day sum: emit ONE LP row per 24 h day instead of the default
+  /// one-row-per-block expansion.  The per-block terms are accumulated
+  /// into a running row and flushed (`lp.add_row`) at each *day-ending
+  /// block* — the block whose cumulative duration crosses a 24 h
+  /// boundary, or the stage's last in-domain block.  When set together
+  /// with ``constraint_type == "energy"`` each block contributes its
+  /// Δt-weighted value (`coeff · Δt_b · col_b`), so the LHS is a daily
+  /// ENERGY sum `Σ_day gen·Δt` [MWh]; otherwise the daily sum is
+  /// unweighted (a per-day COUNT, e.g. `Σ_day startup ≤ N`).  Models
+  /// PLEXOS `RHS Day` constraints (RALCO_max_e1/e2, CANUTILLARreserve,
+  /// Diesel_OffTakeDay, *_Crew).  Default unset ⇒ one row per block.
+  OptBool daily_sum {};
+
   /// Per-(stage, block) override of the constraint's RHS.
   ///
   /// When set, the scalar RHS implied by the inline ``<op> NUMBER``

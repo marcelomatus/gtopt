@@ -20,12 +20,22 @@ _PLP_INDICATORS = (
     "plpcosce.dat",
 )
 
+# Canonical PLEXOS (CEN PCP) object-database file inside a bundle directory.
+_PLEXOS_XML = "DBSEN_PRGDIARIO.xml"
+
+# Recognised PLEXOS archive suffixes (longest first so ``.zip.xz`` wins).
+_PLEXOS_ARCHIVE_SUFFIXES = (".zip.xz", ".zip")
+
+# Archive basename prefixes for a PLEXOS bundle (input or wrapper).
+_PLEXOS_ARCHIVE_PREFIXES = ("PLEXOS", "DATOS")
+
 
 class CaseType(enum.Enum):
-    """Detected case type for a directory argument."""
+    """Detected case type for a directory or archive argument."""
 
     PLP = "plp"
     GTOPT = "gtopt"
+    PLEXOS = "plexos"
     PASSTHROUGH = "passthrough"
 
 
@@ -34,14 +44,46 @@ def _has_plp_file(path: Path, name: str) -> bool:
     return (path / name).is_file() or (path / f"{name}.xz").is_file()
 
 
-def detect_case_type(path: Path) -> CaseType:
-    """Classify a path as a PLP case, gtopt case, or passthrough.
+def _is_plexos_archive_name(name: str) -> bool:
+    """True when *name* looks like a ``PLEXOS*`` / ``DATOS*`` bundle archive."""
+    lower = name.lower()
+    if not any(lower.endswith(sfx) for sfx in _PLEXOS_ARCHIVE_SUFFIXES):
+        return False
+    return any(name.startswith(p) for p in _PLEXOS_ARCHIVE_PREFIXES)
 
+
+def _is_plexos_bundle(path: Path) -> bool:
+    """Detect a PLEXOS bundle: an extracted dir or a recognised archive.
+
+    - **directory**: contains ``DBSEN_PRGDIARIO.xml`` or a
+      ``DATOS*.zip[.xz]`` / ``PLEXOS*.zip[.xz]`` payload.
+    - **file**: a ``PLEXOS*`` / ``DATOS*`` ``.zip[.xz]`` archive.
+    """
+    if path.is_dir():
+        if (path / _PLEXOS_XML).is_file():
+            return True
+        return any(_is_plexos_archive_name(p.name) for p in path.iterdir())
+    if path.is_file():
+        return _is_plexos_archive_name(path.name)
+    return False
+
+
+def detect_case_type(path: Path) -> CaseType:
+    """Classify a path as a PLP, gtopt, PLEXOS case, or passthrough.
+
+    - **PLEXOS**: a bundle directory (with ``DBSEN_PRGDIARIO.xml`` or a
+      ``DATOS*``/``PLEXOS*`` archive inside) or a ``PLEXOS*``/``DATOS*``
+      ``.zip[.xz]`` archive file.
     - **PLP**: directory contains ``plpblo.dat[.xz]`` plus at least one
       other ``plp*.dat[.xz]`` file.
     - **gtopt**: directory contains ``<dirname>/<dirname>.json``.
     - **passthrough**: everything else (file, non-existent, etc.).
     """
+    # PLEXOS is checked first because it also recognises archive *files*
+    # (PLP / gtopt detection only inspect directories).
+    if _is_plexos_bundle(path):
+        return CaseType.PLEXOS
+
     if not path.is_dir():
         return CaseType.PASSTHROUGH
 
@@ -71,3 +113,21 @@ def infer_gtopt_dir(plp_dir: Path) -> Path:
     if name.startswith("plp_"):
         return plp_dir.parent / ("gtopt_" + name[4:])
     return plp_dir.parent / ("gtopt_" + name)
+
+
+def plexos_stem(path: Path) -> str:
+    """Bundle stem with the ``.zip[.xz]`` archive suffix stripped.
+
+    Matches ``plexos2gtopt._resolve_output_paths``: the gtopt JSON is named
+    ``<stem>.json`` and the default output directory is ``gtopt_<stem>``.
+    """
+    stem = path.name
+    for suffix in _PLEXOS_ARCHIVE_SUFFIXES:
+        if stem.lower().endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def infer_plexos_gtopt_dir(bundle: Path) -> Path:
+    """Derive the gtopt output directory for a PLEXOS bundle (``gtopt_<stem>``)."""
+    return bundle.parent / f"gtopt_{plexos_stem(bundle)}"

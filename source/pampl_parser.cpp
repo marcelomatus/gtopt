@@ -395,6 +395,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     std::string name;
     std::string description;
     std::optional<double> penalty;
+    std::optional<std::vector<double>> rhs_sched;
     bool has_header = false;
 
     // Save position so we can rewind if "inactive"/"constraint" are not found
@@ -445,24 +446,72 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
         description = sc.read_string();
       }
 
-      // Optional 'penalty <value-expr>' clause → soft constraint with a
-      // per-unit slack cost (mirrors UserConstraint.penalty).  Absent ⇒
-      // hard constraint.  Sits after the optional description and before
-      // the mandatory colon:  constraint NAME ["desc"] penalty 500 :
-      // The value is the same arithmetic-expression grammar used for param
-      // values, so it may be a literal, a param reference, or arithmetic
-      // over both (``penalty soft_floor_penalty``, ``penalty 1000/24/7``).
-      sc.skip_ws_comments();
-      if (!sc.at_end() && sc.peek_char() != ':') {
-        const std::string kw = sc.read_ident();
-        if (kw != "penalty") {
-          throw std::invalid_argument(
-              std::format("PAMPL: expected 'penalty' or ':' after constraint "
-                          "name '{}', got '{}'",
-                          name,
-                          kw));
+      // Optional header clauses between the name (or description) and the
+      // mandatory colon.  Two clauses are recognised, in any order:
+      //
+      //   penalty <value-expr>
+      //       Soft constraint with a per-unit slack cost (mirrors
+      //       UserConstraint.penalty).  Absent ⇒ hard constraint.  The value
+      //       is the same arithmetic-expression grammar used for param
+      //       values, so it may be a literal, a param reference, or
+      //       arithmetic over both (``penalty soft_floor_penalty``,
+      //       ``penalty 1000/24/7``).
+      //
+      //   rhs [v0, v1, ..., vK]
+      //       Per-block (scheduled) RHS override (mirrors UserConstraint.rhs
+      //       in its TB-matrix form ``[[v0, ..., vK]]``).  Each element is a
+      //       param-value expression so derived/named constants work.  When
+      //       present, the scalar RHS parsed from the inline ``<op> NUMBER``
+      //       tail of the expression is the per-block fallback for blocks the
+      //       schedule does not cover.  Example:
+      //         constraint ramp_cap rhs [40, 40, 60]: ... <= 0;
+      //
+      //   constraint NAME ["desc"] [penalty 500] [rhs [...]] :
+      while (true) {
+        sc.skip_ws_comments();
+        if (sc.at_end() || sc.peek_char() == ':') {
+          break;
         }
-        penalty = parse_value_expr(sc, result.params);
+        const std::string kw = sc.read_ident();
+        if (kw == "penalty") {
+          if (penalty.has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: duplicate 'penalty' clause on constraint '{}'", name));
+          }
+          penalty = parse_value_expr(sc, result.params);
+        } else if (kw == "rhs") {
+          if (rhs_sched.has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: duplicate 'rhs' clause on constraint '{}'", name));
+          }
+          sc.skip_ws_comments();
+          if (!sc.consume('[')) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: expected '[' after 'rhs' on constraint '{}'", name));
+          }
+          std::vector<double> values;
+          while (true) {
+            sc.skip_ws_comments();
+            if (sc.peek_char() == ']') {
+              sc.consume(']');
+              break;
+            }
+            values.push_back(parse_value_expr(sc, result.params));
+            sc.skip_ws_comments();
+            sc.consume(',');  // optional trailing comma
+          }
+          if (values.empty()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: 'rhs' clause on constraint '{}' has no values", name));
+          }
+          rhs_sched = std::move(values);
+        } else {
+          throw std::invalid_argument(std::format(
+              "PAMPL: expected 'penalty', 'rhs' or ':' after constraint "
+              "name '{}', got '{}'",
+              name,
+              kw));
+        }
       }
 
       // Mandatory colon
@@ -499,6 +548,13 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     uc.penalty = penalty;  // unset ⇒ hard; set ⇒ soft slack cost
     if (!description.empty()) {
       uc.description = std::move(description);
+    }
+    // A scheduled RHS maps onto UserConstraint.rhs as a single-row TB matrix
+    // ``[[v0, ..., vK]]`` — the exact shape the JSON path produces — so the
+    // same OptTBRealFieldSched / per-block override machinery in
+    // UserConstraintLP applies with no parallel code path.
+    if (rhs_sched.has_value()) {
+      uc.rhs = std::vector<std::vector<double>> {std::move(*rhs_sched)};
     }
 
     result.constraints.push_back(std::move(uc));

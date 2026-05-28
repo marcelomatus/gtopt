@@ -89,6 +89,73 @@ def test_parse_res_requirement_csv(tmp_path: Path) -> None:
     assert out["CSF_LW"][5] == 0.0
 
 
+def test_res_timeslice_selects_per_day_pattern(tmp_path: Path) -> None:
+    """Res_Timeslice maps each day to the active day-type slice, so the
+    per-day requirement varies instead of replicating one 24h pattern."""
+    from plexos2gtopt.parsers import _parse_res_timeslice_csv
+
+    ts_path = tmp_path / "Res_Timeslice.csv"
+    ts_path.write_text(
+        "YEAR,MONTH,DAY,TR_2,SA_2\n"
+        "2026,4,22,-1,0\n"  # day 0 → TR_2 (weekday)
+        "2026,4,23,0,-1\n"  # day 1 → SA_2 (weekend)
+    )
+    slices = _parse_res_timeslice_csv(ts_path, n_days=2)
+    assert slices == ["TR_2", "SA_2"]
+
+    req_path = tmp_path / "Res_Requirement.csv"
+    req_path.write_text(
+        "NAME,PATTERN,VALUE\n"
+        'CSF_RS,"TR_2,H1",154\n'
+        'CSF_RS,"SA_2,H1",135\n'  # weekend value differs
+    )
+    names = frozenset({"CSF_RS"})
+    flat = _parse_res_requirement_csv(req_path, names, n_days=2)
+    # Without timeslice: last-wins (135) replicated across both days.
+    assert flat["CSF_RS"][0] == flat["CSF_RS"][24]
+    # With timeslice: day 0 = TR_2 (154), day 1 = SA_2 (135).
+    sliced = _parse_res_requirement_csv(req_path, names, n_days=2, day_slices=slices)
+    assert sliced["CSF_RS"][0] == 154.0
+    assert sliced["CSF_RS"][24] == 135.0
+
+
+def test_hydro_maxrampday_per_day_rhs(tmp_path: Path) -> None:
+    """Hydro_MaxRampDay supplies the per-day RHS for hydro ramp UCs."""
+    from plexos2gtopt.parsers import _parse_hydro_maxrampday_csv
+
+    path = tmp_path / "Hydro_MaxRampDay.csv"
+    path.write_text(
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n"
+        "RALCOramp_max_e1,2026,4,22,1,4.20\n"
+        "RALCOramp_max_e1,2026,4,23,1,3.63\n"
+        "RALCOramp_max_e2,2026,4,22,1,9.99\n"
+    )
+    out = _parse_hydro_maxrampday_csv(path)
+    assert out["RALCOramp_max_e1"] == [4.20, 3.63]
+    assert out["RALCOramp_max_e2"] == [9.99]
+
+
+def test_sscc_activation_bess_parses_to_fractions(tmp_path: Path) -> None:
+    """SSCC % per 2-hour band expands to per-hour fractions per zone."""
+    from plexos2gtopt.parsers import _parse_sscc_activation_bess_csv
+
+    path = tmp_path / "SSCC_Activation_BESS.csv"
+    path.write_text(
+        "Year,Pattern,CPF_RS_BESS,CPF_LW_BESS\n2026,H1-2,50,67\n2026,H3-4,40,0\n"
+    )
+    out = _parse_sscc_activation_bess_csv(path, n_days=1)
+    assert out["CPF_RS_BESS"][0] == 0.50  # H1
+    assert out["CPF_RS_BESS"][1] == 0.50  # H2
+    assert out["CPF_RS_BESS"][2] == 0.40  # H3
+    # CPF_LW_BESS: H1-2 = 0.67, H3-4 = 0.0 (still emitted — column non-zero).
+    assert out["CPF_LW_BESS"][0] == 0.67
+    assert out["CPF_LW_BESS"][2] == 0.0
+    # n_days replication.
+    out2 = _parse_sscc_activation_bess_csv(path, n_days=2)
+    assert len(out2["CPF_RS_BESS"]) == 48
+    assert out2["CPF_RS_BESS"][24] == 0.50
+
+
 def test_extract_reserves_splits_up_down(tmp_path: Path) -> None:
     """`_LW` suffix → drreq; `_RS` (or other) → urreq."""
     bundle, xml_path = _build_bundle(tmp_path)

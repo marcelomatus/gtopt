@@ -31,7 +31,10 @@ struct json_data_contract<DecisionVariable>
                        json_string_null<"description", OptName>,
                        json_number_null<"lower_bound", OptReal>,
                        json_number_null<"upper_bound", OptReal>,
-                       json_number_null<"cost", OptReal>>;
+                       json_number_null<"cost", OptReal>,
+                       json_string_null<"cost_type", OptName>,
+                       json_number_null<"block", OptUid>,
+                       json_number_null<"obj_constant", OptReal>>;
 
   constexpr static auto to_json_data(DecisionVariable const& dv)
   {
@@ -42,7 +45,10 @@ struct json_data_contract<DecisionVariable>
                                  dv.description,
                                  dv.lower_bound,
                                  dv.upper_bound,
-                                 dv.cost);
+                                 dv.cost,
+                                 dv.cost_type,
+                                 dv.block,
+                                 dv.obj_constant);
   }
 };
 

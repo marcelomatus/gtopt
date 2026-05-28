@@ -13,10 +13,12 @@
 
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -737,6 +739,86 @@ public:
       }
     }
     return {};
+  }
+
+  /// Collect up to @p max_names registered element names for @p class_name,
+  /// sorted by ascending edit-distance to @p target so the closest
+  /// candidate appears first.  Diagnostic-only: used to build a
+  /// "did you mean ...?" hint when a user constraint references an
+  /// unknown element name.  Linear scan over the name registry — only
+  /// ever called on the strict-mode error path, never on the hot path.
+  [[nodiscard]] std::vector<std::string_view> ampl_element_name_candidates(
+      std::string_view class_name,
+      std::string_view target,
+      std::size_t max_names = 5) const
+  {
+    // Crude Levenshtein distance — adequate for short element names; the
+    // computation only runs once, immediately before throwing.
+    const auto edit_distance = [](std::string_view a,
+                                  std::string_view b) -> std::size_t
+    {
+      std::vector<std::size_t> prev(b.size() + 1);
+      std::vector<std::size_t> cur(b.size() + 1);
+      for (std::size_t j = 0; j <= b.size(); ++j) {
+        prev[j] = j;
+      }
+      for (std::size_t i = 1; i <= a.size(); ++i) {
+        cur[0] = i;
+        for (std::size_t j = 1; j <= b.size(); ++j) {
+          const std::size_t cost = (a[i - 1] == b[j - 1]) ? 0 : 1;
+          cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost});
+        }
+        std::swap(prev, cur);
+      }
+      return prev[b.size()];
+    };
+
+    std::vector<std::pair<std::size_t, std::string_view>> scored;
+    for (const auto& [key, uid] : m_ampl_element_names_) {
+      if (key.first == class_name) {
+        scored.emplace_back(edit_distance(target, key.second), key.second);
+      }
+    }
+    std::ranges::sort(scored,
+                      [](const auto& lhs, const auto& rhs)
+                      { return lhs.first < rhs.first; });
+    std::vector<std::string_view> out;
+    for (const auto& [dist, name] : scored) {
+      if (out.size() >= max_names) {
+        break;
+      }
+      out.push_back(name);
+    }
+    return out;
+  }
+
+  /// Collect up to @p max_attrs distinct attribute names registered as LP
+  /// variables for the (class_name, element_uid) pair, across every
+  /// (scene, phase, scenario, stage).  Diagnostic-only: used to build a
+  /// "valid attributes are ..." hint when a user constraint references a
+  /// known element with an unknown attribute.  Scans the per-cell
+  /// variable registry — only called on the strict-mode error path.
+  [[nodiscard]] std::vector<std::string_view> ampl_attribute_candidates(
+      std::string_view class_name,
+      Uid element_uid,
+      std::size_t max_attrs = 12) const
+  {
+    std::vector<std::string_view> out;
+    for (const auto& by_phase : m_ampl_lp_cells_) {
+      for (const auto& cell : by_phase) {
+        for (const auto& [key, _] : cell.variables) {
+          if (key.class_name == class_name && key.element_uid == element_uid
+              && std::ranges::find(out, key.attribute) == out.end())
+          {
+            out.push_back(key.attribute);
+            if (out.size() >= max_attrs) {
+              return out;
+            }
+          }
+        }
+      }
+    }
+    return out;
   }
 
   /// Register a compound PAMPL attribute for a class.  The compound

@@ -1098,6 +1098,111 @@ def test_extract_batteries_keeps_valid_pmin_end_to_end(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Battery extractor reads ``Max Cycles Day`` → BatterySpec.max_cycles_day,
+# and the writer emits ``capacity`` + ``max_cycles_day`` (the daily energy-
+# throughput limit).  CEN PCP ships ``Max Cycles Day = 1`` on every battery.
+# ---------------------------------------------------------------------------
+
+
+_BATT_CYCLES_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>7</class_id><name>Battery</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>10</object_id><class_id>22</class_id><name>bus_a</name>
+  </t_object>
+  <t_object>
+    <object_id>40</object_id><class_id>7</class_id><name>bess_cyc</name>
+  </t_object>
+  <t_collection>
+    <collection_id>83</collection_id>
+    <parent_class_id>7</parent_class_id>
+    <child_class_id>22</child_class_id>
+    <name>Nodes</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>80</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>7</child_class_id>
+    <name>Batteries</name>
+  </t_collection>
+  <t_property>
+    <property_id>500</property_id><collection_id>80</collection_id>
+    <name>Max Power</name>
+  </t_property>
+  <t_property>
+    <property_id>503</property_id><collection_id>80</collection_id>
+    <name>Capacity</name>
+  </t_property>
+  <t_property>
+    <property_id>504</property_id><collection_id>80</collection_id>
+    <name>Max Cycles Day</name>
+  </t_property>
+  <t_membership>
+    <membership_id>900</membership_id>
+    <collection_id>83</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>950</membership_id>
+    <collection_id>80</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>40</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>1</data_id><membership_id>950</membership_id>
+    <property_id>500</property_id><value>50.0</value>
+  </t_data>
+  <t_data>
+    <data_id>2</data_id><membership_id>950</membership_id>
+    <property_id>503</property_id><value>100.0</value>
+  </t_data>
+  <t_data>
+    <data_id>3</data_id><membership_id>950</membership_id>
+    <property_id>504</property_id><value>1.0</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_batteries_reads_max_cycles_day(tmp_path: Path) -> None:
+    """``Max Cycles Day`` on the System→Batteries collection populates
+    ``BatterySpec.max_cycles_day`` (the daily energy-throughput limit N).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BATT_CYCLES_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    batts = {b.name: b for b in extract_batteries(db, bundle)}
+    assert "bess_cyc" in batts
+    assert batts["bess_cyc"].max_cycles_day == 1.0
+
+
+def test_writer_emits_capacity_and_max_cycles_day(tmp_path: Path) -> None:
+    """End-to-end: parser reads ``Max Cycles Day`` and the writer emits
+    both ``capacity`` (usable energy = emax) and ``max_cycles_day`` on
+    the JSON entry so gtopt can build the HARD ``Σ discharge·Δt ≤
+    N·capacity`` daily-cycle row."""
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.gtopt_writer import build_battery_array
+
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BATT_CYCLES_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    spec = {b.name: b for b in extract_batteries(db, bundle)}["bess_cyc"]
+    entry = build_battery_array((spec,))[0]
+    assert entry["max_cycles_day"] == 1.0
+    # capacity = usable energy = emax (Max SoC% × Capacity = 100% × 100).
+    assert entry["capacity"] == 100.0
+
+
+# ---------------------------------------------------------------------------
 # T10: ReservoirSpec.water_value sentinel (1e+30) → never_drain hard floor
 # ---------------------------------------------------------------------------
 

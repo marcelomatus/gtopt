@@ -31,6 +31,7 @@ struct json_data_contract<UserConstraint>
       json_string_null<"constraint_type", OptName>,
       json_number_null<"penalty", OptReal>,
       json_string_null<"penalty_class", OptName>,
+      json_bool_null<"daily_sum", OptBool>,
       json_variant_null<"rhs", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   [[nodiscard]] constexpr static auto to_json_data(UserConstraint const& uc)
@@ -43,6 +44,7 @@ struct json_data_contract<UserConstraint>
                                  uc.constraint_type,
                                  uc.penalty,
                                  uc.penalty_class,
+                                 uc.daily_sum,
                                  uc.rhs);
   }
 };

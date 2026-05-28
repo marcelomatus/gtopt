@@ -28,6 +28,8 @@ LineLP::LineLP(const Line& pline, const InputContext& ic)
     , reactance(ic, Element::class_name, id(), std::move(line().reactance))
     , voltage(ic, Element::class_name, id(), std::move(line().voltage))
     , resistance(ic, Element::class_name, id(), std::move(line().resistance))
+    , loss_envelope(
+          ic, Element::class_name, id(), std::move(line().loss_envelope))
     , tap_ratio(ic, Element::class_name, id(), std::move(line().tap_ratio))
     , phase_shift_deg(
           ic, Element::class_name, id(), std::move(line().phase_shift_deg))
@@ -92,6 +94,21 @@ namespace
     }
   }
 
+  // Loss-PWL envelope (decoupled from the flow cap).  When the line
+  // carries an explicit ``loss_envelope`` (e.g. the ORIGINAL rating of a
+  // soft-cap / ``enforce_level``-lifted line), the K loss segments are
+  // spread over THAT range instead of the (possibly inflated) ``fmax``
+  // flow cap — concentrating resolution in the realistic loading band.
+  // Falls back to ``fmax`` when unset (backward compatible).  Flow past
+  // the envelope extrapolates on the last segment's slope.
+  // Pass the EXPLICIT per-line envelope only (0 when unset) so
+  // ``make_config`` falls back to ``fmax`` internally — passing the
+  // fmax-fallback here would mark every line as "decoupled" and release
+  // the per-segment caps, breaking the legacy flow-cap-anchored model.
+  const auto loss_env = self.param_loss_envelope(stage.uid());
+  const double explicit_envelope =
+      (loss_env && *loss_env > 0.0) ? *loss_env : 0.0;
+
   const auto allocation = raw_line.loss_allocation_mode_enum();
   return line_losses::make_config(loss_mode,
                                   raw_line,
@@ -101,7 +118,8 @@ namespace
                                   V,
                                   nseg,
                                   fmax,
-                                  sc.options().scale_loss_link());
+                                  sc.options().scale_loss_link(),
+                                  explicit_envelope);
 }
 
 }  // namespace

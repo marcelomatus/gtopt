@@ -153,6 +153,11 @@ struct LowerCtx
   bool is_debug {false};
   bool is_strict {false};
   LinearProblem& lp;
+  /// 0-based position of `block` within the stage's block list.  Selects
+  /// the per-block entry of any `ConstraintTerm::coeff_profile` (F9) via
+  /// `term.coeff_at(block_ordinal)`.  When a term carries no profile this
+  /// is unused and the scalar `coefficient` is applied uniformly.
+  std::size_t block_ordinal {0};
   /// Monotonic counter for auxiliary rows / cols emitted while lowering
   /// the current user constraint row.  Threaded through the
   /// `(context, extra)` field of each aux row so abs(x) / min(a,b) /
@@ -315,6 +320,74 @@ void reject_nested_wrappers(const LowerCtx& ctx,
   }
 }
 
+// Join a list of candidate names into a comma-separated string for an
+// error hint, e.g. {"g1","g2"} → "g1, g2".  Returns empty for an empty
+// list so the caller can omit the hint entirely.
+[[nodiscard]] std::string join_candidates(
+    const std::vector<std::string_view>& names)
+{
+  std::string out;
+  for (const auto& n : names) {
+    if (!out.empty()) {
+      out += ", ";
+    }
+    out += n;
+  }
+  return out;
+}
+
+// Build the informative error message for a genuinely-undefined element
+// reference inside a user constraint.  Names the UC, the offending
+// `class("id").attr` term and block, says what is wrong, and — where
+// cheap — appends a "did you mean ...?" hint (closest registered element
+// names of the same class) or a "valid attributes are ..." hint (the
+// attributes actually registered as LP variables on that element).  The
+// caller wraps the returned string in `std::runtime_error` so gtopt
+// exits non-zero.
+[[nodiscard]] std::string make_unresolved_element_error(const LowerCtx& ctx,
+                                                        const ElementRef& ref)
+{
+  // Does the element NAME/UID resolve at all?  If not → unknown element
+  // name; suggest the nearest registered names.  If it does → the name is
+  // fine but the attribute is not a registered LP variable / parameter →
+  // suggest the valid attribute list.
+  const auto uid_opt =
+      ctx.sc.lookup_ampl_element_uid(ref.element_type, ref.element_id);
+
+  std::string what;
+  std::string hint;
+  if (!uid_opt.has_value()) {
+    what =
+        std::format("unknown {} name '{}'", ref.element_type, ref.element_id);
+    const auto cands =
+        ctx.sc.ampl_element_name_candidates(ref.element_type, ref.element_id);
+    if (!cands.empty()) {
+      hint = std::format(" — did you mean: {}?", join_candidates(cands));
+    }
+  } else {
+    what = std::format("unknown attribute '{}' on {} '{}'",
+                       ref.attribute,
+                       ref.element_type,
+                       ref.element_id);
+    const auto attrs =
+        ctx.sc.ampl_attribute_candidates(ref.element_type, *uid_opt);
+    if (!attrs.empty()) {
+      hint = std::format(" — valid attributes are: {}", join_candidates(attrs));
+    }
+  }
+
+  return std::format(
+      "user_constraint '{}': cannot resolve element reference '{}({}).{}' "
+      "(block {}) — {}{}",
+      ctx.uc.name,
+      ref.element_type,
+      ref.element_id,
+      ref.attribute,
+      ctx.block.uid(),
+      what,
+      hint);
+}
+
 // Recursive row-builder.  Handles element / sum / param terms directly
 // and lowers `abs`, `min`/`max`, `if` wrappers into auxiliary columns
 // and helper rows on the fly.
@@ -326,7 +399,11 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
   BuildResult out;
 
   for (const auto& term : terms) {
-    const double coef = outer_coef * term.coefficient;
+    // Resolve the term's per-block coefficient: when the term carries a
+    // `coeff_profile` (F9), `coeff_at` selects the entry for this block's
+    // ordinal within the stage; otherwise it returns the scalar
+    // `coefficient`.  Backward-compatible — scalar terms are unchanged.
+    const double coef = outer_coef * term.coeff_at(ctx.block_ordinal);
 
     if (term.element) {
       const std::size_t before_col = row.size();
@@ -371,78 +448,69 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               coef);
         }
       } else if (const auto suppression = ctx.sc.find_ampl_suppression(
-                     term.element->element_type, term.element->attribute))
+                     term.element->element_type, term.element->attribute);
+                 suppression.has_value() || res.element_known)
       {
-        // The class or (class, attribute) pair was explicitly marked
-        // unavailable by the active planning mode (e.g. `line` under
-        // `use_single_bus`, `bus.theta` when Kirchhoff is disabled).
-        // Silently drop the term — the user configured the mode, the
-        // reference is not a typo, it simply does not apply.  Traced
-        // at DEBUG level so diagnostics are available when needed
-        // without noise on every run.
+        // ── The two DEFINED silent-zero cases ──────────────────────────
+        // Both legitimately contribute 0 to the LHS — they are NOT
+        // errors and must stay silent regardless of constraint_mode:
+        //
+        //  (a) suppressed-by-mode: the class or (class, attribute) pair
+        //      was explicitly marked unavailable by the active planning
+        //      mode (e.g. `line` under `use_single_bus`, `bus.theta`
+        //      when Kirchhoff is disabled).  The user configured the
+        //      mode; the reference is not a typo, it simply does not
+        //      apply.
+        //
+        //  (b) element-known-but-offline: the element IS registered as
+        //      an LP variable somewhere (res.element_known == true) but
+        //      has no LP column for THIS specific (scenario, stage,
+        //      block) — typically a generator with `pmax = 0` on this
+        //      block (GeneratorLP omits the column).  The underlying
+        //      variable is implicitly 0, so the term contributes 0 and
+        //      the constraint stays well-formed without per-block
+        //      expressions.  This was the root cause of the CEN PCP
+        //      weekly LNG +229% over-dispatch fix: plexos2gtopt can now
+        //      include startup-staged gens in FueMaxOff_<fuel> caps
+        //      without tripping a strict-mode error.
+        //
+        // Critically, this is the ONLY leniency: an UNKNOWN /
+        // UNDEFINED reference (res.element_known == false AND not
+        // suppressed) falls through to the unconditional throw below.
+        // Traced at DEBUG so diagnostics are available when needed; the
+        // reason is folded into a single string so this branch carries
+        // exactly one trace statement (no clone-able if/else split).
+        const std::string_view reason = suppression.has_value()
+            ? std::string_view {"suppressed by planning mode"}
+            : std::string_view {
+                  "no LP column for this block "
+                  "(inactive: pmax=0 or similar)"};
         SPDLOG_DEBUG(
             "user_constraint '{}': dropping term '{}({}).{}' (block {}) — "
-            "suppressed by mode: {}",
+            "{} — term contributes 0 to LHS",
             ctx.uc.name,
             term.element->element_type,
             term.element->element_id,
             term.element->attribute,
             ctx.block.uid(),
-            *suppression);
-      } else if (res.element_known) {
-        // The element exists in the AMPL registry but has no LP
-        // column for this specific (scenario, stage, block) —
-        // typically a generator with ``pmax = 0`` on this block
-        // (GeneratorLP omits the column), or a battery with the
-        // same condition on charge/discharge.  The term contributes
-        // 0 to the LHS by construction (the underlying variable is
-        // implicitly 0); silently skipping it keeps the constraint
-        // well-formed without forcing the caller to per-block
-        // expressions.  Trace at DEBUG so the diagnostic is still
-        // available when needed.
-        //
-        // This was the root cause of the CEN PCP weekly LNG +229%
-        // over-dispatch: plexos2gtopt deliberately dropped startup-
-        // staged generators from FueMaxOff_<fuel> expressions to
-        // avoid this exact strict-mode error, but that under-counted
-        // the cap LHS by entire generators (NEHUENCO_2-TG+TV_GNL_C
-        // dispatched 30,843 MWh vs PLEXOS 244 MWh).  With this
-        // tolerance, plexos2gtopt can include those gens and the
-        // cap stays well-defined.
-        SPDLOG_DEBUG(
-            "user_constraint '{}': element '{}({}).{}' has no LP column "
-            "for block {} (inactive: pmax=0 or similar) — term contributes "
-            "0 to LHS",
-            ctx.uc.name,
-            term.element->element_type,
-            term.element->element_id,
-            term.element->attribute,
-            ctx.block.uid());
-      } else if (ctx.is_strict) {
-        // The element ref resolved neither as an LP column (no
-        // matching variable in the AMPL registry) nor as a data
-        // parameter — most commonly a typo or a missing element.
-        // Silent skipping here is the most insidious failure mode:
-        // the constraint becomes vacuously satisfied while the LP
-        // still solves.
-        throw std::runtime_error(std::format(
-            "user_constraint '{}': cannot resolve element reference "
-            "'{}({}).{}' (block {}) — element is missing or inactive, "
-            "or attribute is not a registered LP variable or parameter",
-            ctx.uc.name,
-            term.element->element_type,
-            term.element->element_id,
-            term.element->attribute,
-            ctx.block.uid()));
+            reason);
+        (void)reason;  // unused when SPDLOG_DEBUG compiles out (CIFast)
       } else {
-        SPDLOG_WARN(
-            "user_constraint '{}': cannot resolve element reference "
-            "'{}({}).{}' (block {}) — skipping term",
-            ctx.uc.name,
-            term.element->element_type,
-            term.element->element_id,
-            term.element->attribute,
-            ctx.block.uid());
+        // The element ref resolved neither as an LP column (no matching
+        // variable in the AMPL registry) nor as a data parameter — a
+        // genuine *undefined* reference: a typo, a deleted element, or
+        // an attribute that is not a registered LP variable / parameter
+        // on this element.  This is the most insidious failure mode:
+        // silently skipping the term makes the constraint vacuously
+        // satisfied while the LP still solves.  It is therefore a hard
+        // error UNCONDITIONALLY — `constraint_mode` (normal/strict/debug)
+        // only governs verbosity for *defined* situations, never whether
+        // a genuinely-undefined reference is tolerated.  Note this branch
+        // is reached only when `res.element_known == false`; the
+        // element-registered-but-offline (pmax==0) case is the
+        // `res.element_known` branch above and stays a silent 0.
+        throw std::runtime_error(
+            make_unresolved_element_error(ctx, *term.element));
       }
       continue;
     }
@@ -476,8 +544,12 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
     }
 
     if (term.param_name) {
-      if (auto pval = resolve_param(ctx.param_map, *term.param_name, ctx.stage))
-      {
+      // Bind the parameter name to a local up front so subsequent uses
+      // never re-dereference the optional (keeps the optional-access
+      // checker happy without a NOLINT, which is forbidden for this
+      // diagnostic).
+      const std::string& param_name = *term.param_name;
+      if (auto pval = resolve_param(ctx.param_map, param_name, ctx.stage)) {
         out.param_shift += coef * *pval;
         if (ctx.is_debug) {
           spdlog::info(
@@ -485,20 +557,35 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
               "param '{}' = {} coeff={}",
               ctx.uc.name,
               ctx.block.uid(),
-              *term.param_name,
+              param_name,
               *pval,
               coef);
         }
-      } else if (ctx.is_strict) {
-        throw std::runtime_error(
-            std::format("user_constraint '{}': unknown parameter '{}'",
-                        ctx.uc.name,
-                        *term.param_name));
       } else {
-        SPDLOG_WARN(
-            "user_constraint '{}': unknown parameter '{}' — skipping term",
-            ctx.uc.name,
-            *term.param_name);
+        // An undefined named parameter is a genuine *undefined* reference
+        // — throw UNCONDITIONALLY regardless of `constraint_mode` (silent
+        // skipping would make the term vanish and quietly distort the
+        // constraint).  Append the list of parameters that ARE defined in
+        // the system's `user_param_array` as a hint.
+        std::vector<std::string_view> defined;
+        defined.reserve(ctx.param_map.size());
+        for (const auto& [pname, _] : ctx.param_map) {
+          defined.push_back(pname);
+        }
+        std::string hint;
+        if (!defined.empty()) {
+          hint = std::format(" — defined parameters are: {}",
+                             join_candidates(defined));
+        } else {
+          hint =
+              " — no user parameters are defined (add one to the system's "
+              "user_param_array, or reference an element attribute instead)";
+        }
+        throw std::runtime_error(
+            std::format("user_constraint '{}': unknown parameter '{}'{}",
+                        ctx.uc.name,
+                        param_name,
+                        hint));
       }
       continue;
     }
@@ -723,13 +810,23 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     try {
       m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
     } catch (const std::exception& ex) {
-      SPDLOG_ERROR(
-          "user_constraint '{}': expression parse error: {} — "
-          "check expression syntax and refer to the user-constraint "
-          "documentation; constraint will be silently skipped",
-          uc.name,
-          ex.what());
-      // m_expr_ stays nullopt; add_to_lp will skip this constraint silently
+      // A malformed expression is a genuine *undefined* situation: the
+      // constraint the user wrote cannot be turned into LP rows.  Silently
+      // skipping it (the historical behaviour) made the LP vacuously omit a
+      // constraint the user demanded — the most insidious failure mode.
+      // Re-throw with the UC name + the parser's caret/hint diagnostic so
+      // gtopt exits non-zero with a fully informative message.  This is
+      // unconditional: `constraint_mode` only governs verbosity for genuine
+      // *unresolved-reference* situations at row-assembly time, never whether
+      // a parse error is tolerated.
+      throw std::runtime_error(
+          std::format("user_constraint '{}': expression parse error: {}\n"
+                      "  expression: {}\n"
+                      "  fix the expression syntax (see the user-constraint "
+                      "documentation)",
+                      uc.name,
+                      ex.what(),
+                      uc.expression));
     }
   }
 }
@@ -782,6 +879,11 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   const bool soft_needs_neg =
       is_soft && expr.constraint_type == ConstraintType::EQUAL;
 
+  // Δt-weighting flag for `daily_sum`: an "energy" scale hint makes each
+  // block contribute `coeff · Δt_b · col_b` so the daily LHS is energy
+  // [MWh]; "power"/"raw" leave the sum unweighted (a per-day count).
+  const bool daily_energy = (m_scale_type_ == ConstraintScaleType::Energy);
+
   BIndexHolder<RowIndex> block_rows;
   BIndexHolder<ColIndex> block_slack_cols;
   BIndexHolder<ColIndex> block_slack_neg_cols;
@@ -793,7 +895,258 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     }
   }
 
+  // ── daily_sum path ───────────────────────────────────────────────────────
+  // Accumulate the (optionally Δt-weighted) per-block terms into a running
+  // `day_row` and flush ONE LP row per 24 h day.  A day ends when the
+  // cumulative block duration crosses a 24 h boundary, or at the stage's
+  // last in-domain block (blocks are chronological and never straddle a
+  // day on the real data, so cumulative-duration detection is exact).  A
+  // `daily_cycle`-style collapsed stage (stage.duration() > 24 representing
+  // a single day) flushes once at its final block; a stage ≤ 24 h is a
+  // single window = the whole stage.
+  if (uc.daily_sum.value_or(false)) {
+    constexpr double kDayHours = 24.0;
+
+    // Index of the last in-domain block, used to force a final flush.
+    std::optional<BlockUid> last_in_domain;
+    for (const auto& block : stage.blocks()) {
+      if (in_range(domain.blocks, block.uid())) {
+        last_in_domain = block.uid();
+      }
+    }
+    if (!last_in_domain.has_value()) {
+      return true;  // nothing in-domain — no rows
+    }
+
+    // A fresh, identity-stamped accumulator row for one day window.  A
+    // factory (rather than reusing a single object via reset) keeps the
+    // post-flush state obviously moved-from + reassigned, so no
+    // use-after-move can arise across loop iterations.
+    auto fresh_day_row = [&]() -> SparseRow
+    {
+      SparseRow r;
+      r.class_name = uc.name;
+      r.constraint_name = ConstraintName;
+      r.variable_uid = uid();
+      return r;
+    };
+
+    SparseRow day_row = fresh_day_row();
+    bool day_has_vars = false;
+    double day_param_shift = 0.0;
+    double day_hours = 0.0;
+    BlockUid day_end_block {};  // day-ending block for this window
+    bool day_open = false;
+
+    // 0-based block ordinal within the stage (see the per-block path);
+    // selects the entry of any per-block `coeff_profile` (F9).
+    std::size_t block_ordinal = 0;
+    for (const auto& block : stage.blocks()) {
+      const std::size_t this_ordinal = block_ordinal++;
+      if (!in_range(domain.blocks, block.uid())) {
+        continue;
+      }
+
+      const double dt = block.duration();
+      const double weight = daily_energy ? dt : 1.0;
+
+      // Open the window on the first contributing block — its context
+      // carries the day-row's metadata; the day-ending block becomes
+      // the storage / dual-output key below.
+      if (!day_open) {
+        day_row.context =
+            make_block_context(scenario.uid(), stage.uid(), block.uid());
+        day_open = true;
+      }
+      day_end_block = block.uid();
+
+      // Build this block's terms into a scratch row, then merge with the
+      // per-block weight into the running day_row.
+      SparseRow block_row;
+      block_row.class_name = uc.name;
+      block_row.constraint_name = ConstraintName;
+      block_row.variable_uid = uid();
+      block_row.context =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+
+      LowerCtx lctx {
+          .sc = sc,
+          .scenario = scenario,
+          .stage = stage,
+          .block = block,
+          .param_map = param_map,
+          .uc = uc,
+          .ctype = expr.constraint_type,
+          .is_debug = is_debug,
+          .is_strict = is_strict,
+          .lp = lp,
+          .block_ordinal = this_ordinal,
+      };
+      const auto build_res =
+          build_row_from_terms(lctx, expr.terms, 1.0, block_row);
+      if (build_res.has_vars) {
+        day_has_vars = true;
+        for (const auto& [col, coeff] : block_row.cmap) {
+          day_row.cmap[col] += weight * coeff;
+        }
+      }
+      // param_shift is folded into the day's RHS accumulation with the
+      // same per-block weight as the LHS terms.
+      day_param_shift += weight * build_res.param_shift;
+      day_hours += dt;
+
+      // Day-ending block: cumulative duration reaches a 24 h window, or
+      // this is the stage's last in-domain block.
+      const bool boundary = day_hours >= kDayHours - 1e-9;
+      const bool is_last = (block.uid() == *last_in_domain);
+      if (!boundary && !is_last) {
+        continue;
+      }
+
+      if (!day_has_vars) {
+        SPDLOG_DEBUG(
+            "user_constraint '{}': no LP columns resolved for day ending "
+            "at block {} — skipping",
+            uc.name,
+            day_end_block);
+        day_row = fresh_day_row();
+        day_has_vars = false;
+        day_param_shift = 0.0;
+        day_hours = 0.0;
+        day_open = false;
+        continue;
+      }
+
+      // RHS for the day-row: the per-(stage, block) override at the
+      // day-ending block when present, else the expression scalar —
+      // same precedence as the per-block path.
+      auto adjusted_expr = expr;
+      if (m_rhs_.has_value()) {
+        if (const auto rhs_override = m_rhs_.optval(stage.uid(), day_end_block))
+        {
+          adjusted_expr.rhs = *rhs_override;
+          if (adjusted_expr.lower_bound) {
+            *adjusted_expr.lower_bound = *rhs_override;
+          }
+          if (adjusted_expr.upper_bound) {
+            *adjusted_expr.upper_bound = *rhs_override;
+          }
+        }
+      }
+      adjusted_expr.rhs -= day_param_shift;
+      if (adjusted_expr.lower_bound) {
+        *adjusted_expr.lower_bound -= day_param_shift;
+      }
+      if (adjusted_expr.upper_bound) {
+        *adjusted_expr.upper_bound -= day_param_shift;
+      }
+
+      // Soft-slack folding: ONE slack column per day-row (not per block),
+      // keyed at the day-ending block.  The conversion mirrors the
+      // per-block path but uses the whole day's duration for HydroFlow.
+      if (is_soft) {
+        const auto day_penalty =
+            resolve_block_soft_penalty(penalty, m_penalty_class_, day_hours);
+        const auto day_ctx =
+            make_block_context(scenario.uid(), stage.uid(), day_end_block);
+        const auto slack_col = lp.add_col(SparseCol {
+            .cost = day_penalty,
+            .class_name = Element::class_name.full_name(),
+            .variable_name = soft_needs_neg ? SlackPosName : SlackName,
+            .variable_uid = uid(),
+            .context = day_ctx,
+        });
+        double pos_coeff = 0.0;
+        switch (expr.constraint_type) {
+          case ConstraintType::LESS_EQUAL:
+            pos_coeff = -1.0;
+            break;
+          case ConstraintType::GREATER_EQUAL:
+          case ConstraintType::EQUAL:
+            pos_coeff = +1.0;
+            break;
+          case ConstraintType::RANGE:
+            break;  // rejected at the top of add_to_lp
+        }
+        day_row.cmap[slack_col] = pos_coeff;
+        block_slack_cols[day_end_block] = slack_col;
+
+        if (soft_needs_neg) {
+          const auto slack_neg_col = lp.add_col(SparseCol {
+              .cost = day_penalty,
+              .class_name = Element::class_name.full_name(),
+              .variable_name = SlackNegName,
+              .variable_uid = uid(),
+              .context = day_ctx,
+          });
+          day_row.cmap[slack_neg_col] = -1.0;
+          block_slack_neg_cols[day_end_block] = slack_neg_col;
+        }
+      }
+
+      apply_constraint_bounds(day_row, adjusted_expr);
+      const auto row_nterms = day_row.size();
+      auto debug_row_name = is_debug
+          ? LabelMaker {LpNamesLevel::all}.make_row_label(day_row)
+          : std::string {};
+      const auto row_idx = lp.add_row(std::move(day_row));
+      block_rows[day_end_block] = row_idx;
+      if (is_debug) {
+        spdlog::info(
+            "  user_constraint '{}': daily row '{}' added (idx={}, "
+            "{} terms, day_hours={}, param_shift={})",
+            uc.name,
+            debug_row_name,
+            row_idx,
+            row_nterms,
+            day_hours,
+            day_param_shift);
+      }
+
+      // Start a fresh window.  `day_row` was just moved into `add_row`;
+      // reassign it from the factory so the moved-from state never leaks
+      // into the next iteration.
+      day_row = fresh_day_row();
+      day_has_vars = false;
+      day_param_shift = 0.0;
+      day_hours = 0.0;
+      day_open = false;
+    }
+
+    if (!block_rows.empty()) {
+      m_rows_[{scenario.uid(), stage.uid()}] = std::move(block_rows);
+    }
+    if (is_soft && !block_slack_cols.empty()) {
+      static constexpr auto ampl_name = Element::class_name.snake_case();
+      const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+      sc.add_ampl_variable(ampl_name,
+                           uid(),
+                           soft_needs_neg ? SlackPosName : SlackName,
+                           scenario,
+                           stage,
+                           block_slack_cols);
+      m_slack_cols_[st_key] = std::move(block_slack_cols);
+      if (soft_needs_neg && !block_slack_neg_cols.empty()) {
+        sc.add_ampl_variable(ampl_name,
+                             uid(),
+                             SlackNegName,
+                             scenario,
+                             stage,
+                             block_slack_neg_cols);
+        m_slack_neg_cols_[st_key] = std::move(block_slack_neg_cols);
+      }
+    }
+    return true;
+  }
+
+  // 0-based ordinal of the current block within the stage's full block
+  // list (incremented for every block, not just in-domain ones) so a
+  // per-block `coeff_profile` indexes consistently with the stage's
+  // chronological block order — matching the positional `rhs [...]`
+  // schedule semantics.
+  std::size_t block_ordinal = 0;
   for (const auto& block : stage.blocks()) {
+    const std::size_t this_ordinal = block_ordinal++;
     if (!in_range(domain.blocks, block.uid())) {
       continue;
     }
@@ -822,6 +1175,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         .is_debug = is_debug,
         .is_strict = is_strict,
         .lp = lp,
+        .block_ordinal = this_ordinal,
     };
 
     const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);

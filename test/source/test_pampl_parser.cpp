@@ -6,6 +6,9 @@
  * @copyright BSD-3-Clause
  */
 
+#include <variant>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/pampl_parser.hpp>
 
@@ -110,6 +113,94 @@ TEST_SUITE("PamplParser")
     {
       CHECK_THROWS((void)PamplParser::parse(
           "constraint c bogus generator('G1').generation <= 1;"));
+    }
+  }
+
+  // ── Header: rhs clause → per-block (scheduled) RHS ───────────────────────
+  TEST_CASE("constraint header with rhs clause sets per-block schedule")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    SUBCASE("rhs vector maps onto single-row TB matrix [[...]]")
+    {
+      const auto& ucs = PamplParser::parse(
+                            "constraint ramp_cap rhs [40, 40, 60, 60]: "
+                            "generator('RALCO').generation <= 0;")
+                            .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].name == "ramp_cap");
+      REQUIRE(ucs[0].rhs.has_value());
+      REQUIRE(std::holds_alternative<std::vector<std::vector<double>>>(
+          ucs[0].rhs.value()));
+      const auto& mat =
+          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+      REQUIRE(mat.size() == 1);
+      REQUIRE(mat[0].size() == 4);
+      CHECK(mat[0][0] == doctest::Approx(40.0));
+      CHECK(mat[0][2] == doctest::Approx(60.0));
+      // The inline scalar tail survives as the per-block fallback.
+      CHECK(ucs[0].expression.find("<= 0") != std::string::npos);
+    }
+
+    SUBCASE("rhs after penalty, any order")
+    {
+      const auto& ucs = PamplParser::parse(
+                            "constraint c penalty 500 rhs [1.5, 2.5]: "
+                            "line('L1').flow <= 0;")
+                            .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(500.0));
+      REQUIRE(ucs[0].rhs.has_value());
+      const auto& mat =
+          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+      REQUIRE(mat[0].size() == 2);
+      CHECK(mat[0][1] == doctest::Approx(2.5));
+    }
+
+    SUBCASE("rhs before penalty, any order")
+    {
+      const auto& ucs =
+          PamplParser::parse(
+              "constraint c rhs [3, 4] penalty 10: line('L1').flow <= 0;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK(ucs[0].penalty.value_or(-1.0) == doctest::Approx(10.0));
+      REQUIRE(ucs[0].rhs.has_value());
+    }
+
+    SUBCASE("rhs values may be param-value expressions")
+    {
+      const auto& ucs =
+          PamplParser::parse(
+              "param cap = 30;\n"
+              "constraint c rhs [cap, cap * 2]: line('L1').flow <= 0;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      const auto& mat =
+          std::get<std::vector<std::vector<double>>>(ucs[0].rhs.value());
+      CHECK(mat[0][0] == doctest::Approx(30.0));
+      CHECK(mat[0][1] == doctest::Approx(60.0));
+    }
+
+    SUBCASE("empty rhs vector raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c rhs []: line('L1').flow <= 0;"));
+    }
+
+    SUBCASE("duplicate rhs clause raises")
+    {
+      CHECK_THROWS((void)PamplParser::parse(
+          "constraint c rhs [1] rhs [2]: line('L1').flow <= 0;"));
+    }
+
+    SUBCASE("scalar-RHS constraint leaves rhs unset (unchanged)")
+    {
+      const auto& ucs =
+          PamplParser::parse("constraint c: line('L1').flow <= 200;")
+              .constraints;
+      REQUIRE(ucs.size() == 1);
+      CHECK_FALSE(ucs[0].rhs.has_value());
     }
   }
 

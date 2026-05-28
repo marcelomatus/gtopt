@@ -189,7 +189,7 @@ static constexpr std::string_view resolver_diverse_json = R"json(
         {
           "uid": 6,
           "name": "sum_all_gens",
-          "expression": "sum(generator.generation) <= 500"
+          "expression": "sum(generator(all).generation) <= 500"
         }
       ]
     }
@@ -424,18 +424,16 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "element_column_resolver - unknown element/attribute skipped gracefully")
+    "element_column_resolver - unknown element/attribute is a hard error")
 {
-  // Constraints referencing nonexistent elements or unknown attributes
-  // should be silently skipped (no rows added, no crash).
+  // Hardening (2026-05): constraints referencing nonexistent elements or
+  // unknown attributes are now a hard error regardless of
+  // constraint_mode — they must NOT be silently skipped (which would make
+  // the constraint vacuous).  Building the LP throws std::runtime_error.
   Planning base;
   base.merge(parse_planning_json(resolver_unknown_json));
-  PlanningLP planning_lp(std::move(base));
-  auto result = planning_lp.resolve();
-
-  // LP should still solve even with unresolvable constraints
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
+  CHECK_THROWS_AS(PlanningLP(std::move(base)),  // NOLINT
+                  std::runtime_error);
 }
 
 TEST_CASE(  // NOLINT
@@ -606,7 +604,7 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
           {
             "uid": 1,
             "name": "gen_limit",
-            "expression": "generator(uid:1).generation <= 150"
+            "expression": "generator(\"uid:1\").generation <= 150"
           }
         ]
       }
@@ -627,7 +625,7 @@ TEST_CASE("ElementColumnResolver - uid syntax in constraint")  // NOLINT
 // ---------------------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "ElementColumnResolver - unknown element name logs warning")
+    "ElementColumnResolver - unknown element name is a hard error")
 {
   static constexpr std::string_view bad_ref_json = R"json(
     {
@@ -696,10 +694,11 @@ TEST_CASE(  // NOLINT
 
   Planning base;
   base.merge(parse_planning_json(bad_ref_json));
-  PlanningLP planning_lp(std::move(base));
-  // Should still solve — the constraint with unresolved element is skipped
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
+  // Hardening (2026-05): an unknown element name is a hard error even
+  // under constraint_mode=normal — the unresolved constraint is no longer
+  // silently skipped.  Building the LP throws std::runtime_error.
+  CHECK_THROWS_AS(PlanningLP(std::move(base)),  // NOLINT
+                  std::runtime_error);
 }
 
 // ---------------------------------------------------------------------------
@@ -1255,7 +1254,7 @@ TEST_CASE(  // NOLINT
           {
             "uid": 1,
             "name": "sum_theta_bound",
-            "expression": "sum(bus.theta) <= 10"
+            "expression": "sum(bus(all).theta) <= 10"
           }
         ]
       }

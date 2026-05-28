@@ -14,9 +14,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from ._comparison import compare_plexos_bundle
 from .gtopt_writer import (
     build_planning,
     build_provenance,
+    filter_user_constraints,
     write_boundary_cut_csv,
     write_planning,
     write_provenance,
@@ -118,8 +120,12 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_USE_PLEXOS_COMMIT"] = "1"
     if options.get("use_plexos_gen_cap"):
         os.environ["GTOPT_USE_PLEXOS_GEN_CAP"] = "1"
+    if options.get("use_plexos_efin"):
+        os.environ["GTOPT_USE_PLEXOS_EFIN"] = "1"
     if options.get("lift_line_caps") is not None:
         os.environ["GTOPT_LIFT_LINE_CAPS"] = str(options["lift_line_caps"])
+    if options.get("el0_lines") is not None:
+        os.environ["GTOPT_EL0_LINES"] = str(options["el0_lines"])
     rs_mode = options.get("reservoir_spillway")
     if rs_mode is not None:
         os.environ["GTOPT_RESERVOIR_SPILL"] = str(rs_mode)
@@ -131,13 +137,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
     if options.get("loss_pwl_layout") is not None:
         os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
-    # Loading-classified hybrid loss layout (tangent for the top-PCT%
-    # highest-rated / forced lines, uniform for the rest; independent
-    # segment counts).
-    if options.get("loss_tangent_top_pct") is not None:
-        os.environ["GTOPT_LOSS_TANGENT_PCT"] = str(
-            float(options["loss_tangent_top_pct"])
-        )
+    # Explicit tangent-line escape hatch (the R·P² percentile ranking /
+    # --loss-tangent-top-pct was removed; midpoint+envelope match PLEXOS
+    # without the hybrid tangent tier).
     if options.get("loss_tangent_lines"):
         os.environ["GTOPT_LOSS_TANGENT_LINES"] = str(options["loss_tangent_lines"])
     if options.get("nseg_tangent") is not None:
@@ -176,6 +178,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
 
                 res_zip = auto_discover_res_zip(input_path)
                 if res_zip is not None:
+                    logger.info(
+                        "found PLEXOS solution (output) bundle '%s' next to "
+                        "the input (CEN naming convention) — using its "
+                        "t_phase_3 PLEXOS block layout (variable-duration "
+                        "blocks matching what PLEXOS solved).  Pass "
+                        "--horizon-mode hourly to use a uniform "
+                        "1-hour-per-block layout instead (input-only, ignores "
+                        "the solution).",
+                        res_zip.name,
+                    )
                     resolved_accdb = extract_accdb_from_res_zip(res_zip)
                     if resolved_accdb is not None:
                         from .plexos_block_layout import load_block_layout_from_accdb
@@ -186,6 +198,15 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
 
                 resolved_accdb = Path(accdb_path)
                 block_layout = load_block_layout_from_accdb(resolved_accdb)
+
+            # User-defined block layout (CSV file or inline "{uid:dur,...}"
+            # / "d1,d2,..." string) — used when the PLEXOS solution .accdb
+            # is absent, or to override it.  Lets the user reproduce a
+            # variable-duration block grouping without the solution.
+            if not block_layout and options.get("block_layout"):
+                from .plexos_block_layout import parse_user_block_layout
+
+                block_layout = parse_user_block_layout(str(options["block_layout"]))
 
             if block_layout:
                 # n_days = ceil(max_interval / 24) so the CSV readers
@@ -205,39 +226,64 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     bundle.n_days,
                 )
             else:
-                # No silent fallback.  ``--horizon-mode plexos`` means the
-                # caller wants the EXACT block grouping PLEXOS solved
-                # over (typically 111 chronological blocks for the CEN
-                # PCP daily week).  Falling back to uniform-hourly here
-                # would silently produce a bundle that solves a
-                # different problem than PLEXOS (e.g. 168 hourly vs 111
-                # variable-duration blocks) and any downstream
-                # comparison (objective, dispatch, LMP) becomes
-                # meaningless.  Make the failure explicit so the user
-                # can either supply ``--plexos-solution-accdb`` or
-                # opt-in to uniform-hourly via ``--horizon-mode hourly``.
-                raise FileNotFoundError(
-                    "plexos2gtopt: --horizon-mode=plexos requires the "
-                    "PLEXOS solution .accdb to recover the t_phase_3 "
-                    "block grouping, but none was found.  Either:\n"
-                    "  - pass --plexos-solution-accdb /path/to/Model "
-                    "PRGdia_Full_Definitivo Solution.accdb, or\n"
-                    "  - place RES<DATE>.zip[.xz] next to the input "
-                    "DATOS<DATE>.zip[.xz] so auto-discovery finds it, "
-                    "or\n"
-                    "  - opt-in to uniform-hourly explicitly with "
-                    "--horizon-mode hourly --horizon-days N."
+                # Graceful fallback: ``--horizon-mode plexos`` prefers the
+                # EXACT block grouping PLEXOS solved over (the t_phase_3
+                # variable-duration blocks), but the 111-block structure
+                # exists ONLY in the solution .accdb (it is a solve-time
+                # aggregation, absent from the inputs).  When neither the
+                # solution nor a user ``--block-layout`` is available, fall
+                # back to UNIFORM HOURLY blocks (``horizon_days × 24``) so a
+                # standard input-only convert still works — at a finer grid
+                # than PLEXOS's aggregation.  Supply ``--plexos-solution-accdb``
+                # / let auto-discovery find ``RES<DATE>.zip`` to match PLEXOS
+                # exactly, or ``--block-layout`` to define the grouping
+                # yourself.
+                # Horizon length: explicit --horizon-days wins; else infer
+                # from the PLEXOS Horizon object name (e.g. ``..._7d`` → 7),
+                # so the uniform fallback still spans the full solve horizon
+                # rather than a single day; else 1 as the last resort.
+                if horizon_days_opt:
+                    bundle.n_days = int(horizon_days_opt)
+                    src = "--horizon-days"
+                else:
+                    from .plexos_block_layout import infer_horizon_days_from_input
+
+                    inferred = infer_horizon_days_from_input(bundle.xml_path)
+                    bundle.n_days = inferred if inferred else 1
+                    src = (
+                        "inferred from Horizon name"
+                        if inferred
+                        else "default (set --horizon-days N)"
+                    )
+                logger.warning(
+                    "horizon-mode=plexos: no PLEXOS solution .accdb and no "
+                    "--block-layout found; falling back to %d uniform hourly "
+                    "blocks (%d days × 24, %s).  Pass --plexos-solution-accdb "
+                    "/ --block-layout to reproduce PLEXOS's variable-duration "
+                    "grouping.",
+                    bundle.n_days * 24,
+                    bundle.n_days,
+                    src,
                 )
         else:  # hourly
             bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
 
-        # Dump the PLEXOS solution-tables cache BEFORE running
-        # ``extract_case`` so that solution-side extractors (in
-        # particular ``extract_fuel_offtake_caps`` which reads the
-        # FueMaxOff* Constraint RHS values) can find the data.
-        # When no .accdb is available, the cache step is a no-op
-        # and the fuel-cap extractor falls through to "no caps".
-        if resolved_accdb is not None:
+        # PLEXOS solution-tables cache (mdb-export of the whole .accdb).  By
+        # DESIGN the converter is INPUTS-ONLY: the *only* expected read of the
+        # output .accdb is the ``t_phase_3`` block layout resolved above (111
+        # blocks + their hours).  Reading the solution back is
+        # ``gtopt_compare``'s job.  So the heavy cache dump runs ONLY when the
+        # user explicitly opts into reading the solution via
+        # ``--use-plexos-commit`` / ``--use-plexos-gen-cap`` /
+        # ``--use-plexos-efin`` (the only consumers, all of which fall back
+        # gracefully when the cache is absent).  Skipping it by default avoids
+        # the ~2-min mdb-export + zstd pass on the multi-hundred-MB solution.
+        needs_solution_cache = bool(
+            options.get("use_plexos_commit")
+            or options.get("use_plexos_gen_cap")
+            or options.get("use_plexos_efin")
+        )
+        if resolved_accdb is not None and needs_solution_cache:
             from .plexos_block_layout import cache_plexos_tables
 
             output_dir_for_cache, _, _ = _resolve_output_paths(
@@ -272,6 +318,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         soft_efin_set = frozenset(
             n.strip() for n in soft_efin_raw if isinstance(n, str) and n.strip()
         )
+        fcf_scale_alpha = options.get("fcf_scale_alpha")
         planning = build_planning(
             case,
             name=planning_name,
@@ -279,6 +326,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             lp_relax=bool(options.get("lp_relax", False)),
             soft_efin_reservoirs=soft_efin_set,
             soft_penalty_override=options.get("soft_penalty_cost"),
+            **(
+                {"fcf_scale_alpha": float(fcf_scale_alpha)}
+                if fcf_scale_alpha is not None
+                else {}
+            ),
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):
@@ -316,9 +368,69 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         sys_d = planning.get("system", {})
         uc_arr = sys_d.get("user_constraint_array", [])
         if uc_arr:
-            pampl_files, json_rem = write_user_constraint_pampl(uc_arr, output_dir)
-            if pampl_files:
-                sys_d["user_constraint_files"] = pampl_files
+            uc_mode = str(options.get("pampl_uc_mode") or "hard")
+            soft_pen = float(options.get("default_uc_penalty") or 10000.0)
+
+            def _fam_set(key: str) -> frozenset[str]:
+                raw = options.get(key)
+                return (
+                    frozenset(s.strip() for s in str(raw).split(",") if s.strip())
+                    if raw
+                    else frozenset()
+                )
+
+            only = _fam_set("pampl_uc_only") or None
+            off_fams = _fam_set("pampl_uc_off")
+
+            # Couple ``alpha_fcf`` to the FCF boundary cut: the cut lives in
+            # the ``terminal_value`` family.  When that family is filtered
+            # out (mode=off / not in --pampl-uc-only / in --pampl-uc-off),
+            # the cut is dropped — so drop the orphaned ``alpha_fcf``
+            # DecisionVariable too.  A free α with no cut to bound it makes
+            # the LP unbounded (cost = 1, α → −∞).
+            fcf_kept = (
+                uc_mode != "off"
+                and (only is None or "terminal_value" in only)
+                and "terminal_value" not in off_fams
+            )
+            if not fcf_kept:
+                dv_list = sys_d.get("decision_variable_array")
+                if dv_list:
+                    sys_d["decision_variable_array"] = [
+                        v for v in dv_list if v.get("name") != "alpha_fcf"
+                    ]
+
+            emit = str(options.get("uc_emit") or "pampl")
+            if emit == "inline":
+                # Legacy path: keep the (filtered) UCs inline in the JSON
+                # ``user_constraint_array`` — no .pampl files.  Used to diff
+                # the JSON-parsed LP against the PAMPL-parsed LP.
+                kept = filter_user_constraints(
+                    uc_arr,
+                    mode=uc_mode,
+                    force_penalty=soft_pen,
+                    only=only,
+                    off=off_fams,
+                )
+                if kept:
+                    sys_d["user_constraint_array"] = kept
+                else:
+                    sys_d.pop("user_constraint_array", None)
+                logger.info(
+                    "--uc-emit=inline: kept %d UC(s) inline (no .pampl files)",
+                    len(kept),
+                )
+            else:
+                pampl_files, json_rem = write_user_constraint_pampl(
+                    uc_arr,
+                    output_dir,
+                    mode=uc_mode,
+                    force_penalty=soft_pen,
+                    only=only,
+                    off=off_fams,
+                )
+                if pampl_files:
+                    sys_d["user_constraint_files"] = pampl_files
                 if json_rem:
                     sys_d["user_constraint_array"] = json_rem
                 else:
@@ -390,10 +502,20 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     engine,
                     float(auto_lift_threshold),
                 )
+
+    # Post-conversion comparison + structural validation (mirrors
+    # plp2gtopt's run_post_check).  Prints the PLEXOS↔gtopt element / UC /
+    # indicator tables and returns the CRITICAL finding count as the exit
+    # code.  Opt out with ``--no-check`` (options["run_check"] = False).
+    if options.get("run_check", True):
+        from ._comparison import run_post_check  # noqa: PLC0415
+
+        return run_post_check(planning, case, output_dir=output_dir)
     return 0
 
 
 __all__ = [
+    "compare_plexos_bundle",
     "convert_plexos_bundle",
     "validate_plexos_bundle",
 ]

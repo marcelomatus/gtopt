@@ -93,6 +93,16 @@ struct LossConfig
   /// `Line.loss_pwl_layout`; otherwise inherits from
   /// `ModelOptions.loss_pwl_layout` (TBD) — default `uniform`.
   LinePwlLayout pwl_layout {LinePwlLayout::uniform};
+  /// Upper envelope [MW] over which the K PWL segments are spread.
+  /// DECOUPLED from the flow cap: when the caller supplies a positive
+  /// value (typically the ORIGINAL line rating for a soft-cap /
+  /// `enforce_level`-lifted line whose `fmax` flow cap is inflated),
+  /// the loss segments concentrate over THIS range rather than `fmax`.
+  /// `0.0` (default) means "use the per-direction `fmax`/`block_tmax`"
+  /// — i.e. the legacy flow-cap-anchored envelope, fully backward
+  /// compatible.  See `add_piecewise`/`add_direction` for how flow past
+  /// the envelope extrapolates on the last segment's slope.
+  double loss_envelope {0.0};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────
@@ -246,7 +256,8 @@ struct BlockResult
                                      double voltage,
                                      int loss_segments,
                                      double fmax,
-                                     double loss_row_scale = 1.0);
+                                     double loss_row_scale = 1.0,
+                                     double loss_envelope = 0.0);
 
 // ─── LP construction ────────────────────────────────────────────────
 

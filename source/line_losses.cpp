@@ -124,10 +124,17 @@ LossConfig make_config(LineLossesMode mode,
                        double voltage,
                        int loss_segments,
                        double fmax,
-                       double loss_row_scale)
+                       double loss_row_scale,
+                       double loss_envelope)
 {
   const double V2 = voltage * voltage;
   const int nseg = std::max(1, loss_segments);
+  // Effective PWL envelope: explicit `loss_envelope` (decoupled from
+  // the flow cap) when positive, else the flow cap `fmax`.  Used both
+  // for the per-line `loss_row_scale` recipe below (so the scale
+  // matches the actually-stamped coefficients) and stored on the
+  // config for `add_piecewise`/`add_direction` to spread the segments.
+  const double envelope = (loss_envelope > 0.0) ? loss_envelope : fmax;
 
   // Validate PWL prerequisites; fall back gracefully.
   if (mode == LineLossesMode::piecewise || mode == LineLossesMode::bidirectional
@@ -211,14 +218,15 @@ LossConfig make_config(LineLossesMode mode,
   const bool is_pwl = mode == LineLossesMode::piecewise
       || mode == LineLossesMode::bidirectional
       || mode == LineLossesMode::piecewise_direct;
-  if (is_pwl && resistance > 0.0 && V2 > 0.0 && fmax > 0.0 && nseg >= 2) {
-    // Envelope is ``fmax`` regardless of EL: ``add_piecewise`` /
-    // ``add_direction`` / ``add_piecewise_direct`` all build the PWL
-    // segments on ``fmax`` whether or not the cap is enforced (EL=0
-    // releases only the *bounds*, not the loss coefficients).  So
-    // the per-line scale here matches the actual stamped coefs and
-    // a line keeps the same loss approximation across EL transitions.
-    const double max_slope = (fmax / static_cast<double>(nseg))
+  if (is_pwl && resistance > 0.0 && V2 > 0.0 && envelope > 0.0 && nseg >= 2) {
+    // The PWL envelope is ``loss_envelope`` when decoupled (else the
+    // flow cap ``fmax``) and is INDEPENDENT of EL: ``add_piecewise`` /
+    // ``add_direction`` / ``add_piecewise_direct`` build the segments on
+    // the same envelope whether or not the cap is enforced (EL=0
+    // releases only the *bounds*, not the loss coefficients).  So the
+    // per-line scale here matches the actual stamped coefs and a line
+    // keeps the same loss approximation across EL transitions.
+    const double max_slope = (envelope / static_cast<double>(nseg))
         * static_cast<double>((2 * nseg) - 1) * resistance / V2;
     if (max_slope > 0.0) {
       effective_scale = 1.0 / max_slope;
@@ -234,6 +242,7 @@ LossConfig make_config(LineLossesMode mode,
       .nseg = nseg,
       .loss_row_scale = effective_scale,
       .pwl_layout = requested,
+      .loss_envelope = (loss_envelope > 0.0) ? loss_envelope : 0.0,
   };
 }
 
@@ -403,6 +412,39 @@ constexpr double kLossLpRowTolerance = 1e-6;
 // SegGeom now lives in line_losses.hpp so unit tests can reach it
 // via the exposed ``loss_segment_geometry`` thin wrapper (defined
 // below the anonymous namespace block).
+
+/// De-bias offset for the ``midpoint`` layout.
+///
+/// The ``uniform`` secant chords lie ABOVE the convex quadratic
+/// ``ℓ(f)=(R/V²)·f²`` (overstate loss by up to ``(w/2)²·R/V²`` at the
+/// segment midpoints, zero at the breakpoints — a strictly positive,
+/// systematic overstatement).  The ``midpoint`` layout keeps the SAME
+/// chord slopes ``w·(2k−1)`` but shifts the whole PWL DOWN by the flat
+/// constant ``(w/2)²·R/V²`` so each chord becomes the TANGENT to the
+/// curve at its segment midpoint ``m_k=(2k−1)w/2``.
+///
+/// Crucially this offset is a SINGLE flat constant (it does NOT
+/// accumulate per segment): adjacent midpoint tangents
+/// ``ℓ(m_k)+ℓ'(m_k)(f−m_k)`` intersect EXACTLY at the breakpoints
+/// ``b_k=kw``, so the max-of-tangents reconstruction is a continuous PWL
+/// whose value at any flow ``f>0`` is ``secant(f) − (w/2)²·R/V²``.  The
+/// loss row is therefore built as the inequality
+///   ``s·loss − Σ s·loss_k·seg_k ≥ −s·(w/2)²·R/V²``
+/// (vs the ``uniform`` equality with RHS 0).  Since ``loss`` is
+/// minimised on the bus balance the inequality binds whenever the RHS is
+/// positive and otherwise leaves ``loss`` at its ``0`` lower bound —
+/// matching the curve clamped at 0 near ``f=0``.  Result: an UNBIASED
+/// estimator (exact at midpoints, ≤ that constant UNDER at breakpoints)
+/// instead of the all-positive secant overstatement.
+[[nodiscard]] inline double midpoint_debias_offset(double envelope,
+                                                   int nseg,
+                                                   double resistance,
+                                                   double V2) noexcept
+{
+  const double w = envelope / static_cast<double>(nseg);
+  const double half_w = w / 2.0;
+  return half_w * half_w * resistance / V2;
+}
 
 [[nodiscard]] inline SegGeom seg_geom(double envelope,
                                       int nseg,
@@ -833,9 +875,24 @@ BlockResult add_piecewise(const LossConfig& config,
   // envelope to ``2 × fmax`` for EL=0 — that broke EL-symmetry,
   // doubled the per-line ``loss_row_scale``, and (with uniform PWL)
   // halved every segment's loss slope vs the equivalent EL=1 line.
-  const double effective_fmax = fmax;
+  //
+  // ENVELOPE DECOUPLING: when the line supplies an explicit
+  // ``config.loss_envelope`` (e.g. the ORIGINAL rating of a soft-cap /
+  // ``enforce_level``-lifted line whose ``fmax`` flow cap is inflated),
+  // spread the K loss segments over THAT range instead of ``fmax``.
+  // The flow cap (``fp``/``fn`` upper bounds, capacity rows) stays on
+  // ``fmax`` — only the loss approximation tightens.  Flow past the
+  // envelope keeps accruing loss on the steepest (last) segment's slope
+  // (the natural convex-quadratic extrapolation): the per-segment
+  // ``seg_uppb`` is released to DblMax in that case so the topmost seg
+  // absorbs the overflow.
+  const bool decoupled_envelope = config.loss_envelope > 0.0;
+  const double effective_fmax =
+      decoupled_envelope ? config.loss_envelope : fmax;
   const double seg_width = effective_fmax / nseg;
-  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
+  const double seg_uppb = (enforce_capacity && !decoupled_envelope)
+      ? seg_width
+      : LinearProblem::DblMax;
 
   // Hoisted once per (block, line): the AMPL/PAMPL block context is
   // identical for fp_col, fn_col, loss_col, linkrow and lossrow.
@@ -932,15 +989,24 @@ BlockResult add_piecewise(const LossConfig& config,
     linkrow[*result.fn_col] = +1.0;
   }
 
-  // Loss tracking: s · loss − Σ s · loss_k · seg_k = 0   (s = loss_row_scale)
-  auto lossrow =
-      SparseRow {
-          .class_name = Line::class_name.full_name(),
-          .constraint_name = loss_link_constraint_name,
-          .variable_uid = uid,
-          .context = block_ctx,
-      }
-          .equal(0);
+  // Loss tracking: s · loss − Σ s · loss_k · seg_k {= 0 | ≥ −s·offset}
+  // (s = loss_row_scale).  ``uniform`` keeps the equality (RHS 0,
+  // strict secant upper bound); ``midpoint`` uses the de-biased
+  // inequality with RHS ``−s·(w/2)²·R/V²`` so the PWL becomes the
+  // midpoint-tangent estimator (see ``midpoint_debias_offset``).
+  const bool debias = config.pwl_layout == LinePwlLayout::midpoint;
+  const double debias_rhs = debias ? -config.loss_row_scale
+          * midpoint_debias_offset(
+              effective_fmax, nseg, config.resistance, config.V2)
+                                   : 0.0;
+  auto lossrow_proto = SparseRow {
+      .class_name = Line::class_name.full_name(),
+      .constraint_name = loss_link_constraint_name,
+      .variable_uid = uid,
+      .context = block_ctx,
+  };
+  auto lossrow = debias ? std::move(lossrow_proto).greater_equal(debias_rhs)
+                        : std::move(lossrow_proto).equal(0);
   lossrow.reserve(loss_reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1034,8 +1100,18 @@ DirResult add_direction(const LossConfig& config,
   // identical to the EL=1 case so flipping the EL value doesn't
   // alter the PWL approximation.  See ``add_piecewise`` for the
   // rationale.
-  const double seg_width = block_tmax / nseg;
-  const double seg_uppb = enforce_capacity ? seg_width : LinearProblem::DblMax;
+  // ENVELOPE DECOUPLING (see ``add_piecewise``): spread the loss
+  // segments over ``config.loss_envelope`` when set, else ``block_tmax``.
+  // The flow cap stays on ``block_tmax``; only the loss approximation
+  // tightens.  Overflow past the envelope accrues on the steepest
+  // segment, so release ``seg_uppb`` to DblMax under decoupling.
+  const bool decoupled_envelope = config.loss_envelope > 0.0;
+  const double effective_envelope =
+      decoupled_envelope ? config.loss_envelope : block_tmax;
+  const double seg_width = effective_envelope / nseg;
+  const double seg_uppb = (enforce_capacity && !decoupled_envelope)
+      ? seg_width
+      : LinearProblem::DblMax;
 
   const auto block_ctx =
       make_block_context(scenario.uid(), stage.uid(), block.uid());
@@ -1078,15 +1154,22 @@ DirResult add_direction(const LossConfig& config,
   linkrow.reserve(reserve_sz);
   linkrow[flow_col] = +1.0;
 
-  // Loss tracking: s · loss − Σ s · loss_k · f_seg_k = 0   (s = loss_row_scale)
-  auto lossrow =
-      SparseRow {
-          .class_name = Line::class_name.full_name(),
-          .constraint_name = labels.loss_link,
-          .variable_uid = uid,
-          .context = block_ctx,
-      }
-          .equal(0);
+  // Loss tracking: s · loss − Σ s · loss_k · f_seg_k {= 0 | ≥ −s·offset}
+  // (s = loss_row_scale).  ``midpoint`` uses the de-biased inequality;
+  // see ``midpoint_debias_offset`` / ``add_piecewise``.
+  const bool debias = config.pwl_layout == LinePwlLayout::midpoint;
+  const double debias_rhs = debias ? -config.loss_row_scale
+          * midpoint_debias_offset(
+              effective_envelope, nseg, config.resistance, config.V2)
+                                   : 0.0;
+  auto lossrow_proto = SparseRow {
+      .class_name = Line::class_name.full_name(),
+      .constraint_name = labels.loss_link,
+      .variable_uid = uid,
+      .context = block_ctx,
+  };
+  auto lossrow = debias ? std::move(lossrow_proto).greater_equal(debias_rhs)
+                        : std::move(lossrow_proto).equal(0);
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1096,7 +1179,7 @@ DirResult add_direction(const LossConfig& config,
                block,
                labels.seg,
                uid,
-               block_tmax,  // full envelope; seg_geom divides by nseg
+               effective_envelope,  // PWL envelope; seg_geom divides by nseg
                config.resistance,
                config.V2,
                nseg,

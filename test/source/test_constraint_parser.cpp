@@ -2344,6 +2344,155 @@ TEST_SUITE("ConstraintParser")
                         R"(state reservoir("R1").efin <= 0)")),
                     std::invalid_argument);
   }
+
+  // ── F9: per-block coefficient profiles ─────────────────────────────────
+
+  TEST_CASE("F9: bracketed per-block coefficient profile on element term")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr = ConstraintParser::parse(
+        R"([1, 2, 3] * generator("G1").generation <= 100)");
+
+    CHECK(expr.constraint_type == ConstraintType::LESS_EQUAL);
+    CHECK(expr.rhs == doctest::Approx(100.0));
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    REQUIRE(t.element.has_value());
+    CHECK(t.element->element_type == "generator");
+    CHECK(t.element->attribute == "generation");
+    REQUIRE(t.coeff_profile.has_value());
+    REQUIRE(t.coeff_profile->size() == 3);
+    CHECK((*t.coeff_profile)[0] == doctest::Approx(1.0));
+    CHECK((*t.coeff_profile)[1] == doctest::Approx(2.0));
+    CHECK((*t.coeff_profile)[2] == doctest::Approx(3.0));
+
+    // coeff_at: per-block resolution (the exact function LP assembly uses)
+    CHECK(t.coeff_at(0) == doctest::Approx(1.0));
+    CHECK(t.coeff_at(1) == doctest::Approx(2.0));
+    CHECK(t.coeff_at(2) == doctest::Approx(3.0));
+    // Beyond the profile: last entry broadcasts.
+    CHECK(t.coeff_at(3) == doctest::Approx(3.0));
+    CHECK(t.coeff_at(99) == doctest::Approx(3.0));
+  }
+
+  TEST_CASE("F9: scalar coefficient has no profile and coeff_at is constant")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr =
+        ConstraintParser::parse(R"(2.5 * generator("G1").generation <= 100)");
+
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    CHECK_FALSE(t.coeff_profile.has_value());
+    CHECK(t.coefficient == doctest::Approx(2.5));
+    CHECK(t.coeff_at(0) == doctest::Approx(2.5));
+    CHECK(t.coeff_at(5) == doctest::Approx(2.5));
+  }
+
+  TEST_CASE("F9: trailing comma and signed entries in profile")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr =
+        ConstraintParser::parse(R"([1.5, -0.5, 2,] * line("L1").flow >= -10)");
+
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    REQUIRE(t.coeff_profile.has_value());
+    REQUIRE(t.coeff_profile->size() == 3);
+    CHECK((*t.coeff_profile)[0] == doctest::Approx(1.5));
+    CHECK((*t.coeff_profile)[1] == doctest::Approx(-0.5));
+    CHECK((*t.coeff_profile)[2] == doctest::Approx(2.0));
+  }
+
+  TEST_CASE("F9: leading unary minus negates the whole profile")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr = ConstraintParser::parse(
+        R"(-[1, 2, 3] * generator("G1").generation <= 0)");
+
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    REQUIRE(t.coeff_profile.has_value());
+    REQUIRE(t.coeff_profile->size() == 3);
+    CHECK((*t.coeff_profile)[0] == doctest::Approx(-1.0));
+    CHECK((*t.coeff_profile)[1] == doctest::Approx(-2.0));
+    CHECK((*t.coeff_profile)[2] == doctest::Approx(-3.0));
+  }
+
+  TEST_CASE("F9: scalar folds into a profile multiplier")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // 2 * [1,2,3] * var → profile [2,4,6] on the single variable term.
+    auto expr = ConstraintParser::parse(
+        R"(2 * [1, 2, 3] * generator("G1").generation <= 0)");
+
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    REQUIRE(t.coeff_profile.has_value());
+    REQUIRE(t.coeff_profile->size() == 3);
+    CHECK((*t.coeff_profile)[0] == doctest::Approx(2.0));
+    CHECK((*t.coeff_profile)[1] == doctest::Approx(4.0));
+    CHECK((*t.coeff_profile)[2] == doctest::Approx(6.0));
+  }
+
+  TEST_CASE("F9: profile on a sum aggregation term")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    auto expr = ConstraintParser::parse(
+        R"([10, 20] * sum(generator("G1","G2").generation) <= 5)");
+
+    REQUIRE(expr.terms.size() == 1);
+    const auto& t = expr.terms[0];
+    REQUIRE(t.sum_ref.has_value());
+    REQUIRE(t.coeff_profile.has_value());
+    REQUIRE(t.coeff_profile->size() == 2);
+    CHECK((*t.coeff_profile)[0] == doctest::Approx(10.0));
+    CHECK((*t.coeff_profile)[1] == doctest::Approx(20.0));
+  }
+
+  TEST_CASE("F9: empty profile '[]' is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"([] * generator("G1").generation <= 0)")),
+                    std::invalid_argument);
+  }
+
+  TEST_CASE("F9: bare profile without a variable is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"([1, 2, 3] <= 0)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("F9: profile times profile is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"([1, 2] * [3, 4] <= 0)")),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("F9: profile times a multi-term expression is rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // A profile must multiply a single variable term, not a sum of terms.
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(
+            R"([1, 2] * (generator("G1").generation + generator("G2").generation) <= 0)")),
+        std::invalid_argument);
+  }
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

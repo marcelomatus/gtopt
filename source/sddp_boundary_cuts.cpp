@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <format>
 #include <set>
+#include <unordered_map>
 
 #include <arrow/api.h>
 #include <arrow/compute/api.h>
@@ -656,6 +657,51 @@ using namespace gtopt::detail;
     const bool mean_shift = options.boundary_cuts_mean_shift;
     StrongIndexVector<SceneIndex, double> scene_c_bar(num_scenes, 0.0);
     if (mean_shift) {
+      // ── State-var column → final-target value (efin / eini) ─────────
+      // The α-rebase offset `c` is the cut value at the *expected
+      // satisfied* end-state, which mirrors the Python oracle
+      // (`build_fcf_alpha_terms`: `c = FCF − Σ wv·efin`).  Evaluating the
+      // cut at the reservoir's `efin` end-of-horizon target — rather than
+      // the bound-box midpoint — gives the least objective perturbation
+      // when the efin target is met, and keeps the LP-side α' centred on
+      // ~0 at the solution.  Fall back to `eini`, then the LP-bound
+      // midpoint (= (emin+emax)/2 in physical units), when `efin` is
+      // absent.  NOTE: we only *read* the existing `efin`; we never set
+      // `efin = eini`.
+      //
+      // The map keys the last-phase state-var LP column to its target so
+      // the per-cut loop can prefer it over the midpoint per coefficient.
+      std::unordered_map<ColIndex, double> col_target;
+      map_reserve(col_target,
+                  sys.reservoir_array.size() + sys.battery_array.size());
+      const auto add_target = [&](std::string_view cname,
+                                  Uid elem_uid,
+                                  std::optional<double> target)
+      {
+        if (!target.has_value()) {
+          return;
+        }
+        for (const auto& [key, svar] : svar_map) {
+          if (key.uid == elem_uid && key.class_name == cname
+              && is_final_state_col(key.col_name))
+          {
+            col_target[svar.col()] = *target;
+            break;
+          }
+        }
+      };
+      for (const auto& rsv : sys.reservoir_array) {
+        // efin first, then eini; never assign efin = eini (read-only).
+        const auto target = rsv.efin.has_value() ? rsv.efin : rsv.eini;
+        add_target("Reservoir", rsv.uid, target);
+      }
+      for (const auto& bat : sys.battery_array) {
+        // Batteries have no end-of-horizon target field; eini is the
+        // closest analogue (initial state of charge).  Midpoint fallback
+        // otherwise.
+        add_target("Battery", bat.uid, bat.eini);
+      }
+
       // c̄_scene is the mean of each cut's value AT THE MIDPOINT
       // STATE — i.e., `rhs + ⟨g, midpoint⟩` where `midpoint_i =
       // ½ (lowb_i + uppb_i)` for each state variable `i`.  Equivalent
@@ -711,11 +757,19 @@ using namespace gtopt::detail;
               unbounded = true;
               break;
             }
-            const double midpoint =
-                0.5 * (col_low_phys[col] + col_upp_phys[col]);
-            // cmap holds −gᵢ; the cut at midpoint is
-            //   `rhs + ⟨g, midpoint⟩ = rhs − Σ cmap[sᵢ] × midᵢ`.
-            cut_at_mid -= coef * midpoint;
+            // Prefer the reservoir/battery final-target value (efin /
+            // eini) when available — the cut value there is `c`, the
+            // cost-to-go at the expected satisfied end-state (mirrors the
+            // Python oracle `c = FCF − Σ wv·efin`).  Fall back to the
+            // bound-box midpoint when no target is registered for this
+            // column.
+            const auto target_it = col_target.find(col);
+            const double eval_point = (target_it != col_target.end())
+                ? target_it->second
+                : 0.5 * (col_low_phys[col] + col_upp_phys[col]);
+            // cmap holds −gᵢ; the cut value at `eval_point` is
+            //   `rhs + ⟨g, eval⟩ = rhs − Σ cmap[sᵢ] × evalᵢ`.
+            cut_at_mid -= coef * eval_point;
           }
           if (unbounded) {
             continue;

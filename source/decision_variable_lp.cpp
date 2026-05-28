@@ -16,9 +16,11 @@
 
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/decision_variable_lp.hpp>
+#include <gtopt/enum_option.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/user_constraint_enums.hpp>
 
 namespace gtopt
 {
@@ -44,22 +46,76 @@ bool DecisionVariableLP::add_to_lp(const SystemContext& sc,
   const auto upper = decision_variable().upper_bound.value_or(DblMax);
   const auto cost = decision_variable().cost.value_or(0.0);
 
+  // ``cost_type`` decides how ``cost`` folds into the objective:
+  //  - Raw (default): ``value`` is a face-value money / unitless amount
+  //    (e.g. a PLEXOS penalty knob, reserve VoRS, or the FCF cost-to-go
+  //    ``alpha_fcf``) → ``cost`` as-is, added to the objective at face
+  //    value (NO probability, discount, or duration).  This is the right
+  //    default for the general PLEXOS DecisionVariables, which are
+  //    discrete/face-value penalties — Δt-weighting them (the old "power"
+  //    default) over-charged them by the block length.
+  //  - Power: ``value`` is a rate (MW) → ``cost · prob · discount ·
+  //    block_duration`` (``block_ecost``).
+  //  - Energy: ``value`` is a total energy (MWh) → ``cost · prob ·
+  //    discount`` (NO duration multiply).
+  // Avoids the ``cost = 1/duration`` magic correction for non-power vars.
+  const auto scale_type = enum_from_name<ConstraintScaleType>(
+                              decision_variable().cost_type.value_or("raw"))
+                              .value_or(ConstraintScaleType::Raw);
+
+  // Optional single-block scope: when ``block`` is set, the column is
+  // created only on that block (end-of-horizon quantities like the FCF
+  // ``alpha_fcf`` must be a single last-block variable — a per-block
+  // column would let the unconstrained blocks distort the objective).
+  const auto scope_block = decision_variable().block;
+
   BIndexHolder<ColIndex> vcols;
-  map_reserve(vcols, blocks.size());
+  map_reserve(vcols, scope_block ? std::size_t {1} : blocks.size());
+
+  // Energy cost factor (probability · discount, no duration); Raw uses the
+  // bare ``cost`` (face value).
+  const auto energy_factor = CostHelper::cost_factor(
+      scenario.probability_factor(), stage.discount_factor());
 
   for (auto&& block : blocks) {
+    if (scope_block && block.uid() != *scope_block) {
+      continue;
+    }
+    double col_cost = 0.0;
+    if (cost != 0.0) {
+      switch (scale_type) {
+        case ConstraintScaleType::Energy:
+          col_cost = cost * energy_factor;
+          break;
+        case ConstraintScaleType::Raw:
+          col_cost = cost;  // face value — no prob/discount/duration
+          break;
+        case ConstraintScaleType::Power:
+          col_cost = CostHelper::block_ecost(scenario, stage, block, cost);
+          break;
+      }
+    }
     const auto col = lp.add_col({
         .lowb = lower,
         .uppb = upper,
-        .cost = (cost != 0.0)
-            ? CostHelper::block_ecost(scenario, stage, block, cost)
-            : 0.0,
+        .cost = col_cost,
         .class_name = cname,
         .variable_name = ValueName,
         .variable_uid = uid(),
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     vcols[block.uid()] = col;
+
+    // Mean-shift (α-rebase) restitution: the column holds the rebased
+    // ``value' = value − obj_constant``; ``obj_constant`` is the physical
+    // dollar amount the rebase removed from the objective.  Add it back
+    // verbatim so the reported objective equals the un-rebased model.
+    // Added once per created column — intended for single-``block`` vars.
+    if (const auto oc = decision_variable().obj_constant;
+        oc.has_value() && cost != 0.0)
+    {
+      lp.add_obj_constant(oc.value());
+    }
   }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};

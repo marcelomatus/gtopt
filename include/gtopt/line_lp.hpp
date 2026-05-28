@@ -214,6 +214,10 @@ public:
   {
     return resistance.at(s);
   }
+  [[nodiscard]] auto param_loss_envelope(StageUid s) const
+  {
+    return loss_envelope.at(s);
+  }
   /// @}
 
 private:
@@ -232,6 +236,7 @@ private:
   OptTRealSched reactance;
   OptTRealSched voltage;
   OptTRealSched resistance;
+  OptTRealSched loss_envelope;
   OptTRealSched tap_ratio;
   OptTRealSched phase_shift_deg;
 

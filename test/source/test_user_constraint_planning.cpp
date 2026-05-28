@@ -2000,8 +2000,8 @@ TEST_CASE("User constraint - reservoir extraction attribute")
 
 // clang-format off
 
-/// Test unknown element type and unknown attribute — should not crash,
-/// constraint is silently skipped.
+/// Test unknown element type and unknown attribute — hardening (2026-05)
+/// makes these a hard error regardless of constraint_mode.
 static constexpr std::string_view uc_unknown_ref_json = R"json(
   {
     "options": {
@@ -2093,21 +2093,26 @@ static constexpr std::string_view uc_unknown_ref_json = R"json(
 
 TEST_CASE(
     "User constraint - unknown element type and attribute "
-    "(graceful skip)")
+    "(hard error)")
 {
   using namespace gtopt;
 
+  // `widget('w1').power` is an unknown element type (parse error),
+  // `generator('g1').foobar` is an unknown attribute, and
+  // `generator('g_nonexistent')` is an unknown name — all of which are
+  // now hard errors even under constraint_mode=normal.  The first one
+  // encountered during the build throws std::runtime_error.
   auto planning = parse_planning_json(uc_unknown_ref_json);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Should solve successfully — unknown constraints are silently skipped
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
 }
 
 // clang-format off
 
-/// Test empty expression — should be silently skipped.
+/// Test empty expression (a legitimate no-op) alongside an invalid one.
+/// Hardening (2026-05): an empty `expression` is still a valid no-op
+/// (nothing to assemble), but a malformed expression is a parse error
+/// that throws.
 static constexpr std::string_view uc_empty_expr_json = R"json(
   {
     "options": {
@@ -2191,14 +2196,66 @@ static constexpr std::string_view uc_empty_expr_json = R"json(
 
 // clang-format on
 
-TEST_CASE("User constraint - empty and invalid expressions (graceful skip)")
+TEST_CASE("User constraint - invalid expression is a parse-error hard error")
 {
   using namespace gtopt;
 
+  // The system contains an empty-expression UC (a legitimate no-op) and a
+  // `uc_bad_syntax` UC with a malformed expression.  The malformed one is
+  // a parse error that throws during the LP build — empty expressions are
+  // skipped, malformed ones are not.
   auto planning = parse_planning_json(uc_empty_expr_json);
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
+}
+
+// clang-format off
+
+/// Empty expression ALONE — a legitimate no-op that must NOT throw and
+/// must produce a solvable LP (the UC simply contributes no rows).
+static constexpr std::string_view uc_only_empty_expr_json = R"json(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [ { "uid": 1, "duration": 1 } ],
+      "stage_array": [ { "uid": 1, "first_block": 0, "count_block": 1, "active": 1 } ],
+      "scenario_array": [ { "uid": 1, "probability_factor": 1 } ]
+    },
+    "system": {
+      "name": "uc_only_empty_expr",
+      "bus_array": [ { "uid": 1, "name": "b1" } ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200, "gcost": 20, "capacity": 200 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d1", "bus": "b1", "lmax": [ [ 80.0 ] ] }
+      ],
+      "user_constraint_array": [
+        { "uid": 1, "name": "uc_empty", "expression": "" }
+      ]
+    }
+  }
+)json";
+
+// clang-format on
+
+TEST_CASE("User constraint - empty expression is a legitimate no-op")
+{
+  using namespace gtopt;
+
+  auto planning = parse_planning_json(uc_only_empty_expr_json);
   PlanningLP planning_lp(std::move(planning));
 
-  // Should solve — empty/invalid expressions are silently skipped
+  // Empty expression contributes nothing; the LP solves normally.
   auto result = planning_lp.resolve();
   REQUIRE(result.has_value());
 }

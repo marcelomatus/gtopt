@@ -182,11 +182,38 @@ def locate_bundle(input_path: Path) -> PlexosBundle:
         raise FileNotFoundError(f"PLEXOS bundle path not found: {input_path}")
 
     if input_path.is_dir():
-        if not (input_path / DBSEN_FILENAME).is_file():
-            raise FileNotFoundError(
-                f"{input_path}: directory does not contain {DBSEN_FILENAME}"
+        if (input_path / DBSEN_FILENAME).is_file():
+            return PlexosBundle(root=input_path, source=input_path)
+        # The directory may contain compressed archives rather than a
+        # pre-extracted bundle.  Scan for DATOS*.zip.xz or DATOS*.zip
+        # (the main bundle payload — RES*.zip.xz is a solution database
+        # sibling, not the input schema) and relocate so the extraction
+        # logic below handles it.
+        datos_archives = sorted(
+            p
+            for p in input_path.iterdir()
+            if p.name.upper().startswith("DATOS")
+            and (
+                p.suffix.lower() == ".zip"
+                or (p.suffix.lower() == ".xz" and p.stem.lower().endswith(".zip"))
             )
-        return PlexosBundle(root=input_path, source=input_path)
+        )
+        if len(datos_archives) == 1:
+            input_path = datos_archives[0]
+            logger.info(
+                "found archive %s inside %s; extracting…",
+                input_path.name,
+                input_path.parent,
+            )
+        else:
+            hint = ""
+            if not datos_archives:
+                hint = " (no DATOS*.zip or DATOS*.zip.xz files found either)"
+            elif len(datos_archives) > 1:
+                hint = f" ({len(datos_archives)} DATOS* archives found)"
+            raise FileNotFoundError(
+                f"{input_path}: directory does not contain {DBSEN_FILENAME}{hint}"
+            )
 
     # The tempdir lifetime is owned by the returned PlexosBundle (released
     # via ``.close()`` / context-manager exit), so a ``with`` block here

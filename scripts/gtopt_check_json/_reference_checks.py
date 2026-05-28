@@ -145,6 +145,17 @@ def check_element_references(
             dem_names,
         )
 
+    # Synthetic ``<battery>_gen`` discharge generators are created by gtopt's
+    # ``System::expand_batteries()`` at LP-build time, so they are ABSENT from
+    # the converter's ``generator_array`` but ARE valid ReserveProvision
+    # targets (BESS reserve provision from ``SSCC_Activation_BESS.csv``).
+    # Mirror ``validate_planning.cpp::synthetic_battery_gen_exists`` here so
+    # the structural check doesn't flag them.  ``bat_names`` maps battery
+    # name → uid; the synthetic gen name is ``<battery name>_gen``.
+    gen_names_with_synthetic = dict(gen_names)
+    for bat_name in bat_names:
+        gen_names_with_synthetic[f"{bat_name}_gen"] = None
+
     # ReserveProvision -> Generator, ReserveZone
     for rp in sys.get("reserve_provision_array", []):
         name = rp.get("name", str(rp.get("uid", "?")))
@@ -154,7 +165,7 @@ def check_element_references(
             "generator",
             rp.get("generator"),
             gen_uids,
-            gen_names,
+            gen_names_with_synthetic,
         )
         _check_ref(
             "ReserveProvision",

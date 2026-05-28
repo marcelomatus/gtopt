@@ -1070,17 +1070,21 @@ static constexpr std::string_view uc_demand_unknown_attr_json = R"json(
 // clang-format on
 
 TEST_CASE(
-    "User constraint - unknown/missing attributes for all element types "
-    "(graceful skip)")
+    "User constraint - unknown/missing element refs are a hard error "
+    "(even under constraint_mode=normal)")
 {
   using namespace gtopt;
 
+  // Hardening (2026-05): a genuinely-undefined reference (unknown element
+  // name or unknown attribute) is a hard error UNCONDITIONALLY — `normal`
+  // mode only controls verbosity, never whether an undefined reference is
+  // tolerated.  This case has 13 user constraints, each referencing a
+  // nonexistent element / attribute; the FIRST one encountered during the
+  // LP build throws std::runtime_error.  Previously these were silently
+  // skipped, making the constraints vacuous.
   auto planning = parse_planning_json(uc_demand_unknown_attr_json);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Should solve — all constraints with unknown/nonexistent refs are skipped
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
 }
 
 // clang-format off
@@ -1210,8 +1214,9 @@ TEST_CASE("User constraint - named parameter resolution (scalar + monthly)")
 
 // clang-format off
 
-/// Same case but with constraint_mode = "normal" → the unknown parameter
-/// emits a warning and the term is skipped (no throw).
+/// Same case but with constraint_mode = "normal".  Hardening (2026-05):
+/// an undefined named parameter is now a hard error regardless of mode —
+/// `normal` only controls verbosity, not tolerance.
 static constexpr std::string_view uc_normal_unknown_param_json = R"json(
   {
     "options": {
@@ -1292,16 +1297,17 @@ static constexpr std::string_view uc_normal_unknown_param_json = R"json(
 // clang-format on
 
 TEST_CASE(
-    "User constraint - normal mode skips unknown named parameter with warning")
+    "User constraint - unknown named parameter is a hard error even in "
+    "normal mode")
 {
   using namespace gtopt;
 
+  // The unresolved parameter term used to be silently skipped under
+  // `normal` mode; hardening makes it a hard error unconditionally so the
+  // constraint is never quietly distorted.
   auto planning = parse_planning_json(uc_normal_unknown_param_json);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Should solve: the unresolved parameter term is simply skipped.
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
+  CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
+                  std::runtime_error);
 }
 
 // ── F5: abs(x) lowering — end-to-end planning smoke tests ───────────────

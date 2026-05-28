@@ -34,6 +34,7 @@ from plexos2gtopt.gtopt_writer import (
 from plexos2gtopt.plexos_block_layout import (
     auto_discover_res_zip,
     load_block_layout_from_accdb,
+    parse_user_block_layout,
 )
 from plexos2gtopt.plexos_csv import read_long, read_wide
 
@@ -346,3 +347,70 @@ def test_read_long_fill_forward_carries_value(tmp_path: Path) -> None:
     assert series2[1] == 0.0
     assert series2[5] == 0.0
     assert series2[6] == 600.0
+
+
+# ---------------------------------------------------------------------------
+# parse_user_block_layout: user-defined block grouping (CSV / inline string)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_user_block_layout_inline_dict() -> None:
+    """'{uid:dur,...}' builds the chronological interval grouping."""
+    out = parse_user_block_layout("{1:1,2:4,3:2}")
+    assert out == ((1,), (2, 3, 4, 5), (6, 7))
+    assert [len(b) for b in out] == [1, 4, 2]
+    assert sum(len(b) for b in out) == 7
+
+
+def test_parse_user_block_layout_bare_list() -> None:
+    """'d1,d2,...' (durations in block order) matches the dict form."""
+    assert parse_user_block_layout("1,4,2") == ((1,), (2, 3, 4, 5), (6, 7))
+
+
+def test_parse_user_block_layout_csv(tmp_path: Path) -> None:
+    """CSV with a 'duration' column; 'block_uid' sets the order."""
+    csv_path = tmp_path / "block_layout.csv"
+    csv_path.write_text("block_uid,duration\n3,2\n1,1\n2,4\n")
+    # Out-of-order rows are sorted by block_uid before grouping.
+    assert parse_user_block_layout(str(csv_path)) == ((1,), (2, 3, 4, 5), (6, 7))
+
+
+def test_parse_user_block_layout_rejects_empty() -> None:
+    """A spec with no positive durations raises ValueError."""
+    import pytest
+
+    with pytest.raises(ValueError, match="no positive durations"):
+        parse_user_block_layout("0,0")
+
+
+def test_infer_horizon_days_from_input(tmp_path: Path) -> None:
+    """The horizon day-count is parsed from the Horizon object NAME
+    (``..._7d``) for the uniform-hourly fallback when no solution exists."""
+    from plexos2gtopt.plexos_block_layout import infer_horizon_days_from_input
+
+    xml = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml.write_text(
+        "<MasterDataSet>"
+        "<t_class><class_id>1</class_id><name>Horizon</name></t_class>"
+        "<t_class><class_id>2</class_id><name>Generator</name></t_class>"
+        "<t_object><object_id>10</object_id><class_id>1</class_id>"
+        "<name>Coordinador_diario_1H_7d</name></t_object>"
+        "<t_object><object_id>11</object_id><class_id>2</class_id>"
+        "<name>g1</name></t_object>"
+        "</MasterDataSet>"
+    )
+    assert infer_horizon_days_from_input(xml) == 7
+
+
+def test_infer_horizon_days_missing_returns_none(tmp_path: Path) -> None:
+    """No Horizon object / no ``Nd`` token ⇒ None (caller defaults)."""
+    from plexos2gtopt.plexos_block_layout import infer_horizon_days_from_input
+
+    xml = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml.write_text(
+        "<MasterDataSet>"
+        "<t_class><class_id>2</class_id><name>Generator</name></t_class>"
+        "</MasterDataSet>"
+    )
+    assert infer_horizon_days_from_input(xml) is None
+    assert infer_horizon_days_from_input(tmp_path / "ghost.xml") is None

@@ -736,17 +736,17 @@ TEST_CASE("PAMPL — every Fuel attribute resolves to its field")  // NOLINT
 }
 
 TEST_CASE(
-    "PAMPL — unknown Fuel attribute is skipped under non-strict mode")  // NOLINT
+    "PAMPL — unknown Fuel attribute is a hard error (even in normal "
+    "mode)")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // The new fuel branch in `resolve_single_param` falls through to
-  // `return std::nullopt` for any attribute it doesn't recognise.
-  // Under the default `constraint_mode = strict`, the
-  // user-constraint builder throws; under `normal` it silently
-  // skips the term.  This test runs under `normal` so the LP
-  // builds + solves with the unknown-attribute term contributing
-  // nothing.  The corresponding `strict`-mode throw is exercised
-  // by the existing test_user_constraint_planning suite.
+  // The fuel branch in `resolve_single_param` falls through to
+  // `return std::nullopt` for any attribute it doesn't recognise, and
+  // `fuel.density` is not a registered LP variable either.  Hardening
+  // (2026-05): such a genuinely-undefined attribute is a hard error
+  // regardless of `constraint_mode` — `normal` only controls verbosity,
+  // never whether the undefined reference is tolerated.  Building the
+  // SystemLP therefore throws.
   const Array<Fuel> fuel_array = {
       {.uid = Uid {1}, .name = "gas", .price = 5.0},
   };
@@ -769,10 +769,9 @@ TEST_CASE(
           .capacity = 100.0,
       },
   };
-  // `fuel.density` is NOT a registered attribute — should fall
-  // through to nullopt; the term is silently dropped (default
-  // is_strict=false).  Constraint reduces to `load <= 100`, which
-  // is non-binding for demand=100.
+  // `fuel.density` is NOT a registered attribute — neither an LP
+  // variable nor a data parameter — so the resolver raises an
+  // informative hard error during the SystemLP build.
   const Array<UserConstraint> ucs = {
       {
           .uid = Uid {1},
@@ -788,8 +787,8 @@ TEST_CASE(
   PlanningOptions popts;
   popts.model_options.scale_objective = 1.0;
   popts.model_options.demand_fail_cost = 100.0;
-  // Default is `strict` (throws on unresolvable refs); explicitly
-  // pick `normal` so the unknown-attribute term is silently dropped.
+  // Even under `normal` mode, a genuinely-undefined attribute is a hard
+  // error (verbosity-only, not tolerance).
   popts.constraint_mode = ConstraintMode::normal;
 
   const System system {
@@ -802,14 +801,9 @@ TEST_CASE(
   };
   const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
 
-  auto&& lp = system_lp.linear_interface();
-  const auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  // Unknown attribute silently dropped; load <= 100 is non-binding;
-  // LP serves the full 100 MW demand: obj = 100 · $1 = 100.
-  CHECK(lp.get_obj_value() == doctest::Approx(100.0).epsilon(1e-6));
+  CHECK_THROWS_AS(SystemLP(system, simulation_lp),  // NOLINT
+                  std::runtime_error);
 }
 
 TEST_CASE(

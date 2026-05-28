@@ -83,6 +83,23 @@ struct SolverOptions
    *  wall-clock when gap targets are loose. */
   std::optional<double> mip_gap {};
 
+  /** @brief Target ABSOLUTE MIP optimality gap (nullopt = use solver default).
+   *
+   *  Backends translate this to their native "stop when
+   *  `|best_obj − bound| ≤ gap_abs`" parameter:
+   *  - CPLEX:   `CPX_PARAM_EPAGAP`
+   *  - HiGHS:   `mip_abs_gap`
+   *  - Gurobi:  `MIPGapAbs`
+   *
+   *  Unlike the relative `mip_gap`, the absolute gap is INVARIANT to a
+   *  constant objective offset — essential when the objective carries a
+   *  large baseline (e.g. an FCF cost-to-go) that would otherwise make the
+   *  relative gap meaningless (a tiny relative gap masks a large
+   *  decision-level absolute gap, or a near-zero objective inflates it).
+   *  Expressed in physical objective units.  Has no effect on continuous
+   *  LPs. */
+  std::optional<double> mip_gap_abs {};
+
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
 
@@ -200,6 +217,7 @@ struct SolverOptions
     merge_opt(feasible_eps, other.feasible_eps);
     merge_opt(barrier_eps, other.barrier_eps);
     merge_opt(mip_gap, other.mip_gap);
+    merge_opt(mip_gap_abs, other.mip_gap_abs);
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
@@ -254,6 +272,7 @@ struct SolverOptions
     merge_opt(feasible_eps, user.feasible_eps);
     merge_opt(barrier_eps, user.barrier_eps);
     merge_opt(mip_gap, user.mip_gap);
+    merge_opt(mip_gap_abs, user.mip_gap_abs);
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);

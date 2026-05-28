@@ -286,6 +286,21 @@ struct Battery
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
 
+  /// Daily energy-throughput limit — PLEXOS ``Battery.Max Cycles Day``.
+  /// Sets the HARD constraint ``Σ_blocks discharge·Δt ≤ N · capacity`` per
+  /// day, where ``N = max_cycles_day`` and ``capacity`` is the usable energy
+  /// (one full discharge of the usable capacity = one cycle).  The
+  /// discharge throughput is measured cell-side, i.e. the coefficient
+  /// includes the ``1/output_efficiency`` drain term (identical to the
+  /// SoC-drain coefficient in the energy balance), so losses count toward a
+  /// cycle.  This is a constraint, NOT an objective cost: it never enters
+  /// the objective and therefore does not distort marginal / LMP /
+  /// operational costs.  Unset ⇒ no constraint.  The time-model branch
+  /// (single per-day row for PLP-style daily-cycle stages vs. a rolling
+  /// 24 h window per day for chronological stages) is selected by the
+  /// existing ``daily_cycle`` flag, mirroring ``storage_lp.hpp``.
+  OptReal max_cycles_day {};
+
   /// Gate the synthetic charge ``Demand`` and discharge ``Generator``
   /// floors with per-block INTEGER commitment binaries on the linking
   /// ``Converter``.  When unset (default), ``pmin_charge`` /
