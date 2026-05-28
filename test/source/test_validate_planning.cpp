@@ -370,6 +370,33 @@ TEST_CASE("validate_planning - hydro element refs")  // NOLINT
     CHECK_FALSE(result.ok());
   }
 
+  SUBCASE("waterway with junction_b unset (outflow / drain) is valid")
+  {
+    // The new outflow mode: only junction_a is set, junction_b is omitted.
+    // The carried flow drains out of the system at junction_a, removing the
+    // need for a synthetic ocean / sink junction downstream.
+    Waterway ww;
+    ww.uid = Uid {1};
+    ww.name = "ww_outflow";
+    ww.junction_a = Uid {1};
+    // ww.junction_b intentionally left unset (default-empty OptSingleId).
+    p.system.waterway_array.push_back(ww);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
+
+  SUBCASE("waterway with invalid junction_b is still an error")
+  {
+    Waterway ww;
+    ww.uid = Uid {1};
+    ww.name = "ww1";
+    ww.junction_a = Uid {1};
+    ww.junction_b = Uid {999};
+    p.system.waterway_array.push_back(ww);
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
+  }
+
   SUBCASE("flow with valid junction")
   {
     Flow fl;
@@ -526,6 +553,46 @@ TEST_CASE("validate_planning - turbine refs")  // NOLINT
     p.system.turbine_array.push_back(turb);
     auto result = validate_planning(p);
     CHECK(result.ok());
+  }
+
+  SUBCASE("turbine with junction_a (built-in waterway) is valid")
+  {
+    // Built-in waterway mode: junction_a (intake) is a valid third
+    // water-source driver alongside waterway / flow.  junction_b is
+    // optional (unset → drain).  j1/j2 already exist in junction_array.
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_builtin_ww";
+    turb.junction_a = Uid {1};
+    turb.junction_b = Uid {2};
+    turb.generator = Uid {1};
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
+
+  SUBCASE("turbine with junction_a only (terminal drain) is valid")
+  {
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_terminal";
+    turb.junction_a = Uid {1};  // junction_b left unset ⇒ drains
+    turb.generator = Uid {1};
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
+
+  SUBCASE("turbine with invalid junction_a is an error")
+  {
+    Turbine turb;
+    turb.uid = Uid {1};
+    turb.name = "t_bad_ja";
+    turb.junction_a = Uid {999};
+    turb.generator = Uid {1};
+    p.system.turbine_array.push_back(turb);
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
   }
 }
 
@@ -1918,6 +1985,46 @@ TEST_CASE("validate_planning - Generator fuel/heat_rate pairing")  // NOLINT
                   || w.find("heat_rate will be ignored") != std::string::npos);
         });
     CHECK(pair_warns == 0);
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "validate_planning - ReserveProvision accepts synthetic <battery>_gen")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto p = make_minimal_planning();
+  Battery batt;
+  batt.uid = Uid {1};
+  batt.name = "BAT_X";
+  p.system.battery_array.push_back(batt);
+  ReserveZone zone;
+  zone.uid = Uid {1};
+  zone.name = "Z_BESS";
+  p.system.reserve_zone_array.push_back(zone);
+
+  SUBCASE("synthetic <battery>_gen name resolves (no error)")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {1};
+    rp.name = "provision_BAT_X_gen__Z_BESS";
+    rp.generator = std::string {"BAT_X_gen"};  // created by expand_batteries
+    rp.reserve_zones.emplace_back(std::string {"Z_BESS"});
+    p.system.reserve_provision_array.push_back(rp);
+    auto result = validate_planning(p);
+    CHECK(result.ok());
+  }
+
+  SUBCASE("_gen name with no matching battery still errors")
+  {
+    ReserveProvision rp;
+    rp.uid = Uid {2};
+    rp.name = "provision_BOGUS_gen";
+    rp.generator = std::string {"BOGUS_gen"};  // no "BOGUS" battery
+    rp.reserve_zones.emplace_back(std::string {"Z_BESS"});
+    p.system.reserve_provision_array.push_back(rp);
+    auto result = validate_planning(p);
+    CHECK_FALSE(result.ok());
   }
 }
 

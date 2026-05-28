@@ -76,7 +76,8 @@ TEST_CASE("Reservoir with embedded discharge_limit JSON")
   REQUIRE(res.discharge_limit.size() == 1);
   CHECK(res.discharge_limit[0].uid == 1);
   CHECK(res.discharge_limit[0].name == "ddl1");
-  CHECK(std::get<Uid>(res.discharge_limit[0].waterway) == Uid {5});
+  REQUIRE(res.discharge_limit[0].waterway.has_value());
+  CHECK(std::get<Uid>(res.discharge_limit[0].waterway.value()) == Uid {5});
   REQUIRE(res.discharge_limit[0].segments.size() == 2);
   CHECK(res.discharge_limit[0].segments[0].intercept
         == doctest::Approx(15.787));

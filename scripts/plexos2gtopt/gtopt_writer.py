@@ -45,6 +45,7 @@ from .entities import (
     UserConstraintSpec,
     WaterwaySpec,
 )
+from .uc_families import UC_FAMILY_NAMES, uc_family  # re-exported (see __all__)
 
 
 logger = logging.getLogger(__name__)
@@ -610,6 +611,24 @@ def augment_el1_with_soft_caps(
             continue
         if isinstance(rated_ab, (int, float)) and rated_ab <= 0:
             continue
+        # Capture the ORIGINAL rating as the loss-PWL envelope BEFORE
+        # inflating the hard cap.  gtopt's loss-PWL envelope is decoupled
+        # from the flow cap via ``Line.loss_envelope`` (line_losses.cpp):
+        # pinning it to the original rating keeps the K loss segments
+        # concentrated over the realistic loading band instead of being
+        # stretched across the headroom-inflated cap, where they'd be
+        # coarse and under-resolve I²R losses near the rated point.  Only
+        # set it for lines that actually carry a piecewise loss model
+        # (``line_losses_mode == 'piecewise'``); for the rest it's inert.
+        # Use the larger of the two original directional ratings so a
+        # single envelope covers both legs.
+        orig_ratings = [
+            v
+            for v in (ln.get("tmax_ab"), ln.get("tmax_ba"))
+            if isinstance(v, (int, float)) and v > 0
+        ]
+        if orig_ratings and ln.get("line_losses_mode") == "piecewise":
+            ln["loss_envelope"] = max(orig_ratings)
         # A→B leg
         if "tmax_ab" in ln:
             ln["tmax_normal_ab"] = ln["tmax_ab"]
@@ -665,86 +684,23 @@ def _int_loss_env(key: str, default: int) -> int:
     return v if v >= 1 else default
 
 
-def _loss_proxy(resistance: float, rating_mw: float) -> float:
-    """Static loss-magnitude proxy ``R · P²`` for one line.
-
-    The physical loss at full rated flow is ``ℓ_max = (R/V²)·P²`` — so
-    ``R·P²`` (the V²-free part) ranks lines by how much loss they CAN
-    carry.  Far better than rating ``P`` alone: a high-rating 500 kV trunk
-    with low per-unit R contributes little loss, whereas a mid-rating
-    220 kV line with high R can dominate.  Used to pick the tangent tier
-    so the accurate layout lands where loss actually concentrates.
-    """
-    return resistance * rating_mw * rating_mw
-
-
-def _tangent_loss_cutoff(proxies: list[float]) -> float | None:
-    """Loss-proxy (``R·P²``) cutoff for the hybrid loss layout, from the
-    env var ``GTOPT_LOSS_TANGENT_PCT`` (set by ``--loss-tangent-top-pct``).
-
-    ``GTOPT_LOSS_TANGENT_PCT = P`` selects the **top P% of lossy lines by
-    static loss magnitude ``R·P²``** for the accurate ``tangent`` layout:
-    lines whose proxy ≥ the returned cutoff get tangent, the rest get
-    ``uniform``.
-
-      * ``P = 0``   → cutoff ``+inf``  (no line qualifies → all uniform).
-      * ``P = 100`` → cutoff ``-inf``  (every line qualifies → all tangent).
-      * ``0 < P < 100`` → cutoff = the ``ceil(n·P/100)``-th largest proxy,
-        so ~P% of the ``n`` lossy lines clear it (ties round up).
-
-    Returns ``None`` when the env var is unset / blank (hybrid percentile
-    mode off — only the explicit ``GTOPT_LOSS_TANGENT_LINES`` list, if
-    any, then drives tangent selection).
-    """
-    import math
-    import os as _os
-
-    raw = _os.environ.get("GTOPT_LOSS_TANGENT_PCT", "").strip()
-    if not raw:
-        return None
-    try:
-        pct = float(raw)
-    except ValueError:
-        return None
-    pct = min(max(pct, 0.0), 100.0)
-    n = len(proxies)
-    if pct <= 0.0 or n == 0:
-        return math.inf  # none → all uniform
-    if pct >= 100.0:
-        return -math.inf  # all → all tangent
-    k = math.ceil(n * pct / 100.0)  # number of lines that should be tangent
-    return sorted(proxies, reverse=True)[k - 1]
-
-
-def _resolve_loss_layout(
-    line_name: str,
-    loss_proxy: float,
-    tangent_cutoff: float | None,
-) -> tuple[str, int]:
+def _resolve_loss_layout(line_name: str) -> tuple[str, int]:
     """Resolve ``(loss_pwl_layout, loss_segments)`` for one lossy line.
 
-    Hybrid (loading-classified) mode activates when ``tangent_cutoff`` is
-    not ``None`` (from ``--loss-tangent-top-pct``) OR the explicit
-    ``GTOPT_LOSS_TANGENT_LINES`` name list is non-empty.  A line gets the
-    accurate ``tangent`` layout when it is FORCED by name OR its static
-    loss proxy ``R·P²`` ≥ ``tangent_cutoff``; otherwise the cheaper
-    ``uniform`` layout.  The two tiers use independent segment counts
-    (``GTOPT_NSEG_TANGENT`` default 6, ``GTOPT_NSEG_UNIFORM`` default 8) —
-    tangent stays coarse (fewer binaries/rows) since its outer-
-    approximation inequalities resist presolve binary-fixing, while
-    uniform's segment-variable equalities presolve cheaply and can afford
-    more segments.
+    Every line uses the ``GTOPT_LOSS_PWL_LAYOUT`` base layout
+    (``--loss-pwl-layout``, default ``midpoint``) with ``GTOPT_NSEG_LOSSES``
+    segments (``--nseg-losses`` / ``--nseg-uniform``, default 4), EXCEPT
+    lines explicitly named in ``GTOPT_LOSS_TANGENT_LINES``
+    (``--loss-tangent-lines``), which get the ``tangent`` layout with
+    ``GTOPT_NSEG_TANGENT`` segments.
 
-    When neither knob is set, falls back to the legacy single-layout
-    ``GTOPT_LOSS_PWL_LAYOUT`` / ``GTOPT_NSEG_LOSSES`` (default tangent / 4).
-
-    Rationale (loading-classified PWL, Sun et al. 2019): spend the
-    accurate-but-MIP-heavy tangent rows only on the few lines where loss
-    actually concentrates; give the long tail the fast, presolve-friendly
-    uniform segments.  The loss proxy ``R·P²`` (resistance × rating²) is
-    the V²-free part of the full-flow loss ``(R/V²)·P²`` — a far better
-    ranking than rating alone, since a high-rating low-R trunk carries
-    little loss while a mid-rating high-R line can dominate.
+    The legacy R·P² percentile RANKING (``--loss-tangent-top-pct`` +
+    ``_loss_proxy`` / ``_tangent_loss_cutoff``) was REMOVED: the
+    ``midpoint`` de-bias + the per-line ``loss_envelope`` decoupling match
+    PLEXOS losses to within ~2% at K=4 without the MIP-heavy hybrid tangent
+    tier (CEN PCP daily case), so the loading-classified ranking is no
+    longer needed.  The explicit ``--loss-tangent-lines`` escape hatch
+    remains for callers who want tangent on specific named lines.
     """
     import os as _os
 
@@ -753,18 +709,12 @@ def _resolve_loss_layout(
         for n in _os.environ.get("GTOPT_LOSS_TANGENT_LINES", "").split(",")
         if n.strip()
     }
-
-    if tangent_cutoff is None and not forced:
-        # Legacy single-layout path.
-        layout = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "tangent")
-        return layout, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
-
-    is_tangent = line_name in forced or (
-        tangent_cutoff is not None and loss_proxy >= tangent_cutoff
-    )
-    if is_tangent:
+    if line_name in forced:
         return "tangent", _int_loss_env("GTOPT_NSEG_TANGENT", 6)
-    return "uniform", _int_loss_env("GTOPT_NSEG_UNIFORM", 8)
+    base = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "midpoint")
+    if base not in ("uniform", "equal_error", "midpoint", "tangent"):
+        base = "uniform"
+    return base, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
 
 
 def _scale_tmax(value: Any, factor: float) -> Any:
@@ -800,17 +750,9 @@ def build_line_array(
     higher daytime rating block-by-block.  Constant profiles
     collapse to the scalar (peak) tmax_ab.
     """
-    # Hybrid loss layout: rank the lossy lines (resistance>0, rated) by
-    # static loss magnitude ``R·P²`` once, so ``--loss-tangent-top-pct``
-    # can pick the highest-loss P% for the accurate tangent layout (see
-    # _loss_proxy / _tangent_loss_cutoff / _resolve_loss_layout).
-    tangent_cutoff = _tangent_loss_cutoff(
-        [
-            _loss_proxy(ln.resistance, ln.tmax_ab)
-            for ln in lines
-            if ln.resistance > 0.0 and ln.tmax_ab > 0.0
-        ]
-    )
+    # Loss layout is resolved per-line in the loop below via
+    # ``_resolve_loss_layout`` (base layout for all lines, default
+    # ``midpoint``; tangent only for explicitly named ``--loss-tangent-lines``).
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
         # Parser (`extract_lines`) already clamps hour-0 units to 1 and
@@ -925,14 +867,38 @@ def build_line_array(
                     if line.soft_cap_lifted
                     else _LINE_SOFT_HARD_FACTOR
                 )
+
+                # Capture the ORIGINAL (pre-soft-cap) rating as the
+                # loss-PWL envelope BEFORE inflating the hard cap.  gtopt
+                # decouples the loss-PWL envelope from the flow cap via
+                # ``Line.loss_envelope`` (line_losses.cpp): pinning it to
+                # the original rating keeps the K loss segments
+                # concentrated over the realistic loading band instead of
+                # being stretched across the headroom-inflated cap (where
+                # they would be coarse and under-resolve I²R losses near
+                # the rated point).  Inert for non-piecewise lines.  Use
+                # the larger original directional rating so a single
+                # envelope covers both legs; the loss mode itself is
+                # assigned further below.
+                def _scalar_max(value: Any) -> float:
+                    """Peak scalar of a tmax entry (scalar or [[matrix]])."""
+                    if isinstance(value, (int, float)):
+                        return float(value)
+                    return max((float(x) for row in value for x in row), default=0.0)
+
+                orig_env = 0.0
                 if "tmax_ab" in entry:
                     rating_ab = entry["tmax_ab"]
+                    orig_env = max(orig_env, _scalar_max(rating_ab))
                     entry["tmax_normal_ab"] = _scale_tmax(rating_ab, normal_f)
                     entry["tmax_ab"] = _scale_tmax(rating_ab, hard_f)
                 if "tmax_ba" in entry:
                     rating_ba = entry["tmax_ba"]
+                    orig_env = max(orig_env, _scalar_max(rating_ba))
                     entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
                     entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
+                if orig_env > 0.0:
+                    entry["loss_envelope"] = orig_env
                 entry["overload_penalty"] = overload_penalty
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
@@ -984,17 +950,11 @@ def build_line_array(
             if "tmax_ab" in entry:
                 entry["line_losses_mode"] = "piecewise"
                 # Per-line segment count + layout, resolved from the
-                # converter's loss env vars.  In hybrid (loading-
-                # classified) mode this returns tangent/N_t for high-
-                # rating or forced lines and uniform/N_u for the rest;
-                # otherwise the legacy single-layout knobs apply.  Power
-                # rating = ``line.tmax_ab`` (PLEXOS Max Flow, pre-headroom
-                # — entry["tmax_ab"] may already be the 3× soft hard cap).
-                layout, nseg = _resolve_loss_layout(
-                    line.name,
-                    _loss_proxy(line.resistance, line.tmax_ab),
-                    tangent_cutoff,
-                )
+                # converter's loss env vars: the base layout
+                # (``--loss-pwl-layout``, default ``midpoint``) with
+                # ``--nseg-losses`` segments for every line, or ``tangent``
+                # for lines explicitly named in ``--loss-tangent-lines``.
+                layout, nseg = _resolve_loss_layout(line.name)
                 entry["loss_segments"] = nseg
                 # Emit ``loss_pwl_layout`` only when non-default (uniform
                 # is gtopt's default) to keep the JSON minimal.
@@ -1214,6 +1174,14 @@ def build_battery_array(
             entry["output_efficiency"] = bat.output_efficiency
         if bat.input_efficiency != 1.0:
             entry["input_efficiency"] = bat.input_efficiency
+        # PLEXOS ``Max Cycles Day`` (= 1.0 for all CEN PCP batteries):
+        # daily energy-throughput limit.  gtopt enforces the HARD row
+        # ``Σ discharge·Δt ≤ N · capacity`` per day — so it needs an
+        # explicit ``capacity`` (the usable energy = ``emax``) for the
+        # RHS; without it the cap is unbounded and gtopt skips the row.
+        if bat.max_cycles_day > 0.0 and bat.emax > 0.0:
+            entry["capacity"] = bat.emax
+            entry["max_cycles_day"] = bat.max_cycles_day
         out.append(entry)
     return out
 
@@ -1291,6 +1259,26 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
                 entry["max_offtake_cost"] = fuel.max_offtake_cost
         out.append(entry)
     return out
+
+
+def build_emission_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
+    """Emit the ``emission_array`` pollutant definition(s) for CO₂.
+
+    ``build_fuel_array`` tags each carbon-bearing fuel with an
+    ``emission_factors`` row referencing the pollutant ``"co2"``; gtopt's LP
+    build requires a matching ``emission_array`` entry or it drops the factor
+    with a warning.  Emit a single ``{"uid": 1, "name": "co2"}`` pollutant
+    definition whenever any fuel carries a CO₂ rate, so the per-fuel emission
+    accounting becomes active.  Returns ``[]`` when no fuel emits CO₂ (the
+    common CEN PCP case — carbon pricing off — keeps the JSON lean).
+
+    An ``EmissionZone`` (cap / carbon price) is intentionally NOT synthesised
+    here: this bundle ships no ``Emission`` objects, so there is no cap to
+    convert.  When a bundle does, ``extract_emissions`` (TODO) feeds the zone.
+    """
+    if any(f.co2_rate != 0.0 or f.co2_upstream_rate != 0.0 for f in fuels):
+        return [{"uid": 1, "name": "co2"}]
+    return []
 
 
 def build_reservoir_array(
@@ -1566,41 +1554,44 @@ def build_turbine_array(
     turbines: tuple[TurbineSpec, ...],
     waterways: tuple[WaterwaySpec, ...] = (),
     extra_waterways: list[dict[str, Any]] | None = None,
-    generators: tuple[GeneratorSpec, ...] = (),
-    extra_junctions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """One Turbine per :class:`TurbineSpec`.
 
     Each entry links a Generator (electrical output) to its upstream
-    Reservoir (water balance via ``main_reservoir``).  When a Waterway
-    is registered with ``storage_from`` matching the turbine's main
-    reservoir, we set ``waterway`` to that Waterway — gtopt needs
-    either ``waterway`` or ``flow`` set, otherwise it emits
-    ``Turbine uid=…: no waterway or flow reference`` and the turbine's
-    LP rows are empty.
+    Reservoir (water balance via ``main_reservoir``).
 
-    PLEXOS ``Vert_*`` Waterways are *spillways* (vertimiento — bypass
-    water that wastes potential energy) priced with a per-flow penalty
-    (CEN PCP uses ``fcost=3.6 $/(m³/s)/h``).  Turbines must NOT route
-    through the spillway; they need their own zero-cost penstock from
-    the reservoir to the downstream junction.  This routine therefore
-    **synthesizes a fresh penstock waterway per turbine** with
-    ``fcost=0`` (no spill penalty on turbine flow) and connects each
-    turbine to its own private penstock.  The original PLEXOS
-    Waterways are left untouched in the JSON and continue to model
-    physical spillage / scheduled bypass flows independently.
+    **Built-in waterway mode (build_planning call site).** gtopt's
+    Turbine carries its own flow arc: setting ``junction_a`` (the
+    reservoir's intake junction) and ``junction_b`` (the downstream
+    junction) makes the turbine debit ``junction_a`` and credit
+    ``junction_b`` exactly like a Waterway, *and* convert the carried
+    flow to power (``gen = pf × flow``).  This replaces the previous
+    approach of synthesising one zero-cost penstock Waterway per
+    turbine — the turbine **is** its own penstock now, so no per-unit
+    Waterway clones and no ``<reservoir>_terminal_ocean`` Junctions are
+    emitted.  Multi-unit plants (ANTUCO U1/U2, MACHICURA U1/U2,
+    PEHUENCHE U1/U2, …) each get an independent flow column, so the
+    per-unit ``gen = pf × flow`` equalities never force ``gen_u1 =
+    gen_u2``.
 
-    Side-effect: ``extra_waterways`` receives one new entry per
-    eligible turbine.  Without this, multi-unit plants like ANTUCO
-    (U1/U2), MACHICURA (U1/U2), PEHUENCHE (U1/U2), etc. would all
-    share the spillway and the per-turbine ``gen = waterway_flow``
-    equations would force ``gen_u1 = gen_u2 = …``, infeasible when
-    the units' commitment pmin / pmax differ.
+    PLEXOS ``Vert_*`` Waterways remain *spillways* (vertimiento —
+    bypass water priced with a per-flow penalty); turbines no longer
+    route through them.  The original PLEXOS Waterways are left
+    untouched and continue to model physical spillage independently.
 
-    Turbines without a downstream waterway (terminal hydro plants like
-    CANUTILLAR / RAPEL / ANGOSTURA + thermal pseudo-turbines on gas
-    Storage) are dropped with a summary log line; gtopt's validator
-    rejects a Turbine that references neither a Waterway nor a Flow.
+    Terminal hydro plants (LAJA_I, ANGOSTURA, CANUTILLAR, RAPEL on
+    CEN PCP) have no downstream junction: the turbine is emitted with
+    ``junction_a`` only and ``junction_b`` unset, so the turbined flow
+    drains out of the modelled system (run-to-sea) without a
+    synthesised ocean junction.  The C++ ``TurbineLP`` skips the flow
+    arc for any block whose generator pmax is zero, so a unit can never
+    push water it could not physically discharge — the old penstock
+    ``fmax = pmax_peak / pf`` cap is no longer needed.
+
+    **Legacy mode (no ``extra_waterways``, e.g. unit tests).** Falls
+    back to linking the turbine to an existing PLEXOS Waterway via
+    ``waterway``; turbines with no such link are dropped with a summary
+    log line.
     """
     ww_by_from: dict[str, str] = {}
     ww_by_name: dict[str, WaterwaySpec] = {}
@@ -1609,23 +1600,10 @@ def build_turbine_array(
         if w.storage_from and w.storage_from not in ww_by_from:
             ww_by_from[w.storage_from] = w.name
 
-    # Per-generator peak pmax (max across stages / blocks).  Used to
-    # cap the synthetic penstock ``fmax`` at ``pmax_peak / pf`` so
-    # the waterway can't carry more water than the unit could
-    # physically discharge at its nameplate.  Closes the v22 leak
-    # where ``EL_TORO_U1`` (pmax_profile range [0, 113.4]) had its
-    # gen column skipped at the zero-pmax blocks, leaving the
-    # penstock unbounded and letting ELTORO drain ~12,000 hm³
-    # through it.
-    def _peak_pmax(g: GeneratorSpec) -> float:
-        if g.pmax_profile:
-            return max(g.pmax_profile, default=0.0)
-        return g.pmax or 0.0
-
-    gen_peak_pmax: dict[str, float] = {g.name: _peak_pmax(g) for g in generators}
     out: list[dict[str, Any]] = []
     skipped: list[str] = []
-    synthesised_count = 0
+    builtin_count = 0
+    terminal_count = 0
     for t in turbines:
         # Prefer PLEXOS Tail Storage when shipped: that's the canonical
         # downstream junction the turbine discharges into, which may
@@ -1640,84 +1618,44 @@ def build_turbine_array(
                 original = ww_by_name.get(downstream_ww_name)
                 if original is not None and original.storage_to is not None:
                     downstream = original.storage_to
-        if downstream is None:
-            # Terminal hydro turbine (last station in its basin —
-            # LAJA_I, ANGOSTURA_U1/U2/U3, CANUTILLAR_U1/U2, RAPEL_U1..U5
-            # on CEN PCP).  Previously dropped, which left the
-            # generator UNCOUPLED from water — gcost=0 + no turbine
-            # link meant the LP could dispatch up to nameplate at zero
-            # cost without consuming any cascade water.  Synthesize a
-            # per-turbine ocean drain junction + penstock so the LP
-            # gen↔water equality (``gen = pf × penstock_flow``)
-            # binds.  Only fires when ``extra_junctions`` is provided
-            # (build_planning call site); legacy callers without it
-            # still get the old skip behaviour.
-            if extra_junctions is not None and extra_waterways is not None:
-                drain_junction = f"{t.reservoir_name}_terminal_ocean"
-                if not any(j.get("name") == drain_junction for j in extra_junctions):
-                    extra_junctions.append(
-                        {
-                            "uid": 0,  # patched in build_planning
-                            "name": drain_junction,
-                            "drain": True,
-                            "drain_cost": 0.0,
-                        }
-                    )
-                downstream = drain_junction
-            else:
-                skipped.append(t.generator_name)
-                continue
-        # When ``extra_waterways`` is provided (build_planning call
-        # site), synthesise a per-turbine zero-cost penstock so each
-        # gen has its own ``waterway_flow_*`` variable and never
-        # shares the PLEXOS spillway.  Without an extras list (legacy
-        # callers / unit tests), keep the legacy behaviour of linking
-        # the turbine to the original PLEXOS waterway.
-        if extra_waterways is not None:
-            penstock_name = f"penstock_{t.generator_name}"
-            penstock_entry: dict[str, Any] = {
-                "uid": 0,  # patched in build_planning
-                "name": penstock_name,
-                "junction_a": t.reservoir_name,
-                "junction_b": downstream,
-            }
-            # Cap the synthetic penstock's flow at the unit's peak
-            # discharge capacity ``pmax / pf``.  Without this cap
-            # the waterway is unbounded; at blocks where the
-            # generator's pmax is 0 the turbine_conversion row is
-            # skipped (no gen col → no `gen = pf × flow` equality)
-            # and the LP can push arbitrary water through the
-            # penstock for free.  pmax_peak is taken across the
-            # whole horizon — per-block fmax profiles would be
-            # tighter but require WaterwaySpec schema work.
-            pmax_peak = gen_peak_pmax.get(t.generator_name, 0.0)
-            if pmax_peak > 0.0 and t.production_factor > 0.0:
-                penstock_entry["fmax"] = pmax_peak / t.production_factor
-            extra_waterways.append(penstock_entry)
-            synthesised_count += 1
-            waterway_ref = penstock_name
-        else:
-            waterway_ref = ww_by_from.get(t.reservoir_name) or ""
-            if not waterway_ref:
-                skipped.append(t.generator_name)
-                continue
+
         entry: dict[str, Any] = {
             "uid": len(out) + 1,
             "name": f"turbine_{t.generator_name}",
             "generator": t.generator_name,
             "main_reservoir": t.reservoir_name,
-            "waterway": waterway_ref,
         }
+        if extra_waterways is not None:
+            # Built-in waterway mode: the turbine carries its own flow
+            # arc.  ``junction_a`` is the reservoir's intake junction;
+            # ``junction_b`` (when present) is the downstream junction.
+            entry["junction_a"] = t.reservoir_name
+            if downstream is not None and downstream != t.reservoir_name:
+                entry["junction_b"] = downstream
+            else:
+                # Terminal (run-to-sea) plant: no downstream junction —
+                # the turbined flow drains out of the system.  No ocean
+                # junction is synthesised.
+                terminal_count += 1
+            builtin_count += 1
+        else:
+            # Legacy mode: link to an existing PLEXOS waterway.
+            waterway_ref = ww_by_from.get(t.reservoir_name) or ""
+            if not waterway_ref:
+                skipped.append(t.generator_name)
+                continue
+            entry["waterway"] = waterway_ref
         if t.production_factor > 0.0:
             entry["production_factor"] = t.production_factor
         out.append(entry)
-    if synthesised_count:
+    if builtin_count:
         logger.info(
-            "build_turbine_array: synthesised %d zero-cost per-turbine "
-            "penstock waterways (one per turbine, leaving the PLEXOS "
-            "Vert_*/Ext_*/Filt_*/Caudal_* spillways untouched as "
-            "physical spillage paths).",
-            synthesised_count,
+            "build_turbine_array: emitted %d turbines as built-in waterways "
+            "(junction_a/junction_b flow arcs, replacing the per-unit penstock "
+            "waterways), of which %d are terminal (junction_b unset → drained, "
+            "no synthesised ocean junction).",
+            builtin_count,
+            terminal_count,
         )
     if skipped:
         logger.info(
@@ -1841,6 +1779,14 @@ def build_decision_variable_array(
 
     Bounds emit only when set on the spec (``None`` leaves the LP
     column free in that direction); cost emits only when non-zero.
+
+    No ``cost_type`` is emitted: the C++ default is ``"raw"`` (face-value
+    $, NOT probability/discount/duration-weighted), which is correct for the
+    general PLEXOS DecisionVariables (penalties, reserve VoRS, BESS knobs —
+    discrete face-value costs).  Δt-weighting them (the old "power" default)
+    over-charged them by the block length.  ``alpha_fcf`` is built
+    separately and sets ``cost_type: "raw"`` explicitly (so it is
+    unaffected by this default).
     """
     out: list[dict[str, Any]] = []
     for i, dv in enumerate(decision_variables):
@@ -1914,6 +1860,16 @@ def build_user_constraint_array(
             entry["active"] = bool(c.active)
         if c.rhs_profile:
             entry["rhs"] = [_shape_profile(c.rhs_profile)]
+        # Daily-ENERGY budget (PLEXOS ``RHS Day`` / ramp-day): gtopt's
+        # ``daily_sum`` collapses the per-block expansion to one LP row per
+        # 24 h day; ``constraint_type=energy`` Δt-weights each block so the
+        # LHS is ``Σ_day gen·Δt`` [MWh].  Routed to the inline JSON
+        # ``user_constraint_array`` (the ``.pampl`` grammar has no
+        # ``daily_sum`` clause — see ``write_user_constraint_pampl``).
+        if c.daily_sum:
+            entry["daily_sum"] = True
+        if c.constraint_type:
+            entry["constraint_type"] = c.constraint_type
         out.append(entry)
     return out
 
@@ -2047,9 +2003,26 @@ def build_commitment_array(
             entry["min_up_time"] = c.min_up_time
         if c.min_down_time > 0.0:
             entry["min_down_time"] = c.min_down_time
-        if c.ramp_up > 0.0:
+        # Ramp limits: per-block CPF curve (``[[block values]]``) when it
+        # varies intra-horizon, else the scalar.  Mirrors ``pmin`` above —
+        # gtopt ``Commitment.ramp_up/down`` is now a TB schedule.
+        if c.ramp_up_profile and (max(c.ramp_up_profile) != min(c.ramp_up_profile)):
+            entry["ramp_up"] = [
+                _aggregate_to_blocks(c.ramp_up_profile, block_layout, reducer="mean")
+                if block_layout
+                else list(c.ramp_up_profile)
+            ]
+        elif c.ramp_up > 0.0:
             entry["ramp_up"] = c.ramp_up
-        if c.ramp_down > 0.0:
+        if c.ramp_down_profile and (
+            max(c.ramp_down_profile) != min(c.ramp_down_profile)
+        ):
+            entry["ramp_down"] = [
+                _aggregate_to_blocks(c.ramp_down_profile, block_layout, reducer="mean")
+                if block_layout
+                else list(c.ramp_down_profile)
+            ]
+        elif c.ramp_down > 0.0:
             entry["ramp_down"] = c.ramp_down
         if c.startup_ramp > 0.0:
             entry["startup_ramp"] = c.startup_ramp
@@ -2112,6 +2085,7 @@ def build_commitment_array(
 
 def build_reserve_provision_array(
     provisions: tuple[ReserveProvisionSpec, ...],
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One ``ReserveProvision`` per :class:`ReserveProvisionSpec`.
 
@@ -2124,15 +2098,29 @@ def build_reserve_provision_array(
     columns and any user constraint referencing
     ``reserve_provision(...).up`` / ``.dn`` would dangle.
     """
+
+    def _factor(profile: tuple[float, ...]) -> list[list[float]] | float:
+        if not profile:
+            return 1.0
+        blocks = (
+            _aggregate_to_blocks(list(profile), block_layout, reducer="mean")
+            if block_layout
+            else list(profile)
+        )
+        return [blocks]
+
     out: list[dict[str, Any]] = []
     for i, p in enumerate(provisions):
         entry: dict[str, Any] = {
             "uid": i + 1,
-            "name": f"provision_{p.generator_name}",
+            "name": p.name or f"provision_{p.generator_name}",
             "generator": p.generator_name,
             "reserve_zones": list(p.reserve_zones),
-            "ur_provision_factor": 1.0,
-            "dr_provision_factor": 1.0,
+            # Per-block up/down provision factor (SSCC BESS activation
+            # schedule) when supplied; else the scalar 1.0 default that
+            # keeps the LP column unconditionally materialised.
+            "ur_provision_factor": _factor(p.ur_provision_factor_profile),
+            "dr_provision_factor": _factor(p.dr_provision_factor_profile),
         }
         if p.urmax > 0.0:
             entry["urmax"] = p.urmax
@@ -2165,6 +2153,8 @@ def build_planning(
     lp_relax: bool = False,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
     soft_penalty_override: float | None = None,
+    fcf_scale_alpha: float | None = None,
+    fcf_coeff_divisor: float = 1.0,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -2174,6 +2164,7 @@ def build_planning(
     """
     use_single_bus = len(case.nodes) <= 1
     fuel_array = build_fuel_array(case.fuels)
+    emission_array = build_emission_array(case.fuels)
     # Synthesise the virtual unit-price Fuel when any generator emits
     # piecewise segments without a real Fuel-membership. The cost
     # writer pre-multiplies segment slopes by the per-generator
@@ -2227,16 +2218,16 @@ def build_planning(
         "demand_array": demand_array,
         "battery_array": build_battery_array(case.batteries),
         "fuel_array": fuel_array,
-        "junction_array": (junction_array := build_junction_array(case.junctions)),
+        "emission_array": emission_array,
+        "junction_array": build_junction_array(case.junctions),
         "reservoir_array": build_reservoir_array(
             case.reservoirs, soft_efin_reservoirs=soft_efin_reservoirs
         ),
-        # Order matters: build the waterway list first, then let
-        # build_turbine_array APPEND any per-unit clone waterways it
-        # synthesises for multi-unit plants (see docstring on
-        # build_turbine_array for the rationale).  ``junction_array``
-        # is also passed so terminal hydro turbines can synthesise a
-        # ``<reservoir>_terminal_ocean`` drain Junction on demand.
+        # PLEXOS waterways model only physical spillage / scheduled
+        # bypass now.  ``build_turbine_array`` emits each turbine as its
+        # own built-in waterway (``junction_a``/``junction_b`` flow arc
+        # + power conversion) — passing ``extra_waterways`` selects that
+        # mode (vs. the legacy waterway-link path used by unit tests).
         "waterway_array": (
             waterway_array := build_waterway_array(
                 case.waterways, block_layout=case.bundle.block_layout
@@ -2246,8 +2237,6 @@ def build_planning(
             case.turbines,
             case.waterways,
             extra_waterways=waterway_array,
-            generators=case.generators,
-            extra_junctions=junction_array,
         ),
         "flow_array": build_flow_array(
             case.flows,
@@ -2259,7 +2248,8 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
         "reserve_provision_array": build_reserve_provision_array(
-            case.reserve_provisions
+            case.reserve_provisions,
+            block_layout=case.bundle.block_layout,
         ),
         "commitment_array": build_commitment_array(
             case.commitments,
@@ -2288,19 +2278,57 @@ def build_planning(
     # same FCF hyperplane explicitly as an ``alpha_fcf`` variable + a
     # ``FCF_future_cost`` user constraint, which DOES bind in monolithic.
     if case.boundary_cut is not None:
-        reservoir_names = frozenset(
-            r["name"] for r in system.get("reservoir_array", [])
-        )
+        # α-rebase state per reservoir (single cut, single scenario):
+        # evaluate the boundary cut at the PRECISE end-volume target
+        # ``efin`` — we expect the solution to hit it, so the cut value
+        # ``c = FCF − Σ wv·efin`` is the cost-to-go AT that target and α'
+        # centres on ~0 at the solution → minimal objective perturbance.
+        # Falls back to the bound midpoint, then the initial volume, when
+        # ``efin`` is absent.
+        def _last_scalar(val: Any) -> float | None:
+            while isinstance(val, list):
+                if not val:
+                    return None
+                val = val[-1]
+            return float(val) if isinstance(val, (int, float)) else None
+
+        reservoir_state: dict[str, float] = {}
+        for r in system.get("reservoir_array", []):
+            efin_v = _last_scalar(r.get("efin"))
+            if efin_v is not None:
+                reservoir_state[r["name"]] = efin_v
+                continue
+            emin_v = _last_scalar(r.get("emin"))
+            emax_v = _last_scalar(r.get("emax"))
+            eini_v = _last_scalar(r.get("eini"))
+            if emin_v is not None and emax_v is not None:
+                reservoir_state[r["name"]] = 0.5 * (emin_v + emax_v)
+            elif eini_v is not None:
+                reservoir_state[r["name"]] = eini_v
+            else:
+                reservoir_state[r["name"]] = 0.0
         dv_arr = system.setdefault("decision_variable_array", [])
         uc_arr = system.setdefault("user_constraint_array", [])
         next_dv_uid = max((int(v["uid"]) for v in dv_arr), default=0) + 1
         next_uc_uid = max((int(u["uid"]) for u in uc_arr), default=0) + 1
+        # Last block of the horizon (end-of-horizon, where `.efin` lives):
+        # block uids are 1..N in build_simulation, so the last uid is the
+        # block count.  ``alpha_fcf`` is an energy variable, so no
+        # block-duration correction is needed.
+        if case.bundle.block_layout:
+            last_block_uid = len(case.bundle.block_layout)
+        else:
+            last_block_uid = int(case.bundle.step_count * case.bundle.n_days)
         fcf_terms = build_fcf_alpha_terms(
             case.boundary_cut,
-            reservoir_names,
+            reservoir_state,
             dv_uid=next_dv_uid,
             uc_uid=next_uc_uid,
-            horizon_hours=float(DEFAULT_BLOCK_COUNT) * case.bundle.n_days,
+            last_block_uid=last_block_uid,
+            scale_alpha=(
+                fcf_scale_alpha if fcf_scale_alpha is not None else _FCF_SCALE_ALPHA
+            ),
+            coeff_divisor=fcf_coeff_divisor,
         )
         if fcf_terms is not None:
             alpha_dv, fcf_uc = fcf_terms
@@ -2343,20 +2371,6 @@ def build_planning(
                 penalty,
             )
 
-    # Assign sequential UIDs to any per-unit waterway clones that
-    # `build_turbine_array` appended with placeholder uid=0.
-    next_ww_uid = max((w.get("uid", 0) for w in waterway_array), default=0) + 1
-    for w in waterway_array:
-        if w.get("uid", 0) == 0:
-            w["uid"] = next_ww_uid
-            next_ww_uid += 1
-    # Same renumbering for any ``<X>_terminal_ocean`` junctions that
-    # ``build_turbine_array`` synthesised for terminal hydro turbines.
-    next_j_uid = max((j.get("uid", 0) for j in junction_array), default=0) + 1
-    for j in junction_array:
-        if j.get("uid", 0) == 0:
-            j["uid"] = next_j_uid
-            next_j_uid += 1
     # Inline conversion-provenance: stamp every element with a coarse
     # ``type`` tag + a standardized ``description`` (source class, units,
     # files) so the planning JSON self-documents the PLEXOS→gtopt mapping
@@ -2407,20 +2421,32 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     return installed
 
 
-# Conditioning scale for the future-cost (alpha) column — mirrors the
-# magnitude gtopt's SDDP uses (scale_alpha) so the ~1e9 cost-to-go lands
-# on a well-scaled column relative to ``scale_objective``.
-_FCF_SCALE_ALPHA = 1.0e5
+# Column scale for the FCF cost-to-go variable ``alpha_fcf``: the cut and
+# objective coefficient on α is ``scale_alpha``, so α carries
+# ``future_cost / scale_alpha``.  Tunable via ``--fcf-scale-alpha``
+# (1 / 1e3 / 1e6 …).  Independent of the α-rebase shift (``obj_constant``
+# and the cut RHS do not depend on ``scale_alpha``).
+#
+# DEFAULT = 1.0.  An LP-relax scan on the CEN PCP daily bundle
+# (DATOS20260422, K8 uniform, full UC) showed ``scale_alpha`` is a pure
+# reparametrization for 1 and 1e3 (identical optimum $956,155,053, ~85 s,
+# kappa ~1.1e9), but **1e6 BREAKS the solve** — the 1e6 coefficient on the
+# α column wrecks barrier conditioning and CPLEX aborts in 0.28 s with a
+# garbage objective ($1.33B, status=unknown).  The old default 1e6 thus
+# produced an unsolvable LP out of the box; 1.0 solves cleanly and gives the
+# correct optimum.
+_FCF_SCALE_ALPHA = 1.0
 
 
 def build_fcf_alpha_terms(
     boundary_cut: BoundaryCutSpec,
-    reservoir_names: frozenset[str],
+    reservoir_state: dict[str, float],
     *,
     dv_uid: int,
     uc_uid: int,
-    horizon_hours: float,
+    last_block_uid: int,
     scale_alpha: float = _FCF_SCALE_ALPHA,
+    coeff_divisor: float = 1.0,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Encode the FCF boundary cut as an alpha variable + user constraint.
 
@@ -2428,44 +2454,77 @@ def build_fcf_alpha_terms(
     the monolithic LP the loaded cut is inert.  So we encode the same
     future-cost hyperplane explicitly, which DOES bind in monolithic:
 
-      * a non-negative ``alpha_fcf`` DecisionVariable carrying the
-        future cost.  Its objective ``cost = scale_alpha`` so the column
-        represents ``alpha' = future_cost / scale_alpha`` (~1e4) and
-        stays well-conditioned against the raw ~1e9 cost-to-go.
+      * ``alpha_fcf`` — the future cost-to-go in $, as a single
+        last-block (``block`` scope), ENERGY (``cost_type`` = energy,
+        cost = 1, NOT duration-weighted) DecisionVariable.
       * a UserConstraint
-          ``scale_alpha · alpha_fcf + Σ wv_r · reservoir(r).efin >= FCF``
-        i.e. ``alpha_fcf >= (FCF − Σ wv·efin) / scale_alpha``.  The
-        objective then pays ``FCF − Σ wv·efin``, rewarding terminal
-        storage at each reservoir's water value — exactly PLEXOS's FCF
-        first-order effect.  ``FCF`` is a constant offset; the slopes
-        ``wv_r`` drive the hydro/thermal trade-off.
+          ``alpha_fcf + Σ wv_r · reservoir(r).efin >= FCF``
+        i.e. ``alpha_fcf >= FCF − Σ wv·efin``.  The objective pays
+        ``FCF − Σ wv·efin``, rewarding terminal storage at each
+        reservoir's water value — exactly PLEXOS's FCF first-order
+        effect.  The constant ``FCF`` is α-rebased out (see below); the
+        slopes ``wv_r`` drive the hydro/thermal trade-off.
 
     Returns ``(alpha_dv, fcf_uc)`` dicts, or ``None`` when no slope maps
     onto a bundle reservoir.
     """
+    # ``coeff_divisor`` scales every water-value slope ``wv`` (the marginal
+    # value of terminal storage).  divisor=2 halves the water values, making
+    # hydro cheaper at the margin (more drawdown, less thermal back-fill) —
+    # a sensitivity knob for the hydro/thermal trade-off.  Default 1.0 = off.
     cols = [
-        (name, boundary_cut.slopes[name])
+        (name, boundary_cut.slopes[name] / coeff_divisor)
         for name in boundary_cut.slopes
-        if name in reservoir_names
+        if name in reservoir_state
     ]
     if not cols:
         return None
-    # ``alpha_fcf`` is a per-(stage, block) DecisionVariable whose
-    # objective cost is duration-weighted and summed over every block,
-    # so a flat ``cost = scale_alpha`` would count the single
-    # end-of-horizon future cost once PER HORIZON HOUR (≈168× on the CEN
-    # PCP week).  Divide by the horizon hours so the duration-weighted
-    # sum collapses back to exactly one future-cost term.
-    horizon = horizon_hours if horizon_hours > 0.0 else 1.0
+    # The FCF is a single END-OF-HORIZON future-cost cut: it values the
+    # terminal (`.efin`) reservoir volumes, which only exist on the last
+    # block.  Scope BOTH the cut (`for(block in {N})`, matched by
+    # block.uid in user_constraint_lp.cpp:797) AND ``alpha_fcf`` itself
+    # (``block`` scope) to that block, so each emits ONE row/column.
+    # ``alpha_fcf`` is a RAW money variable (``cost_type`` = raw): the $
+    # cost-to-go, present-valued by the discount factor only — NOT
+    # probability- or duration-weighted.  cost = 1 reads it directly in
+    # dollars (no ``cost = 1/duration`` magic correction).
+    #
+    # α-rebase (mean-shift) — mirrors SDDP boundary-cut loading and the
+    # PLP convention: evaluate the cut at each reservoir's expected terminal
+    # state (``reservoir_state`` = the ``efin`` target) to get ``c``, the
+    # cost-to-go at that state, then substitute ``α = α' + c``:
+    #     α' + Σ wv·efin >= FCF − c = Σ wv·state
+    # Because the solution is expected to hit the ``efin`` target, α'
+    # centres on ~0 AT THE SOLUTION → minimal objective perturbance, the LP
+    # stays well-conditioned, and the relative MIP gap is meaningful (the
+    # objective is no longer dominated by the raw ~1e9 intercept).  ``α'``
+    # is FREE (the cut bounds it); safe because ``alpha_fcf`` is a SINGLE
+    # last-block column.  The rebased-out ``c`` is added back verbatim via
+    # ``add_obj_constant`` (``obj_constant``) so the reported objective is
+    # the un-rebased value.  (Single cut, single scenario.)
+    sum_slope_state = sum(wv * reservoir_state[name] for name, wv in cols)
+    obj_constant = boundary_cut.fcf - sum_slope_state  # = c, cost-to-go @ efin
+    shifted_rhs = sum_slope_state  # = FCF − c
     alpha_dv = {
         "uid": dv_uid,
         "name": "alpha_fcf",
-        "lower_bound": 0.0,
-        "cost": scale_alpha / horizon,
+        # FREE column: the FCF cut itself bounds α' (≥ −Σ wv·efin); after the
+        # mean-shift α' may be negative, exactly as SDDP releases α to ±∞.
+        "cost": scale_alpha,  # = 1; raw money → discount-only, not duration-weighted
+        "cost_type": "raw",
+        # Single last-block column (DecisionVariable.block scope) — the FCF
+        # cost-to-go is one end-of-horizon variable, not one per block.
+        "block": last_block_uid,
+        # Mean-shift restitution: α = α' + c was rebased out of the
+        # objective; the LP adds back obj_constant (= c) via
+        # add_obj_constant so the reported objective is the un-rebased value.
+        "obj_constant": obj_constant,
     }
     terms = [f'{scale_alpha:g} * decision_variable("alpha_fcf").value']
     terms += [f'{wv:.6f} * reservoir("{name}").efin' for name, wv in cols]
-    expr = " + ".join(terms) + f" >= {boundary_cut.fcf:.6f}"
+    expr = (
+        " + ".join(terms) + f" >= {shifted_rhs:.6f}, for(block in {{{last_block_uid}}})"
+    )
     fcf_uc = {
         "uid": uc_uid,
         "name": "FCF_future_cost",
@@ -2647,7 +2706,11 @@ _PROVENANCE_CLASS_DOC: dict[str, dict[str, Any]] = {
         "plexos": "Generator (hydro) + Waterway",
         "files": ["DBSEN_PRGDIARIO.xml", "Hydro_EfficiencyIncr.csv"],
         "units": {"production_factor": "MW/(m³/s)"},
-        "transforms": ["synthesised per-turbine zero-cost penstock waterways"],
+        "transforms": [
+            "turbine emitted as built-in waterway "
+            "(junction_a/junction_b flow arc + power conversion); "
+            "terminal plants drain (junction_b unset)"
+        ],
     },
     "fuel_array": {
         "gtopt": "Fuel",
@@ -2810,49 +2873,6 @@ def write_provenance(provenance: dict[str, Any], output_path: Path) -> Path:
     return output_path
 
 
-# Per-family routing for the modular ``.pampl`` user-constraint files.
-# Order matters (first match wins); anything unmatched lands in "other".
-# Per-family routing for the modular ``.pampl`` files.  Ordered — FIRST
-# match wins — so put the specific families before the broad ones; anything
-# unmatched lands in ``operational`` (the genuine generation/flow floors,
-# ramps and caps that don't fit a named ancillary/security family).  Routed
-# on the ORIGINAL PLEXOS constraint name (before PAMPL-ident sanitisation).
-_UC_FAMILIES: tuple[tuple[str, Any], ...] = (
-    # Combined-cycle turbine mutexes — at most one config committed (HARD).
-    ("config_exclusivity", lambda n: n.endswith("_Uniq") or "ConfTG" in n),
-    # Daily gas/GNL fuel-operation caps (day-scoped, soft fuel-cap tier).
-    ("gas_offtake", lambda n: n.startswith("Gas_MaxOp")),
-    # Unit-commitment scheduling rows that drive the PLEXOS dispatch (HARD).
-    (
-        "commitment",
-        lambda n: n.endswith("_starting") or n == "NorthSecurity",
-    ),
-    # Ancillary-services / reserve: CPF/CSF/CTF products, RegRange limits,
-    # Special* north groupings, per-generator provision rows.
-    (
-        "reserve",
-        lambda n: bool(
-            re.search(
-                r"(CTF|CSF|CPF|RegRange|Provision|MinUnits|MAXCSF|SSCC)|^Special",
-                n,
-            )
-        ),
-    ),
-    # N-1 / contingency security rows (``SD_*`` and the dated numeric form
-    # ``2024…``); most ship ``inactive`` (excluded from the ST schedule).
-    (
-        "security",
-        lambda n: n.startswith("SD_") or "Security" in n or bool(re.match(r"^\d", n)),
-    ),
-    # PLEXOS↔gtopt validation/comparison rows (diagnostic, usually inactive).
-    ("comparison", lambda n: "Comparison" in n),
-    # End-of-horizon future-cost (FCF / SDDP terminal value) rows.
-    ("terminal_value", lambda n: n.startswith("FCF") or n.startswith("alpha")),
-)
-# Default family for the remaining operational floors / ramps / caps.
-_UC_DEFAULT_FAMILY = "operational"
-
-
 def _pampl_ident(name: str) -> str:
     """Sanitise a PLEXOS constraint name into a PAMPL ``IDENT``.
 
@@ -2884,28 +2904,130 @@ def _penalty_param_name(value: float) -> str:
     return "penalty_" + re.sub(r"[^0-9]", "_", f"{value:g}")
 
 
+def _pampl_rhs_vector(rhs: Any) -> list[float] | None:
+    """Return the per-block RHS vector if ``rhs`` is a TB-matrix profile.
+
+    ``UserConstraint.rhs`` accepts several shapes; only the single-row
+    TB-matrix form ``[[v0, v1, ...]]`` (what ``build_user_constraint_array``
+    emits for a per-block profile) has a PAMPL ``rhs [v0, v1, ...]`` encoding.
+    Returns the inner block vector for that shape, or ``None`` for scalar /
+    per-stage / string / multi-stage forms that must stay inline in the JSON.
+    """
+    if (
+        isinstance(rhs, list)
+        and len(rhs) == 1
+        and isinstance(rhs[0], list)
+        and rhs[0]
+        and all(isinstance(v, (int, float)) for v in rhs[0])
+    ):
+        return [float(v) for v in rhs[0]]
+    return None
+
+
+# Default slack penalty forced onto every UC under ``--pampl-uc-mode soft``
+# when no ``--default-uc-penalty`` is supplied (matches the flag's "Typical"
+# value).  High enough to keep load-serving optimal, low enough to stay below
+# the cheapest unserved-demand cost.
+_SOFT_UC_DEFAULT_PENALTY = 10000.0
+
+# UC family taxonomy lives in the light, dependency-free ``uc_families``
+# module so ``gtopt_check_json`` can import the classifier without pulling in
+# this heavy writer.  Re-exported here for backward compatibility.
+
+
+def filter_user_constraints(
+    uc_array: list[dict[str, Any]],
+    *,
+    mode: str = "hard",
+    force_penalty: float = _SOFT_UC_DEFAULT_PENALTY,
+    only: frozenset[str] | None = None,
+    off: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Apply ``--pampl-uc-mode`` / ``--pampl-uc-only`` / ``--pampl-uc-off`` to a
+    UC list and return the kept rows (order preserved).
+
+    Shared by both emit paths so the inline-JSON and ``.pampl`` encodings see
+    an identical constraint set — the basis for diffing the two LPs.
+    ``mode="soft"`` stamps ``force_penalty`` onto rows lacking one;
+    ``mode="off"`` returns ``[]``.
+    """
+    if mode == "off":
+        return []
+    kept: list[dict[str, Any]] = []
+    for uc in uc_array:
+        fam = uc_family(str(uc.get("name", "")))
+        if only is not None and fam not in only:
+            continue
+        if fam in off:
+            continue
+        if mode == "soft" and float(uc.get("penalty") or 0.0) <= 0.0:
+            uc["penalty"] = force_penalty
+        kept.append(uc)
+    return kept
+
+
 def write_user_constraint_pampl(
     uc_array: list[dict[str, Any]],
     output_dir: Path,
+    *,
+    mode: str = "hard",
+    force_penalty: float = _SOFT_UC_DEFAULT_PENALTY,
+    only: frozenset[str] | None = None,
+    off: frozenset[str] = frozenset(),
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Split user constraints into modular per-family ``.pampl`` files.
 
     Scalar-RHS constraints are emitted as
     ``[inactive ]constraint NAME ["desc"][ penalty N]: <expr>;`` grouped by
     family (``uc_config_exclusivity.pampl`` …).  Constraints carrying a
-    per-block ``rhs`` profile (the day-scoped gas caps, curtailment shifts)
-    can't be written as a scalar ``.pampl`` row yet, so they stay inline in
-    the JSON.  Returns ``(pampl_filenames, json_remaining)``.
+    per-block ``rhs`` profile in TB-matrix form (``[[v0, v1, ...]]`` — the
+    day-scoped gas caps, curtailment shifts, hydro daily-ramp rows like
+    ``RALCOramp_max_e1``) are emitted with a ``rhs [v0, v1, ...]`` header
+    clause so they round-trip through ``.pampl`` too.  Any other RHS shape
+    (scalar / per-stage / string / multi-stage matrix) has no ``.pampl``
+    encoding yet, so those stay inline in the JSON.  Returns
+    ``(pampl_filenames, json_remaining)``.
+
+    ``mode`` (from ``--pampl-uc-mode``) controls the hard/soft/off policy:
+
+    - ``"hard"`` (default): each row keeps its own ``penalty`` (rows without
+      one stay hard equalities/inequalities).
+    - ``"soft"``: every row is forced soft — any row lacking a positive
+      ``penalty`` gets ``force_penalty`` — so the MIP stays feasible and
+      reports violations instead of going infeasible.
+    - ``"off"``: emit nothing and drop every row (both the per-family files
+      and the inline per-block-RHS rows); returns ``([], [])``.
+
+    Per-group selection (from ``--pampl-uc-only`` / ``--pampl-uc-off``):
+
+    - ``only``: when given, keep ONLY rows whose family is in this set (every
+      other family is dropped) — used to isolate one group at a time.
+    - ``off``: drop rows whose family is in this set (leave-one-out).
     """
+    if mode == "off":
+        return [], []
+    kept = filter_user_constraints(
+        uc_array, mode=mode, force_penalty=force_penalty, only=only, off=off
+    )
     families: dict[str, list[dict[str, Any]]] = {}
     json_remaining: list[dict[str, Any]] = []
-    for uc in uc_array:
-        if "rhs" in uc:  # per-block RHS profile — no scalar .pampl form
+    for uc in kept:
+        # Daily-ENERGY budgets (PLEXOS ``RHS Day`` / ramp-day) carry a
+        # ``daily_sum`` / ``constraint_type`` flag that the ``.pampl`` grammar
+        # (``pampl_parser.cpp``: only ``penalty`` + ``rhs`` clauses) cannot
+        # express, so they stay inline in the JSON ``user_constraint_array``.
+        if uc.get("daily_sum"):
             json_remaining.append(uc)
             continue
-        name = str(uc.get("name", ""))
-        fam = next((f for f, pred in _UC_FAMILIES if pred(name)), _UC_DEFAULT_FAMILY)
-        families.setdefault(fam, []).append(uc)
+        # A per-block RHS profile in TB-matrix form (``[[v0, v1, ...]]`` — the
+        # shape ``build_user_constraint_array`` emits) maps onto the PAMPL
+        # ``rhs [v0, v1, ...]`` header clause, so it can now round-trip
+        # through ``.pampl``.  Scalar / per-stage / string RHS forms have no
+        # scalar ``.pampl`` encoding yet, so those stay inline in the JSON.
+        if "rhs" in uc and _pampl_rhs_vector(uc["rhs"]) is None:
+            json_remaining.append(uc)
+            continue
+        families.setdefault(uc_family(str(uc.get("name", ""))), []).append(uc)
 
     # PAMPL identifiers must be unique across every loaded constraint.
     # Sanitisation (``+ > - space`` → ``_``) can collapse distinct PLEXOS
@@ -2956,8 +3078,14 @@ def write_user_constraint_pampl(
             pen_txt = (
                 f" penalty {_penalty_param_name(round(pen, 6))}" if pen > 0.0 else ""
             )
+            rhs_txt = ""
+            if "rhs" in uc:
+                rhs_vec = _pampl_rhs_vector(uc["rhs"])
+                if rhs_vec is not None:
+                    rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
             lines.append(
-                f"{prefix}constraint {_unique_ident(str(uc.get('name', '')))}{pen_txt}:"
+                f"{prefix}constraint "
+                f"{_unique_ident(str(uc.get('name', '')))}{pen_txt}{rhs_txt}:"
             )
             lines.append(f"  {uc['expression']};")
             lines.append("")
@@ -2987,10 +3115,12 @@ __all__ = [
     "DEFAULT_BLOCK_COUNT",
     "DEFAULT_BLOCK_DURATION_H",
     "DEFAULT_FP_MED",
+    "UC_FAMILY_NAMES",
     "build_battery_array",
     "build_bus_array",
     "build_commitment_array",
     "build_demand_array",
+    "build_emission_array",
     "build_flow_array",
     "build_flow_right_array",
     "build_fuel_array",
@@ -3008,6 +3138,7 @@ __all__ = [
     "build_user_constraint_array",
     "build_waterway_array",
     "install_solver_param_files",
+    "uc_family",
     "write_planning",
     "write_provenance",
 ]

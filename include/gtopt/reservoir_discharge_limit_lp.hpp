@@ -32,6 +32,7 @@
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/turbine_lp.hpp>
 #include <gtopt/update_context.hpp>
 #include <gtopt/waterway_lp.hpp>
 
@@ -58,9 +59,24 @@ public:
     return self.object();
   }
 
-  [[nodiscard]] constexpr auto waterway_sid() const noexcept
+  /// @return Whether the discharge limit references a built-in waterway
+  /// turbine's flow column (true) instead of a classic Waterway (false).
+  [[nodiscard]] constexpr bool uses_turbine() const noexcept
   {
-    return WaterwayLPSId {reservoir_discharge_limit().waterway};
+    return reservoir_discharge_limit().turbine.has_value();
+  }
+
+  [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
+  {
+    return WaterwayLPSId {require_sid(reservoir_discharge_limit().waterway,
+                                      "ReservoirDischargeLimitLP::waterway_sid",
+                                      "waterway")};
+  }
+  [[nodiscard]] auto turbine_sid() const -> TurbineLPSId
+  {
+    return TurbineLPSId {require_sid(reservoir_discharge_limit().turbine,
+                                     "ReservoirDischargeLimitLP::turbine_sid",
+                                     "turbine")};
   }
   [[nodiscard]] constexpr auto reservoir_sid() const noexcept
   {

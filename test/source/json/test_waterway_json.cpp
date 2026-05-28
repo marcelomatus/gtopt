@@ -21,7 +21,8 @@ TEST_CASE("Waterway JSON basic parsing")
   REQUIRE(waterway.uid == 5);
   REQUIRE(waterway.name == "RIVER_1");
   REQUIRE(std::get<gtopt::Uid>(waterway.junction_a) == 10);
-  REQUIRE(std::get<gtopt::Uid>(waterway.junction_b) == 20);
+  REQUIRE(waterway.junction_b.has_value());
+  REQUIRE(std::get<gtopt::Uid>(waterway.junction_b.value()) == 20);
   REQUIRE_FALSE(waterway.capacity.has_value());
 }
 
@@ -117,7 +118,8 @@ TEST_CASE("Waterway JSON roundtrip serialization")
   REQUIRE(roundtrip.uid == 7);
   REQUIRE(roundtrip.name == "ROUNDTRIP");
   REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_a) == 1);
-  REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_b) == 2);
+  REQUIRE(roundtrip.junction_b.has_value());
+  REQUIRE(std::get<gtopt::Uid>(roundtrip.junction_b.value()) == 2);
   REQUIRE(roundtrip.capacity.has_value());
   REQUIRE(std::get<double>(roundtrip.capacity.value_or(0.0)) == 100.0);
 }

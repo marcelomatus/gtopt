@@ -1097,3 +1097,554 @@ TEST_CASE(  // NOLINT
   CHECK(std::abs(dual) > 1e-3);
   CHECK(std::abs(dual) <= 50.0 + 1e-4);
 }
+
+// -----------------------------------------------------------------------
+// Built-in waterway mode: the turbine carries its own flow arc between two
+// junctions (no separate Waterway element) AND converts it to power.  The
+// equality conversion row forces discharge = generation / production_factor,
+// and the turbine-owned flow column debits junction_a / credits junction_b.
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "TurbineLP — built-in waterway (junction_a→junction_b) converts flow")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 120.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1.0e9,
+          .emin = 0.0,
+          .emax = 1.0e9,
+          .eini = 1.0e9,
+      },
+  };
+
+  // No Waterway element: the turbine itself carries the flow arc.
+  // drain=false (default) → equality conversion: gen = 3 · flow.
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur_ww",
+          .junction_a = SingleId {Uid {1}},
+          .junction_b = SingleId {Uid {2}},
+          .generator = Uid {1},
+          .production_factor = 3.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "TurbineBuiltinWaterwayTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.get_numrows() > 0);
+  CHECK(lp.get_numcols() > 0);
+
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto buid = block_lp.uid();
+
+  // No WaterwayLP should have been created.
+  CHECK(system_lp.elements<WaterwayLP>().empty());
+
+  // Generation column (owned by GeneratorLP).
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 1);
+  const auto& gcols = gen_lps.front().generation_cols_at(scenario_lp, stage_lp);
+  REQUIRE(gcols.size() == 1);
+  const auto gcol = gcols.at(buid);
+
+  // Flow column is now owned by the TurbineLP itself.
+  const auto& tur_lps = system_lp.elements<TurbineLP>();
+  REQUIRE(tur_lps.size() == 1);
+  const auto& fcols = tur_lps.front().flow_cols_at(scenario_lp, stage_lp);
+  REQUIRE(fcols.size() == 1);
+  const auto fcol = fcols.at(buid);
+
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[gcol] == doctest::Approx(120.0).epsilon(1e-6));
+  // Equality conversion: discharge = generation / 3 = 40 m³/s.
+  CHECK(col_sol[fcol] == doctest::Approx(40.0).epsilon(1e-6));
+}
+
+// -----------------------------------------------------------------------
+// Terminal (run-to-sea) turbine: junction_a set, junction_b unset ⇒ the
+// turbined flow drains out of the system (no synthesised ocean junction),
+// while still converting flow to power.
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "TurbineLP — terminal turbine (junction_a only) drains and generates")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 90.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_intake",
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1.0e9,
+          .emin = 0.0,
+          .emax = 1.0e9,
+          .eini = 1.0e9,
+      },
+  };
+
+  // junction_b unset → the turbined flow leaves the system (drain).
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur_terminal",
+          .junction_a = SingleId {Uid {1}},
+          .generator = Uid {1},
+          .production_factor = 3.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "TurbineTerminalDrainTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .reservoir_array = reservoir_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& block_lp = simulation_lp.blocks().front();
+  const auto buid = block_lp.uid();
+
+  // Generation serves the full 90 MW demand from cheap hydro.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 1);
+  const auto& gcols = gen_lps.front().generation_cols_at(scenario_lp, stage_lp);
+  REQUIRE(gcols.size() == 1);
+  const auto gcol = gcols.at(buid);
+
+  const auto& tur_lps = system_lp.elements<TurbineLP>();
+  REQUIRE(tur_lps.size() == 1);
+  const auto& fcols = tur_lps.front().flow_cols_at(scenario_lp, stage_lp);
+  REQUIRE(fcols.size() == 1);
+  const auto fcol = fcols.at(buid);
+
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[gcol] == doctest::Approx(90.0).epsilon(1e-6));
+  // discharge = generation / 3 = 30 m³/s, drained out of the system.
+  CHECK(col_sol[fcol] == doctest::Approx(30.0).epsilon(1e-6));
+}
+
+// -----------------------------------------------------------------------
+// Substitution equivalence: a single built-in-waterway turbine replaces the
+// classic three-element run-to-sea topology
+//   reservoir → Waterway → ocean Junction(drain) + Turbine(waterway mode)
+// A) old 3-element model    B) new 1-element model (turbine, junction_a only)
+// Both must produce the SAME objective and the SAME dispatch — proving the
+// substitution is behaviour-preserving.
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "TurbineLP — built-in turbine substitutes turbine+waterway+ocean 1:1")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Shared electrical side: one hydro generator + an expensive thermal
+  // backstop so the LP value depends on how much hydro the turbine yields.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 75.0}};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1.0e9,
+          .emin = 0.0,
+          .emax = 1.0e9,
+          .eini = 1.0e9,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const auto solve = [&](const System& system) -> std::pair<double, double>
+  {
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    // Locate the hydro generation column to compare dispatch, not just cost.
+    const auto& scenario_lp = simulation_lp.scenarios().front();
+    const auto& stage_lp = simulation_lp.stages().front();
+    const auto buid = simulation_lp.blocks().front().uid();
+    const GeneratorLP* hydro = nullptr;
+    for (const auto& g : system_lp.elements<GeneratorLP>()) {
+      if (g.uid() == Uid {1}) {
+        hydro = &g;
+        break;
+      }
+    }
+    REQUIRE(hydro != nullptr);
+    const auto gcol = hydro->generation_cols_at(scenario_lp, stage_lp).at(buid);
+    return {lp.get_obj_value_raw(), lp.get_col_sol()[gcol]};
+  };
+
+  // -- A) old three-element model: turbine + waterway + ocean drain --
+  const Array<Junction> ja = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_ocean", .drain = true},
+  };
+  const Array<Waterway> wwa = {{
+      .uid = Uid {1},
+      .name = "penstock",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 1000.0,
+  }};
+  const Array<Turbine> ta = {{
+      .uid = Uid {1},
+      .name = "tur",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 2.0,
+  }};
+  const auto [obj_old, gen_old] = solve(System {
+      .name = "OldThreeElement",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = ja,
+      .waterway_array = wwa,
+      .reservoir_array = reservoir_array,
+      .turbine_array = ta,
+  });
+
+  // -- B) new single built-in-waterway turbine (junction_a only, drains) --
+  const Array<Junction> jb = {{.uid = Uid {1}, .name = "j_up"}};
+  const Array<Turbine> tb = {{
+      .uid = Uid {1},
+      .name = "tur",
+      .junction_a = SingleId {Uid {1}},  // junction_b unset ⇒ drains
+      .generator = Uid {1},
+      .production_factor = 2.0,
+  }};
+  const auto [obj_new, gen_new] = solve(System {
+      .name = "NewOneElement",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = jb,
+      .reservoir_array = reservoir_array,
+      .turbine_array = tb,
+  });
+
+  // Cheap hydro (gcost 1) serves all 75 MW of demand; thermal stays off.
+  // The single turbine must reproduce the three-element model exactly.
+  CHECK(obj_old > 0.0);
+  CHECK(obj_new == doctest::Approx(obj_old).epsilon(1e-9));
+  CHECK(gen_new == doctest::Approx(gen_old).epsilon(1e-9));
+  CHECK(gen_new == doctest::Approx(75.0).epsilon(1e-6));
+}
+
+// -----------------------------------------------------------------------
+// Outflow waterway: a Waterway with junction_b unset drains its flow out of
+// the system at junction_a (same semantics as Turbine.junction_b unset).
+// Equivalence test: [waterway → ocean-drain junction] ≡ [waterway-outflow].
+// -----------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "WaterwayLP — outflow (junction_b unset) ≡ waterway + ocean drain")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 100.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 1000.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 75.0}};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 1.0e9,
+          .emin = 0.0,
+          .emax = 1.0e9,
+          .eini = 1.0e9,
+      },
+  };
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const auto solve_obj = [&](const System& system) -> double
+  {
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 1000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+    return lp.get_obj_value_raw();
+  };
+
+  // -- A) classic two-junction waterway + ocean-drain junction --
+  const Array<Junction> ja = {
+      {.uid = Uid {1}, .name = "j_up"},
+      {.uid = Uid {2}, .name = "j_ocean", .drain = true},
+  };
+  const Array<Waterway> wwa = {{
+      .uid = Uid {1},
+      .name = "penstock",
+      .junction_a = Uid {1},
+      .junction_b = Uid {2},
+      .fmin = 0.0,
+      .fmax = 1000.0,
+  }};
+  const Array<Turbine> ta = {{
+      .uid = Uid {1},
+      .name = "tur",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 2.0,
+  }};
+  const double obj_old = solve_obj(System {
+      .name = "WaterwayWithOcean",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = ja,
+      .waterway_array = wwa,
+      .reservoir_array = reservoir_array,
+      .turbine_array = ta,
+  });
+
+  // -- B) new outflow waterway (junction_b unset, drains directly) --
+  const Array<Junction> jb = {{.uid = Uid {1}, .name = "j_up"}};
+  const Array<Waterway> wwb = {{
+      .uid = Uid {1},
+      .name = "penstock_outflow",
+      .junction_a = Uid {1},
+      // .junction_b intentionally unset — outflow / drain mode.
+      .fmin = 0.0,
+      .fmax = 1000.0,
+  }};
+  const Array<Turbine> tb = {{
+      .uid = Uid {1},
+      .name = "tur",
+      .waterway = Uid {1},
+      .generator = Uid {1},
+      .production_factor = 2.0,
+  }};
+  const double obj_new = solve_obj(System {
+      .name = "WaterwayOutflow",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = jb,
+      .waterway_array = wwb,
+      .reservoir_array = reservoir_array,
+      .turbine_array = tb,
+  });
+
+  // Same demand (75 MW), same cheap hydro pf=2, same conversion → same
+  // objective.  The outflow waterway eliminates the ocean junction without
+  // changing the LP.
+  CHECK(obj_old > 0.0);
+  CHECK(obj_new == doctest::Approx(obj_old).epsilon(1e-9));
+}

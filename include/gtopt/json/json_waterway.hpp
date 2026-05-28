@@ -19,7 +19,7 @@ struct json_data_contract<Waterway>
       json_string_null<"type", OptName>,
       json_string_null<"description", OptName>,
       json_variant<"junction_a", SingleId>,
-      json_variant<"junction_b", SingleId>,
+      json_variant_null<"junction_b", OptSingleId, jvtl_SingleId>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"fmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,

@@ -95,8 +95,13 @@ struct ReservoirDischargeLimit
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)
 
-  SingleId waterway {
-      unknown_uid};  ///< ID of the waterway whose flow is limited
+  /// Source of the flow being limited.  Exactly one of ``waterway`` /
+  /// ``turbine`` must be set.  ``waterway`` is the legacy reference for the
+  /// classic Reservoir → Waterway → drain topology; ``turbine`` is the
+  /// new reference for built-in waterway turbines (``Turbine.junction_a/b``)
+  /// that own their own flow column instead of going through a Waterway.
+  OptSingleId waterway {};  ///< ID of the waterway whose flow is limited
+  OptSingleId turbine {};  ///< ID of the turbine whose built-in flow is limited
   SingleId reservoir {unknown_uid};  ///< ID of the reservoir (volume source)
 
   /// Piecewise-linear segments (sorted ascending by volume breakpoint).

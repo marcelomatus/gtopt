@@ -285,6 +285,11 @@ class BatterySpec:
     # these only on 2 batteries (BAT_DEL_DESIERTO, BAT_TOCOPILLA).
     pmin_charge: float = 0.0
     pmin_discharge: float = 0.0
+    # PLEXOS ``Max Cycles Day``: daily energy-throughput limit N (cycles
+    # per day).  Maps to gtopt's ``Battery.max_cycles_day`` — a HARD
+    # constraint ``Σ discharge·Δt ≤ N · capacity`` per day (NOT a cost).
+    # 1.0 for all 41 CEN PCP batteries; 0.0 ⇒ no limit emitted.
+    max_cycles_day: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -398,10 +403,10 @@ class TurbineSpec:
 
     ``tail_reservoir_name`` captures PLEXOS's *Tail Storage* link when
     present — the downstream reservoir / junction the turbine
-    discharges into.  Used by the writer to synthesise a per-turbine
-    penstock with correct junctions when the PLEXOS spillway
-    (``Vert_*``) routes to a different downstream than the turbine
-    tailrace.
+    discharges into.  The writer emits the turbine in built-in waterway
+    mode (``junction_a`` = reservoir, ``junction_b`` = this tail) so the
+    turbine carries its own flow arc; terminal plants with no tail get
+    ``junction_a`` only and drain.
     """
 
     generator_name: str
@@ -528,6 +533,19 @@ class UserConstraintSpec:
     # ``block_count`` / ``block_layout`` (24-element daily patterns
     # are tiled by ``n_days`` upstream).
     rhs_profile: tuple[float, ...] = ()
+    # When ``True`` the constraint is a per-DAY budget: gtopt's
+    # ``UserConstraint.daily_sum`` switches the LP from the default
+    # one-row-per-block expansion to ONE row per 24 h day (the per-block
+    # terms accumulate into a running row flushed at each day boundary).
+    # Used for the PLEXOS ``RHS Day`` daily-energy budgets
+    # (``RALCOramp_max_e1/e2``, ``CANUTILLARreserve``).
+    daily_sum: bool = False
+    # gtopt ``UserConstraint.constraint_type``.  ``"energy"`` makes each
+    # block's contribution Δt-weighted (``coeff · Δt_b · col_b``) so a
+    # ``daily_sum`` LHS becomes a daily ENERGY sum ``Σ_day gen·Δt`` [MWh]
+    # matched against an energy budget [MWh].  Empty ⇒ gtopt default
+    # (unweighted per-block / per-day count).
+    constraint_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -589,6 +607,12 @@ class CommitmentSpec:
     initial_hours: float = 0.0  # signed: + hours up, - hours down
     ramp_up: float = 0.0  # MW/h
     ramp_down: float = 0.0  # MW/h
+    # Per-block ramp-up / ramp-down profiles (MW/h, length = bundle.n_days
+    # × 24) from the ``CFdata/CPF`` curves, carried only when the curve
+    # varies intra-horizon.  Emitted as gtopt ``Commitment.ramp_up`` /
+    # ``ramp_down`` TB schedules; empty → the scalar above is used.
+    ramp_up_profile: tuple[float, ...] = field(default_factory=tuple)
+    ramp_down_profile: tuple[float, ...] = field(default_factory=tuple)
     # PLEXOS ``Min Stable Level`` (MW per-unit, when committed) maps
     # to gtopt's ``Commitment.pmin`` — distinct from
     # ``Generator.pmin`` (always-on hard floor).  Per PLEXOS docs
@@ -667,6 +691,19 @@ class ReserveProvisionSpec:
     # provision rows for the same gen across types; the JSON name
     # becomes ``provision_<gen>_<type_tag>``.
     type_tag: str = "other"
+    # Per-block up / down provision-factor schedules (length =
+    # bundle.n_days × 24, p.u.).  Populated from ``SSCC_Activation_BESS.csv``
+    # for the synthetic ``<battery>_gen`` providers: the per-time-pattern
+    # ancillary-services activation fraction the BESS offers to each
+    # ``*_BESS`` reserve zone.  Empty → the writer emits the scalar 1.0
+    # default.  RS (raise) zones drive ``ur``; LW (lower) zones drive ``dr``.
+    ur_provision_factor_profile: tuple[float, ...] = field(default_factory=tuple)
+    dr_provision_factor_profile: tuple[float, ...] = field(default_factory=tuple)
+    # Optional explicit provision name (overrides the default
+    # ``provision_<generator_name>``).  Used by the SSCC BESS mapping to
+    # emit one provision per (battery, ``*_BESS`` zone) without colliding
+    # on the shared ``<battery>_gen`` generator name.
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -683,6 +720,33 @@ class BoundaryCutSpec:
 
     fcf: float
     slopes: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class UserConstraintStats:
+    """Provenance of the user-constraint conversion, for the comparison report.
+
+    Captures the funnel from raw PLEXOS ``Constraint`` objects to the
+    ``UserConstraintSpec`` set carried on the case, so the PLEXOS↔gtopt
+    comparison can attribute every lost constraint to a reason:
+
+    ``raw_plexos_constraints``
+        Number of PLEXOS ``Constraint`` objects in the bundle.
+    ``empty_lhs_dropped``
+        Constraints dropped during extraction because their LHS could not be
+        faithfully represented (no supported terms, or a partial form after
+        dropping unsupported coefficients).
+    ``hydro_synthesized`` / ``plant_cap_synthesized``
+        UserConstraints synthesised by the converter (hydro daily-ramp /
+        discharge rows; combined-cycle ``*_Uniq`` config-exclusivity caps)
+        that do not originate from a single PLEXOS ``Constraint`` object.
+    """
+
+    raw_plexos_constraints: int = 0
+    empty_lhs_dropped: int = 0
+    base_emitted: int = 0
+    hydro_synthesized: int = 0
+    plant_cap_synthesized: int = 0
 
 
 @dataclass(frozen=True)
@@ -716,3 +780,12 @@ class PlexosCase:
     # values (the SDDP terminal value function).  ``None`` when the
     # bundle ships no water-value file.
     boundary_cut: BoundaryCutSpec | None = None
+    # User-constraint conversion funnel (raw → dropped → synthesised), used
+    # by the PLEXOS↔gtopt comparison report.  ``None`` until populated by
+    # ``extract_case``.
+    uc_stats: UserConstraintStats | None = None
+    # Raw PLEXOS object counts per class (``len(db.objects_of_class(...))``),
+    # captured before extraction-time drops/demotions so the comparison can
+    # show a conversion drop funnel (e.g. Line 344 → 317 emitted).  Empty
+    # until populated by ``extract_case``.
+    raw_class_counts: dict[str, int] = field(default_factory=dict)

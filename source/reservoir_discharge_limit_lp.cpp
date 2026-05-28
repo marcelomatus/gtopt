@@ -45,10 +45,16 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto& waterway = sc.element<WaterwayLP>(waterway_sid());
+  // Flow source: either a classic Waterway's flow column (legacy
+  // Reservoir→Waterway topology) or a built-in waterway turbine's own flow
+  // column (the new ``Turbine.junction_a/b`` mode that subsumes the penstock).
+  // ReservoirDischargeLimit accepts ``waterway`` OR ``turbine`` (validated
+  // exactly-one-of in `validate_planning.cpp`).
+  const auto& flow_cols = uses_turbine()
+      ? sc.element<TurbineLP>(turbine_sid()).flow_cols_at(scenario, stage)
+      : sc.element<WaterwayLP>(waterway_sid()).flow_cols_at(scenario, stage);
   const auto& reservoir = sc.element<ReservoirLP>(reservoir_sid());
 
-  const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
   // Select initial segment based on reservoir initial volume

@@ -137,7 +137,7 @@ TEST_CASE("Waterway construction and default values")
   CHECK_FALSE(waterway.active.has_value());
 
   CHECK(waterway.junction_a == SingleId {unknown_uid});
-  CHECK(waterway.junction_b == SingleId {unknown_uid});
+  CHECK_FALSE(waterway.junction_b.has_value());  // OptSingleId default: empty
 
   CHECK_FALSE(waterway.capacity.has_value());
 
@@ -181,7 +181,8 @@ TEST_CASE("Waterway attribute assignment")
   CHECK(std::get<IntBool>(waterway.active.value()) == 1);
 
   CHECK(std::get<Uid>(waterway.junction_a) == Uid {101});
-  CHECK(std::get<Uid>(waterway.junction_b) == Uid {102});
+  REQUIRE(waterway.junction_b.has_value());
+  CHECK(std::get<Uid>(waterway.junction_b.value()) == Uid {102});
 
   CHECK(*std::get_if<Real>(&waterway.capacity.value()) == 1000.0);
   CHECK(*std::get_if<Real>(&waterway.lossfactor.value()) == 0.05);

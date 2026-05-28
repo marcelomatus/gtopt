@@ -820,6 +820,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 300.0
             avg_flow_m3s: float = 25.0
             avg_fcost: float = 406.0
+            total_gen_min_stable_mw: float = 18.0
+            total_reservoir_min_vol: float = 55.0
 
         fake = FakeIndicators()
         with patch(
@@ -842,6 +844,8 @@ class TestGtoptIndicators:
         assert result["total_water_volume_hm3"] == 300.0
         assert result["avg_flow_m3s"] == 25.0
         assert result["avg_fcost"] == 406.0
+        assert result["total_gen_min_stable_mw"] == 18.0
+        assert result["total_reservoir_min_vol"] == 55.0
 
     def test_base_dir_none(self) -> None:
         """base_dir=None is forwarded to compute_indicators."""
@@ -863,6 +867,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
             avg_fcost: float = 0.0
+            total_gen_min_stable_mw: float = 0.0
+            total_reservoir_min_vol: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -891,6 +897,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
             avg_fcost: float = 0.0
+            total_gen_min_stable_mw: float = 0.0
+            total_reservoir_min_vol: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -912,6 +920,8 @@ class TestGtoptIndicators:
             "total_water_volume_hm3",
             "avg_flow_m3s",
             "avg_fcost",
+            "total_gen_min_stable_mw",
+            "total_reservoir_min_vol",
         }
         assert set(result.keys()) == expected_keys
 

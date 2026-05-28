@@ -174,6 +174,223 @@ def test_extract_waterways(tmp_path: Path) -> None:
     assert ww.storage_to == "RES_B"
 
 
+# ---------------------------------------------------------------------------
+# Vert_*-referenced-by-UC keep-as-waterway behaviour (data-driven, not a
+# fixed allowlist).  See ``_vert_waterways_referenced_by_constraints`` and
+# the gated collapse branch in ``extract_waterways``.
+# ---------------------------------------------------------------------------
+
+_VERT_KEEP_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_class><class_id>9</class_id><name>Waterway</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>30</object_id><class_id>8</class_id><name>RES_KEEP</name></t_object>
+  <t_object><object_id>31</object_id><class_id>8</class_id><name>RES_DROP</name></t_object>
+  <t_object><object_id>40</object_id><class_id>9</class_id><name>Vert_KEEP</name></t_object>
+  <t_object><object_id>41</object_id><class_id>9</class_id><name>Vert_DROP</name></t_object>
+  <t_object><object_id>50</object_id><class_id>70</class_id><name>KEEPmin</name></t_object>
+  <t_collection>
+    <collection_id>93</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storages</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>104</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storage From</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>106</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>70</child_class_id>
+    <name>Constraints</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>520</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>521</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>31</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>540</membership_id>
+    <collection_id>104</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>541</membership_id>
+    <collection_id>104</collection_id>
+    <parent_object_id>41</parent_object_id>
+    <child_object_id>31</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>560</membership_id>
+    <collection_id>106</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>50</child_object_id>
+  </t_membership>
+</MasterDataSet>
+"""
+
+
+def test_vert_kept_when_referenced_by_userconstraint(tmp_path: Path) -> None:
+    """A ``Vert_*`` waterway referenced by some UserConstraint via a
+    ``Constraints`` membership must stay emitted as a real Waterway
+    (NOT collapsed onto Junction.drain), so the UC's
+    ``waterway("Vert_<X>").flow`` term has an LP column to bind to.
+
+    A second ``Vert_*`` with NO UC reference must still collapse onto
+    ``junction_drain_configs_out`` — proving the gate is data-driven,
+    not a fixed allowlist.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_VERT_KEEP_XML)
+    db = load_xml(xml_path)
+
+    junction_drain_configs: dict[str, dict[str, float | None]] = {}
+    waterways = extract_waterways(
+        db,
+        junction_drain_configs_out=junction_drain_configs,
+    )
+
+    names = {w.name for w in waterways}
+    # Vert_KEEP is UC-referenced → kept as Waterway, routed to ocean drain.
+    assert "Vert_KEEP" in names
+    kept = next(w for w in waterways if w.name == "Vert_KEEP")
+    assert kept.storage_from == "RES_KEEP"
+    assert kept.storage_to == "RES_KEEP_ocean"
+    # Vert_DROP has NO UC reference → collapsed away, source picks up
+    # a junction_drain_configs entry.
+    assert "Vert_DROP" not in names
+    assert "RES_DROP" in junction_drain_configs
+    # And the kept arc's source did NOT get a junction-drain entry (would
+    # be a double-drain bug).
+    assert "RES_KEEP" not in junction_drain_configs
+
+
+_VERT_CASCADE_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_class><class_id>9</class_id><name>Waterway</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>30</object_id><class_id>8</class_id><name>RES_UP</name></t_object>
+  <t_object><object_id>31</object_id><class_id>8</class_id><name>RES_DOWN</name></t_object>
+  <t_object><object_id>40</object_id><class_id>9</class_id><name>Vert_CASC</name></t_object>
+  <t_object><object_id>50</object_id><class_id>70</class_id><name>CASCmin</name></t_object>
+  <t_collection>
+    <collection_id>93</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storages</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>104</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storage From</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>105</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Storage To</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>106</collection_id>
+    <parent_class_id>9</parent_class_id>
+    <child_class_id>70</child_class_id>
+    <name>Constraints</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>520</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>521</membership_id>
+    <collection_id>93</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>31</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>540</membership_id>
+    <collection_id>104</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>541</membership_id>
+    <collection_id>105</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>31</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>560</membership_id>
+    <collection_id>106</collection_id>
+    <parent_object_id>40</parent_object_id>
+    <child_object_id>50</child_object_id>
+  </t_membership>
+</MasterDataSet>
+"""
+
+
+def test_vert_kept_arc_with_storage_to_routes_cascade(tmp_path: Path) -> None:
+    """A UC-referenced ``Vert_*`` that has a PLEXOS ``Storage To`` must
+    default to cascade routing (downstream reservoir), NOT ocean.
+
+    This is the topology-faithful default for kept arcs: PLEXOS routes
+    the spill into the next cascade reservoir (e.g.
+    ``Vert_PANGUE → ANGOSTURA``, ``Vert_B_Maule → COLBUN``), and the UC
+    physics depends on it (ocean-redirecting recoverable spill makes
+    the LP over-turbine the upstream station to meet a min-flow floor).
+    Sister terminal-arc behaviour is covered by
+    ``test_vert_kept_when_referenced_by_userconstraint`` (no Storage
+    To → falls back to ocean).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_VERT_CASCADE_XML)
+    db = load_xml(xml_path)
+
+    junction_drain_configs: dict[str, dict[str, float | None]] = {}
+    waterways = extract_waterways(
+        db,
+        junction_drain_configs_out=junction_drain_configs,
+    )
+    casc = next(w for w in waterways if w.name == "Vert_CASC")
+    # Cascade routing: keep PLEXOS-published Storage To, NOT _ocean.
+    assert casc.storage_from == "RES_UP"
+    assert casc.storage_to == "RES_DOWN"
+    # And no spurious ocean sink for the source either.
+    assert "RES_UP" not in junction_drain_configs
+
+
+def test_vert_waterways_referenced_by_constraints_helper(tmp_path: Path) -> None:
+    """``_vert_waterways_referenced_by_constraints`` returns exactly the
+    set of ``Vert_*`` names that appear as a parent in a ``Constraints``
+    membership."""
+    from plexos2gtopt.parsers import _vert_waterways_referenced_by_constraints
+
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_VERT_KEEP_XML)
+    db = load_xml(xml_path)
+
+    assert _vert_waterways_referenced_by_constraints(db) == frozenset({"Vert_KEEP"})
+
+
 def test_extract_junctions_mirror_reservoirs() -> None:
     """One Junction per Reservoir, same name."""
     reservoirs = (
@@ -360,6 +577,54 @@ def test_writer_turbine_array_links_gen_and_reservoir() -> None:
     assert out[0]["main_reservoir"] == "RES_A"
     assert out[0]["waterway"] == "ww_RES_A"
     assert out[0]["production_factor"] == 1.2
+
+
+def test_writer_turbine_builtin_waterway_emits_junctions() -> None:
+    """Built-in waterway mode (extra_waterways passed): the turbine carries
+    its own flow arc via junction_a/junction_b — no separate penstock
+    Waterway, no ``waterway`` field."""
+    waterways = (
+        WaterwaySpec(
+            object_id=1,
+            name="Vert_RES_A",  # spillway, not a turbine route
+            storage_from="RES_A",
+            storage_to="RES_B",
+        ),
+    )
+    turbines = (
+        TurbineSpec(
+            generator_name="HYDRO_GEN",
+            reservoir_name="RES_A",
+            production_factor=1.2,
+            tail_reservoir_name="RES_B",
+        ),
+    )
+    extra_ww: list[dict] = []
+    out = build_turbine_array(turbines, waterways, extra_waterways=extra_ww)
+    assert out[0]["junction_a"] == "RES_A"
+    assert out[0]["junction_b"] == "RES_B"
+    assert "waterway" not in out[0]
+    assert out[0]["production_factor"] == 1.2
+    # No penstock waterway clone is appended any more.
+    assert extra_ww == []
+
+
+def test_writer_terminal_turbine_drains_no_junction_b() -> None:
+    """A terminal turbine (no tail and no draining waterway) is emitted with
+    junction_a only — junction_b unset means the turbined flow drains out of
+    the system, with no synthesised ocean junction."""
+    turbines = (
+        TurbineSpec(
+            generator_name="TERMINAL_GEN",
+            reservoir_name="RES_SEA",
+            production_factor=2.0,
+        ),
+    )
+    out = build_turbine_array(turbines, (), extra_waterways=[])
+    assert len(out) == 1
+    assert out[0]["junction_a"] == "RES_SEA"
+    assert "junction_b" not in out[0]
+    assert "waterway" not in out[0]
 
 
 def test_writer_flow_array_shape() -> None:

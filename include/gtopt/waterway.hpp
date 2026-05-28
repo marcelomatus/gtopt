@@ -70,7 +70,12 @@ struct Waterway
                            ///< provenance)
 
   SingleId junction_a {unknown_uid};  ///< Upstream junction ID
-  SingleId junction_b {unknown_uid};  ///< Downstream junction ID
+  /// Downstream junction ID — OPTIONAL.  When unset the waterway acts as an
+  /// outflow: it debits ``junction_a`` and the carried flow drains out of the
+  /// modelled system (no downstream credit), so no synthetic ocean / sink
+  /// junction is required.  Mirrors ``Turbine.junction_b``'s built-in
+  /// waterway mode.
+  OptSingleId junction_b {};
 
   OptTRealFieldSched capacity {};  ///< Maximum flow capacity [m³/s]
   OptTRealFieldSched lossfactor {0.0};  ///< Transit loss coefficient [p.u.]

@@ -345,6 +345,16 @@ def check_unreferenced_elements(
             ref = fr.get(key)
             if ref is not None:
                 junc_referenced.add(ref)
+    # Turbines in built-in waterway mode carry their own flow arc between
+    # ``junction_a`` (intake) and ``junction_b`` (downstream; unset ⇒
+    # drained).  These are first-class junction references — without them a
+    # downstream/intake junction reached only via a turbine (no separate
+    # Waterway) is spuriously flagged as orphaned.
+    for turb in sys.get("turbine_array", []):
+        for key in ("junction_a", "junction_b"):
+            ref = turb.get(key)
+            if ref is not None:
+                junc_referenced.add(ref)
 
     for junc in sys.get("junction_array", []):
         uid = junc.get("uid")
@@ -358,7 +368,7 @@ def check_unreferenced_elements(
                     message=(
                         f"Junction '{label}' (uid={uid}) is not "
                         f"referenced by any waterway, flow, "
-                        f"reservoir, or flow_right"
+                        f"reservoir, turbine, or flow_right"
                     ),
                 )
             )

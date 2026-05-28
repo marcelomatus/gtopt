@@ -40,18 +40,27 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  if (junction_a_sid() == junction_b_sid()) {
-    return true;
-  }
-
+  // ``junction_b`` is OPTIONAL: when unset the waterway is an outflow,
+  // draining its carried flow out of the system at ``junction_a`` (no
+  // downstream credit, no synthetic ocean / sink junction needed).
+  // Mirrors ``Turbine.junction_b``'s built-in waterway drain mode.
   const auto& junction_a = sc.element<JunctionLP>(junction_a_sid());
-  const auto& junction_b = sc.element<JunctionLP>(junction_b_sid());
-  if (!junction_a.is_active(stage) || !junction_b.is_active(stage)) {
+  if (!junction_a.is_active(stage)) {
     return true;
   }
-
   const auto& balance_rows_a = junction_a.balance_rows_at(scenario, stage);
-  const auto& balance_rows_b = junction_b.balance_rows_at(scenario, stage);
+
+  const BIndexHolder<RowIndex>* balance_rows_b = nullptr;
+  if (has_junction_b()) {
+    if (junction_a_sid() == junction_b_sid()) {
+      return true;
+    }
+    const auto& junction_b = sc.element<JunctionLP>(junction_b_sid());
+    if (!junction_b.is_active(stage)) {
+      return true;
+    }
+    balance_rows_b = &junction_b.balance_rows_at(scenario, stage);
+  }
 
   const auto stage_capacity =
       capacity.at(stage.uid()).value_or(LinearProblem::DblMax);
@@ -78,10 +87,8 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     }
 
     const auto balance_row_a = balance_rows_a.at(buid);
-    const auto balance_row_b = balance_rows_b.at(buid);
 
     auto& brow_a = lp.row_at(balance_row_a);
-    auto& brow_b = lp.row_at(balance_row_b);
 
     //  adding flow variable
 
@@ -99,9 +106,13 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
 
     fcols[buid] = fc;
 
-    // adding flow to the junction balances, including the losses
+    // adding flow to the junction balances, including the losses.
+    // Outflow mode (``junction_b`` unset) skips the downstream credit so
+    // the water just leaves the system at ``junction_a``.
     brow_a[fc] = -1.0;
-    brow_b[fc] = 1.0 - stage_lossfactor;
+    if (balance_rows_b != nullptr) {
+      lp.row_at(balance_rows_b->at(buid))[fc] = 1.0 - stage_lossfactor;
+    }
   }
 
   // Conditional outer-key insertion (line_lp pattern, commit

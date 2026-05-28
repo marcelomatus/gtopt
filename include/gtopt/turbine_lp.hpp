@@ -13,6 +13,7 @@
 
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/junction_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/utils.hpp>
@@ -42,6 +43,8 @@ class TurbineLP : public ObjectLP<Turbine>
 public:
   static constexpr std::string_view ConversionName {"conversion"};
   static constexpr std::string_view CapacityName {"capacity"};
+  /// Name of the turbine-owned flow column emitted in built-in waterway mode.
+  static constexpr std::string_view FlowName {"flow"};
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context
@@ -59,6 +62,36 @@ public:
   [[nodiscard]] constexpr bool uses_flow() const noexcept
   {
     return turbine().flow.has_value();
+  }
+
+  /// @return Whether this turbine carries its own flow arc between junctions
+  /// (built-in waterway mode), enabled when `junction_a` is set.  In this mode
+  /// the turbine owns a flow column that debits `junction_a`, optionally
+  /// credits `junction_b` (when set), and converts the flow to power — no
+  /// separate Waterway element is needed.
+  [[nodiscard]] constexpr bool uses_junctions() const noexcept
+  {
+    return turbine().junction_a.has_value();
+  }
+
+  /// @return Whether the built-in waterway mode credits a downstream junction.
+  /// When false (junction_b unset), the turbined flow drains out of the system
+  /// — used for terminal (run-to-sea) plants.
+  [[nodiscard]] constexpr bool has_junction_b() const noexcept
+  {
+    return turbine().junction_b.has_value();
+  }
+
+  [[nodiscard]] auto junction_a_sid() const -> JunctionLPSId
+  {
+    return JunctionLPSId {require_sid(
+        turbine().junction_a, "TurbineLP::junction_a_sid", "junction_a")};
+  }
+
+  [[nodiscard]] auto junction_b_sid() const -> JunctionLPSId
+  {
+    return JunctionLPSId {require_sid(
+        turbine().junction_b, "TurbineLP::junction_b_sid", "junction_b")};
   }
 
   [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
@@ -105,6 +138,15 @@ public:
     return conversion_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /// Access the turbine-owned flow columns (built-in waterway mode) for a
+  /// (scenario, stage).  Returns an empty inner map when the turbine does not
+  /// use junctions or every block was elided by the zero-bound skip.
+  [[nodiscard]] const auto& flow_cols_at(const ScenarioLP& scenario,
+                                         const StageLP& stage) const
+  {
+    return find_or_empty_inner(flow_cols, scenario, stage);
+  }
+
 private:
   OptTRealSched production_factor;
   OptTRealSched efficiency;
@@ -112,6 +154,7 @@ private:
 
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;
+  STBIndexHolder<ColIndex> flow_cols;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

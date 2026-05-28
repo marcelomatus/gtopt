@@ -63,6 +63,32 @@ template<typename Elem>
       sid);
 }
 
+/// Check whether a SingleId names a synthetic ``<battery>_gen`` discharge
+/// generator that ``System::expand_batteries`` will materialise at LP-build
+/// time (it is absent from ``generator_array`` during pre-build validation).
+/// Only name-form ids can match; uid-form ids never name a synthetic gen.
+[[nodiscard]] inline auto synthetic_battery_gen_exists(
+    const SingleId& sid, const Array<Battery>& batteries) -> bool
+{
+  return std::visit(
+      [&batteries](const auto& val) -> bool
+      {
+        if constexpr (std::is_same_v<std::decay_t<decltype(val)>, Uid>) {
+          return false;
+        } else {
+          constexpr std::string_view suffix {"_gen"};
+          const std::string_view name {val};
+          if (!name.ends_with(suffix)) {
+            return false;
+          }
+          const auto base = name.substr(0, name.size() - suffix.size());
+          return std::ranges::any_of(
+              batteries, [&base](const auto& b) { return b.name == base; });
+        }
+      },
+      sid);
+}
+
 /// Validate that a SingleId field references a valid element.
 template<typename Elem>
 void check_ref(ValidationResult& result,
@@ -138,9 +164,33 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
                 "flow",
                 "Flow");
     }
-    if (!turb.waterway.has_value() && !turb.flow.has_value()) {
+    // Built-in waterway mode: the turbine carries its own flow arc
+    // between junction_a and (optionally) junction_b.  junction_a is the
+    // intake; junction_b, when present, is the downstream junction —
+    // unset means the turbined flow drains out of the system.
+    if (turb.junction_a.has_value()) {
+      check_ref(result,
+                turb.junction_a.value(),
+                sys.junction_array,
+                "Turbine",
+                turb.name,
+                "junction_a",
+                "Junction");
+    }
+    if (turb.junction_b.has_value()) {
+      check_ref(result,
+                turb.junction_b.value(),
+                sys.junction_array,
+                "Turbine",
+                turb.name,
+                "junction_b",
+                "Junction");
+    }
+    if (!turb.waterway.has_value() && !turb.flow.has_value()
+        && !turb.junction_a.has_value())
+    {
       result.errors.push_back(std::format(
-          "Turbine '{}' has neither a waterway nor a flow reference set "
+          "Turbine '{}' has none of waterway, flow or junction_a set "
           "(at least one is required to drive the water-to-power conversion)",
           turb.name));
     }
@@ -184,7 +234,9 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     }
   }
 
-  // Waterway.junction_a, junction_b -> Junction
+  // Waterway.junction_a -> Junction (required), .junction_b -> Junction
+  // (OPTIONAL: unset means outflow / drain mode — the flow leaves the
+  // system at junction_a, no downstream credit).
   for (const auto& ww : sys.waterway_array) {
     check_ref(result,
               ww.junction_a,
@@ -193,13 +245,15 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               ww.name,
               "junction_a",
               "Junction");
-    check_ref(result,
-              ww.junction_b,
-              sys.junction_array,
-              "Waterway",
-              ww.name,
-              "junction_b",
-              "Junction");
+    if (ww.junction_b.has_value()) {
+      check_ref(result,
+                ww.junction_b.value(),
+                sys.junction_array,
+                "Waterway",
+                ww.name,
+                "junction_b",
+                "Junction");
+    }
   }
 
   // Converter.battery -> Battery, generator -> Generator, demand -> Demand
@@ -322,13 +376,18 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
   // `reserve_zones` is an array of `ReserveZone` ids/names — each
   // entry must resolve.
   for (const auto& rp : sys.reserve_provision_array) {
-    check_ref(result,
-              rp.generator,
-              sys.generator_array,
-              "ReserveProvision",
-              rp.name,
-              "generator",
-              "Generator");
+    // Accept both real generators and the synthetic ``<battery>_gen``
+    // discharge generators created by ``expand_batteries`` (BESS reserve
+    // provision from ``SSCC_Activation_BESS.csv`` targets these).
+    if (!single_id_exists(rp.generator, sys.generator_array)
+        && !synthetic_battery_gen_exists(rp.generator, sys.battery_array))
+    {
+      result.errors.push_back(
+          std::format("ReserveProvision '{}': generator references "
+                      "non-existent Generator ({})",
+                      rp.name,
+                      format_single_id(rp.generator)));
+    }
     for (const auto& rz_id : rp.reserve_zones) {
       check_ref(result,
                 rz_id,
@@ -475,18 +534,41 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     }
   }
 
-  // ReservoirDischargeLimit.waterway -> Waterway, .reservoir -> Reservoir
-  // (both required).  The discharge-limit piecewise row binds the
-  // waterway's flow column to the reservoir's volume state — invalid
-  // FK on either side silently drops the constraint from the LP.
+  // ReservoirDischargeLimit: the flow source is exactly one of ``waterway``
+  // (classic Waterway flow column) or ``turbine`` (built-in waterway turbine
+  // owning its own flow column).  The discharge-limit piecewise row binds
+  // that flow to the reservoir's volume state, so neither set is meaningless
+  // and both set is ambiguous — flag both omissions.
   for (const auto& rdl : sys.reservoir_discharge_limit_array) {
-    check_ref(result,
-              rdl.waterway,
-              sys.waterway_array,
-              "ReservoirDischargeLimit",
-              rdl.name,
-              "waterway",
-              "Waterway");
+    if (rdl.waterway.has_value()) {
+      check_ref(result,
+                rdl.waterway.value(),
+                sys.waterway_array,
+                "ReservoirDischargeLimit",
+                rdl.name,
+                "waterway",
+                "Waterway");
+    }
+    if (rdl.turbine.has_value()) {
+      check_ref(result,
+                rdl.turbine.value(),
+                sys.turbine_array,
+                "ReservoirDischargeLimit",
+                rdl.name,
+                "turbine",
+                "Turbine");
+    }
+    if (!rdl.waterway.has_value() && !rdl.turbine.has_value()) {
+      result.errors.push_back(std::format(
+          "ReservoirDischargeLimit '{}' has neither a waterway nor a turbine "
+          "reference set (exactly one is required to bind the flow column)",
+          rdl.name));
+    } else if (rdl.waterway.has_value() && rdl.turbine.has_value()) {
+      result.errors.push_back(std::format(
+          "ReservoirDischargeLimit '{}' has both waterway and turbine set — "
+          "exactly one is required",
+          rdl.name));
+    }
     check_ref(result,
               rdl.reservoir,
               sys.reservoir_array,

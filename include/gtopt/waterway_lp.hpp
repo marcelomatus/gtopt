@@ -33,9 +33,19 @@ public:
   {
     return JunctionLPSId {waterway().junction_a};
   }
-  [[nodiscard]] constexpr auto junction_b_sid() const noexcept
+
+  /// @return Whether the waterway credits a downstream junction.  False
+  /// means outflow mode: the carried flow drains out of the system at
+  /// ``junction_a``, no synthetic ocean / sink junction needed.
+  [[nodiscard]] constexpr bool has_junction_b() const noexcept
   {
-    return JunctionLPSId {waterway().junction_b};
+    return waterway().junction_b.has_value();
+  }
+
+  [[nodiscard]] auto junction_b_sid() const -> JunctionLPSId
+  {
+    return JunctionLPSId {require_sid(
+        waterway().junction_b, "WaterwayLP::junction_b_sid", "junction_b")};
   }
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,

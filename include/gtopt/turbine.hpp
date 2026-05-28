@@ -115,6 +115,15 @@ struct Turbine
   OptSingleId
       waterway {};  ///< ID of the connected waterway (optional if flow set)
   OptSingleId flow {};  ///< ID of the connected flow (alternative to waterway)
+  // Built-in waterway mode: when ``junction_a`` is set the turbine carries
+  // its own flow arc (no separate Waterway needed) — it owns a flow column
+  // that debits ``junction_a`` and credits ``junction_b``, converting the
+  // flow to power.  ``junction_b`` is OPTIONAL: when unset the turbined flow
+  // is drained (leaves the system), which models terminal (run-to-sea) hydro
+  // plants without a synthesised ocean junction.
+  OptSingleId junction_a {};  ///< Upstream (intake) junction — enables the
+                              ///< built-in waterway mode when set.
+  OptSingleId junction_b {};  ///< Downstream junction; unset ⇒ drain to ocean.
   SingleId generator {
       unknown_uid};  ///< ID of the connected electrical generator
 

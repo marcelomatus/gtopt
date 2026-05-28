@@ -20,7 +20,7 @@ TEST_CASE("ReservoirDischargeLimit construction and default values")
   CHECK(ddl.name == Name {});
   CHECK_FALSE(ddl.active.has_value());
 
-  CHECK(ddl.waterway == SingleId {unknown_uid});
+  CHECK_FALSE(ddl.waterway.has_value());  // default: empty OptSingleId
   CHECK(ddl.reservoir == SingleId {unknown_uid});
   CHECK(ddl.segments.empty());
 }
@@ -44,7 +44,8 @@ TEST_CASE("ReservoirDischargeLimit attribute assignment")
   CHECK(ddl.uid == 1);
   CHECK(ddl.name == "ddl_ralco");
   CHECK(std::get<IntBool>(ddl.active.value()) == 1);
-  CHECK(std::get<Uid>(ddl.waterway) == Uid {10});
+  REQUIRE(ddl.waterway.has_value());
+  CHECK(std::get<Uid>(ddl.waterway.value()) == Uid {10});
   CHECK(std::get<Uid>(ddl.reservoir) == Uid {20});
   REQUIRE(ddl.segments.size() == 2);
   CHECK(ddl.segments[0].volume == doctest::Approx(0.0));
