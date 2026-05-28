@@ -297,7 +297,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             bundle.accdb_path = resolved_accdb
             bundle.accdb_cache_dir = cache_dir
 
-        case = extract_case(bundle)
+        case = extract_case(bundle, lax_uc_refs=bool(options.get("lax_uc_refs")))
         # The block layout (if any) rides on the bundle_spec so the
         # writer can pick it up.  ``extract_case`` already populated
         # the bundle_spec; we patch the layout in.

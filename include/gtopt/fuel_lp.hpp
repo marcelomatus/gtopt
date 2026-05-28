@@ -46,6 +46,25 @@ public:
   /// LP row / col name constants (snake_case for output filenames).
   static constexpr std::string_view MaxOfftakeName {"max_offtake"};
   static constexpr std::string_view MaxOfftakeSlackName {"max_offtake_slack"};
+  /// Per-(scenario, stage, block) fuel offtake decision variable
+  /// ``Y_f[b] = Σ_g heat_rate_g · dur_b · generation_g[b]`` exposed to
+  /// PAMPL as ``fuel("X").offtake``.  Lets PLEXOS ``Offtake
+  /// Coefficient`` UCs (``Gas_MaxOpDay*``, ``FueMaxOff*``) translate
+  /// verbatim instead of via per-generator expansion.  See
+  /// ``add_to_lp`` for the binding equation.  Note: the DV is created
+  /// only when at least one generator consumes the fuel at the
+  /// (scenario, stage); fuels with no active consumers do not register
+  /// the AMPL attribute, so UC references to ``fuel(X).offtake`` for
+  /// such fuels currently trip the strict resolver — see the
+  /// ``GTOPT_USE_FUEL_OFFTAKE`` gate in plexos2gtopt/parsers.py and
+  /// the matching TODO at the top of FuelLP::add_to_lp.
+  static constexpr std::string_view OfftakeName {"offtake"};
+  /// LP row name for the offtake binding equation
+  /// ``Y_f[b] − Σ heat_rate_g · dur_b · gen_g[b] = 0``.  Hidden from
+  /// the dual / row-name index (it's just a definition row, not a
+  /// physical constraint), but emitted with this label for LP-debug
+  /// clarity.
+  static constexpr std::string_view OfftakeDefName {"offtake_def"};
 
   explicit FuelLP(const Fuel& fuel, const InputContext& ic);
 
@@ -111,6 +130,13 @@ private:
   /// stage duration.
   STBIndexHolder<RowIndex> max_offtake_block_rows_;
   STBIndexHolder<ColIndex> max_offtake_block_slack_cols_;
+
+  /// Per-(scenario, stage, block) offtake decision variable
+  /// ``Y_f[b]``.  Populated only for cells where at least one
+  /// generator consuming this fuel is active at the block — exposed
+  /// to PAMPL as ``fuel("X").offtake`` so UCs can reference it
+  /// directly.
+  STBIndexHolder<ColIndex> offtake_cols_;
 };
 
 /// SingleId-style reference into `Collection<FuelLP>`.  Used by

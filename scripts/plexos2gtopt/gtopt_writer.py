@@ -55,6 +55,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_BLOCK_COUNT = 24
 DEFAULT_BLOCK_DURATION_H = 1.0
 
+# Single objective-scale knob driving both ``model_options.scale_objective``
+# (LP objective coefficient divisor — gtopt divides every cost by this so
+# the backend sees physical-cost / scale) AND the FCF ``alpha_fcf`` column
+# scale ``_FCF_SCALE_ALPHA`` (objective coefficient on the alpha column,
+# which carries ``future_cost / scale_alpha`` in physical terms).  Keeping
+# the two in sync at 1000 means the alpha column's LP cost matches the
+# rest of the objective's scaling regime — same gradient magnitude across
+# every cost term, no asymmetric kappa contribution from a tiny alpha
+# coefficient.  Tunable in one place; both downstream emissions read it.
+_DEFAULT_OBJ_SCALE = 1000.0
+
 # Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
 # Each soft-capped line gets a FREE band up to ``normal × rating`` and the
 # ``_LINE_OVERLOAD_PENALTY`` $/MWh only on flow between ``normal × rating``
@@ -128,7 +139,7 @@ def build_options(
         "model_options": {
             "use_single_bus": use_single_bus,
             "use_kirchhoff": not use_single_bus,
-            "scale_objective": 1000,
+            "scale_objective": _DEFAULT_OBJ_SCALE,
             "demand_fail_cost": demand_fail_cost,
         },
         # Enable the backend solver log by default.  Two knobs are
@@ -990,6 +1001,47 @@ def build_line_array(
                 # is gtopt's default) to keep the JSON minimal.
                 if layout != "uniform":
                     entry["loss_pwl_layout"] = layout
+                # Pin ``loss_envelope`` to the line's ORIGINAL rating
+                # whenever it wasn't already set by the soft-cap block
+                # above.  Without this, ``line_losses.cpp`` falls back
+                # to a default envelope (~ ``tmax × 2``) which spreads
+                # the K loss segments across DOUBLE the realistic
+                # loading band → each segment under-resolves I²R losses
+                # near the rated point → the LP picks a flow pattern
+                # that over-counts losses on every high-capacity 500 kV
+                # backbone line.  Regression history: the
+                # ``project_loss_model_midpoint_envelope`` memory recorded
+                # ``K5 midpoint+envelope → losses −4 % vs PLEXOS``, but
+                # the K-sweep shows +19-29 % once this envelope is
+                # missing on the 119 non-soft-capped lines (the entire
+                # 500 kV mesh + key 220 kV transformers).
+                if "loss_envelope" not in entry:
+
+                    def _peak_tmax(v: Any) -> float:
+                        """Peak rating across scalar OR DLR-profile tmax
+                        (matches the soft-cap block's ``_scalar_max``
+                        helper above): keep the highest value the line
+                        is ever rated for so the loss-PWL envelope
+                        covers the realistic loading band uniformly."""
+                        if isinstance(v, (int, float)):
+                            return float(v)
+                        if isinstance(v, list):
+                            try:
+                                return max(
+                                    (float(x) for row in v for x in row),
+                                    default=0.0,
+                                )
+                            except TypeError:
+                                # 1-D list (no outer brackets)
+                                return max((float(x) for x in v), default=0.0)
+                        return 0.0
+
+                    env = max(
+                        _peak_tmax(entry.get("tmax_ab", 0.0)),
+                        _peak_tmax(entry.get("tmax_ba", 0.0)),
+                    )
+                    if env > 0.0:
+                        entry["loss_envelope"] = env
         # PLEXOS Wheeling Charge ($/MWh) → gtopt Line.tcost.
         if line.wheeling_charge > 0.0:
             entry["tcost"] = line.wheeling_charge
@@ -2562,15 +2614,15 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
 # (1 / 1e3 / 1e6 …).  Independent of the α-rebase shift (``obj_constant``
 # and the cut RHS do not depend on ``scale_alpha``).
 #
-# DEFAULT = 1.0.  An LP-relax scan on the CEN PCP daily bundle
-# (DATOS20260422, K8 uniform, full UC) showed ``scale_alpha`` is a pure
-# reparametrization for 1 and 1e3 (identical optimum $956,155,053, ~85 s,
-# kappa ~1.1e9), but **1e6 BREAKS the solve** — the 1e6 coefficient on the
-# α column wrecks barrier conditioning and CPLEX aborts in 0.28 s with a
-# garbage objective ($1.33B, status=unknown).  The old default 1e6 thus
-# produced an unsolvable LP out of the box; 1.0 solves cleanly and gives the
-# correct optimum.
-_FCF_SCALE_ALPHA = 1.0
+# DEFAULT = ``_DEFAULT_OBJ_SCALE`` (1000) so the alpha column shares the
+# same scaling regime as ``scale_objective``.  Earlier LP-relax scans
+# (DATOS20260422, K8 uniform, full UC) showed the reparametrization is
+# benign for 1 ↔ 1e3 (identical optimum $956,155,053, ~85 s, kappa
+# ~1.1e9); 1e6 BREAKS the solve (CPLEX aborts with garbage objective).
+# Tying alpha to scale_objective keeps the LP coefficient on alpha
+# matched to the rest of the objective — no asymmetric gradient
+# magnitude that could degrade barrier conditioning.
+_FCF_SCALE_ALPHA = _DEFAULT_OBJ_SCALE
 
 
 def build_fcf_alpha_terms(

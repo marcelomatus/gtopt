@@ -4669,35 +4669,69 @@ _DAILY_ENERGY_RHS_SCALE = 1000.0
 
 
 #: PLEXOS encodes "this SD_* line-security contingency is INACTIVE today" as an
-#: undated base RHS at a no-limit sentinel (100000 MW — no CEN line flow nears
-#: 100 GW), only overridden by dated rows on the specific contingency dates.
-#: When the run date hits no override the active RHS is this sentinel, so the
-#: constraint is inert (never binds, in gtopt OR PLEXOS); emitting it only
-#: wrecks LP conditioning (kappa).  Pure-line-flow constraints at/above it are
-#: dropped (see :func:`_is_nolimit_line_sentinel`).
-_SD_NOLIMIT_RHS_SENTINEL = 100000.0
+#: undated base RHS at a no-limit sentinel — a value far above any real flow
+#: the constraint's lines could carry.  Two magnitudes are observed in
+#: practice (CEN PCP 2026-04-22 audit):
+#:
+#:   * ``100000`` MW — the "hard sentinel" used by ~50 % of contingency rows;
+#:     no CEN line carries 100 GW
+#:   * ``10000`` MW — the "soft sentinel" used by 259 pure-line-flow rows
+#:     (``2024122225_Changos_*``, ``SD_2025126719_*``, ``SDCF_Rx*``, …); even
+#:     when summed across multiple parallel lines (typical pattern
+#:     ``0.5 × flow_A + 0.5 × flow_B ≤ 10000``) the LHS peaks well below 10 GW
+#:
+#: Both magnitudes share the same semantics: when the run date hits no dated
+#: override the active RHS is this sentinel, so the constraint is inert (never
+#: binds, in gtopt OR PLEXOS); emitting it only wrecks LP conditioning (kappa).
+#: Pure-line-flow constraints at/above ``_SD_NOLIMIT_RHS_SENTINEL`` are
+#: emitted as inactive stubs (see :func:`_is_nolimit_line_sentinel` and the
+#: Fix 6 inactive-stub path).
+_SD_NOLIMIT_RHS_SENTINEL = 10000.0
+
+
+#: LHS variable kinds that may appear in a sentinel-pattern constraint —
+#: all represent physical MW magnitudes that a 10000 / 100000 MW aggregate
+#: cap cannot bind on.  Anything else in the LHS (commitment binaries,
+#: user decision variables, fuel offtake in fuel units) signals real
+#: structural semantics that the sentinel heuristic must not steamroll.
+_SENTINEL_MW_KINDS = ("line(", "generator(", "reserve_provision(", "battery(")
+_SENTINEL_NON_MW_KINDS = (
+    "commitment(",
+    "decision_variable(",
+    "fuel(",
+)
 
 
 def _is_nolimit_line_sentinel(expression: str, rhs_val: float) -> bool:
-    """True for a PURE line-flow constraint whose RHS is the no-limit sentinel.
+    """True for an MW-aggregate constraint at the no-limit sentinel.
 
-    Restricted to expressions that reference ONLY ``line(...)`` terms (no
-    generator / commitment / battery / reserve / decision-variable terms) so a
-    big RHS on a mixed constraint is never mistaken for the line-security
-    sentinel.  Such a constraint never binds (no real line flow approaches
-    ``_SD_NOLIMIT_RHS_SENTINEL`` MW) and is dropped to keep the LP
-    well-conditioned — which also matches PLEXOS (it isn't enforcing the
-    contingency on the run date).
+    The LHS must reference ONLY MW-magnitude terms (``line(...).flow``,
+    ``generator(...).generation``, ``reserve_provision(...).up/.dn``,
+    ``battery(...).charge/.discharge``) — any commitment binary, user
+    decision variable, or fuel-offtake term signals real structural
+    semantics and bypasses the sentinel check.
+
+    Catches both the ``100000`` "hard sentinel" and the ``10000`` "soft
+    sentinel" (the lowest sentinel triggers, so the threshold is
+    ``_SD_NOLIMIT_RHS_SENTINEL``).  CEN PCP families:
+      * 259 pure-line-flow rows (``SD_*``, ``SDCF_Rx*``, ``2024122225_*``)
+      * ~30 pure-generator corridor-flow-proxy rows (``Gx_Colbun_Ancoa``,
+        ``Gx_Pehuenche_Ancoa``, ``ANGmax``, ``Itahue_Cip`` …)
+      * 20 mixed gen+reserve_provision aggregates (``KELAR_Max_Operativo``,
+        ``ATA_Max_Operativo`` …)  pattern ``Σ gen + 2 Σ provision ≤ 10000``
+
+    A legitimate cap at 10 GW is not realistic on any CEN single line,
+    plant portfolio, or reserve aggregate; emitting these as inactive
+    stubs (Fix 6 path) matches PLEXOS, which isn't enforcing them on
+    the run date.
     """
-    pure_line_flow = (
-        "line(" in expression
-        and "generator(" not in expression
-        and "commitment(" not in expression
-        and "battery(" not in expression
-        and "reserve_provision(" not in expression
-        and "decision_variable(" not in expression
-    )
-    return pure_line_flow and abs(rhs_val) >= _SD_NOLIMIT_RHS_SENTINEL
+    if any(kind in expression for kind in _SENTINEL_NON_MW_KINDS):
+        return False
+    # Must reference AT LEAST ONE MW kind (an expression with no
+    # variable terms at all is not a sentinel — likely a parser bug).
+    if not any(kind in expression for kind in _SENTINEL_MW_KINDS):
+        return False
+    return abs(rhs_val) >= _SD_NOLIMIT_RHS_SENTINEL
 
 
 def extract_user_constraints(
@@ -4712,6 +4746,7 @@ def extract_user_constraints(
     always_on_gens: frozenset[str] | None = None,
     unusable_provisions: frozenset[str] | None = None,
     stats_out: dict[str, int] | None = None,
+    lax_refs: bool = False,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -5036,6 +5071,26 @@ def extract_user_constraints(
     if _bundle.has("Hydro_MaxRampDay.csv"):
         ramp_day_rhs = _parse_hydro_maxrampday_csv(_bundle.csv("Hydro_MaxRampDay.csv"))
     for constr in constraints:
+        # Fix 6: per-constraint counter of LHS terms silently dropped
+        # because their physical contribution is provably zero at this
+        # run date.  Three categories funnel into this counter:
+        #   * shadow Lines with ``Lin_Units=0`` all-horizon (Fix 3 —
+        #     the PLEXOS contingency state is inactive),
+        #   * fully-offline Generators (``pmax == 0`` and ``pmax_profile``
+        #     absent or all-zero — gtopt never materialises a generation
+        #     column for them, but the term mathematically contributes
+        #     ``coeff × 0 = 0`` to the LHS),
+        #   * ``Fuel.Offtake`` terms whose fuel has no consuming
+        #     generators in the emitted set (Σ over zero gens = 0).
+        # When EVERY LHS term lands in one of these three buckets, the
+        # constraint reduces to ``0 <op> rhs`` at this run date.
+        # Previously dropped at the empty-LHS guard, which left
+        # spurious gaps in the PLEXOS-sol → gtopt audit.  Now emit an
+        # inactive stub (``0 <op> 0``) carrying the PLEXOS name + a
+        # description noting the no-op cause, so the bundle preserves
+        # provenance and the constraint can be re-activated in a
+        # follow-up run where the contingency / gens come online.
+        silent_zero_drops = 0
         mid = sys_mid_by_constr.get(constr.object_id)
         if mid is None:
             continue
@@ -5097,6 +5152,21 @@ def extract_user_constraints(
         ramp_day_present = bool(ramp_day_rhs.get(constr.name))
         if rhs_val is None and ramp_day_present:
             rhs_val = ramp_day_rhs[constr.name][0]
+        # PLEXOS default for unset ``Sense`` (verified on CEN PCP
+        # 2026-04-22): 62 constraints carry ``RHS=0`` with no explicit
+        # Sense — PLEXOS evaluates these as equality (``=``).  Affected
+        # families: ``_ConfTGA*`` / ``_ConfTGB*`` / ``_ConfTV`` plant-
+        # config linking (ATA / KELAR / NEHUENCO / SANISIDRO / CANDELARIA
+        # / MEJILLONES / QUINTERO / TALTAL — 24 total),
+        # ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP`` battery-reserve
+        # composition (10), ``*_CPF_Simmetry`` regulation-reserve
+        # symmetry (10), ``Inertia_Calculation_e*`` (2) and other
+        # equality-form internals (16).  Previously dropped at this
+        # guard → ATA / KELAR / NEHUENCO / SANISIDRO mutex broken →
+        # multiple plant configs committed simultaneously (e.g. 14
+        # ATA configs in every block of mip_v2).
+        if sense_val is None and rhs_val is not None:
+            sense_val = 0.0  # PLEXOS default: equality
         if sense_val is None or rhs_val is None:
             continue
         op = _SENSE_OP.get(sense_val)
@@ -5201,6 +5271,47 @@ def extract_user_constraints(
                                 )
                                 coefficients.append(coeff)
                             continue
+                    # Fix 5 (PLEXOS ``BAT_*_AUX`` virtual buffer): the
+                    # converter drops PLEXOS's auxiliary battery
+                    # modeling artifacts (``BAT_DEL_DESIERTO_AUX``,
+                    # ``BAT_TOCOPILLA_AUX``, ``BAT_MANZANO_FV_AUX``,
+                    # ``BAT_DON_HUMBERTO_FV_AUX``,
+                    # ``BAT_LA_CABANA_EO_AUX`` — see the ``_AUX``
+                    # filter at extract_batteries:1870), since gtopt
+                    # models a single battery covering both energy
+                    # dispatch + reserve provision.  But PLEXOS's
+                    # ``BAT_<name>_CF_GEN_COMP`` / ``CF_LOAD_COMP``
+                    # reserve-flow composition constraints reference
+                    # the AUX battery's discharge / charge in their
+                    # LHS.  Redirect the term to the main battery
+                    # (``BAT_<name>_AUX`` → ``BAT_<name>``) when the
+                    # main is emitted — this preserves the
+                    # composition equation against the single
+                    # battery's dispatch column, the closest gtopt
+                    # equivalent of PLEXOS's two-battery model.
+                    if (
+                        parent_class == "Battery"
+                        and parent_missing
+                        and parent_name.endswith("_AUX")
+                    ):
+                        main_name = parent_name[:-4]
+                        if allowed_parent is not None and main_name in allowed_parent:
+                            redirected_ref = name_tmpl.format(name=main_name)
+                            terms.append(
+                                _format_coefficient(coeff, first=not terms)
+                                + f'{gtopt_class}("{redirected_ref}").{accessor}'
+                            )
+                            coefficients.append(coeff)
+                            logger.debug(
+                                "constraint %s: redirected dropped "
+                                "auxiliary battery '%s' → '%s' (main "
+                                "battery handles dispatch + reserves in "
+                                "gtopt's single-battery model)",
+                                constr.name,
+                                parent_name,
+                                main_name,
+                            )
+                            continue
                     # Fix 3 (PLEXOS contingency-state shadow Lines): when a
                     # Line term references a parent whose ``Lin_Units.csv``
                     # profile is all-zero across the horizon, PLEXOS itself
@@ -5221,6 +5332,7 @@ def extract_user_constraints(
                         and shadow_lines_all_off is not None
                         and parent_name in shadow_lines_all_off
                     ):
+                        silent_zero_drops += 1
                         logger.debug(
                             "constraint %s: dropping term for shadow Line "
                             "'%s' (Lin_Units=0 all-horizon, PLEXOS "
@@ -5332,6 +5444,7 @@ def extract_user_constraints(
                         p > 0.0 for p in profile
                     )
                     if pmax == 0.0 and profile_all_zero:
+                        silent_zero_drops += 1
                         logger.debug(
                             "constraint %s: dropping term for fully-"
                             "offline generator '%s' (pmax=0, no/all-zero "
@@ -5393,20 +5506,59 @@ def extract_user_constraints(
             emitted_names.get("Generator") if emitted_names is not None else None
         )
         is_fuel_offtake = False
+        # PLEXOS ``Offtake Coefficient`` UCs translate verbatim as
+        # ``α × fuel("<name>").offtake`` using gtopt's native FuelLP
+        # offtake decision variable (per-block ``Y_f[b]`` bound by
+        # ``Y_f − Σ hr·dur·gen = 0`` — see source/fuel_lp.cpp).  This
+        # replaces the earlier per-generator expansion
+        # ``Σ_g α·hr_g·gen_g``: same physics, ONE LHS term instead of
+        # N, the coefficient is the PLEXOS one (no heat-rate baked in),
+        # and the offline-gen leniency lives in FuelLP::add_to_lp's
+        # ``is_active(stage)`` + ``hr <= 0`` guards rather than being
+        # duplicated here.  When emitted_names is supplied AND the fuel
+        # is absent from it (rare — happens if extract_fuels skipped
+        # the fuel for some reason), fall through to the legacy per-gen
+        # expansion so the constraint still gets emitted.
+        allowed_fuels = emitted_names.get("Fuel") if emitted_names is not None else None
+        # Modern ``α × fuel(name).offtake`` emission is gated OFF by
+        # default pending a gtopt-side bug fix: FuelLP::add_to_lp
+        # registers the offtake LP column conditionally on
+        # ``gen.is_active(stage)`` + ``hr > 0`` + ``gcols.find(buid)``,
+        # which leaves some fuel/(stage, block) cells without a
+        # column even though gens consume the fuel.  The strict UC
+        # resolver then errors "unknown attribute 'offtake' on fuel
+        # 'X'" at LP-build time.  Set env ``GTOPT_USE_FUEL_OFFTAKE=1``
+        # to opt back in once the FuelLP edge case is resolved
+        # (test_fuel_offtake.cpp already covers the simple cases).
+        import os as _os_fuel
+
+        _use_fuel_offtake = _os_fuel.environ.get(
+            "GTOPT_USE_FUEL_OFFTAKE", ""
+        ).strip() in ("1", "true", "yes")
         for fuel_name, alpha in fuel_offtake_index.get(constr.object_id, ()):
+            if _use_fuel_offtake and (
+                allowed_fuels is None or fuel_name in allowed_fuels
+            ):
+                # Modern path: single ``α × fuel(name).offtake`` term.
+                # Filter fuels with NO emitted consumers (FuelLP early-exit).
+                consuming = fuel_to_gens.get(fuel_name, ())
+                if allowed_gens is not None:
+                    consuming = [g for g in consuming if g in allowed_gens]
+                if not consuming:
+                    silent_zero_drops += 1
+                    continue
+                var_ref = f'fuel("{fuel_name}").offtake'
+                terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
+                coefficients.append(alpha)
+                is_fuel_offtake = True
+                continue
+            # Legacy per-gen expansion (default — see env var above).
             for gen_name in fuel_to_gens.get(fuel_name, ()):
                 if allowed_gens is not None and gen_name not in allowed_gens:
                     continue
                 hr = gen_heat_rate.get(gen_name, 0.0)
                 if hr == 0.0:
                     continue
-                # Fix 5 (symmetric with the direct-coefficient path):
-                # fully-offline gens with ``pmax == 0`` and no/all-zero
-                # ``pmax_profile`` produce ``.generation = 0`` in PLEXOS,
-                # but gtopt's resolver throws because the per-block
-                # column was never materialised.  Skip the term
-                # (``coeff × 0 = 0`` is the same arithmetic).  Only
-                # active when the caller supplies ``pmax_by_gen``.
                 if pmax_by_gen is not None:
                     pmax = gen_pmax_by_name.get(gen_name, 0.0)
                     profile = gen_pmax_profiles.get(gen_name)
@@ -5414,6 +5566,13 @@ def extract_user_constraints(
                         p > 0.0 for p in profile
                     )
                     if pmax == 0.0 and profile_all_zero:
+                        # Symmetric with the direct-coefficient offline-gen
+                        # drop (Fix 5): increment silent_zero_drops so the
+                        # Fix 6 inactive-stub path catches the constraint
+                        # when EVERY consuming gen lands offline (e.g.
+                        # ``Gas_MaxOpDay*_Colbun_GNL_INF`` references the
+                        # ``_INF`` infinity tier whose gens have pmax=0).
+                        silent_zero_drops += 1
                         logger.debug(
                             "constraint %s: dropping fuel-offtake term "
                             "for fully-offline generator '%s' "
@@ -5655,6 +5814,42 @@ def extract_user_constraints(
         # Continue assembling this constraint normally so the error path
         # can still surface its surviving terms in context if needed.
         if not terms:
+            # Fix 6: no-op-constraint rescue.  When every LHS term was
+            # silently dropped because its physical contribution is
+            # provably zero at this run date (see ``silent_zero_drops``
+            # for the three drop categories: shadow Lines, fully-
+            # offline Generators, Fuel-offtake with no consuming gens),
+            # the constraint reduces to ``0 <op> rhs`` and is
+            # mathematically a no-op.  Emit a trivial inactive stub
+            # (``0 <op> 0``) so the constraint name shows up in the
+            # bundle, the PLEXOS-sol → gtopt audit lines up (no
+            # spurious "missing"), and a follow-up run where the
+            # zeroed elements come online can simply flip
+            # ``active=True`` without re-emitting.
+            if silent_zero_drops > 0 and sense_val is not None:
+                stub_op = _SENSE_OP.get(sense_val, "<=")
+                stub_expr = f"0 {stub_op} 0"
+                out.append(
+                    UserConstraintSpec(
+                        name=constr.name,
+                        expression=stub_expr,
+                        penalty=0.0,
+                        active=False,
+                        description=(
+                            f"PLEXOS Constraint '{constr.name}': all "
+                            f"{silent_zero_drops} LHS term(s) provably "
+                            "contribute 0 at this run date (shadow Lines "
+                            "with Lin_Units=0, fully-offline Generators, "
+                            "or Fuel.offtake terms with no consuming "
+                            "generators).  Emitted as an inactive stub to "
+                            "preserve provenance; a follow-up run where "
+                            "the zeroed elements come online can flip "
+                            "active=True and restore the real LHS.  "
+                            f"(File: {_uc_source_file})"
+                        ),
+                    )
+                )
+                continue
             lhs_dropped += 1
             continue
         # If ANY term was unsupported, skip the entire constraint
@@ -5880,17 +6075,41 @@ def extract_user_constraints(
             )
             if not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
-        # Drop no-limit-sentinel line-security constraints (SD_* etc.) — a
+        # No-limit-sentinel line-security constraints (SD_* etc.) — a
         # PURE line-flow constraint at the 100000 "contingency off" sentinel
-        # is inert and only wrecks LP conditioning (see helper docstring).
+        # is inert.  Emit as an inactive stub instead of silently dropping,
+        # so the PLEXOS-sol → gtopt audit lines them up (PLEXOS exercises
+        # them in its solution DB even though they're no-ops today).  See
+        # ``_is_nolimit_line_sentinel`` for the detection logic.  When the
+        # contingency flips active in a future run, plexos2gtopt re-reads
+        # the t_data and an effective RHS below the sentinel emits the
+        # real constraint.
         if _is_nolimit_line_sentinel(expression, rhs_val):
             sd_sentinel_dropped += 1
             logger.debug(
-                "dropping no-limit line-security constraint %s "
-                "(RHS=%g >= %g sentinel; PLEXOS contingency inactive today)",
+                "emitting no-limit line-security constraint %s as inactive "
+                "stub (RHS=%g >= %g sentinel; PLEXOS contingency inactive today)",
                 constr.name,
                 rhs_val,
                 _SD_NOLIMIT_RHS_SENTINEL,
+            )
+            stub_op = _SENSE_OP.get(sense_val, "<=")
+            out.append(
+                UserConstraintSpec(
+                    name=constr.name,
+                    expression=f"0 {stub_op} 0",
+                    penalty=0.0,
+                    active=False,
+                    description=(
+                        f"PLEXOS Constraint '{constr.name}': pure-line-flow "
+                        f"constraint with RHS={rhs_val:g} ≥ "
+                        f"{_SD_NOLIMIT_RHS_SENTINEL:g} sentinel (contingency "
+                        "inactive at this run date).  Inactive stub keeps "
+                        "the LP well-conditioned while preserving the "
+                        "constraint name for audit / follow-up activation.  "
+                        f"(File: {_uc_source_file})"
+                    ),
+                )
             )
             continue
         out.append(
@@ -5944,12 +6163,34 @@ def extract_user_constraints(
                 if close:
                     hint = f"  (closest emitted name: {close[0]!r})"
             lines.append(f"  - constraint {constr_name!r}: {ref_expr}{hint}")
-        raise UnresolvedConstraintReferenceError(
+        msg = (
             f"{len(unresolved_refs)} UserConstraint term(s) reference "
             "element name(s) that gtopt never emits — refusing to write a "
             "bundle with dangling references.  Fix the source data or the "
             "name mapping; do NOT silently drop these terms:\n" + "\n".join(lines)
         )
+        if lax_refs:
+            # Lax mode (``--lax-uc-refs``): downgrade the fail-hard to a
+            # warning + per-term silent drop.  Used for debugging /
+            # iterative parser work where one wants the JSON to land
+            # despite known dangling refs (the gtopt strict-load step
+            # can then be run with ``--constraint-mode debug``).  In
+            # this mode the offending terms have ALREADY been collected
+            # but NOT injected into the output expressions, so the
+            # resulting JSON is internally consistent (no dangling
+            # symbols) — the bundle just LOSES coverage on those
+            # constraints rather than failing the conversion.
+            logger.warning(
+                "%d UserConstraint term(s) reference unemitted elements; "
+                "lax_refs=True → terms silently dropped, constraint may be "
+                "weakened.  Re-run without --lax-uc-refs to see the full "
+                "list and fix the source data.",
+                len(unresolved_refs),
+            )
+            if stats_out is not None:
+                stats_out["lax_unresolved_dropped"] = len(unresolved_refs)
+        else:
+            raise UnresolvedConstraintReferenceError(msg)
     return tuple(out)
 
 
@@ -6330,30 +6571,47 @@ def _build_plant_cap_ucs(
     case: PlexosCase,
     mutex_groups: tuple[tuple[str, frozenset[str]], ...] = (),
 ) -> tuple[UserConstraintSpec, ...]:
-    """Synthesise ``PlantCap_<stem>`` UserConstraints capping a plant's
-    summed variant generation at its single-config envelope.
+    """Synthesise ``PlantCap_<stem>`` + ``PlantCommit_<stem>`` UCs
+    capping a plant's summed variant generation AND commitment status
+    at the single-config envelope.
 
-    Two sources, in priority order:
+    For each PLEXOS ``*_Uniq`` mutex group we now emit TWO constraints:
 
-    1. **Config exclusivity (F1)** — one cap per PLEXOS ``*_Uniq`` mutex
-       group (``mutex_groups``): Σ over EVERY (config × band) variant of
-       a physical plant ≤ the largest config's pmax.  This is what stops
-       the LP co-dispatching multiple configurations of one combined-
-       cycle plant (the ATA / SAN_ISIDRO dispatch divergence).
-    2. **Fuel-band fallback** — the legacy name-heuristic family cap, for
-       gens NOT already covered by a ``_Uniq`` group (caps fuel-band
-       arbitrage within a single configuration).
+    1. ``PlantCap_<stem>``: Σ generation_v ≤ P_family_max
+       (generation-level soft cap at the largest config's pmax)
+    2. ``PlantCommit_<stem>``: Σ commitment(uc_v).status ≤ 1
+       (commitment-level mutex — matches PLEXOS's pure-binary
+       formulation, which CEN PCP confirms via CPLEX's
+       "0 SOSs" header)
 
-    Each emitted UC has the form
+    Both are needed.  ``PlantCap`` alone is INSUFFICIENT — without
+    a status-level mutex the LP commits every (config × fuel-band)
+    variant simultaneously (status_i = 1 for all i, each running at
+    a fraction of pmax that sums under the cap).  Verified on the
+    CEN PCP weekly bundle: ATA-CC1 had 14 variants of the same
+    physical train showing ``status = 1`` in the MIP solution of
+    every block (TG1A alone burning 6 fuels at once, also part of
+    TG1A+TG1B+TV1C combined cycle simultaneously) — all physically
+    impossible.
 
-        Σ_v 1·generator("<stem>_<config>").generation <= P_family_max
+    ``PlantCommit`` closes the loop by enforcing exactly the PLEXOS
+    constraint: Σ status ≤ 1 over EVERY config × fuel variant of the
+    same physical plant.  Once this binds, only one config has
+    status = 1, so the generation-level cap is automatically
+    satisfied (gen ≤ status × pmax ≤ pmax).  PlantCap is kept as
+    defence-in-depth (it doesn't bind when PlantCommit does, but
+    catches data anomalies where pmin sums exceed the single-config
+    envelope — see CAMPICHE family).
 
-    where ``P_family_max`` is the maximum pmax across all variants of
-    the family (= what one single configuration can produce).  Soft
-    via ``penalty = 10_000`` so a rare data inconsistency
-    (e.g. simultaneous Fixed-Load on two variants) doesn't make the
-    LP infeasible.  ``active`` defaults to ``True`` (the UC binds in
-    every block).
+    Also kept: the **fuel-band fallback** family cap for gens NOT
+    covered by a ``_Uniq`` group (caps fuel-band arbitrage within a
+    single configuration; no status-level partner emitted there since
+    the fuel-band variants share the same physical hardware bound by
+    pmax).
+
+    Penalty = 10_000 (matches existing PlantCap) so a rare data
+    inconsistency doesn't make the LP infeasible.  ``active`` defaults
+    to ``True`` (binds in every block).
     """
 
     def _peak_pmax(g: GeneratorSpec) -> float:
@@ -6457,12 +6715,17 @@ def _extract_boundary_cut(bundle: PlexosBundle) -> BoundaryCutSpec | None:
     return BoundaryCutSpec(fcf=fcf, slopes=slopes)
 
 
-def extract_case(bundle: PlexosBundle) -> PlexosCase:
+def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
     This is the single entry-point the writer should consume; the
     individual ``extract_*`` functions are exported for unit-test
     targeting only.
+
+    :param lax_uc_refs: when True, downgrade the strict UserConstraint
+        reference check (``UnresolvedConstraintReferenceError``) to a
+        warning + silent per-term drop.  See ``--lax-uc-refs`` on the
+        CLI for the use case (debugging / iterative parser work).
     """
     db = load_xml(bundle.xml_path)
     reservoirs = extract_reservoirs(db, bundle)
@@ -6932,6 +7195,13 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         "Waterway": frozenset(w.name for w in case.waterways),
         "Reservoir": frozenset(r.name for r in case.reservoirs),
         "Storage": frozenset(r.name for r in case.reservoirs),
+        # Fuel allow-list for the new ``fuel("X").offtake`` UC accessor
+        # (gtopt FuelLP exposes the per-block offtake decision variable
+        # ``Y_f[b]`` bound by ``Y_f − Σ hr·dur·gen = 0``).  PLEXOS
+        # ``Offtake Coefficient`` UCs (``Gas_MaxOpDay*``) now translate
+        # verbatim as a single ``α × fuel("<name>").offtake`` term
+        # instead of being expanded into per-generator terms.
+        "Fuel": frozenset(f.name for f in case.fuels),
     }
     heat_rate_by_gen = {g.name: g.heat_rate for g in case.generators if g.heat_rate}
     pmax_by_gen_for_uc = {g.name: g.pmax for g in case.generators if g.pmax > 0}
@@ -6981,6 +7251,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         always_on_gens=always_on_gens,
         unusable_provisions=unusable_provisions,
         stats_out=uc_stats_raw,
+        lax_refs=lax_uc_refs,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators

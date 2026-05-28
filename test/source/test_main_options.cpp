@@ -1014,4 +1014,74 @@ TEST_CASE("parse_memory_size - unknown suffix throws cli::parse_error")
                   cli::parse_error);
 }
 
+// ---- Task 2B: --constraint-mode CLI shorthand --------------------------
+
+TEST_CASE("apply_cli_options - --constraint-mode debug routes to options")
+{
+  // Round-trip the shorthand: MainOptions.constraint_mode='debug' must
+  // land as planning.options.constraint_mode == ConstraintMode::debug,
+  // mirroring the existing `--set planning_options.constraint_mode=debug`
+  // path.  This is the matching gtopt-side leniency to
+  // `plexos2gtopt --lax-uc-refs` — when iterating on parser bugs that
+  // leave dangling LHS refs in the planning JSON.
+  Planning planning {};
+  MainOptions opts {
+      .constraint_mode = "debug",
+  };
+  apply_cli_options(planning, opts);
+  REQUIRE(planning.options.constraint_mode.has_value());
+  CHECK(planning.options.constraint_mode.value() == ConstraintMode::debug);
+}
+
+TEST_CASE("apply_cli_options - --constraint-mode strict round-trips")
+{
+  // Strict is the gtopt default but must still round-trip as an explicit
+  // override (so a user passing `--constraint-mode strict` on top of a
+  // JSON that set `debug` is HONOURED — the CLI wins over JSON).
+  Planning planning {};
+  MainOptions opts {
+      .constraint_mode = "strict",
+  };
+  apply_cli_options(planning, opts);
+  REQUIRE(planning.options.constraint_mode.has_value());
+  CHECK(planning.options.constraint_mode.value() == ConstraintMode::strict);
+}
+
+TEST_CASE("apply_cli_options - --constraint-mode normal round-trips")
+{
+  Planning planning {};
+  MainOptions opts {
+      .constraint_mode = "normal",
+  };
+  apply_cli_options(planning, opts);
+  REQUIRE(planning.options.constraint_mode.has_value());
+  CHECK(planning.options.constraint_mode.value() == ConstraintMode::normal);
+}
+
+TEST_CASE("apply_cli_options - --constraint-mode unknown throws")
+{
+  // Unknown values must hard-fail rather than silently fall back to the
+  // default — same contract as every other CLI enum (output-format,
+  // sddp-elastic-mode, …).
+  Planning planning {};
+  MainOptions opts {
+      .constraint_mode = "loose",
+  };
+  CHECK_THROWS(apply_cli_options(planning, opts));
+}
+
+TEST_CASE(
+    "apply_cli_options - --constraint-mode unset leaves options unchanged")
+{
+  // No CLI override → JSON / library defaults survive.  Important so a
+  // user who runs `gtopt case.json` without `--constraint-mode` does
+  // NOT have any JSON-shipped value silently overwritten.
+  Planning planning {};
+  planning.options.constraint_mode = ConstraintMode::debug;
+  MainOptions opts {};  // constraint_mode left as nullopt
+  apply_cli_options(planning, opts);
+  REQUIRE(planning.options.constraint_mode.has_value());
+  CHECK(planning.options.constraint_mode.value() == ConstraintMode::debug);
+}
+
 // NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)

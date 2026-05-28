@@ -513,7 +513,18 @@ template<typename T>
        po::value<std::string>(),
        "elastic-filter mode: chinneck | iis | single_cut | cut | multi_cut "
        "(default: chinneck); shorthand for --set "
-       "sddp_options.elastic_mode=<mode>");
+       "sddp_options.elastic_mode=<mode>")  //
+      ("constraint-mode",
+       po::value<std::string>(),
+       "UserConstraint resolver strictness: "
+       "strict (default; abort on any unresolved element ref), "
+       "normal (drop a constraint when ALL terms are unresolved; emit a "
+       "warning), "
+       "debug (drop unresolved terms silently and continue — for "
+       "iterative parser work where dangling LHS refs are expected; pair "
+       "with `plexos2gtopt --lax-uc-refs` for the matching converter-side "
+       "leniency).  Shorthand for --set "
+       "planning_options.constraint_mode=<mode>");
   return desc;
 }
 
@@ -729,6 +740,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                       "sddp_options.elastic_penalty");
   warn_deprecated_cli(
       opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
+  // `--constraint-mode` is a permanent CLI shorthand for
+  // `--set planning_options.constraint_mode=...` — no deprecation
+  // warning, but the apply step below routes the override.
+  if (opts.constraint_mode) {
+    planning.options.constraint_mode = require_enum<ConstraintMode>(
+        "constraint-mode", opts.constraint_mode.value());
+  }
   if (opts.algorithm.has_value()) {
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
@@ -1078,6 +1096,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
+      .constraint_mode = get_opt<std::string>(vm, "constraint-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
       .sddp_aperture_chunk_size =
           get_opt<std::string>(vm, "aperture-chunk-size")
@@ -1232,6 +1251,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
+  opts.constraint_mode = get_str("constraint-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
   // aperture-chunk-size accepts "auto" (→0) or an integer literal.
   if (const auto s = get_str("aperture-chunk-size")) {
@@ -1394,6 +1414,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
+  merge(opts.constraint_mode, defaults.constraint_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
   merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
   merge(opts.memory_saving, defaults.memory_saving);

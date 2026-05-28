@@ -165,6 +165,12 @@ struct MainOptions
   /** @brief SDDP elastic filter mode: "chinneck" (default), "single_cut",
    *  "multi_cut".  Aliases: "iis" → chinneck, "cut" → single_cut. */
   std::optional<std::string> sddp_elastic_mode {};
+  /** @brief UserConstraint resolver strictness: "strict" (default — abort on
+   *  any unresolved element reference), "normal" (drop a constraint when ALL
+   *  terms are unresolved; emit a warning), "debug" (drop unresolved terms
+   *  silently and continue).  Pair "debug" with `plexos2gtopt --lax-uc-refs`
+   *  for the matching converter-side leniency. */
+  std::optional<std::string> constraint_mode {};
   /** @brief Number of SDDP backward-pass apertures (0=disabled, -1=all) */
   std::optional<int> sddp_num_apertures {};
   /** @brief Per-task aperture chunk size (chunked backward pass).

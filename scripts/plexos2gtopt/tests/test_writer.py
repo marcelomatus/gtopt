@@ -1288,6 +1288,70 @@ def test_build_fcf_alpha_terms_no_reservoir_match_returns_none() -> None:
     )
 
 
+@pytest.mark.parametrize("scale_alpha", [1.0, 100.0, 1000.0, 5000.0])
+def test_build_fcf_alpha_terms_scale_alpha_propagates(scale_alpha: float) -> None:
+    """``scale_alpha`` drives BOTH the alpha-DV cost and the FCF-UC coefficient.
+
+    Two sites must stay in sync (else the LP misweights the cost-to-go):
+      * ``alpha_dv["cost"] = scale_alpha`` — objective coefficient on the
+        alpha column (raw money; gtopt's scale_objective folds in at
+        backend-emit time, dividing this by scale_objective).
+      * The UC expression carries ``{scale_alpha:g} * decision_variable(...)``
+        as the coefficient on alpha — so the cut constraint and the
+        objective use the SAME multiplier on alpha (otherwise the cut
+        would over/under-weight the future-cost contribution).
+
+    The α-rebase shift (``obj_constant = FCF − Σ wv·state``) and the
+    shifted RHS (``Σ wv·state``) are independent of ``scale_alpha`` by
+    design — only the alpha coefficient scales.  Regression guard for
+    the 2026-05 change tying ``_FCF_SCALE_ALPHA`` to
+    ``_DEFAULT_OBJ_SCALE`` (= ``model_options.scale_objective``).
+    """
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import build_fcf_alpha_terms
+
+    cut = BoundaryCutSpec(fcf=1_000_000.0, slopes={"RES_A": 50.0, "RES_B": 30.0})
+    state = {"RES_A": 100.0, "RES_B": 200.0}  # Σ wv·state = 11000
+    result = build_fcf_alpha_terms(
+        cut,
+        state,
+        dv_uid=1,
+        uc_uid=2,
+        last_block_uid=111,
+        scale_alpha=scale_alpha,
+    )
+    assert result is not None
+    alpha_dv, fcf_uc = result
+    # (1) DV cost = scale_alpha.
+    assert alpha_dv["cost"] == pytest.approx(scale_alpha), (
+        f"alpha cost mismatch at scale_alpha={scale_alpha}"
+    )
+    # (2) UC expression carries the same multiplier on alpha_fcf.
+    assert (
+        f'{scale_alpha:g} * decision_variable("alpha_fcf").value'
+        in fcf_uc["expression"]
+    ), f"UC alpha-coef mismatch at scale_alpha={scale_alpha}"
+    # (3) The α-rebase shift is INDEPENDENT of scale_alpha.
+    assert alpha_dv["obj_constant"] == pytest.approx(989_000.0)
+    assert ">= 11000.000000" in fcf_uc["expression"]
+
+
+def test_build_fcf_alpha_terms_default_scale_matches_obj_scale() -> None:
+    """Default ``scale_alpha`` equals ``_DEFAULT_OBJ_SCALE`` (1000).
+
+    Tying alpha to ``model_options.scale_objective`` keeps the LP
+    coefficient on alpha matched to the rest of the objective's scaling
+    regime — same gradient magnitude across every cost term, no
+    asymmetric kappa contribution from a tiny alpha coefficient.
+    Regression guard: the two constants are intentionally aliased, and
+    a future drift between them would silently degrade barrier
+    conditioning on SDDP / FCF paths.
+    """
+    from plexos2gtopt.gtopt_writer import _DEFAULT_OBJ_SCALE, _FCF_SCALE_ALPHA
+
+    assert _FCF_SCALE_ALPHA == _DEFAULT_OBJ_SCALE == 1000.0
+
+
 def test_build_emission_array_co2() -> None:
     """emission_array['co2'] is emitted iff a fuel carries a CO2 rate."""
     no_co2 = (FuelSpec(object_id=1, name="coal", price=4.0),)

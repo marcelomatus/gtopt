@@ -18,6 +18,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -323,4 +324,131 @@ TEST_CASE(  // NOLINT
     const auto obj = li.get_obj_value_raw();
     CHECK(obj == doctest::Approx(70.6).epsilon(0.01));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Task 3 — fuel("X").offtake UC accessor
+// ---------------------------------------------------------------------------
+
+TEST_CASE("PAMPL — fuel('X').offtake resolves as the offtake DV")  // NOLINT
+{
+  // PLEXOS Constraint pattern (``Gas_MaxOpDay*``):
+  //
+  //   1 × fuel(<X>).offtake ≤ daily_budget
+  //
+  // For the 2-block (1h each), single-fuel, heat_rate=2 fixture the
+  // offtake column ``Y_f[b]`` is bound to ``2 × gen[b] × 1h``, so
+  // demand of 50 MW × 2 blocks = 100 MWh translates to 200 MMBtu of
+  // offtake.  A UC cap at 60 MMBtu/block (per-block) restricts gen
+  // to 30 MWh per block — 20 MWh unserved per block (40 MWh total).
+  //
+  // Costs:
+  //   gen × heat_rate × price = 60 × 2 × 10  = $1200  → 1.2
+  //   unserved × fail_cost    = 40 × 1000    = $40000 → 40.0
+  //   Total                                  ≈ 41.2
+  using namespace test_fuel_offtake;
+
+  // No native max_offtake — the UC is the ONLY cap, exercising the
+  // unconditional offtake-DV path.  The fixture passes 0.0 as a
+  // placeholder; explicitly RESET so FuelLP doesn't emit a
+  // ``Y_f ≤ 0`` row.
+  System sys = make_single_fuel_system(0.0);
+  sys.fuel_array[0].max_offtake.reset();
+  sys.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "uc_offtake_cap",
+          .expression = "fuel('gas').offtake <= 60",
+      },
+  };
+
+  const auto simulation = make_2block_simulation();
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Per-block UC: gen_0 = 30, gen_1 = 30 → 60 MWh served, 40 unserved.
+  // Costs: 60 × 2 × 10 + 40 × 1000 = $1200 + $40000 = $41200 → 41.2.
+  const auto obj = li.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(41.2).epsilon(0.01));
+}
+
+TEST_CASE("fuel('X').offtake is unconditional (no max_offtake required)")
+{
+  // The offtake DV must be exposed even when ``Fuel.max_offtake`` is
+  // unset — letting external UCs cap the offtake without relying on
+  // the native ``max_offtake`` field.  Without the cap UC the LP is
+  // unconstrained; gen serves full demand at base cost.
+  using namespace test_fuel_offtake;
+  System sys = make_single_fuel_system(0.0);
+  sys.fuel_array[0].max_offtake.reset();  // explicit unset
+  // A LOOSE UC (cap >> physical max) must NOT bind, proving the
+  // accessor resolves AND the LP picks the cheapest solution.
+  sys.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "uc_loose",
+          .expression = "fuel('gas').offtake <= 10000",
+      },
+  };
+
+  const auto simulation = make_2block_simulation();
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // gen = 100 MWh (full demand) → cost = 100 × 2 × 10 = $2000 → 2.0.
+  // No unserved energy because the UC is non-binding.
+  const auto obj = li.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(2.0).epsilon(0.01));
+}
+
+TEST_CASE(
+    "fuel('X').offtake binding equation: Y_f = Σ heat_rate·dur·gen")  // NOLINT
+{
+  // Validate the binding equation directly: cap the offtake at 80
+  // MMBtu (per-stage) — should let gen = 40 MWh total (heat_rate=2,
+  // both blocks 1h).  Cap is the UC, NOT the native max_offtake.
+  using namespace test_fuel_offtake;
+  System sys = make_single_fuel_system(0.0);
+  sys.fuel_array[0].max_offtake.reset();  // explicit unset
+  sys.user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "uc_per_block_cap",
+          .expression = "fuel('gas').offtake <= 80",
+      },
+  };
+
+  const auto simulation = make_2block_simulation();
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(sys, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Per-block UC: gen ≤ 80/2 = 40 MWh per block.  Demand 50 → 10
+  // unserved per block, 20 total.
+  // Costs: 80 × 2 × 10 + 20 × 1000 = $1600 + $20 000 = $21 600 → 21.6.
+  const auto obj = li.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(21.6).epsilon(0.01));
 }

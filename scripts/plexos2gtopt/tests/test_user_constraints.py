@@ -371,6 +371,55 @@ def test_extract_user_constraints_shadow_line_all_off_silent_drop(
     assert 'line("L1").flow' not in expr, "shadow-line term should be dropped"
 
 
+def test_extract_user_constraints_all_shadow_emits_inactive_stub(
+    tmp_path: Path,
+) -> None:
+    """Fix 6: when EVERY LHS term is a shadow-line drop, emit an inactive stub.
+
+    Mirrors the CEN PCP ``SD_2024113659_Cardones_Cpinto_I`` and ``SDCF_Rx*``
+    family: PLEXOS exercises these contingency-state UCs in its solution
+    DB (they appear in t_object class=70) but every Line they reference
+    has ``Lin_Units=0`` across the horizon — so the constraint reduces
+    to ``0 ≤ rhs`` and contributes nothing.  Previously the parser
+    silently dropped the constraint at the empty-LHS guard, leaving a
+    spurious gap in the PLEXOS-sol → gtopt audit.  Now the parser emits
+    an inactive stub (``0 <= 0``) carrying the constraint name + a
+    description noting the no-op cause, so the bundle preserves
+    provenance and the audit lines up.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    # ``EMPTY_LHS`` has Sense=1, RHS=10 already in the fixture (no
+    # supported coefficients).  To exercise the new path we need a
+    # constraint whose LHS terms are ALL shadow Lines.  Use
+    # ``CORRIDOR_LE`` with shadow_lines_all_off={L1} AND empty
+    # Generator/Battery allow-lists so every term gets silently dropped.
+    allow = {
+        "Generator": frozenset(),
+        "Line": frozenset(),
+        "Battery": frozenset(),
+    }
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names=allow,
+        shadow_lines_all_off=frozenset({"L1"}),
+        # CORRIDOR_LE has 5 terms (G1, G2, L1, B1.charge, B1.discharge).
+        # G1/G2 fail-hard under empty Generator allow — so use
+        # ``lax_refs`` to silently drop those instead, leaving L1's
+        # shadow drop as the only path to empty LHS.
+        lax_refs=True,
+    )
+    by_name = {c.name: c for c in out}
+    assert "CORRIDOR_LE" in by_name, (
+        "all-shadow constraint must emit as inactive stub, not be silently dropped"
+    )
+    stub = by_name["CORRIDOR_LE"]
+    assert stub.active is False
+    assert stub.expression == "0 <= 0"
+    assert "shadow" in (stub.description or "").lower()
+
+
 def test_extract_user_constraints_always_on_renewable_rhs_shift(
     tmp_path: Path,
 ) -> None:
@@ -659,15 +708,29 @@ _OFFTAKE_XML = f"""<?xml version="1.0" standalone="yes"?>
 """
 
 
-def test_fuel_offtake_expands_to_generator_terms(tmp_path: Path) -> None:
-    """Fuel.Offtake Coefficient α expands to ``α × heat_rate × generator.generation``."""
+def test_fuel_offtake_emits_fuel_offtake_accessor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fuel.Offtake Coefficient α emits one ``α × fuel('X').offtake`` term.
+
+    The modern emission path (``GTOPT_USE_FUEL_OFFTAKE=1``) replaces the
+    legacy per-generator expansion with a single
+    ``α × fuel(name).offtake`` term, leaning on gtopt's FuelLP offtake
+    decision variable ``Y_f[b]`` bound by ``Y_f − Σ hr·dur·gen = 0``
+    (see source/fuel_lp.cpp::add_to_lp).  The path is OFF by default
+    (legacy expansion) pending a FuelLP edge-case fix where the
+    offtake column doesn't get registered for some (fuel, stage,
+    block) cells with active gens — until then enabling at CEN-PCP
+    scale trips the strict UC resolver.  Opt in via the env var to
+    exercise the modern path in tests.
+    """
+    monkeypatch.setenv("GTOPT_USE_FUEL_OFFTAKE", "1")
     bundle, xml_path = (
         PlexosBundle(root=tmp_path, source=tmp_path),
         tmp_path / "DBSEN_PRGDIARIO.xml",
     )
     xml_path.write_text(_OFFTAKE_XML)
     db = load_xml(xml_path)
-    # Heat rates supplied externally (mirrors the CSV → GeneratorSpec path).
     out = extract_user_constraints(
         db,
         bundle,
@@ -676,14 +739,27 @@ def test_fuel_offtake_expands_to_generator_terms(tmp_path: Path) -> None:
     by_name = {c.name: c for c in out}
     assert "GAS_CAP" in by_name
     expr = by_name["GAS_CAP"].expression
-    # α × heat_rate per generator:  1 × 0.5 × G1.generation + 1 × 0.3 × G2.generation
-    assert '0.5 * generator("G1").generation' in expr
-    assert '0.3 * generator("G2").generation' in expr
+    # One fuel.offtake term, coefficient = PLEXOS α (no heat-rate mult).
+    assert 'fuel("GAS").offtake' in expr, f"expected fuel.offtake term; got {expr!r}"
+    assert "generator(" not in expr, (
+        f"per-gen terms must be absent in modern emission; got {expr!r}"
+    )
     assert expr.endswith("<= 1000")
 
 
-def test_fuel_offtake_skips_zero_heat_rate(tmp_path: Path) -> None:
-    """A generator with no heat rate doesn't contribute to the expansion."""
+def test_fuel_offtake_legacy_fallback_when_fuel_not_emitted(
+    tmp_path: Path,
+) -> None:
+    """When the Fuel is absent from ``emitted_names['Fuel']``, fall back to
+    the legacy per-generator expansion.
+
+    Covers the case where ``extract_fuels`` dropped the fuel (e.g. no
+    generators reference it, or a future filter excludes it) but the
+    PLEXOS Offtake-Coefficient UC still names it.  Falling through to
+    the per-gen expansion keeps the constraint expressible against the
+    surviving Generator columns instead of failing-hard or going
+    silently empty.
+    """
     bundle, xml_path = (
         PlexosBundle(root=tmp_path, source=tmp_path),
         tmp_path / "DBSEN_PRGDIARIO.xml",
@@ -693,6 +769,42 @@ def test_fuel_offtake_skips_zero_heat_rate(tmp_path: Path) -> None:
     out = extract_user_constraints(
         db,
         bundle,
+        emitted_names={
+            "Generator": frozenset({"G1", "G2"}),
+            "Fuel": frozenset(),  # fuel "gas" deliberately missing
+        },
+        heat_rate_by_gen={"G1": 0.5, "G2": 0.3},
+    )
+    by_name = {c.name: c for c in out}
+    assert "GAS_CAP" in by_name
+    expr = by_name["GAS_CAP"].expression
+    # Legacy: α × hr × gen per generator (no fuel.offtake term).
+    assert '0.5 * generator("G1").generation' in expr
+    assert '0.3 * generator("G2").generation' in expr
+    assert 'fuel("gas").offtake' not in expr
+
+
+def test_fuel_offtake_skips_zero_heat_rate_legacy(tmp_path: Path) -> None:
+    """Legacy per-gen path still drops zero-heat-rate gens.
+
+    Uses the Fuel-not-emitted fallback (``Fuel = frozenset()``) to force
+    the legacy expansion, then verifies a missing heat rate on G2 means
+    that generator contributes no term.  In the modern path the
+    heat-rate filter lives in FuelLP::add_to_lp's ``hr <= 0`` guard.
+    """
+    bundle, xml_path = (
+        PlexosBundle(root=tmp_path, source=tmp_path),
+        tmp_path / "DBSEN_PRGDIARIO.xml",
+    )
+    xml_path.write_text(_OFFTAKE_XML)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names={
+            "Generator": frozenset({"G1", "G2"}),
+            "Fuel": frozenset(),  # force legacy fallback
+        },
         heat_rate_by_gen={"G1": 0.5},  # G2 omitted
     )
     by_name = {c.name: c for c in out}
@@ -1554,22 +1666,518 @@ def test_filter_user_constraints_shared_helper() -> None:
 
 
 def test_is_nolimit_line_sentinel() -> None:
-    """Pure line-flow at/above the 100000 sentinel → drop; everything else stays."""
+    """MW-aggregate LHS at/above either sentinel tier → drop.
+
+    PLEXOS uses two no-limit magnitudes on CEN PCP:
+      * ``100000`` MW — "hard sentinel" (~half of contingency rows)
+      * ``10000`` MW — "soft sentinel": 259 pure-line-flow
+        (``SDCF_Rx*``, ``SD_*`` contingency rows) + ~30 pure-generator
+        corridor-flow-proxy rows (``Gx_Colbun_Ancoa``, ``ANGmax`` …) +
+        20 MIXED gen+reserve-provision aggregates (``KELAR_Max_Operativo``,
+        ``ATA_Max_Operativo`` — pattern ``Σ gen + 2 Σ provision ≤ 10000``)
+
+    The detector accepts ANY combination of MW-magnitude kinds
+    (``line``, ``generator``, ``reserve_provision``, ``battery``) and
+    rejects any LHS that mentions commitment binaries, decision
+    variables, or fuel.offtake — those are not MW-aggregates and may
+    encode real structural semantics.
+    """
     from plexos2gtopt.parsers import _is_nolimit_line_sentinel
 
-    pure = 'line("L1").flow + line("L2").flow'
-    # Pure line-flow at the sentinel (or above) → dropped.
-    assert _is_nolimit_line_sentinel(pure, 100000.0) is True
-    assert _is_nolimit_line_sentinel(pure, 472190.87) is True
-    assert _is_nolimit_line_sentinel(pure, -100000.0) is True  # abs()
-    # Pure line-flow at a real limit → kept.
-    assert _is_nolimit_line_sentinel(pure, 2000.0) is False
-    assert _is_nolimit_line_sentinel(pure, 10000.0) is False  # not the 100000 one
-    # Mixed (has generation / commitment / etc.) at 100000 → kept (not pure).
-    assert (
-        _is_nolimit_line_sentinel(
-            'generator("G1").generation + line("L1").flow', 100000.0
-        )
-        is False
+    pure_line = 'line("L1").flow + line("L2").flow'
+    pure_gen = 'generator("G1").generation + generator("G2").generation'
+    pure_provision = (
+        '2 * reserve_provision("p_G1").up + 2 * reserve_provision("p_G2").up'
     )
-    assert _is_nolimit_line_sentinel('commitment("uc_G").status', 100000.0) is False
+    mixed_gen_provision = (
+        'generator("G1").generation + 2 * reserve_provision("p_G1").up'
+    )
+    line_plus_battery = 'line("L1").flow + battery("B1").discharge'
+
+    # All MW-aggregate LHS at either sentinel tier → dropped.
+    for expr in (
+        pure_line,
+        pure_gen,
+        pure_provision,
+        mixed_gen_provision,
+        line_plus_battery,
+    ):
+        assert _is_nolimit_line_sentinel(expr, 100000.0) is True, expr
+        assert _is_nolimit_line_sentinel(expr, 10000.0) is True, expr
+        assert _is_nolimit_line_sentinel(expr, -10000.0) is True, expr  # abs()
+    # Below the soft sentinel → kept (real cap).
+    for expr in (pure_line, pure_gen, pure_provision, mixed_gen_provision):
+        assert _is_nolimit_line_sentinel(expr, 2000.0) is False, expr
+        assert _is_nolimit_line_sentinel(expr, 9999.99) is False, expr
+    # ANY of (commitment / decision_variable / fuel) bypasses the check.
+    for other in (
+        'commitment("uc_G").status',
+        'decision_variable("DV1").value',
+        'fuel("GAS").offtake',
+    ):
+        assert _is_nolimit_line_sentinel(other, 100000.0) is False, (
+            f"sentinel must bypass for {other!r}"
+        )
+        # MW-mixed with one of these still bypasses
+        assert (
+            _is_nolimit_line_sentinel(f'line("L1").flow + {other}', 100000.0) is False
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix A — PLEXOS default Sense=`=` when only RHS is set
+# ---------------------------------------------------------------------------
+
+_UC_NO_SENSE_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>10</object_id><class_id>22</class_id><name>b_a</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>G1</name></t_object>
+  <t_object><object_id>21</object_id><class_id>2</class_id><name>G2</name></t_object>
+  <!-- ``_ConfTGA``-style equality linker: ``+G1 -G2 = 0`` (Sense
+       intentionally omitted; PLEXOS defaults it to equality). -->
+  <t_object><object_id>100</object_id><class_id>70</class_id><name>CONF_LINK_NO_SENSE</name></t_object>
+  <!-- Control: same structure but with an explicit Sense=0. -->
+  <t_object><object_id>101</object_id><class_id>70</class_id><name>CONF_LINK_EXPLICIT</name></t_object>
+
+  <t_collection><collection_id>700</collection_id><parent_class_id>1</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+  <t_collection><collection_id>32</collection_id><parent_class_id>2</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+
+  <t_property><property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name></t_property>
+  <t_property><property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name></t_property>
+  <t_property><property_id>4393</property_id><collection_id>700</collection_id><name>Penalty Price</name></t_property>
+  <t_property><property_id>393</property_id><collection_id>32</collection_id><name>Generation Coefficient</name></t_property>
+
+  <t_membership><membership_id>700001</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <t_membership><membership_id>700002</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>101</child_object_id></t_membership>
+  <t_membership><membership_id>32001</membership_id><collection_id>32</collection_id><parent_object_id>20</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <t_membership><membership_id>32002</membership_id><collection_id>32</collection_id><parent_object_id>21</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <t_membership><membership_id>32003</membership_id><collection_id>32</collection_id><parent_object_id>20</parent_object_id><child_object_id>101</child_object_id></t_membership>
+  <t_membership><membership_id>32004</membership_id><collection_id>32</collection_id><parent_object_id>21</parent_object_id><child_object_id>101</child_object_id></t_membership>
+
+  <!-- CONF_LINK_NO_SENSE: ONLY RHS set, no Sense (the bug-reproducer). -->
+  <t_data><data_id>10001</data_id><membership_id>700001</membership_id><property_id>4384</property_id><value>0</value></t_data>
+  <!-- CONF_LINK_EXPLICIT: RHS + Sense=0 (control). -->
+  <t_data><data_id>10002</data_id><membership_id>700002</membership_id><property_id>4384</property_id><value>0</value></t_data>
+  <t_data><data_id>10003</data_id><membership_id>700002</membership_id><property_id>4369</property_id><value>0</value></t_data>
+  <!-- Generation coefficients +1, -1 on each constraint. -->
+  <t_data><data_id>20001</data_id><membership_id>32001</membership_id><property_id>393</property_id><value>1.0</value></t_data>
+  <t_data><data_id>20002</data_id><membership_id>32002</membership_id><property_id>393</property_id><value>-1.0</value></t_data>
+  <t_data><data_id>20003</data_id><membership_id>32003</membership_id><property_id>393</property_id><value>1.0</value></t_data>
+  <t_data><data_id>20004</data_id><membership_id>32004</membership_id><property_id>393</property_id><value>-1.0</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_user_constraints_no_sense_defaults_to_equality(
+    tmp_path: Path,
+) -> None:
+    """Fix A: PLEXOS Constraint with RHS set but no Sense → emit as ``=``.
+
+    On CEN PCP 2026-04-22 the input XML carries 62 PLEXOS-solved
+    Constraints with ``RHS = 0`` but no explicit ``Sense`` property
+    (families ``ATA_CC_*_ConfTGA*`` / ``KELAR_ConfTG*`` /
+    ``NEHUENCO_*_ConfTG*`` / ``SANISIDRO_*_ConfCA*`` / ``BAT_*_CF_GEN_COMP``
+    / ``*_CPF_Simmetry`` / ``Inertia_Calculation_e*`` …).  PLEXOS evaluates
+    these as equality.  The parser used to drop them silently at the
+    ``sense_val is None`` guard; the result was the ATA / KELAR / NEHUENCO
+    / SANISIDRO commitment-mutex being broken — 14 plant configs
+    simultaneously committed on every block of the MIP solve.
+
+    This test asserts that ``CONF_LINK_NO_SENSE`` (Sense intentionally
+    omitted, RHS=0) is rescued and emitted with ``=``, matching the
+    ``CONF_LINK_EXPLICIT`` control which carries an explicit Sense=0.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UC_NO_SENSE_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(db, bundle)
+    by_name = {c.name: c for c in out}
+    assert "CONF_LINK_NO_SENSE" in by_name, (
+        "Sense=None + RHS=0 constraint must NOT be silently dropped"
+    )
+    assert "CONF_LINK_EXPLICIT" in by_name
+    expr_rescued = by_name["CONF_LINK_NO_SENSE"].expression
+    expr_control = by_name["CONF_LINK_EXPLICIT"].expression
+    # Both must emit with `= 0` operator + RHS at the tail.
+    assert expr_rescued.endswith("= 0"), (
+        f"Rescued constraint must use equality; got {expr_rescued!r}"
+    )
+    assert expr_control.endswith("= 0")
+    # And carry the LHS terms with their coefficients.
+    assert 'generator("G1").generation' in expr_rescued
+    assert 'generator("G2").generation' in expr_rescued
+
+
+def test_extract_user_constraints_lax_refs_downgrades_to_warning(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Fix 2A: ``lax_refs=True`` turns unresolved-ref FAIL-HARD into a warning.
+
+    Strict mode (default) raises ``UnresolvedConstraintReferenceError``
+    on a single unresolved term.  Lax mode (``--lax-uc-refs`` from the
+    CLI, ``lax_refs=True`` from the API) logs the count and continues —
+    the offending TERMS are already excluded from the emitted
+    expression (``continue`` before the LHS append in the resolver
+    loop), so the bundle that lands is internally consistent but the
+    rescued constraint may be weaker than PLEXOS's version.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    allow = {
+        "Generator": frozenset({"G1"}),  # G2 missing
+        "Line": frozenset({"L1"}),
+        "Battery": frozenset({"B1"}),
+    }
+    stats: dict[str, int] = {}
+    # Strict mode raises:
+    with pytest.raises(UnresolvedConstraintReferenceError):
+        extract_user_constraints(db, bundle, emitted_names=allow)
+    # Lax mode returns instead:
+    out = extract_user_constraints(
+        db, bundle, emitted_names=allow, lax_refs=True, stats_out=stats
+    )
+    names = {c.name for c in out}
+    assert "CORRIDOR_LE" in names
+    # G2-term is silently dropped; G1-term survives.
+    expr = next(c for c in out if c.name == "CORRIDOR_LE").expression
+    assert 'generator("G1").generation' in expr
+    assert 'generator("G2").generation' not in expr
+    # Counter populated for telemetry.
+    assert stats.get("lax_unresolved_dropped", 0) >= 1
+
+
+def test_extract_user_constraints_no_sense_no_rhs_still_dropped(
+    tmp_path: Path,
+) -> None:
+    """Fix A is bounded: constraints with neither Sense nor RHS stay dropped.
+
+    PLEXOS uses unset-Sense as a default to equality ONLY when an RHS
+    field is present.  A truly empty constraint (no Sense, no RHS in any
+    field — RHS, RHS Custom, RHS Day) must remain dropped, not promoted
+    to ``= None``.
+    """
+    # Reuse the XML but delete the lone RHS row for CONF_LINK_NO_SENSE
+    # (data_id 10001) → constraint now has neither Sense nor RHS.
+    xml = _UC_NO_SENSE_XML.replace(
+        "<t_data><data_id>10001</data_id><membership_id>700001</membership_id>"
+        "<property_id>4384</property_id><value>0</value></t_data>",
+        "",
+    )
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(xml)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(db, bundle)
+    names = {c.name for c in out}
+    assert "CONF_LINK_NO_SENSE" not in names, (
+        "no-Sense-no-RHS constraint must still be dropped"
+    )
+    assert "CONF_LINK_EXPLICIT" in names
+
+
+# ---------------------------------------------------------------------------
+# Fix 5 — PLEXOS BAT_*_AUX redirect (dropped auxiliary battery → main)
+# ---------------------------------------------------------------------------
+
+_UC_AUX_REDIRECT_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>7</class_id><name>Battery</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>10</object_id><class_id>22</class_id><name>b_a</name></t_object>
+  <t_object><object_id>40</object_id><class_id>7</class_id><name>BAT_TEST</name></t_object>
+  <t_object><object_id>41</object_id><class_id>7</class_id><name>BAT_TEST_AUX</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id><name>BAT_TEST_CF_GEN_COMP</name></t_object>
+
+  <t_collection><collection_id>700</collection_id><parent_class_id>1</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+  <t_collection><collection_id>90</collection_id><parent_class_id>7</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+
+  <t_property><property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name></t_property>
+  <t_property><property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name></t_property>
+  <t_property><property_id>968</property_id><collection_id>90</collection_id><name>Generation Coefficient</name></t_property>
+
+  <t_membership><membership_id>700001</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <!-- LHS term references the AUX battery (which we tell the parser is dropped). -->
+  <t_membership><membership_id>90001</membership_id><collection_id>90</collection_id><parent_object_id>41</parent_object_id><child_object_id>100</child_object_id></t_membership>
+
+  <t_data><data_id>10001</data_id><membership_id>700001</membership_id><property_id>4369</property_id><value>0</value></t_data>
+  <t_data><data_id>10002</data_id><membership_id>700001</membership_id><property_id>4384</property_id><value>0</value></t_data>
+  <t_data><data_id>20001</data_id><membership_id>90001</membership_id><property_id>968</property_id><value>-1.0</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_user_constraints_aux_battery_redirect(tmp_path: Path) -> None:
+    """Fix 5: ``BAT_<name>_AUX`` LHS refs redirect to the main battery.
+
+    PLEXOS pairs each real BESS with a virtual ``_AUX`` buffer for its
+    reserve-flow composition (``BAT_<name>_CF_GEN_COMP`` /
+    ``CF_LOAD_COMP``).  The converter drops these AUX batteries
+    (extract_batteries:1870) since gtopt models a single battery
+    covering both energy + reserves.  With the AUX dropped from
+    ``emitted_names``, the composition constraint's LHS term
+    ``battery("BAT_<name>_AUX").discharge`` would trip the strict-
+    reference fail-hard.  The parser must redirect ``_AUX`` → main
+    (when the main is emitted) so the constraint preserves its
+    semantics against the surviving battery's dispatch column.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UC_AUX_REDIRECT_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    # Simulate the post-drop emitted set: main BAT_TEST is emitted, AUX is not.
+    allow = {"Battery": frozenset({"BAT_TEST"})}
+    out = extract_user_constraints(db, bundle, emitted_names=allow)
+    by_name = {c.name: c for c in out}
+    assert "BAT_TEST_CF_GEN_COMP" in by_name, (
+        "AUX-only LHS should NOT fail-hard; the term must redirect to the main"
+    )
+    expr = by_name["BAT_TEST_CF_GEN_COMP"].expression
+    assert 'battery("BAT_TEST").discharge' in expr, (
+        f"redirect must rewrite AUX → main; got {expr!r}"
+    )
+    assert "_AUX" not in expr, "no AUX ref should survive the redirect"
+
+
+def test_extract_user_constraints_aux_redirect_only_when_main_emitted(
+    tmp_path: Path,
+) -> None:
+    """Fix 5 is bounded: redirect only fires when the MAIN battery exists.
+
+    If both ``BAT_X`` and ``BAT_X_AUX`` were dropped (atypical, but
+    possible), the redirect must NOT fire — there's no main to redirect
+    to.  The strict-reference fail-hard fires as before.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UC_AUX_REDIRECT_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    # No main battery either → redirect must fail-hard.
+    allow = {"Battery": frozenset()}
+    with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
+        extract_user_constraints(db, bundle, emitted_names=allow)
+    msg = str(excinfo.value)
+    assert "BAT_TEST_CF_GEN_COMP" in msg
+    assert "BAT_TEST_AUX" in msg
+
+
+# ---------------------------------------------------------------------------
+# Fix 6 — extra inactive-stub paths (sentinel, offline-gen, fuel-no-consumers)
+# ---------------------------------------------------------------------------
+
+
+_SENTINEL_LHS_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>24</class_id><name>Line</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>10</object_id><class_id>22</class_id><name>b_a</name></t_object>
+  <t_object><object_id>30</object_id><class_id>24</class_id><name>L1</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id><name>SD_contingency_off</name></t_object>
+
+  <t_collection><collection_id>700</collection_id><parent_class_id>1</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+  <t_collection><collection_id>310</collection_id><parent_class_id>24</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+
+  <t_property><property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name></t_property>
+  <t_property><property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name></t_property>
+  <t_property><property_id>1963</property_id><collection_id>310</collection_id><name>Flow Coefficient</name></t_property>
+
+  <t_membership><membership_id>700001</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <t_membership><membership_id>310001</membership_id><collection_id>310</collection_id><parent_object_id>30</parent_object_id><child_object_id>100</child_object_id></t_membership>
+
+  <!-- RHS at the no-limit sentinel (100000) — pure line-flow constraint. -->
+  <t_data><data_id>10001</data_id><membership_id>700001</membership_id><property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>10002</data_id><membership_id>700001</membership_id><property_id>4384</property_id><value>100000</value></t_data>
+  <t_data><data_id>20001</data_id><membership_id>310001</membership_id><property_id>1963</property_id><value>1.0</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_user_constraints_sentinel_emits_inactive_stub(
+    tmp_path: Path,
+) -> None:
+    """Fix 6: pure line-flow constraint at RHS=100000 sentinel → inactive stub.
+
+    PLEXOS encodes "this SD_* line-security contingency is INACTIVE
+    today" via the ``RHS = 100000`` sentinel.  Previously the parser
+    silently dropped such constraints via ``_is_nolimit_line_sentinel``,
+    leaving them missing from the bundle.  Fix 6 emits a trivial
+    inactive stub (``0 <= 0``) carrying the PLEXOS name + a
+    description so the constraint shows up in the audit + can be
+    activated in a future run where the contingency engages.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_SENTINEL_LHS_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names={"Line": frozenset({"L1"})},
+    )
+    by_name = {c.name: c for c in out}
+    assert "SD_contingency_off" in by_name, (
+        "RHS=sentinel constraint must emit as inactive stub, not be dropped"
+    )
+    stub = by_name["SD_contingency_off"]
+    assert stub.active is False, "sentinel stub must be inactive"
+    assert stub.expression == "0 <= 0"
+    assert "sentinel" in (stub.description or "").lower()
+
+
+_OFFLINE_GEN_LHS_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>10</object_id><class_id>22</class_id><name>b_a</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>OFFLINE_GEN</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id><name>Gas_MaxOpDay0_Inf_Tier</name></t_object>
+
+  <t_collection><collection_id>700</collection_id><parent_class_id>1</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+  <t_collection><collection_id>32</collection_id><parent_class_id>2</parent_class_id><child_class_id>70</child_class_id><name>Constraints</name></t_collection>
+
+  <t_property><property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name></t_property>
+  <t_property><property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name></t_property>
+  <t_property><property_id>393</property_id><collection_id>32</collection_id><name>Generation Coefficient</name></t_property>
+
+  <t_membership><membership_id>700001</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>100</child_object_id></t_membership>
+  <t_membership><membership_id>32001</membership_id><collection_id>32</collection_id><parent_object_id>20</parent_object_id><child_object_id>100</child_object_id></t_membership>
+
+  <t_data><data_id>10001</data_id><membership_id>700001</membership_id><property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>10002</data_id><membership_id>700001</membership_id><property_id>4384</property_id><value>0</value></t_data>
+  <t_data><data_id>20001</data_id><membership_id>32001</membership_id><property_id>393</property_id><value>1.0</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_user_constraints_all_offline_emits_inactive_stub(
+    tmp_path: Path,
+) -> None:
+    """Fix 6: when every LHS term is a fully-offline gen, emit inactive stub.
+
+    Mirrors the CEN PCP ``Gas_MaxOpDay0_Colbun_GNL_INF`` family: PLEXOS
+    references the ``_INF`` "infinity tier" generators (CANDELARIA_*,
+    NEHUENCO_*) which gtopt emits with ``pmax = 0`` and no
+    ``pmax_profile``.  The parser's Fix 5 silently drops the
+    individual terms; with all terms dropped the constraint reduces
+    to a no-op, and Fix 6 emits a stub instead of silently dropping.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_OFFLINE_GEN_LHS_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names={"Generator": frozenset({"OFFLINE_GEN"})},
+        # Triggers the offline-gen drop (Fix 5 in the direct-coefficient path).
+        pmax_by_gen={"OFFLINE_GEN": 0.0},
+        pmax_profiles_by_gen={},
+    )
+    by_name = {c.name: c for c in out}
+    assert "Gas_MaxOpDay0_Inf_Tier" in by_name, (
+        "all-offline-gen constraint must emit as inactive stub"
+    )
+    stub = by_name["Gas_MaxOpDay0_Inf_Tier"]
+    assert stub.active is False
+    assert stub.expression == "0 <= 0"
+    assert "offline" in (stub.description or "").lower()
+
+
+def test_fuel_offtake_no_consumers_emits_inactive_stub(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 6b: ``fuel(X).offtake`` for a fuel with no emitted consumers → stub.
+
+    Mirrors the CEN PCP regression where ``Gas_Colbun_GN_A`` has 8
+    consuming gens in PLEXOS XML but the gtopt FuelLP::add_to_lp
+    edge case leaves the offtake DV unregistered for some (stage,
+    block) cells (see GTOPT_USE_FUEL_OFFTAKE gate).  When the emitted
+    set has zero consumers for the fuel, the parser must emit the
+    constraint as an inactive stub so the resolver never sees the
+    unregistered ``fuel.offtake`` reference.  Requires the modern
+    path to be enabled.
+    """
+    monkeypatch.setenv("GTOPT_USE_FUEL_OFFTAKE", "1")
+    bundle, xml_path = (
+        PlexosBundle(root=tmp_path, source=tmp_path),
+        tmp_path / "DBSEN_PRGDIARIO.xml",
+    )
+    xml_path.write_text(_OFFTAKE_XML)
+    db = load_xml(xml_path)
+    # Empty Generator allow-list → fuel "GAS" has zero emitted consumers.
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names={
+            "Generator": frozenset(),
+            "Fuel": frozenset({"GAS"}),
+        },
+        heat_rate_by_gen={"G1": 0.5, "G2": 0.3},
+    )
+    by_name = {c.name: c for c in out}
+    assert "GAS_CAP" in by_name, (
+        "fuel-with-no-emitted-consumers must emit as inactive stub"
+    )
+    stub = by_name["GAS_CAP"]
+    assert stub.active is False
+    # Stub form is ``0 <op> 0`` regardless of the original RHS — the
+    # constraint is a no-op (LHS contributes 0 unconditionally), so a
+    # zero-on-both-sides trivial form suffices.
+    assert stub.expression == "0 <= 0", (
+        f"stub uses 0 <op> 0 trivial form; got {stub.expression!r}"
+    )
+    assert "fuel.offtake" in (stub.description or "").lower()
+
+
+def test_fuel_offtake_legacy_is_default(tmp_path: Path) -> None:
+    """The modern ``fuel(X).offtake`` emission is gated OFF by default.
+
+    Without ``GTOPT_USE_FUEL_OFFTAKE=1`` the parser must use the legacy
+    per-generator expansion even when Fuel is in ``emitted_names`` —
+    pending the gtopt-side FuelLP registration fix.  Guards against an
+    accidental flip back to the modern path that would re-introduce the
+    CEN PCP regression.
+    """
+    bundle, xml_path = (
+        PlexosBundle(root=tmp_path, source=tmp_path),
+        tmp_path / "DBSEN_PRGDIARIO.xml",
+    )
+    xml_path.write_text(_OFFTAKE_XML)
+    db = load_xml(xml_path)
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names={
+            "Generator": frozenset({"G1", "G2"}),
+            "Fuel": frozenset({"GAS"}),  # fuel emitted; modern path would kick in
+        },
+        heat_rate_by_gen={"G1": 0.5, "G2": 0.3},
+    )
+    by_name = {c.name: c for c in out}
+    expr = by_name["GAS_CAP"].expression
+    # Default = legacy per-gen expansion (heat_rate baked into coefficient).
+    assert 'fuel("GAS").offtake' not in expr, (
+        f"modern path must NOT fire without env var; got {expr!r}"
+    )
+    assert '0.5 * generator("G1").generation' in expr
+    assert '0.3 * generator("G2").generation' in expr

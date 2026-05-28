@@ -119,6 +119,20 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--lax-uc-refs",
+        action="store_true",
+        help=(
+            "downgrade the strict UserConstraint-reference check from a "
+            "fail-hard error to a warning, silently dropping the offending "
+            "terms.  Use for DEBUGGING / iterative parser work when dangling "
+            "LHS refs (Vert_*, circuit-suffix lines, _SC shadows) block "
+            "regeneration; the resulting JSON is internally consistent but "
+            "the rescued constraints may be weakened.  Pair with "
+            "`gtopt --constraint-mode debug` for the matching gtopt-side "
+            "leniency."
+        ),
+    )
+    parser.add_argument(
         "--use-single-bus",
         action="store_true",
         help="collapse the multi-bus topology to a single bus (copperplate)",
@@ -330,19 +344,22 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nseg-losses",
         type=int,
-        default=4,
+        default=8,
         help=(
             "number of piecewise-linear segments used to approximate "
             "the quadratic transmission-loss curve P_loss = R·f²/V² on "
             "each lossy line (PLEXOS Enforce Limits = 2 lines with a "
             "non-zero resistance and a finite ``tmax_ab`` envelope).  "
-            "Default 4 with the ``tangent`` layout — chosen from CEN "
-            "PCP sweeps as the best obj + closest match to PLEXOS "
-            "losses (0 MWh unserved, +1.63%% loss vs PLEXOS).  Larger "
-            "values (6, 10) reduce the PWL approximation error at the "
-            "cost of more LP rows / variables.  PWL error at f = f_max "
-            "scales as 1/nseg, so nseg=6 halves the worst-case loss "
-            "overestimate on the outer segment."
+            "Default **8** with the ``midpoint`` layout + per-line "
+            "``loss_envelope`` decoupling — chosen from the 2026-05-28 "
+            "CEN PCP K-sweep (K=5/6/8/10 × envfix/no-envfix) as the "
+            "best overall: residual loss 33,885 MWh vs PLEXOS 34,958 "
+            "(-3.07%%), lowest LP objective ($1,912.29 B), kappa 9.47e+07, "
+            "131 s solve.  K=10 brings no further gain; K=5/6 are "
+            "viable at 2-4× faster solves but trade ~4-6%% loss "
+            "accuracy.  PWL error at f = f_max scales as 1/nseg^2 "
+            "under the midpoint de-bias (faster than the legacy "
+            "1/nseg tangent layout)."
         ),
     )
     # NOTE: ``--loss-tangent-top-pct`` (the loading-classified R·P²
@@ -742,6 +759,7 @@ def main(argv: list[str] | None = None) -> None:
         "lp_relax": args.lp_relax,
         "run_check": args.run_check,
         "compare_json": args.compare_json,
+        "lax_uc_refs": args.lax_uc_refs,
     }
 
     if args.compare_json:

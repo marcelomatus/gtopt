@@ -29,6 +29,8 @@
  * per-block mode each block has its own slack column.
  */
 
+#include <tuple>
+
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
@@ -124,10 +126,6 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
 
   const auto stage_uid = stage.uid();
   const auto stage_cap = param_max_offtake(stage_uid);
-  if (!stage_cap) {
-    // No cap set for this stage — FuelLP stays purely passive.
-    return true;
-  }
 
   const auto& blocks = stage.blocks();
   if (blocks.empty()) {
@@ -138,14 +136,97 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
   const auto scen_uid = scenario.uid();
   const auto stage_ctx = make_stage_context(scen_uid, stage_uid);
 
-  // Walk generators once; reuse the (col → coefficient) map for
-  // either cap mode.  GeneratorLP runs BEFORE FuelLP in
-  // `lp_element_types_t`, so generation_cols_at() is already
-  // populated.
+  // Walk generators once; reuse the (col → coefficient) map for the
+  // offtake binding equation AND either cap mode.  GeneratorLP runs
+  // BEFORE FuelLP in `lp_element_types_t`, so generation_cols_at() is
+  // already populated.
   const auto gen_coefs = collect_gen_coefficients(sc, *this, scenario, stage);
   if (gen_coefs.empty()) {
-    // No active generators reference this fuel at this stage — the
-    // cap is trivially satisfied; skip rows to keep the LP sparse.
+    // No active generators reference this fuel at this stage — neither
+    // the offtake DV nor the cap row contributes; skip to keep the LP
+    // sparse.  KNOWN LIMITATION: ``fuel("X").offtake`` references on
+    // this (scenario, stage) then fail the strict UC resolver because
+    // the AMPL attribute "offtake" is not registered for *any* element
+    // of the class until at least one FuelLP::add_to_lp call actually
+    // creates a DV — the class-attribute leniency in
+    // ``element_column_resolver.cpp::element_known_silent_zero``
+    // requires a sister-element registration to fire.  This is why the
+    // plexos2gtopt emission of ``α × fuel(name).offtake`` is gated
+    // OFF by default behind ``GTOPT_USE_FUEL_OFFTAKE=1`` — it works
+    // for the canonical test fixture (every fuel has consumers in
+    // every stage) but breaks on CEN PCP scale where some
+    // Generator → Fuel memberships exist in the XML but the gens are
+    // never active in any block at the run date.  TODO: register
+    // ``offtake`` as a class-level attribute marker so the leniency
+    // catches the missing-DV case without requiring a sister-element.
+    return true;
+  }
+
+  // ── Unconditional offtake DV + binding equation ──────────────────
+  // For every block with at least one active gen, create
+  // ``Y_f[b] >= 0`` and bind it via ``Y_f[b] − Σ hr_g·dur_b·gen_g = 0``.
+  // Registering ``Y_f`` lets PLEXOS ``Offtake Coefficient`` UCs
+  // (``Gas_MaxOpDay*``) translate verbatim as ``fuel("X").offtake``,
+  // and lets the cap rows below reference a single column instead of
+  // re-summing per-gen coefficients (sparser LP).  The DV is created
+  // whenever the fuel has consumers, independent of whether
+  // ``Fuel.max_offtake`` is set.
+  BIndexHolder<ColIndex> obcols;
+  map_reserve(obcols, blocks.size());
+  for (const auto& block : blocks) {
+    const auto buid = block.uid();
+    const auto coefs_it = gen_coefs.find(buid);
+    if (coefs_it == gen_coefs.end() || coefs_it->second.empty()) {
+      continue;
+    }
+    const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
+    const auto ocol = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .class_name = cname,
+        .variable_name = OfftakeName,
+        .variable_uid = uid(),
+        .context = block_ctx,
+    });
+    obcols[buid] = ocol;
+    // Binding equation: +Y_f − Σ hr_g·dur_b·gen_g = 0.  Stamp the
+    // equality constraint type at construction so the row is ready
+    // to receive coefficients directly via ``operator[]``.
+    auto bind_row =
+        SparseRow {
+            .class_name = cname,
+            .constraint_name = OfftakeDefName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        }
+            .equal(0.0);
+    bind_row[ocol] = 1.0;
+    for (const auto& [gcol, coef] : coefs_it->second) {
+      const double existing = bind_row[gcol];
+      bind_row[gcol] = existing - coef;
+    }
+    // Definition row, not a physical constraint: its row index is
+    // intentionally NOT stored (no member holder) and is NOT routed
+    // through ``add_to_output``, so the dual is never written to the
+    // output stream — saving a row-dual emission per (fuel, scenario,
+    // stage, block).  ``std::ignore`` silences the [[nodiscard]] on
+    // LinearProblem::add_row.
+    std::ignore = lp.add_row(std::move(bind_row));
+  }
+  if (!obcols.empty()) {
+    offtake_cols_[{scen_uid, stage_uid}] = obcols;
+    // Register via the snake_case class label (``fuel``) so PAMPL
+    // expressions ``fuel("X").offtake`` resolve.  The LP-row-class
+    // names use the full-name form (``Fuel``) — see ``cname`` above
+    // for the SparseRow / SparseCol class_name field which feeds LP
+    // file labels and CSV outputs.
+    static constexpr auto ampl_name = Element::class_name.snake_case();
+    sc.add_ampl_variable(
+        ampl_name, uid(), OfftakeName, scenario, stage, obcols);
+  }
+
+  if (!stage_cap) {
+    // No cap set — offtake DV stays exposed (UCs can still reference
+    // it), but no cap / slack row is emitted.
     return true;
   }
 
@@ -165,6 +246,9 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
 
   const bool per_block = fuel().max_offtake_per_block.value_or(false);
 
+  // Cap rows reference the offtake DV directly (sparser than re-summing
+  // per-gen coefficients here — the binding equation above already
+  // accumulates ``Σ hr·dur·gen`` into ``Y_f[b]``).
   if (per_block) {
     // ── Per-block mode ────────────────────────────────────────────────
     // Pro-rate the stage cap by each block's share of stage duration
@@ -188,12 +272,10 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
 
     for (const auto& block : blocks) {
       const auto buid = block.uid();
-      const auto coefs_it = gen_coefs.find(buid);
-      if (coefs_it == gen_coefs.end() || coefs_it->second.empty()) {
-        // No generator coefficient on this block — skip the row to
-        // keep the LP sparse.  The remaining blocks still get their
-        // cap rows; the missing block is effectively "uncapped" but
-        // also "no consumption", so the constraint is trivially met.
+      const auto ocol_it = obcols.find(buid);
+      if (ocol_it == obcols.end()) {
+        // No offtake DV on this block (no active gens) — skip the cap
+        // row; cap is trivially satisfied with zero offtake.
         continue;
       }
       const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
@@ -203,10 +285,7 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
           .variable_uid = uid(),
           .context = block_ctx,
       };
-      for (const auto& [gcol, coef] : coefs_it->second) {
-        const double existing = brow[gcol];
-        brow[gcol] = existing + coef;
-      }
+      brow[ocol_it->second] = 1.0;
       if (slack_cost_per_unit > 0.0) {
         const auto slack_col = lp.add_col(SparseCol {
             .lowb = 0.0,
@@ -232,21 +311,16 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
     }
   } else {
     // ── Per-stage SUM mode (default) ──────────────────────────────────
+    // Σ_b Y_f[b] ≤ max_offtake  (one row per stage).
     SparseRow cap_row {
         .class_name = cname,
         .constraint_name = MaxOfftakeName,
         .variable_uid = uid(),
         .context = stage_ctx,
     };
-    for (const auto& block : blocks) {
-      const auto coefs_it = gen_coefs.find(block.uid());
-      if (coefs_it == gen_coefs.end()) {
-        continue;
-      }
-      for (const auto& [gcol, coef] : coefs_it->second) {
-        const double existing = cap_row[gcol];
-        cap_row[gcol] = existing + coef;
-      }
+    for (const auto& [_buid, ocol] : obcols) {
+      const double existing = cap_row[ocol];
+      cap_row[ocol] = existing + 1.0;
     }
 
     if (slack_cost_per_unit > 0.0) {
