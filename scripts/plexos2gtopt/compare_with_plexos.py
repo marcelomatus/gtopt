@@ -748,6 +748,24 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     # ``batt_discharge`` is still returned in the result dict for the
     # Step-9 system-totals footnote.
     losses_total = max(0.0, gen_total - load_total - batt_charge)
+    # Battery round-trip loss correction: the residual above is the
+    # full bus-balance gap (gen − consumer − batt_charge), which
+    # implicitly INCLUDES the BES round-trip loss whenever
+    # ``batt_charge > batt_discharge`` — gtopt models batteries as
+    # synthetic ``<bat>_gen`` Generator + ``<bat>_dem`` Demand pairs
+    # at the BUS boundary, with η_c · η_d ≈ 0.93 baked into the
+    # internal SoC equation.  When the LP net-charges the fleet, the
+    # `(batt_charge − batt_discharge)` MWh is the energy lost to
+    # round-trip + small SoC change; under a week-long horizon with
+    # bounded init/final SoC the round-trip dominates.  Subtract it
+    # so the reported "Transmission losses" measures ONLY line R·f²
+    # losses, apples-to-apples with PLEXOS prop 997 (which separates
+    # battery efficiency loss inside its own Battery class).
+    # ``max(0, …)`` guards the net-discharge case (PLEXOS week:
+    # batt_charge < batt_discharge → no positive round-trip to
+    # subtract).
+    bes_round_trip = max(0.0, batt_charge - batt_discharge)
+    losses_total = max(0.0, losses_total - bes_round_trip)
     return {
         "gen_mwh": gen_total,
         "load_mwh": load_total,
