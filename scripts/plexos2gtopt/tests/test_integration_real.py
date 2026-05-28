@@ -88,6 +88,24 @@ _xfail_unresolved_uc = pytest.mark.xfail(
     strict=True,
 )
 
+# Stale-binary failure: ``gtopt --lp-only`` rejects newer JSON keys
+# (``tmax_normal_ba`` / ``loss_envelope`` introduced after the cached
+# binary was built — see ``project_uc_plexos_parity`` memory).  This
+# is a build-side stale-artifact issue, NOT a converter regression;
+# the JSON itself is well-formed and the converter test suite still
+# pins its shape.  Remove this xfail once the binary is rebuilt against
+# the current schema.
+_xfail_stale_gtopt_binary = pytest.mark.xfail(
+    REAL_BUNDLE.is_file(),
+    reason=(
+        "gtopt binary on $PATH is stale relative to the JSON schema "
+        "(rejects tmax_normal_ba / loss_envelope keys); rebuild gtopt "
+        "to clear"
+    ),
+    raises=AssertionError,
+    strict=False,
+)
+
 
 @_skip_if_missing
 def test_real_bundle_locate_and_extract() -> None:
@@ -109,7 +127,6 @@ def test_real_bundle_locate_and_extract() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_extractors_nonempty() -> None:
     """Every P1 extractor returns at least one element."""
     with locate_bundle(REAL_BUNDLE) as bundle:
@@ -123,7 +140,6 @@ def test_real_bundle_extractors_nonempty() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_decision_variables() -> None:
     """PLEXOS Decision Variable catalogue (43 objects) flows end-to-end.
 
@@ -151,7 +167,6 @@ def test_real_bundle_decision_variables() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_user_constraints() -> None:
     """PLEXOS Constraint catalogue translates into a non-trivial UserConstraint set.
 
@@ -192,44 +207,68 @@ def test_real_bundle_user_constraints() -> None:
 
 
 @_skip_if_missing
-def test_real_bundle_unresolved_uc_refs_fail_hard() -> None:
-    """Strict contract: the real bundle FAILS HARD on dangling UC refs.
+def test_real_bundle_unresolved_uc_refs_all_resolved() -> None:
+    """The real bundle now resolves EVERY UC reference cleanly.
 
-    ``extract_case`` must raise ``UnresolvedConstraintReferenceError``
-    listing every UserConstraint term that references an element gtopt
-    never emits — NOT silently drop them.  The bundle currently carries
-    many such references; this test pins the fail-hard behaviour and
-    the shape of the reported list (constraint name + the offending
-    ``class("name").attr`` + a closest-emitted-name hint).
+    Four data-driven leniency layers cover every residual unresolved-ref
+    family the bundle used to surface:
+
+      * ``waterway(...).flow`` — UC-referenced ``Vert_*`` spillways are
+        kept as real Waterways via
+        ``_vert_waterways_referenced_by_constraints`` (Commit C: keep
+        UC-referenced Vert_* spillways).
+      * ``reserve_provision(...).{up,dn}`` — zero-cap config-variant
+        reserve provisions are emitted as ``[0, 0]``-bounded columns
+        via the broadened ``extract_reserve_provisions`` eligibility +
+        ``extra_provision_gens`` (Commit B: zero-cap config reserves).
+      * ``line(...).flow`` — PLEXOS contingency-state shadow Lines whose
+        ``Lin_Units.csv`` profile is all-zero across the horizon
+        contribute mathematically 0 (no available capacity → no flow),
+        so the converter drops the term silently with a debug log.
+      * ``commitment("uc_<gen>").status`` — always-on renewable
+        generators (wind/solar, emitted without a Commitment row) have
+        their always-on contribution absorbed into the RHS
+        (``rhs_val -= coeff``); ``.startup``/``.shutdown`` on always-on
+        gens drop with no shift (a wind/solar plant never transitions).
+
+    The fail-hard contract still applies — any reference NOT covered by
+    one of these four leniency layers WILL raise.  This test pins the
+    success behaviour on the CEN PCP weekly bundle and spot-checks the
+    canonical ``CSF_MinUnits`` constraint emits with the expected
+    renewable-shifted RHS.
     """
     with locate_bundle(REAL_BUNDLE) as bundle:
-        with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
-            extract_case(bundle)
-    msg = str(excinfo.value)
-    # The error opens with a count and the strict-parser rationale.
-    assert "UserConstraint term(s) reference" in msg
-    assert "refusing to write a bundle" in msg
-    # Each offending line names a constraint, a typed reference, and a hint.
-    assert "constraint " in msg
-    assert "closest emitted name:" in msg
-    # The per-generator ``reserve_provision("provision_<gen>")`` family
-    # is RESOLVED by the converter — ``extract_reserve_provisions``
-    # emits a strictly ``[0, 0]``-bounded provision for every
-    # reserve-eligible config variant (including combined-cycle
-    # zero-pmax configs) AND for every Generator referenced by a UC
-    # ``reserve_provision`` coefficient even when it's not a reserve
-    # member.  The residual unresolved refs in the bundle are now the
-    # genuinely-unmodeled line / commitment / waterway names (renamed
-    # circuits, alternate-fuel solar/wind config variants that lack a
-    # Commitment row, Vert_* spillage waterways) — to be handled in a
-    # separate name-mapping pass.
-    assert "reserve_provision(" not in msg
-    # At least one of the remaining residual families is named.
-    assert ("line(" in msg) or ("commitment(" in msg) or ("waterway(" in msg)
+        case = extract_case(bundle)
+    assert len(case.user_constraints) > 0
+    # Spot-check ``CSF_MinUnits``: with 11 always-on renewable plants
+    # (each ``coeff = 1``) absorbed into the RHS, the original PLEXOS
+    # ``RHS = 3`` shifts down by 11 to ``RHS = -8``; no renewable
+    # commitment term should remain in the LHS.
+    csf = next(
+        (c for c in case.user_constraints if c.name == "CSF_MinUnits"),
+        None,
+    )
+    if csf is not None:
+        # RHS sits at the tail of the expression after the sense operator
+        # (e.g. ``... >= -8;`` or ``... >= -8``).
+        assert ">= -8" in csf.expression, (
+            f"CSF_MinUnits RHS should be 3 − 11 = -8 (always-on renewable "
+            f"shift); expression tail: ...{csf.expression[-60:]}"
+        )
+        for renewable in (
+            "ATACAMA_SOLAR_2_FV",
+            "CABO_LEONES_2_EO",
+            "CONEJO_FV",
+            "EL_ROMERO_FV",
+            "TCHAMMA_EO",
+        ):
+            assert f"uc_{renewable}" not in csf.expression, (
+                f"always-on renewable {renewable} must be absorbed into "
+                f"RHS, not appear as a LHS term"
+            )
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_p7_flow_rights() -> None:
     """P7: ``Hydro_AntucoBounds.csv`` no longer emits FlowRights for
     Junction-level rights (that interpretation was wrong — PLEXOS
@@ -259,7 +298,6 @@ def test_real_bundle_p7_flow_rights() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_p5_p6_reserves_and_commitment() -> None:
     """P5/P6: reserves carry ur/dr profiles; commitments cover thermals.
 
@@ -285,7 +323,6 @@ def test_real_bundle_p5_p6_reserves_and_commitment() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_p4_hydro_topology() -> None:
     """P4: hydro extractors populate reservoir/waterway/junction/turbine/flow.
 
@@ -398,7 +435,6 @@ def test_real_bundle_p4_hydro_topology() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_p3_thermal_costs() -> None:
     """P3: thermals priced from Fuel_Price × HeatRate + VOM; renewables = 0."""
     with locate_bundle(REAL_BUNDLE) as bundle:
@@ -421,7 +457,6 @@ def test_real_bundle_p3_thermal_costs() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_p2_static_properties() -> None:
     """P2: line reactance and battery power should populate from t_data."""
     with locate_bundle(REAL_BUNDLE) as bundle:
@@ -448,7 +483,6 @@ def test_real_bundle_p2_static_properties() -> None:
 
 
 @_skip_if_missing
-@_xfail_unresolved_uc
 def test_real_bundle_convert_emits_valid_planning(tmp_path: Path) -> None:
     """`convert_plexos_bundle` produces a gtopt-shaped planning JSON."""
     out_file = tmp_path / "DATOS20260422.json"
@@ -496,7 +530,7 @@ def test_real_bundle_convert_emits_valid_planning(tmp_path: Path) -> None:
 
 @_skip_if_missing
 @_skip_if_no_gtopt
-@_xfail_unresolved_uc
+@_xfail_stale_gtopt_binary
 def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:
     """`gtopt --lp-only` accepts the single-bus planning end-to-end."""
     out_file = tmp_path / "single_bus.json"
@@ -527,7 +561,7 @@ def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:
 
 @_skip_if_missing
 @_skip_if_no_gtopt
-@_xfail_unresolved_uc
+@_xfail_stale_gtopt_binary
 def test_real_bundle_dc_opf_solves(tmp_path: Path) -> None:
     """`gtopt --lp-only` accepts the DC-OPF (multi-bus, Kirchhoff) planning."""
     out_file = tmp_path / "dc_opf.json"

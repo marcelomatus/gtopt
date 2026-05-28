@@ -1465,7 +1465,12 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
     return tuple(out)
 
 
-def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
+def extract_lines(
+    db: PlexosDb,
+    bundle: PlexosBundle,
+    *,
+    shadow_lines_all_off_out: set[str] | None = None,
+) -> tuple[LineSpec, ...]:
     """One :class:`LineSpec` per Line object with two valid endpoints.
 
     Endpoints come from ``Node From`` / ``Node To`` collections.
@@ -1530,7 +1535,18 @@ def extract_lines(db: PlexosDb, bundle: PlexosBundle) -> tuple[LineSpec, ...]:
             continue
         units_profile = units_wide.get(line.name)
         if units_profile is not None and not any(u > 0.0 for u in units_profile):
-            # All-zero across the day = mothballed; PLEXOS would drop it.
+            # All-zero across the horizon = mothballed / contingency-state-
+            # inactive (PLEXOS's ``_I/_II/_III`` per-circuit shadows and
+            # ``_SC`` Sin-Compensar variants stay at Units=0 until the
+            # corresponding contingency activates).  PLEXOS would emit a
+            # flow variable that's pinned to 0 — equivalent to "term
+            # contributes 0" in any UC LHS that references the line.  We
+            # don't emit a LineSpec, but we DO record the name so the
+            # UserConstraint extractor can recognise such terms and drop
+            # them silently (rather than fail-hard as if the name were a
+            # typo).
+            if shadow_lines_all_off_out is not None:
+                shadow_lines_all_off_out.add(line.name)
             continue
         # Parallel-circuit count = the line's genuine capacity multiplier
         # (``tmax_ab × units`` in the writer).  Use the MAX over the
@@ -4706,6 +4722,8 @@ def extract_user_constraints(
     heat_rate_by_gen: dict[str, float] | None = None,
     pmax_by_gen: dict[str, float] | None = None,
     pmax_profiles_by_gen: dict[str, tuple[float, ...]] | None = None,
+    shadow_lines_all_off: frozenset[str] | None = None,
+    always_on_gens: frozenset[str] | None = None,
     stats_out: dict[str, int] | None = None,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
@@ -5196,6 +5214,85 @@ def extract_user_constraints(
                                 )
                                 coefficients.append(coeff)
                             continue
+                    # Fix 3 (PLEXOS contingency-state shadow Lines): when a
+                    # Line term references a parent whose ``Lin_Units.csv``
+                    # profile is all-zero across the horizon, PLEXOS itself
+                    # pins the line's flow to 0 — the term mathematically
+                    # contributes 0 to the LHS regardless of its
+                    # ``Flow Coefficient``.  This is exactly how PLEXOS
+                    # models inactive contingency states (the ``_I/_II/_III``
+                    # per-circuit shadows and the ``_SC`` Sin-Compensar
+                    # variants stay at Units=0 until their contingency
+                    # activates).  Drop the term silently (matches PLEXOS's
+                    # zero-flow contribution) rather than fail-hard as if
+                    # the name were a typo — a future case where a
+                    # contingency IS active will need real per-circuit
+                    # emission, but for the inactive-contingency days that
+                    # dominate PCP runs the term is genuinely 0.
+                    if (
+                        parent_class == "Line"
+                        and shadow_lines_all_off is not None
+                        and parent_name in shadow_lines_all_off
+                    ):
+                        logger.debug(
+                            "constraint %s: dropping term for shadow Line "
+                            "'%s' (Lin_Units=0 all-horizon, PLEXOS "
+                            "contingency-state inactive; term contributes 0)",
+                            constr.name,
+                            parent_name,
+                        )
+                        continue
+                    # Fix 4 (renewable without Commitment row): wind/solar
+                    # plants run intermittently but PLEXOS treats their
+                    # ``commitment.status`` as a constant ``1`` (always
+                    # committed — there's no on/off decision for a wind
+                    # farm or PV array).  The converter does NOT emit a
+                    # ``CommitmentSpec`` for these plants (no Min Stable
+                    # Level / Start Cost / Min Up-Down on the PLEXOS side),
+                    # so any UC term ``coeff * commitment("uc_<gen>").status``
+                    # has no LP column to bind to.  In PLEXOS's LP the term
+                    # contributes a constant ``coeff * 1`` to the LHS;
+                    # mirror that by ABSORBING the contribution into the
+                    # RHS (``rhs_val -= coeff``), exactly the same physics
+                    # without needing a phantom commitment variable.
+                    #
+                    # Example: ``CSF_MinUnits``' renewable terms (11 plants,
+                    # each ``coeff=1``) shift the RHS from 3 to ``3-11=-8``,
+                    # making the residual ``Σ status(committable) ≥ -8``
+                    # which is trivially satisfied by the remaining
+                    # commitments — matching PLEXOS exactly (Slack=0..24.6,
+                    # Marginal=0 in PLEXOS solution).
+                    #
+                    # ``startup`` / ``shutdown`` terms on always-on gens
+                    # contribute 0 (the unit never transitions), so we
+                    # just drop them without an RHS shift.
+                    if (
+                        parent_class == "Generator"
+                        and gtopt_class == "commitment"
+                        and always_on_gens is not None
+                        and parent_name in always_on_gens
+                    ):
+                        if accessor == "status":
+                            rhs_val -= coeff
+                            logger.debug(
+                                "constraint %s: absorbing always-on "
+                                "commitment.status of renewable '%s' into "
+                                "RHS (coeff=%g shifted; new rhs_val=%g)",
+                                constr.name,
+                                parent_name,
+                                coeff,
+                                rhs_val,
+                            )
+                        else:
+                            logger.debug(
+                                "constraint %s: dropping commitment.%s "
+                                "for always-on renewable '%s' (never "
+                                "transitions; term contributes 0)",
+                                constr.name,
+                                accessor,
+                                parent_name,
+                            )
+                        continue
                     # Fix 2: the referenced element was never emitted and
                     # could not be reconciled (BESS Fix above did not
                     # apply).  Do NOT silently drop the term, and do NOT
@@ -6595,12 +6692,19 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
             demand_fail_cost=chosen,
             n_days=bundle_spec.n_days,
         )
+    # PLEXOS contingency-state shadow Line names with Units=0 across the
+    # entire horizon — captured here so the UC extractor can recognise
+    # ``waterway("Vert_X").flow``-style terms whose parent Line is
+    # mothballed / contingency-inactive (per Lin_Units.csv) and drop them
+    # silently (matches PLEXOS's own zero-flow contribution) instead of
+    # raising the fail-hard unresolved-ref error.
+    shadow_lines_all_off: set[str] = set()
     case = PlexosCase(
         bundle=bundle_spec,
         nodes=extract_nodes(db),
         fuels=fuels,
         generators=generators,
-        lines=extract_lines(db, bundle),
+        lines=extract_lines(db, bundle, shadow_lines_all_off_out=shadow_lines_all_off),
         demands=extract_demands(db, bundle),
         batteries=extract_batteries(db, bundle),
         reservoirs=reservoirs,
@@ -6698,6 +6802,18 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         g.name: g.pmax_profile for g in case.generators if g.pmax_profile
     }
     uc_stats_raw: dict[str, int] = {}
+    # ``always_on_gens``: generators emitted with NO ``Commitment`` row
+    # (typically wind/solar — PLEXOS treats their commitment.status as a
+    # constant 1).  UC ``commitment("uc_<gen>").status`` terms on these
+    # gens are absorbed into the RHS (``rhs_val -= coeff``) instead of
+    # raising the fail-hard unresolved-ref contract.  Battery synthetic
+    # ``<bat>_gen`` companions ALWAYS have a matching ``uc_<bat>_gen``
+    # commitment (created unconditionally by ``expand_batteries``), so
+    # they're excluded from the always-on set by construction.
+    committable_gens = {c.generator_name for c in case.commitments}
+    always_on_gens = frozenset(
+        g.name for g in case.generators if g.name not in committable_gens
+    )
     base_ucs = extract_user_constraints(
         db,
         bundle,
@@ -6705,6 +6821,8 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         heat_rate_by_gen=heat_rate_by_gen,
         pmax_by_gen=pmax_by_gen_for_uc,
         pmax_profiles_by_gen=pmax_profiles_by_gen,
+        shadow_lines_all_off=frozenset(shadow_lines_all_off),
+        always_on_gens=always_on_gens,
         stats_out=uc_stats_raw,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(

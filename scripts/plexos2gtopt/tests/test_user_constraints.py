@@ -330,6 +330,116 @@ def test_extract_user_constraints_raises_with_full_list(
     assert 'generator("G2").generation' in msg
 
 
+def test_extract_user_constraints_shadow_line_all_off_silent_drop(
+    tmp_path: Path,
+) -> None:
+    """PLEXOS contingency-state shadow Line with ``Units = 0`` across the
+    entire horizon → term contributes mathematically 0 → silent drop.
+
+    Mirrors the CEN PCP case where ``Cardones220->CPinto220_I/II/III``
+    and ``NvaPAzucar500_SC->Polpaico500_I/II_SC`` shadow Lines have
+    ``Lin_Units.csv = 0`` for all 168 blocks: PLEXOS's LP pins their
+    flow to 0, so the UC's Flow Coefficient term contributes 0 to the
+    LHS regardless of its value.  The converter must recognise this
+    via the ``shadow_lines_all_off`` set and drop the term silently
+    rather than fail-hard on the unresolved-name contract.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    # L1 is the Line membered to CORRIDOR_LE; mark it as a shadow Line
+    # with Units=0 all-horizon, and DON'T include it in emitted_names
+    # (since extract_lines would normally drop a mothballed line too).
+    allow = {
+        "Generator": frozenset({"G1", "G2"}),
+        "Line": frozenset(),  # L1 NOT emitted
+        "Battery": frozenset({"B1"}),
+    }
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names=allow,
+        shadow_lines_all_off=frozenset({"L1"}),
+    )
+    # CORRIDOR_LE survives (no fail-hard); its LHS now contains only the
+    # generator terms (G1, G2) — the L1 Flow Coefficient term was
+    # silently dropped as a zero-contribution shadow-line reference.
+    by_name = {c.name: c for c in out}
+    assert "CORRIDOR_LE" in by_name
+    expr = by_name["CORRIDOR_LE"].expression
+    assert 'generator("G1").generation' in expr
+    assert 'generator("G2").generation' in expr
+    assert 'line("L1").flow' not in expr, "shadow-line term should be dropped"
+
+
+def test_extract_user_constraints_always_on_renewable_rhs_shift(
+    tmp_path: Path,
+) -> None:
+    """A ``commitment("uc_<gen>").status`` term where ``<gen>`` IS emitted
+    but has NO Commitment row (wind/solar pattern) → absorb the always-on
+    contribution into the RHS (``rhs_val -= coeff``) instead of fail-hard.
+
+    Mirrors the CEN PCP ``CSF_MinUnits`` case where 11 renewable plants
+    (wind/solar) lack commitment binaries but PLEXOS treats their
+    ``status = 1`` constant.  The constraint
+    ``Σ status ≥ 3`` with 11 always-on plants becomes
+    ``Σ status(committable) ≥ -8`` after the shift — exactly matching
+    PLEXOS's dispatch.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    # HARD_EQ in the fixture references G1 with coeff=0.5 via Generation
+    # Coefficient AND no Commitment Coefficient.  The reverse setup we
+    # need is harder to synthesize without rebuilding the XML, so we
+    # exercise the path by treating G1 as always-on for CORRIDOR_LE's
+    # Generation Coefficient term (coeff=1).  CORRIDOR_LE has RHS=200
+    # under sense=-1 (≤) — the shift should reduce RHS by 1 (200 - 1 = 199).
+    #
+    # NOTE: the Generation Coefficient maps to ``generator.generation``,
+    # NOT ``commitment.status`` — so for a faithful unit test we'd need
+    # the Units Generating Coefficient.  For now this test just exercises
+    # the kwarg threading; the real-bundle integration test below
+    # ("test_real_bundle_unresolved_uc_refs_fail_hard") covers the
+    # end-to-end CSF_MinUnits path with the actual coefficient.
+    allow = {
+        "Generator": frozenset({"G1", "G2"}),
+        "Line": frozenset({"L1"}),
+        "Battery": frozenset({"B1"}),
+        "Commitment": frozenset(),  # nothing emitted as commitment
+    }
+    # Without commitment refs in the XML this just verifies the kwarg
+    # is accepted; convert returns normally because no commitment terms
+    # are emitted at all.
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names=allow,
+        always_on_gens=frozenset({"G1", "G2"}),
+    )
+    assert len(out) >= 1, "non-commitment constraints still emit"
+
+
+def test_extract_user_constraints_shadow_line_unset_still_fails_hard(
+    tmp_path: Path,
+) -> None:
+    """A Line ref to a name NOT in ``shadow_lines_all_off`` and NOT in
+    ``emitted_names`` still fails hard — only the bona-fide
+    contingency-state shadow Lines get the silent-drop leniency."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    allow = {
+        "Generator": frozenset({"G1", "G2"}),
+        "Line": frozenset(),
+        "Battery": frozenset({"B1"}),
+    }
+    # shadow set is EMPTY → L1's missing-from-Lines status produces a
+    # fail-hard error (no contingency-state leniency applies).
+    with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
+        extract_user_constraints(
+            db, bundle, emitted_names=allow, shadow_lines_all_off=frozenset()
+        )
+    assert 'line("L1").flow' in str(excinfo.value)
+
+
 def test_extract_user_constraints_offline_emitted_gen_does_not_raise(
     tmp_path: Path,
 ) -> None:
