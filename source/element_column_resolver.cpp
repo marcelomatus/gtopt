@@ -242,7 +242,15 @@ namespace
                                          const LinearProblem& lp)
 {
   // Resolve element_id (uid|name) once; multi-col path needs the uid.
+  // Also remember whether the element_id was supplied as a NAME (which
+  // is verified by the lookup, proving the UID exists in the registry)
+  // or as a bare/uid:N integer (whose existence is NOT verified by the
+  // parse step alone).  The distinction matters for the LP-attr-dormant
+  // leniency below: a bare integer like ``generator(999)`` must NOT be
+  // treated as a known element just because some other generator
+  // registers the requested attribute.
   const auto single_id = parse_element_id(ref.element_id);
+  const bool element_id_was_name = std::holds_alternative<Name>(single_id);
   const auto uid_opt = [&]() -> std::optional<Uid>
   {
     if (std::holds_alternative<Uid>(single_id)) {
@@ -255,29 +263,67 @@ namespace
     return std::nullopt;
   }();
 
-  // ``element_known`` flips to true when the (class, element_uid,
-  // attribute) triple is registered as an LP variable SOMEWHERE in
-  // the simulation — any (scene, phase, scenario, stage).  Lets the
-  // user-constraint resolver distinguish:
-  //   * pmax=0 (or similarly inactive) in this specific (scenario,
-  //     stage, block): registered for at least one OTHER cell →
-  //     element_known=true → caller silently contributes 0 to the
-  //     LHS (the underlying variable is implicitly 0 anyway).
-  //   * Typo or unsupported-attribute case: no cell anywhere has a
-  //     column for this attribute on this element → element_known
-  //     =false → strict-mode caller throws.
+  // ``element_known`` flips to true when the reference is a *defined*
+  // silent-0 case rather than a typo / unsupported reference.  Two
+  // accepted sub-cases (both flow to "term contributes 0 to LHS"):
   //
-  // The simple "uid_opt has value" check isn't enough: a lossless
-  // line has a known UID but the ``flown`` attribute is registered
-  // nowhere, and a misspelled attribute on a real element would
-  // otherwise leak through and silently make the UC vacuous.
-  const auto attribute_registered_for_element = [&]() -> bool
+  //   (1) Per-cell-dormant: the (class, element_uid, attribute) triple
+  //       is registered as an LP variable somewhere in the simulation
+  //       (any scene/phase/scenario/stage) but not for THIS specific
+  //       (scenario, stage, block).  Typical: pmax=0 in some blocks of
+  //       a per-block ``pmax`` schedule — other blocks register the
+  //       column.
+  //
+  //   (2) LP-attr-dormant: the element NAME resolved to a real UID
+  //       (so the element genuinely exists), AND the (class, attribute)
+  //       pair is registered for at least ONE element of the class
+  //       somewhere — i.e. the attribute IS a valid LP variable on the
+  //       class, just not materialised on THIS element because it has
+  //       zero capacity over the entire horizon.  Typical: a generator
+  //       with ``pmax = 0`` and no ``pmax_profile`` (``PANGUE_U1`` on
+  //       CEN PCP weekly) — its ``generation`` column is never created
+  //       by GeneratorLP, but PLEXOS treats coefficient × 0 = 0 as a
+  //       valid contribution.  The match condition is broader than
+  //       (1): the registry hit can be on ANY element of the same
+  //       class.  Restricted to NAME references because a bare integer
+  //       like ``generator(999)`` is not proven to exist by the parser
+  //       alone (parse_element_id happily wraps any digit string in a
+  //       ``Uid``) — out-of-range bare UIDs must keep throwing.
+  //
+  // Both cases are PLEXOS-faithful — the underlying variable is
+  // implicitly 0 and the term legitimately contributes 0 to the LHS.
+  //
+  // Critically, this still rejects:
+  //   * Unknown class names.
+  //   * Misspelled attribute on a known class (no element registers
+  //     the (class, attribute) pair anywhere — e.g. ``generattion``).
+  //   * Misspelled element name on a known class (uid_opt is nullopt).
+  //   * Bare-uid integer references whose UID is not registered
+  //     (``generator(999).generation`` when 999 is not a real gen).
+  //
+  // The simple "uid_opt has value" check isn't enough: a misspelled
+  // attribute on a real element would otherwise leak through and
+  // silently make the UC vacuous.
+  const auto element_known_silent_zero = [&]() -> bool
   {
     if (!uid_opt.has_value()) {
       return false;
     }
-    return sc.find_ampl_variable_for_element(
-        ref.element_type, *uid_opt, ref.attribute);
+    // Case (1): exact (class, uid, attribute) triple registered.
+    if (sc.find_ampl_variable_for_element(
+            ref.element_type, *uid_opt, ref.attribute))
+    {
+      return true;
+    }
+    // Case (2): LP-attr-dormant — element NAME resolved (so the UID is
+    // genuinely registered) and the (class, attribute) pair is
+    // registered for at least one element of the class.  Catches the
+    // all-horizon zero-capacity case.  Restricted to name references
+    // so out-of-range bare-uid integers keep throwing.
+    if (!element_id_was_name) {
+      return false;
+    }
+    return sc.find_ampl_class_attribute(ref.element_type, ref.attribute);
   };
 
   if (uid_opt) {
@@ -314,7 +360,7 @@ namespace
   return {
       .emitted = false,
       .offset_shift = 0.0,
-      .element_known = attribute_registered_for_element(),
+      .element_known = element_known_silent_zero(),
   };
 }
 }  // namespace

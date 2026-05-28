@@ -451,8 +451,8 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
                      term.element->element_type, term.element->attribute);
                  suppression.has_value() || res.element_known)
       {
-        // ── The two DEFINED silent-zero cases ──────────────────────────
-        // Both legitimately contribute 0 to the LHS — they are NOT
+        // ── The DEFINED silent-zero cases ──────────────────────────────
+        // All legitimately contribute 0 to the LHS — they are NOT
         // errors and must stay silent regardless of constraint_mode:
         //
         //  (a) suppressed-by-mode: the class or (class, attribute) pair
@@ -466,13 +466,16 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
         //      an LP variable somewhere (res.element_known == true) but
         //      has no LP column for THIS specific (scenario, stage,
         //      block) — typically a generator with `pmax = 0` on this
-        //      block (GeneratorLP omits the column).  The underlying
-        //      variable is implicitly 0, so the term contributes 0 and
-        //      the constraint stays well-formed without per-block
-        //      expressions.  This was the root cause of the CEN PCP
-        //      weekly LNG +229% over-dispatch fix: plexos2gtopt can now
-        //      include startup-staged gens in FueMaxOff_<fuel> caps
-        //      without tripping a strict-mode error.
+        //      block (GeneratorLP omits the column), or a generator
+        //      with `pmax = 0` on EVERY block such that no column is
+        //      created at all (LP-attr-dormant — element_known is set
+        //      via `find_ampl_class_attribute` in that sub-case).  The
+        //      underlying variable is implicitly 0, so the term
+        //      contributes 0 and the constraint stays well-formed
+        //      without per-block expressions.  This was the root cause
+        //      of the CEN PCP weekly LNG +229% over-dispatch fix (per-
+        //      block case) and the strict-resolver throw on PANGUE_U1
+        //      reservoir constraints (all-horizon case).
         //
         // Critically, this is the ONLY leniency: an UNKNOWN /
         // UNDEFINED reference (res.element_known == false AND not

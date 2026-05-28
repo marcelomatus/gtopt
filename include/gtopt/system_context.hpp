@@ -543,6 +543,21 @@ public:
         class_name, element_uid, attribute);
   }
 
+  /// Is the (class, attribute) pair registered as an LP variable for
+  /// any element of the class?  Used to extend the user-constraint
+  /// resolver's silent-0 leniency to the LP-attr-dormant case: the
+  /// element name is known but ITS particular column was never
+  /// materialised because it has zero capacity over the entire
+  /// horizon — yet the attribute IS a valid LP variable on the class
+  /// (some other element registers it).  PLEXOS treats the term as a
+  /// constant 0 contribution to the LHS; gtopt should match.
+  /// Delegates to `SimulationLP::find_ampl_class_attribute`.
+  [[nodiscard]] bool find_ampl_class_attribute(std::string_view class_name,
+                                               std::string_view attribute) const
+  {
+    return simulation().find_ampl_class_attribute(class_name, attribute);
+  }
+
   /// Look up a compound PAMPL attribute by (class, compound_name).
   [[nodiscard]] const std::vector<AmplCompoundLeg>* find_ampl_compound(
       std::string_view class_name,

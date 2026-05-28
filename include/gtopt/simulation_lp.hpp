@@ -692,6 +692,48 @@ public:
     return false;
   }
 
+  /// Is the (class, attribute) pair registered as an LP variable for
+  /// **any** element of the class, somewhere in the simulation?  This
+  /// is the LP-attr-dormant leniency check used by the user-constraint
+  /// resolver for the "element is known and the class supports the
+  /// attribute, but THIS particular element has zero capacity for the
+  /// entire horizon and therefore got no LP column" case.
+  ///
+  /// Example: ``PANGUE_U1`` has ``pmax = 0`` in every block →
+  /// ``GeneratorLP::add_to_lp`` never creates a ``generation`` column
+  /// for it, and ``add_ampl_variable`` is gated on a non-empty column
+  /// map (``if (!gcols.empty())``).  So
+  /// ``find_ampl_variable_for_element("generator", PANGUE_U1, "generation")``
+  /// returns ``false``.  But ANY other non-zero-pmax generator in the
+  /// system registers ``generation``, so this method returns ``true``
+  /// — telling the resolver that the attribute is a valid LP variable
+  /// on the class (just not materialised for this particular element)
+  /// and the term should silently contribute 0.
+  ///
+  /// Critically, this still rejects:
+  ///   * Unknown class (no element of that class registers anything).
+  ///   * Unknown attribute on a class (no element of the class
+  ///     registers this attribute — typo on ``generation`` →
+  ///     ``generattion`` returns false).
+  ///
+  /// Scans every (scene, phase) cell.  Cost is O(cells × variables)
+  /// but only triggered on the failure path of ``resolve_col_to_row``
+  /// — never on the hot success path.
+  [[nodiscard]] bool find_ampl_class_attribute(std::string_view class_name,
+                                               std::string_view attribute) const
+  {
+    for (const auto& by_phase : m_ampl_lp_cells_) {
+      for (const auto& cell : by_phase) {
+        for (const auto& [key, _] : cell.variables) {
+          if (key.class_name == class_name && key.attribute == attribute) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   /// Register an element's name so that user-expressions like
   /// `generator("G1")` resolve to its Uid.
   ///
