@@ -2234,42 +2234,28 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             db.static_property("Storage", storage.object_id, "Spill Penalty") or 0.0
         )
         # PLEXOS ``Water Value`` ($/GWh) — end-of-horizon opportunity
-        # cost of stored water.  Per the Energy Exemplar docs
-        # (Storage.WaterValue page) it functions as a *linear term on
-        # end-of-horizon storage state*, NOT as Benders/SDDP optimal
-        # cuts.  Multi-band piecewise mode exists in PLEXOS but the CEN
-        # PCP bundle uses the scalar form: default 10,000 $/GWh on most
-        # reservoirs, plus a sentinel ``1e+30`` on virtual storages like
-        # ``L_Maule``.  Clamp the sentinel to a finite value so LP
-        # coefficient ratios stay sane.
-        raw_water_value_gwh = (
-            db.static_property(
-                "Storage", storage.object_id, "Water Value", keep_sentinel=True
-            )
-            or 0.0
+        # cost of stored water.  In gtopt this scalar is now SUPERSEDED
+        # by the per-reservoir piecewise slopes sourced from
+        # ``Hydro_StoWaterValues.csv`` and emitted as a single
+        # end-of-horizon boundary cut (FCF + per-reservoir water-value
+        # slopes; wired via ``simulation.boundary_cuts_file``).  The
+        # boundary cut is the authoritative terminal-volume pricing
+        # surface — pricing storage above ``efin`` correctly under all
+        # cases — so the legacy scalar ``Water Value`` + sentinel
+        # ``never_drain`` clamp is obsolete.
+        #
+        # ``keep_sentinel`` defaults to False → the PLEXOS ``1e+30``
+        # marker on virtual storages (e.g. ``L_Maule``) silently drops
+        # to ``None`` → ``water_value_gwh = 0.0``.  No warning, no hard
+        # ``vol_end >= eini`` clamp; the boundary cut prices terminal
+        # storage uniformly across all reservoirs.
+        water_value_gwh = (
+            db.static_property("Storage", storage.object_id, "Water Value") or 0.0
         )
-        # Sentinel >1e12 (PLEXOS uses 1e+30) indicates "never drain":
-        # the reservoir must keep at least its initial volume.  We do
-        # NOT clamp to a finite price (a finite efin_cost would let the
-        # LP buy out of the sentinel at that price — which is exactly
-        # what the sentinel forbids).  Instead we drop the water value
-        # entirely and set `never_drain=True`; the writer then emits
-        # `efin = eini` as a HARD `vol_end >= eini` constraint with no
-        # `efin_cost` slack.
-        water_value_gwh = raw_water_value_gwh
-        never_drain = False
-        if water_value_gwh > 1.0e12:
-            logger.warning(
-                "Storage '%s' (uid=%s): Water Value %.3e $/GWh exceeds "
-                "1e12 ceiling — treating as PLEXOS 1e+30 never-drain "
-                "sentinel: dropping water_value and emitting hard "
-                "`efin = eini` constraint (no efin_cost slack).",
-                name,
-                storage.object_id,
-                water_value_gwh,
-            )
-            water_value_gwh = 0.0
-            never_drain = True
+        never_drain = False  # retired sentinel; field retained on
+        # ``ReservoirSpec`` for backward compatibility with downstream
+        # consumers (writer, integration tests).  Always False — the
+        # boundary cut handles terminal pricing.
         # ── Pass-through PLEXOS Storage objects ─────────────────
         # CEN PCP "Storage" entries that are topology-only nodes
         # (bocatomas ``B_*``, ``Post_*``, run-of-river intakes,
@@ -4724,6 +4710,7 @@ def extract_user_constraints(
     pmax_profiles_by_gen: dict[str, tuple[float, ...]] | None = None,
     shadow_lines_all_off: frozenset[str] | None = None,
     always_on_gens: frozenset[str] | None = None,
+    unusable_provisions: frozenset[str] | None = None,
     stats_out: dict[str, int] | None = None,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
@@ -5309,6 +5296,76 @@ def extract_user_constraints(
                         )
                     )
                     continue
+                # Fix 5 (fully-offline generator → zero dispatch /
+                # zero reserve provision): when a UC term references
+                # ``generator("<X>").generation`` or
+                # ``reserve_provision("provision_<X>").{up,dn}`` for a
+                # gen whose ``pmax == 0`` AND whose ``pmax_profile`` is
+                # absent or all-zero (PANGUE_U1 on this PCP day,
+                # ANTUCO_U2, COLBUN_U1, NEHUENCO_1-FA_GN_A, …), PLEXOS
+                # resolves the dispatch / provision to 0 in its LP —
+                # the term contributes ``coeff × 0 = 0`` to the LHS.
+                #
+                # gtopt's per-block resolver throws on such a
+                # reference because the LP column / attribute was
+                # never materialised for the zero-pmax gen (see
+                # ``element_column_resolver.cpp`` — strict on missing
+                # ``.generation``; ``reserve_provision_lp.cpp:383-392``
+                # — doesn't register ``.up`` / ``.dn`` when bounds are
+                # ``[0, 0]``).  Mirror PLEXOS by simply dropping the
+                # term (no RHS shift; ``coeff × 0 = 0`` is the same
+                # arithmetic).  Symmetric with the always-on renewable
+                # shift on the ``commitment.status`` side, and with the
+                # fuel-offtake skip below.
+                offline_attr = parent_class == "Generator" and (
+                    (gtopt_class == "generator" and accessor == "generation")
+                    or (gtopt_class == "reserve_provision" and accessor in ("up", "dn"))
+                )
+                if offline_attr and pmax_by_gen is not None:
+                    # Only activate the offline-drop when the caller
+                    # actually supplied pmax data — bare callers
+                    # (legacy unit tests) get the legacy behaviour of
+                    # emitting the term unconditionally.
+                    pmax = gen_pmax_by_name.get(parent_name, 0.0)
+                    profile = gen_pmax_profiles.get(parent_name)
+                    profile_all_zero = profile is None or not any(
+                        p > 0.0 for p in profile
+                    )
+                    if pmax == 0.0 and profile_all_zero:
+                        logger.debug(
+                            "constraint %s: dropping term for fully-"
+                            "offline generator '%s' (pmax=0, no/all-zero "
+                            "profile; %s.%s contributes 0)",
+                            constr.name,
+                            parent_name,
+                            gtopt_class,
+                            accessor,
+                        )
+                        continue
+                # Fix 6 (zone-less provision → .up/.dn not materialised):
+                # provisions emitted with an empty ``reserve_zones`` tuple
+                # (the ``extra_provision_gens`` path for UC-referenced-
+                # but-not-Reserve-member generators) don't get ``.up``
+                # / ``.dn`` AMPL columns in gtopt's
+                # ``reserve_provision_lp.cpp`` — without zone
+                # participation the provision has no balance row to
+                # contribute to.  PLEXOS resolves the term to 0 (no
+                # zone → no headroom).  Drop the term silently.
+                if (
+                    gtopt_class == "reserve_provision"
+                    and accessor in ("up", "dn")
+                    and unusable_provisions is not None
+                    and ref_name in unusable_provisions
+                ):
+                    logger.debug(
+                        "constraint %s: dropping term for zone-less "
+                        "provision '%s'.%s (no reserve_zones → no LP "
+                        "headroom column; contributes 0)",
+                        constr.name,
+                        ref_name,
+                        accessor,
+                    )
+                    continue
                 var_ref = f'{gtopt_class}("{ref_name}").{accessor}'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
                 coefficients.append(coeff)
@@ -5343,6 +5400,28 @@ def extract_user_constraints(
                 hr = gen_heat_rate.get(gen_name, 0.0)
                 if hr == 0.0:
                     continue
+                # Fix 5 (symmetric with the direct-coefficient path):
+                # fully-offline gens with ``pmax == 0`` and no/all-zero
+                # ``pmax_profile`` produce ``.generation = 0`` in PLEXOS,
+                # but gtopt's resolver throws because the per-block
+                # column was never materialised.  Skip the term
+                # (``coeff × 0 = 0`` is the same arithmetic).  Only
+                # active when the caller supplies ``pmax_by_gen``.
+                if pmax_by_gen is not None:
+                    pmax = gen_pmax_by_name.get(gen_name, 0.0)
+                    profile = gen_pmax_profiles.get(gen_name)
+                    profile_all_zero = profile is None or not any(
+                        p > 0.0 for p in profile
+                    )
+                    if pmax == 0.0 and profile_all_zero:
+                        logger.debug(
+                            "constraint %s: dropping fuel-offtake term "
+                            "for fully-offline generator '%s' "
+                            "(pmax=0, no/all-zero profile)",
+                            constr.name,
+                            gen_name,
+                        )
+                        continue
                 coeff = alpha * hr
                 var_ref = f'generator("{gen_name}").generation'
                 terms.append(_format_coefficient(coeff, first=not terms) + var_ref)
@@ -5392,6 +5471,41 @@ def extract_user_constraints(
                     continue
                 ref_name = f"provision_{gen_name}"
                 if allowed_rp is not None and ref_name not in allowed_rp:
+                    continue
+                # Fix 5 (symmetric with the direct-coefficient + ramp +
+                # fuel-offtake offline-gen skips): zero-pmax gen with
+                # no/all-zero profile has a [0, 0]-bounded
+                # ReserveProvisionSpec; gtopt's
+                # ``reserve_provision_lp.cpp`` doesn't register
+                # ``.up``/``.dn`` AMPL accessors on a zero-bounded
+                # provision, so the term throws.  PLEXOS resolves it
+                # to 0 (no available headroom on an offline unit) —
+                # drop the term.  Only active when the caller
+                # supplies ``pmax_by_gen``.
+                if pmax_by_gen is not None:
+                    _pmax = gen_pmax_by_name.get(gen_name, 0.0)
+                    _profile = gen_pmax_profiles.get(gen_name)
+                    if _pmax == 0.0 and (
+                        _profile is None or not any(p > 0.0 for p in _profile)
+                    ):
+                        logger.debug(
+                            "constraint %s: dropping reserve-zone "
+                            "provision term for fully-offline gen '%s' "
+                            "(pmax=0, no/all-zero profile; "
+                            "[0,0]-bounded provision contributes 0)",
+                            constr.name,
+                            gen_name,
+                        )
+                        continue
+                # Fix 6 (symmetric: zone-less provision drops here too)
+                if unusable_provisions is not None and ref_name in unusable_provisions:
+                    logger.debug(
+                        "constraint %s: dropping reserve-zone term for "
+                        "zone-less provision '%s' (no reserve_zones; "
+                        "contributes 0)",
+                        constr.name,
+                        ref_name,
+                    )
                     continue
                 var_ref = f'reserve_provision("{ref_name}").{direction}'
                 terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
@@ -5482,6 +5596,29 @@ def extract_user_constraints(
                     # treats prior gen as 0 (cold start), so the
                     # ``−α × generation_prev`` term vanishes cleanly
                     # at t=0.
+                    #
+                    # Fix 5 (offline gen): if the gen has ``pmax = 0``
+                    # AND no/all-zero profile, BOTH the current and
+                    # prior generation columns are unmaterialised in
+                    # gtopt's LP; PLEXOS resolves them both to 0.
+                    # Skip both terms (``α × (0 − 0) = 0``) — matches
+                    # PLEXOS and the direct-coefficient + fuel-offtake
+                    # skips above.  Only active when the caller
+                    # supplies ``pmax_by_gen``.
+                    if pmax_by_gen is not None:
+                        _pmax = gen_pmax_by_name.get(parent_name, 0.0)
+                        _profile = gen_pmax_profiles.get(parent_name)
+                        if _pmax == 0.0 and (
+                            _profile is None or not any(p > 0.0 for p in _profile)
+                        ):
+                            logger.debug(
+                                "constraint %s: dropping ramp_delta terms "
+                                "for fully-offline generator '%s' "
+                                "(pmax=0, no/all-zero profile)",
+                                constr.name,
+                                parent_name,
+                            )
+                            continue
                     cur_ref = f'generator("{parent_name}").generation'
                     prev_ref = f'generator("{parent_name}").generation_prev'
                     terms.append(_format_coefficient(alpha, first=not terms) + cur_ref)
@@ -6814,6 +6951,25 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
     always_on_gens = frozenset(
         g.name for g in case.generators if g.name not in committable_gens
     )
+    # ``unusable_provisions``: ReserveProvisions emitted WITHOUT a
+    # ``reserve_zones`` membership.  These slip through
+    # ``extra_provision_gens`` (UC-referenced gens that aren't Reserve
+    # members) and the zero-cap config-variant path.  Gtopt's
+    # ``reserve_provision_lp.cpp`` doesn't register the ``.up`` / ``.dn``
+    # AMPL accessors without zone participation, so any UC term
+    # referencing the provision fails to resolve.  Drop those terms
+    # silently in the UC builder (PLEXOS resolves them to 0 as well —
+    # no zone, no headroom contribution).
+    # ReserveProvisionSpec.name is "" for the default-named per-gen
+    # provisions and explicitly set only by the SSCC BESS path
+    # (``provision_<bat>_gen__<ZONE>``).  Reconstruct the effective name
+    # the writer / UC extractor sees: ``p.name`` when explicit, else
+    # ``provision_<generator_name>``.
+    unusable_provisions = frozenset(
+        (p.name or f"provision_{p.generator_name}")
+        for p in case.reserve_provisions
+        if not p.reserve_zones
+    )
     base_ucs = extract_user_constraints(
         db,
         bundle,
@@ -6823,6 +6979,7 @@ def extract_case(bundle: PlexosBundle) -> PlexosCase:
         pmax_profiles_by_gen=pmax_profiles_by_gen,
         shadow_lines_all_off=frozenset(shadow_lines_all_off),
         always_on_gens=always_on_gens,
+        unusable_provisions=unusable_provisions,
         stats_out=uc_stats_raw,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(

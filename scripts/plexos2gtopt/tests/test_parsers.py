@@ -1203,7 +1203,10 @@ def test_writer_emits_capacity_and_max_cycles_day(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# T10: ReservoirSpec.water_value sentinel (1e+30) → never_drain hard floor
+# T10: ReservoirSpec.water_value — PLEXOS scalar is silently dropped to 0
+# (the per-reservoir boundary-cut slopes from Hydro_StoWaterValues.csv now
+# price terminal storage uniformly; the legacy 1e+30 ``never_drain`` clamp
+# is retired).
 # ---------------------------------------------------------------------------
 
 
@@ -1243,16 +1246,16 @@ _RESERVOIR_WV_XML_TMPL = f"""<?xml version="1.0" standalone="yes"?>
 """
 
 
-def test_extract_reservoirs_sentinel_water_value_sets_never_drain(
+def test_extract_reservoirs_sentinel_water_value_silently_drops_to_zero(
     tmp_path: Path,
 ) -> None:
-    """PLEXOS ``Water Value = 1e+30`` is the "never drain" sentinel:
-    the reservoir must keep at least its initial volume.  The
-    extractor must NOT clamp it to a finite price (a finite cost
-    would let the LP buy out of the sentinel) — instead drop
-    water_value to 0 and set ``never_drain=True`` so the writer
-    emits a HARD ``vol_end >= eini`` constraint with no
-    ``efin_cost`` slack.
+    """PLEXOS ``Water Value = 1e+30`` is the legacy "never drain"
+    sentinel.  The boundary-cut FCF + per-reservoir water-value
+    slopes (``Hydro_StoWaterValues.csv``) now price terminal storage
+    correctly, so the extractor silently drops the sentinel to 0
+    with NO warning and NO ``never_drain`` hard clamp.  The
+    ``never_drain`` field on ``ReservoirSpec`` is retired but kept
+    as a no-op for backward compatibility.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_RESERVOIR_WV_XML_TMPL.format(wv="1e30"))
@@ -1261,15 +1264,15 @@ def test_extract_reservoirs_sentinel_water_value_sets_never_drain(
     out = extract_reservoirs(db, bundle)
     assert len(out) == 1
     res = out[0]
-    assert res.never_drain is True
-    # Sentinel is NOT clamped to a finite price — water_value stays 0.
+    # 1e+30 sentinel collapses to 0 (keep_sentinel defaults False on the
+    # static_property reader); no warning emitted, no never_drain set.
     assert res.water_value == 0.0
+    assert res.never_drain is False
 
 
 def test_extract_reservoirs_finite_water_value_is_passthrough(tmp_path: Path) -> None:
     """A finite ``Water Value`` is forwarded verbatim with
-    ``never_drain=False`` — only the 1e+30 sentinel triggers the
-    hard-floor mode.
+    ``never_drain=False`` (the retired sentinel branch never fires).
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_RESERVOIR_WV_XML_TMPL.format(wv="10000"))
