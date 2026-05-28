@@ -43,6 +43,35 @@ namespace gtopt
     -> std::expected<ArrowTable, std::string>;
 
 /**
+ * @brief True when @p table uses the long layout: it carries both a bare
+ *        `uid` column and a `value` column.
+ *
+ * Mirrors the Python reader sniff in
+ * `scripts/gtopt_check_output/_reader.py::dataset_layout`.  The wide layout
+ * (one `uid:N` column per element) never has a bare `uid`+`value` pair, so
+ * the test is unambiguous.
+ */
+[[nodiscard]] auto is_long_layout(const ArrowTable& table) -> bool;
+
+/**
+ * @brief Pivot a long-layout table `[<index cols…>, uid, value]` into the
+ *        wide layout `[<index cols…>, uid:N…]` that the input loaders expect.
+ *
+ * Index columns are every column other than `uid`/`value` (any subset of
+ * `scenario`/`stage`/`block` — broadcast semantics are preserved because an
+ * absent index column simply stays absent).  Duplicate `(index…)` keys in
+ * the long form collapse to one wide row per distinct key.  Missing
+ * `(uid, key)` cells are zero-filled (matching gtopt's sparse long output,
+ * which drops exact zeros; plp2gtopt emits dense long so this never fires).
+ * The value column type is preserved as `int32` (integer fields such as
+ * `Line/active`) or `double` (floating fields); index/uid columns are
+ * emitted as `int32`.  This is a pure column-shape transform — it is
+ * agnostic to whether `uid` denotes an element (field files) or a scenario
+ * (aperture files), so it serves both readers.
+ */
+[[nodiscard]] auto pivot_long_to_wide(const ArrowTable& table_in) -> ArrowTable;
+
+/**
  * @brief Build the filesystem path for an input table.
  *
  * If @p fname contains '@', the part before '@' is treated as an override

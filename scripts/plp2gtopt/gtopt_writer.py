@@ -996,7 +996,7 @@ class GTOptWriter(
         discount_rate = options.get("discount_rate", 0.0)
         output_format = options.get("output_format", "parquet")
         input_format = options.get("input_format", output_format)
-        compression = options.get("compression", "snappy")
+        compression = options.get("compression", "zstd")
         method = self._normalize_method(options.get("method", "sddp"))
 
         # Build the nested sddp_options block (all sddp_* fields except method).

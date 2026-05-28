@@ -33,6 +33,10 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1",
+        # Pin the wide field layout so the ``uid:N`` column assertions in
+        # this module keep their meaning.  The long default (now produced by
+        # ``convert_plp_case``) is exercised in ``test_long_layout.py``.
+        "layout": "wide",
     }
 
 

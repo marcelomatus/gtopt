@@ -34,6 +34,10 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str) -> dict:
         "output_dir": out_dir,
         "output_file": out_dir / f"{case_name}.json",
         "hydrologies": "1",
+        # Pin the wide field layout so this module's ``uid:N`` column
+        # assertions keep their meaning; the long default is covered by
+        # ``test_long_layout.py``.
+        "layout": "wide",
     }
 
 
@@ -54,6 +58,9 @@ def _make_opts_2y(tmp_path: Path, case_name: str = "gtopt_case_2y") -> dict:
         "last_stage": -1,
         "last_time": -1,
         "compression": "snappy",
+        # Wide layout keeps this module's downstream readers/assertions
+        # (indicators, uid:N columns) on the legacy shape.
+        "layout": "wide",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,

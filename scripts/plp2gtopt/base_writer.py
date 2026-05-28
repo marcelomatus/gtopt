@@ -59,11 +59,15 @@ def _probe_parquet_codec(requested: str) -> str:
 
 
 # Best available Parquet codec — probed once at module import time.
-# "snappy" is preferred: fast encode/decode for the per-(scene, phase)
-# parquet files we emit, and it matches the C++ cut-writer default
-# (`sddp_cut_parquet.cpp` hardcodes SNAPPY).  Falls back to "gzip" when
-# the linked Arrow library was built without snappy support.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("snappy")
+# "zstd" is preferred: best ratio × decode-speed for the wide input
+# field tables we emit, it matches the gtopt C++ default
+# (`PlanningOptionsLP::default_output_compression`), and unlike "lz4" it
+# is a single unambiguous codec that every downstream reader — including
+# Power BI / Power Query — opens natively (lz4 has the deprecated
+# Hadoop-framed vs LZ4_RAW split and is frequently unreadable).  Falls
+# back to "gzip" when the linked Arrow library was built without zstd
+# support.
+_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 
 class BaseWriter(ABC):
@@ -353,3 +357,108 @@ class BaseWriter(ABC):
                     return block["stage"]
 
         return last_stage
+
+
+# ── Wide ⇄ long layout helpers ───────────────────────────────────────────
+#
+# gtopt's input reader auto-detects layout (a bare `uid` + `value` column ⇒
+# long) and pivots long → wide at load, so plp2gtopt can emit either shape.
+# `long` is the default because it is the tidy form Power BI / Power Query
+# expect (no unpivot) and matches gtopt's own solve-output default.  The
+# conversion runs as a single final pass over the finished output tree
+# (`convert_tree_to_long`), so individual writers keep emitting wide and the
+# intermediate read-modify-write cleanups (e.g. pmin→FlowRight) are
+# unaffected.
+
+_INDEX_COLS: tuple[str, ...] = ("scenario", "stage", "block")
+
+
+def _col_to_uid(col: str) -> Optional[int]:
+    """Parse the integer uid out of a wide value-column name.
+
+    Accepts ``uid:<N>`` and ``<name>:<N>`` (the two forms ``pcol_name``
+    produces).  Returns ``None`` for anything else, so the caller can tell a
+    field table from a structural one.
+    """
+    if ":" not in col:
+        return None
+    try:
+        return int(col.rsplit(":", 1)[1])
+    except ValueError:
+        return None
+
+
+def to_long_layout(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Reshape a wide field table into long ``[<index cols>, uid, value]``.
+
+    Index columns are the subset of ``scenario``/``stage``/``block`` present;
+    every other column must be a ``uid:N`` / ``name:N`` value column.
+    Returns ``None`` when *df* is not a recognizable wide field table (e.g. a
+    block or stage definition table), so structural files pass through
+    untouched.  The reshape is dense — every wide cell becomes one row — so
+    the gtopt long→wide pivot reconstructs the original table exactly.
+    """
+    if df is None or df.empty:
+        return None
+    id_vars = [c for c in df.columns if c in _INDEX_COLS]
+    value_vars = [c for c in df.columns if c not in id_vars]
+    if not id_vars or not value_vars:
+        return None
+    uid_map: Dict[Any, int] = {}
+    for col in value_vars:
+        uid = _col_to_uid(str(col))
+        if uid is None:
+            return None
+        uid_map[col] = uid
+    long_df = df.melt(
+        id_vars=id_vars,
+        value_vars=value_vars,
+        var_name="_col",
+        value_name="value",
+    )
+    long_df["uid"] = long_df["_col"].map(uid_map).astype(np.int32)
+    long_df = long_df.drop(columns="_col")
+    for col in id_vars:
+        long_df[col] = long_df[col].astype(np.int32)
+    return long_df[[*id_vars, "uid", "value"]]
+
+
+def convert_tree_to_long(root: Path, options: Optional[Dict[str, Any]] = None) -> int:
+    """Rewrite every recognizable wide field Parquet/CSV under *root* into
+    long layout, in place.
+
+    Structural tables (block/stage definitions, etc.) are skipped via
+    ``to_long_layout`` returning ``None``.  Parquet files are re-encoded with
+    the case's compression codec.  Returns the number of files converted.
+    """
+    options = options or {}
+    codec = _probe_parquet_codec(options.get("compression", _DEFAULT_COMPRESSION))
+    pq_kwargs: Dict[str, Any] = {}
+    if codec not in BaseWriter.UNCOMPRESSED_ALIASES:
+        pq_kwargs["compression"] = codec
+    level = options.get("compression_level")
+    if level:
+        pq_kwargs["compression_level"] = int(level)
+
+    converted = 0
+    for path in sorted(root.rglob("*.parquet")):
+        try:
+            df = pd.read_parquet(path)
+        except (OSError, ValueError):
+            continue
+        long_df = to_long_layout(df)
+        if long_df is None:
+            continue
+        long_df.to_parquet(path, index=False, **pq_kwargs)
+        converted += 1
+    for path in sorted(root.rglob("*.csv")):
+        try:
+            df = pd.read_csv(path)
+        except (OSError, ValueError):
+            continue
+        long_df = to_long_layout(df)
+        if long_df is None:
+            continue
+        long_df.to_csv(path, index=False)
+        converted += 1
+    return converted
