@@ -16,6 +16,7 @@
  *  8. Explicit aperture_array in SDDP planning
  */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -1980,7 +1981,12 @@ TEST_CASE("aperture_system equivalence: aperture==forward reproduces baseline")
   // Aperture system = the SAME system, serialised to a temp file.
   const std::string planning_json =
       daw::json::to_json(make_2phase_aperture_planning());
-  const auto tmp = fs::temp_directory_path() / "gtopt_aperture_equiv_test.json";
+  // Honour the project $TMPDIR convention (never hardcode /tmp).
+  const char* const td =
+      std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
+  const auto tmp =
+      (td != nullptr && *td != '\0' ? fs::path(td) : fs::temp_directory_path())
+      / "gtopt_aperture_equiv_test.json";
   {
     std::ofstream out(tmp);
     out << planning_json;

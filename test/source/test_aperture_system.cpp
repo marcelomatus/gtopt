@@ -7,20 +7,23 @@
  * system (the "aperture system") per aperture, while the forward pass keeps the
  * full-detail system.  See `docs`/the plan and `system_file_loader.hpp`.
  *
- * This file currently covers the landed foundation:
+ * This file covers:
  *   - the `aperture_system_file` data-model fields parse/round-trip through
  *     daw::json on `Phase`, `SddpOptions`, and `CascadeLevel`, and nest
- *     correctly inside a full `Planning` JSON; and
+ *     correctly inside a full `Planning` JSON;
  *   - the `resolve_aperture_system_file` precedence helper
- *     (Phase override → global default → none).
+ *     (Phase override → global default → none); and
+ *   - `PlanningLP` build-time wiring: a global file builds aperture
+ *     `SystemLP`s into the parallel `SystemKind::aperture` registry (with the
+ *     cross-phase link tightened), monolithic mode builds none, and a
+ *     per-phase override builds only that phase's aperture system.
  *
- * The deeper two-LP-per-cell cases (no-op equivalence, exact single-bus
- * reduction, simplified-but-feasible cut, dual cut-install) require the
- * second LP cache + parallel state registry + dual cut-install, which are not
- * yet wired; they are scaffolded below as commented TODOs so the intended
- * behaviour is recorded next to the tests that will assert it.
+ * The end-to-end cut-recursion correctness gate (full SDDP solve, aperture ==
+ * forward ⇒ identical bounds) lives in `test_aperture_lp.cpp`; the file-loader
+ * branch tests live in `test_system_file_loader.cpp`.
  */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -188,8 +191,12 @@ TEST_CASE("aperture_system build: parallel SystemLP + state registry")
   // base: the aperture system is structurally identical to the forward one.
   const auto base = make_3phase_hydro_planning();
   const std::string planning_json = daw::json::to_json(base);
+  // Honour the project $TMPDIR convention (never hardcode /tmp).
+  const char* const td =
+      std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
   const auto tmp =
-      fs::temp_directory_path() / "gtopt_aperture_system_build_test.json";
+      (td != nullptr && *td != '\0' ? fs::path(td) : fs::temp_directory_path())
+      / "gtopt_aperture_system_build_test.json";
   {
     std::ofstream out(tmp);
     out << planning_json;
@@ -249,27 +256,52 @@ TEST_CASE("aperture_system build: parallel SystemLP + state registry")
               .empty());
   }
 
+  SUBCASE("monolithic method → aperture systems are not built")
+  {
+    // Aperture systems are an SDDP backward-pass construct; build_aperture
+    // _systems short-circuits for the monolithic method even when a file is
+    // set, so no second LP is created.
+    auto planning = make_3phase_hydro_planning();
+    planning.options.method = MethodType::monolithic;
+    planning.options.sddp_options.aperture_system_file = OptName {tmp.string()};
+    PlanningLP planning_lp(std::move(planning));
+    CHECK(planning_lp.aperture_system(SceneIndex {0}, PhaseIndex {0})
+          == nullptr);
+  }
+
+  SUBCASE("per-phase aperture_system_file builds only that phase")
+  {
+    // No global default; only phase index 1 carries an override.  The
+    // resolution chain must build an aperture system for phase 1 and leave
+    // phases 0 and 2 without one.
+    auto planning = make_3phase_hydro_planning();
+    planning.options.method = MethodType::sddp;
+    REQUIRE(planning.simulation.phase_array.size() == 3);
+    planning.simulation.phase_array[1].aperture_system_file =
+        OptName {tmp.string()};
+
+    PlanningLP planning_lp(std::move(planning));
+    CHECK(planning_lp.aperture_system(SceneIndex {0}, PhaseIndex {0})
+          == nullptr);
+    CHECK(planning_lp.aperture_system(SceneIndex {0}, PhaseIndex {1})
+          != nullptr);
+    CHECK(planning_lp.aperture_system(SceneIndex {0}, PhaseIndex {2})
+          == nullptr);
+  }
+
   fs::remove(tmp);
 }
 
-// ── Deep two-LP-per-cell cases (pending implementation) ──────────────────────
+// The end-to-end cut-recursion correctness gate ("aperture_system equivalence:
+// aperture==forward reproduces baseline") lives in `test_aperture_lp.cpp`,
+// next to the `make_2phase_aperture_planning` fixture it reuses: it runs a full
+// SDDP solve with and without an identical aperture system and asserts the two
+// produce the same LB/UB trajectory.  The file-loader branch tests live in
+// `test_system_file_loader.cpp`.
 //
-// These require Tasks 3–6 (PlanningLP second LP cache, parallel α/state
-// registry under a `SystemKind` discriminator, backward-pass clone-source
-// switch, and dual cut-install with a forward→aperture column remap).  They
-// are intentionally left as documented TODOs so the contracts are recorded:
-//
-//   TEST_CASE("aperture_system identical to forward reproduces baseline cut")
-//     // Run A: no aperture_system.  Run B: aperture_system == forward JSON.
-//     // CHECK identical LB/UB trajectory and identical installed cut rows.
-//
-//   TEST_CASE("single-bus aperture_system matches when network is non-binding")
-//     // 2-bus forward, single-bus aperture reduction, no congestion.
-//     // CHECK cut coeff on reservoir state == full-network cut coeff.
-//
-//   TEST_CASE("simplified aperture_system yields a feasible, bounded cut")
-//     // Aggregated-thermal aperture system.  CHECK all apertures feasible,
-//     // cut installed on BOTH forward & aperture LP of the source phase,
-//     // LB finite and <= UB.
+// Still-open follow-ups (deferred by design, see the feature plan): a
+// genuinely-SIMPLIFIED (non-identical but state-topology-preserving) aperture
+// system that converges to a different-but-valid bound, and applying the loaded
+// file's `model_options` (single-bus / no-Kirchhoff backward model).
 
 // NOLINTEND(bugprone-unchecked-optional-access)
