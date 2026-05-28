@@ -54,13 +54,16 @@ namespace gtopt
 
 const StateVariable* find_alpha_state_var(const SimulationLP& sim,
                                           SceneIndex scene_index,
-                                          PhaseIndex phase_index) noexcept
+                                          PhaseIndex phase_index,
+                                          SystemKind kind) noexcept
 {
   auto svar = sim.state_variable(StateVariable::Key {
       .uid = sddp_alpha_uid,
       .col_name = sddp_alpha_col_name,
       .class_name = sddp_alpha_lp_class,
-      .lp_key = {.scene_index = scene_index, .phase_index = phase_index},
+      .lp_key = {.scene_index = scene_index,
+                 .phase_index = phase_index,
+                 .kind = kind},
   });
   return svar ? &svar->get() : nullptr;
 }

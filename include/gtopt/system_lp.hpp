@@ -231,7 +231,16 @@ public:
                     SimulationLP& simulation,
                     PhaseLP phase,
                     SceneLP scene,
-                    LpMatrixOptions flat_opts = {});
+                    LpMatrixOptions flat_opts = {},
+                    SystemKind kind = SystemKind::forward);
+
+  /// Forward (regular) vs aperture (simplified backward-pass) system.
+  /// State variables/links registered by this LP route to the matching
+  /// registry in `SimulationLP` (see `SystemKind`).
+  [[nodiscard]] constexpr auto kind() const noexcept -> SystemKind
+  {
+    return m_system_context_.kind();
+  }
 
   explicit SystemLP(const System& system,
                     SimulationLP& simulation,

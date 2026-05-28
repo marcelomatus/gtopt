@@ -35,6 +35,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_file_loader.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/work_pool.hpp>
 #include <spdlog/spdlog.h>
@@ -899,6 +900,126 @@ void PlanningLP::tighten_scene_phase_links(phase_systems_t& phase_systems,
   // parsed `System` data when needed.
   for (auto&& sys : phase_systems) {
     sys.clear_disposable_collections();
+  }
+}
+
+void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
+{
+  // Aperture systems are a SDDP backward-pass construct only; nothing to do
+  // for the monolithic single-solve method.
+  if (m_options_.method_type_enum() == MethodType::monolithic) {
+    return;
+  }
+
+  auto&& scenes = m_simulation_.scenes();
+  auto&& phases = m_simulation_.phases();
+  const auto num_scenes = static_cast<std::size_t>(std::ssize(scenes));
+  const auto num_phases = static_cast<std::size_t>(std::ssize(phases));
+
+  // Resolve the file for each phase: Phase override → global sddp_options.
+  const auto global_name = m_options_.sddp_aperture_system_file();
+  const OptName global_file =
+      global_name.empty() ? OptName {} : OptName {global_name};
+
+  StrongIndexVector<PhaseIndex, OptName> per_phase(num_phases);
+  bool any = false;
+  for (auto&& [pi, ph] : enumerate<PhaseIndex>(phases)) {
+    per_phase[pi] =
+        resolve_aperture_system_file(ph.aperture_system_file(), global_file);
+    any = any || per_phase[pi].has_value();
+  }
+  if (!any) {
+    return;  // leave m_aperture_systems_ empty → aperture_system() == nullptr
+  }
+
+  // Resolve solver name + low-memory hint exactly as create_systems does
+  // (aperture systems only ever run under sddp/cascade).
+  auto resolved_opts = flat_opts;
+  if (resolved_opts.solver_name.empty()) {
+    resolved_opts.solver_name =
+        std::string(SolverRegistry::instance().default_solver());
+  }
+  if (resolved_opts.low_memory_mode == LowMemoryMode::off) {
+    resolved_opts.low_memory_mode = m_options_.sddp_low_memory();
+    resolved_opts.memory_codec = m_options_.sddp_memory_codec();
+  }
+
+  const auto input_dir = std::string(m_options_.input_directory());
+
+  // Load + preprocess each distinct reduced System once, keyed by resolved
+  // path.  unordered_map gives reference stability, so the `System&` handed
+  // to each SystemLP stays valid as more files are inserted.
+  auto get_system = [&](const Name& file) -> System&
+  {
+    const auto key = resolve_system_file(file, input_dir).string();
+    if (auto it = m_aperture_owned_systems_.find(key);
+        it != m_aperture_owned_systems_.end())
+    {
+      return it->second;
+    }
+    auto loaded = load_system_with_model_options(file, input_dir);
+    // NOTE: loaded.model_options is intentionally not applied yet — this
+    // milestone swaps the System network only; the model_options override
+    // (single-bus / no-Kirchhoff backward model) is a documented follow-up.
+    System sys = std::move(loaded.system);
+    sys.expand_batteries();
+    sys.expand_reservoir_constraints();
+    sys.fold_legacy_fuel_emission_factors();
+    sys.expand_fuel_emission_sources();
+    sys.expand_emission_sources();
+    sys.fold_legacy_emission_rate();
+    sys.fold_legacy_profiles();
+    sys.setup_reference_bus(m_options_);
+    return m_aperture_owned_systems_.emplace(key, std::move(sys)).first->second;
+  };
+
+  SPDLOG_INFO(
+      "  Building aperture systems (SDDP backward-pass reduced model): "
+      "{} distinct file(s)",
+      [&]
+      {
+        std::unordered_set<std::string> files;
+        for (auto&& f : per_phase) {
+          if (f) {
+            files.insert(*f);
+          }
+        }
+        return files.size();
+      }());
+
+  m_aperture_systems_ = scene_phase_ap_t(num_scenes);
+  for (auto&& [si, scene] : enumerate<SceneIndex>(scenes)) {
+    auto& row = m_aperture_systems_[si];
+    row = phase_ap_systems_t(num_phases);
+    for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
+      if (!per_phase[pi].has_value()) {
+        continue;
+      }
+      row[pi].emplace(get_system(*per_phase[pi]),
+                      m_simulation_,
+                      phase,
+                      scene,
+                      resolved_opts,
+                      SystemKind::aperture);
+    }
+    // Resolve cross-phase aperture state links.  `state_variable(prev_key)`
+    // self-routes to the aperture registry via `prev_key.lp_key.kind`
+    // (stamped by SystemContext).  Sparse phases whose producer has no
+    // aperture system simply find no producer — the backward pass falls
+    // back to the forward system for those, so no warning is emitted here.
+    for (auto& cell : row) {
+      if (!cell.has_value()) {
+        continue;
+      }
+      auto& links = cell->pending_state_links();
+      for (const auto& link : links) {
+        if (auto prev_var = m_simulation_.state_variable(link.prev_key)) {
+          prev_var->get().add_dependent_variable(link.here_key, link.here_col);
+        }
+      }
+      links.clear();
+      links.shrink_to_fit();
+    }
   }
 }
 

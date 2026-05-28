@@ -471,7 +471,16 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     /// rationale.  Defaults to `nullptr` (no slot release) for the
     /// in-tree unit-test callers that drive `solve_apertures_for_phase`
     /// without a live pool.
-    class SDDPWorkPool* pool_for_slot_release = nullptr)
-    -> std::optional<SparseRow>;
+    class SDDPWorkPool* pool_for_slot_release = nullptr,
+    /// Optional override for the state-variable links used to BUILD each
+    /// aperture cut.  When non-empty it replaces `src_state.outgoing_links`
+    /// in `build_benders_cut_physical`.  The aperture-system path passes
+    /// "hybrid" links: `source_col`/`state_var` from the forward source
+    /// phase (so the cut installs onto the forward LP) but `dependent_col`
+    /// pointing into the aperture clone (so the reduced cost is read from
+    /// the matching column).  Empty = use `src_state.outgoing_links` (the
+    /// regular single-system path).  Referenced storage must outlive the
+    /// call (the caller's vector) — the chunk tasks read it while solving.
+    std::span<const StateVarLink> cut_links = {}) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

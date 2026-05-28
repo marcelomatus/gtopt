@@ -241,6 +241,20 @@ public:
       StrongIndexVector<SceneIndex,
                         StrongIndexVector<PhaseIndex, state_variable_map_t>>;
 
+  /// Select the forward or aperture state-variable registry.  The two maps
+  /// have identical `[scene][phase]` shape but hold the columns of two
+  /// physically distinct LPs (see `SystemKind`).  Routing by
+  /// `key.lp_key.kind` keeps every forward consumer on `m_global_variable_map_`
+  /// untouched while the aperture-system build/lookup uses the second map.
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto&& variable_map(this Self&& self, SystemKind kind) noexcept
+  {
+    return (kind == SystemKind::aperture)
+        ? std::forward<Self>(self).m_aperture_variable_map_
+        : std::forward<Self>(self).m_global_variable_map_;
+  }
+
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
@@ -250,8 +264,8 @@ public:
                                     double var_scale,
                                     LpContext context) -> const StateVariable&
   {
-    auto&& map =
-        m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];
+    auto&& map = variable_map(
+        key.lp_key.kind)[key.lp_key.scene_index][key.lp_key.phase_index];
 
     const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
                                                 key.lp_key,
@@ -287,11 +301,13 @@ public:
 
   template<typename Self>
   [[nodiscard]]
-  constexpr auto&& state_variables(this Self&& self,
-                                   SceneIndex scene_index,
-                                   PhaseIndex phase_index) noexcept
+  constexpr auto&& state_variables(
+      this Self&& self,
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      SystemKind kind = SystemKind::forward) noexcept
   {
-    auto&& vec = std::forward<Self>(self).m_global_variable_map_;
+    auto&& vec = std::forward<Self>(self).variable_map(kind);
     return vec[scene_index][phase_index];
   }
 
@@ -313,7 +329,7 @@ public:
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
     auto&& map = std::forward<Self>(self).state_variables(
-        key.lp_key.scene_index, key.lp_key.phase_index);
+        key.lp_key.scene_index, key.lp_key.phase_index, key.lp_key.kind);
 
     const auto it = map.find(std::forward<Key>(key));
     return (it != map.end()) ? result_t {it->second} : result_t {};
@@ -978,6 +994,12 @@ private:
   std::vector<SceneLP> m_scene_array_;
 
   global_variable_map_t m_global_variable_map_;
+
+  /// Parallel state-variable registry for the SDDP backward-pass aperture
+  /// systems (`SystemKind::aperture`).  Same `[scene][phase]` shape as
+  /// `m_global_variable_map_`; stays entirely empty unless an
+  /// `aperture_system_file` is in effect.  Routed via `variable_map()`.
+  global_variable_map_t m_aperture_variable_map_;
 
   // (scenario, stage) → (scene, phase) factored lookup tables.
   // Populated once in the constructor; read-only afterwards, so no

@@ -111,6 +111,12 @@ struct StateVarLink
   LPClassName class_name {};
   std::string_view col_name {};  ///< e.g. "efin", "sini"
   Uid uid {unknown_uid};  ///< Element UID
+  /// Scenario / stage identity of the producing state variable.  The same
+  /// element uid + col_name is registered once per (scenario, stage) within
+  /// a scene, so these are needed to map a link to its counterpart in the
+  /// aperture-system state-variable registry (aperture-system cut path).
+  ScenarioUid scenario_uid {unknown_uid_of<Scenario>()};
+  StageUid stage_uid {unknown_uid_of<Stage>()};
   /// Human-readable element name (e.g. "LMAULE", "RALCO").  Resolved
   /// from `SimulationLP::m_ampl_element_names_` at link-collection time
   /// via a reverse scan of the (class_name, name) → uid map.  Empty

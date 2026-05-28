@@ -67,7 +67,16 @@ class SystemContext
 {
 public:
   // Core Context Management
-  explicit SystemContext(SimulationLP& simulation, SystemLP& system);
+  explicit SystemContext(SimulationLP& simulation,
+                         SystemLP& system,
+                         SystemKind kind = SystemKind::forward);
+
+  /// Which LP registry (forward vs aperture) this context's state-variable
+  /// and link registrations are routed to.  Set once at construction.
+  [[nodiscard]] constexpr auto kind() const noexcept -> SystemKind
+  {
+    return m_kind_;
+  }
 
   /// Re-point the back-reference to a new SystemLP owner (used by
   /// `SystemLP`'s move-ctor/assign so the embedded SystemContext stays
@@ -345,8 +354,10 @@ public:
       // entirely — no lock, no map lookup, no idempotency branch.
       return;
     }
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // route to forward/aperture registry
     std::ignore = simulation().add_state_variable(
-        std::forward<Key>(key), col, scost, var_scale, std::move(context));
+        std::move(stamped), col, scost, var_scale, std::move(context));
   }
 
   /// Atomic helper: add a new state-variable column to the LP AND register
@@ -396,7 +407,9 @@ public:
   template<typename Key>
   [[nodiscard]] constexpr auto get_state_variable(Key&& key) const noexcept
   {
-    return simulation().state_variable(std::forward<Key>(key));
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // look up in this context's registry
+    return simulation().state_variable(std::move(stamped));
   }
 
   /// Queue a deferred dependent-variable link to be resolved later by
@@ -606,6 +619,11 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
+
+  /// Forward (default) vs aperture registry routing.  Stamped into every
+  /// `StateVariable::Key` / `LPKey` this context registers or looks up, so
+  /// the aperture system's state variables land in the parallel registry.
+  SystemKind m_kind_ {SystemKind::forward};
 
   // One void* per LP element type; each points to the Collection<T> inside the
   // owning SystemLP.  Index for type T is lp_type_index_v<T>.

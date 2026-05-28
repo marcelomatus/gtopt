@@ -1171,9 +1171,10 @@ SystemLP::SystemLP(const System& system,
                    SimulationLP& simulation,
                    PhaseLP phase,
                    SceneLP scene,
-                   LpMatrixOptions flat_opts)
+                   LpMatrixOptions flat_opts,
+                   SystemKind kind)
     : m_system_(system)
-    , m_system_context_(simulation, *this)
+    , m_system_context_(simulation, *this, kind)
     , m_phase_(std::move(phase))
     , m_scene_(std::move(scene))
     , m_flat_opts_(std::move(flat_opts))

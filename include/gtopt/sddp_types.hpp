@@ -1087,10 +1087,14 @@ struct SDDPIterationResult
 /// which is populated by `capture_state_variable_values` after every
 /// successful solve.  This replaces the former `PhaseStateInfo::alpha_col`
 /// cache, which could become stale on low_memory reconstruct/clone paths.
+/// @param kind  Which registry to look in — `forward` (default) for the
+///              regular system's α, `aperture` for the backward-pass
+///              aperture system's α (registered in parallel).
 [[nodiscard]] const StateVariable* find_alpha_state_var(
     const SimulationLP& sim,
     SceneIndex scene_index,
-    PhaseIndex phase_index) noexcept;
+    PhaseIndex phase_index,
+    SystemKind kind = SystemKind::forward) noexcept;
 
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
@@ -1103,7 +1107,8 @@ struct SDDPIterationResult
 /// same free-α semantics.
 void bound_alpha(PlanningLP& planning_lp,
                  SceneIndex scene_index,
-                 PhaseIndex phase_index);
+                 PhaseIndex phase_index,
+                 SystemKind kind = SystemKind::forward);
 
 /// Release α's bootstrap pin at `(scene, phase)` ONLY when @p cut
 /// actually references α — i.e., α is registered on the cell AND
@@ -1119,7 +1124,8 @@ void bound_alpha(PlanningLP& planning_lp,
 void bound_alpha_for_cut(PlanningLP& planning_lp,
                          SceneIndex scene_index,
                          PhaseIndex phase_index,
-                         const SparseRow& cut);
+                         const SparseRow& cut,
+                         SystemKind kind = SystemKind::forward);
 
 /// Install an SDDP cut (feasibility or optimality) on the LP backend
 /// at `(scene, phase)`.  Single unified entry point for every cut
@@ -1242,7 +1248,8 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp,
 ///                    non-negative stage costs).
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
-                       PhaseIndex phase_index);
+                       PhaseIndex phase_index,
+                       SystemKind kind = SystemKind::forward);
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 

@@ -29,7 +29,8 @@ struct json_data_contract<Phase>
       json_number<"first_stage", Size>,
       json_number<"count_stage", Size>,
       json_bool_null<"continuous", OptBool>,
-      json_array_null<"apertures", Array<Uid>, json_number_no_name<Uid>>>;
+      json_array_null<"apertures", Array<Uid>, json_number_no_name<Uid>>,
+      json_string_null<"aperture_system_file", OptName>>;
 
   [[nodiscard]] constexpr static auto to_json_data(Phase const& phase)
   {
@@ -39,7 +40,8 @@ struct json_data_contract<Phase>
                                  phase.first_stage,
                                  phase.count_stage,
                                  phase.continuous,
-                                 phase.apertures);
+                                 phase.apertures,
+                                 phase.aperture_system_file);
   }
 };
 }  // namespace daw::json

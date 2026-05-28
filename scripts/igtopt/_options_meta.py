@@ -43,6 +43,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "num_apertures",
         "aperture_selection_mode",
         "aperture_directory",
+        "aperture_system_file",
         "aperture_timeout",
         "save_aperture_lp",
         "aperture_use_manual_clone",

@@ -451,6 +451,12 @@ class TestCascadeOptionKeys:
             # at run time).  Kept here so the C++ ↔ Python field
             # sync test catches future additions.
             "system_file",
+            # ``aperture_system_file`` selects the simplified system
+            # solved per aperture in the SDDP backward pass (distinct
+            # from the forward ``system_file``).  Part of the
+            # aperture-system feature; resolution chain is
+            # Phase → CascadeLevel → sddp_options → regular system.
+            "aperture_system_file",
         }
         assert expected == cpp_fields, (
             f"CascadeLevel fields mismatch: expected {expected}, got {cpp_fields}"

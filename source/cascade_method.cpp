@@ -30,6 +30,7 @@
 #include <gtopt/sddp_common.hpp>  // gtopt::format_si
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/system_file_loader.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 #include <unistd.h>
@@ -118,54 +119,11 @@ auto CascadePlanningMethod::build_level_sddp_opts(
 }
 
 // ─── Clone Planning with LP overrides ───────────────────────────────────────
-
-namespace
-{
-
-/// Resolve a relative ``system_file`` path the same way
-/// ``parse_planning_files`` resolves planning JSONs: try the path as
-/// given (relative to CWD) first, then fall back to
-/// ``input_directory / filename``.  Absolute paths are used as-is.
-[[nodiscard]] std::filesystem::path resolve_system_file(
-    std::string_view system_file, const std::string& input_directory)
-{
-  std::filesystem::path p(system_file);
-  if (p.is_absolute() || std::filesystem::exists(p)) {
-    return p;
-  }
-  if (!input_directory.empty()) {
-    auto alt = std::filesystem::path(input_directory) / p.filename();
-    if (std::filesystem::exists(alt)) {
-      return alt;
-    }
-  }
-  return p;  // caller will surface a clear error if not found
-}
-
-/// Load only the ``system`` block from an external Planning JSON file.
-/// The loaded file's ``options`` and ``simulation`` blocks are
-/// deliberately discarded — the cascade level's own ``model_options``
-/// overlay and the parent planning's ``simulation`` remain authoritative.
-[[nodiscard]] System load_system_from_file(std::string_view system_file,
-                                           const std::string& input_directory)
-{
-  const auto path = resolve_system_file(system_file, input_directory);
-  if (!std::filesystem::exists(path)) {
-    throw std::runtime_error(std::format(
-        "CascadeLevel.system_file '{}' not found (resolved to '{}')",
-        system_file,
-        path.string()));
-  }
-  const auto contents = daw::read_file(path.string());
-  if (!contents) {
-    throw std::runtime_error(std::format(
-        "Failed to read CascadeLevel.system_file '{}'", path.string()));
-  }
-  auto loaded = parse_planning_json(contents.value());
-  return std::move(loaded.system);
-}
-
-}  // namespace
+//
+// `resolve_system_file` / `load_system_from_file` now live in
+// `gtopt/system_file_loader.hpp` (shared with the SDDP aperture-system
+// feature).  The cascade `system_file` path keeps using the system-only
+// loader; its own `model_options` overlay remains authoritative.
 
 auto CascadePlanningMethod::clone_planning_with_overrides(
     const Planning& source, const ModelOptions& model_opts) -> Planning

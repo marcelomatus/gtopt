@@ -168,6 +168,14 @@ public:
     return m_phase_.apertures;
   }
 
+  /// @return Per-phase aperture-system file override (the simplified
+  /// backward-pass system for this phase).  Empty optional = fall back to
+  /// the global / cascade-level setting.  See `aperture_system_file`.
+  [[nodiscard]] constexpr const auto& aperture_system_file() const noexcept
+  {
+    return m_phase_.aperture_system_file;
+  }
+
 private:
   Phase m_phase_ {};  ///< The underlying Phase object
   PhaseIndex m_index_ {unknown_index};

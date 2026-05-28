@@ -156,6 +156,16 @@ struct CascadeLevel
   /// blocks are deliberately ignored — the cascade level's
   /// ``model_options`` overlay remains authoritative.
   OptName system_file {};
+  /// Optional path to a Planning JSON whose ``system`` (and its
+  /// ``options.model_options``) is used as the **aperture system** for
+  /// this level's SDDP backward pass — the simplified model solved per
+  /// aperture, distinct from this level's forward ``system_file`` /
+  /// ``model_options``.  Resolution chain (highest first):
+  /// ``Phase::aperture_system_file`` → this field →
+  /// ``sddp_options.aperture_system_file`` → regular forward system.
+  /// The parent ``simulation`` is reused; the reduced system must keep
+  /// the same reservoir/storage/α inter-phase state elements (by ``uid``).
+  OptName aperture_system_file {};
   /// SDDP solver options for this level.
   std::optional<CascadeLevelMethod> sddp_options {};
   /// Transition from the previous level.
@@ -184,6 +194,7 @@ struct CascadeLevel
     }
 
     merge_opt(system_file, std::move(opts.system_file));
+    merge_opt(aperture_system_file, std::move(opts.aperture_system_file));
 
     if (opts.sddp_options.has_value()) {
       if (sddp_options.has_value()) {

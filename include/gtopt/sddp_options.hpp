@@ -182,6 +182,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptName aperture_directory {};
 
+  /** @brief Global default **aperture system** for the SDDP backward pass.
+   *
+   * Path to a Planning JSON whose `.system` (and its
+   * `.options.model_options`) replaces the regular forward system when
+   * solving apertures in the backward pass.  This is the global tier of
+   * the resolution chain: `Phase::aperture_system_file` →
+   * `CascadeLevel::aperture_system_file` → this field → regular system.
+   *
+   * The parent `simulation` is reused unchanged; the reduced system must
+   * keep the same reservoir/storage/α inter-phase state elements (matched
+   * by `uid`).  Lets the backward pass solve a cheaper, simplified model
+   * (aggregated thermals, single-bus, no Kirchhoff) while the forward pass
+   * keeps full detail — the per-aperture cuts are averaged anyway, so the
+   * forward detail is largely lost after averaging.
+   */
+  OptName aperture_system_file {};
+
   /** @brief Timeout in seconds for individual aperture LP solves in the
    *  SDDP backward pass.
    *
@@ -689,6 +706,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_selection_mode, std::move(opts.aperture_selection_mode));
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
+    merge_opt(aperture_system_file, std::move(opts.aperture_system_file));
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
