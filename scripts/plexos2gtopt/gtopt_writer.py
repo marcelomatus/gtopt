@@ -107,6 +107,21 @@ def build_options(
     _ = bundle  # reserved for future use (bundle date stamps, calendar tags)
     return {
         "annual_discount_rate": 0.0,
+        # ``input_directory`` is "." so all relative paths in the JSON
+        # (parquet input files under ``Generator/`` etc. AND the
+        # auto-discovered ``solvers/<solver_name>.prm`` parameter file
+        # written next to the JSON by ``install_solver_param_files``)
+        # resolve relative to the CASE directory the JSON lives in.
+        #
+        # Without this, gtopt's ``prepare_matrix_options`` defaults
+        # ``input_directory`` to ``"input"`` (per
+        # ``source/gtopt_lp_runner.cpp``) and looks for the tuned
+        # ``cplex.prm`` at ``./input/solvers/cplex.prm`` instead of
+        # ``./solvers/cplex.prm`` — the file is silently missed and
+        # the curated ``Gomory = 2`` / ``MIPGap = 0.01`` overrides
+        # never reach CPLEX.  Mirrors plp2gtopt's behaviour at
+        # ``plp2gtopt/gtopt_writer.py:1195-1200``.
+        "input_directory": ".",
         "input_format": "parquet",
         "output_format": "parquet",
         "output_compression": "snappy",
@@ -130,6 +145,21 @@ def build_options(
         "solver_options": {
             "log_mode": 1,
             "log_level": 1,
+            # Point gtopt at the curated CPLEX param file that
+            # ``install_solver_param_files`` copies next to the JSON
+            # (``solvers/cplex.prm``).  Setting ``param_file`` explicitly
+            # bypasses gtopt's auto-discovery (which only fires when the
+            # user passes ``--solver cplex`` — ``opts.solver`` is empty
+            # under the default auto-detect path, so
+            # ``prepare_matrix_options`` skips the
+            # ``<input_directory>/solvers/<solver_name>.prm`` lookup at
+            # ``source/gtopt_lp_runner.cpp:587``).  With this set the
+            # curated overrides — ``MIP Cuts Gomory = 2`` and
+            # ``MIP Tolerances MIPGap = 0.01`` — reach CPLEX regardless
+            # of whether the user typed ``--solver cplex``.  Path is
+            # relative to ``input_directory`` (``.`` above) so it
+            # resolves to ``<case-dir>/solvers/cplex.prm``.
+            "param_file": "solvers/cplex.prm",
         },
     }
 
