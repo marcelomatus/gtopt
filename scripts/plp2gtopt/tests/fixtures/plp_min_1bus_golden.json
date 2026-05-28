@@ -9,6 +9,7 @@
     "model_options": {
       "auto_scale": true,
       "demand_fail_cost": 0.0,
+      "scale_objective": 1.0,
       "state_violation_cost": 1000,
       "strict_storage_emin": false,
       "use_kirchhoff": true,

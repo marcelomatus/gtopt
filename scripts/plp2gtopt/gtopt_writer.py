@@ -157,6 +157,97 @@ def _try_scalar(value: Any) -> float | None:
     return None
 
 
+def _collapse_orphan_drain_outflows(system: Dict[str, Any]) -> int:
+    """Convert waterway / turbine ``junction_b`` refs that target an orphan
+    drain-only sink junction to **outflow mode** (drop ``junction_b``) and
+    remove the now-unreferenced junction.
+
+    A junction qualifies when:
+      * ``drain=True`` AND
+      * name ends in ``_sink`` or ``_ocean`` (the converter's drain-only
+        synthesis convention — distinguishes from real reservoir junctions
+        that may also carry ``drain=True``) AND
+      * referenced ONLY as ``junction_b`` of waterway / turbine entries.
+
+    Returns the number of junctions collapsed.  Keeps the spillage flow
+    visible on its waterway / turbine while eliminating the synthetic
+    ``<central>_ocean`` / ``<name>_sink`` downstream junction.
+    """
+    juncs = system.get("junction_array", [])
+    waterways = system.get("waterway_array", [])
+    turbines = system.get("turbine_array", [])
+
+    def _is_candidate(j: Dict[str, Any]) -> bool:
+        if not j.get("drain"):
+            return False
+        name = str(j.get("name", ""))
+        return name.endswith("_sink") or name.endswith("_ocean")
+
+    cand_names: set[str] = {j["name"] for j in juncs if _is_candidate(j)}
+    if not cand_names:
+        return 0
+
+    by_uid: Dict[Any, str] = {j["uid"]: j["name"] for j in juncs}
+
+    def _ref_name(ref: Any) -> str | None:
+        if isinstance(ref, str):
+            return ref
+        if isinstance(ref, int):
+            return by_uid.get(ref)
+        return None
+
+    BLOCK: tuple[str, Any] = ("block", None)
+    refs: Dict[str, list[tuple[str, Any]]] = {n: [] for n in cand_names}
+
+    for ww in waterways:
+        nm = _ref_name(ww.get("junction_b"))
+        if nm in cand_names:
+            refs[nm].append(("ww_b", ww))
+        nm_a = _ref_name(ww.get("junction_a"))
+        if nm_a in cand_names:
+            refs[nm_a].append(BLOCK)
+    for t in turbines:
+        nm = _ref_name(t.get("junction_b"))
+        if nm in cand_names:
+            refs[nm].append(("turb_b", t))
+        nm_a = _ref_name(t.get("junction_a"))
+        if nm_a in cand_names:
+            refs[nm_a].append(BLOCK)
+    for f in system.get("flow_array", []):
+        nm = _ref_name(f.get("junction"))
+        if nm in cand_names:
+            refs[nm].append(BLOCK)
+    for r in system.get("reservoir_array", []):
+        for k in ("junction", "spill_junction"):
+            nm = _ref_name(r.get(k))
+            if nm in cand_names:
+                refs[nm].append(BLOCK)
+    for fr in system.get("flow_right_array", []):
+        for k in ("junction", "bypass_junction"):
+            nm = _ref_name(fr.get(k))
+            if nm in cand_names:
+                refs[nm].append(BLOCK)
+
+    collapsed: set[str] = set()
+    for nm, rlist in refs.items():
+        if not rlist or any(r == BLOCK for r in rlist):
+            continue
+        for _kind, el in rlist:
+            el.pop("junction_b", None)
+        collapsed.add(nm)
+
+    if collapsed:
+        system["junction_array"] = [j for j in juncs if j["name"] not in collapsed]
+        _logger.info(
+            "GTOptWriter: collapsed %d orphan drain sink/ocean junction(s) "
+            "to outflow waterways/turbines (junction_b unset): %s",
+            len(collapsed),
+            ", ".join(sorted(collapsed)),
+        )
+
+    return len(collapsed)
+
+
 def _find_by_uid_or_name(arr: list[Dict], ref: Any) -> Dict | None:
     """Look up an element in ``arr`` by Uid (int) or Name (str)."""
     if isinstance(ref, int):
@@ -1356,6 +1447,15 @@ class GTOptWriter(
         if version:
             parts.append(version)
         self.planning["system"]["version"] = ", ".join(parts)
+
+        # Final topology pass: convert waterways / turbines whose
+        # ``junction_b`` is an orphan ``*_sink`` / ``*_ocean`` drain junction
+        # into outflow mode (drop ``junction_b``), and remove the now-
+        # unreferenced sink/ocean junction.  Saves one synthetic junction
+        # per terminal spillway (``_ver`` waterways routed to
+        # ``<central>_ocean``) and per 1-ended diversion (``_sink``) while
+        # keeping the flow VISIBLE on its waterway/turbine.
+        _collapse_orphan_drain_outflows(self.planning["system"])
 
         return self.planning
 

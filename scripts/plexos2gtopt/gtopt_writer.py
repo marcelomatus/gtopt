@@ -2145,6 +2145,102 @@ def build_reserve_provision_array(
     return out
 
 
+def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
+    """Convert waterway / turbine `junction_b` refs that target an orphan
+    drain-only sink junction to **outflow mode** (drop ``junction_b``) and
+    remove the now-unreferenced junction.
+
+    A junction qualifies when:
+      * ``drain=True`` AND
+      * name ends in ``_sink`` or ``_ocean`` (the converter's drain-only
+        synthesis convention — distinguishes from real reservoir junctions
+        that may also carry ``drain=True`` from spillway collapse) AND
+      * referenced ONLY as ``junction_b`` of waterway / turbine entries
+        (no other consumer needs it).
+
+    Saves one synthetic junction per spillway / diversion outflow while
+    keeping the flow VISIBLE on its waterway / turbine (cf. PLEXOS Vert_*
+    pattern: the spillage stays as a flow column, no extra sink junction).
+
+    Returns the number of junctions collapsed.
+    """
+    juncs = system.get("junction_array", [])
+    waterways = system.get("waterway_array", [])
+    turbines = system.get("turbine_array", [])
+
+    def _is_candidate(j: dict[str, Any]) -> bool:
+        if not j.get("drain"):
+            return False
+        name = str(j.get("name", ""))
+        return name.endswith("_sink") or name.endswith("_ocean")
+
+    cand_names: set[str] = {j["name"] for j in juncs if _is_candidate(j)}
+    if not cand_names:
+        return 0
+
+    by_uid: dict[int, str] = {j["uid"]: j["name"] for j in juncs}
+
+    def _ref_name(ref: Any) -> str | None:
+        if isinstance(ref, str):
+            return ref
+        if isinstance(ref, int):
+            return by_uid.get(ref)
+        return None
+
+    # (kind, element) for outflow-convertible refs; a sentinel ("block",
+    # None) marks any OTHER consumer that pins the junction in place.
+    BLOCK: tuple[str, Any] = ("block", None)
+    refs: dict[str, list[tuple[str, Any]]] = {n: [] for n in cand_names}
+
+    for ww in waterways:
+        nm = _ref_name(ww.get("junction_b"))
+        if nm in cand_names:
+            refs[nm].append(("ww_b", ww))
+        nm_a = _ref_name(ww.get("junction_a"))
+        if nm_a in cand_names:
+            refs[nm_a].append(BLOCK)
+    for t in turbines:
+        nm = _ref_name(t.get("junction_b"))
+        if nm in cand_names:
+            refs[nm].append(("turb_b", t))
+        nm_a = _ref_name(t.get("junction_a"))
+        if nm_a in cand_names:
+            refs[nm_a].append(BLOCK)
+    for f in system.get("flow_array", []):
+        nm = _ref_name(f.get("junction"))
+        if nm in cand_names:
+            refs[nm].append(BLOCK)
+    for r in system.get("reservoir_array", []):
+        for k in ("junction", "spill_junction"):
+            nm = _ref_name(r.get(k))
+            if nm in cand_names:
+                refs[nm].append(BLOCK)
+    for fr in system.get("flow_right_array", []):
+        for k in ("junction", "bypass_junction"):
+            nm = _ref_name(fr.get(k))
+            if nm in cand_names:
+                refs[nm].append(BLOCK)
+
+    collapsed: set[str] = set()
+    for nm, rlist in refs.items():
+        if not rlist or any(r == BLOCK for r in rlist):
+            continue
+        for _kind, el in rlist:
+            el.pop("junction_b", None)
+        collapsed.add(nm)
+
+    if collapsed:
+        system["junction_array"] = [j for j in juncs if j["name"] not in collapsed]
+        logger.info(
+            "build_planning: collapsed %d orphan drain sink junction(s) to "
+            "outflow waterways/turbines (junction_b unset): %s",
+            len(collapsed),
+            ", ".join(sorted(collapsed)),
+        )
+
+    return len(collapsed)
+
+
 def build_planning(
     case: PlexosCase,
     *,
@@ -2370,6 +2466,15 @@ def build_planning(
                 n_softened,
                 penalty,
             )
+
+    # Collapse orphan ``*_sink`` / ``*_ocean`` drain junctions whose only
+    # purpose is to receive one waterway's outflow.  With the new Waterway /
+    # Turbine ``junction_b`` optional ("outflow" mode), those consumers can
+    # drain directly at ``junction_a`` and the synthetic sink junction can be
+    # dropped.  Flow stays VISIBLE on the waterway / turbine — the same way
+    # Vert_* spillages would, if they were emitted as waterways instead of
+    # being collapsed onto Junction.drain.
+    _collapse_orphan_drain_outflows(system)
 
     # Inline conversion-provenance: stamp every element with a coarse
     # ``type`` tag + a standardized ``description`` (source class, units,

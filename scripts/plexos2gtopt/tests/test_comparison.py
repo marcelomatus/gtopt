@@ -121,6 +121,111 @@ def test_plexos_element_counts(case: PlexosCase):
     assert pc["user_constraints"] == 4
 
 
+def test_collapse_orphan_drain_outflows_drops_sink_keeps_visible_flow():
+    """Orphan ``*_sink`` / ``*_ocean`` drain junctions whose only consumers
+    are waterway / turbine ``junction_b`` refs are collapsed: those refs
+    become outflow mode (drop junction_b) and the sink junction disappears.
+    Mirrors the Vert_*-style "keep flow visible, drop the ocean junction"
+    pattern enabled by the new Waterway.junction_b optional schema."""
+    from plexos2gtopt.gtopt_writer import (  # noqa: PLC0415
+        _collapse_orphan_drain_outflows,
+    )
+
+    system: dict = {
+        "junction_array": [
+            {"uid": 1, "name": "RES_A"},
+            {"uid": 2, "name": "RES_A_spill_sink", "drain": True},
+            {"uid": 3, "name": "RES_B_terminal_ocean", "drain": True},
+            {"uid": 4, "name": "RES_C", "drain": True},  # real reservoir junction
+        ],
+        "waterway_array": [
+            {
+                "uid": 1,
+                "name": "Vert_RES_A",
+                "junction_a": "RES_A",
+                "junction_b": "RES_A_spill_sink",
+            },
+            {
+                "uid": 2,
+                "name": "ww_to_real",
+                "junction_a": "RES_A",
+                "junction_b": "RES_C",
+            },
+        ],
+        "turbine_array": [
+            {
+                "uid": 1,
+                "name": "tur_terminal",
+                "junction_a": "RES_B",
+                "junction_b": "RES_B_terminal_ocean",
+                "generator": 1,
+            },
+        ],
+    }
+    collapsed = _collapse_orphan_drain_outflows(system)
+    assert collapsed == 2  # both *_sink and *_terminal_ocean
+    names_left = {j["name"] for j in system["junction_array"]}
+    assert "RES_A_spill_sink" not in names_left
+    assert "RES_B_terminal_ocean" not in names_left
+    assert "RES_C" in names_left  # real reservoir junction, not collapsed
+    # Outflow mode: junction_b stripped from the converted entries.
+    assert "junction_b" not in system["waterway_array"][0]
+    assert system["waterway_array"][0]["junction_a"] == "RES_A"
+    assert "junction_b" not in system["turbine_array"][0]
+    # Real downstream still wired.
+    assert system["waterway_array"][1]["junction_b"] == "RES_C"
+
+
+def test_collapse_orphan_drain_outflows_skips_when_referenced_elsewhere():
+    """A drain ``*_sink`` junction also referenced as a reservoir/flow
+    junction is NOT collapsed — that other consumer pins it in place."""
+    from plexos2gtopt.gtopt_writer import (  # noqa: PLC0415
+        _collapse_orphan_drain_outflows,
+    )
+
+    system: dict = {
+        "junction_array": [
+            {"uid": 1, "name": "A"},
+            {"uid": 2, "name": "shared_sink", "drain": True},
+        ],
+        "waterway_array": [
+            {"uid": 1, "name": "ww1", "junction_a": "A", "junction_b": "shared_sink"},
+        ],
+        "flow_array": [
+            {"uid": 1, "name": "f1", "junction": "shared_sink"},
+        ],
+    }
+    collapsed = _collapse_orphan_drain_outflows(system)
+    assert collapsed == 0
+    assert any(j["name"] == "shared_sink" for j in system["junction_array"])
+    assert system["waterway_array"][0]["junction_b"] == "shared_sink"
+
+
+def test_collapse_orphan_drain_outflows_ignores_non_drain_and_non_sink_names():
+    """Only ``drain=True`` junctions whose name ends in ``_sink`` / ``_ocean``
+    are candidates — a non-drain or differently-named drain is left alone."""
+    from plexos2gtopt.gtopt_writer import (  # noqa: PLC0415
+        _collapse_orphan_drain_outflows,
+    )
+
+    system: dict = {
+        "junction_array": [
+            {"uid": 1, "name": "A"},
+            # drain=True but no _sink/_ocean suffix → not a candidate
+            {"uid": 2, "name": "PEHUENCHE", "drain": True},
+            # _sink suffix but drain=False → not a candidate
+            {"uid": 3, "name": "stale_sink"},
+        ],
+        "waterway_array": [
+            {"uid": 1, "name": "ww1", "junction_a": "A", "junction_b": "PEHUENCHE"},
+            {"uid": 2, "name": "ww2", "junction_a": "A", "junction_b": "stale_sink"},
+        ],
+    }
+    collapsed = _collapse_orphan_drain_outflows(system)
+    assert collapsed == 0
+    assert len(system["junction_array"]) == 3
+
+
 def test_plexos_boundary_state_vars_discards_non_bundle_reservoir():
     """A water-value slope for a reservoir absent from the bundle (e.g.
     PILMAIQUEN) is excluded from the comparable count and named in the

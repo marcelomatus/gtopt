@@ -396,12 +396,17 @@ def test_min_reservoir_conversion(tmp_path):
     assert rsv["efin"] == pytest.approx(400.0)
     assert rsv["flow_conversion_rate"] == pytest.approx(3.6 / 1000.0)
 
-    # Junctions (embalse + serie + ocean junctions for ser_hid=0 centrals)
+    # Junctions: embalse + serie.  The ``TurbineGen_ocean`` drain that used
+    # to be synthesised for the ser_hid=0 terminal central is now collapsed
+    # by ``_collapse_orphan_drain_outflows`` (the ``_ver`` waterway runs in
+    # outflow mode — junction_b unset — keeping the spillage flow visible
+    # without a downstream sink junction).
     junctions = sys_data.get("junction_array", [])
-    assert len(junctions) == 3  # Reservoir1 + TurbineGen_ocean + TurbineGen
+    assert len(junctions) == 2  # Reservoir1 + TurbineGen
     j_names = {j["name"] for j in junctions}
     assert "Reservoir1" in j_names
     assert "TurbineGen" in j_names
+    assert "TurbineGen_ocean" not in j_names
     # Post-86616b80 (junction_writer.py:979): drain is True only when BOTH
     # gen and ver waterways are absent.  Reservoir1 has gen waterway →
     # TurbineGen, and TurbineGen has gen → ocean.  Both source junctions
