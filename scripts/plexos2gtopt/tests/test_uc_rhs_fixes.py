@@ -968,3 +968,120 @@ def test_coefficient_amendments_filter_expired_rows(tmp_path: Path) -> None:
     # And the dead historical values must NOT leak through:
     assert "12.7111" not in spec.expression, spec.expression
     assert "13.37" not in spec.expression, spec.expression
+
+
+# --------------------------------------------------------------------------- #
+# GEN_BAT_/LOAD_BAT_ "battery-shutoff" modeling-artifact detection
+# --------------------------------------------------------------------------- #
+_GEN_BAT_SHUTOFF_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>7</class_id><name>Battery</name></t_class>
+  <t_class><class_id>9</class_id><name>Horizon</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>5</object_id><class_id>9</class_id>
+    <name>Coordinador_diario_1H_7d</name></t_object>
+  <t_object><object_id>30</object_id><class_id>7</class_id>
+    <name>BAT_VICTOR_JARA_FV</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id>
+    <name>GEN_BAT_VICTOR_JARA_FV</name></t_object>
+  <t_object><object_id>101</object_id><class_id>70</class_id>
+    <name>LOAD_BAT_VICTOR_JARA_FV</name></t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>90</collection_id><parent_class_id>7</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>4376</property_id><collection_id>700</collection_id>
+    <name>Include in ST Schedule</name>
+  </t_property>
+  <t_property>
+    <property_id>967</property_id><collection_id>90</collection_id>
+    <name>Generation Coefficient</name>
+  </t_property>
+  <t_property>
+    <property_id>968</property_id><collection_id>90</collection_id>
+    <name>Load Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>1001</membership_id><collection_id>700</collection_id>
+    <parent_class_id>1</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>1002</membership_id><collection_id>700</collection_id>
+    <parent_class_id>1</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>1</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>1003</membership_id><collection_id>90</collection_id>
+    <parent_class_id>7</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>30</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>1004</membership_id><collection_id>90</collection_id>
+    <parent_class_id>7</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>30</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>1</data_id><membership_id>1001</membership_id>
+    <property_id>4376</property_id><value>-1</value>
+  </t_data>
+  <t_data>
+    <data_id>2</data_id><membership_id>1001</membership_id>
+    <property_id>4384</property_id><value>0</value>
+  </t_data>
+  <t_data>
+    <data_id>3</data_id><membership_id>1002</membership_id>
+    <property_id>4376</property_id><value>-1</value>
+  </t_data>
+  <t_data>
+    <data_id>4</data_id><membership_id>1002</membership_id>
+    <property_id>4384</property_id><value>0</value>
+  </t_data>
+  <t_data>
+    <data_id>5</data_id><membership_id>1003</membership_id>
+    <property_id>967</property_id><value>1</value>
+  </t_data>
+  <t_data>
+    <data_id>6</data_id><membership_id>1004</membership_id>
+    <property_id>968</property_id><value>1</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_gen_bat_load_bat_shutoff_artifact_emits_inactive(tmp_path: Path) -> None:
+    """PLEXOS ships 35 GEN_BAT_<name> + 35 LOAD_BAT_<name> source UCs with
+    Sense=None (→ equality default), RHS=0, and a single Battery LHS term
+    (``Generation Coefficient = 1`` or ``Load Coefficient = 1``).
+    Literally these force ``battery.discharge = 0`` / ``battery.charge =
+    0`` — i.e. the battery off.  PLEXOS itself drops the whole family from
+    the ST schedule (verified against the RES20260422 solution: none of
+    the 70 appear in t_object, while the batteries do dispatch).  Before
+    this fix gtopt emitted them as SOFT equalities at $10/MWh penalty,
+    burning ~$182K of slack on BAT_VICTOR_JARA_FV alone and similar on
+    the other 33 batteries with ``Include in ST Schedule = -1`` (the
+    other 56 already had ``Include = 0`` and were excluded earlier).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_GEN_BAT_SHUTOFF_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    emitted = {"Battery": frozenset({"BAT_VICTOR_JARA_FV"})}
+    ucs = extract_user_constraints(load_xml(xml_path), bundle, emitted_names=emitted)
+    by_name = {c.name: c for c in ucs}
+    assert by_name["GEN_BAT_VICTOR_JARA_FV"].active is False, by_name[
+        "GEN_BAT_VICTOR_JARA_FV"
+    ]
+    assert by_name["LOAD_BAT_VICTOR_JARA_FV"].active is False

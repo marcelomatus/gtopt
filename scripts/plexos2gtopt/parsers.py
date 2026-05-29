@@ -6393,8 +6393,39 @@ def extract_user_constraints(
         is_battery_disable = constr.name.startswith(
             "Almacenamiento_BAT_"
         ) or constr.name.startswith("Almacenamiento_NoBAT_")
+        # GEN_BAT_/LOAD_BAT_ "battery shutoff" modeling artifact: PLEXOS
+        # ships 35 GEN_BAT_<name> + 35 LOAD_BAT_<name> source UCs whose
+        # LHS is a single Battery term (Generation Coefficient = 1 or
+        # Load Coefficient = 1) with Sense=None (default equality) and
+        # RHS=0 — i.e. ``battery.discharge = 0`` / ``battery.charge =
+        # 0``.  Taken literally these would force the battery entirely
+        # off, but PLEXOS itself DROPS THE WHOLE FAMILY from the ST
+        # schedule (verified against RES20260422 solution: none of the
+        # 70 source UCs appear in t_object, while the batteries
+        # themselves dispatch — e.g. BAT_VICTOR_JARA_FV charges 8.9 GWh
+        # and discharges 9.3 GWh).  Previously gtopt emitted these as
+        # SOFT equalities at $10/MWh penalty, burning $182K of soft
+        # slack on BAT_VICTOR_JARA_FV alone ($91,919 LOAD + $90,090
+        # GEN) and corresponding amounts on the other 33 batteries.
+        # Detect the exact pattern at the *LHS* level (single term,
+        # ``battery(...).charge`` or ``battery(...).discharge``,
+        # coef=1, RHS=0, sense=None) and emit inactive to mirror
+        # PLEXOS's effective behaviour.
+        # ``sense_val`` was defaulted to 0.0 (equality) earlier in this
+        # function when the source XML carried no Sense — so check for
+        # the equality default here, not ``None``.
+        is_battery_shutoff_artifact = (
+            sense_val == 0.0
+            and rhs_val == 0.0
+            and len(terms) == 1
+            and "battery(" in terms[0]
+            and (".charge" in terms[0] or ".discharge" in terms[0])
+        )
         is_inactive = (
-            is_excluded_by_plexos or is_structurally_infeasible or is_battery_disable
+            is_excluded_by_plexos
+            or is_structurally_infeasible
+            or is_battery_disable
+            or is_battery_shutoff_artifact
         )
         if is_excluded_by_plexos:
             logger.debug(
