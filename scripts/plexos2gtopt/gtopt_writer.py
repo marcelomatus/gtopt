@@ -136,6 +136,25 @@ def build_options(
         "input_format": "parquet",
         "output_format": "parquet",
         "output_compression": "snappy",
+        # Emit the full output surface by default so downstream tools
+        # (``compare_with_plexos``, the loss-audit pipeline, anything
+        # that reads ``Line/loss_sol.parquet`` or
+        # ``Generator/heat_rate_slack_sol.parquet``) have what they
+        # need without re-running every solve.  Per
+        # ``include/gtopt/planning_enums.hpp:429``,
+        # ``OutputFlags::all`` is ``solution | dual | reduced_cost |
+        # extras`` — i.e. it *does* include the ``extras`` bit that
+        # gates ``loss_sol`` (see ``source/line_lp.cpp::add_to_output``
+        # at the ``add_col_sol_extras(LossName, ...)`` call) and
+        # ``heat_rate_slack`` (see
+        # ``source/generator_lp.cpp::add_to_output`` for the
+        # ``--write-out ...,extras:Generator`` opt-in).  Without this
+        # the converter-emitted JSON would inherit gtopt's empty
+        # default, which produces flowp/flown but no consolidated
+        # loss stream → forces the loss-audit path to re-derive every
+        # loss from ``R/V² · f² · dur`` and miss the LP's internal
+        # PWL secant value entirely.
+        "write_out": "all",
         "model_options": {
             "use_single_bus": use_single_bus,
             "use_kirchhoff": not use_single_bus,
@@ -669,7 +688,23 @@ def augment_el1_with_soft_caps(
             if isinstance(v, (int, float)) and v > 0
         ]
         if orig_ratings and ln.get("line_losses_mode") == "piecewise":
-            ln["loss_envelope"] = max(orig_ratings)
+            # Refinement A (gated by ``GTOPT_LOSS_EXTEND_OVERLOAD=1``,
+            # i.e. ``--loss-extend-overload``): extend the PWL envelope
+            # by the same headroom factor the LP uses for the soft-cap
+            # overload band, so loss-curve resolution covers the
+            # actually-reachable flow range instead of just the rated
+            # point.  Default off — keeps the historical pre-2026-05-29
+            # behaviour where ``loss_envelope`` is pinned to the original
+            # rating and the rare overload band is handled by linear
+            # extrapolation of the last segment slope.
+            import os as _os_inner
+
+            _extend = _os_inner.environ.get(
+                "GTOPT_LOSS_EXTEND_OVERLOAD", "0"
+            ).strip() in ("1", "true", "yes", "on")
+            ln["loss_envelope"] = max(orig_ratings) * (
+                headroom_factor if _extend else 1.0
+            )
         # A→B leg
         if "tmax_ab" in ln:
             ln["tmax_normal_ab"] = ln["tmax_ab"]
@@ -725,15 +760,23 @@ def _int_loss_env(key: str, default: int) -> int:
     return v if v >= 1 else default
 
 
-def _resolve_loss_layout(line_name: str) -> tuple[str, int]:
+def _resolve_loss_layout(line: Any) -> tuple[str, int]:
     """Resolve ``(loss_pwl_layout, loss_segments)`` for one lossy line.
 
     Every line uses the ``GTOPT_LOSS_PWL_LAYOUT`` base layout
-    (``--loss-pwl-layout``, default ``midpoint``) with ``GTOPT_NSEG_LOSSES``
-    segments (``--nseg-losses`` / ``--nseg-uniform``, default 4), EXCEPT
-    lines explicitly named in ``GTOPT_LOSS_TANGENT_LINES``
-    (``--loss-tangent-lines``), which get the ``tangent`` layout with
-    ``GTOPT_NSEG_TANGENT`` segments.
+    (``--loss-pwl-layout``, default ``midpoint``), EXCEPT lines explicitly
+    named in ``GTOPT_LOSS_TANGENT_LINES`` (``--loss-tangent-lines``),
+    which get the ``tangent`` layout with ``GTOPT_NSEG_TANGENT`` segments.
+
+    Segment count precedence:
+
+      1. ``line.loss_segments`` if set (> 0) by ``extract_lines`` via the
+         cube-root adaptive rule (``--loss-error-pct``).  Per-line K, the
+         normal path on bundles converted post-2026-05-29.
+      2. ``GTOPT_NSEG_LOSSES`` env var (``--nseg-losses``, default 6)
+         applied uniformly when the adaptive rule was disabled
+         (``--loss-error-pct 0``) or the LineSpec carries no override
+         (older JSON pre-dating the field).
 
     The legacy R·P² percentile RANKING (``--loss-tangent-top-pct`` +
     ``_loss_proxy`` / ``_tangent_loss_cutoff``) was REMOVED: the
@@ -750,11 +793,23 @@ def _resolve_loss_layout(line_name: str) -> tuple[str, int]:
         for n in _os.environ.get("GTOPT_LOSS_TANGENT_LINES", "").split(",")
         if n.strip()
     }
-    if line_name in forced:
+    if line.name in forced:
         return "tangent", _int_loss_env("GTOPT_NSEG_TANGENT", 6)
     base = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "midpoint")
     if base not in ("uniform", "equal_error", "midpoint", "tangent"):
         base = "uniform"
+    # Prefer the per-line LineSpec.loss_segments override (set by
+    # ``_apply_adaptive_loss_segments`` in ``extract_lines``).  Fall back
+    # to the uniform env-var path when not set — this branch fires for
+    # legacy JSON bundles pre-2026-05-29 (no per-line override) and for
+    # direct ``build_line_array`` callers (e.g. unit tests) that build
+    # LineSpec without going through ``extract_lines``.  Default of 4
+    # matches the historic uniform-K default (the new ``6`` default
+    # only applies to the *adaptive ceiling* inside
+    # ``_apply_adaptive_loss_segments``).
+    per_line = getattr(line, "loss_segments", 0) or 0
+    if per_line > 0:
+        return base, int(per_line)
     return base, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
 
 
@@ -995,7 +1050,7 @@ def build_line_array(
                 # (``--loss-pwl-layout``, default ``midpoint``) with
                 # ``--nseg-losses`` segments for every line, or ``tangent``
                 # for lines explicitly named in ``--loss-tangent-lines``.
-                layout, nseg = _resolve_loss_layout(line.name)
+                layout, nseg = _resolve_loss_layout(line)
                 entry["loss_segments"] = nseg
                 # Emit ``loss_pwl_layout`` only when non-default (uniform
                 # is gtopt's default) to keep the JSON minimal.
