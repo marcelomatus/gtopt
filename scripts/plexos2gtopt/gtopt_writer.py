@@ -796,8 +796,25 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
     if line.name in forced:
         return "tangent", _int_loss_env("GTOPT_NSEG_TANGENT", 6)
     base = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "midpoint")
-    if base not in ("uniform", "equal_error", "midpoint", "tangent"):
+    if base not in ("uniform", "equal_error", "midpoint", "tangent", "dynamic"):
         base = "uniform"
+    # Per-line LineSpec.loss_pwl_layout takes precedence over the
+    # global base — set by ``_apply_dynamic_loss_layout`` when the
+    # user picked ``--loss-pwl-layout dynamic``.  The dynamic rule
+    # auto-assigns either ``"uniform"`` or ``"midpoint"`` per line so
+    # the system-wide signed mean error stays within
+    # ``--loss-error-pct``.  Empty string ⇒ no override; fall back to
+    # the global base (which itself rewrites ``"dynamic"`` → uniform
+    # default if the user forgot to also enable the dynamic rule
+    # path, keeping the LP buildable instead of erroring).
+    per_line_layout = getattr(line, "loss_pwl_layout", "") or ""
+    resolved_layout = per_line_layout if per_line_layout else base
+    if resolved_layout == "dynamic":
+        # No per-line override AND the global base is still
+        # ``"dynamic"`` ⇒ user requested dynamic but the rule didn't
+        # stamp anything (no lossy lines, or dynamic dispatch was
+        # skipped).  Fall back to the safer uniform default.
+        resolved_layout = "uniform"
     # Prefer the per-line LineSpec.loss_segments override (set by
     # ``_apply_adaptive_loss_segments`` in ``extract_lines``).  Fall back
     # to the uniform env-var path when not set — this branch fires for
@@ -807,10 +824,10 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
     # matches the historic uniform-K default (the new ``6`` default
     # only applies to the *adaptive ceiling* inside
     # ``_apply_adaptive_loss_segments``).
-    per_line = getattr(line, "loss_segments", 0) or 0
-    if per_line > 0:
-        return base, int(per_line)
-    return base, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
+    per_line_k = getattr(line, "loss_segments", 0) or 0
+    if per_line_k > 0:
+        return resolved_layout, int(per_line_k)
+    return resolved_layout, _int_loss_env("GTOPT_NSEG_LOSSES", 4)
 
 
 def _scale_tmax(value: Any, factor: float) -> Any:

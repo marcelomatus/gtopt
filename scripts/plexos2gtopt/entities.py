@@ -252,6 +252,18 @@ class LineSpec:
     # When non-zero, the writer emits exactly this many segments on the
     # line, bounded by ``[floor=2, ceiling=--nseg-losses (default 6)]``.
     loss_segments: int = 0
+    # Per-line override for the piecewise-linear loss SEGMENT LAYOUT.
+    # Set by ``_apply_dynamic_loss_layout`` when ``--loss-pwl-layout dynamic``
+    # is active: each line is assigned ``"midpoint"`` or ``"uniform"``
+    # by the greedy mean-error allocator so the system-wide signed
+    # mean error cancels (heavy lines contribute negative midpoint
+    # bias, light lines contribute positive uniform bias).  Empty
+    # string (the default) means "no per-line override — the writer
+    # pulls ``GTOPT_LOSS_PWL_LAYOUT`` and applies it uniformly across
+    # every line".  Accepted values: ``"uniform"``, ``"midpoint"``,
+    # ``"equal_error"``, ``"tangent"`` (mirrors gtopt's
+    # ``LinePwlLayout`` enum at ``include/gtopt/line_enums.hpp:213``).
+    loss_pwl_layout: str = ""
 
 
 @dataclass(frozen=True)

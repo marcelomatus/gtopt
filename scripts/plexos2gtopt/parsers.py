@@ -1925,6 +1925,105 @@ def _apply_adaptive_loss_segments(
         k = max(floor, min(ceiling, int(math.ceil(k_raw))))
         new_lines[i] = dataclasses.replace(ln, loss_segments=k)
     # Lossless lines: keep loss_segments=0 (writer omits the curve)
+
+    # If the user picked ``--loss-pwl-layout dynamic``, layer the
+    # mean-error allocator on top of the K assignments above.  See
+    # ``_apply_dynamic_loss_layout`` for the algorithm.
+    base_layout = _os.environ.get("GTOPT_LOSS_PWL_LAYOUT", "midpoint")
+    if base_layout == "dynamic":
+        return _apply_dynamic_loss_layout(tuple(new_lines), err_pct, lossy)
+
+    return tuple(new_lines)
+
+
+def _apply_dynamic_loss_layout(
+    lines: tuple[LineSpec, ...],
+    err_pct: float,
+    lossy: list,
+) -> tuple[LineSpec, ...]:
+    """Per-line PWL LAYOUT assignment under the same ``err_pct`` budget.
+
+    The adaptive K rule (``_apply_adaptive_loss_segments``) already
+    bounds the WORST-CASE per-segment secant error by
+    ``Σ L_i / (4 K_i²) ≤ err_pct · Σ L_i``.  Dynamic mode layers the
+    layout decision on top so the SYSTEM-WIDE SIGNED MEAN error also
+    stays within budget — with most lines on the fast ``uniform``
+    layout (presolve eliminates the loss column) and only the heaviest
+    contributors flipped to ``midpoint`` (loss column survives, but
+    the negative-bias debias cancels the uniform lines' positive bias).
+
+    Mean error per line (in the same R/V²·MW² units as ``L_max``):
+
+      * uniform  layout at K segments:  ``+ L_max / (6 K²)``  (overstate)
+      * midpoint layout at K segments:  ``- L_max / (12 K²)`` (understate)
+
+    Algorithm (mirrors the KKT-style cube-root rule of phase 1):
+
+      1. Compute mean_uniform_i = L_max,i / (6 K_i²) for every lossy line.
+      2. If Σ mean_uniform_i ≤ err_pct · Σ L_max,i → keep all uniform
+         (cheapest LP cost, budget already met).
+      3. Else sort lines by mean_uniform_i descending and flip the
+         heaviest one to midpoint.  Each flip changes the running
+         signed mean by  Δ = -(L_max_i/(6 K²) + L_max_i/(12 K²))
+                            = -L_max_i/(4 K²)
+         which is EXACTLY the worst-case error of that line — i.e. a
+         midpoint flip "pays back" exactly one worst-case-error worth
+         of bias.  Stop when |running signed mean| ≤ budget.
+
+    Returns a tuple of LineSpec with both ``loss_segments`` and
+    ``loss_pwl_layout`` stamped.  Lossless lines (``loss_segments == 0``)
+    are left untouched.
+    """
+    L_total = sum(L for _, _, L in lossy)
+    budget = err_pct * L_total
+
+    # Phase 1 already assigned K; rebuild a per-line view that includes K.
+    enriched: list[tuple[int, LineSpec, float, int]] = []
+    for i, ln, L in lossy:
+        k = lines[i].loss_segments
+        if k > 0:
+            enriched.append((i, ln, L, k))
+
+    # All-uniform signed mean error.
+    running = sum(L / (6.0 * k * k) for _, _, L, k in enriched)
+
+    new_lines = list(lines)
+    if running <= budget:
+        # Uniform meets the mean budget already — stamp every lossy
+        # line with ``uniform`` and we're done.
+        for i, ln, _, _ in enriched:
+            new_lines[i] = dataclasses.replace(new_lines[i], loss_pwl_layout="uniform")
+        return tuple(new_lines)
+
+    # Need midpoint promotions.  Sort by per-line mean-error
+    # contribution descending — each iteration flips the worst
+    # contributor, which subtracts its worst-case error from the
+    # running signed total (see docstring).
+    #
+    # Stop condition (two-pronged so the greedy doesn't OVERSHOOT into
+    # the negative budget zone): break when either (a) the running
+    # mean has fallen inside ±budget, OR (b) flipping the next line
+    # would move running FURTHER from zero than its current value.
+    # Without (b) the loop happily keeps flipping past the
+    # ``running == 0`` point and lands with abs(running) >> budget
+    # on the negative side — same magnitude error, opposite sign,
+    # zero improvement.
+    enriched.sort(key=lambda t: t[2] / (t[3] * t[3]), reverse=True)
+    layouts: dict[int, str] = {i: "uniform" for i, _, _, _ in enriched}
+    for i, _, L, k in enriched:
+        if abs(running) <= budget:
+            break
+        contribution = L / (4.0 * k * k)
+        next_running = running - contribution
+        if abs(next_running) >= abs(running):
+            # Flipping would not help; current state is the local min.
+            break
+        # Flip line i to midpoint: running changes by -L/(4 k²).
+        layouts[i] = "midpoint"
+        running = next_running
+
+    for i, _, _, _ in enriched:
+        new_lines[i] = dataclasses.replace(new_lines[i], loss_pwl_layout=layouts[i])
     return tuple(new_lines)
 
 
@@ -4190,20 +4289,46 @@ def extract_commitments(
         # QUINTERO_1A_GNL_F (pmax=0, gcost=$3.80, on 158/168 h) and
         # the Uniq constraint forced QUINTERO_1A_GN_A's status to 0.
         #
-        # Fix: skip the CommitmentSpec emission when the generator's
-        # effective pmax is zero across the horizon (no
+        # Fix: PIN ``status = 0`` for the CommitmentSpec when the
+        # generator's effective pmax is zero across the horizon (no
         # ``pmax_profile`` row > 0 AND scalar ``pmax`` ≤ 0).  These
-        # units genuinely can't dispatch; removing them from the
-        # Uniq mutex lets the LP commit a dispatchable variant.
-        # PLEXOS itself sets status = 0 on these zero-rating
-        # variants (verified on the .accdb prop 7 Units Generating
-        # for QUINTERO_1A_GNL_F: 0 on-hours everywhere).
+        # units genuinely can't dispatch; we must NOT drop the
+        # CommitmentSpec entirely because downstream PAMPL UC
+        # writers (SSCC reserve constraints, *_Uniq mutexes) inline
+        # any ``commitment(X).status`` ref by moving the term to the
+        # RHS as ``-1`` when X has no CommitmentSpec — corrupting
+        # ``Σ status_i ≤ k`` into ``Σ status_remaining ≤ k − dropped``
+        # which is structurally infeasible whenever ``dropped > k``
+        # (CEN PCP: ATA_TG1A_GNL_SSCC ≤ 1 became ≤ -11 after dropping
+        # 12 status terms).
+        #
+        # Instead, emit the CommitmentSpec with
+        # ``commit_status_profile = (0,) * horizon_hours`` — the
+        # writer translates an all-zero profile into per-block
+        # ``fixed_status = 0`` (CPLEX presolve immediately fixes
+        # ``u = 0``, zero LP cost) — preserving the variable for
+        # PAMPL UC references and naturally giving the SSCC sums the
+        # ``0`` contribution that PLEXOS itself reports for these
+        # zero-rating variants (.accdb prop 7 Units Generating).
+        #
+        # The original motivation (let LP pick a dispatchable
+        # variant in *_Uniq groups) is achieved exactly the same
+        # way: pinning ``u_GNL_F = 0`` frees the budget under
+        # ``Σ u ≤ 1`` for the dispatchable ``u_GN_A``.
         gen_spec_for_pmax = next((g for g in generators if g.name == name), None)
+        force_off = False
         if gen_spec_for_pmax is not None:
             prof = gen_spec_for_pmax.pmax_profile or ()
             eff_pmax = max(prof) if prof else (gen_spec_for_pmax.pmax or 0.0)
             if eff_pmax <= 0.0:
-                continue
+                force_off = True
+        if force_off:
+            # Pin u = 0 for the whole horizon (zero-rating variant).
+            # ``int(bundle.n_days) × 24`` matches the per-hour layout
+            # used by every other Gen_*.csv loader in this module.
+            commit_profile = (0,) * (max(int(bundle.n_days) or 1, 1) * 24)
+        else:
+            commit_profile = tuple(int(round(v)) for v in gen_commit_csv.get(name, ()))
         out.append(
             CommitmentSpec(
                 generator_name=name,
@@ -4222,9 +4347,7 @@ def extract_commitments(
                 pmin=cmt_pmin,
                 pmin_profile=cmt_pmin_profile,
                 initial_power=initial_power,
-                commit_status_profile=tuple(
-                    int(round(v)) for v in gen_commit_csv.get(name, ())
-                ),
+                commit_status_profile=commit_profile,
             )
         )
     return tuple(out)

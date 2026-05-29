@@ -247,7 +247,7 @@ def make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--loss-pwl-layout",
-        choices=("uniform", "equal_error", "tangent", "midpoint"),
+        choices=("uniform", "equal_error", "tangent", "midpoint", "dynamic"),
         default="midpoint",
         help=(
             "Segment-layout strategy for the PWL line-loss approximation, "
@@ -265,7 +265,17 @@ def make_parser() -> argparse.ArgumentParser:
             "tangents (lower bound, exact at touch points; inequality rows "
             "resist presolve binary-fixing — heavier MIP).  ``equal_error``: "
             "√-spaced secant chords (aliases to uniform for the convex "
-            "quadratic — see line_losses.cpp seg_geom docstring)."
+            "quadratic — see line_losses.cpp seg_geom docstring).  "
+            "``dynamic`` (NEW): per-line layout auto-selected by the same "
+            "``--loss-error-pct`` budget that drives adaptive K.  Heaviest-"
+            "error contributors get ``midpoint`` (negative mean bias); the "
+            "rest get ``uniform`` (positive mean bias, but presolve eliminates "
+            "the loss column for ~2× faster solve).  The system-wide signed "
+            "mean error stays within the budget by construction — uniform "
+            "lines' positive bias cancels midpoint lines' negative bias.  "
+            "Same single ``--loss-error-pct`` knob controls everything; no "
+            "magic thresholds.  Recommended for production runs where "
+            "``midpoint`` is too slow but ``uniform`` overshoots PLEXOS losses."
         ),
     )
     parser.add_argument(

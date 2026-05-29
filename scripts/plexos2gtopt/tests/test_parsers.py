@@ -1857,3 +1857,148 @@ def test_adaptive_k_compares_to_uniform_at_equivalent_total_K() -> None:
         f"Adaptive error {err_adaptive:.3f} not better than uniform "
         f"({err_uniform:.3f}) at Σ K={sum_k_adaptive}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Dynamic loss layout — per-line midpoint/uniform selection under err_pct
+# (companion to adaptive K tests; same fixtures, same error-budget concept)
+# --------------------------------------------------------------------------- #
+
+
+def _dynamic_run(R: list[float], fmax: list[float], err_pct: float):
+    """Convenience: run adaptive K + dynamic layout in one shot and return
+    a list of (name, K, layout) tuples for the lossy lines."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = str(err_pct)
+    _os.environ["GTOPT_LOSS_PWL_LAYOUT"] = "dynamic"
+    lines = tuple(_ls(f"L{i}", r, f) for i, (r, f) in enumerate(zip(R, fmax)))
+    out = _apply_adaptive_loss_segments(lines)
+    return [
+        (ln.name, ln.loss_segments, ln.loss_pwl_layout)
+        for ln in out
+        if ln.loss_segments > 0
+    ]
+
+
+def test_dynamic_all_uniform_when_budget_loose() -> None:
+    """When err_pct is large enough that uniform alone meets the mean
+    budget, every line stays uniform (cheapest LP — presolve eliminates
+    the loss column)."""
+    R = [0.01, 0.05, 0.10]
+    fmax = [200.0, 100.0, 50.0]
+    rows = _dynamic_run(R, fmax, err_pct=0.10)  # very loose
+    assert all(layout == "uniform" for _, _, layout in rows), (
+        f"Loose budget should keep all uniform, got: {rows}"
+    )
+
+
+def test_dynamic_promotes_heaviest_when_budget_tight() -> None:
+    """When err_pct is small enough that uniform overshoots the mean
+    budget, at least one heavy L_max contributor flips to midpoint.
+    The promoted line must be the heaviest by mean-error contribution."""
+    R = [0.001, 0.005, 0.01, 0.05, 0.10]
+    fmax = [3000.0, 500.0, 100.0, 50.0, 10.0]
+    rows = _dynamic_run(R, fmax, err_pct=0.001)
+    midpoint_count = sum(1 for _, _, lay in rows if lay == "midpoint")
+    assert midpoint_count >= 1, (
+        f"Tight budget should force at least one midpoint promotion: {rows}"
+    )
+    # Heaviest line (L0 has L_max = 9000, ~7× the next) MUST be among the
+    # promoted ones.
+    layout_by_name = {n: lay for n, _, lay in rows}
+    assert layout_by_name["L0"] == "midpoint", (
+        f"Heaviest line L0 should be promoted first, got: {rows}"
+    )
+
+
+def _signed_mean(R, fmax, decisions):
+    """Helper: compute Σ_uniform L/(6K²) − Σ_midpoint L/(12K²)."""
+    total = 0.0
+    for (r, f), (_, k, layout) in zip(zip(R, fmax), decisions):
+        if r <= 0 or f <= 0 or k == 0:
+            continue
+        L = r * f * f
+        if layout == "midpoint":
+            total -= L / (12.0 * k * k)
+        else:
+            total += L / (6.0 * k * k)
+    return total
+
+
+def test_dynamic_reaches_local_optimum() -> None:
+    """The greedy invariant: after the rule decides, no remaining
+    uniform→midpoint single flip improves abs(running).
+
+    The algorithm cannot always achieve abs(running) ≤ budget when a
+    single heavy line's L/(4K²) contribution dominates the budget — in
+    that regime the greedy is locked at its local minimum.  But it MUST
+    have explored every improving flip; this invariant pins exactly
+    that local-optimality guarantee."""
+    R = [0.001, 0.005, 0.01, 0.05, 0.1]
+    fmax = [3000.0, 500.0, 100.0, 50.0, 10.0]
+    rows = _dynamic_run(R, fmax, err_pct=0.001)
+    final = _signed_mean(R, fmax, rows)
+
+    # For each line still uniform, flipping it should NOT reduce abs.
+    for j, (_, k, layout) in enumerate(rows):
+        if layout != "uniform":
+            continue
+        L = R[j] * fmax[j] * fmax[j]
+        if L <= 0 or k == 0:
+            continue
+        # Flip would change running by -L/(4 k²).
+        delta = L / (4.0 * k * k)
+        after_flip = final - delta
+        assert abs(after_flip) >= abs(final) - 1e-9, (
+            f"Greedy missed an improving flip on line L{j}: "
+            f"final={final:.4f}, after_flip={after_flip:.4f}"
+        )
+
+
+def test_dynamic_meets_budget_when_achievable() -> None:
+    """Happy path: when no single line's L/(4K²) dominates the budget,
+    the greedy DOES land abs(running) ≤ budget (within ~5 %% slack for
+    the discrete last flip)."""
+    R = [0.01] * 10
+    fmax = [100.0] * 10  # uniform-size lines, none individually decisive
+    err_pct = 0.02
+    rows = _dynamic_run(R, fmax, err_pct=err_pct)
+    L_total = sum(r * f * f for r, f in zip(R, fmax))
+    budget = err_pct * L_total
+    realised = _signed_mean(R, fmax, rows)
+    assert abs(realised) <= budget * 1.05, (
+        f"Achievable budget should be met within 5 %%: "
+        f"realised={realised:.3f}, budget={budget:.3f}"
+    )
+
+
+def test_dynamic_falls_through_to_uniform_when_no_promotion_needed() -> None:
+    """When all lines have very small L_max·K^(-2), uniform mean error is
+    already tiny and well below budget → no promotions, all uniform."""
+    R = [0.0001, 0.0001, 0.0001]
+    fmax = [100.0, 100.0, 100.0]  # tiny L=1 per line
+    rows = _dynamic_run(R, fmax, err_pct=0.10)
+    assert all(layout == "uniform" for _, _, layout in rows), (
+        f"Tiny lines should stay uniform regardless: {rows}"
+    )
+
+
+def test_dynamic_respects_err_pct_zero_uniform_fallback() -> None:
+    """When err_pct ≤ 0 (uniform K mode), dynamic should still behave
+    sanely.  The adaptive rule returns ceiling K with no layout
+    annotation; dynamic doesn't trigger because there's no mean-error
+    overshoot to flip.  Verify no layout field is stamped."""
+    R = [0.01, 0.05]
+    fmax = [200.0, 100.0]
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0"  # disable adaptive
+    _os.environ["GTOPT_LOSS_PWL_LAYOUT"] = "dynamic"
+    lines = tuple(_ls(f"L{i}", r, f) for i, (r, f) in enumerate(zip(R, fmax)))
+    out = _apply_adaptive_loss_segments(lines)
+    for ln in out:
+        # Uniform-K fallback: layout field should be empty (writer
+        # picks the base "dynamic" → falls back to uniform per
+        # _resolve_loss_layout's safety net).
+        assert ln.loss_pwl_layout == "", (
+            f"Dynamic should not annotate uniform-K-fallback lines: {ln}"
+        )
