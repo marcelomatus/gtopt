@@ -299,3 +299,197 @@ TEST_CASE(
   const double realised = realised_error(R, fmax, K);
   CHECK(realised < floor_worst);
 }
+
+// ───────────────────────────────────────────────────────────────────
+// compute_dynamic_loss_layout — per-line (K, layout) under err_pct
+// Companion to the adaptive K tests; mirrors the Python suite at
+// scripts/plexos2gtopt/tests/test_parsers.py::test_dynamic_*.
+// ───────────────────────────────────────────────────────────────────
+
+namespace line_losses_adaptive_test_ns
+{
+namespace
+{
+
+/// Convenience wrapper: same shape as ``run`` but invokes the dynamic
+/// rule and returns a vector of (K, layout) pairs.
+[[nodiscard]] auto run_dynamic(const std::vector<double>& R,
+                               const std::vector<double>& fmax,
+                               line_losses::DynamicLayoutOpts opts = {})
+{
+  return line_losses::compute_dynamic_loss_layout(
+      std::span<const double> {R}, std::span<const double> {fmax}, opts);
+}
+
+/// System-wide signed mean error
+///   Σ_uniform L/(6K²) − Σ_midpoint L/(12K²)
+/// — the invariant the dynamic rule's greedy minimizes.
+[[nodiscard]] double signed_mean_error(
+    const std::vector<double>& R,
+    const std::vector<double>& fmax,
+    const std::vector<line_losses::DynamicAssignment>& asgn)
+{
+  double total = 0.0;
+  for (std::size_t i = 0; i < R.size(); ++i) {
+    if (R[i] <= 0.0 || fmax[i] <= 0.0 || asgn[i].K == 0) {
+      continue;
+    }
+    const double L = R[i] * fmax[i] * fmax[i];
+    const double kk = static_cast<double>(asgn[i].K * asgn[i].K);
+    if (asgn[i].layout == LinePwlLayout::midpoint) {
+      total -= L / (12.0 * kk);
+    } else {
+      total += L / (6.0 * kk);
+    }
+  }
+  return total;
+}
+
+}  // namespace
+}  // namespace line_losses_adaptive_test_ns
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — loose budget keeps all uniform")  // NOLINT
+{
+  // Tiny lines, low error contribution, easy budget — no promotions needed.
+  const std::vector<double> R {0.01, 0.05, 0.10};
+  const std::vector<double> fmax {200.0, 100.0, 50.0};
+  const auto asgn = run_dynamic(R, fmax, {.err_pct = 0.10});  // very loose
+
+  REQUIRE(asgn.size() == 3);
+  for (const auto& a : asgn) {
+    CHECK(a.layout == LinePwlLayout::uniform);
+    CHECK(a.K >= 2);
+  }
+}
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — tight budget promotes heaviest")  // NOLINT
+{
+  // 5-line spread that forces at least one promotion at err_pct = 0.1 %.
+  // Heaviest line L0 has L_max = 9000, ~7× the next.
+  const std::vector<double> R {0.001, 0.005, 0.01, 0.05, 0.10};
+  const std::vector<double> fmax {3000.0, 500.0, 100.0, 50.0, 10.0};
+  const auto asgn = run_dynamic(R, fmax, {.err_pct = 0.001});
+
+  REQUIRE(asgn.size() == 5);
+  int midpoint_count = 0;
+  for (const auto& a : asgn) {
+    if (a.layout == LinePwlLayout::midpoint) {
+      ++midpoint_count;
+    }
+  }
+  CHECK(midpoint_count >= 1);
+  // Heaviest line MUST be among the promoted ones (greedy goes top-down).
+  CHECK(asgn[0].layout == LinePwlLayout::midpoint);
+}
+
+TEST_CASE("compute_dynamic_loss_layout — reaches local optimum")  // NOLINT
+{
+  // After the rule decides, no remaining uniform→midpoint single
+  // flip should improve abs(signed_mean).  This is the greedy's
+  // local-optimality guarantee — the algorithm cannot always hit
+  // abs(running) ≤ budget when a single heavy line dominates, but it
+  // MUST have considered every improving flip.
+  const std::vector<double> R {0.001, 0.005, 0.01, 0.05, 0.10};
+  const std::vector<double> fmax {3000.0, 500.0, 100.0, 50.0, 10.0};
+  const auto asgn = run_dynamic(R, fmax, {.err_pct = 0.001});
+  const double final_err = signed_mean_error(R, fmax, asgn);
+
+  for (std::size_t i = 0; i < R.size(); ++i) {
+    if (asgn[i].layout != LinePwlLayout::uniform) {
+      continue;
+    }
+    if (R[i] <= 0.0 || fmax[i] <= 0.0 || asgn[i].K == 0) {
+      continue;
+    }
+    const double L = R[i] * fmax[i] * fmax[i];
+    const double kk = static_cast<double>(asgn[i].K * asgn[i].K);
+    const double delta = L / (4.0 * kk);
+    const double after_flip = final_err - delta;
+    // Flipping this uniform line should NOT strictly improve abs.
+    CAPTURE(i);
+    CAPTURE(final_err);
+    CAPTURE(after_flip);
+    CHECK(std::abs(after_flip) >= std::abs(final_err) - 1e-9);
+  }
+}
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — meets budget when achievable")  // NOLINT
+{
+  // Happy path: 10 small equal lines, none budget-dominant.  Greedy
+  // can land abs(error) ≤ budget cleanly.
+  const std::vector<double> R(10, 0.01);
+  const std::vector<double> fmax(10, 100.0);  // L_max = 100 each; Σ = 1000
+  const double err_pct = 0.02;  // budget = 20
+  const auto asgn = run_dynamic(R, fmax, {.err_pct = err_pct});
+  const double L_total = 1000.0;
+  const double budget = err_pct * L_total;
+  const double realised = signed_mean_error(R, fmax, asgn);
+  CHECK(std::abs(realised) <= budget * 1.05);  // 5 % discrete-greedy slack
+}
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — err_pct ≤ 0 fallback to uniform")  // NOLINT
+{
+  // Same contract as compute_adaptive_loss_segments: err_pct ≤ 0
+  // disables adaptive ⇒ every lossy line gets ceiling K, uniform layout.
+  const std::vector<double> R {0.001, 0.01, 0.0};
+  const std::vector<double> fmax {1000.0, 100.0, 50.0};
+  const auto asgn =
+      run_dynamic(R, fmax, {.err_pct = 0.0, .floor = 2, .ceiling = 4});
+
+  REQUIRE(asgn.size() == 3);
+  CHECK(asgn[0].K == 4);
+  CHECK(asgn[0].layout == LinePwlLayout::uniform);
+  CHECK(asgn[1].K == 4);
+  CHECK(asgn[1].layout == LinePwlLayout::uniform);
+  CHECK(asgn[2].K == 0);  // lossless
+  CHECK(asgn[2].layout == LinePwlLayout::uniform);
+}
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — K identical to adaptive rule")  // NOLINT
+{
+  // Phase 1 of dynamic IS compute_adaptive_loss_segments — the K
+  // assignments must match exactly.  This pins the "single source of
+  // truth" property that any improvement to the cube-root K rule
+  // flows through dynamic for free.
+  const std::vector<double> R {0.0001, 0.0008, 0.005, 0.025};
+  const std::vector<double> fmax {3000.0, 300.0, 100.0, 10.0};
+  const line_losses::DynamicLayoutOpts opts {.err_pct = 0.01};
+  const auto dyn = run_dynamic(R, fmax, opts);
+  const auto adapt = line_losses::compute_adaptive_loss_segments(
+      std::span<const double> {R},
+      std::span<const double> {fmax},
+      {.err_pct = opts.err_pct, .floor = opts.floor, .ceiling = opts.ceiling});
+  REQUIRE(dyn.size() == adapt.size());
+  for (std::size_t i = 0; i < dyn.size(); ++i) {
+    CHECK(dyn[i].K == adapt[i]);
+  }
+}
+
+TEST_CASE("compute_dynamic_loss_layout — empty input")  // NOLINT
+{
+  const std::vector<double> empty;
+  const auto asgn = run_dynamic(empty, empty);
+  CHECK(asgn.empty());
+}
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — lossless lines stay uniform K=0")  // NOLINT
+{
+  const std::vector<double> R {0.0, 0.01, 0.05, 0.0};
+  const std::vector<double> fmax {100.0, 100.0, 0.0, 0.0};
+  const auto asgn = run_dynamic(R, fmax);
+
+  REQUIRE(asgn.size() == 4);
+  // Lossless: K=0, layout falls through to uniform (the default).
+  CHECK(asgn[0].K == 0);
+  CHECK(asgn[0].layout == LinePwlLayout::uniform);
+  CHECK(asgn[2].K == 0);
+  CHECK(asgn[3].K == 0);
+  // Only the one lossy line gets a meaningful assignment.
+  CHECK(asgn[1].K >= 2);
+}

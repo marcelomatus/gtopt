@@ -252,6 +252,82 @@ struct AdaptiveSegmentsOpts
     std::span<const double> peak_flows,
     const AdaptiveSegmentsOpts& opts = {});
 
+// ─── Dynamic per-line PWL layout selection ─────────────────────────
+
+/// Result of ``compute_dynamic_loss_layout`` per line.
+///
+/// Encodes the two outputs of the dynamic rule:
+///   * ``K``         segment count assigned by the cube-root rule
+///                   (Phase 1 — identical to
+///                   ``compute_adaptive_loss_segments``)
+///   * ``layout``    PWL layout chosen by the mean-error allocator
+///                   (Phase 2 — ``uniform`` for most lines, ``midpoint``
+///                   for the heaviest mean-error contributors).
+///
+/// ``K = 0`` and ``layout = LinePwlLayout::uniform`` signals a lossless
+/// line (R ≤ 0 or fmax ≤ 0); the caller's PWL builder should omit it.
+struct DynamicAssignment
+{
+  int K {0};
+  LinePwlLayout layout {LinePwlLayout::uniform};
+};
+
+/// Options for ``compute_dynamic_loss_layout``.  Reuses the same
+/// ``err_pct`` budget that drives the adaptive K rule — the single
+/// user-facing knob controls both per-line K (worst-case bound) AND
+/// per-line layout (mean-error cancellation).
+struct DynamicLayoutOpts
+{
+  double err_pct {0.01};  ///< same single budget as AdaptiveSegmentsOpts
+  int floor {2};
+  int ceiling {6};
+};
+
+/// Allocate per-line ``(K, layout)`` jointly under the same
+/// ``err_pct`` budget that drives the adaptive K rule.
+///
+/// **Phase 1 — K allocation** (identical to
+/// ``compute_adaptive_loss_segments``): cube-root rule
+/// ``K_i ∝ L_max,i^(1/3)`` clamped to ``[floor, ceiling]``, bounding
+/// the worst-case PWL secant error
+/// ``Σ L_max,i / (4 K_i²) ≤ err_pct · Σ L_max,i``.
+///
+/// **Phase 2 — layout selection**: start every line at ``uniform``
+/// (presolve eliminates the loss column → fastest LP).  Compute the
+/// system-wide signed mean error
+///
+///     E_sys  =  Σ_uniform L_max,i / (6 K_i²)
+///               − Σ_midpoint L_max,i / (12 K_i²)
+///
+/// (uniform overstates by +L/(6K²); midpoint understates by −L/(12K²)).
+/// If ``E_sys ≤ err_pct · Σ L_max,i`` ⇒ keep all uniform; done.
+/// Otherwise greedily flip the line with the largest mean-error
+/// contribution (``L_i / K_i²``, highest first) to midpoint.  Each
+/// flip reduces E_sys by ``L_i / (4 K_i²)`` (= the worst-case error
+/// of that line).  Stop when either:
+///   1. ``|E_sys| ≤ err_pct · Σ L_max,i`` (budget met), OR
+///   2. the next flip would move ``E_sys`` further from zero than its
+///      current value (greedy local optimum reached — typically when a
+///      single heavy line's contribution exceeds the budget on its own).
+///
+/// The latter stop condition prevents overshoot into the negative
+/// budget zone: without it, the greedy would happily keep flipping
+/// past E_sys = 0 and land at -|E_sys| of the same magnitude.
+///
+/// When ``opts.err_pct ≤ 0`` returns ``{K = ceiling, layout = uniform}``
+/// for every lossy line (uniform-K fallback; no layout decision needed).
+///
+/// @param resistances  R_i for each line (any unit, must match peak_flows)
+/// @param peak_flows   f_max,i for each line (any unit, must match)
+/// @param opts         budget + floor + ceiling
+/// @return             per-line ``(K_i, layout_i)`` (length == size())
+/// @pre                ``resistances.size() == peak_flows.size()``
+/// @pre                ``opts.floor ≥ 1`` and ``opts.ceiling ≥ opts.floor``
+[[nodiscard]] std::vector<DynamicAssignment> compute_dynamic_loss_layout(
+    std::span<const double> resistances,
+    std::span<const double> peak_flows,
+    const DynamicLayoutOpts& opts = {});
+
 // ─── Results ────────────────────────────────────────────────────────
 
 /**

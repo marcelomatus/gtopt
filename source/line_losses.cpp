@@ -1540,6 +1540,112 @@ std::vector<int> compute_adaptive_loss_segments(
   return K;
 }
 
+// ─── Dynamic per-line PWL layout selection ─────────────────────────
+
+std::vector<DynamicAssignment> compute_dynamic_loss_layout(
+    std::span<const double> resistances,
+    std::span<const double> peak_flows,
+    const DynamicLayoutOpts& opts)
+{
+  assert(resistances.size() == peak_flows.size());
+  assert(opts.floor >= 1);
+  assert(opts.ceiling >= opts.floor);
+
+  // Phase 1 — K via cube-root rule.  Reuse the existing function so
+  // the two rules stay in lock-step: any improvement to the K
+  // allocator flows through here automatically.
+  const AdaptiveSegmentsOpts seg_opts {
+      .err_pct = opts.err_pct,
+      .floor = opts.floor,
+      .ceiling = opts.ceiling,
+  };
+  const auto K =
+      compute_adaptive_loss_segments(resistances, peak_flows, seg_opts);
+
+  const auto n = resistances.size();
+  std::vector<DynamicAssignment> out(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    out[i] = {.K = K[i], .layout = LinePwlLayout::uniform};
+  }
+
+  // Uniform-K fallback: err_pct ≤ 0 means "don't try to be adaptive";
+  // every lossy line gets the ceiling K with uniform layout.  Matches
+  // ``compute_adaptive_loss_segments``'s behaviour and the Python
+  // wrapper's ``GTOPT_LOSS_ERROR_PCT=0`` contract.
+  if (opts.err_pct <= 0.0) {
+    return out;
+  }
+
+  // Build the working set: index, L_max, K  for every lossy line.
+  // Skip lossless (K == 0) — Phase 1 already marked them.
+  struct Lossy
+  {
+    std::size_t idx;
+    double L;
+    int K;
+  };
+  std::vector<Lossy> lossy;
+  lossy.reserve(n);
+  double L_total = 0.0;
+  for (std::size_t i = 0; i < n; ++i) {
+    if (out[i].K > 0) {
+      const double L = resistances[i] * peak_flows[i] * peak_flows[i];
+      lossy.push_back({.idx = i, .L = L, .K = out[i].K});
+      L_total += L;
+    }
+  }
+  if (lossy.empty() || L_total <= 0.0) {
+    return out;
+  }
+
+  // Phase 2 — system-wide signed mean error, all-uniform initial.
+  //   E_sys = Σ_uniform L_i / (6 K_i²)  −  Σ_midpoint L_i / (12 K_i²)
+  const double budget = opts.err_pct * L_total;
+  double running = 0.0;
+  for (const auto& ln : lossy) {
+    running +=
+        ln.L / (6.0 * static_cast<double>(ln.K) * static_cast<double>(ln.K));
+  }
+  if (running <= budget) {
+    // Uniform mean meets the budget on its own — done.
+    return out;
+  }
+
+  // Sort by mean-error contribution descending so the heaviest is
+  // first.  ``L / K²`` is monotone in ``L_max,i / (6 K_i²)`` so it
+  // gives the same ordering with one fewer division.
+  std::sort(lossy.begin(),
+            lossy.end(),
+            [](const Lossy& a, const Lossy& b) noexcept
+            {
+              const double ka = static_cast<double>(a.K);
+              const double kb = static_cast<double>(b.K);
+              return (a.L / (ka * ka)) > (b.L / (kb * kb));
+            });
+
+  // Greedy flips while either (a) outside the ±budget zone, or
+  // (b) the next flip strictly improves abs(running).  The latter
+  // guards against overshooting into the negative-budget side, which
+  // a naive ``while abs(running) > budget`` would do — the signed
+  // running can run past zero and land at -X with abs > budget again.
+  for (const auto& ln : lossy) {
+    if (std::abs(running) <= budget) {
+      break;
+    }
+    const double contribution =
+        ln.L / (4.0 * static_cast<double>(ln.K) * static_cast<double>(ln.K));
+    const double next_running = running - contribution;
+    if (std::abs(next_running) >= std::abs(running)) {
+      // Flip would not help — current state is the local minimum.
+      break;
+    }
+    out[ln.idx].layout = LinePwlLayout::midpoint;
+    running = next_running;
+  }
+
+  return out;
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 
 BlockResult add_block(const LossConfig& config,
