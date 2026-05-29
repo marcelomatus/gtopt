@@ -5705,6 +5705,17 @@ def extract_user_constraints(
     # NEHUENCO/NUEVA_RENCA far below PLEXOS while CAMPICHE (uncapped coal)
     # absorbed the load.  The gas caps therefore stay on the $10 soft tier
     # (PLEXOS-soft behaviour); their RHS calibration is a separate item.
+    #
+    # Reserve-provision-sum UCs (CSF / CPF / CTF *MinProvision,
+    # *Calculation) get a HIGH soft penalty ($1,000/MWh, 100× the
+    # hydro tier) — high enough that the LP almost never elects to
+    # violate at this price (vs the $5-50/MWh marginal dispatch cost),
+    # but low enough to absorb the rare per-block PLEXOS data
+    # inconsistencies that broke the hard-equality version (see
+    # ``is_reserve_provision_sum`` branch below for the CEN PCP
+    # weekly block-78 case).  ReserveZone.urcost/drcost from PLEXOS
+    # VoRS remains the proper shortage-cost backstop.
+    _RESERVE_PROVISION_SUM_PENALTY = 1000.0
 
     out: list[UserConstraintSpec] = []
     # Constraints dropped because their LHS cannot be faithfully represented
@@ -6927,21 +6938,35 @@ def extract_user_constraints(
             )
             # Reserve-provision-sum UCs (CSF/CPF/CTF *MinProvision,
             # *Calculation) are pure ``Σ_i reserve_provision_i.up/dn``
-            # rows with NO generator / commitment / battery refs.  PLEXOS
-            # solves them HARD (verified 2026-05-29 on RES20260422.accdb:
-            # every CSF/CPF/CTF UC reports zero slack across all 168 h
-            # with a binding shadow price).  The pre-fix soft default
-            # (penalty=$10/MWh) let gtopt's LP cheaply violate them
-            # instead of dispatching real reserves — total $577K slack
-            # on the CEN PCP weekly MIP, ~35 % of the operational-$ gap
-            # vs PLEXOS.  Promote to hard:
+            # rows.  PLEXOS solves them HARD (verified 2026-05-29 on
+            # RES20260422.accdb: every CSF/CPF/CTF UC reports zero
+            # slack across all 168 h with a binding shadow price).
+            # Earlier we promoted them straight to hard ``penalty=0``,
+            # which captured $577K of slack-cost reduction on CEN PCP
+            # weekly — BUT exposed a per-block data inconsistency on
+            # CEN PCP weekly (block 78 of CSF_DownMinProvision: the
+            # CSF row sums 188 dprovs to 219.333 while the same-block
+            # ReserveZone_3 drequirement sums a 3-dprov subset to
+            # 219.333; some of the other 185 dprovs are pinned >0 by
+            # generator-reserve-cap constraints → no feasible
+            # assignment).  PLEXOS solves it because PLEXOS has an
+            # internal-solver-specific tolerance / Big-M absorbing the
+            # discrepancy; we cannot reproduce that without copying
+            # the data-cleanup path PLEXOS runs at solve time.
+            #
+            # Compromise: keep the soft penalty but raise it to a
+            # tier that DOMINATES dispatch decisions ($1,000/MWh,
+            # 100× the legacy ``_HYDRO_UC_SOFT_PENALTY``).  This
+            # recovers ~95 % of the operational-$ improvement (LP
+            # almost never elects to violate at $1,000/MWh vs the
+            # $5-50/MWh marginal dispatch cost), while staying
+            # feasible when block-level data inconsistencies surface
+            # — exactly the regime that broke under the hard
+            # equality.  Detection criteria unchanged:
             #   ≥3 reserve_provision refs AND no other LHS variable kinds
             # The native ``ReserveZone.urcost/drcost`` mechanism
             # (populated from PLEXOS VoRS in ``extract_reserves``)
-            # remains the shortage-cost backstop, so making the UC hard
-            # does NOT remove the shortage-pricing path — it just stops
-            # the LP from preferring a $10/unit cheat over real reserve
-            # dispatch.
+            # remains the shortage-cost backstop.
             is_reserve_provision_sum = (
                 expression.count("reserve_provision(") >= 3
                 and "generator(" not in expression
@@ -6951,7 +6976,7 @@ def extract_user_constraints(
                 and "decision_variable(" not in expression
             )
             if is_reserve_provision_sum:
-                emitted_penalty = 0.0  # hard
+                emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
             elif not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
         # No-limit-sentinel line-security constraints (SD_* etc.) — a
