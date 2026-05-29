@@ -96,6 +96,16 @@ class PlexosDataRow:
     period_id: int | None = None
     date_from: datetime | None = None
     date_to: datetime | None = None
+    #: Optional PLEXOS timeslice tag (``<t_text class_id=76>`` companion
+    #: record), e.g. ``"H16-20"`` (every day hours 16-20), ``"H1-8,H20-24"``
+    #: (split shift), or ``"W2-6,H8-21"`` (weekday hours 8-21).  Independent
+    #: of ``date_from``/``date_to``: dates scope a value to specific calendar
+    #: days; a timeslice scopes it to a recurring hour-of-day / day-of-week
+    #: pattern that fires inside whatever date window the row carries (or all
+    #: dates, when undated).  See :func:`_parse_timeslice_map` for the source
+    #: table and the constraint RHS overlay path in
+    #: :func:`parsers.extract_user_constraints`.
+    timeslice: str | None = None
 
 
 @dataclass
@@ -480,9 +490,42 @@ def _parse_horizon_start(root: ET.Element) -> datetime | None:
     return None
 
 
+#: PLEXOS class_id for the ``Timeslice`` class — the home of the recurring
+#: hour-of-day / day-of-week pattern tags that scope individual ``t_data``
+#: rows (separate from the dated ``t_date_from``/``t_date_to`` mechanism).
+#: Verified against ``DBSEN_PRGDIARIO.xml`` (CEN PCP 2026-04-22): the
+#: ``H16-20``, ``H1-8``, ``W2-6,H8-21`` tags on ``Campiche_starting`` /
+#: ``Commit_*`` / ``IL_*`` UCs all carry ``class_id=76``.
+_TIMESLICE_CLASS_ID = 76
+
+
+def _parse_timeslice_map(root: ET.Element) -> dict[int, str]:
+    """Index ``<t_text class_id=76>`` companions as ``{data_id -> tag}``.
+
+    Each entry in the returned map is the recurring hour-of-day pattern
+    (or weekday-and-hour pattern) attached to a single ``t_data`` row.
+    See :class:`PlexosDataRow.timeslice` for the grammar and
+    :func:`parsers._expand_timeslice` for the per-block expansion.
+    """
+    out: dict[int, str] = {}
+    for elem in root.findall(f"{NS}t_text"):
+        cid = _findtext_int(elem, "class_id")
+        if cid != _TIMESLICE_CLASS_ID:
+            continue
+        did = _findtext_int(elem, "data_id")
+        raw = elem.findtext(f"{NS}value")
+        if did is None or raw is None:
+            continue
+        tag = raw.strip()
+        if tag:
+            out[did] = tag
+    return out
+
+
 def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
     dfrom = _parse_date_map(root, "t_date_from")
     dto = _parse_date_map(root, "t_date_to")
+    timeslice = _parse_timeslice_map(root)
     out: list[PlexosDataRow] = []
     for elem in root.findall(f"{NS}t_data"):
         did = _findtext_int(elem, "data_id")
@@ -501,6 +544,7 @@ def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
                 period_id=period,
                 date_from=dfrom.get(did),
                 date_to=dto.get(did),
+                timeslice=timeslice.get(did),
             )
         )
     return out

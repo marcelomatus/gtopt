@@ -21,6 +21,7 @@ import difflib
 import logging
 import math
 import re
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .entities import (
@@ -832,41 +833,105 @@ def _extract_fuel_co2_membership_rates(
 _TJ_TO_GJ = 1000.0
 
 
-def _extract_fuel_max_offtake_week(bundle: PlexosBundle) -> dict[str, float]:
-    """Read ``Fuel_MaxOfftakeWeek.csv`` → ``{fuel_name: cap_for_binding_week}``.
+def _extract_fuel_max_offtake_week(
+    bundle: PlexosBundle,
+    horizon_start: datetime | None = None,
+) -> dict[str, float]:
+    """Read ``Fuel_MaxOfftakeWeek.csv`` → ``{fuel_name: cap_for_horizon_GJ}``.
 
     Each row carries ``NAME,YEAR,MONTH,DAY,PERIOD,VALUE`` where the
     ``(YEAR, MONTH, DAY)`` triple is the **week-start date** (PLEXOS
-    convention).  CEN PCP daily bundles ship 1-2 weekly rows per fuel
-    band — the binding week is the FIRST one seen in calendar order
-    (``read_long`` picks the lexically earliest ``(Y, M, D)`` as
-    day-0), which for a Saturday-starting week is the one whose
-    start precedes the bundle's reference date.
+    convention) and ``VALUE`` is the cap for that week in **TJ/week**.
+    CEN PCP daily bundles typically ship 1-2 weekly rows per fuel band;
+    PLEXOS itself enforces the weekly cap **per period**, switching the
+    per-hour rate at the calendar week boundary inside the 7-day
+    horizon (verified on RES20260422.accdb: ``Gas_Colbun_GN_B`` per-
+    period RHS = 12.5 GJ/h for the 24 day-1 hourly periods (week
+    04-16's 2.1 TJ / 168 h) and 27.38 GJ/h for the 87 day-2-to-7
+    aggregated periods (week 04-23's 4.6 TJ / 168 h)).
 
-    The CSV value is in **TJ/week** and is scaled to **GJ/week**
-    via ``_TJ_TO_GJ`` so the cap units match the per-block LHS
-    basis (heat_rate × MWh, where PLEXOS heat_rate is in GJ/MWh).
+    gtopt's ``Fuel.max_offtake`` is a **single horizon-wide budget**
+    (gtopt pro-rates per block by duration share — see
+    ``max_offtake_per_block = True`` on the writer side).  To match
+    PLEXOS's effective horizon-wide budget exactly we compute the
+    time-weighted sum: each week contributes
+    ``cap_week_GJ × overlap_days / 7`` where ``overlap_days`` is the
+    number of horizon days falling inside ``[week_start, week_start + 6]``.
 
-    Returns a ``{name: cap_GJ_per_week}`` dict.  Fuels NOT in the
-    CSV are simply absent from the dict (= no cap).  Fuels with an
-    explicit 0 cap ARE in the dict with value 0.0 — PLEXOS uses
-    this to "shut" a band on a given week.
+    Example (DATOS20260422, horizon Apr 22-28 = 7 days,
+    ``Gas_Colbun_GN_B`` rows ``[2026-04-16: 2.1 TJ, 2026-04-23: 4.6 TJ]``):
+    week 04-16 covers Apr 16-22 (1 horizon day = Apr 22) → 2100 × 1/7
+    = 300 GJ; week 04-23 covers Apr 23-29 (6 horizon days) → 4600 × 6/7
+    = 3943 GJ; total = **4243 GJ** — matches PLEXOS's ``Σ_period
+    duration × RHS_period`` to the cent (vs the legacy first-row bug
+    which returned 2100 GJ, starving NEHUENCO_1-TG+TV in the gtopt MIP).
 
-    Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>`` Constraint object;
-    the daily ``Fuel_MaxOfftakeDay.csv`` (e.g. Diesel) ships the
-    same shape and is consumed by the analogous helper.  PLEXOS
-    enforces the cap **per period** — gtopt mirrors this via
-    ``Fuel.max_offtake_per_block = True`` on the writer side.
+    When ``horizon_start`` is ``None`` (or the bundle's horizon length is
+    unknown), fall back to the legacy first-row behaviour.
+
+    The TJ→GJ conversion uses ``_TJ_TO_GJ`` so the cap units match the
+    per-block LHS basis (heat_rate × MWh, where PLEXOS heat_rate is in
+    GJ/MWh).
+
+    Returns a ``{name: cap_GJ_for_horizon}`` dict.  Fuels absent from
+    the CSV are absent from the dict (= no cap).  Fuels with an
+    explicit 0 cap in EVERY overlapping week land in the dict with
+    value 0.0 — PLEXOS uses this to "shut" a band on a given week.
     """
     csv_name = "Fuel_MaxOfftakeWeek.csv"
     if not bundle.has(csv_name):
         return {}
-    # ``periods=1`` because PLEXOS ships PERIOD=1 for the whole week
-    # value; ``n_days=1`` keeps only the first (lexically earliest)
-    # week-start date, which on CEN PCP daily bundles is the binding
-    # week containing the bundle's reference date.
-    raw = read_long(bundle.csv(csv_name), periods=1, n_days=1)
-    return {name: vals[0] * _TJ_TO_GJ for name, vals in raw.items() if vals}
+
+    ref_date: date | None = horizon_start.date() if horizon_start else None
+    horizon_days = max(int(bundle.n_days) or 1, 1)
+
+    rows_by_fuel: dict[str, list[tuple[date, float]]] = {}
+    with bundle.csv(csv_name).open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames:
+            reader.fieldnames = [h.lstrip("﻿") for h in reader.fieldnames]
+        for row in reader:
+            name = (row.get("NAME") or "").strip()
+            if not name:
+                continue
+            try:
+                wk = date(
+                    int(row.get("YEAR", "") or 0),
+                    int(row.get("MONTH", "") or 0),
+                    int(row.get("DAY", "") or 0),
+                )
+                val = float(row.get("VALUE", "0") or "0")
+            except (ValueError, KeyError):
+                continue
+            rows_by_fuel.setdefault(name, []).append((wk, val))
+
+    if ref_date is None:
+        # Legacy fallback: first CSV row's value (raw TJ → GJ).
+        return {
+            name: candidates[0][1] * _TJ_TO_GJ
+            for name, candidates in rows_by_fuel.items()
+            if candidates
+        }
+
+    # Horizon coverage [ref_date, ref_date + horizon_days - 1].  Each
+    # week_start row covers [week_start, week_start + 6].  Overlap days
+    # weight each week's contribution; rows with zero overlap drop out.
+    from datetime import timedelta as _td
+
+    horizon_last = ref_date + _td(days=horizon_days - 1)
+    out: dict[str, float] = {}
+    for name, candidates in rows_by_fuel.items():
+        total_gj = 0.0
+        for wk_start, cap_tj in candidates:
+            wk_last = wk_start + _td(days=6)
+            overlap_lo = max(wk_start, ref_date)
+            overlap_hi = min(wk_last, horizon_last)
+            overlap_days = (overlap_hi - overlap_lo).days + 1
+            if overlap_days <= 0:
+                continue
+            total_gj += cap_tj * _TJ_TO_GJ * overlap_days / 7.0
+        out[name] = total_gj
+    return out
 
 
 def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
@@ -901,7 +966,7 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     # PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint binds total weekly
     # fuel consumption per band; gtopt's ``Fuel.max_offtake`` field
     # (landed in PR #487) is the corresponding LP row.
-    max_offtake_week = _extract_fuel_max_offtake_week(bundle)
+    max_offtake_week = _extract_fuel_max_offtake_week(bundle, db.horizon_start)
 
     membership_rates = _extract_fuel_co2_membership_rates(db)
     out: list[FuelSpec] = []
@@ -4348,6 +4413,271 @@ def _extract_flow_rights_legacy_misclassified(
     return tuple(out)
 
 
+#: PLEXOS timeslice tag grammar.  Two atom shapes:
+#:
+#:   ``H<a>-<b>``  — hour-of-day range, 1-indexed inclusive.  Hour ``h`` is
+#:                   the block ending at ``h:00`` (so ``H16-20`` ⇒ blocks
+#:                   indexed 16..20 in a 24h day, the 16:00→20:59 window).
+#:   ``W<a>-<b>``  — day-of-week range, 1-indexed inclusive.  CEN PCP
+#:                   convention (verified against ``IL_2024000947_ATACC2``):
+#:                   ``W1=Sunday`` … ``W7=Saturday`` so ``W2-6`` ⇒ Mon-Fri.
+#:
+#: Atoms join with commas; comma-joined atoms of the SAME letter union (an
+#: ``H1-8,H20-24`` tag covers hours 1-8 OR 20-24).  A tag mixing letters
+#: intersects (``W2-6,H8-21`` ⇒ weekday Mon-Fri AND hours 8-21).
+_TIMESLICE_ATOM_RE = re.compile(r"^([HW])(\d+)(?:-(\d+))?$")
+
+
+def _expand_timeslice(
+    tag: str,
+    horizon_start: datetime | None,
+    n_blocks: int,
+    block_hours: float = 1.0,
+) -> tuple[bool, ...]:
+    """Expand a PLEXOS timeslice tag into a per-block boolean mask.
+
+    Args:
+        tag: PLEXOS timeslice string (``"H16-20"``, ``"H1-8,H20-24"``,
+            ``"W2-6,H8-21"``).  Whitespace is tolerated.
+        horizon_start: Run-horizon start datetime (from PLEXOS Horizon
+            object). Required only for tags carrying ``W`` (weekday)
+            atoms; ``H``-only tags ignore the calendar.  When ``None``
+            and the tag uses ``W``, the weekday clause is skipped (mask
+            falls back to hour-only — best-effort for unit tests
+            without a Horizon date).
+        n_blocks: LP horizon block count (typically 24 × n_days).
+        block_hours: Block duration in hours.  Defaults to 1 — the CEN
+            PCP hourly grid.  Sub-hourly grids (15-min = 0.25 h) would
+            scale block→hour mapping accordingly.
+
+    Returns:
+        Length-``n_blocks`` boolean tuple where ``mask[i] = True``
+        means the timeslice covers block ``i``.
+
+    Raises:
+        ValueError: when ``tag`` cannot be parsed.  Callers should
+            catch and fall back to scalar RHS (logged as a warning).
+    """
+    atoms = [a.strip() for a in (tag or "").split(",") if a.strip()]
+    if not atoms:
+        raise ValueError(f"empty timeslice tag {tag!r}")
+    hour_atoms: list[tuple[int, int]] = []
+    weekday_atoms: list[tuple[int, int]] = []
+    for atom in atoms:
+        m = _TIMESLICE_ATOM_RE.match(atom)
+        if not m:
+            raise ValueError(f"unrecognised timeslice atom {atom!r} in {tag!r}")
+        kind, lo_s, hi_s = m.group(1), m.group(2), m.group(3)
+        lo = int(lo_s)
+        hi = int(hi_s) if hi_s is not None else lo
+        if kind == "H":
+            hour_atoms.append((lo, hi))
+        else:
+            weekday_atoms.append((lo, hi))
+
+    # Build hour-of-day mask (size 24).  Hours are 1-indexed in PLEXOS;
+    # we store at index ``h-1`` so block index 0 corresponds to hour 1.
+    if hour_atoms:
+        hour_mask = [False] * 24
+        for lo, hi in hour_atoms:
+            for h in range(max(1, lo), min(24, hi) + 1):
+                hour_mask[h - 1] = True
+    else:
+        hour_mask = [True] * 24
+
+    # Build weekday mask (size 7).  PLEXOS ``W1=Sunday`` … ``W7=Saturday``;
+    # Python's ``datetime.weekday()`` is ``Monday=0..Sunday=6``, so we
+    # translate via ``plexos_w = (py_weekday + 1) % 7 + 1``.
+    if weekday_atoms and horizon_start is not None:
+        wd_mask = [False] * 7
+        for lo, hi in weekday_atoms:
+            for w in range(max(1, lo), min(7, hi) + 1):
+                wd_mask[w - 1] = True
+    else:
+        wd_mask = [True] * 7
+
+    out = [False] * n_blocks
+    for b in range(n_blocks):
+        # Hour-of-day index for this block, 0-based (block 0 = hour 1).
+        hour_idx = int(b * block_hours) % 24
+        if not hour_mask[hour_idx]:
+            continue
+        if weekday_atoms and horizon_start is not None:
+            day_offset = int(b * block_hours) // 24
+            py_wd = (horizon_start + timedelta(days=day_offset)).weekday()
+            plexos_w = (py_wd + 1) % 7 + 1  # Mon(0)→W2, Tue(1)→W3, ..., Sun(6)→W1
+            if not wd_mask[plexos_w - 1]:
+                continue
+        out[b] = True
+    return tuple(out)
+
+
+def _build_rhs_timeslice_profile(
+    rhs_rows: list,
+    base_value: float,
+    horizon_start: datetime | None,
+    n_blocks: int,
+) -> tuple[float, ...]:
+    """Overlay timeslice-tagged ``RHS`` rows on top of the base scalar.
+
+    Each ``rhs_row`` with a ``.timeslice`` tag specifies a recurring
+    hour-of-day / day-of-week window during which that row's value
+    overrides ``base_value``.  When multiple tagged rows overlap the
+    same block, the row with the highest ``data_id`` wins (PLEXOS
+    MDB append semantics, mirroring :func:`_horizon_value` for the
+    single-row case).
+
+    Args:
+        rhs_rows: All RHS rows (active + expired) the constraint
+            carries.  Expired rows are skipped just like
+            :func:`_horizon_value` would skip them.
+        base_value: Fallback scalar for the blocks NOT covered by any
+            timeslice tag, used only when no UNTAGGED active row exists
+            in ``rhs_rows``.  When an untagged active row IS present its
+            value supersedes ``base_value`` — that's PLEXOS's "default
+            base" row (the row without a timeslice tag), which the
+            caller's ``_horizon_value(prefer_min=True)`` would otherwise
+            collapse with the tagged value.  Example: N_to_Nogales_N1
+            carries an untagged RHS=430 (apply outside H9-18) plus a
+            tagged RHS=402.3 (apply during H9-18); `_horizon_value` picks
+            min(402.3, 430)=402.3 — wrong for the un-overlapped blocks.
+        horizon_start: PLEXOS Horizon start datetime; needed for ``W``
+            (weekday) atoms.  May be ``None`` for unit tests.
+        n_blocks: LP horizon block count.
+
+    Returns:
+        Length-``n_blocks`` tuple of floats.  Empty when no tagged row
+        is active (caller falls back to the scalar emit path).
+    """
+    # Tagged active rows — sorted ASC by data_id so last-write-wins overlay.
+    tagged_rows = sorted(
+        (
+            r
+            for r in rhs_rows
+            if r.timeslice and _has_active_rhs_row([r], horizon_start)
+        ),
+        key=lambda r: r.data_id,
+    )
+    if not tagged_rows:
+        return ()
+    # Untagged active rows — the natural "default base" for blocks not
+    # covered by any tag.  Multiple untagged rows: pick the same way
+    # _horizon_value picks (smaller wins for ≤ sense; here we just take
+    # min as the relaxed bound).  Fall back to ``base_value`` when there
+    # is no untagged active row (the whole constraint is tag-only).
+    untagged_active = [
+        r.value
+        for r in rhs_rows
+        if not r.timeslice and _has_active_rhs_row([r], horizon_start)
+    ]
+    base = min(untagged_active) if untagged_active else base_value
+    profile = [base] * n_blocks
+    for row in tagged_rows:
+        mask = _expand_timeslice(row.timeslice, horizon_start, n_blocks)
+        for i, on in enumerate(mask):
+            if on:
+                profile[i] = row.value
+    return tuple(profile)
+
+
+def _block_in_date_window(
+    block_idx: int,
+    horizon_start: datetime,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    block_hours: float = 1.0,
+) -> bool:
+    """True when block ``block_idx`` overlaps ``[date_from, date_to]``.
+
+    Block ``i`` covers the half-open hour range
+    ``[horizon_start + i*block_hours, horizon_start + (i+1)*block_hours)``.
+    A block is considered IN-window when its hour range intersects the
+    closed PLEXOS date window — an undated boundary is treated as ±∞.
+    Used by :func:`_build_rhs_date_overlay_profile` to localise a dated
+    RHS override to the blocks it actually applies to.
+    """
+    block_start = horizon_start + timedelta(hours=block_idx * block_hours)
+    block_end = block_start + timedelta(hours=block_hours)
+    if date_from is not None and block_end <= date_from:
+        return False
+    if date_to is not None and block_start >= date_to:
+        return False
+    return True
+
+
+def _build_rhs_date_overlay_profile(
+    rhs_rows: list,
+    base_value: float,
+    horizon_start: datetime | None,
+    n_blocks: int,
+) -> tuple[float, ...]:
+    """Overlay PARTIAL-horizon dated ``RHS`` rows on top of the base scalar.
+
+    PLEXOS lets a constraint carry RHS overrides whose
+    ``[date_from, date_to]`` window covers ONLY part of the run horizon
+    (e.g. ``SD_2026030813_NvaPAzucar_Polpaico500_neg`` carries an
+    undated base RHS=10000 plus a dated RHS=1600 active only for the
+    4 blocks 2026-04-22 06:00-10:00).  ``_horizon_value`` collapses
+    these to a single scalar; this builder produces the per-block
+    profile so the LP sees RHS=1600 on the 4 in-window blocks and
+    RHS=10000 on the other 164.
+
+    Args:
+        rhs_rows: Every RHS row the constraint carries.  Untagged rows
+            are treated as the base (their value supersedes
+            ``base_value`` if any are active and not timeslice-tagged).
+            Tagged-only rows are NOT handled here (use
+            :func:`_build_rhs_timeslice_profile`); they reach this path
+            only via the caller's combined dispatch and are skipped.
+        base_value: Fallback for blocks NOT covered by any dated row,
+            used only when no UNTAGGED-UNDATED active row exists.
+        horizon_start: PLEXOS Horizon start datetime.  When ``None`` the
+            overlay cannot be computed and the function returns ``()``.
+        n_blocks: LP horizon block count.
+
+    Returns:
+        Length-``n_blocks`` tuple, or ``()`` when no dated row would
+        contribute to any block of the horizon.  The empty return lets
+        the caller fall back to the legacy scalar path unchanged.
+    """
+    if horizon_start is None:
+        return ()
+    # Collect dated rows that touch the horizon at all.  A row is a
+    # candidate overlay when its date window intersects ANY block — this
+    # is the "partial-window" case that ``_horizon_value``'s all-or-
+    # nothing horizon_start check rejects.
+    dated_overlays = [
+        r
+        for r in rhs_rows
+        if (r.date_from is not None or r.date_to is not None)
+        and not getattr(r, "timeslice", None)
+        and any(
+            _block_in_date_window(i, horizon_start, r.date_from, r.date_to)
+            for i in range(n_blocks)
+        )
+    ]
+    if not dated_overlays:
+        return ()
+    # Untagged-undated active rows form the base (multiple → min, same
+    # convention as :func:`_build_rhs_timeslice_profile`).  Fall back to
+    # the caller-supplied ``base_value`` when no such row exists.
+    untagged_undated = [
+        r.value
+        for r in rhs_rows
+        if not getattr(r, "timeslice", None)
+        and r.date_from is None
+        and r.date_to is None
+    ]
+    base = min(untagged_undated) if untagged_undated else base_value
+    profile = [base] * n_blocks
+    # Highest-data_id overlay wins on overlapping blocks (MDB append semantics).
+    for row in sorted(dated_overlays, key=lambda r: r.data_id):
+        for i in range(n_blocks):
+            if _block_in_date_window(i, horizon_start, row.date_from, row.date_to):
+                profile[i] = row.value
+    return tuple(profile)
+
+
 def _format_coefficient(value: float, first: bool) -> str:
     """Format a coefficient term prefix (sign + numeric)."""
     if first:
@@ -4513,19 +4843,40 @@ def _index_coefficient_rows(
     coll_id: int,
     prop_id: int,
     objs: dict[int, PlexosObject],
+    horizon_start: datetime | None = None,
 ) -> dict[int, list[tuple[str, float]]]:
-    """``{constraint_object_id -> [(parent_name, coefficient), …]}`` for one prop."""
+    """``{constraint_object_id -> [(parent_name, coefficient), …]}`` for one prop.
+
+    Date filtering: PLEXOS stores coefficient amendments as additional
+    ``<t_data>`` rows on the SAME membership rather than overwriting the
+    original.  Before 2026-05-28 this indexer just *summed* every row,
+    which on ``CPF_Up5Calculation`` produced ``12.7111 + 13.37 + 10.75 =
+    36.83`` for the ``Generation_SEN`` coefficient instead of the live
+    ``10.75`` (the prior two values' date windows expired in 2024 and
+    Feb 2026).  Now we group by ``membership_id`` and use
+    :func:`_horizon_value` to pick the active value, exactly the same
+    selection rule the RHS path applies (priority 1 dated-active > 0
+    undated > expired fallback).  ``horizon_start = None`` keeps the
+    legacy "all rows active" behaviour for unit tests that supply an
+    XML without a Horizon date.
+    """
     mid_to_pair = _build_membership_pair_index(db, coll_id)
-    per_constr: dict[int, list[tuple[str, float]]] = {}
+    # Group data rows by membership_id so multiple amendments to the
+    # same (parent, constraint, property) tuple resolve to a single value.
+    by_mid: dict[int, list] = {}
     for d in db.data_rows:
-        pair = mid_to_pair.get(d.membership_id)
-        if pair is None or d.property_id != prop_id:
-            continue
-        parent_oid, constr_oid = pair
+        if d.membership_id in mid_to_pair and d.property_id == prop_id:
+            by_mid.setdefault(d.membership_id, []).append(d)
+    per_constr: dict[int, list[tuple[str, float]]] = {}
+    for mid, rows in by_mid.items():
+        parent_oid, constr_oid = mid_to_pair[mid]
         parent_obj = objs.get(parent_oid)
-        if parent_obj is None or d.value == 0.0:
+        if parent_obj is None:
             continue
-        per_constr.setdefault(constr_oid, []).append((parent_obj.name, d.value))
+        value = _horizon_value(rows, horizon_start)
+        if value is None or value == 0.0:
+            continue
+        per_constr.setdefault(constr_oid, []).append((parent_obj.name, value))
     return per_constr
 
 
@@ -4897,6 +5248,15 @@ def extract_user_constraints(
         )
 
     objs = db.object_by_id()
+    # Horizon start (used by both the RHS-overlay and the coefficient-row
+    # date filter below).  Hoisted from its later occurrence so the
+    # ``_index_coefficient_rows`` calls inside the direct/derived/
+    # reserve indexers (which all run BEFORE the per-constraint loop)
+    # get the date-active value selection instead of summing expired
+    # plus live coefficient amendments.  ``None`` when the bundle has
+    # no Horizon date (unit-test fixtures), preserving legacy
+    # "include all rows" behaviour.
+    horizon_start = db.horizon_start
 
     # Direct-coefficient index: one row per (parent_class, gtopt_class,
     # accessor, name_template) tuple with a pre-built lookup
@@ -4924,7 +5284,9 @@ def extract_user_constraints(
                 gtopt_class,
                 accessor,
                 name_tmpl,
-                _index_coefficient_rows(db, coll.collection_id, prop_id, objs),
+                _index_coefficient_rows(
+                    db, coll.collection_id, prop_id, objs, horizon_start
+                ),
             )
         )
 
@@ -4942,7 +5304,7 @@ def extract_user_constraints(
         prop_id = db.property_by_name(fuel_coll.collection_id, _FUEL_OFFTAKE[2])
         if prop_id is not None:
             fuel_offtake_index = _index_coefficient_rows(
-                db, fuel_coll.collection_id, prop_id, objs
+                db, fuel_coll.collection_id, prop_id, objs, horizon_start
             )
             gen_fuel_coll = db.collection_for_named("Generator", "Fuel", "Fuels")
             if gen_fuel_coll is not None:
@@ -4982,7 +5344,9 @@ def extract_user_constraints(
         prop_id = db.property_by_name(coll.collection_id, prop_name)
         if prop_id is None:
             continue
-        per_constr = _index_coefficient_rows(db, coll.collection_id, prop_id, objs)
+        per_constr = _index_coefficient_rows(
+            db, coll.collection_id, prop_id, objs, horizon_start
+        )
         if per_constr:
             derived_index.append((parent_class, mode, prop_name, per_constr))
 
@@ -5002,7 +5366,7 @@ def extract_user_constraints(
         )
         if rp_prop_id is not None:
             reserve_provision_index = _index_coefficient_rows(
-                db, rp_coll.collection_id, rp_prop_id, objs
+                db, rp_coll.collection_id, rp_prop_id, objs, horizon_start
             )
             elig_coll = db.collection_for_named("Reserve", "Generator", "Generators")
             if elig_coll is not None:
@@ -5063,7 +5427,8 @@ def extract_user_constraints(
     # rather than ignoring it.  Empty list ⇒ clean convert.
     unresolved_refs: list[tuple[str, str, str | None]] = []
     unsupported_rhs_shift_warns: set[str] = set()
-    horizon_start = db.horizon_start
+    # ``horizon_start`` was hoisted near the top of this function (after the
+    # ``objs`` map) so the coefficient indexers can apply date filtering.
     # Per-day hydro ramp RHS overlay (``Hydro_MaxRampDay.csv``): supplies
     # the daily-varying right-hand side for the ``*ramp*`` hydro
     # UserConstraints whose ``t_data`` carries only a static scalar.
@@ -5102,6 +5467,74 @@ def extract_user_constraints(
         # ``_horizon_value``.
         rhs_rows = db.data_for(mid, prop_rhs)
         rhs_val = _horizon_value(rhs_rows, horizon_start, prefer_min=True)
+        # PLEXOS timeslice tags (``<t_text class_id=76>``: ``H16-20``,
+        # ``H1-8,H20-24``, ``W2-6,H8-21``) modulate individual RHS rows
+        # to a recurring hour-of-day / day-of-week pattern.  When ANY
+        # active row carries a timeslice tag, build a per-block RHS
+        # profile by overlaying tagged-value masks on top of the
+        # untagged (or all-blocks) base.  This is what makes
+        # ``Campiche_starting`` cap starts only during evening peak,
+        # ``Commit_Atacama_*`` allow CC startup during shoulder hours,
+        # ``PANGUEramp`` enforce 60 MW/h during ramp windows, etc.
+        # Falls back silently to the scalar path when no timeslice tag
+        # is present on any active row.  See :func:`_expand_timeslice`.
+        rhs_timeslice_profile: tuple[float, ...] = ()
+        if rhs_val is not None and any(
+            r.timeslice for r in rhs_rows if _has_active_rhs_row([r], horizon_start)
+        ):
+            try:
+                rhs_timeslice_profile = _build_rhs_timeslice_profile(
+                    rhs_rows, rhs_val, horizon_start, _horizon_days * 24
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "constraint %s: timeslice expansion failed (%s); "
+                    "falling back to scalar RHS",
+                    constr.name,
+                    exc,
+                )
+        # PLEXOS date-window overrides whose window covers only PART of
+        # the run horizon — ``_horizon_value`` collapses them to a single
+        # scalar via its all-or-nothing horizon_start membership check,
+        # so partial-window contingency rows (``SD_2026030813_NvaPAzucar_
+        # Polpaico500_*`` with RHS=1600 active 06:00-10:00 on Apr 22,
+        # ``SD_2026036857_LVilos_*`` with RHS=896 active 23:00-06:00)
+        # silently fall back to their undated RHS=10000 sentinel and get
+        # stubbed as inactive — yet PLEXOS pays $4.15M of soft slack on
+        # these four constraints alone, proving they bind on the in-window
+        # blocks.  Build a per-block profile that applies the dated value
+        # exactly on the blocks it covers and the undated base on the rest.
+        # When the resulting profile already has a (lower-precedence)
+        # timeslice profile, prefer the timeslice — date-overlay is
+        # invoked only when no timeslice overlay applied.
+        rhs_date_overlay_profile: tuple[float, ...] = ()
+        if (
+            not rhs_timeslice_profile
+            and horizon_start is not None
+            and any(
+                (r.date_from is not None or r.date_to is not None) and not r.timeslice
+                for r in rhs_rows
+            )
+        ):
+            rhs_date_overlay_profile = _build_rhs_date_overlay_profile(
+                rhs_rows,
+                rhs_val if rhs_val is not None else 0.0,
+                horizon_start,
+                _horizon_days * 24,
+            )
+            # When the date overlay activates, the constraint is no
+            # longer at the sentinel for every block.  Reset the scalar
+            # ``rhs_val`` to a representative non-sentinel value (the
+            # min) so the ``_is_nolimit_line_sentinel`` check below does
+            # not stub the entire UC inactive.
+            if rhs_date_overlay_profile:
+                non_sentinel = [
+                    v
+                    for v in rhs_date_overlay_profile
+                    if abs(v) < _SD_NOLIMIT_RHS_SENTINEL
+                ]
+                if non_sentinel:
+                    rhs_val = min(non_sentinel, key=abs)
         # ``_horizon_value`` falls back to an expired dated row when no row is
         # active at the run date and no undated base exists — that value is a
         # stale historical override, not the live bound.  Flag it so an active
@@ -5991,6 +6424,24 @@ def extract_user_constraints(
         day_rhs = ramp_day_rhs.get(constr.name)
         if day_rhs:
             rhs_profile_tuple = tuple(v for v in day_rhs for _ in range(24))
+        # PLEXOS timeslice-tagged RHS rows (``H16-20``, ``W2-6,H8-21``):
+        # apply LAST since they encode the live PLEXOS evaluation
+        # (verified against the RES20260422 solution-RHS pid=3073 for
+        # ``Campiche_starting``, ``Commit_*``, ``IL_2024000947_*``).
+        # Wins over the curtailment-shift and ramp-day overlays
+        # because the tag mechanism is what PLEXOS itself applies last
+        # at solver setup.  Skip when both no tags fired and no other
+        # overlay is present (preserves the scalar emit path).
+        if rhs_timeslice_profile:
+            rhs_profile_tuple = rhs_timeslice_profile
+        elif rhs_date_overlay_profile:
+            # PLEXOS partial-horizon date-window overlay (e.g. the four
+            # SD_2026030813 / SD_2026036857 contingency rows with
+            # RHS=1600/896 active 4-6 blocks of the week — $4.15M of
+            # PLEXOS solver slack proves they bind).  Applied only when
+            # no timeslice overlay won (timeslice has higher precedence
+            # because PLEXOS evaluates tags after date windows).
+            rhs_profile_tuple = rhs_date_overlay_profile
         # GWh→MWh scale for daily-ENERGY budgets.  The scalar ``rhs_val`` was
         # already scaled above (it feeds the inline ``<op> NUMBER`` tail); the
         # per-block ``rhs_profile_tuple`` here carries the RAW ``RHS Day`` /
