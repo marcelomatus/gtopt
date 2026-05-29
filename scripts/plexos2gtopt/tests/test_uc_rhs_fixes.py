@@ -1085,3 +1085,83 @@ def test_gen_bat_load_bat_shutoff_artifact_emits_inactive(tmp_path: Path) -> Non
         "GEN_BAT_VICTOR_JARA_FV"
     ]
     assert by_name["LOAD_BAT_VICTOR_JARA_FV"].active is False
+
+
+# --------------------------------------------------------------------------- #
+# Generator-shutoff modeling artifact (PEHUENCHE_GENT7def pattern)
+# --------------------------------------------------------------------------- #
+_GEN_SHUTOFF_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>9</class_id><name>Horizon</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>5</object_id><class_id>9</class_id>
+    <name>Coordinador_diario_1H_7d</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>PEHUENCHE_U2</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id>
+    <name>PEHUENCHE_GENT7def</name></t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>32</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>393</property_id><collection_id>32</collection_id>
+    <name>Generation Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>1001</membership_id><collection_id>700</collection_id>
+    <parent_class_id>1</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>1003</membership_id><collection_id>32</collection_id>
+    <parent_class_id>2</parent_class_id><child_class_id>70</child_class_id>
+    <parent_object_id>20</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>2</data_id><membership_id>1001</membership_id>
+    <property_id>4384</property_id><value>0</value>
+  </t_data>
+  <t_data>
+    <data_id>5</data_id><membership_id>1003</membership_id>
+    <property_id>393</property_id><value>-1</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_generator_shutoff_artifact_emits_inactive(tmp_path: Path) -> None:
+    """PEHUENCHE_GENT7def shape: PLEXOS XML carries TWO Generation Coefficient
+    memberships (PEHUENCHE_U1 + U2, both coef=-1) with Sense=None (default
+    equality) and RHS=0.  Taken literally these force both gens off.
+
+    On the CEN PCP run date PEHUENCHE_U1 has pmax=0 (offline), so gtopt's
+    silent-zero-drop pruned its term and emitted ``-PEHUENCHE_U2.generation
+    = 0`` as a SOFT equality — pinning U2 to zero output.  That drove the
+    −11,576 MWh / −68.8% PEHUENCHE_U2 under-dispatch vs PLEXOS (which
+    drops the whole UC from the ST schedule and lets both units run).
+
+    This fixture replicates the post-drop residual (single −1*gen=0 with
+    Sense=None default equality) and asserts the new detector flips the
+    constraint to ``active=False`` so the LP no longer pays soft slack on
+    it and U2 dispatches naturally.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_GEN_SHUTOFF_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    emitted = {"Generator": frozenset({"PEHUENCHE_U2"})}
+    ucs = extract_user_constraints(load_xml(xml_path), bundle, emitted_names=emitted)
+    by_name = {c.name: c for c in ucs}
+    assert by_name["PEHUENCHE_GENT7def"].active is False, by_name["PEHUENCHE_GENT7def"]

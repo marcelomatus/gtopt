@@ -6421,11 +6421,33 @@ def extract_user_constraints(
             and "battery(" in terms[0]
             and (".charge" in terms[0] or ".discharge" in terms[0])
         )
+        # Same modeling-artifact pattern but on the generator side —
+        # ``PEHUENCHE_GENT7def`` ships TWO Generation Coefficient
+        # memberships (PEHUENCHE_U1 + U2, both coef=-1) with Sense=None
+        # (default equality) and RHS=0.  PLEXOS DROPS the constraint
+        # from the ST schedule (verified against RES20260422 solution:
+        # not in t_object), letting both PEHUENCHE units dispatch
+        # freely.  Until this fix gtopt's silent-zero-drop pruned U1
+        # (offline at pmax=0) and emitted ``-PEHUENCHE_U2.generation
+        # = 0`` as a SOFT equality, forcing U2 to dispatch zero — that
+        # constraint is what drove the −11,576 MWh / −68.8% PEHUENCHE_U2
+        # under-dispatch versus PLEXOS (16,822 vs 5,246 MWh).
+        # Emit inactive when the surviving LHS is a single
+        # ``generator(...).generation`` term with coef=1 (i.e. the
+        # post-drop residual literally says "this gen must equal 0").
+        is_generator_shutoff_artifact = (
+            sense_val == 0.0
+            and rhs_val == 0.0
+            and len(terms) == 1
+            and "generator(" in terms[0]
+            and ".generation" in terms[0]
+        )
         is_inactive = (
             is_excluded_by_plexos
             or is_structurally_infeasible
             or is_battery_disable
             or is_battery_shutoff_artifact
+            or is_generator_shutoff_artifact
         )
         if is_excluded_by_plexos:
             logger.debug(
