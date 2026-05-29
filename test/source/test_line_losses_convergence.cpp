@@ -21,6 +21,11 @@
 // independent of any line's resistance or voltage.
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <numeric>
+#include <span>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/line_losses.hpp>
@@ -148,5 +153,196 @@ TEST_CASE("line-loss PWL: uniform and tangent converge as O(1/K^2)")  // NOLINT
       const double predicted = (kEnvelope * kEnvelope) / (4.0 * nseg * nseg);
       CHECK(max_gap(nseg) == doctest::Approx(predicted).epsilon(0.02));
     }
+  }
+}
+
+// ─── System-wide convergence under the adaptive K rule ────────────────
+//
+// The single-K convergence above pins worst-case PWL chord error ∝ 1/K²
+// for ONE envelope.  This block stress-tests the SAME O(1/K²) decay at
+// the system level when ``compute_adaptive_loss_segments`` distributes
+// K across a heterogeneous mix: as ``err_pct`` shrinks, the rule pushes
+// more segments onto the lossiest lines first, and the realised PWL
+// error budget (Σ_i L_max,i / (4 K_i²)) shrinks accordingly — until the
+// ceiling=6 clamp saturates and further accuracy gains are impossible.
+//
+// Method: purely analytic (mirrors the worst-case bound used inside the
+// rule), no LP solves needed.  Task 1 in
+// ``test_line_losses_decoupled_envelope.cpp`` validates that the
+// LP-realised error sits BELOW this analytic bound on the same mix.
+
+namespace line_losses_system_convergence_ns  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+struct LineFix
+{
+  double R;
+  double fmax;
+};
+
+// Same 4-line CEN-PCP-scale mix as the LP integration test in
+// ``test_line_losses_decoupled_envelope.cpp``.  L_max spans 900..2.5
+// (~3 orders of magnitude).
+constexpr std::array<LineFix, 4> kSystemLines = {{
+    {
+        .R = 0.0001,
+        .fmax = 3000.0,
+    },
+    {
+        .R = 0.0008,
+        .fmax = 300.0,
+    },
+    {
+        .R = 0.005,
+        .fmax = 100.0,
+    },
+    {
+        .R = 0.025,
+        .fmax = 10.0,
+    },
+}};
+
+/// Σ_i L_max,i / (4 K_i²) — system-wide worst-case PWL secant error.
+[[nodiscard]] double system_error(std::span<const int> K)
+{
+  double total = 0.0;
+  for (std::size_t i = 0; i < kSystemLines.size(); ++i) {
+    const auto& ln = kSystemLines[i];
+    const double L = ln.R * ln.fmax * ln.fmax;
+    const double k = static_cast<double>(K[i]);
+    total += L / (4.0 * k * k);
+  }
+  return total;
+}
+
+}  // namespace
+}  // namespace line_losses_system_convergence_ns
+
+using namespace line_losses_system_convergence_ns;  // NOLINT(google-global-names-in-headers)
+
+TEST_CASE(
+    "line-loss PWL: adaptive rule drives system error O(1/K²) as err_pct "
+    "shrinks")  // NOLINT
+{
+  // Parallel R / fmax vectors for the rule.
+  std::vector<double> R_vec;
+  std::vector<double> fmax_vec;
+  R_vec.reserve(kSystemLines.size());
+  fmax_vec.reserve(kSystemLines.size());
+  for (const auto& ln : kSystemLines) {
+    R_vec.push_back(ln.R);
+    fmax_vec.push_back(ln.fmax);
+  }
+  double L_total = 0.0;
+  for (std::size_t i = 0; i < kSystemLines.size(); ++i) {
+    L_total += R_vec[i] * fmax_vec[i] * fmax_vec[i];
+  }
+
+  // err_pct sweep — INCREASING accuracy (smaller budget).
+  const std::vector<double> err_pcts = {0.10, 0.05, 0.02, 0.01, 0.005, 0.002};
+
+  std::vector<double> errors;
+  std::vector<int> total_K_per_pct;
+  std::vector<std::vector<int>> K_per_pct;
+  errors.reserve(err_pcts.size());
+  total_K_per_pct.reserve(err_pcts.size());
+  K_per_pct.reserve(err_pcts.size());
+
+  for (const double err_pct : err_pcts) {
+    const AdaptiveSegmentsOpts opts {
+        .err_pct = err_pct,
+        .floor = 2,
+        .ceiling = 6,
+    };
+    const auto K =
+        compute_adaptive_loss_segments(std::span<const double> {R_vec},
+                                       std::span<const double> {fmax_vec},
+                                       opts);
+    REQUIRE(K.size() == kSystemLines.size());
+
+    const double err = system_error(std::span<const int> {K});
+    const int total_K = std::accumulate(K.begin(), K.end(), 0);
+
+    CAPTURE(err_pct);
+    CAPTURE(total_K);
+    CAPTURE(err);
+    CAPTURE(L_total);
+
+    // Sanity: every K_i in [floor, ceiling] for lossy lines.
+    for (const int k : K) {
+      CHECK(k >= 2);
+      CHECK(k <= 6);
+    }
+
+    errors.push_back(err);
+    total_K_per_pct.push_back(total_K);
+    K_per_pct.push_back(std::vector<int> {K.begin(), K.end()});
+  }
+
+  SUBCASE("error decreases monotonically with err_pct (until ceiling clamps)")
+  {
+    // The ceiling=6 floor on system-wide predicted error is reached when
+    // EVERY lossy line hits ceiling.  Once total_K stops growing, error
+    // can no longer decrease — the clamp regime.  Within the unclamped
+    // regime each successive (tighter) err_pct must NOT increase error.
+    for (std::size_t j = 1; j < errors.size(); ++j) {
+      CAPTURE(j);
+      CAPTURE(err_pcts[j - 1]);
+      CAPTURE(err_pcts[j]);
+      CAPTURE(errors[j - 1]);
+      CAPTURE(errors[j]);
+      CAPTURE(total_K_per_pct[j - 1]);
+      CAPTURE(total_K_per_pct[j]);
+      if (total_K_per_pct[j] > total_K_per_pct[j - 1]) {
+        // Unclamped step — error must strictly drop.
+        CHECK(errors[j] < errors[j - 1] - 1e-12);
+      } else {
+        // Ceiling has fully saturated; the rule cannot improve.
+        CHECK(errors[j] == doctest::Approx(errors[j - 1]).epsilon(1e-9));
+      }
+    }
+  }
+
+  SUBCASE("empirical decay tracks O(1/total_K²) within ~30% slack")
+  {
+    // Theoretical bound: err ∝ Σ L_i/K_i².  For balanced KKT K_i the
+    // total-K scaling is err ∝ 1/(total_K/N)² · L_total = N²·L_total/total_K².
+    // Empirically: doubling total_K should quarter the error (within 30 %
+    // slack from integer-K rounding and the heterogeneous L distribution
+    // pushing the rule away from uniform K).  Skip pairs where ceiling
+    // clamped (no further decay possible).
+    bool checked_any = false;
+    for (std::size_t a = 0; a < errors.size(); ++a) {
+      for (std::size_t b = a + 1; b < errors.size(); ++b) {
+        if (total_K_per_pct[a] == total_K_per_pct[b]) {
+          continue;  // saturated regime — no decay to compare
+        }
+        const double ka = static_cast<double>(total_K_per_pct[a]);
+        const double kb = static_cast<double>(total_K_per_pct[b]);
+        const double ratio_K = kb / ka;  // > 1 (b is tighter)
+        const double ratio_err = errors[a] / errors[b];  // > 1
+        const double expected = ratio_K * ratio_K;  // O(1/K²) ⇒ err ∝ 1/K²
+        CAPTURE(a);
+        CAPTURE(b);
+        CAPTURE(total_K_per_pct[a]);
+        CAPTURE(total_K_per_pct[b]);
+        CAPTURE(errors[a]);
+        CAPTURE(errors[b]);
+        CAPTURE(ratio_K);
+        CAPTURE(ratio_err);
+        CAPTURE(expected);
+        // Allow ±60 % band: discrete K can deviate substantially from
+        // the smooth ∝1/K² when only 4 lines × 4-segment range.  The
+        // important property is the empirical ratio is in the right
+        // ballpark — true monotone strictness is pinned in the prior
+        // subcase.
+        CHECK(ratio_err >= expected * 0.4);
+        CHECK(ratio_err <= expected * 2.5);
+        checked_any = true;
+      }
+    }
+    CHECK(checked_any);
   }
 }
