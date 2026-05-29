@@ -344,22 +344,104 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nseg-losses",
         type=int,
-        default=8,
+        default=None,
         help=(
-            "number of piecewise-linear segments used to approximate "
-            "the quadratic transmission-loss curve P_loss = R·f²/V² on "
-            "each lossy line (PLEXOS Enforce Limits = 2 lines with a "
-            "non-zero resistance and a finite ``tmax_ab`` envelope).  "
-            "Default **8** with the ``midpoint`` layout + per-line "
-            "``loss_envelope`` decoupling — chosen from the 2026-05-28 "
-            "CEN PCP K-sweep (K=5/6/8/10 × envfix/no-envfix) as the "
-            "best overall: residual loss 33,885 MWh vs PLEXOS 34,958 "
-            "(-3.07%%), lowest LP objective ($1,912.29 B), kappa 9.47e+07, "
-            "131 s solve.  K=10 brings no further gain; K=5/6 are "
-            "viable at 2-4× faster solves but trade ~4-6%% loss "
-            "accuracy.  PWL error at f = f_max scales as 1/nseg^2 "
-            "under the midpoint de-bias (faster than the legacy "
-            "1/nseg tangent layout)."
+            "Piecewise-linear loss-segment count.  Interpretation depends "
+            "on ``--loss-error-pct``:\n"
+            "  * Adaptive mode (default, ``--loss-error-pct > 0``): "
+            "``--nseg-losses`` is the CEILING on the per-line K computed "
+            "by the cube-root rule (``K_i ∝ L_max,i^(1/3)``).  When not "
+            "set, ceiling defaults to **6**.\n"
+            "  * Uniform mode (``--loss-error-pct 0``): every lossy line "
+            "gets exactly ``--nseg-losses`` segments.  When not set, "
+            "uniform K defaults to **4** (the historic CEN PCP value).\n"
+            "Floor is always 2 (a single secant is degenerate).  "
+            "L_max,i = R·fmax² (peak loss MW); global scale c = √(S/(4·B)) "
+            "with S = Σ L^(1/3) and B = ``--loss-error-pct × Σ L_max``.  "
+            "Worst-case per-segment error scales as 1/K² under the "
+            "``midpoint`` de-bias."
+        ),
+    )
+    parser.add_argument(
+        "--loss-extend-overload",
+        action="store_true",
+        default=False,
+        help=(
+            "EXPERIMENTAL — DEFAULT OFF.  Extend each soft-cap line's PWL "
+            "``loss_envelope`` from ``[0, tmax_normal]`` to "
+            "``[0, headroom_factor × tmax_normal]`` (= the full lifted "
+            "tmax_ab) so the segments cover the overload band the LP can "
+            "actually flow into.  Adaptive K (``--loss-error-pct``) sizes "
+            "K_i for the extended envelope so the worst-case secant-error "
+            "budget is honoured across the wider range.\n"
+            "\n"
+            "When ON:\n"
+            "  * EL=1 / EL=2 (hard cap, LP cannot exceed): unchanged.\n"
+            "  * EL=0 soft-cap (regular):       envelope → 2 × tmax_normal.\n"
+            "  * --lift-line-caps (wider band): envelope → 4 × tmax_normal.\n"
+            "\n"
+            "WHY THE DEFAULT IS OFF — the trade-off in three flow regimes:\n"
+            "\n"
+            "  Regime A (f ∈ [0, tmax_normal]):  the same K segments are\n"
+            "    now spread over 2× the range, so per-segment width is\n"
+            "    2× wider and worst-case secant error grows as width² →\n"
+            "    **4× worse** at any flow in the normal operating band.\n"
+            "    Adaptive K partly compensates (K_i grows ~1.59× since\n"
+            "    L_max grows 4× and K_i ∝ L_max^(1/3)), but the ceiling=6\n"
+            "    clamp usually binds on heavy lines, so most of the 4×\n"
+            "    degradation survives in practice.\n"
+            "\n"
+            "  Regime B (f ∈ (tmax_normal, (1 + 1/K) · tmax_normal)):  OFF's\n"
+            "    linear extrapolation of the last segment's slope still\n"
+            "    beats ON's wider-segment secant approximation.  Crossover\n"
+            "    is at f = tmax_normal · (1 + 1/K):\n"
+            "          K = 2  → f_cross = 1.50 × tmax_normal\n"
+            "          K = 3  → f_cross = 1.33 × tmax_normal\n"
+            "          K = 4  → f_cross = 1.25 × tmax_normal\n"
+            "          K = 6  → f_cross = 1.17 × tmax_normal\n"
+            "          K = 8  → f_cross = 1.13 × tmax_normal\n"
+            "\n"
+            "  Regime C (f > (1 + 1/K) · tmax_normal):  OFF's extrapolation\n"
+            "    error grows quadratically as (f − tmax_normal)², so ON\n"
+            "    eventually wins.  At f = 2·tmax_normal (the lifted cap),\n"
+            "    OFF underestimates loss by ~25 % of the true value while\n"
+            "    ON stays bounded by the same per-segment budget as below.\n"
+            "\n"
+            "For healthy systems with slack capacity, the LP almost never\n"
+            "leaves Regime A.  Measured on the CEN PCP weekly LP-relax\n"
+            "(K=4 uniform and adaptive @ 1 % / 5 % / 10 %):\n"
+            "  * 0 of 175 soft-cap lines  ever cross tmax_normal\n"
+            "  * max line utilization      = 80 % of tmax_normal\n"
+            "  * → every operating point is in Regime A where OFF is\n"
+            "    strictly better.\n"
+            "Turning ON in that scenario gives 4× worse PWL fidelity in\n"
+            "[0, tmax_normal] for **zero offsetting benefit** anywhere the\n"
+            "LP actually operates.\n"
+            "\n"
+            "HEURISTIC: leave OFF for routine production runs.  Flip ON\n"
+            "only when you expect non-trivial flow past ~(1 + 1/K)·tmax_normal\n"
+            "— N-1 contingency MIPs, peak-stress dispatches, lifted-cap\n"
+            "scenarios with tight reserves, or when a post-solve audit shows\n"
+            "non-trivial overload-band traffic on multiple lines."
+        ),
+    )
+    parser.add_argument(
+        "--loss-error-pct",
+        type=float,
+        default=0.01,
+        help=(
+            "Target absolute system-loss-error budget as a fraction of "
+            "Σ L_max,i (the sum of per-line peak losses ``R·fmax²``).  "
+            "Default **0.01** (1%%); the adaptive cube-root rule then "
+            "allocates per-line ``K_i ∝ L_max,i^(1/3)`` so the LP-side "
+            "PWL approximation has bounded total worst-case error in "
+            "MW.  Pass ``0`` to disable adaptation and force the legacy "
+            "uniform-K behaviour (every line gets ``--nseg-losses`` "
+            "segments).  Higher values (e.g. ``0.02``) shrink the LP "
+            "faster but accept more loss error; lower values (e.g. "
+            "``0.005``) tighten accuracy at the cost of more LP "
+            "non-zeros.  The per-line K stays clamped to "
+            "[2, ``--nseg-losses``] regardless of budget."
         ),
     )
     # NOTE: ``--loss-tangent-top-pct`` (the loading-classified R·P²
@@ -738,6 +820,8 @@ def main(argv: list[str] | None = None) -> None:
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
         "use_plexos_efin": args.use_plexos_efin,
         "nseg_losses": args.nseg_losses,
+        "loss_error_pct": args.loss_error_pct,
+        "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,
