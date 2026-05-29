@@ -34,6 +34,11 @@ if ! python -c "import superset" 2>/dev/null; then
   pip install --quiet --upgrade pip
   pip install --quiet apache-superset duckdb-engine
 fi
+# Superset 6.1.0 still references np.product (removed in numpy 2) and pins
+# pandas to <2.2 in its setup.py but the pip resolver does not enforce that
+# against transitive upgrades.  Re-pin defensively on every launch -- cheap
+# no-op when already at the right versions.
+pip install --quiet 'numpy<2' 'pandas>=2.1.4,<2.2' 2>/dev/null || true
 
 # duckdb in the Superset venv must be >= the version that wrote the file.
 python - "$DB" <<'PY'
@@ -45,8 +50,18 @@ PY
 
 # 2) initialize (idempotent) ------------------------------------------------
 export FLASK_APP=superset
-: "${SUPERSET_SECRET_KEY:=$(openssl rand -base64 42)}"
-export SUPERSET_SECRET_KEY
+# Persistent SECRET_KEY in a config file: a random env var on every launch
+# rotates the key, which makes encrypted metadata-DB fields undecryptable on
+# the next start and crashes the SPA bootstrap (get_spa_payload).
+CONFIG_DIR="$HOME/.superset"
+CONFIG_FILE="$CONFIG_DIR/superset_config.py"
+mkdir -p "$CONFIG_DIR"
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo ">> writing persistent SECRET_KEY to $CONFIG_FILE"
+  printf 'SECRET_KEY = "%s"\n' "$(openssl rand -base64 42)" > "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE"
+fi
+export SUPERSET_CONFIG_PATH="$CONFIG_FILE"
 
 echo ">> superset db upgrade"
 superset db upgrade >/dev/null
@@ -79,4 +94,7 @@ In the UI:
 
 EOF
 
-exec superset run -p "${PORT}" --with-threads --reload
+# --reload is for Superset developers: Flask restarts on file changes, which
+# rotates the SPA asset hashes mid-session and crashes long-lived browser tabs
+# with React ChunkLoadError.  Omit it for stable user sessions.
+exec superset run -p "${PORT}" --with-threads

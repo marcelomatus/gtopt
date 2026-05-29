@@ -105,34 +105,51 @@ def build_dimensions(
 
 
 def build_calendar(
-    con: duckdb.DuckDBPyConnection, planning_path: str, epoch: str
+    con: duckdb.DuckDBPyConnection,
+    planning_path: str,
+    planning: dict,
+    epoch: str,
 ) -> None:
     """Create the stage/block/scenario/phase/scene dims and ``dim_time``.
 
-    ``dim_time`` maps each ``(stage, block)`` to its month, block duration,
-    cumulative ``hours_from_start`` and a synthetic ``datetime`` anchored at
-    ``epoch`` (the gtopt calendar carries month labels and block durations but
-    no absolute start instant).
+    ``dim_time`` maps each ``(stage, block)`` to its month (if the run records
+    one), block duration, cumulative ``hours_from_start`` and a synthetic
+    ``datetime`` anchored at ``epoch``.  The wanted column list is intersected
+    with what's actually present in ``planning.json`` so the layer works across
+    gtopt schema variants (e.g. older runs carry ``discount_factor``/``month``,
+    LP-only runs carry ``chronological`` and may drop ``month``).
     """
     read = f"read_json('{planning_path}', maximum_object_size => 400000000)"
 
-    def unnest_table(table: str, array: str, cols: list[str]) -> None:
+    def unnest_table(table: str, array: str, wanted: list[str]) -> list[str]:
+        rows = planning.get("simulation", {}).get(array, [])
+        if not rows:
+            return []
+        available = scalar_fields(rows)
+        cols = [c for c in wanted if c in available]
+        if "uid" not in cols:
+            return []
         sel = ", ".join(f"e.{q(c)} AS {q(c)}" for c in cols)
         con.execute(
             f"CREATE OR REPLACE TABLE {table} AS "
             f"SELECT {sel} FROM "
             f"(SELECT unnest(simulation.{array}) AS e FROM {read})"
         )
+        return cols
 
-    unnest_table(
+    stage_cols = unnest_table(
         "dim_stage",
         "stage_array",
-        ["uid", "active", "first_block", "count_block", "discount_factor", "month"],
+        ["uid", "active", "first_block", "count_block",
+         "discount_factor", "month", "chronological"],
     )
     unnest_table("dim_block", "block_array", ["uid", "duration"])
-    unnest_table("dim_scenario", "scenario_array", ["uid", "probability_factor", "hydrology"])
-    unnest_table("dim_scene", "scene_array", ["uid", "first_scenario", "count_scenario"])
-    unnest_table("dim_phase", "phase_array", ["uid", "first_stage", "count_stage"])
+    unnest_table("dim_scenario", "scenario_array",
+                 ["uid", "probability_factor", "hydrology"])
+    unnest_table("dim_scene", "scene_array",
+                 ["uid", "first_scenario", "count_scenario"])
+    unnest_table("dim_phase", "phase_array",
+                 ["uid", "first_stage", "count_stage"])
 
     # Cumulative hours over the global block ordering.
     con.execute(
@@ -143,10 +160,11 @@ def build_calendar(
         "FROM dim_block"
     )
     # A stage owns the global blocks (first_block, first_block + count_block].
+    month_sel = "s.month, " if "month" in stage_cols else ""
     con.execute(
         "CREATE OR REPLACE VIEW dim_time AS "
-        "SELECT s.uid AS stage, b.uid AS block, s.month, b.duration, "
-        "       b.hours_from_start, "
+        f"SELECT s.uid AS stage, b.uid AS block, {month_sel}"
+        "       b.duration, b.hours_from_start, "
         f"      (TIMESTAMP '{epoch}' + (b.hours_from_start * INTERVAL 1 HOUR)) "
         "         AS datetime "
         "FROM dim_stage s JOIN dim_block_cum b "
@@ -178,6 +196,10 @@ def build_streams(
     Returns catalog rows ``(collection, field, kind, dim, has_calendar)``.
     """
     fact_kind = "TABLE" if materialize else "VIEW"
+    # Is `month` available in the calendar (gtopt schema variant)?
+    time_cols = {r[0] for r in con.execute("DESCRIBE dim_time").fetchall()}
+    has_month = "month" in time_cols
+
     catalog: list[tuple[str, str, str, str, bool]] = []
     for ds_dir in sorted(results.glob("*/*.parquet")):
         if not ds_dir.is_dir():
@@ -231,8 +253,9 @@ def build_streams(
         sel = [f"f.{q(c)}" for c in vidx]
         joins = ""
         if has_cal:
+            if has_month:
+                sel.append("t.month")
             sel += [
-                "t.month",
                 "t.duration",
                 "t.hours_from_start",
                 "t.datetime",
@@ -305,7 +328,7 @@ def main() -> int:
     dims = build_dimensions(con, planning, planning_path.as_posix())
     print(f"dims    : {len(dims)} dimension tables  ({', '.join(sorted(dims))})")
 
-    build_calendar(con, planning_path.as_posix(), args.epoch)
+    build_calendar(con, planning_path.as_posix(), planning, args.epoch)
     print(f"calendar: dim_time anchored at {args.epoch}")
 
     catalog = build_streams(con, results, dims, materialize=args.materialize)

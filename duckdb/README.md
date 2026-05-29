@@ -130,6 +130,34 @@ Installs Superset in an isolated venv (`~/superset-venv`), creates an admin
 user the first time, prints the SQLAlchemy URI, and starts the dev server on
 http://localhost:8088. Re-runs are idempotent.
 
+Notes baked into the script:
+- `SECRET_KEY` is persisted in `~/.superset/superset_config.py` — rotating it
+  per launch corrupts encrypted metadata-DB fields and crashes the SPA
+  bootstrap (`get_spa_payload`).
+- `numpy<2` and `pandas>=2.1.4,<2.2` are re-pinned on every launch; Superset
+  6.1.0 still references `np.product` (removed in numpy 2) and pins pandas
+  to <2.2 in its setup.py, but pip's resolver doesn't enforce that across
+  transitive upgrades.
+- `--reload` is intentionally omitted from `superset run`; it rotates SPA
+  asset hashes mid-session and causes React `ChunkLoadError` in long-lived
+  browser tabs.
+
+## Auto-building a dashboard
+
+```bash
+SUPERSET_PASSWORD='…' duckdb/.venv/bin/python duckdb/build_dashboard.py \
+    --db   duckdb/gtopt.duckdb \
+    --name "gtopt overview"
+```
+
+Logs into Superset over the REST API and idempotently creates: the database
+connection, the four datasets used by the canned charts
+(`v_generator_generation_sol`, `v_bus_balance_dual`, `v_line_flowp_sol`,
+`v_demand_load_sol`), seven charts (Generation by fuel, Total system
+generation, Top generators by energy, Avg bus LMP, Bus LMP over time, Top
+lines by flow, Top 10 line flows over time), and a dashboard laid out across
+four rows. Re-running updates instead of duplicating.
+
 ## Other limitations
 
 - **Synthetic datetime.** `datetime` is `epoch + hours_from_start`; the month
