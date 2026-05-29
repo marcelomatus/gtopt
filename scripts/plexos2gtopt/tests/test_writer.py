@@ -614,7 +614,12 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
     # The varying DLR profile materialises as a [[per-hour]] matrix.
     assert isinstance(out[0]["tmax_ab"], list)
     assert out[0]["tmax_ab"] == [[100.0] * 12 + [200.0] * 12]
-    # Resistance + voltage + piecewise loss mode (4 segments default).
+    # Resistance + voltage + piecewise loss mode.  When LineSpec.loss_segments
+    # is unset (as in this fixture) the writer falls back to the historic
+    # uniform-K default of 4.  Post-2026-05-29 the converter's adaptive
+    # cube-root rule (--loss-error-pct 0.01) stamps per-line overrides
+    # in extract_lines with ceiling 6, but build_line_array called
+    # directly does not exercise that path.
     assert out[0]["resistance"] == 0.05
     assert out[0]["voltage"] == 10.0
     assert out[0]["line_losses_mode"] == "piecewise"

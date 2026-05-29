@@ -244,6 +244,14 @@ class LineSpec:
     units: int = 1
     reactance: float = 0.0
     wheeling_charge: float = 0.0
+    # Per-line override for the piecewise-linear loss segment count.  Set
+    # by ``extract_lines`` when the adaptive cube-root rule is enabled
+    # (``--loss-error-pct > 0``) — see _adaptive_loss_segments().  Zero
+    # (the default) means "no per-line override — let the writer pull
+    # the uniform ``GTOPT_NSEG_LOSSES`` env var" (legacy behaviour).
+    # When non-zero, the writer emits exactly this many segments on the
+    # line, bounded by ``[floor=2, ceiling=--nseg-losses (default 6)]``.
+    loss_segments: int = 0
 
 
 @dataclass(frozen=True)

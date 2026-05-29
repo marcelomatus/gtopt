@@ -4172,6 +4172,38 @@ def extract_commitments(
         # ``any_param`` filter above already excludes pure
         # renewables and RoR hydros (no startup_cost, no MSL, no
         # ramp data → ``any_param == False``).
+
+        # Drop commitment for ``eff_pmax = 0`` units.  PLEXOS ships
+        # every (configuration × fuel-band) variant of a combined-
+        # cycle plant with ``Gen_Rating = 0`` for periods where it's
+        # "not active" (a different alternate is on); the
+        # ``*_Uniq`` mutex constraints enforce at-most-one variant
+        # per plant.  When ALL variants of the same Uniq group
+        # carry an active CommitmentSpec, gtopt's LP picks the
+        # cheapest one (often a ``*_GNL_F`` variant with gcost
+        # $3.80 < $5.40) to satisfy ``Σ status ≤ 1`` — but that
+        # variant has ``pmax = 0`` so it can't actually dispatch.
+        # The actually-dispatchable variant (``*_GN_A`` with
+        # ``pmax > 0``) is then locked OFF.  Verified 2026-05-29 on
+        # CEN PCP MIP K=4: QUINTERO_1A/B_GN_A reported 0 MWh vs
+        # PLEXOS 6,496 / 6,516 MWh because the LP committed
+        # QUINTERO_1A_GNL_F (pmax=0, gcost=$3.80, on 158/168 h) and
+        # the Uniq constraint forced QUINTERO_1A_GN_A's status to 0.
+        #
+        # Fix: skip the CommitmentSpec emission when the generator's
+        # effective pmax is zero across the horizon (no
+        # ``pmax_profile`` row > 0 AND scalar ``pmax`` ≤ 0).  These
+        # units genuinely can't dispatch; removing them from the
+        # Uniq mutex lets the LP commit a dispatchable variant.
+        # PLEXOS itself sets status = 0 on these zero-rating
+        # variants (verified on the .accdb prop 7 Units Generating
+        # for QUINTERO_1A_GNL_F: 0 on-hours everywhere).
+        gen_spec_for_pmax = next((g for g in generators if g.name == name), None)
+        if gen_spec_for_pmax is not None:
+            prof = gen_spec_for_pmax.pmax_profile or ()
+            eff_pmax = max(prof) if prof else (gen_spec_for_pmax.pmax or 0.0)
+            if eff_pmax <= 0.0:
+                continue
         out.append(
             CommitmentSpec(
                 generator_name=name,
@@ -6770,7 +6802,34 @@ def extract_user_constraints(
                 and "reserve_provision(" not in expression
                 and "decision_variable(" not in expression
             )
-            if not references_commitment and not is_pure_line_flow:
+            # Reserve-provision-sum UCs (CSF/CPF/CTF *MinProvision,
+            # *Calculation) are pure ``Σ_i reserve_provision_i.up/dn``
+            # rows with NO generator / commitment / battery refs.  PLEXOS
+            # solves them HARD (verified 2026-05-29 on RES20260422.accdb:
+            # every CSF/CPF/CTF UC reports zero slack across all 168 h
+            # with a binding shadow price).  The pre-fix soft default
+            # (penalty=$10/MWh) let gtopt's LP cheaply violate them
+            # instead of dispatching real reserves — total $577K slack
+            # on the CEN PCP weekly MIP, ~35 % of the operational-$ gap
+            # vs PLEXOS.  Promote to hard:
+            #   ≥3 reserve_provision refs AND no other LHS variable kinds
+            # The native ``ReserveZone.urcost/drcost`` mechanism
+            # (populated from PLEXOS VoRS in ``extract_reserves``)
+            # remains the shortage-cost backstop, so making the UC hard
+            # does NOT remove the shortage-pricing path — it just stops
+            # the LP from preferring a $10/unit cheat over real reserve
+            # dispatch.
+            is_reserve_provision_sum = (
+                expression.count("reserve_provision(") >= 3
+                and "generator(" not in expression
+                and "commitment(" not in expression
+                and "battery(" not in expression
+                and "line(" not in expression
+                and "decision_variable(" not in expression
+            )
+            if is_reserve_provision_sum:
+                emitted_penalty = 0.0  # hard
+            elif not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
         # No-limit-sentinel line-security constraints (SD_* etc.) — a
         # PURE line-flow constraint at the 100000 "contingency off" sentinel
