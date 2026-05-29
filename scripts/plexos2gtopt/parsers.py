@@ -7125,6 +7125,19 @@ def _build_plant_cap_ucs(
             return max(g.pmax_profile)
         return g.pmax or 0.0
 
+    # Commitment names emitted by the writer are ``uc_<generator_name>``
+    # (one CommitmentSpec per committable generator).  We can only emit
+    # a mutex term for variants that actually carry a commitment; pure
+    # always-on renewables and hydros without min-up-down constraints
+    # do not get a ``CommitmentSpec`` and so do not have an
+    # ``uc_<gen>`` column to bind on.  ``case.commitments`` is the
+    # authoritative source — derived in ``extract_commitments`` from
+    # the PLEXOS ``Gen_Commit.csv`` / ``Min Stable Level`` / ``Start
+    # Cost`` extraction chain.
+    committable: set[str] = {
+        c.generator_name for c in case.commitments if c.generator_name
+    }
+
     def _emit_cap(name: str, variants: list[GeneratorSpec], description: str) -> bool:
         active = [v for v in variants if _peak_pmax(v) > 0.0]
         if len(active) < 2:
@@ -7137,6 +7150,39 @@ def _build_plant_cap_ucs(
             UserConstraintSpec(
                 name=name,
                 expression=" + ".join(terms) + f" <= {cap:.6f}",
+                penalty=10000.0,
+                description=description,
+            )
+        )
+        return True
+
+    def _emit_commit_mutex(
+        name: str, variants: list[GeneratorSpec], description: str
+    ) -> bool:
+        """Emit the missing config-exclusivity status mutex.
+
+        Mirrors a PLEXOS ``*_Uniq`` constraint (``Σ status ≤ 1``) but
+        widened to ALL variants of the physical plant — covering the
+        full-CC ``TG1A+TG1B+TV1C_*`` family that PLEXOS's half-config
+        ``ATA_CC_1_Uniq`` (TG1A+0.5TV1C + TG1B+0.5TV1C only) leaves
+        unguarded.  Without this row the LP commits every (config ×
+        fuel-band) variant simultaneously and runs each at a fraction
+        of its pmax, producing the +1986 % ATA-TG1A+TG1B+TV1C_GNL_E
+        over-dispatch observed against PLEXOS.  Emitted with the same
+        $10,000/unit penalty tier as ``PlantCap`` so it can't make the
+        LP infeasible on a stray data anomaly.
+        """
+        # Filter to variants that (a) are NOT always-on (so they have
+        # a commitment status column) and (b) have positive pmax (so
+        # the LP would actually consider committing them).
+        active = [v for v in variants if _peak_pmax(v) > 0.0 and v.name in committable]
+        if len(active) < 2:
+            return False
+        terms = [f'1 * commitment("uc_{v.name}").status' for v in active]
+        out.append(
+            UserConstraintSpec(
+                name=name,
+                expression=" + ".join(terms) + " <= 1",
                 penalty=10000.0,
                 description=description,
             )
@@ -7163,6 +7209,23 @@ def _build_plant_cap_ucs(
         if _emit_cap(f"PlantCap_{stem}", variants, desc):
             n_mutex += 1
             covered.update(v.name for v in variants if _peak_pmax(v) > 0.0)
+        # Wire the matching commitment-level mutex (the docstring
+        # promised it but the body never emitted it).  Same name stem
+        # + ``PlantCommit_`` prefix; covers the same widened variant
+        # set as the generation cap so the ``TG1A+TG1B+TV1C_*`` full-CC
+        # family (which PLEXOS's half-config ``_Uniq`` leaves unguarded)
+        # cannot co-commit with the ``TG1A+0.5TV1C_*`` half-CC family.
+        cmt_desc = (
+            f"Combined-cycle commitment mutex (synth from PLEXOS "
+            f"'{uniq_name}' mutex group): Σ commitment status [0/1] "
+            f"over all {len(variants)} (config × fuel-band) variants of "
+            f"the physical plant ≤ 1 — pairs with PlantCap_{stem} to "
+            f"prevent co-commitment that PlantCap alone could not stop "
+            f"(LP can satisfy a generation cap by splitting Σ status "
+            f"across every variant at a fraction of its pmax).  "
+            f"(File: DBSEN_PRGDIARIO.xml)"
+        )
+        _emit_commit_mutex(f"PlantCommit_{stem}", variants, cmt_desc)
 
     # 2. Fuel-band fallback caps, skipping gens already covered by a
     #    ``_Uniq`` group (whose cross-config cap subsumes them).
@@ -7177,6 +7240,19 @@ def _build_plant_cap_ucs(
             f"(File: DBSEN_PRGDIARIO.xml)"
         )
         _emit_cap(f"PlantCap_{stem}", variants, desc)
+        # And the matching commitment-level mutex on the fuel-band
+        # variants of one config.  Without this the LP commits all
+        # fuel bands of the same physical generator simultaneously
+        # (each at a small status), satisfying PlantCap by Σ status ×
+        # gen ≤ pmax but co-firing.
+        cmt_desc = (
+            f"Multi-fuel-band commitment mutex (synth, no PLEXOS '_Uniq'): "
+            f"Σ commitment status [0/1] over the fuel-band variants of "
+            f"'{stem}' ≤ 1 — pairs with PlantCap_{stem} so the LP cannot "
+            f"co-commit fuel bands of the same physical generator.  "
+            f"(File: DBSEN_PRGDIARIO.xml)"
+        )
+        _emit_commit_mutex(f"PlantCommit_{stem}", variants, cmt_desc)
 
     if out:
         logger.info(
