@@ -1455,7 +1455,23 @@ class JunctionWriter(BaseWriter):
         if self.aflce_parser:
             aflce = self.aflce_parser.get_item_by_name(central_name)
             if aflce is not None:
-                return "discharge"
+                # Only emit the parquet reference when the central's column
+                # actually survived AflceWriter's sparsity filter (a column
+                # whose flow is constant-equal-to-afluent across all active
+                # scenarios is dropped to keep the parquet compact, in which
+                # case the scalar `afluent` is the faithful equivalent).
+                # `process_afluents` stashes the kept uid set under
+                # ``options["_aflce_emitted_uids"]``; falling back to scalar
+                # avoids the dangling-reference crash:
+                #   ``Can't find element 'NAME:<uid>' in table 'discharge'``
+                emitted = self.options.get("_aflce_emitted_uids")
+                if emitted is None:
+                    return "discharge"
+                uid = central.get("number")
+                if uid is not None and int(uid) in emitted:
+                    return "discharge"
+                # Column filtered out — emit the scalar afluent (which is the
+                # constant the filter detected) so the LP sees the same value.
         return central.get("afluent", 0.0)
 
     def _load_ror_reservoir_spec(

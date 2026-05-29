@@ -242,7 +242,25 @@ class HydroMixin:
             pasada_unscale_map=options.get("_pasada_unscale_map") or None,
         )
 
-        aflce_writer.to_parquet(output_dir, items=aflces_items)
+        cols = aflce_writer.to_parquet(output_dir, items=aflces_items)
+        # AflceWriter applies a sparsity filter that drops central columns
+        # whose flow is constant-equal-to-afluent across all active
+        # scenarios.  ``process_junctions`` needs to know which uids
+        # actually survived that filter — otherwise it would emit
+        # ``Flow.discharge = "discharge"`` (parquet reference) for
+        # filtered-out centrals and gtopt would abort with
+        # ``Can't find element 'NAME:<uid>' in table 'discharge'``.
+        emitted: set[int] = set()
+        for c in (cols or {}).get("discharge", []):
+            if isinstance(c, str) and c.startswith("uid:"):
+                try:
+                    emitted.add(int(c.split(":", 1)[1]))
+                except ValueError:
+                    pass
+        # Store on the options dict so ``process_junctions`` (next stage
+        # in the orchestration) can consult it from ``_get_central_flow``.
+        if options is not None:
+            options["_aflce_emitted_uids"] = emitted
 
     def process_junctions(self, options):
         """Process generator profile data to include block and stage information."""
@@ -785,10 +803,19 @@ class HydroMixin:
 
             central_id = central["number"]
 
-            # Determine discharge: file ref if aflce data exists, else scalar
+            # Determine discharge: parquet reference if aflce data exists AND
+            # the column survived AflceWriter's sparsity filter; else fall
+            # back to the scalar ``afluent`` (which is the same constant the
+            # filter detected, so the LP sees an identical value).  Skipping
+            # this check produced the
+            #   ``Can't find element 'NAME:<uid>' in table 'discharge'``
+            # crash for centrals like FLORIDA_1 whose flow is constant
+            # across the active hydrologies.
             afluent: float | str = central.get("afluent", 0.0)
             if aflce_parser and aflce_parser.get_item_by_name(central_name):
-                afluent = "discharge"
+                emitted = options.get("_aflce_emitted_uids")
+                if emitted is None or int(central_id) in emitted:
+                    afluent = "discharge"
 
             if isinstance(afluent, (int, float)) and afluent == 0.0:
                 continue

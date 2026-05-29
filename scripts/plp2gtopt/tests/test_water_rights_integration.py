@@ -415,12 +415,6 @@ class TestGtoptLpBuild:
             "No PAMPL loading message found in gtopt output"
         )
 
-    @pytest.mark.xfail(
-        reason="gtopt aborts on the FLORIDA_1:90 aperture-writer bug before "
-        "reaching the lp_only log line.  See "
-        "test_gtopt_lp_build_succeeds xfail reason for details.",
-        strict=False,
-    )
     def test_lp_build_message(self, lp_build_result):
         """gtopt logs the lp_only skip-solve message."""
         output = lp_build_result["stdout"] + lp_build_result["stderr"]

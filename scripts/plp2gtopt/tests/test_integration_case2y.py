@@ -1084,12 +1084,6 @@ def test_plp_case_2y_aperture_cache_loading(tmp_path):
     assert rc == 0, f"gtopt failed loading aperture data (rc={rc}):\n{stderr}"
 
 
-@pytest.mark.xfail(
-    reason="Same aperture-writer bug as test_plp_case_2y_aperture_cache_loading: "
-    "gtopt aborts on `Can't find element '<central>:<uid>'` before reaching "
-    "the boundary-cut-load log line, so we can't assert on it.  Pre-existing.",
-    strict=False,
-)
 @pytest.mark.integration
 def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
     """plp_case_2y: boundary cuts must always be loaded regardless of recovery_mode.

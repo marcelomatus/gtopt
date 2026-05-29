@@ -358,10 +358,13 @@ constraint maule_pct_ordinario_riego "Irrigation capped at {{ pct_riego_reserva 
 # flow.  Districts with has_slack=True use <= (allowing under-extraction);
 # those without use = (exact proportional allocation).
 # ---------------------------------------------------------------------------
+{# Mirror the Rie -> retiro_ rename that gtopt_expand.maule_agreement
+   applies to flow_right names (see _build_district_flow_rights). #}
 {% for district in districts %}
-# {{ district.name }}: {{ district.percentage }}% of total irrigation
-constraint dist_{{ district.name }} "{{ district.name }}: {{ district.percentage }}% of total irrigation":
-  flow_right('{{ district.name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
+{% set fr_name = 'retiro_' + district.name[3:] if district.name.startswith('Rie') else district.name %}
+# {{ fr_name }}: {{ district.percentage }}% of total irrigation
+constraint dist_{{ fr_name }} "{{ fr_name }}: {{ district.percentage }}% of total irrigation":
+  flow_right('{{ fr_name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
 {% endfor %}
 
 # ---------------------------------------------------------------------------
