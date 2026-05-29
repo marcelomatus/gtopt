@@ -79,8 +79,14 @@ namespace
   const auto lf = self.param_lossfactor(stage.uid(), first_buid).value_or(0.0);
   const auto R = self.param_resistance(stage.uid()).value_or(0.0);
   const auto V = self.param_voltage(stage.uid()).value_or(0.0);
-  const int nseg = std::max(
-      1, raw_line.loss_segments.value_or(sc.options().loss_segments()));
+  // Pass ``loss_segments`` through verbatim (no ``max(1, …)`` clamp).
+  // ``nseg = 0`` is a legitimate "no PWL" input; ``line_losses::
+  // make_config`` rewrites the mode to ``none`` so the dispatch
+  // produces a lossless LP (matches the per-line invariant tested in
+  // ``test_line_losses_decoupled_envelope.cpp``).  ``nseg = 1`` keeps
+  // its existing fallback-to-linear behaviour inside ``make_config``.
+  const int nseg =
+      raw_line.loss_segments.value_or(sc.options().loss_segments());
 
   double fmax = 0.0;
   if (opt_capacity) {
@@ -592,13 +598,32 @@ bool LineLP::add_to_output(OutputContext& out) const
     out.add_col_sol(cname, FlownName, pid, flown_seg_cols);
   }
 
-  // Loss solutions: piecewise / bidirectional only.  none / linear /
-  // piecewise_direct don't create loss vars so these are no-ops.  No
-  // current consumer reads per-line losses — congestion analysis works
-  // off the net flow (already in flowp/flown_sol).  Demoted to
-  // `extras`; opt in via `--write-out ...,extras:Line`.
-  out.add_col_sol_extras(cname, LosspName, pid, lossp_cols);
-  out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
+  // Consolidated loss output: piecewise / bidirectional only.  none /
+  // linear / piecewise_direct don't create loss vars so this is a no-op.
+  // The LP holds losses in two per-direction column sets (``lossp_cols``
+  // for A→B, ``lossn_cols`` for B→A); on any given block at most one
+  // is populated.  Rather than emitting the paired
+  // ``Line/{lossp,lossn}_sol.parquet`` (which forced consumers to
+  // handle a missing-direction case when the LP routed all flow one
+  // way), merge them per cell and emit a single
+  // ``Line/loss_sol.parquet`` whose per-(line, block) value is
+  // ``LP(lossp) + LP(lossn)`` — total dissipated energy regardless of
+  // direction.  Opt in via ``--write-out ...,extras:Line``.
+  if (!lossp_cols.empty() || !lossn_cols.empty()) {
+    STBIndexHolder<std::vector<ColIndex>> loss_combined;
+    auto merge_in = [&loss_combined](const auto& src)
+    {
+      for (const auto& [st_key, blocks] : src) {
+        auto& dst_blocks = loss_combined[st_key];
+        for (const auto& [buid, col] : blocks) {
+          dst_blocks[buid].push_back(col);
+        }
+      }
+    };
+    merge_in(lossp_cols);
+    merge_in(lossn_cols);
+    out.add_col_sol_extras(cname, LossName, pid, loss_combined);
+  }
 
   // Overload-slack solutions and costs: only populated when the
   // soft-cap feature is active for this line (see `add_to_lp`).

@@ -128,7 +128,13 @@ LossConfig make_config(LineLossesMode mode,
                        double loss_envelope)
 {
   const double V2 = voltage * voltage;
-  const int nseg = std::max(1, loss_segments);
+  // Honour the caller's ``loss_segments`` verbatim (no ``max(1, …)``
+  // clamp).  ``nseg = 0`` is a legitimate "no PWL segments" input
+  // that the dispatcher (``add_block``) routes to the lossless
+  // ``none`` formulation for PWL-required modes; ``nseg = 1`` still
+  // falls back to ``linear`` below (one segment is degenerate as a
+  // quadratic approximation).
+  const int nseg = loss_segments;
   // Effective PWL envelope: explicit `loss_envelope` (decoupled from
   // the flow cap) when positive, else the flow cap `fmax`.  Used both
   // for the per-line `loss_row_scale` recipe below (so the scale
@@ -140,7 +146,13 @@ LossConfig make_config(LineLossesMode mode,
   if (mode == LineLossesMode::piecewise || mode == LineLossesMode::bidirectional
       || mode == LineLossesMode::piecewise_direct)
   {
-    if (resistance <= 0.0 || V2 <= 0.0 || nseg < 2) {
+    if (nseg <= 0) {
+      // "No PWL segments" → no loss approximation at all.  The
+      // dispatcher would also fall back to ``none``; setting it
+      // here keeps the per-mode add_* implementations from ever
+      // seeing ``nseg = 0``.
+      mode = LineLossesMode::none;
+    } else if (resistance <= 0.0 || V2 <= 0.0 || nseg < 2) {
       if (lossfactor > 0.0) {
         mode = LineLossesMode::linear;
       } else if (resistance > 0.0 && V2 > 0.0 && fmax > 0.0) {
@@ -600,17 +612,36 @@ void add_segments(LinearProblem& lp,
     // (2k−1) is the special case for uniform breakpoints `b_k = kB/K`.
     const double loss_k = geom.slope * resistance / V2;
 
-    // Under `uniform` the segment upper bound is the equal share of
-    // the rating (or DblMax under EL=0).  Under `equal_error` the
-    // per-segment widths differ, so equal-share doesn't make sense —
-    // honor the caller's `seg_uppb` choice (DblMax for unbounded)
-    // OR cap at the segment's own physical width, whichever is
-    // tighter.  This keeps the EL=0 unbounded behaviour intact while
-    // automatically using the correct per-segment width when the
-    // caller passes the legacy `seg_width` default.
-    const double col_uppb =
-        layout == LinePwlLayout::equal_error && seg_uppb < DblMax ? geom.width
-                                                                  : seg_uppb;
+    // Per-segment column upper bound.  Two regimes:
+    //
+    // (a) Bounded caller (``seg_uppb < DblMax`` — EL≥1 + no envelope
+    //     decoupling): each segment is naturally capped at its own
+    //     physical width ``geom.width``.  For ``uniform`` /
+    //     ``midpoint`` all widths equal ``seg_width``, so ``min`` is a
+    //     no-op; for ``equal_error`` widths differ, so cap at
+    //     ``geom.width`` (tighter than ``seg_uppb`` for non-uniform).
+    //
+    // (b) Unbounded caller (``seg_uppb == DblMax`` — EL=0 OR
+    //     ``decoupled_envelope = true`` for a lifted / soft-cap line):
+    //     ONLY the last segment (``k == nseg``) keeps ``DblMax`` so it
+    //     can absorb any flow past ``envelope`` at its steep slope.
+    //     Segments 1..K−1 are STILL capped at ``geom.width`` to
+    //     prevent the LP from stuffing low-slope segments (seg_1
+    //     stuffing).  Without this cap the LP under-charges losses by
+    //     3× on CEN PCP decoupled-envelope lines: it packs all flow
+    //     into seg_1 (lowest slope) and pays near-zero loss instead of
+    //     the convex-quadratic value.  Verified empirically:
+    //     ``loss_sol`` per-cell ratio LP/analytic went from 0.087 on
+    //     NvaPAzucar500→Polpaico500_I (f=1407, env=1000, K=8) up to
+    //     the expected midpoint+debias value after capping.
+    const bool overflow_segment = (k == nseg) && (seg_uppb >= DblMax);
+    double col_uppb = DblMax;
+    if (!overflow_segment) {
+      // Default: cap at the segment's own width.  For ``uniform`` /
+      // ``midpoint`` widths equal ``seg_width`` everywhere; for
+      // ``equal_error`` widths differ across segments.
+      col_uppb = std::min(seg_uppb, geom.width);
+    }
 
     const auto seg_col = lp.add_col({
         .lowb = 0,
@@ -1321,9 +1352,21 @@ BlockResult add_bidirectional(const LossConfig& config,
     const double lf_k = seg_width * config.resistance
         * static_cast<double>((2 * k) - 1) / config.V2;
 
+    // Per-segment column upper bound (same shape as ``add_segments``).
+    // When ``seg_uppb == DblMax`` (EL=0 unbounded flow) only the LAST
+    // segment keeps ``DblMax`` so it absorbs flow past the envelope at
+    // its steepest slope; segs 1..K−1 stay capped at ``seg_width`` so
+    // the LP can't pack everything into seg_1 (lowest slope) and
+    // under-charge the convex-quadratic loss.  See ``add_segments``
+    // for the rationale.
+    const bool overflow_segment =
+        (k == nseg) && (seg_uppb >= LinearProblem::DblMax);
+    const double col_uppb = overflow_segment ? LinearProblem::DblMax
+                                             : std::min(seg_uppb, seg_width);
+
     const auto seg_col = lp.add_col({
         .lowb = 0,
-        .uppb = seg_uppb,
+        .uppb = col_uppb,
         .cost = seg_tcost,
         .class_name = Line::class_name.full_name(),
         .variable_name = labels.seg,
@@ -1431,6 +1474,72 @@ TangentGeom loss_tangent_geometry(double envelope,
   };
 }
 
+// ─── Adaptive per-line K allocation (cube-root rule) ───────────────
+
+std::vector<int> compute_adaptive_loss_segments(
+    std::span<const double> resistances,
+    std::span<const double> peak_flows,
+    const AdaptiveSegmentsOpts& opts)
+{
+  assert(resistances.size() == peak_flows.size());
+  assert(opts.floor >= 1);
+  assert(opts.ceiling >= opts.floor);
+
+  const auto n = resistances.size();
+  std::vector<int> K(n, 0);
+  if (n == 0) {
+    return K;
+  }
+
+  // Per-line peak loss L_max,i = R_i · f_max,i².  Lossless lines
+  // (R ≤ 0 or fmax ≤ 0) keep K = 0 so the PWL builder can skip them.
+  // Track total Σ L and Σ L^(1/3) on the lossy subset only.
+  double L_total = 0.0;
+  double S = 0.0;
+  std::vector<double> L_cbrt(n, 0.0);
+  for (std::size_t i = 0; i < n; ++i) {
+    const double R = resistances[i];
+    const double fmax = peak_flows[i];
+    if (R > 0.0 && fmax > 0.0) {
+      const double L = R * fmax * fmax;
+      L_total += L;
+      const double cb = std::cbrt(L);
+      L_cbrt[i] = cb;
+      S += cb;
+    }
+  }
+
+  // No lossy lines → nothing to allocate.
+  if (L_total <= 0.0) {
+    return K;
+  }
+
+  // Uniform-K fallback: err_pct ≤ 0 means "don't try to be adaptive";
+  // every lossy line gets the ceiling.  Matches the Python wrapper's
+  // ``GTOPT_LOSS_ERROR_PCT=0`` contract.
+  if (opts.err_pct <= 0.0) {
+    for (std::size_t i = 0; i < n; ++i) {
+      if (L_cbrt[i] > 0.0) {
+        K[i] = opts.ceiling;
+      }
+    }
+    return K;
+  }
+
+  // KKT cube-root rule:
+  //   K_i ∝ L_i^(1/3) with constant c = √(S / (4·B)),  B = err_pct·Σ L.
+  const double B = opts.err_pct * L_total;
+  const double c = std::sqrt(S / (4.0 * B));
+  for (std::size_t i = 0; i < n; ++i) {
+    if (L_cbrt[i] > 0.0) {
+      const double k_raw = c * L_cbrt[i];
+      const auto k_int = static_cast<int>(std::ceil(k_raw));
+      K[i] = std::clamp(k_int, opts.floor, opts.ceiling);
+    }
+  }
+  return K;
+}
+
 // ─── Dispatcher ─────────────────────────────────────────────────────
 
 BlockResult add_block(const LossConfig& config,
@@ -1447,6 +1556,33 @@ BlockResult add_block(const LossConfig& config,
                       Uid uid,
                       bool enforce_capacity)
 {
+  // ``nseg <= 0`` is a degenerate PWL configuration (no segments to
+  // approximate the quadratic).  Rather than asserting deep in the
+  // per-mode implementations, dispatch to the lossless ``none``
+  // formulation so the LP stays well-formed: directional flow
+  // variables get created, capacity is enforced as usual, but no
+  // loss column or PWL row is added.  Matches the semantic that
+  // "zero PWL segments → no loss approximation".  PWL-required
+  // modes (``piecewise`` / ``bidirectional`` / ``piecewise_direct``)
+  // share this fallback so the caller can pass ``nseg = 0`` without
+  // tripping the per-mode ``assert(nseg > 0)``.
+  if (config.nseg <= 0
+      && (config.mode == LineLossesMode::piecewise
+          || config.mode == LineLossesMode::bidirectional
+          || config.mode == LineLossesMode::piecewise_direct))
+  {
+    return add_none(scenario,
+                    stage,
+                    block,
+                    lp,
+                    brow_a,
+                    brow_b,
+                    block_tmax_ab,
+                    block_tmax_ba,
+                    block_tcost,
+                    uid,
+                    enforce_capacity);
+  }
   switch (config.mode) {
     case LineLossesMode::none:
       return add_none(scenario,

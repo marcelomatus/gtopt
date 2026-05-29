@@ -36,6 +36,15 @@ public:
   static constexpr std::string_view FlownName {"flown"};
   static constexpr std::string_view LosspName {"lossp"};
   static constexpr std::string_view LossnName {"lossn"};
+  /// Consolidated per-(line, block) loss output emitted as
+  /// ``Line/loss_sol.parquet`` when ``--write-out`` includes ``extras``.
+  /// Equals ``LP(lossp) + LP(lossn)`` per cell — at most one of the two
+  /// direction-specific cols is populated on any given block, so the
+  /// sum is the total dissipated energy on that line that block.
+  /// Replaces the paired ``lossp_sol`` / ``lossn_sol`` emission so
+  /// downstream consumers see a single, schema-stable loss stream
+  /// regardless of which direction the LP routed flow.
+  static constexpr std::string_view LossName {"loss"};
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
   static constexpr std::string_view ThetaName {"theta"};

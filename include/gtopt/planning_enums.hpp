@@ -420,7 +420,7 @@ enum class OutputFlags : uint8_t
   /// that may be useful for future audits / debugging.  Today this
   /// gates Generator's `capacity_dual`, `heat_rate_slack_sol/cost`,
   /// `vom_cost_sol`, `fuel_cost_sol`; and Line's piecewise-segment
-  /// `flowp/flown` slices, `lossp/lossn_sol`,
+  /// `flowp/flown` slices, consolidated `loss_sol`,
   /// `overloadp/overloadn_sol/cost`.  Default `write_out` is
   /// `solution | dual | reduced_cost` (extras excluded); pass
   /// `--write-out all` or `--write-out sol,dual,rc,extras` to opt

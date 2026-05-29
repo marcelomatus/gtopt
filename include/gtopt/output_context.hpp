@@ -305,6 +305,35 @@ public:
                   block_factor_matrix_t {});
   }
 
+  /// Extras-gated variant of
+  /// `add_col_sol(..., STBIndexHolder<std::vector<ColIndex>>)`.
+  /// Used by `LineLP` to publish the consolidated
+  /// ``Line/loss_sol.parquet`` from a merged ``lossp ∪ lossn`` holder:
+  /// per-(line, scenario, stage, block) value is
+  /// ``Σ col_sol[col_k]`` over whichever direction-specific loss
+  /// columns were populated on that cell (at most one of A→B / B→A
+  /// has loss at any block; merging gives one schema-stable file
+  /// instead of paired direction parquets).  Empty-skip semantics
+  /// mirror the non-extras overload.
+  constexpr void add_col_sol_extras(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<std::vector<ColIndex>>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field_sum(cname,
+                  col_name,
+                  "sol",
+                  id,
+                  holder,
+                  col_sol_span,
+                  &stb_prelude,
+                  block_factor_matrix_t {});
+  }
+
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
