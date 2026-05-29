@@ -158,7 +158,11 @@ bool SimpleCommitmentLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, StatusName, pid, status_cols_);
+  // ``status`` is a binary LP variable — emit via the
+  // integer-snapping overload so the output parquet carries
+  // exact 0/1 values instead of a sub-percent tail of fractional
+  // reports leaking through the float32 grid + decimal rounding.
+  out.add_col_sol_integer(cname, StatusName, pid, status_cols_);
   out.add_col_cost(cname, StatusName, pid, status_cols_);
 
   out.add_row_dual(cname, GenUpperName, pid, gen_upper_rows_);

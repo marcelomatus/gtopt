@@ -88,7 +88,8 @@ public:
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
                          SceneUid scene_uid = make_uid<Scene>(0),
-                         PhaseUid phase_uid = make_uid<Phase>(0));
+                         PhaseUid phase_uid = make_uid<Phase>(0),
+                         bool is_continuous_phase = false);
 
   [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
@@ -250,6 +251,62 @@ public:
               col_sol_span,
               &stb_prelude,
               block_factor_matrix_t {});
+  }
+
+  /// Integer-snapping variant of ``add_col_sol`` for binary / integer
+  /// LP columns (commitment ``status`` / ``startup`` / ``shutdown``).
+  /// The MIP solver returns these within a small feasibility tolerance
+  /// (~1e-6) of 0 or 1, but in practice the float32 grid + per-column
+  /// decimal rounding leaves a sub-percent tail of fractional reports
+  /// (verified 2026-05-29 on CEN PCP MIP K=4: 1,657 / 103,523
+  /// status_sol entries were fractional, e.g. 0.058, 0.629, despite
+  /// CPLEX reporting gap = 0 %).  Snap each value to ``int(round(v))``
+  /// after the standard ``add_field`` collection so the output parquet
+  /// carries clean 0/1 integers, matching the LP variable's declared
+  /// type.  Calling site for ``SimpleCommitmentLP`` / ``CommitmentLP``.
+  ///
+  /// LP-relax gate: when the phase is solved as a continuous LP (via
+  /// ``model_options.continuous_phases`` or per-phase ``continuous:
+  /// true``), the binary variable is genuinely fractional and the
+  /// fractional reading is the meaningful output — snapping would
+  /// corrupt it.  The dual-extraction pass also re-solves
+  /// LP-relaxed, but with the binaries fixed at their MIP 0/1
+  /// values, so col_sol is already integer-valued there and snapping
+  /// would be a no-op; we still skip it to keep the policy "snap iff
+  /// the solver was asked to enforce integrality on this phase".
+  constexpr void add_col_sol_integer(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_solution(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
+    if (m_is_continuous_phase_) {
+      return;
+    }
+    // Post-process: snap the just-appended entry's values to the
+    // nearest integer.  ``add_field`` returns early on empty
+    // holder / span, in which case ``field_vector_map`` may be
+    // unchanged — guard via ``find`` + ``back()`` existence.
+    const ClassFieldName key {cname, col_name, "sol"};
+    auto it = field_vector_map.find(key);
+    if (it == field_vector_map.end() || it->second.empty()) {
+      return;
+    }
+    auto& entry = it->second.back();
+    auto& values = std::get<1>(entry);
+    for (auto& v : values) {
+      v = std::round(v);
+    }
   }
 
   /// Extras-gated variant of `add_col_sol(..., STBIndexHolder<ColIndex>)`.
@@ -647,6 +704,7 @@ private:
 
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
+  bool m_is_continuous_phase_ {false};
 
   OutputSelection m_output_selection_ {OutputFlags::all};
 

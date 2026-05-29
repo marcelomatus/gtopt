@@ -1378,8 +1378,11 @@ void SystemLP::write_out()
   }
   const auto t_rebuild = clock::now();
 
-  OutputContext oc(
-      system_context(), linear_interface(), scene().uid(), phase().uid());
+  OutputContext oc(system_context(),
+                   linear_interface(),
+                   scene().uid(),
+                   phase().uid(),
+                   phase().is_continuous());
   const auto t_oc = clock::now();
 
   auto count = visit_elements(collections(),

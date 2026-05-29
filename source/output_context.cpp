@@ -900,10 +900,12 @@ void OutputContext::write() const
 OutputContext::OutputContext(const SystemContext& psc,
                              LinearInterface& linear_interface,
                              SceneUid scene_uid,
-                             PhaseUid phase_uid)
+                             PhaseUid phase_uid,
+                             bool is_continuous_phase)
     : sc(psc)
     , m_scene_uid_(scene_uid)
     , m_phase_uid_(phase_uid)
+    , m_is_continuous_phase_(is_continuous_phase)
     , m_output_selection_(psc.options().write_out())
     , col_sol_span(linear_interface.get_col_sol())
     , col_cost_span(linear_interface.get_col_cost())

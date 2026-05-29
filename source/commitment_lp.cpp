@@ -1139,11 +1139,15 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, StatusName, pid, status_cols_);
+  // ``status`` / ``startup`` / ``shutdown`` are binary LP
+  // variables — emit via the integer-snapping overload so the
+  // output parquet carries exact 0/1 values.  See
+  // ``OutputContext::add_col_sol_integer`` for the rationale.
+  out.add_col_sol_integer(cname, StatusName, pid, status_cols_);
   out.add_col_cost(cname, StatusName, pid, status_cols_);
-  out.add_col_sol(cname, StartupName, pid, startup_cols_);
+  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_);
   out.add_col_cost(cname, StartupName, pid, startup_cols_);
-  out.add_col_sol(cname, ShutdownName, pid, shutdown_cols_);
+  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_);
   out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
 
   out.add_row_dual(cname, LogicName, pid, logic_rows_);
