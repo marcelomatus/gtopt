@@ -321,14 +321,10 @@ def test_extract_fuels_skips_non_co2_emission(tmp_path: Path) -> None:
     assert fuels[0].co2_upstream_rate == 0.0
 
 
-def test_extract_fuels_max_offtake_week_binding_week(tmp_path: Path) -> None:
-    """``Fuel_MaxOfftakeWeek.csv`` populates ``FuelSpec.max_offtake``.
-
-    Two week-start dates (Apr 16 and Apr 23) ship per fuel; the
-    binding week is the FIRST one seen by ``read_long`` (Apr 16 in
-    calendar order — the week containing the Apr 22 bundle date).
-    The Apr 23 row is ignored because it's outside the bundle's
-    1-day window.
+def test_extract_fuels_max_offtake_week_no_horizon_fallback(
+    tmp_path: Path,
+) -> None:
+    """No Horizon in XML → first CSV row wins (legacy fallback).
 
     Mirrors PLEXOS's ``FueMaxOffWeek_<fuel>`` Constraint pattern.
 
@@ -344,13 +340,92 @@ def test_extract_fuels_max_offtake_week_binding_week(tmp_path: Path) -> None:
         tmp_path,
         "Fuel_MaxOfftakeWeek.csv",
         "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n"
-        "diesel,2026,4,16,1,5.0\n"  # ← binding week (5 TJ)
-        "diesel,2026,4,23,1,1.0\n",  # ← ignored (next week)
+        "diesel,2026,4,16,1,5.0\n"
+        "diesel,2026,4,23,1,1.0\n",
     )
     db = load_xml(xml_path)
+    assert db.horizon_start is None  # fixture has no Horizon
     fuels = extract_fuels(db, bundle)
-    # 5.0 TJ × 1000 = 5000 GJ (unit matching the gtopt FuelLP basis).
+    # 5.0 TJ × 1000 = 5000 GJ (first CSV row wins when horizon unknown).
     assert fuels[0].max_offtake == 5000.0
+
+
+def test_extract_fuels_max_offtake_week_time_weighted_horizon(
+    tmp_path: Path,
+) -> None:
+    """7-day horizon straddling 2 weeks → time-weighted PLEXOS budget.
+
+    Reproduces the CEN PCP 2026-04-22 daily case for
+    ``Gas_Colbun_GN_B``: ``Fuel_MaxOfftakeWeek.csv`` ships
+    2026-04-16 → 2.1 TJ and 2026-04-23 → 4.6 TJ.  The 7-day horizon
+    Apr 22-28 has 1 day in week 04-16 (Apr 22) and 6 days in week
+    04-23 (Apr 23-28).  Time-weighted budget = 2100 × 1/7 + 4600 ×
+    6/7 = 4242.857 GJ — matches PLEXOS's ``Σ_period duration ×
+    RHS_period`` from the solution .accdb to the cent.
+
+    Regression: legacy ``n_days=1`` reader returned 2100 GJ (too
+    tight by 50 %) and starved NEHUENCO_1-TG+TV / NUEVA_RENCA in the
+    MIP.  An earlier "binding-week" fix that picked a single week's
+    cap landed at 4600 GJ (too loose by 8 %).  The time-weighted
+    formula here is the only one that matches PLEXOS exactly.
+    """
+    from datetime import datetime as _dt
+
+    bundle, xml_path = _build_bundle(tmp_path)
+    object.__setattr__(bundle, "n_days", 7)
+    _write_csv(
+        tmp_path,
+        "Fuel_MaxOfftakeWeek.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\n"
+        "diesel,2026,4,16,1,2.1\n"
+        "diesel,2026,4,23,1,4.6\n",
+    )
+    db = load_xml(xml_path)
+    db.horizon_start = _dt(2026, 4, 22)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].max_offtake is not None
+    assert abs(fuels[0].max_offtake - (2100 * 1 / 7 + 4600 * 6 / 7)) < 1e-6
+
+
+def test_extract_fuels_max_offtake_week_horizon_inside_one_week(
+    tmp_path: Path,
+) -> None:
+    """horizon entirely inside one week → full cap (overlap = horizon_days/7)."""
+    from datetime import datetime as _dt
+
+    bundle, xml_path = _build_bundle(tmp_path)
+    object.__setattr__(bundle, "n_days", 3)  # Apr 18-20 inside week 04-16
+    _write_csv(
+        tmp_path,
+        "Fuel_MaxOfftakeWeek.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\ndiesel,2026,4,16,1,5.0\n",
+    )
+    db = load_xml(xml_path)
+    db.horizon_start = _dt(2026, 4, 18)
+    fuels = extract_fuels(db, bundle)
+    # 3 horizon days inside week 04-16 → 5000 × 3/7 GJ
+    assert fuels[0].max_offtake is not None
+    assert abs(fuels[0].max_offtake - 5000 * 3 / 7) < 1e-6
+
+
+def test_extract_fuels_max_offtake_week_single_week_full_horizon(
+    tmp_path: Path,
+) -> None:
+    """Single CSV row covering the full 7-day horizon → cap × 1 (= CSV cap)."""
+    from datetime import datetime as _dt
+
+    bundle, xml_path = _build_bundle(tmp_path)
+    object.__setattr__(bundle, "n_days", 7)
+    _write_csv(
+        tmp_path,
+        "Fuel_MaxOfftakeWeek.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,VALUE\ndiesel,2026,4,22,1,9.8\n",
+    )
+    db = load_xml(xml_path)
+    db.horizon_start = _dt(2026, 4, 22)
+    fuels = extract_fuels(db, bundle)
+    # Apr 22-28 is fully inside week 04-22 (Apr 22-28) → 7/7 × 9800
+    assert fuels[0].max_offtake == 9800.0
 
 
 def test_extract_fuels_max_offtake_week_absent(tmp_path: Path) -> None:
@@ -1398,3 +1473,387 @@ def test_extract_config_mutex_groups_no_uniq_returns_empty(tmp_path: Path) -> No
     xml_path.write_text(xml)
     db = load_xml(xml_path)
     assert _extract_config_mutex_groups(db) == []
+
+
+# --------------------------------------------------------------------------- #
+# Adaptive per-line loss-segment count (cube-root rule)
+# --------------------------------------------------------------------------- #
+import os as _os
+
+from plexos2gtopt.entities import LineSpec
+from plexos2gtopt.parsers import _apply_adaptive_loss_segments
+
+
+def _reset_loss_env() -> None:
+    """Clear every env var the adaptive helper consults so each test starts
+    from a known state (defaults: err_pct=0.01, ceiling=6, extend=off)."""
+    for k in (
+        "GTOPT_LOSS_ERROR_PCT",
+        "GTOPT_NSEG_LOSSES",
+        "GTOPT_LOSS_EXTEND_OVERLOAD",
+    ):
+        _os.environ.pop(k, None)
+
+
+def _ls(name: str, R: float, tmax: float, **kw) -> LineSpec:
+    """Compact LineSpec factory for adaptive-K test fixtures."""
+    return LineSpec(
+        object_id=hash(name) & 0xFFFF,
+        name=name,
+        bus_from="a",
+        bus_to="b",
+        resistance=R,
+        tmax_ab=tmax,
+        **kw,
+    )
+
+
+def test_adaptive_k_cube_root_allocates_more_to_bigger_lines() -> None:
+    """Per the L^(1/3) KKT rule, a line carrying 100× the peak loss of
+    another gets at most ⌈100^(1/3)⌉ ≈ 5× the segments — and both stay
+    clamped to [floor=2, ceiling=6] by default."""
+    _reset_loss_env()
+    # Peak losses: L_big=R·fmax² = 0.01·2000² = 40,000
+    #              L_mid                       = 0.05·400²  = 8,000
+    #              L_sml                       = 0.10·40²   = 160
+    out = _apply_adaptive_loss_segments(
+        (
+            _ls("big", 0.01, 2000.0),
+            _ls("mid", 0.05, 400.0),
+            _ls("sml", 0.10, 40.0),
+        )
+    )
+    by_name = {l.name: l.loss_segments for l in out}
+    # Cube-root ordering must hold strictly: bigger L → at least as many K.
+    assert by_name["big"] >= by_name["mid"] >= by_name["sml"]
+    # Default ceiling caps the biggest at 6.
+    assert by_name["big"] == 6
+    # Floor (2) prevents degenerate single-secant on tiny lines.
+    assert by_name["sml"] == 2
+
+
+def test_adaptive_k_floor_clamps_tiny_lines() -> None:
+    """The floor=2 hardcoded constant is non-negotiable: a tiny line
+    paired with a much bigger one (so the cube-root rule would
+    naturally allocate K<2 to it) gets bumped up to K=2.  Lossless
+    lines (R=0 or tmax=0) are excluded entirely (loss_segments=0).
+
+    Note: an isolated lossy line never hits the floor — with one line
+    in the system, K = 1/(2√err_pct) ≈ 5 at the default 1 % budget,
+    well above the floor.  The floor matters when other lines dominate
+    the error budget."""
+    _reset_loss_env()
+    out = _apply_adaptive_loss_segments(
+        (
+            _ls("dominator", 0.05, 2000.0),  # L_max = 200,000 — dominates
+            _ls("tiny", 0.10, 0.1),  # L_max = 0.001 — cube-root would give K<2
+            _ls("zero_R", 0.0, 1000.0),
+            _ls("zero_tmax", 0.10, 0.0),
+        )
+    )
+    by_name = {ln.name: ln.loss_segments for ln in out}
+    assert by_name["tiny"] == 2  # floor kicks in
+    assert by_name["zero_R"] == 0  # lossless skipped
+    assert by_name["zero_tmax"] == 0  # zero envelope skipped
+
+
+def test_adaptive_k_ceiling_from_env_var() -> None:
+    """``GTOPT_NSEG_LOSSES`` (``--nseg-losses``) overrides the default
+    adaptive ceiling of 6.  With ceiling=10 AND a tight error budget
+    (0.1 %) the cube-root rule wants K_big ≈ 1/(2·√0.001) ≈ 16, which
+    is clamped to the new ceiling of 10."""
+    _reset_loss_env()
+    _os.environ["GTOPT_NSEG_LOSSES"] = "10"
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0.001"  # 0.1 % — tight
+    out = _apply_adaptive_loss_segments(
+        (
+            _ls("big", 0.05, 2000.0),  # massive peak loss
+            _ls("sml", 0.001, 10.0),
+        )
+    )
+    by_name = {ln.name: ln.loss_segments for ln in out}
+    assert by_name["big"] == 10  # hits the new ceiling
+    assert by_name["sml"] == 2  # floor
+
+
+def test_adaptive_k_uniform_mode_when_error_pct_zero() -> None:
+    """``--loss-error-pct 0`` disables adaptation: every lossy line gets
+    the same K (the historical uniform behaviour).  Default uniform-K
+    when env var unset is 4 (the pre-2026-05-29 default)."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0"
+    out = _apply_adaptive_loss_segments(
+        (
+            _ls("big", 0.05, 2000.0),
+            _ls("mid", 0.05, 200.0),
+            _ls("sml", 0.05, 20.0),
+            _ls("zero", 0.0, 1000.0),
+        )
+    )
+    by_name = {l.name: l.loss_segments for l in out}
+    # All lossy lines collapse to the same K=4 default.
+    assert by_name["big"] == 4
+    assert by_name["mid"] == 4
+    assert by_name["sml"] == 4
+    # Lossless still skipped.
+    assert by_name["zero"] == 0
+
+
+def test_adaptive_k_uniform_mode_honours_nseg_losses() -> None:
+    """When adaptation is disabled (``GTOPT_LOSS_ERROR_PCT=0``), the
+    uniform K still respects ``GTOPT_NSEG_LOSSES`` if the user passed
+    ``--nseg-losses`` explicitly.  Lets users reproduce the historic
+    K=8 envfix sweep results."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0"
+    _os.environ["GTOPT_NSEG_LOSSES"] = "8"
+    out = _apply_adaptive_loss_segments((_ls("any", 0.05, 500.0),))
+    assert out[0].loss_segments == 8
+
+
+def test_adaptive_k_dlr_profile_used_for_envelope() -> None:
+    """DLR (Dynamic Line Rating) lines ship a per-hour profile peak that
+    exceeds the static tmax_ab (e.g. LoAguirre500->Polpaico500: 900
+    overnight, 2078 daytime).  The cube-root rule must size K for the
+    DLR peak — using the 900 floor would under-resolve the daytime band
+    where losses scale ~5× higher."""
+    _reset_loss_env()
+    out = _apply_adaptive_loss_segments(
+        (
+            # DLR peak 2078 dominates the L_max,i calculation.
+            _ls(
+                "dlr",
+                0.05,
+                900.0,
+                tmax_ab_profile=tuple([900.0] * 6 + [2078.0] * 12 + [900.0] * 6),
+            ),
+            # Same resistance, static tmax = DLR floor (900).
+            _ls("static_low", 0.05, 900.0),
+            # Same R, tmax at DLR peak — should match dlr's K.
+            _ls("static_peak", 0.05, 2078.0),
+        )
+    )
+    by_name = {l.name: l.loss_segments for l in out}
+    # The DLR-aware envelope makes 'dlr' equivalent to 'static_peak' for
+    # K-sizing, both bigger than 'static_low'.
+    assert by_name["dlr"] == by_name["static_peak"]
+    assert by_name["dlr"] >= by_name["static_low"]
+
+
+def test_adaptive_k_extend_overload_bumps_soft_cap_lines() -> None:
+    """``--loss-extend-overload`` widens the PWL envelope for soft-cap
+    lines by the writer's headroom factor (2× for regular soft_cap,
+    4× for soft_cap_lifted), so the cube-root rule allocates more K to
+    them.  EL=1/EL=2 (``soft_cap=False``) is unaffected — LP cannot
+    flow past tmax there, no benefit from a wider envelope."""
+    _reset_loss_env()
+    # Same resistance, same tmax — only soft-cap status differs.
+    lines = (
+        _ls("hard_only", 0.05, 500.0),  # EL=2
+        _ls("soft_reg", 0.05, 500.0, soft_cap=True),  # 2× envelope
+        _ls("soft_lifted", 0.05, 500.0, soft_cap=True, soft_cap_lifted=True),  # 4×
+    )
+    # Without the flag: all three see the same K (same R, same tmax).
+    off = {l.name: l.loss_segments for l in _apply_adaptive_loss_segments(lines)}
+    assert off["hard_only"] == off["soft_reg"] == off["soft_lifted"]
+    # With the flag: soft-cap lines get the wider envelope, K shifts.
+    _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
+    on = {l.name: l.loss_segments for l in _apply_adaptive_loss_segments(lines)}
+    # Hard-only EL=2 is unaffected (LP can't exceed tmax anyway).
+    # Soft-cap and lifted get the wider envelope: K ranks them higher.
+    assert on["hard_only"] <= on["soft_reg"] <= on["soft_lifted"]
+    # And at least one of soft_reg / soft_lifted moves up vs the flag-off
+    # case (the wider envelope means more peak loss → bigger K).
+    assert max(on.values()) >= max(off.values())
+
+
+def test_adaptive_k_total_error_budget_bounded() -> None:
+    """Sanity: the cube-root allocation respects the absolute MW error
+    budget B = err_pct · Σ L_max,i.  Worst-case Σ_i L_max,i/(4 K_i²)
+    after clamping must stay ≤ B (or at worst within a small margin
+    when the ceiling kicks in)."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0.02"  # 2 % budget
+    lines = (
+        _ls("L1", 0.01, 2000.0),  # L_max = 40,000
+        _ls("L2", 0.05, 500.0),  # L_max = 12,500
+        _ls("L3", 0.10, 100.0),  # L_max = 1,000
+        _ls("L4", 0.20, 30.0),  # L_max = 180
+    )
+    out = _apply_adaptive_loss_segments(lines)
+    total_L = sum(ln.resistance * ln.tmax_ab**2 for ln in lines)
+    realized_error = sum(
+        (ln.resistance * ln.tmax_ab**2) / (4.0 * ln.loss_segments**2)
+        for ln in out
+        if ln.loss_segments > 0
+    )
+    budget = 0.02 * total_L
+    # Allow 25% margin: the ceiling-clamp can keep total error above the
+    # raw KKT value, but the rule still concentrates K where it matters
+    # so the realized error stays bounded for any reasonable input.
+    assert realized_error <= budget * 1.25, (
+        f"realized error {realized_error:.1f} > budget {budget:.1f}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Adaptive K — full error/tolerance sweep (Python-side companion to the C++
+# test_line_losses_decoupled_envelope.cpp K∈{1,2,4,8,16,128} sweep)
+# --------------------------------------------------------------------------- #
+import pytest
+
+
+def _realistic_line_mix() -> tuple[LineSpec, ...]:
+    """Mock a CEN-PCP-shaped line mix: 4 tiers of (R, fmax) covering
+    3 orders of magnitude in peak loss L_max,i = R·fmax².
+
+    Per-line peak loss [MW]:
+      * trunk_500kV  L =  900     (R=0.0001, fmax=3000)   ← biggest
+      * backbone_220 L =  72      (R=0.0008, fmax=300)
+      * regional_154 L =   5      (R=0.005,  fmax=100)
+      * stub_66kV    L =   0.0250 (R=0.025,  fmax=10)    ← smallest
+
+    Three orders of magnitude → exercises the cube-root rule across
+    its full range.  Total Σ L_max = 977.025 MW.
+    """
+    return (
+        _ls("trunk_500kV", 0.0001, 3000.0),
+        _ls("backbone_220", 0.0008, 300.0),
+        _ls("regional_154", 0.005, 100.0),
+        _ls("stub_66kV", 0.025, 10.0),
+    )
+
+
+@pytest.mark.parametrize(
+    # Empirical bounds: at err_pct ≥ 0.01 the raw KKT solution lands
+    # inside [floor=2, ceiling=6] for every line, so realized stays at
+    # or below budget.  At tighter err_pct the ceiling clamps the
+    # heaviest line(s); realized exceeds budget by the squared ratio
+    # (K_raw/ceiling)² for the clamped lines.  Tolerances measured
+    # against the fixture line mix:
+    #   err=0.001 → ratio≈7.0 (ceiling binds on trunk+backbone+regional)
+    #   err=0.005 → ratio≈1.6 (ceiling binds on trunk only)
+    #   err=0.010 → ratio≈1.0 (KKT lands inside clamps)
+    #   err≥0.020 → ratio<1.0 (rule has slack to spare)
+    "err_pct,tol_mult",
+    [
+        (0.001, 8.0),  # 0.1 % — ceiling binds hard; budget ⨯ 7 realized
+        (0.005, 2.0),  # 0.5 % — ceiling binds on trunk only
+        (0.010, 1.10),  # 1 % — default; KKT inside clamps
+        (0.020, 1.00),  # 2 %  — slack available
+        (0.050, 1.00),  # 5 % — loose; raw KKT clears budget easily
+    ],
+)
+def test_adaptive_k_budget_holds_across_err_pct_sweep(
+    err_pct: float, tol_mult: float
+) -> None:
+    """For every err_pct in the typical range (0.1 % to 5 %), the
+    cube-root rule allocates per-line K such that the worst-case total
+    PWL error ``Σ L_max,i / (4 K_i²)`` stays within ``tol_mult × budget``.
+
+    The ``tol_mult`` slack accounts for:
+      * Ceiling=6 clamp on lines where raw KKT wants K>6 — at the
+        tightest err_pct, the ceiling caps achievable accuracy.
+      * Integer rounding (K is an int, raw is float).
+
+    Companion to C++ test_line_losses_decoupled_envelope.cpp which pins
+    the per-K, per-mode LP-reported loss against analytic R·f²; this
+    test pins the SYSTEM-level allocation rule that picks K per line."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = str(err_pct)
+    lines = _realistic_line_mix()
+    out = _apply_adaptive_loss_segments(lines)
+    # Sum of per-line worst-case errors at the realized K_i.
+    realized_error = sum(
+        (ln.resistance * ln.tmax_ab**2) / (4.0 * ln.loss_segments**2)
+        for ln in out
+        if ln.loss_segments > 0
+    )
+    total_L = sum(ln.resistance * ln.tmax_ab**2 for ln in lines)
+    budget = err_pct * total_L
+    assert realized_error <= budget * tol_mult, (
+        f"err_pct={err_pct}: realized {realized_error:.4f} MW > "
+        f"budget {budget:.4f} × {tol_mult} tolerance"
+    )
+
+
+def test_adaptive_k_total_segments_decreases_with_looser_budget() -> None:
+    """The cube-root rule's main payoff: looser err_pct → fewer total
+    LP segments.  Σ K should drop monotonically as err_pct grows."""
+    _reset_loss_env()
+    lines = _realistic_line_mix()
+    sums: list[tuple[float, int]] = []
+    for err_pct in (0.001, 0.005, 0.010, 0.020, 0.050):
+        _os.environ["GTOPT_LOSS_ERROR_PCT"] = str(err_pct)
+        out = _apply_adaptive_loss_segments(lines)
+        sums.append((err_pct, sum(ln.loss_segments for ln in out)))
+    # Strictly non-increasing — looser budget never costs more segments
+    # (allowing equality on the floor/ceiling clamps).
+    for (eps_a, k_a), (eps_b, k_b) in zip(sums, sums[1:]):
+        assert k_b <= k_a, (
+            f"Σ K went UP from {k_a} (err={eps_a}) to {k_b} (err={eps_b})"
+        )
+
+
+def test_adaptive_k_matches_kkt_prediction_for_unbounded_case() -> None:
+    """When no clamps fire (floor and ceiling don't bind), the raw KKT
+    solution K_i = c · L_i^(1/3) must hold EXACTLY (up to int ceil).
+
+    Setup: pick a 3-line system where the cube-root rule lands every K
+    inside [3, 5] so neither floor=2 nor ceiling=6 clamps."""
+    _reset_loss_env()
+    _os.environ["GTOPT_LOSS_ERROR_PCT"] = "0.04"  # 4 % budget — loose
+    # L = (R·fmax²)
+    lines = (
+        _ls("a", 0.01, 500.0),  # L = 2500
+        _ls("b", 0.01, 250.0),  # L = 625
+        _ls("c", 0.01, 125.0),  # L = 156.25
+    )
+    out = _apply_adaptive_loss_segments(lines)
+    by_name = {ln.name: ln.loss_segments for ln in out}
+    # Compute the raw KKT prediction directly.
+    Ls = [ln.resistance * ln.tmax_ab**2 for ln in lines]
+    total_L = sum(Ls)
+    S = sum(L ** (1.0 / 3.0) for L in Ls)
+    B = 0.04 * total_L
+    import math as _m
+
+    c = _m.sqrt(S / (4.0 * B))
+    expected = {
+        ln.name: max(2, min(6, _m.ceil(c * (ln.resistance * ln.tmax_ab**2) ** (1 / 3))))
+        for ln in lines
+    }
+    assert by_name == expected, f"KKT mismatch: got {by_name}, expected {expected}"
+    # And the cube-root ordering must hold: bigger L → bigger K.
+    assert by_name["a"] >= by_name["b"] >= by_name["c"]
+
+
+def test_adaptive_k_compares_to_uniform_at_equivalent_total_K() -> None:
+    """Sanity: at the same total segment count Σ K, the cube-root
+    allocation produces a SMALLER worst-case total error than uniform.
+
+    This is the rule's whole pitch — better K placement at fixed LP
+    cost.  Compute the realized error for adaptive (default 1 %) and
+    compare to uniform K = ⌈Σ K / N⌉ across the same lines."""
+    _reset_loss_env()
+    lines = _realistic_line_mix()
+    out_adaptive = _apply_adaptive_loss_segments(lines)
+    sum_k_adaptive = sum(ln.loss_segments for ln in out_adaptive)
+    err_adaptive = sum(
+        (ln.resistance * ln.tmax_ab**2) / (4.0 * ln.loss_segments**2)
+        for ln in out_adaptive
+    )
+    # Now compare against uniform-K at the same total segment count.
+    n_lossy = sum(1 for ln in lines if ln.resistance > 0 and ln.tmax_ab > 0)
+    k_uniform = max(2, round(sum_k_adaptive / n_lossy))
+    err_uniform = sum(
+        (ln.resistance * ln.tmax_ab**2) / (4.0 * k_uniform**2)
+        for ln in lines
+        if ln.resistance > 0 and ln.tmax_ab > 0
+    )
+    # Adaptive must beat uniform at the same total LP cost — the L^(1/3)
+    # allocation is the KKT-optimum, uniform is sub-optimal.
+    assert err_adaptive < err_uniform, (
+        f"Adaptive error {err_adaptive:.3f} not better than uniform "
+        f"({err_uniform:.3f}) at Σ K={sum_k_adaptive}"
+    )

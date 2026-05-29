@@ -1785,7 +1785,147 @@ def extract_lines(
                 in_service_profile=in_service_profile,
             )
         )
-    return tuple(out)
+    # Adaptive per-line PWL loss-segment count.  PLEXOS-side OPF runs the
+    # quadratic loss model ``P_loss = R·f²``; gtopt linearises each lossy
+    # line with K equal-spaced breakpoints, picking up worst-case per-line
+    # error ``L_max,i / (4·K_i²)`` where ``L_max,i = R_i · fmax_i²`` is the
+    # peak loss at the rated flow.  Summing over lines and constraining
+    # total absolute error ``Σ_i L_max,i / (4 K_i²) ≤ B`` (the budget,
+    # ``loss_error_pct × Σ L_max``) gives a Lagrangian KKT solution where
+    # the optimum allocates K segments with ``K_i ∝ L_max,i^(1/3)`` — see
+    # docs/analysis/no-scale-reservoir-effective and the
+    # ``project_loss_model_midpoint_envelope`` memory.  Lines with bigger
+    # peak loss get more segments; tiny stubs collapse to the floor.
+    # ``loss_error_pct = 0`` disables adaptation (legacy: every lossy
+    # line gets the ceiling K).
+    return _apply_adaptive_loss_segments(tuple(out))
+
+
+def _apply_adaptive_loss_segments(
+    lines: tuple[LineSpec, ...],
+) -> tuple[LineSpec, ...]:
+    """Stamp ``LineSpec.loss_segments`` with the cube-root rule.
+
+    Driven by env vars set in ``plexos2gtopt.py``:
+
+      * ``GTOPT_LOSS_ERROR_PCT`` (default 0.01).  Positive ⇒ adaptive
+        mode.  Zero or negative ⇒ uniform mode (every lossy line gets
+        the same K).
+      * ``GTOPT_NSEG_LOSSES``    Optional.  When set, it serves as the
+        adaptive ceiling AND the uniform K.  When *unset*:
+          - adaptive mode: ceiling defaults to **6**
+          - uniform mode: K defaults to **4** (historic CEN PCP value)
+        The two defaults are intentionally different so the
+        no-argument adaptive run (the new default) doesn't reduce
+        accuracy on heavy lines vs the historic uniform-K=4 path.
+
+    Floor is fixed at 2 (a single secant is degenerate).  Lossless lines
+    (R==0 or fmax==0) get ``loss_segments = 0`` so the writer omits the
+    PWL curve entirely.
+
+    Returns a new tuple with per-line overrides stamped.  Lines unchanged
+    aside from the new field.
+    """
+    import os as _os
+
+    try:
+        err_pct = float(_os.environ.get("GTOPT_LOSS_ERROR_PCT", "0.01"))
+    except ValueError:
+        err_pct = 0.01
+    nseg_env = _os.environ.get("GTOPT_NSEG_LOSSES")
+    adaptive = err_pct > 0.0
+    if nseg_env is not None and nseg_env.strip():
+        try:
+            nseg_user = int(nseg_env)
+        except ValueError:
+            nseg_user = None
+    else:
+        nseg_user = None
+    floor = 2
+    # Adaptive: ceiling = user value or 6.  Uniform: K = user value or 4.
+    if adaptive:
+        ceiling = max(floor, nseg_user if nseg_user else 6)
+    else:
+        ceiling = max(floor, nseg_user if nseg_user else 4)
+    # Refinement A+B: extend the PWL envelope into the soft-cap overload
+    # band when ``GTOPT_LOSS_EXTEND_OVERLOAD=1`` (``--loss-extend-overload``).
+    # Mirrors gtopt_writer's headroom factors (2× regular soft_cap,
+    # 4× soft_cap_lifted).  Off by default — the writer still pins
+    # ``loss_envelope = orig tmax`` for every line in that case.
+    extend_overload = _os.environ.get("GTOPT_LOSS_EXTEND_OVERLOAD", "0").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    # Per-line peak loss in MW: ``L_max,i = R · envelope²`` where the
+    # envelope mirrors the writer's PWL ``loss_envelope`` field.  Use the
+    # ORIGINAL rating (LineSpec carries the pre-headroom value; the
+    # writer only inflates ``tmax_ab`` by a headroom factor later when
+    # the soft-cap path expands the hard cap), and include any DLR
+    # per-hour profile peak so corridors with higher daytime ratings
+    # (e.g. LoAguirre500->Polpaico500: 900/2078 MW) get the segments
+    # sized for their max flow band, not the overnight floor.  Tmin
+    # (reverse direction) is taken at absolute value since the loss
+    # PWL is symmetric about f=0.  ``max_rating`` (PLEXOS emergency /
+    # short-term rating) is INTENTIONALLY excluded — gtopt's
+    # ``loss_envelope`` covers the realistic loading band, and the
+    # 1.5-2× emergency margin is meant for the soft-cap overload
+    # region above the PWL curve (the LP extrapolates the last slope
+    # there).  Matches ``gtopt_writer._resolve_loss_layout`` /
+    # ``loss_envelope`` precedence.
+    def _peak_loss(ln: LineSpec) -> float:
+        if ln.resistance <= 0.0:
+            return 0.0
+        profile_peak = (
+            max(abs(x) for x in ln.tmax_ab_profile) if ln.tmax_ab_profile else 0.0
+        )
+        base_fmax = max(abs(ln.tmax_ab), abs(ln.tmin_ab), profile_peak)
+        # Refinement A+B (gated by --loss-extend-overload): when the LP
+        # can flow into the soft-cap overload band, size K_i for that
+        # wider envelope so per-segment error stays bounded across the
+        # actually-reachable flow range.  Multipliers mirror
+        # ``gtopt_writer``'s headroom factors (2× regular soft_cap,
+        # 4× soft_cap_lifted).  EL=1/EL=2 hard-cap lines: LP cannot
+        # exceed tmax, so the base envelope is exact — no extension.
+        if extend_overload:
+            if ln.soft_cap_lifted:
+                fmax = 4.0 * base_fmax
+            elif ln.soft_cap:
+                fmax = 2.0 * base_fmax
+            else:
+                fmax = base_fmax
+        else:
+            fmax = base_fmax
+        return ln.resistance * fmax * fmax
+
+    lossy = [(i, ln, _peak_loss(ln)) for i, ln in enumerate(lines)]
+    lossy = [t for t in lossy if t[2] > 0.0]
+    if not lossy or not adaptive:
+        # Uniform mode (adaptive disabled) OR no lossy lines.  Stamp
+        # every lossy line with the uniform K = `ceiling` (which in
+        # uniform mode IS the K value, derived above with default 4).
+        return tuple(
+            dataclasses.replace(ln, loss_segments=ceiling if _peak_loss(ln) > 0 else 0)
+            for ln in lines
+        )
+
+    # Cube-root rule: minimize Σ K subject to Σ L/(4 K²) ≤ B.
+    # KKT ⇒ K_i = c · L_i^(1/3) with c = √(S / (4·B)),
+    # S = Σ L_i^(1/3), B = err_pct · Σ L_i.
+    L_total = sum(L for _, _, L in lossy)
+    S = sum(L ** (1.0 / 3.0) for _, _, L in lossy)
+    B = err_pct * L_total
+    c = math.sqrt(S / (4.0 * B)) if B > 0 else float("inf")
+
+    new_lines = list(lines)
+    for i, ln, L in lossy:
+        k_raw = c * (L ** (1.0 / 3.0))
+        k = max(floor, min(ceiling, int(math.ceil(k_raw))))
+        new_lines[i] = dataclasses.replace(ln, loss_segments=k)
+    # Lossless lines: keep loss_segments=0 (writer omits the curve)
+    return tuple(new_lines)
 
 
 def _bus_to_region_voll(db: PlexosDb) -> dict[str, float]:
