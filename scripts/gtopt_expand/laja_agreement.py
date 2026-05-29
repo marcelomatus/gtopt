@@ -258,17 +258,21 @@ class LajaAgreement(_RightsAgreementBase):
         self,
         base_cost: float,
         monthly_factors: list[float],
-    ) -> float | list[float]:
+    ) -> float | list[list[float]]:
         """Return a per-stage cost schedule modulated by a hydro-year factor.
 
-        Emits a TRealFieldSched (1D per-stage or scalar) — the post-
-        2026-05 FlowRight `fcost` / `uvalue` field type.  Pre-2026-05
-        this was a TBRealFieldSched (2D); the type narrowing made the
-        per-block dimension redundant since `CostHelper::block_ecost`
-        applies the block-duration weight uniformly at LP build time.
+        Emits a TBRealFieldSched (2D per-stage × per-block) or scalar —
+        the current C++ ``FlowRight.fcost`` / ``uvalue`` schema type.
+        The post-2026-05 narrowing to a 1D ``TRealFieldSched`` was the
+        intended direction but the C++ migration (schema → LP accessors
+        → tests) was not landed, so the writer continues to emit 2D for
+        now to keep ``daw::json`` happy.  ``CostHelper::block_ecost``
+        still applies the block-duration weight uniformly at LP build
+        time, so broadcasting the per-stage value across all blocks
+        (what ``_to_tb_sched`` does) is loss-less.
         """
         modulated = self._hydro_to_stage_schedule(monthly_factors)
-        return self._to_t_sched([base_cost * f for f in modulated])
+        return self._to_tb_sched([base_cost * f for f in modulated])
 
     def _prepare_context(self) -> dict[str, Any]:
         """Prepare the template context with all pre-computed values.
