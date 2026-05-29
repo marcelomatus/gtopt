@@ -6967,13 +6967,47 @@ def extract_user_constraints(
             # The native ``ReserveZone.urcost/drcost`` mechanism
             # (populated from PLEXOS VoRS in ``extract_reserves``)
             # remains the shortage-cost backstop.
-            is_reserve_provision_sum = (
+            #
+            # Filter detail (2026-05-29 audit on RES20260422.accdb):
+            # ``decision_variable(`` IS allowed.  Earlier we excluded it
+            # because we wanted "pure reserve_provision rows" only, but
+            # PLEXOS's CPF/CSF schema attaches *scaling* DVs
+            # (``CPF5mDown_Requirement``, ``Generation_SEN``) to the
+            # *MinProvision rows — verified zero-slack with shadow
+            # prices $7-26/MWh avg on CPF_Down/UpMinProvision and
+            # CPF_Down/Up5Calculation.  Without this clause they were
+            # falling through to the $10 hydro tier → $336K of gtopt
+            # soft slack (the LP cheats at $10/unit when PLEXOS pays
+            # the real $7-26 dispatch cost).
+            #
+            # Two-pattern match:
+            #   (a) "pure" reserve aggregation — ≥3 reserve_provision
+            #       refs + optional decision_variable scaling.
+            #   (b) reserve *Calculation rows — pure decision_variable
+            #       definitional equations (CPF_DownCalculation,
+            #       CPF_Up*Calculation_*) recognisable by the
+            #       constraint name ending in "Calculation".  These
+            #       define the per-zone requirement; PLEXOS solves
+            #       them hard, the LP needs the same pressure.
+            has_reserve_provision_sum = (
                 expression.count("reserve_provision(") >= 3
                 and "generator(" not in expression
                 and "commitment(" not in expression
                 and "battery(" not in expression
                 and "line(" not in expression
-                and "decision_variable(" not in expression
+            )
+            is_reserve_calculation = (
+                constr.name.endswith("Calculation") or "Calculation_" in constr.name
+            ) and (
+                "generator(" not in expression
+                and "commitment(" not in expression
+                and "battery(" not in expression
+                and "line(" not in expression
+                and "reserve_provision(" not in expression
+                and "decision_variable(" in expression
+            )
+            is_reserve_provision_sum = (
+                has_reserve_provision_sum or is_reserve_calculation
             )
             if is_reserve_provision_sum:
                 emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
