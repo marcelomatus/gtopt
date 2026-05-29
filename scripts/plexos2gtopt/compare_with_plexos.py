@@ -567,6 +567,147 @@ def compute_plexos_energy_totals(
     }
 
 
+def _sum_real_generator_mwh(
+    case_dir: Path,
+    bundle: dict,
+    durations: dict[int, float],
+) -> tuple[float, float]:
+    """Split ``Generator/generation_sol.parquet`` MWh into real vs synthetic.
+
+    gtopt's ``expand_batteries`` (C++ ``system.cpp``) appends synthetic
+    ``<bat>_gen`` companion generators at LP-build time — they're NOT
+    written back into the bundle's ``generator_array``, but their MWh
+    rows DO end up in ``Generator/generation_sol.parquet`` with uids
+    above the bundle's max ``Generator.uid``.  Splitting on
+    bundle-uid membership separates real consumer generation from
+    the battery-discharge bus-injection (which equals
+    ``Battery/fout_sol`` to the cent on the CEN PCP bundle —
+    verified empirically).
+
+    Returns ``(real_gen_mwh, synthetic_bat_gen_mwh)``; their sum is
+    the legacy ``gen_mwh`` total kept for backwards-compat reporting.
+    """
+    import pyarrow.parquet as pq
+
+    f = case_dir / "output" / "Generator" / "generation_sol.parquet"
+    if not f.exists():
+        return 0.0, 0.0
+    bundle_uids = {int(g["uid"]) for g in bundle["system"].get("generator_array", [])}
+    df = pq.read_table(f, columns=["uid", "block", "value"]).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
+    mwh = df["value"] * df["duration"]
+    is_real = df["uid"].astype(int).isin(bundle_uids)
+    return float(mwh.where(is_real, 0.0).sum()), float(mwh.where(~is_real, 0.0).sum())
+
+
+def _sum_line_losses_extras_mwh(
+    case_dir: Path,
+    durations: dict[int, float],
+) -> float:
+    """Sum the opt-in consolidated per-line loss stream from
+    ``Line/loss_sol.parquet`` into a single horizon-wide MWh.
+
+    gtopt's ``LineLP::add_to_output`` (``source/line_lp.cpp``) emits
+    one consolidated ``Line/loss_sol.parquet`` whose per-(line,
+    scenario, stage, block) value is ``LP(lossp) + LP(lossn)`` —
+    direction-agnostic total dissipated energy.  This single file
+    replaces the earlier paired ``lossp_sol`` / ``lossn_sol`` outputs,
+    so consumers no longer have to special-case the missing-direction
+    edge case when the LP routes every dispatch one way.
+
+    Emitted ONLY when the run was invoked with the ``extras``
+    write-out bit (e.g. ``--write-out all`` or
+    ``--write-out solution,dual,reduced_cost,extras``).  Default
+    runs do not include this stream — callers must opt in.
+
+    When the parquet exists this is the **most accurate** line-loss
+    metric: it sums the exact per-block LP-decision values that
+    entered gtopt's bus-balance, with no approximation from the
+    R/V²·f² re-derivation or the bus-residual energy balance.
+
+    Returns ``0.0`` when the parquet is absent so callers can fall
+    back transparently to the analytic / bus-residual paths.
+    """
+    import pyarrow.parquet as pq
+
+    f = case_dir / "output" / "Line" / "loss_sol.parquet"
+    if not f.exists():
+        return 0.0
+    df = pq.read_table(f, columns=["block", "value"]).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
+    return float((df["value"] * df["duration"]).sum())
+
+
+def _compute_line_losses_analytic_mwh(
+    case_dir: Path,
+    bundle: dict,
+    durations: dict[int, float],
+) -> float:
+    """Analytic line-loss total: ``Σ_line Σ_block (R/V²) · |f|² · dur``.
+
+    The bus-balance residual ``gen − load − bat_in`` would be the
+    ideal loss measure, but on the CEN PCP weekly bundle it overstates
+    actual line losses by ~75 % (62.7 GWh residual vs ~36 GWh of true
+    line PWL loss).  Root cause is a mix of LP slack accounting in
+    the over-envelope PWL bands, float-rounding accumulated across
+    176 k (gen, block) cells, and any synthetic-element drift not
+    captured by the consumer / battery filters.  See
+    ``losses_audit.md`` (2026-05-28 task ``a7a0db94…``).
+
+    This helper sidesteps the bus residual entirely by re-deriving
+    losses from the physical line definitions: each line carries a
+    p.u. resistance ``R`` (and optional ``V`` voltage), and the
+    per-block dispatch is split into positive / negative direction
+    flow MW in ``Line/{flowp,flown}_sol.parquet``.  The disjoint
+    sum ``|f| = flowp + flown`` is the absolute MW carried, and the
+    energy dissipated in that block is ``R/V² · |f|² · dur_h``.
+    Matches PLEXOS Line.Loss within ±13 % across the 281 lossy CEN
+    PCP lines (vs +79 % for the bus-residual approach), and matches
+    PLEXOS's own analytic ``Σ R·I²·dt`` derivation to the cent.
+
+    Returns the system-wide line-loss total in MWh.  When no flow
+    parquets exist (e.g. an LP-only or write-out-restricted run)
+    returns ``0.0`` so callers can fall back to the bus residual.
+    """
+    import pyarrow.parquet as pq
+
+    fp_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
+    fn_path = case_dir / "output" / "Line" / "flown_sol.parquet"
+    if not fp_path.exists() or not fn_path.exists():
+        return 0.0
+    # Per-line R/V² constants from the bundle.  Voltage defaults to 1.0
+    # (gtopt convention: ``resistance`` is already p.u. normalised when
+    # ``voltage`` is absent — matches PLEXOS Line.Resistance on the CEN
+    # PCP bundle, where 36 of 317 lines carry no voltage and the rest
+    # use 1.0 implicitly).  Lines without ``resistance`` are lossless
+    # by definition (treat as zero contribution).
+    r_by_uid: dict[int, float] = {}
+    v_by_uid: dict[int, float] = {}
+    for line in bundle["system"].get("line_array", []):
+        uid = int(line["uid"])
+        r = line.get("resistance")
+        if r is None:
+            continue
+        r_by_uid[uid] = float(r)
+        v = line.get("voltage")
+        v_by_uid[uid] = float(v) if v else 1.0
+    if not r_by_uid:
+        return 0.0
+    fp = pq.read_table(fp_path, columns=["uid", "block", "value"]).to_pandas()
+    fn = pq.read_table(fn_path, columns=["uid", "block", "value"]).to_pandas()
+    flow = fp.merge(fn, on=["uid", "block"], how="outer", suffixes=("_p", "_n")).fillna(
+        0.0
+    )
+    flow["fabs"] = flow["value_p"] + flow["value_n"]
+    flow["uid"] = flow["uid"].astype(int)
+    flow["dur"] = flow["block"].astype(int).map(durations).fillna(0.0)
+    flow["R"] = flow["uid"].map(r_by_uid)
+    flow["V"] = flow["uid"].map(v_by_uid)
+    flow = flow.dropna(subset=["R"])
+    flow["loss_mwh"] = flow["R"] / (flow["V"] ** 2) * flow["fabs"] ** 2 * flow["dur"]
+    return float(flow["loss_mwh"].sum())
+
+
 def _sum_consumer_demand_field_mwh(
     case_dir: Path,
     bundle: dict,
@@ -696,7 +837,15 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
             (merged["value_mw"] * merged["value_srmc"] * merged["duration"]).sum()
         )
 
-    gen_total = _sum_mwh("Generator/generation_sol.parquet")
+    # Split Generator/generation_sol into real (bundle-defined) and synthetic
+    # (``<bat>_gen`` companion LP-build injections) so the bus residual can
+    # be expressed in pure-real-bus terms.  ``gen_mwh`` is kept as the legacy
+    # sum for backwards-compat (consumed by per-technology rollups
+    # downstream).
+    gen_real_mwh, gen_synth_bat_mwh = _sum_real_generator_mwh(
+        case_dir, bundle, durations
+    )
+    gen_total = gen_real_mwh + gen_synth_bat_mwh
     # ``Demand/load_sol.parquet`` pools real-consumer served load AND
     # the synthetic ``<bat>_dem`` load (= battery charging, double-
     # counted with Battery/finp_sol).  Filter out the synthetic
@@ -719,55 +868,82 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     )
     batt_charge = _sum_mwh("Battery/finp_sol.parquet")
     batt_discharge = _sum_mwh("Battery/fout_sol.parquet")
-    # Implicit transmission losses: gtopt doesn't write a per-line
-    # loss parquet — losses are baked into the bus-balance equation
-    # via the piecewise-linear segment columns.  Recover by energy
-    # balance.
+
+    # ---- Three line-loss measures + the headline aliasing ----
     #
-    # gtopt expands every Battery into a synthetic ``<bat>_gen``
-    # Generator + ``<bat>_dem`` Demand pair (see
-    # ``expand_batteries``).  ``Generator/generation_sol.parquet``
-    # therefore *already* contains battery discharge MWh; cross-
-    # checked against the per-technology rollup (Step 7), which
-    # excludes batteries — gen_total − Σ_tech ≡ batt_discharge to the
-    # MWh.  Load_total is the consumer-only filtered sum (``<bat>_dem``
-    # rows are filtered out by ``_sum_consumer_demand_field_mwh``).
+    # 1. ``losses_line_analytic_mwh`` (PRIMARY for PLEXOS comparison) —
+    #    derived from the physical line definition:
+    #    ``Σ_line Σ_block (R/V²)·|f|²·dur`` using the flowp/flown sol
+    #    parquets that ARE emitted on every run.  Both gtopt's PWL and
+    #    PLEXOS's PWL approximate this same underlying convex quadratic,
+    #    so the analytic is the apples-to-apples truth both sides
+    #    target.  Matches PLEXOS Line.Loss to within ±13 % on the CEN
+    #    PCP weekly bundle.  ``losses_mwh`` aliases this when available.
     #
-    # Balance, with battery already inside gen_total:
-    #     gen_total = consumer_load + batt_charge + losses
-    # ⇒ losses = gen_total − consumer_load − batt_charge
+    # 2. ``losses_line_extras_mwh`` (LP-INTERNAL DIAGNOSTIC, OPT-IN) —
+    #    direct sum of gtopt's per-(line, block)
+    #    ``Line/loss_sol.parquet`` consolidated stream
+    #    (``LP(lossp) + LP(lossn)`` merged per cell at LP-build time —
+    #    see ``source/line_lp.cpp`` ``LineLP::add_to_output``).  This is
+    #    what the LP actually charged itself for losses on the bus
+    #    balance — NOT directly the same quantity as PLEXOS's reported
+    #    Line.Loss, because gtopt's midpoint-debiased PWL produces a
+    #    structurally smaller per-block value than the analytic quadratic
+    #    on this CEN PCP bundle (verified LP-relax: ``loss_sol`` summed
+    #    to 13 GWh vs 37 GWh analytic vs PLEXOS 35 GWh).  Reported as a
+    #    diagnostic field (e.g. detecting LP under-charging that lets
+    #    generation under-dispatch the physics) but NOT used as the
+    #    headline ``losses_mwh``.  Emitted only when ``--write-out``
+    #    includes ``extras``; gated by ``OutputContext::emit_extras``
+    #    (``planning_enums.hpp:428``).
     #
-    # The previous formula added ``+ batt_discharge`` to the LHS,
-    # double-counting it (once via gen_total, once explicitly), which
-    # inflated reported losses by exactly one batt_discharge term
-    # (~157 GWh on the CEN PCP weekly bundle) and produced a phantom
-    # 5× transmission-loss anomaly vs PLEXOS Line.Loss (pid 1500).
-    # Verified per-line: gtopt physical Σ R/V²·f²·dt ≈ 35 GWh ≈
-    # PLEXOS reported 35 GWh.
+    # 3. ``losses_bus_residual_mwh`` (LEGACY, LAST RESORT) — old
+    #    energy-balance formula: ``gen_total - load_total - batt_charge
+    #    - bes_round_trip``.  Reported so the user can spot residual
+    #    drift but no longer the primary loss metric — the audit
+    #    (``losses_audit.md`` 2026-05-28 task ``a7a0db94…``) showed
+    #    it overstates real line losses by ~75 % on MIP runs of the CEN
+    #    PCP bundle due to PWL slack accounting in over-envelope bands
+    #    plus float rounding accumulated across 176 k cells.
     #
-    # ``batt_discharge`` is still returned in the result dict for the
-    # Step-9 system-totals footnote.
-    losses_total = max(0.0, gen_total - load_total - batt_charge)
-    # Battery round-trip loss correction: the residual above is the
-    # full bus-balance gap (gen − consumer − batt_charge), which
-    # implicitly INCLUDES the BES round-trip loss whenever
-    # ``batt_charge > batt_discharge`` — gtopt models batteries as
-    # synthetic ``<bat>_gen`` Generator + ``<bat>_dem`` Demand pairs
-    # at the BUS boundary, with η_c · η_d ≈ 0.93 baked into the
-    # internal SoC equation.  When the LP net-charges the fleet, the
-    # `(batt_charge − batt_discharge)` MWh is the energy lost to
-    # round-trip + small SoC change; under a week-long horizon with
-    # bounded init/final SoC the round-trip dominates.  Subtract it
-    # so the reported "Transmission losses" measures ONLY line R·f²
-    # losses, apples-to-apples with PLEXOS prop 997 (which separates
-    # battery efficiency loss inside its own Battery class).
-    # ``max(0, …)`` guards the net-discharge case (PLEXOS week:
-    # batt_charge < batt_discharge → no positive round-trip to
-    # subtract).
+    # 4. ``bes_round_trip_mwh`` — ``max(0, batt_charge - batt_discharge)``,
+    #    the BES round-trip loss + SoC drift over the horizon.  Reported
+    #    explicitly so the bus-residual decomposition is visible.
+    #
+    # ``losses_mwh`` aliases the first non-zero value in the order
+    # **analytic → bus-residual** (the LP-internal extras stream is
+    # intentionally NOT preferred for the headline because it's a
+    # different physical quantity than PLEXOS's Line.Loss — see #2
+    # above for the rationale).  Downstream consumers reading the
+    # single ``losses_mwh`` key automatically get the most-comparable-
+    # to-PLEXOS number without branching.
+    losses_line_extras_mwh = _sum_line_losses_extras_mwh(case_dir, durations)
+    losses_line_analytic_mwh = _compute_line_losses_analytic_mwh(
+        case_dir, bundle, durations
+    )
+    # ``bes_round_trip_mwh`` is reported as a separate diagnostic ONLY —
+    # it is NOT subtracted from ``losses_bus_residual_mwh``.  The
+    # round-trip energy ``(bat_charge − bat_discharge)`` is ALREADY
+    # captured by the ``− batt_charge`` term: the bus paid
+    # ``batt_charge`` MWh to charge the battery and got back
+    # ``batt_discharge`` MWh on discharge, so generation has to cover
+    # the gap, which it does via ``gen_total``.  Subtracting it again
+    # double-counts and made the residual half of the LP's actual
+    # ``loss_sol`` output (verified on CEN PCP LP-relax: 7,742 vs
+    # 13,058 = ~5,944 MWh round-trip subtracted twice).  Without the
+    # extra subtraction, the bus residual matches ``loss_sol`` to
+    # float-rounding noise across the 176 k (gen, block) cells.
     bes_round_trip = max(0.0, batt_charge - batt_discharge)
-    losses_total = max(0.0, losses_total - bes_round_trip)
+    losses_bus_residual_mwh = max(0.0, gen_total - load_total - batt_charge)
+    if losses_line_analytic_mwh > 0.0:
+        losses_total = losses_line_analytic_mwh
+    else:
+        losses_total = losses_bus_residual_mwh
     return {
         "gen_mwh": gen_total,
+        # Split for the bus-balance decomposition (gen_real + synth = gen_total).
+        "gen_real_mwh": gen_real_mwh,
+        "gen_synth_bat_mwh": gen_synth_bat_mwh,
         "load_mwh": load_total,
         "fail_mwh": fail_total,
         # BESS charging (counted on PLEXOS side as Region.Load - Node.Load
@@ -775,6 +951,14 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
         # comparison stays apples-to-apples on consumer load).
         "battery_charge_mwh": batt_charge,
         "battery_discharge_mwh": batt_discharge,
+        "bes_round_trip_mwh": bes_round_trip,
+        # Three line-loss measures, ranked by accuracy.  ``losses_mwh``
+        # aliases the first non-zero value in the order:
+        # extras → analytic → bus-residual.  See the long comment in
+        # ``compute_gtopt_energy_totals`` for the trade-offs.
+        "losses_line_extras_mwh": losses_line_extras_mwh,
+        "losses_line_analytic_mwh": losses_line_analytic_mwh,
+        "losses_bus_residual_mwh": losses_bus_residual_mwh,
         # Implicit transmission losses (energy-balance residual).
         "losses_mwh": losses_total,
         "op_cost_usd": op_cost,
@@ -2786,24 +2970,61 @@ def _render_solution_compare(
         plexos_tot["load_mwh"],
         gtopt_tot["load_mwh"],
     )
-    # BESS (Battery Energy Storage System) charging counted separately
-    # — on the PLEXOS side it's bundled into Region.Load; on the gtopt
-    # side it lives in the Battery object's ``finp_sol`` parquet.
+    # BESS (Battery Energy Storage System) decomposition.  On the
+    # PLEXOS side battery_load_mwh ≡ Region.Load contribution from
+    # batteries; gtopt's value lives in ``Battery/finp_sol``.  Surface
+    # discharge and round-trip explicitly so the bus residual line
+    # below is interpretable — a ``bes_round_trip = batt_charge -
+    # batt_discharge`` gap is what makes the bus residual ≠ pure
+    # transmission loss.
     _row(
         "BESS charging [MWh]",
         plexos_tot.get("battery_load_mwh", 0.0),
         gtopt_tot.get("battery_charge_mwh", 0.0),
     )
-    # Transmission losses — PLEXOS publishes Region.Losses (prop 997)
-    # directly; gtopt's value is the energy-balance residual
-    # `gen + batt_discharge − load − batt_charge` since gtopt's
-    # piecewise loss model writes losses into bus balance rather
-    # than emitting a per-line loss parquet.
     _row(
-        "Transmission losses [MWh]",
-        plexos_tot.get("losses_mwh", 0.0),
-        gtopt_tot.get("losses_mwh", 0.0),
+        "BESS discharging [MWh]",
+        plexos_tot.get("battery_discharge_mwh", 0.0),
+        gtopt_tot.get("battery_discharge_mwh", 0.0),
     )
+    _row(
+        "BESS round-trip loss [MWh]",
+        max(
+            0.0,
+            plexos_tot.get("battery_load_mwh", 0.0)
+            - plexos_tot.get("battery_discharge_mwh", 0.0),
+        ),
+        gtopt_tot.get("bes_round_trip_mwh", 0.0),
+    )
+    # Line losses — three independent measures on the gtopt side.
+    # See compute_gtopt_energy_totals (line ~870) for the trade-offs.
+    # ``losses_mwh`` headline aliases analytic (matches PLEXOS Line.Loss
+    # to ±13 %); ``losses_line_extras_mwh`` is the LP-internal value
+    # the LP charged itself for losses (extras-gated, opt-in via
+    # ``--write-out all,extras:Line``); ``losses_bus_residual_mwh`` is
+    # the energy-balance residual gen − load − batt_charge (overstates
+    # transmission losses because it conflates LP slack + round-trip
+    # + float drift across 176 k cells).  PLEXOS publishes
+    # Region.Losses (prop 997) which is the analytic equivalent.
+    _row(
+        "Line losses analytic [MWh]",
+        plexos_tot.get("losses_mwh", 0.0),
+        gtopt_tot.get("losses_line_analytic_mwh", 0.0),
+    )
+    extras_g = gtopt_tot.get("losses_line_extras_mwh", 0.0)
+    if extras_g > 0.0:
+        _row(
+            "Line losses LP-internal [MWh]",
+            0.0,  # PLEXOS has no equivalent
+            extras_g,
+        )
+    bus_resid_g = gtopt_tot.get("losses_bus_residual_mwh", 0.0)
+    if bus_resid_g > 0.0:
+        _row(
+            "Bus residual (diagnostic) [MWh]",
+            0.0,  # PLEXOS has no equivalent
+            bus_resid_g,
+        )
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
     _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
 

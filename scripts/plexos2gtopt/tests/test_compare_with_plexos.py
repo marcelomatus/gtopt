@@ -473,9 +473,226 @@ def test_compute_gtopt_energy_totals_integrates_block_duration(
     assert tot["load_mwh"] == pytest.approx(750)
     # Gen: (100 + 50) MW × 5 h = 750 MWh — balances demand.
     assert tot["gen_mwh"] == pytest.approx(750)
+    # No synthetic battery companions in this fixture → all gen is real.
+    assert tot["gen_real_mwh"] == pytest.approx(750)
+    assert tot["gen_synth_bat_mwh"] == pytest.approx(0)
+    # No flow parquets, no batteries, no extras → all three loss measures = 0,
+    # primary "losses_mwh" falls back to the bus residual.
+    assert tot["losses_line_extras_mwh"] == pytest.approx(0)
+    assert tot["losses_line_analytic_mwh"] == pytest.approx(0)
+    assert tot["losses_bus_residual_mwh"] == pytest.approx(0)
+    assert tot["losses_mwh"] == pytest.approx(0)
+    assert tot["bes_round_trip_mwh"] == pytest.approx(0)
     assert tot["fail_mwh"] == pytest.approx(0)
     assert tot["block_count"] == 2
     assert tot["hours_covered"] == 5
+
+
+def test_compute_gtopt_energy_totals_splits_synthetic_battery_gen(
+    tmp_path: Path,
+) -> None:
+    """Generator/generation_sol rows whose uid is NOT in the bundle's
+    ``generator_array`` are the synthetic ``<bat>_gen`` companions that
+    gtopt's ``expand_batteries`` injects at LP-build time.  The energy-
+    totals helper must split them out so the bus residual is expressible
+    in real-bus terms.  Regression for the 2026-05-28 losses audit
+    (``losses_audit.md``): without the split, ``gen_total`` doubles-up
+    battery discharge against ``Battery/fout_sol`` and the loss residual
+    drifts.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    case_dir = tmp_path / "case"
+    _write_gtopt_case(case_dir)
+    # Append a synthetic gen row whose uid (999) is NOT in
+    # generator_array — emulates a ``<bat>_gen`` companion.
+    base = pq.read_table(
+        case_dir / "output" / "Generator" / "generation_sol.parquet"
+    ).to_pandas()
+    extra = pa.Table.from_pylist(
+        [
+            {
+                "scene": 0,
+                "phase": 0,
+                "scenario": 1,
+                "stage": 1,
+                "block": 1,
+                "uid": 999,
+                "value": 25.0,
+            },
+        ]
+    )
+    pq.write_table(
+        pa.concat_tables([pa.Table.from_pandas(base), extra]),
+        case_dir / "output" / "Generator" / "generation_sol.parquet",
+    )
+    tot = compute_gtopt_energy_totals(case_dir)
+    # Real gen unchanged (750 MWh), synth bumps gen_total by 25 MW × 2h.
+    assert tot["gen_real_mwh"] == pytest.approx(750)
+    assert tot["gen_synth_bat_mwh"] == pytest.approx(50)
+    assert tot["gen_mwh"] == pytest.approx(800)
+
+
+def test_compute_gtopt_energy_totals_analytic_line_losses(
+    tmp_path: Path,
+) -> None:
+    """Analytic loss = ``Σ (R/V²)·|f|²·dur`` from Line/flowp_sol +
+    Line/flown_sol; aliased to ``losses_mwh`` when available.
+
+    Fixture: one line with R=0.04, V=1.0, carrying +100 MW for 2 h and
+    −50 MW for 3 h → ``0.04 × (100² × 2 + 50² × 3) = 0.04 × 27500 =
+    1100 MWh``.  The flowp/flown convention is disjoint (positive
+    and negative directions reported in separate columns), so the
+    absolute flow per block is ``flowp + flown``.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    case_dir = tmp_path / "case"
+    _write_gtopt_case(case_dir)
+    # Extend the bundle with one line carrying R=0.04 p.u., V=1.0.
+    bundle_path = case_dir / "bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["system"]["line_array"] = [
+        {"uid": 10, "name": "L1", "resistance": 0.04, "voltage": 1.0},
+    ]
+    bundle_path.write_text(json.dumps(bundle))
+    out = case_dir / "output" / "Line"
+    out.mkdir(parents=True, exist_ok=True)
+    # flowp: block 1 → 100 MW forward; block 2 → 0
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "scene": 0,
+                    "phase": 0,
+                    "scenario": 1,
+                    "stage": 1,
+                    "block": 1,
+                    "uid": 10,
+                    "value": 100.0,
+                },
+            ]
+        ),
+        out / "flowp_sol.parquet",
+    )
+    # flown: block 2 → 50 MW reverse; block 1 → 0
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {
+                    "scene": 0,
+                    "phase": 0,
+                    "scenario": 1,
+                    "stage": 1,
+                    "block": 2,
+                    "uid": 10,
+                    "value": 50.0,
+                },
+            ]
+        ),
+        out / "flown_sol.parquet",
+    )
+    tot = compute_gtopt_energy_totals(case_dir)
+    # 0.04 × (100² × 2 + 50² × 3) = 1100 MWh
+    assert tot["losses_line_analytic_mwh"] == pytest.approx(1100)
+    # losses_mwh now aliases the analytic value (preferred over residual).
+    assert tot["losses_mwh"] == pytest.approx(1100)
+
+
+def test_compute_gtopt_energy_totals_extras_reported_as_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """When gtopt emits ``Line/loss_sol.parquet`` (opt-in via
+    ``--write-out ...,extras``), the comparator reports it as a
+    DIAGNOSTIC field (``losses_line_extras_mwh``) but does NOT use it
+    as the headline ``losses_mwh``.
+
+    Reason: gtopt's midpoint-debiased PWL produces a structurally
+    smaller per-block loss than the analytic R/V²·f² quadratic that
+    both gtopt's and PLEXOS's PWLs approximate.  For PLEXOS comparison
+    the analytic is the apples-to-apples truth both sides target.
+    The extras stream is useful only for diagnosing LP-internal
+    behaviour (e.g. detecting under-charging that lets generation
+    under-dispatch the physics).
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    case_dir = tmp_path / "case"
+    _write_gtopt_case(case_dir)
+    bundle_path = case_dir / "bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["system"]["line_array"] = [
+        {"uid": 10, "name": "L1", "resistance": 0.04, "voltage": 1.0},
+    ]
+    bundle_path.write_text(json.dumps(bundle))
+    out = case_dir / "output" / "Line"
+    out.mkdir(parents=True, exist_ok=True)
+    # Flow parquets present (so the analytic path yields 1100 MWh).
+    pq.write_table(
+        pa.Table.from_pylist(
+            [{"block": 1, "uid": 10, "value": 100.0}],
+        ),
+        out / "flowp_sol.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pylist(
+            [{"block": 2, "uid": 10, "value": 50.0}],
+        ),
+        out / "flown_sol.parquet",
+    )
+    # Consolidated extras stream: 8 MW × 2h + 5 MW × 3h = 31 MWh —
+    # intentionally different from the analytic so the assertion
+    # confirms the analytic still wins despite extras being present.
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                {"block": 1, "uid": 10, "value": 8.0},
+                {"block": 2, "uid": 10, "value": 5.0},
+            ],
+        ),
+        out / "loss_sol.parquet",
+    )
+    tot = compute_gtopt_energy_totals(case_dir)
+    assert tot["losses_line_extras_mwh"] == pytest.approx(31)
+    assert tot["losses_line_analytic_mwh"] == pytest.approx(1100)
+    # losses_mwh stays on the analytic — the apples-to-apples PLEXOS
+    # metric — not on the LP's internal extras.
+    assert tot["losses_mwh"] == pytest.approx(1100)
+
+
+def test_compute_gtopt_energy_totals_extras_absent_falls_back(
+    tmp_path: Path,
+) -> None:
+    """``Line/loss_sol.parquet`` absent (run without ``extras`` write-out)
+    → extras = 0, analytic wins."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    case_dir = tmp_path / "case"
+    _write_gtopt_case(case_dir)
+    bundle_path = case_dir / "bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["system"]["line_array"] = [
+        {"uid": 10, "name": "L1", "resistance": 0.04, "voltage": 1.0},
+    ]
+    bundle_path.write_text(json.dumps(bundle))
+    out = case_dir / "output" / "Line"
+    out.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.Table.from_pylist([{"block": 1, "uid": 10, "value": 100.0}]),
+        out / "flowp_sol.parquet",
+    )
+    pq.write_table(
+        pa.Table.from_pylist([{"block": 2, "uid": 10, "value": 50.0}]),
+        out / "flown_sol.parquet",
+    )
+    tot = compute_gtopt_energy_totals(case_dir)
+    assert tot["losses_line_extras_mwh"] == pytest.approx(0)
+    assert tot["losses_line_analytic_mwh"] == pytest.approx(1100)
+    assert tot["losses_mwh"] == pytest.approx(1100)
 
 
 def test_gtopt_demand_matches_plexos_node_load(tmp_path: Path, mock_mdb_export) -> None:
