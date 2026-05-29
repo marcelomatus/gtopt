@@ -5098,6 +5098,7 @@ def extract_user_constraints(
     unusable_provisions: frozenset[str] | None = None,
     stats_out: dict[str, int] | None = None,
     lax_refs: bool = False,
+    reserves: tuple[ReserveSpec, ...] = (),
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -6495,6 +6496,58 @@ def extract_user_constraints(
             # no timeslice overlay won (timeslice has higher precedence
             # because PLEXOS evaluates tags after date windows).
             rhs_profile_tuple = rhs_date_overlay_profile
+        else:
+            # PLEXOS reserve-requirement aggregation: when a UC is a
+            # ``CSF_*MinProvision`` / ``CPF_*MinProvision`` family row
+            # (Σ provision over Reserves = static MinProvision), PLEXOS
+            # evaluates the effective per-block RHS as
+            # ``max(static_RHS, Σ_reserve coef × Reserve.requirement[t])``
+            # using the per-hour profiles parsed from
+            # ``Res_Requirement.csv`` (verified on RES20260422: CSF_RS
+            # TR_2 day-type carries hour profiles 154,154,158×5,215×3,
+            # 209×6,330×3,301×3,154×2 which match PLEXOS's pid-3073
+            # solver-applied RHS for CSF_UpMinProvision exactly).
+            # Without this, gtopt emits a flat RHS=130 floor that the
+            # LP satisfies cheaply, while PLEXOS forces 215..330 MW of
+            # reserve provision during peak hours — driving ~$268K of
+            # gtopt soft slack on CSF_Up/Down MinProvision.
+            rsv_terms = reserve_provision_index.get(constr.object_id) or ()
+            if rsv_terms and reserves and rhs_val is not None:
+                reserves_by_name = {r.name: r for r in reserves}
+                # Build per-block effective requirement = Σ_rsv coef × rsv.profile
+                # Direction: the constraint's accessor side (the LHS
+                # was emitted with ``.up`` or ``.dn``) selects ur vs dr
+                # requirement.  ``reserve_direction`` map above already
+                # encodes this per reserve.
+                n_blocks = _horizon_days * 24
+                rsv_sum = [0.0] * n_blocks
+                any_profile = False
+                for rsv_name, coef in rsv_terms:
+                    rsv = reserves_by_name.get(rsv_name)
+                    if rsv is None:
+                        continue
+                    direction = reserve_direction.get(rsv_name)
+                    profile = (
+                        rsv.ur_requirement
+                        if direction == "up"
+                        else rsv.dr_requirement
+                        if direction == "dn"
+                        else rsv.ur_requirement or rsv.dr_requirement
+                    )
+                    if not profile:
+                        continue
+                    any_profile = True
+                    n = min(len(profile), n_blocks)
+                    for i in range(n):
+                        rsv_sum[i] += coef * profile[i]
+                if any_profile:
+                    # Effective RHS per block = max(scalar, requirement sum).
+                    # For SE/equality sense ``=``: still apply the
+                    # per-block requirement when it exceeds the scalar
+                    # floor (matches PLEXOS pid-3073 behaviour).
+                    rhs_profile_tuple = tuple(
+                        max(rhs_val, rsv_sum[i]) for i in range(n_blocks)
+                    )
         # GWh→MWh scale for daily-ENERGY budgets.  The scalar ``rhs_val`` was
         # already scaled above (it feeds the inline ``<op> NUMBER`` tail); the
         # per-block ``rhs_profile_tuple`` here carries the RAW ``RHS Day`` /
@@ -7832,6 +7885,7 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         unusable_provisions=unusable_provisions,
         stats_out=uc_stats_raw,
         lax_refs=lax_uc_refs,
+        reserves=reserves,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators
