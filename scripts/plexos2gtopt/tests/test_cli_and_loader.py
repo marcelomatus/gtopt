@@ -497,3 +497,106 @@ def test_convert_inferred_output_dir(tmp_path: Path) -> None:
     inferred = bundle_dir.parent / f"gtopt_{bundle_dir.name}"
     assert inferred.is_dir()
     assert (inferred / f"{bundle_dir.name}.json").is_file()
+
+
+_HORIZON_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>26</class_id><name>Horizon</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>22</class_id><name>bus_only</name>
+  </t_object>
+  <t_object>
+    <object_id>99</object_id><class_id>26</class_id><name>Coordinador_diario_1H_7d</name>
+  </t_object>
+</MasterDataSet>
+"""
+
+
+def test_convert_hourly_mode_infers_horizon_days_from_horizon_name(
+    tmp_path: Path,
+) -> None:
+    """``--horizon-mode hourly`` without ``--horizon-days`` infers from XML.
+
+    Regression: previously the hourly branch silently defaulted
+    ``bundle.n_days = 1`` when ``--horizon-days`` was unset, producing a
+    24-block conversion of a 168-hour PLEXOS bundle.  Now it mirrors the
+    ``plexos`` branch and parses the Horizon object name
+    (``Coordinador_diario_1H_7d`` → 7 days), so the simulation has
+    7 × 24 = 168 blocks and time-varying inputs (Fuel_MaxOfftakeWeek
+    time-weighted overlap, Gen_Rating per-hour profile, …) see the full
+    horizon.
+    """
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / DBSEN_FILENAME).write_text(_HORIZON_XML)
+    out_dir = tmp_path / "out_hourly_infer"
+    rc = convert_plexos_bundle(
+        {
+            "input_bundle": bundle_dir,
+            "horizon_mode": "hourly",
+            "output_dir": out_dir,
+        }
+    )
+    assert rc == 0
+    import json as _json
+
+    planning = _json.loads((out_dir / f"{bundle_dir.name}.json").read_text())
+    block_array = planning["simulation"]["block_array"]
+    assert len(block_array) == 168
+    assert sum(b["duration"] for b in block_array) == 168.0
+
+
+def test_convert_hourly_mode_explicit_horizon_days_overrides_inference(
+    tmp_path: Path,
+) -> None:
+    """``--horizon-days N`` wins over the Horizon-name inference."""
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / DBSEN_FILENAME).write_text(_HORIZON_XML)
+    out_dir = tmp_path / "out_hourly_explicit"
+    rc = convert_plexos_bundle(
+        {
+            "input_bundle": bundle_dir,
+            "horizon_mode": "hourly",
+            "horizon_days": 2,  # overrides inferred 7
+            "output_dir": out_dir,
+        }
+    )
+    assert rc == 0
+    import json as _json
+
+    planning = _json.loads((out_dir / f"{bundle_dir.name}.json").read_text())
+    assert len(planning["simulation"]["block_array"]) == 48
+
+
+def test_convert_hourly_mode_unparseable_horizon_warns_and_defaults_to_one(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No Horizon object → default 1 day with an explicit WARNING."""
+    import logging
+
+    bundle_dir = _make_dir_bundle(tmp_path)  # _TINY_XML has no Horizon class
+    out_dir = tmp_path / "out_hourly_default"
+    with caplog.at_level(logging.WARNING):
+        rc = convert_plexos_bundle(
+            {
+                "input_bundle": bundle_dir,
+                "horizon_mode": "hourly",
+                "output_dir": out_dir,
+            }
+        )
+    assert rc == 0
+    import json as _json
+
+    planning = _json.loads((out_dir / f"{bundle_dir.name}.json").read_text())
+    assert len(planning["simulation"]["block_array"]) == 24
+    assert any(
+        "horizon-mode=hourly" in r.message
+        and "--horizon-days" in r.message
+        and "defaulting to 1 day" in r.message
+        for r in caplog.records
+    )

@@ -135,6 +135,10 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_SPILL_FCOST_SCALE"] = str(options["spill_fcost_scale"])
     if options.get("nseg_losses") is not None:
         os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
+    if options.get("loss_error_pct") is not None:
+        os.environ["GTOPT_LOSS_ERROR_PCT"] = str(float(options["loss_error_pct"]))
+    if options.get("loss_extend_overload"):
+        os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
     if options.get("loss_pwl_layout") is not None:
         os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
     # Explicit tangent-line escape hatch (the R·P² percentile ranking /
@@ -266,7 +270,28 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     src,
                 )
         else:  # hourly
-            bundle.n_days = int(horizon_days_opt) if horizon_days_opt else 1
+            # Horizon length: explicit --horizon-days wins; else infer from
+            # the PLEXOS Horizon object name (``..._7d`` → 7), matching the
+            # ``--horizon-mode plexos`` fallback so a CEN PCP 7-day bundle
+            # converted with ``--horizon-mode hourly`` doesn't silently
+            # truncate to a 24-block 1-day window.  Time-varying inputs
+            # (Gen_Rating, Nod_Load, Fuel_MaxOfftakeWeek time-weighted
+            # overlap, …) all key off ``bundle.n_days``.  Default 1 only
+            # as a last resort when the Horizon name is unparseable.
+            if horizon_days_opt:
+                bundle.n_days = int(horizon_days_opt)
+            else:
+                from .plexos_block_layout import infer_horizon_days_from_input
+
+                inferred = infer_horizon_days_from_input(bundle.xml_path)
+                bundle.n_days = inferred if inferred else 1
+                if not inferred:
+                    logger.warning(
+                        "horizon-mode=hourly: --horizon-days unset and the "
+                        "PLEXOS Horizon name is unparseable; defaulting to "
+                        "1 day (24 blocks).  Pass --horizon-days N to "
+                        "convert a longer horizon."
+                    )
 
         # PLEXOS solution-tables cache (mdb-export of the whole .accdb).  By
         # DESIGN the converter is INPUTS-ONLY: the *only* expected read of the
