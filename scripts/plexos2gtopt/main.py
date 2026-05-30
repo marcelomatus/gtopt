@@ -248,25 +248,11 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--loss-pwl-layout",
         choices=("uniform", "equal_error", "tangent", "midpoint", "dynamic"),
-        default="midpoint",
+        default="dynamic",
         help=(
             "Segment-layout strategy for the PWL line-loss approximation, "
             "emitted on every lossy ``Line.loss_pwl_layout`` entry.  "
-            "``midpoint`` (DEFAULT): de-biased secant — the chord with the "
-            "uniform secant slope shifted DOWN to the mid-point tangent so "
-            "the PWL is unbiased (exact at segment midpoints) instead of an "
-            "upper bound.  On the CEN PCP daily case (with envelope "
-            "decoupling auto-emitted on softened lines) K=4 midpoint matches "
-            "PLEXOS losses to -1.6%% and operational cost to +0.6%%, vs the old "
-            "uniform secant's +41%% loss / +5%% cost — segment count barely "
-            "matters once de-biased.  ``uniform``: equal-width secant chords "
-            "(strict UPPER bound; max chord error peaks on the outer "
-            "segment — overstates losses).  ``tangent``: outer-approximation "
-            "tangents (lower bound, exact at touch points; inequality rows "
-            "resist presolve binary-fixing — heavier MIP).  ``equal_error``: "
-            "√-spaced secant chords (aliases to uniform for the convex "
-            "quadratic — see line_losses.cpp seg_geom docstring).  "
-            "``dynamic`` (NEW): per-line layout auto-selected by the same "
+            "``dynamic`` (DEFAULT): per-line layout auto-selected by the same "
             "``--loss-error-pct`` budget that drives adaptive K.  Heaviest-"
             "error contributors get ``midpoint`` (negative mean bias); the "
             "rest get ``uniform`` (positive mean bias, but presolve eliminates "
@@ -274,8 +260,21 @@ def make_parser() -> argparse.ArgumentParser:
             "mean error stays within the budget by construction — uniform "
             "lines' positive bias cancels midpoint lines' negative bias.  "
             "Same single ``--loss-error-pct`` knob controls everything; no "
-            "magic thresholds.  Recommended for production runs where "
-            "``midpoint`` is too slow but ``uniform`` overshoots PLEXOS losses."
+            "magic thresholds.  Verified on CEN PCP weekly (2026-04-22): "
+            "vs all-midpoint baseline, dynamic cuts total LP segments by "
+            "30%% (1200 → 839), drops LP solve time by 74%% (688 s → 182 s), "
+            "improves LP conditioning (kappa 2.8e8 → 1.1e8), and tightens "
+            "the LP-internal-vs-analytic loss gap from 5.1%% to 2.1%%.  "
+            "Operational cost vs PLEXOS goes from -3.32%% to -2.84%%.  "
+            "``midpoint``: uniform-K de-biased secant (the previous default — "
+            "chord shifted DOWN to mid-point tangent so the PWL is unbiased).  "
+            "``uniform``: equal-width secant chords (strict UPPER bound; max "
+            "chord error peaks on the outer segment — overstates losses).  "
+            "``tangent``: outer-approximation tangents (lower bound, exact "
+            "at touch points; inequality rows resist presolve binary-fixing "
+            "— heavier MIP).  ``equal_error``: √-spaced secant chords "
+            "(aliases to uniform for the convex quadratic — see "
+            "line_losses.cpp seg_geom docstring)."
         ),
     )
     parser.add_argument(

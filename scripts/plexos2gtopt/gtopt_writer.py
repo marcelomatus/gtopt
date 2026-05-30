@@ -777,7 +777,7 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
     """Resolve ``(loss_pwl_layout, loss_segments)`` for one lossy line.
 
     Every line uses the ``GTOPT_LOSS_PWL_LAYOUT`` base layout
-    (``--loss-pwl-layout``, default ``midpoint``), EXCEPT lines explicitly
+    (``--loss-pwl-layout``, default ``dynamic``), EXCEPT lines explicitly
     named in ``GTOPT_LOSS_TANGENT_LINES`` (``--loss-tangent-lines``),
     which get the ``tangent`` layout with ``GTOPT_NSEG_TANGENT`` segments.
 
@@ -1107,7 +1107,7 @@ def build_line_array(
                 entry["line_losses_mode"] = "piecewise"
                 # Per-line segment count + layout, resolved from the
                 # converter's loss env vars: the base layout
-                # (``--loss-pwl-layout``, default ``midpoint``) with
+                # (``--loss-pwl-layout``, default ``dynamic``) with
                 # ``--nseg-losses`` segments for every line, or ``tangent``
                 # for lines explicitly named in ``--loss-tangent-lines``.
                 layout, nseg = _resolve_loss_layout(line)
