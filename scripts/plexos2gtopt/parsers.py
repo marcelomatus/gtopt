@@ -8385,6 +8385,162 @@ def _extract_boundary_cut(bundle: PlexosBundle) -> BoundaryCutSpec | None:
     return BoundaryCutSpec(fcf=fcf, slopes=slopes)
 
 
+#: Regex that splits a hydro min/max/maxramp UC name into ``(stem, kind)``.
+#: Matches names like ``ANTUCOmin`` / ``ELTOROmax`` / ``ANGOSTURAmaxramp``.
+#: Kind ``maxramp`` is recognised but treated like ``max`` for the
+#: per-unit Commitment cap.
+_HYDRO_MIN_MAX_RE = re.compile(
+    r"^(?P<stem>[A-Za-z][A-Za-z0-9_]*?)(?P<kind>min|max|maxramp)$"
+)
+
+#: Regex that extracts a single ``generator("<NAME>").generation`` term
+#: with a positive coefficient.  ``coeff`` is optional (defaults to 1).
+_SINGLE_GEN_TERM_RE = re.compile(
+    r"^\s*(?:(?P<coeff>[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*\*\s*)?"
+    r'generator\("(?P<gen>[^"]+)"\)\.generation\s*'
+    r"(?P<op><=|>=|=)\s*(?P<rhs>[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$"
+)
+
+
+def _parse_single_gen_uc(expression: str) -> tuple[str, float, str, float] | None:
+    """Parse an UC LHS of form ``c * generator("G").generation OP RHS``.
+
+    Returns ``(gen_name, coeff, op, rhs)`` or ``None`` when the
+    expression doesn't match (multi-term LHS, different variable kind,
+    non-trivial RHS, etc).
+    """
+    m = _SINGLE_GEN_TERM_RE.match(expression)
+    if m is None:
+        return None
+    coeff = float(m["coeff"]) if m["coeff"] is not None else 1.0
+    try:
+        rhs = float(m["rhs"])
+    except (TypeError, ValueError):
+        return None
+    return m["gen"], coeff, m["op"], rhs
+
+
+def _auto_promote_hydro_min_max_to_commitments(
+    base_ucs: tuple[UserConstraintSpec, ...],
+    hydro_ucs: tuple[UserConstraintSpec, ...],
+    generators: tuple[GeneratorSpec, ...],
+    existing_commitments: tuple[CommitmentSpec, ...],
+) -> tuple[tuple[CommitmentSpec, ...], frozenset[str]]:
+    """Promote hydro ``<NAME>min/max`` UCs to per-generator Commitments.
+
+    PLEXOS encodes per-plant turbine generation floors / caps as
+    ``ANTUCOmin``/``ANTUCOmax``/``ELTOROmax`` UserConstraints whose
+    LHS reduces to a single ``generator(<HYDRO_Ui>).generation`` term
+    each (one row per unit when the plant has multiple units).  These
+    are operational on/off bounds that gtopt represents natively via
+    ``Commitment.pmin`` / ``Commitment.pmax`` — the LP enforces
+    ``pmin·u ≤ gen ≤ pmax·u`` once a Commitment exists for the
+    generator, so the per-block UC becomes redundant.
+
+    For every matched generator we:
+
+      * Synthesise a :class:`CommitmentSpec` with ``initial_status=1``
+        and ``pmin`` / ``pmax`` from the bounds (``pmax=0`` when only
+        a ``min`` UC matches).
+      * Mark the matching base UC name AND the corresponding
+        ``discharge_<NAME>min/max`` mirror for drop.
+
+    Returns ``(new_commitments, drop_uc_names)``.  Returns empty
+    tuples when no match is found (existing UCs are kept verbatim).
+    """
+    # Hydro = generator with NO fuel membership.
+    hydro_names: set[str] = {g.name for g in generators if not g.fuel_names}
+    if not hydro_names:
+        return ((), frozenset())
+    committed: set[str] = {c.generator_name for c in existing_commitments}
+
+    # Index base UCs by (stem, kind) -> [(gen_name, op, rhs, uc_name)].
+    by_stem: dict[tuple[str, str], list[tuple[str, str, float, str]]] = {}
+    for uc in base_ucs:
+        m = _HYDRO_MIN_MAX_RE.match(uc.name)
+        if m is None:
+            continue
+        parsed = _parse_single_gen_uc(uc.expression)
+        if parsed is None:
+            continue
+        gen_name, coeff, op, rhs = parsed
+        if abs(coeff - 1.0) > 1e-9:
+            # Reject any non-unit coefficient — pmin/pmax map 1:1
+            # to ``generator.generation`` and a scaled LHS would
+            # shift the bound.
+            continue
+        if gen_name not in hydro_names:
+            continue
+        if gen_name in committed:
+            continue
+        stem, kind = m["stem"], m["kind"]
+        by_stem.setdefault((stem, kind), []).append((gen_name, op, rhs, uc.name))
+
+    if not by_stem:
+        return ((), frozenset())
+
+    # Group across kinds: per generator collect (pmin, pmax, source-stem).
+    pmin_by_gen: dict[str, float] = {}
+    pmax_by_gen: dict[str, float] = {}
+    stem_by_gen: dict[str, str] = {}
+    drop_base_uc_names: set[str] = set()
+    drop_stems: set[str] = set()
+    for (stem, kind), rows in by_stem.items():
+        for gen_name, op, rhs, uc_name in rows:
+            stem_by_gen.setdefault(gen_name, stem)
+            if kind == "min" and op == ">=":
+                pmin_by_gen[gen_name] = max(pmin_by_gen.get(gen_name, 0.0), rhs)
+                drop_base_uc_names.add(uc_name)
+                drop_stems.add(stem)
+            elif kind in ("max", "maxramp") and op == "<=":
+                # Pick the tightest (smallest positive) max bound when
+                # multiple ``max`` UCs reference the same generator.
+                cur = pmax_by_gen.get(gen_name, 0.0)
+                pmax_by_gen[gen_name] = rhs if cur == 0.0 else min(cur, rhs)
+                drop_base_uc_names.add(uc_name)
+                drop_stems.add(stem)
+
+    if not stem_by_gen:
+        return ((), frozenset())
+
+    # Also drop the ``discharge_<stem>min/max`` soft mirrors emitted by
+    # ``extract_hydro_discharge_user_constraints`` — they cap the same
+    # turbine discharge sum the native Commitment now enforces via pmin/pmax.
+    drop_discharge_names: set[str] = set()
+    for uc in hydro_ucs:
+        if not uc.name.startswith("discharge_"):
+            continue
+        bare = uc.name[len("discharge_") :]
+        m = _HYDRO_MIN_MAX_RE.match(bare)
+        if m is None:
+            continue
+        if m["stem"] in drop_stems:
+            drop_discharge_names.add(uc.name)
+
+    new_commitments: list[CommitmentSpec] = []
+    for gen_name in sorted(stem_by_gen):
+        pmin = pmin_by_gen.get(gen_name, 0.0)
+        pmax = pmax_by_gen.get(gen_name, 0.0)
+        new_commitments.append(
+            CommitmentSpec(
+                generator_name=gen_name,
+                pmin=pmin,
+                initial_status=1.0,
+            )
+        )
+        logger.info(
+            "auto-promoted hydro min/max UC for stem %s to Commitment(%s) "
+            "pmin=%g pmax=%g",
+            stem_by_gen[gen_name],
+            gen_name,
+            pmin,
+            pmax,
+        )
+
+    drop_names = frozenset(drop_base_uc_names | drop_discharge_names)
+    return tuple(new_commitments), drop_names
+
+
 def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
@@ -8927,6 +9083,23 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators
     )
+    # Auto-promote hydro ``<NAME>min/max`` UCs (per-unit single-term
+    # ``generator(...).generation`` bounds) to native ``Commitment``
+    # objects.  Once a Commitment exists, gtopt enforces
+    # ``pmin·u ≤ gen ≤ pmax·u`` automatically — the per-block UC plus
+    # the discharge_<NAME>min/max soft mirror become redundant and we
+    # drop both.  Lets the LP take ``u = 0`` (forced-off) rather than
+    # paying soft slack to violate a hard floor.
+    auto_commitments, auto_dropped_ucs = _auto_promote_hydro_min_max_to_commitments(
+        base_ucs, hydro_ucs, case.generators, case.commitments
+    )
+    if auto_dropped_ucs:
+        base_ucs = tuple(uc for uc in base_ucs if uc.name not in auto_dropped_ucs)
+        hydro_ucs = tuple(uc for uc in hydro_ucs if uc.name not in auto_dropped_ucs)
+    if auto_commitments:
+        case = dataclasses.replace(
+            case, commitments=case.commitments + auto_commitments
+        )
     # Solution-side FueMaxOff* weekly caps → native ``Fuel.max_offtake``
     # (soft, per-stage budget) instead of the old ``FueMaxOff_*``
     # UserConstraint approximation.  gtopt's FuelLP enforces
