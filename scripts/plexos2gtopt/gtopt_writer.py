@@ -879,6 +879,27 @@ def build_line_array(
     # Loss layout is resolved per-line in the loop below via
     # ``_resolve_loss_layout`` (base layout for all lines, default
     # ``midpoint``; tangent only for explicitly named ``--loss-tangent-lines``).
+    #
+    # ``GTOPT_LOSS_EXTEND_OVERLOAD`` (``--loss-extend-overload``) — when
+    # set, EXTEND each soft-cap line's PWL ``loss_envelope`` by the same
+    # headroom factor the LP uses for the soft-cap overload band, so the
+    # K segments (sized by ``_apply_adaptive_loss_segments`` for the
+    # extended envelope) actually have envelope room to cover the
+    # overload region.  Off → envelope stays pinned to the original
+    # rating (the pre-2026-05-29 default).
+    #
+    # Bug history (#44): the writer's soft-cap inline block at line
+    # 1015+ used to hardcode ``loss_envelope = orig_env`` without
+    # consulting the env var, so the parsers side that DID consult it
+    # to over-allocate K_i ended up wasting segments — K was sized for
+    # ``2× tmax`` but the C++ side saw ``loss_envelope = tmax`` and
+    # collapsed the segments back into ``[0, tmax]``.  This block now
+    # mirrors the K-sizing path's flag read.
+    import os as _os_inner_writer
+
+    _extend_overload = _os_inner_writer.environ.get(
+        "GTOPT_LOSS_EXTEND_OVERLOAD", "0"
+    ).strip() in ("1", "true", "yes", "on")
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
         # Parser (`extract_lines`) already clamps hour-0 units to 1 and
@@ -1024,7 +1045,16 @@ def build_line_array(
                     entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
                     entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
                 if orig_env > 0.0:
-                    entry["loss_envelope"] = orig_env
+                    # ``--loss-extend-overload`` (#44): when ON, extend
+                    # the PWL envelope by the hard-cap headroom factor
+                    # (2× for regular soft_cap, 4× for soft_cap_lifted)
+                    # so the K segments — already sized for the wider
+                    # envelope by ``_apply_adaptive_loss_segments`` —
+                    # actually have envelope room to cover the soft-cap
+                    # overload band.  OFF (default): keep the historical
+                    # pinning to the original rating.
+                    envelope_factor = hard_f if _extend_overload else 1.0
+                    entry["loss_envelope"] = orig_env * envelope_factor
                 entry["overload_penalty"] = overload_penalty
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance

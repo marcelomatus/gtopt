@@ -166,6 +166,89 @@ def test_el0_extended_soft_caps_inflate_tmax() -> None:
     assert "overload_penalty" in out[0]
 
 
+def test_soft_cap_loss_envelope_extends_under_flag(monkeypatch) -> None:
+    """``--loss-extend-overload`` (env ``GTOPT_LOSS_EXTEND_OVERLOAD=1``)
+    MUST widen the writer-emitted ``loss_envelope`` by the hard-cap
+    headroom factor on soft-cap lines.  Before #44 the parsers side
+    sized K_i for the extended envelope but the writer hardcoded
+    ``loss_envelope = orig_env`` regardless of the flag — the C++
+    side then collapsed the K segments back into ``[0, tmax_normal]``,
+    silently wasting the K growth.
+
+    Regression contract:
+
+      * OFF / unset → envelope == original rating.
+      * ON, regular soft_cap  → envelope == 2× original rating.
+      * ON, soft_cap_lifted   → envelope == 4× original rating.
+      * EL=2 hard-cap line    → envelope unchanged regardless of flag
+        (LP can never flow past tmax, so wider envelope is moot).
+    """
+    monkeypatch.delenv("GTOPT_LOSS_EXTEND_OVERLOAD", raising=False)
+
+    lines = (
+        # EL=2 hard cap — extending the envelope is a no-op for these.
+        LineSpec(
+            object_id=10,
+            name="hard_cap",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+            resistance=0.05,  # piecewise loss path
+            enforce_limits=2,
+            units=1,
+        ),
+        # Regular soft cap — 2× hard headroom.
+        LineSpec(
+            object_id=11,
+            name="soft_reg",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+            resistance=0.05,
+            enforce_limits=1,
+            soft_cap=True,
+            units=1,
+        ),
+        # Lifted soft cap — 4× hard headroom.
+        LineSpec(
+            object_id=12,
+            name="soft_lifted",
+            bus_from="a",
+            bus_to="b",
+            tmax_ab=100.0,
+            resistance=0.05,
+            enforce_limits=1,
+            soft_cap=True,
+            soft_cap_lifted=True,
+            units=1,
+        ),
+    )
+
+    off = {ln["name"]: ln for ln in build_line_array(lines)}
+    assert off["hard_cap"]["loss_envelope"] == 100.0
+    assert off["soft_reg"]["loss_envelope"] == 100.0
+    assert off["soft_lifted"]["loss_envelope"] == 100.0
+
+    monkeypatch.setenv("GTOPT_LOSS_EXTEND_OVERLOAD", "1")
+    on = {ln["name"]: ln for ln in build_line_array(lines)}
+    # Hard cap: unchanged (LP can't flow past tmax — the wider envelope
+    # would be vacuous and could under-resolve I²R at the rated point).
+    assert on["hard_cap"]["loss_envelope"] == 100.0
+    # Soft cap: envelope = orig × hard_f (2× regular, 4× lifted).  Pull
+    # the factors via the actual writer constants so the test tracks
+    # future tweaks instead of pinning to literal numbers.
+    from plexos2gtopt.gtopt_writer import (
+        _LINE_SOFT_HARD_FACTOR,
+        _LINE_LIFTED_HARD_FACTOR,
+    )
+
+    assert on["soft_reg"]["loss_envelope"] == 100.0 * _LINE_SOFT_HARD_FACTOR
+    assert on["soft_lifted"]["loss_envelope"] == 100.0 * _LINE_LIFTED_HARD_FACTOR
+    # Soft-cap envelopes strictly widen under the flag.
+    assert on["soft_reg"]["loss_envelope"] > off["soft_reg"]["loss_envelope"]
+    assert on["soft_lifted"]["loss_envelope"] > off["soft_lifted"]["loss_envelope"]
+
+
 def test_el0_strict_acts_like_el2_hard_cap() -> None:
     """--el0-lines strict: the line is a plain hard cap at the nominal rating.
 
