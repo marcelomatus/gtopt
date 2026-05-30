@@ -1,0 +1,737 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+"""PCP UC full-audit builder.
+
+Compares the user-constraints emitted by plexos2gtopt against the
+solved PLEXOS Constraint rows in a RES*.accdb solution database.
+Surfaces real divergences (RHS scale mismatches, missing UCs that
+PLEXOS solves hard, soft/hard classification drift) and silences
+structural noise (UCs realised as native gtopt primitives,
+constraints PLEXOS itself never binds).
+
+Inputs
+------
+* ``--plexos-cache DIR``: cached PLEXOS sol tables produced by
+  :mod:`cen2gtopt.pcp_solution.cache_plexos_tables` (the bundle's
+  ``accdb_cache_dir`` populated by the converter when
+  ``--plexos-solution-accdb`` is honoured).  Reads ``t_object.csv``,
+  ``t_membership.csv``, ``t_key.csv`` and ``t_data_0.csv``.
+* ``--gtopt-dir DIR``: a converter output directory containing the
+  ``uc_*.pampl`` PAMPL files and the converted planning JSON.
+* ``--hard-list PATH`` (optional): the PLEXOS-HARD audit list, defaults
+  to :file:`data/cen_pcp_hard_ucs.txt`.
+* ``--output PATH`` (optional): write the audit JSON to this path
+  (default: stdout summary only).
+
+Output
+------
+A summary table on stdout, plus an optional JSON dump containing:
+
+* identity counts (intersection / missing / synthetic-in-gtopt)
+* per-row diff for the intersection
+* named mismatch buckets (B2 RHS, B3 missing UC, B5/B6 soft/hard, etc.)
+* the duplicate-name index
+
+Exit code
+---------
+* ``0``: no significant bugs detected (B2/B5 buckets empty)
+* ``1``: significant bugs detected (RHS scale mismatch or hard-list drift)
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import logging
+import re
+import sys
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# PLEXOS sol .accdb property ids (constraint solution columns)
+# ---------------------------------------------------------------------------
+PROP_ACTIVITY = 3069
+PROP_SLACK = 3070
+PROP_HRSBIND = 3072
+PROP_RHS = 3073
+PROP_PRICE = 3074
+_WANTED_PIDS = frozenset(
+    {PROP_ACTIVITY, PROP_SLACK, PROP_HRSBIND, PROP_RHS, PROP_PRICE}
+)
+CONSTRAINT_CLASS_ID = 70
+SYS_CONSTRAINT_COLLECTION_ID = 700
+
+
+# ---------------------------------------------------------------------------
+# UC family / hydro classifiers
+# ---------------------------------------------------------------------------
+UC_FAMILY_PATTERNS = (
+    (re.compile(r"^BatMaxCycDay_"), "battery_cycle"),
+    (re.compile(r"^CPF_BESS_"), "battery_cycle"),
+    (re.compile(r"^Gas_MaxOpDay"), "gas_maxopday"),
+    (re.compile(r"^FueMaxOff"), "fuel_offtake_week"),
+    (re.compile(r"_starting$"), "commit_startup"),
+    (re.compile(r"^MutuallyExclusive_", re.IGNORECASE), "mutually_exclusive"),
+    (re.compile(r"_PMax$"), "pmax_cap"),
+    (re.compile(r"_PMin$"), "pmin_floor"),
+    (re.compile(r"^discharge_"), "discharge_min"),
+    (re.compile(r"reserve$"), "reservoir_energy"),
+    (re.compile(r"eco$"), "reservoir_economy"),
+    (re.compile(r"max$"), "hydro_max"),
+    (re.compile(r"min$"), "hydro_min"),
+    (
+        re.compile(
+            r"(maxramp|rampdown|rampup|ramp|lagrampup|lagrampdown|rampdownact)$"
+        ),
+        "hydro_ramp",
+    ),
+    (re.compile(r"^limited_generation"), "comparison"),
+    (re.compile(r"_Uniq$"), "config_uniq"),
+    (re.compile(r"^FCF"), "fcf"),
+    (re.compile(r"^Reserv(e|a)"), "reserve_reg"),
+    (re.compile(r"AGC", re.IGNORECASE), "agc_reserve"),
+    (re.compile(r"^[0-9]+_"), "transmission_security"),
+    (re.compile(r"^SD_"), "transmission_security"),
+    (re.compile(r"^CTF"), "config_transfer"),
+    (re.compile(r"^CSF_|^CPF_|^CRC"), "reserve_provision"),
+)
+
+_HYDRO_PLANTS = frozenset(
+    {
+        "ANTUCO",
+        "ANGOSTURA",
+        "CIPRESES",
+        "COLBUN",
+        "ELTORO",
+        "LMAULE",
+        "MACHICURA",
+        "PANGUE",
+        "PEHUENCHE",
+        "POLPAICO",
+        "POLCURA",
+        "RALCO",
+        "RAPEL",
+        "SAUZAL",
+        "SAUZALITO",
+    }
+)
+_HYDRO_SUFFIXES = (
+    "min",
+    "max",
+    "ramp",
+    "maxramp",
+    "lagrampup",
+    "lagrampdown",
+    "rampdown",
+    "rampup",
+    "rampdownact",
+    "eco",
+    "reserve",
+)
+
+
+def categorise(name: str) -> str:
+    """Map a UC name to its family label (one of UC_FAMILY_PATTERNS)."""
+    for r, label in UC_FAMILY_PATTERNS:
+        if r.search(name):
+            return label
+    return "other"
+
+
+def is_hydro_minmax(name: str) -> bool:
+    """True when ``name`` is a per-plant hydro min/max/ramp UC.
+
+    These are excluded from the B5 hard-soft mismatch bucket by design
+    — gtopt keeps them soft because it lacks a commit-status primitive
+    to gate the floor on unit-online, the PLEXOS semantics.
+    """
+    upper = name.upper()
+    for plant in _HYDRO_PLANTS:
+        if plant in upper:
+            for s in _HYDRO_SUFFIXES:
+                if name.endswith(s):
+                    return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# PAMPL parsing
+# ---------------------------------------------------------------------------
+_UC_DEF_RE = re.compile(
+    r"(?P<flag>(?:^|\n)\s*(?:inactive\s+)?)constraint\s+"
+    r"(?P<name>\w+)"
+    r"(?:\s+penalty\s+(?P<penalty>\w+))?"
+    r"(?:\s+rhs\s+\[(?P<rhs>[^\]]*)\])?"
+    r"\s*:\s*"
+    r"(?P<body>[^;]*);"
+)
+_OP_RE = re.compile(r"(<=|>=|=)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$")
+_PARAM_RE = re.compile(r"\bparam\s+(\w+)\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*;")
+_TERM_RE = re.compile(
+    r"(?P<sign>[+\-]?)\s*(?P<coeff>\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+    r"\s*\*\s*"
+    r"(?P<func>\w+)\(\"(?P<elem>[^\"]+)\"\)"
+    r"(?:\.(?P<attr>\w+))?"
+)
+
+
+def _parse_lhs_terms(lhs_str: str) -> list[dict]:
+    terms: list[dict] = []
+    last_end = 0
+    for tm in _TERM_RE.finditer(lhs_str):
+        sign_token = tm.group("sign") or "+"
+        between = lhs_str[last_end : tm.start()]
+        extra_sign = 1
+        for ch in between:
+            if ch == "-":
+                extra_sign *= -1
+        coeff = float(tm.group("coeff"))
+        sign = 1 if sign_token != "-" else -1
+        terms.append(
+            {
+                "coeff": sign * extra_sign * coeff,
+                "func": tm.group("func"),
+                "elem": tm.group("elem"),
+                "attr": tm.group("attr"),
+            }
+        )
+        last_end = tm.end()
+    return terms
+
+
+def parse_pampl_file(path: Path) -> list[dict]:
+    """Parse one ``uc_*.pampl`` file → list of UC dicts.
+
+    Each dict carries ``{name, file, active, op, rhs_scalar, rhs_profile,
+    penalty_ident, penalty_value, n_terms, terms, lhs_raw}``.
+    """
+    text = path.read_text()
+    # Strip per-line comments
+    text_clean = "".join(
+        ln for ln in text.splitlines(keepends=True) if not ln.lstrip().startswith("#")
+    )
+    pen_params = {m.group(1): float(m.group(2)) for m in _PARAM_RE.finditer(text_clean)}
+    results: list[dict] = []
+    for m in _UC_DEF_RE.finditer(text_clean):
+        flag = (m.group("flag") or "").strip()
+        is_inactive = "inactive" in flag
+        name = m.group("name")
+        penalty_ident = m.group("penalty")
+        rhs_vec_raw = m.group("rhs")
+        body = m.group("body").strip()
+        m_op = _OP_RE.search(body)
+        if not m_op:
+            op = "?"
+            rhs_scalar = None
+            lhs_str = body
+        else:
+            op = m_op.group(1)
+            rhs_scalar = float(m_op.group(2))
+            lhs_str = body[: m_op.start()].strip()
+        terms = _parse_lhs_terms(lhs_str)
+        penalty_val = pen_params.get(penalty_ident, None) if penalty_ident else 0.0
+        rhs_profile = None
+        if rhs_vec_raw is not None:
+            rhs_profile = [
+                float(x.strip()) for x in rhs_vec_raw.split(",") if x.strip()
+            ]
+        results.append(
+            {
+                "name": name,
+                "file": path.name,
+                "active": not is_inactive,
+                "op": op,
+                "rhs_scalar": rhs_scalar,
+                "rhs_profile": rhs_profile,
+                "penalty_ident": penalty_ident,
+                "penalty_value": penalty_val,
+                "n_terms": len(terms),
+                "terms": terms,
+                "lhs_raw": lhs_str,
+            }
+        )
+    return results
+
+
+def parse_pampl_dir(pampl_dir: Path) -> list[dict]:
+    """All ``uc_*.pampl`` files in ``pampl_dir``, concatenated."""
+    rows: list[dict] = []
+    for p in sorted(pampl_dir.glob("uc_*.pampl")):
+        rows.extend(parse_pampl_file(p))
+    return rows
+
+
+def parse_json_ucs(planning_json: Path) -> list[dict]:
+    """Extract inline UCs from the planning JSON ``user_constraint_array``."""
+    data = json.loads(planning_json.read_text())
+    rows: list[dict] = []
+    uc_arr = data.get("system", {}).get("user_constraint_array", [])
+    for uc in uc_arr:
+        expr = uc.get("expression", "") or ""
+        m_op = _OP_RE.search(expr)
+        if not m_op:
+            op = "?"
+            rhs_scalar = None
+            lhs_str = expr
+        else:
+            op = m_op.group(1)
+            rhs_scalar = float(m_op.group(2))
+            lhs_str = expr[: m_op.start()].strip()
+        terms = _parse_lhs_terms(lhs_str)
+        rows.append(
+            {
+                "name": uc.get("name"),
+                "file": f"{planning_json.name}:user_constraint_array",
+                "active": uc.get("active", True),
+                "op": op,
+                "rhs_scalar": rhs_scalar,
+                "rhs_profile": uc.get("rhs_profile") or uc.get("rhs"),
+                "penalty_ident": None,
+                "penalty_value": uc.get("penalty"),
+                "n_terms": len(terms),
+                "terms": terms,
+                "lhs_raw": lhs_str,
+                "daily_sum": uc.get("daily_sum", False),
+                "constraint_type": uc.get("constraint_type"),
+            }
+        )
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# PLEXOS sol .accdb cache loaders
+# ---------------------------------------------------------------------------
+def _read_csv(path: Path) -> list[dict]:
+    with path.open() as f:
+        return list(csv.DictReader(f))
+
+
+def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
+    """Aggregate per-constraint solution metrics from the PLEXOS cache."""
+    objects = {}
+    for r in _read_csv(cache_dir / "t_object.csv"):
+        try:
+            objects[int(r["object_id"])] = {
+                "name": r["name"],
+                "class_id": int(r["class_id"]),
+            }
+        except (ValueError, KeyError):
+            continue
+    constraint_oids = {
+        oid: rec["name"]
+        for oid, rec in objects.items()
+        if rec["class_id"] == CONSTRAINT_CLASS_ID
+    }
+    sys_mem_by_constraint: dict[int, int] = {}
+    for m in _read_csv(cache_dir / "t_membership.csv"):
+        try:
+            if (
+                int(m["collection_id"]) == SYS_CONSTRAINT_COLLECTION_ID
+                and int(m["child_class_id"]) == CONSTRAINT_CLASS_ID
+            ):
+                sys_mem_by_constraint[int(m["child_object_id"])] = int(
+                    m["membership_id"]
+                )
+        except (ValueError, KeyError):
+            continue
+    mid_to_constraint_oid = {mid: cid for cid, mid in sys_mem_by_constraint.items()}
+    keys_by_constraint: dict[int, dict[int, list[int]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for k in _read_csv(cache_dir / "t_key.csv"):
+        try:
+            cid = mid_to_constraint_oid.get(int(k["membership_id"]))
+            pid = int(k["property_id"])
+        except (ValueError, KeyError):
+            continue
+        if cid is None or pid not in _WANTED_PIDS:
+            continue
+        keys_by_constraint[cid][pid].append(int(k["key_id"]))
+
+    by_key: dict[int, list[float]] = defaultdict(list)
+    for r in _read_csv(cache_dir / "t_data_0.csv"):
+        try:
+            kid = int(r["key_id"])
+            v = float(r["value"])
+        except (ValueError, KeyError):
+            continue
+        by_key[kid].append(v)
+
+    result: dict[str, dict] = {}
+    for oid, name in constraint_oids.items():
+        prop_keys = keys_by_constraint.get(oid, {})
+        rec: dict[str, Any] = {"name": name, "object_id": oid}
+        for label, pid in (
+            ("activity", PROP_ACTIVITY),
+            ("slack", PROP_SLACK),
+            ("hours_binding", PROP_HRSBIND),
+            ("rhs", PROP_RHS),
+            ("price", PROP_PRICE),
+        ):
+            values: list[float] = []
+            for kid in prop_keys.get(pid, ()):
+                values.extend(by_key.get(kid, ()))
+            if values:
+                rec[f"{label}_n"] = len(values)
+                rec[f"{label}_sum"] = sum(values)
+                rec[f"{label}_max"] = max(values)
+                rec[f"{label}_min"] = min(values)
+                rec[f"{label}_sum_abs"] = sum(abs(v) for v in values)
+            else:
+                rec[f"{label}_n"] = 0
+                rec[f"{label}_sum"] = 0.0
+                rec[f"{label}_max"] = 0.0
+                rec[f"{label}_min"] = 0.0
+                rec[f"{label}_sum_abs"] = 0.0
+        rec["plexos_hard_solved"] = bool(
+            rec["price_sum_abs"] > 0.0 and rec["slack_sum_abs"] == 0.0
+        )
+        rec["plexos_binding"] = bool(rec["hours_binding_sum"] > 0)
+        rec["plexos_active"] = bool(
+            rec["activity_n"] > 0 or rec["rhs_n"] > 0 or rec["hours_binding_n"] > 0
+        )
+        result[name] = rec
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Hard-list loader
+# ---------------------------------------------------------------------------
+def load_hard_list(path: Path) -> set[str]:
+    """Read ``cen_pcp_hard_ucs.txt`` → set of constraint names."""
+    if not path.is_file():
+        return set()
+    names: set[str] = set()
+    for ln in path.read_text().splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        name = ln.split("#", 1)[0].strip()
+        if name:
+            names.add(name)
+    return names
+
+
+# ---------------------------------------------------------------------------
+# Audit runner
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class AuditInputs:
+    """Paths consumed by :func:`run_audit`."""
+
+    plexos_cache_dir: Path
+    gtopt_pampl_dir: Path
+    gtopt_json: Path
+    hard_list: Path | None = None
+
+
+@dataclass
+class AuditResult:
+    """In-memory audit output (also serialisable via :func:`to_dict`)."""
+
+    plexos_solution: dict[str, dict]
+    gtopt_ucs: list[dict]
+    duplicates: dict[str, list[str]]
+    intersection: list[str]
+    missing_from_gtopt: list[str]
+    synthetic_in_gtopt: list[str]
+    buckets: dict[str, list[dict]]
+    per_row_diff: list[dict]
+    summary: dict
+    hard_list: set[str] = field(default_factory=set)
+
+    def to_dict(self) -> dict:
+        return {
+            "summary": self.summary,
+            "duplicates": self.duplicates,
+            "intersection_count": len(self.intersection),
+            "missing_from_gtopt": self.missing_from_gtopt,
+            "synthetic_in_gtopt": self.synthetic_in_gtopt,
+            "buckets": {
+                k: {"count": len(v), "items": v} for k, v in self.buckets.items()
+            },
+            "per_row_diff": self.per_row_diff,
+            "hard_list_total": len(self.hard_list),
+        }
+
+
+def run_audit(inputs: AuditInputs) -> AuditResult:
+    """Run the full audit and return :class:`AuditResult`."""
+    plexos = build_plexos_solution(inputs.plexos_cache_dir)
+    gtopt_pampl = parse_pampl_dir(inputs.gtopt_pampl_dir)
+    gtopt_json = (
+        parse_json_ucs(inputs.gtopt_json) if inputs.gtopt_json.is_file() else []
+    )
+    gtopt_all = gtopt_pampl + gtopt_json
+    gtopt_by_name = {row["name"]: row for row in gtopt_all}
+    name_counts: dict[str, list[str]] = defaultdict(list)
+    for row in gtopt_all:
+        name_counts[row["name"]].append(row["file"])
+    duplicates = {n: lst for n, lst in name_counts.items() if len(lst) > 1}
+
+    hard_list = (
+        load_hard_list(inputs.hard_list) if inputs.hard_list is not None else set()
+    )
+    plexos_names = set(plexos.keys())
+    gtopt_names = set(gtopt_by_name.keys())
+    intersection = sorted(plexos_names & gtopt_names)
+    missing_from_gtopt = sorted(plexos_names - gtopt_names)
+    synthetic_in_gtopt = sorted(gtopt_names - plexos_names)
+
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    per_row: list[dict] = []
+    for name in intersection:
+        p = plexos[name]
+        g = gtopt_by_name[name]
+        pv = g["penalty_value"] or 0.0
+        if pv == 0.0:
+            pen_class = "hard"
+        elif pv >= 1000.0:
+            pen_class = "soft_resv"
+        elif pv > 0.0:
+            pen_class = "soft_op"
+        else:
+            pen_class = "unknown"
+        row = {
+            "name": name,
+            "family": categorise(name),
+            "gtopt_op": g["op"],
+            "gtopt_penalty": pv,
+            "gtopt_penalty_class": pen_class,
+            "gtopt_active": g["active"],
+            "gtopt_n_terms": g["n_terms"],
+            "plexos_rhs_max": p["rhs_max"] if p["rhs_n"] > 0 else None,
+            "plexos_rhs_min": p["rhs_min"] if p["rhs_n"] > 0 else None,
+            "plexos_hours_binding": p["hours_binding_sum"],
+            "plexos_slack_sum_abs": p["slack_sum_abs"],
+            "plexos_price_sum_abs": p["price_sum_abs"],
+            "plexos_active_in_sol": p["plexos_active"],
+            "plexos_hard_solved": p["plexos_hard_solved"],
+            "in_hard_list": name in hard_list,
+        }
+
+        # B2: RHS scale mismatch (gtopt's per-period max vs PLEXOS's per-period max)
+        if (
+            p["rhs_n"] > 0
+            and g["rhs_scalar"] is not None
+            and not g.get("daily_sum", False)
+        ):
+            g_eff = max(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
+            p_eff = p["rhs_max"]
+            rel = (
+                abs(p_eff - g_eff) / max(abs(p_eff), 1e-9) if p_eff is not None else 0.0
+            )
+            if rel > 0.05 and abs(p_eff - g_eff) > 1e-3 and g_eff != 0.0:
+                buckets["B2_rhs_mismatch"].append(
+                    {
+                        "name": name,
+                        "plexos_rhs_max": p_eff,
+                        "gtopt_rhs_eff": g_eff,
+                        "ratio": g_eff / p_eff if p_eff else None,
+                    }
+                )
+
+        # B5: hard in PLEXOS audit list, soft in gtopt (skip hydro-by-design)
+        if name in hard_list and pen_class != "hard" and not is_hydro_minmax(name):
+            buckets["B5_hard_in_plexos_soft_in_gtopt"].append(
+                {"name": name, "gtopt_penalty": pv}
+            )
+
+        # B6: PLEXOS treats as soft (binding with slack), gtopt enforces hard
+        if (
+            name not in hard_list
+            and pen_class == "hard"
+            and not p["plexos_hard_solved"]
+            and p["slack_sum_abs"] > 0.0
+        ):
+            buckets["B6_soft_in_plexos_hard_in_gtopt"].append(
+                {"name": name, "plexos_slack": p["slack_sum_abs"]}
+            )
+
+        # B9: inactive in gtopt but PLEXOS reports binding activity
+        if (
+            not g["active"]
+            and p["plexos_active"]
+            and p["activity_sum_abs"] > 0.0
+            and p["price_sum_abs"] > 0.0  # economically active, not just LHS-flow
+        ):
+            buckets["B9_inactive_gtopt_active_plexos"].append(
+                {
+                    "name": name,
+                    "plexos_activity": p["activity_sum_abs"],
+                    "plexos_price": p["price_sum_abs"],
+                }
+            )
+        per_row.append(row)
+
+    missing_by_family: dict[str, list[str]] = defaultdict(list)
+    for name in missing_from_gtopt:
+        missing_by_family[categorise(name)].append(name)
+    for fam, names in missing_by_family.items():
+        if len(names) >= 50:
+            buckets["B7_missing_uc_family"].append(
+                {"family": fam, "count": len(names), "sample": names[:5]}
+            )
+        else:
+            for n in names:
+                buckets["B3_missing_uc"].append(
+                    {
+                        "name": n,
+                        "family": fam,
+                        "plexos_hours_binding": plexos[n]["hours_binding_sum"],
+                        "plexos_price_max": plexos[n]["price_max"],
+                        "plexos_active_in_sol": plexos[n]["plexos_active"],
+                    }
+                )
+
+    for name in synthetic_in_gtopt:
+        buckets["B8_synthetic_in_gtopt"].append(
+            {
+                "name": name,
+                "family": categorise(name),
+                "gtopt_penalty": gtopt_by_name[name]["penalty_value"],
+                "gtopt_active": gtopt_by_name[name]["active"],
+            }
+        )
+
+    summary = {
+        "n_plexos": len(plexos_names),
+        "n_gtopt_pampl": len(gtopt_pampl),
+        "n_gtopt_json": len(gtopt_json),
+        "n_gtopt_total": len(gtopt_all),
+        "n_intersection": len(intersection),
+        "n_missing_from_gtopt": len(missing_from_gtopt),
+        "n_synthetic_in_gtopt": len(synthetic_in_gtopt),
+        "n_duplicates_in_gtopt": len(duplicates),
+        "bucket_counts": {k: len(v) for k, v in buckets.items()},
+        "hard_list_total": len(hard_list),
+    }
+    return AuditResult(
+        plexos_solution=plexos,
+        gtopt_ucs=gtopt_all,
+        duplicates=duplicates,
+        intersection=intersection,
+        missing_from_gtopt=missing_from_gtopt,
+        synthetic_in_gtopt=synthetic_in_gtopt,
+        buckets=dict(buckets),
+        per_row_diff=per_row,
+        summary=summary,
+        hard_list=hard_list,
+    )
+
+
+def _print_summary(result: AuditResult) -> None:
+    s = result.summary
+    print(f"PLEXOS constraints in sol: {s['n_plexos']}")
+    print(
+        f"gtopt UCs:                 {s['n_gtopt_total']} "
+        f"({s['n_gtopt_pampl']} PAMPL + {s['n_gtopt_json']} JSON)"
+    )
+    print(f"intersection (compared):   {s['n_intersection']}")
+    print(f"missing from gtopt:        {s['n_missing_from_gtopt']}")
+    print(f"synthetic in gtopt:        {s['n_synthetic_in_gtopt']}")
+    print(f"duplicate names in gtopt:  {s['n_duplicates_in_gtopt']}")
+    if s["hard_list_total"]:
+        print(f"hard-list size:            {s['hard_list_total']}")
+    print("buckets:")
+    for k, n in sorted(s["bucket_counts"].items(), key=lambda kv: -kv[1]):
+        print(f"  {k:40s} {n:>6d}")
+
+
+def make_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="plexos2gtopt.uc_audit",
+        description="Audit gtopt user-constraints against the PLEXOS sol .accdb",
+    )
+    parser.add_argument(
+        "--plexos-cache",
+        type=Path,
+        required=True,
+        help="cached PLEXOS sol tables (t_object.csv, t_membership.csv, "
+        "t_key.csv, t_data_0.csv) — usually the bundle's accdb_cache_dir",
+    )
+    parser.add_argument(
+        "--gtopt-dir",
+        type=Path,
+        required=True,
+        help="converter output dir containing uc_*.pampl + planning JSON",
+    )
+    parser.add_argument(
+        "--gtopt-json",
+        type=Path,
+        default=None,
+        help="explicit path to the planning JSON (defaults to the first *.json "
+        "in --gtopt-dir that is NOT a *.provenance.json)",
+    )
+    parser.add_argument(
+        "--hard-list",
+        type=Path,
+        default=Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt",
+        help="PLEXOS-HARD audit list (default: bundled cen_pcp_hard_ucs.txt)",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="write the full audit JSON to this path (omit for stdout summary only)",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit non-zero if B2 (RHS) or B5 (hard-soft) buckets are non-empty",
+    )
+    return parser
+
+
+def _resolve_gtopt_json(args: argparse.Namespace) -> Path:
+    if args.gtopt_json is not None:
+        return args.gtopt_json
+    for p in sorted(args.gtopt_dir.glob("*.json")):
+        if not p.name.endswith(".provenance.json"):
+            return p
+    raise SystemExit(
+        f"no planning JSON found in {args.gtopt_dir} (pass --gtopt-json explicitly)"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    args = make_parser().parse_args(argv)
+    if not args.plexos_cache.is_dir():
+        raise SystemExit(f"--plexos-cache not a directory: {args.plexos_cache}")
+    if not args.gtopt_dir.is_dir():
+        raise SystemExit(f"--gtopt-dir not a directory: {args.gtopt_dir}")
+    gtopt_json = _resolve_gtopt_json(args)
+    inputs = AuditInputs(
+        plexos_cache_dir=args.plexos_cache,
+        gtopt_pampl_dir=args.gtopt_dir,
+        gtopt_json=gtopt_json,
+        hard_list=args.hard_list if args.hard_list.is_file() else None,
+    )
+    result = run_audit(inputs)
+    _print_summary(result)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result.to_dict(), indent=1, default=float))
+        print(f"\nwrote audit JSON: {args.output}")
+    if args.strict:
+        n_b2 = len(result.buckets.get("B2_rhs_mismatch", ()))
+        n_b5 = len(result.buckets.get("B5_hard_in_plexos_soft_in_gtopt", ()))
+        if n_b2 or n_b5:
+            print(
+                f"\n[strict] B2={n_b2} B5={n_b5} — significant divergence detected",
+                file=sys.stderr,
+            )
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
