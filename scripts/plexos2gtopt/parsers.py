@@ -7016,7 +7016,33 @@ def extract_user_constraints(
         # at the PLEXOS-supplied penalty (typically hard).
         plexos_penalty = penalty_val if penalty_val and penalty_val > 0 else 0.0
         emitted_penalty = plexos_penalty
-        if plexos_penalty == 0.0 and not is_inactive:
+        # OVERRIDE: name-based "PLEXOS-hard, but data-inconsistent"
+        # ports.  RES20260422.accdb pid-3070 reports zero slack on
+        # every ``Gas_MaxOpDay*`` (binding 111/111, price $78-83/h)
+        # and ``limited_generation_calculation`` (binding 53/111,
+        # price ~$35/h) — so PLEXOS effectively solves them HARD.
+        # Promoting them to ``penalty=0`` in gtopt, however, produces
+        # a CPLEX presolve infeasibility (``Implied bounds make row
+        # c1280073 infeasible`` on the v3 LP-relax, 2026-05-29) —
+        # PLEXOS absorbs the discrepancy via internal-solver
+        # tolerance / Big-M that we cannot replicate.
+        #
+        # Compromise: same tier as the reserve_provision_sum family
+        # ($1,000/MWh — 100× the catch-all $10 hydro tier).  At
+        # $1,000 the LP almost never elects to violate (PLEXOS shadow
+        # prices are all <$100/h) but the row can absorb the rare
+        # per-block contradiction without going infeasible.  When the
+        # source data is repaired (Fuel.X.offtake schedule cleanup or
+        # explicit Big-M emission), bump this to ``0.0`` to match
+        # PLEXOS exactly.  Applied BEFORE the ``plexos_penalty ==
+        # 0.0`` demote-to-soft branch so a PLEXOS-supplied non-zero
+        # input penalty doesn't block our override.
+        if (
+            constr.name.startswith("Gas_MaxOpDay")
+            or constr.name == "limited_generation_calculation"
+        ) and not is_inactive:
+            emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
+        elif plexos_penalty == 0.0 and not is_inactive:
             # Two-tier soft default for active PLEXOS Constraints
             # without an explicit Penalty Price:
             #
@@ -7148,7 +7174,32 @@ def extract_user_constraints(
             is_reserve_provision_sum = (
                 has_reserve_provision_sum or is_reserve_calculation
             )
-            if is_reserve_provision_sum:
+            # ``Gas_MaxOpDay*`` / ``limited_generation_calculation``
+            # are handled by the upstream name-based override (above
+            # this if-block) so they hit the outer branch first; the
+            # is_reserve_provision_sum / catch-all $10 paths below
+            # never see them.  Listed here for the audit trail only.
+            #
+            # PLEXOS RegRange UCs (regulation-range constraints — name
+            # ends in ``_RegRange_e1`` or ``_RegRange_e2``) are
+            # STRUCTURALLY INFEASIBLE under LP-relax with correct
+            # [0, 1] commitment_status bounds.  PLEXOS solves them at
+            # INTEGER status corners where the constraint IS
+            # satisfiable.  Once the equilibration rescaling that
+            # silently inflated status bounds to [0, ~38] is fixed
+            # (task #50), the LP becomes infeasible.  Promote them to
+            # the same high soft penalty as reserve-provision sums so
+            # LP-relax can absorb the infeasibility at $1000/MWh
+            # while MIP solves at the integer corners.  Detection:
+            #   * name contains ``_RegRange_``
+            #   * has commitment refs AND (generator OR reserve_provision)
+            # The mixed-atom shape distinguishes RegRange from pure
+            # reserve sums (which have no commitment / generator refs).
+            is_regrange_uc = "_RegRange_" in constr.name and (
+                "commitment(" in expression
+                and ("generator(" in expression or "reserve_provision(" in expression)
+            )
+            if is_reserve_provision_sum or is_regrange_uc:
                 emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
             elif not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
