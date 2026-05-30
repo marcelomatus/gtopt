@@ -332,7 +332,11 @@ public:
     // that invariant and intentionally overrides any VariableScaleMap
     // entry — there is no legitimate use case for scaling a discrete
     // variable.
-    if (col.is_integer) [[unlikely]] {
+    //
+    // The ``pin_scale`` flag extends the same exemption to LP-relax-of-
+    // integer columns and never-integer-declared [0, 1] semantically-
+    // binary variables (startup / shutdown) — see task #50.
+    if (col.is_integer || col.pin_scale) [[unlikely]] {
       col.scale = 1.0;
     } else if (!col.class_name.empty() && !m_vsm_.empty()) {
       // Auto-resolve scale from VariableScaleMap when the caller provided

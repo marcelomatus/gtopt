@@ -193,7 +193,7 @@ struct RuizScalingResult
     std::span<double> colub,
     std::span<double> objval,
     std::span<double> col_scales,
-    std::span<const FlatLinearProblem::index_t> colint,
+    std::span<const FlatLinearProblem::index_t> colpin,
     double infinity,
     FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
     int max_iterations = 10,
@@ -202,18 +202,19 @@ struct RuizScalingResult
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();
 
-  // Integer / binary columns must keep ``col_scale = 1`` so that their
-  // physical [0, 1] bound stays at LP-side [0, 1] — otherwise the
-  // backend's integer enforcement (CPLEX ``General`` section) restricts
-  // the LP variable to integer values within a non-integer interval
-  // (e.g. 11.6189) and physical ``u = 1`` becomes unreachable.  Build a
-  // dense bitmap so the inner loops can branch O(1) without a
-  // linear-scan of ``colint`` per iteration.
-  std::vector<bool> is_integer_col(ncols, false);
-  for (const auto idx : colint) {
+  // ``colpin`` carries column indices exempt from rescaling — the
+  // union of (a) integer-declared columns (where a non-unit scale
+  // would turn the physical bound 1 into a non-integer LP upper bound
+  // and break backend integer enforcement) and (b) ``pin_scale``-
+  // tagged semantically-binary continuous columns (LP-relaxed
+  // commitment status / startup / shutdown — see SparseCol::pin_scale
+  // and task #50).  Build a dense bitmap so the inner loops branch
+  // O(1) without a linear-scan of ``colpin`` per iteration.
+  std::vector<bool> is_pinned_col(ncols, false);
+  for (const auto idx : colpin) {
     const auto j = static_cast<size_t>(idx);
     if (j < ncols) {
-      is_integer_col[j] = true;
+      is_pinned_col[j] = true;
     }
   }
 
@@ -255,10 +256,10 @@ struct RuizScalingResult
     }
 
     // 3. Compute column reciprocal factors and track convergence.
-    //    Integer columns are pinned at col_factor = 1.0 — see the
-    //    ``is_integer_col`` rationale at the top of this function.
+    //    Pinned columns are kept at col_factor = 1.0 — see the
+    //    ``is_pinned_col`` rationale at the top of this function.
     for (size_t j = 0; j < ncols; ++j) {
-      if (is_integer_col[j]) [[unlikely]] {
+      if (is_pinned_col[j]) [[unlikely]] {
         col_factor[j] = 1.0;
         continue;
       }
@@ -562,6 +563,17 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
+  // ``colpin`` mirrors ``colint`` but carries cols flagged with
+  // ``pin_scale = true`` (a strict superset that includes every
+  // integer col plus any semantically-binary continuous col — e.g.
+  // LP-relaxed commitment status / startup / shutdown).  Passed into
+  // ``apply_ruiz_scaling`` so the Ruiz pass treats the whole pin set
+  // identically: ``col_factor[j] = 1.0`` for every pinned column,
+  // never multiplying ``col_scales[j]`` away from the auto-scaler's
+  // pinned 1.0.  See task #50.
+  std::vector<fp_index_t> colpin;
+  colpin.reserve(colints);
+
   for (const auto& [i, col] : enumerate(cols)) {
     // SparseCol bounds are physical; convert to LP units by dividing
     // by the column scale factor.  Infinite bounds are preserved as-is
@@ -579,6 +591,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
+    }
+    if (col.is_integer || col.pin_scale) [[unlikely]] {
+      colpin.push_back(static_cast<fp_index_t>(i));
     }
   }
 
@@ -740,6 +755,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   } else if (eq_method == LpEquilibrationMethod::ruiz) {
     const auto sqrt_method =
         opts.fast_sqrt_method.value_or(FastSqrtMethod::ieee_halve);
+    // Pass ``colpin`` (= integer ∪ pin_scale) instead of ``colint``
+    // alone so Ruiz pins both integers AND semantically-binary
+    // continuous cols (task #50).
     row_scales_vec = apply_ruiz_scaling(matbeg,
                                         matind,
                                         matval,
@@ -749,7 +767,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         colub,
                                         objval,
                                         col_scales,
-                                        colint,
+                                        colpin,
                                         m_infinity_,
                                         sqrt_method);
   }

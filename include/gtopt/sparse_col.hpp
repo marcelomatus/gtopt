@@ -79,6 +79,25 @@ struct SparseCol
                           ///< state variable I/O uses the StateVariable map
                           ///< (ColIndex-based) directly.  Set via
                           ///< `SystemContext::add_state_col()`.
+  bool pin_scale {false};  ///< When true, the column is exempt from EVERY
+                           ///< equilibration / rescaling pass: the
+                           ///< ``LinearProblem::add_col`` auto-scaler skips
+                           ///< the ``VariableScaleMap`` lookup, and
+                           ///< ``apply_ruiz_scaling`` pins the column
+                           ///< factor at 1.0.  Use for semantically binary
+                           ///< or [0, 1]-bounded variables that lose their
+                           ///< meaning when rescaled — LP-relaxed
+                           ///< commitment status / startup / shutdown
+                           ///< indicators (where ``is_integer = false``
+                           ///< under ``--no-mip`` would otherwise let
+                           ///< Ruiz expand the bound to ``[0, ‖col‖₂]``).
+                           ///< The MIP path (``is_integer = true``) is
+                           ///< already covered by the auto-scaler's
+                           ///< integer guard; ``pin_scale`` extends the
+                           ///< same exemption to LP-relax-of-integer
+                           ///< columns and to never-integer-declared
+                           ///< [0, 1] variables (startup/shutdown).
+                           ///< See task #50 for rationale.
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
 

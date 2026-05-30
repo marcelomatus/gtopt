@@ -83,12 +83,21 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
     // Resolve dispatch_pmin: use schedule value, fall back to generator's pmin
     const auto dpmin = dispatch_pmin_.at(stage.uid(), buid).value_or(gen_pmin);
 
-    // Create binary status variable u (cost = 0, no noload cost)
+    // Create binary status variable u (cost = 0, no noload cost).
+    //
+    // ``pin_scale = true`` so the [0, 1] bound stays at [0, 1] even
+    // under LP-relax — without it the LinearProblem auto-scaler's only
+    // skip flag is ``is_integer``, and LP-relax sets that to false,
+    // leaving the column exposed to VariableScaleMap / Ruiz rescaling
+    // (observed bound expansion to [0, 38.58] on CEN PCP weekly,
+    // breaking the binary semantic and tripping PLEXOS RegRange UCs
+    // at presolve — see task #50).
     auto ucol = lp.add_col({
         .lowb = is_must_run ? 1.0 : 0.0,
         .uppb = 1.0,
         .cost = 0.0,
         .is_integer = !is_relax,
+        .pin_scale = true,  // semantically binary even when LP-relaxed
         .class_name = cname,
         .variable_name = StatusName,
         .variable_uid = cuid,

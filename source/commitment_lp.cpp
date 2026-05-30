@@ -259,11 +259,14 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       }
     }
 
+    // ``pin_scale = true`` keeps the [0, 1] semantic alive under
+    // LP-relax — see task #50 / SparseCol::pin_scale docstring.
     auto ucol = lp.add_col({
         .lowb = u_lowb,
         .uppb = u_uppb,
         .cost = u_cost,
         .is_integer = !is_relax,
+        .pin_scale = true,
         .class_name = cname,
         .variable_name = StatusName,
         .variable_uid = cuid,
@@ -294,11 +297,16 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                                           : stage_startup_cost
             * CostHelper::cost_factor(scenario.probability_factor(),
                                       stage.discount_factor());
+    // Startup ``v`` is continuous-in-[0,1] always (not integer-declared)
+    // but the C1 logic + nonnegative cost force it to {0, 1} at the
+    // optimum.  Pin ``scale = 1.0`` so the C1 coefficient invariants
+    // survive Ruiz / VariableScaleMap — task #50.
     auto vcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = v_cost,
         .is_integer = false,
+        .pin_scale = true,  // semantically binary even when LP-relaxed
         .class_name = cname,
         .variable_name = StartupName,
         .variable_uid = cuid,
@@ -313,11 +321,13 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     const auto w_cost = stage_shutdown_cost
         * CostHelper::cost_factor(scenario.probability_factor(),
                                   stage.discount_factor());
+    // Shutdown ``w`` — same shape as startup; pin scale = 1.0.
     auto wcol = lp.add_col({
         .lowb = 0.0,
         .uppb = 1.0,
         .cost = w_cost,
         .is_integer = false,
+        .pin_scale = true,  // semantically binary even when LP-relaxed
         .class_name = cname,
         .variable_name = ShutdownName,
         .variable_uid = cuid,
@@ -939,11 +949,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
       // Create tier variables with their respective costs
       const auto h_cost = hot_cost * tier_factor;
+      // HotStart / WarmStart / ColdStart tier indicators are semantically
+      // binary; pin scale = 1.0 so LP-relax + Ruiz/VariableScaleMap can't
+      // rescale them away from [0, 1] (task #50).
       auto hcol = lp.add_col({
           .lowb = 0.0,
           .uppb = 1.0,
           .cost = h_cost,
           .is_integer = !is_relax,
+          .pin_scale = true,
           .class_name = cname,
           .variable_name = HotStartName,
           .variable_uid = cuid,
@@ -957,6 +971,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           .uppb = 1.0,
           .cost = wm_cost,
           .is_integer = !is_relax,
+          .pin_scale = true,
           .class_name = cname,
           .variable_name = WarmStartName,
           .variable_uid = cuid,
@@ -970,6 +985,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           .uppb = 1.0,
           .cost = c_cost,
           .is_integer = !is_relax,
+          .pin_scale = true,
           .class_name = cname,
           .variable_name = ColdStartName,
           .variable_uid = cuid,
