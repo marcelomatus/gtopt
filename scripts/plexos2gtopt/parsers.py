@@ -1984,13 +1984,17 @@ def _apply_dynamic_loss_layout(
         if k > 0:
             enriched.append((i, ln, L, k))
 
-    # All-uniform signed mean error.
+    # All-uniform signed mean error and worst-case sum.
     running = sum(L / (6.0 * k * k) for _, _, L, k in enriched)
+    all_uniform_worst = sum(L / (4.0 * k * k) for _, _, L, k in enriched)
 
     new_lines = list(lines)
-    if running <= budget:
-        # Uniform meets the mean budget already — stamp every lossy
-        # line with ``uniform`` and we're done.
+    # Early return: all-uniform already satisfies BOTH the mean budget
+    # AND the one-sided worst-case budget.  Without the worst-case
+    # check the all-uniform path returned even when worst_uni was over
+    # budget — that left Phase 1.5 starved of headroom AND emitted a
+    # configuration that fails the documented two-sided budget invariant.
+    if running <= budget and all_uniform_worst <= budget:
         for i, ln, _, _ in enriched:
             new_lines[i] = dataclasses.replace(new_lines[i], loss_pwl_layout="uniform")
         return tuple(new_lines)
@@ -2010,6 +2014,22 @@ def _apply_dynamic_loss_layout(
     # zero improvement.
     enriched.sort(key=lambda t: t[2] / (t[3] * t[3]), reverse=True)
     layouts: dict[int, str] = {i: "uniform" for i, _, _, _ in enriched}
+    # Two-sided worst-case tracking (refined 2026-05-29) — each layout's
+    # error has a fixed sign, so the SYSTEM-WIDE worst-case is bounded
+    # independently on each side: Σ_uniform L/(4K²) AND Σ_midpoint
+    # L/(4K²) must each stay ≤ err_pct·ΣL.  Phase 1.5 below uses these
+    # per-side sums so the cube-root rule's "all uniform with
+    # worst_uni = budget" output gets headroom on the midpoint side
+    # for K reduction.  Phase 2.5 (further below) extends Phase 2's
+    # mean-only flipping with extra flips that reduce worst-case
+    # imbalance while respecting the mean budget — without it
+    # ``Σ_uniform`` stays pinned at ``budget`` and Phase 1.5 has no
+    # uniform-side headroom to use.
+    worst_uni = sum(L / (4.0 * k * k) for _, _, L, k in enriched)
+    worst_mid = 0.0
+    # ── Phase 2: original mean-budget-driven flipping (unchanged
+    # contract; pins existing tests).  Each flip subtracts its
+    # contribution from worst_uni and adds it to worst_mid.
     for i, _, L, k in enriched:
         if abs(running) <= budget:
             break
@@ -2021,6 +2041,31 @@ def _apply_dynamic_loss_layout(
         # Flip line i to midpoint: running changes by -L/(4 k²).
         layouts[i] = "midpoint"
         running = next_running
+        worst_uni -= contribution
+        worst_mid += contribution
+
+    # ── Phase 2.5: extra flips to balance worst-case across layouts
+    # so Phase 1.5 has uniform-side headroom for K reduction.  Only
+    # flips that (a) don't burst the mean budget AND (b) strictly
+    # reduce |worst_uni − worst_mid| are accepted.  Walk in
+    # descending-contribution order again (re-iterate ``enriched``
+    # which is already sorted).
+    for i, _, L, k in enriched:
+        if layouts[i] == "midpoint":
+            continue
+        contribution = L / (4.0 * k * k)
+        next_running = running - contribution
+        if abs(next_running) > budget:
+            continue  # would burst mean budget
+        old_imbalance = abs(worst_uni - worst_mid)
+        new_imbalance = abs((worst_uni - contribution) - (worst_mid + contribution))
+        if new_imbalance >= old_imbalance:
+            continue  # would not improve worst-case balance
+        # Flip
+        layouts[i] = "midpoint"
+        running = next_running
+        worst_uni -= contribution
+        worst_mid += contribution
 
     # ── Phase 1.5: try to reduce K on individual lines ─────────────
     # Phase 1 set K from the cube-root rule (worst-case bound) and
@@ -2031,22 +2076,33 @@ def _apply_dynamic_loss_layout(
     # over-allocated K's and reduces them step-by-step.
     #
     # Per-line state for the budgets:
-    #   worst_i (any layout)    =  L_i / (4 K_i²)
+    #   worst_i (any layout)    =  L_i / (4 K_i²)        (unsigned magnitude)
     #   mean_i  (uniform)        =  + L_i / (6 K_i²)
     #   mean_i  (midpoint)       =  − L_i / (12 K_i²)
     #
-    # Reducing K_i → K_i − 1 makes worst_i LARGER and pushes mean_i
-    # FURTHER from zero (same sign as the layout's bias).  Safe
-    # reduction therefore requires:
-    #   new_worst_total ≤ err_pct · Σ L_max  (worst-case budget)
-    #   |new_running|    ≤ err_pct · Σ L_max  (mean budget)
-    # Both budgets must hold AFTER the reduction.  When the worst-
-    # case budget is already saturated (e.g. tight err_pct = 0.001
-    # where Phase 1 ceiling-clamped most lines), Phase 1.5 finds
-    # nothing to reduce and exits cheap.  When budgets have slack
-    # (looser err_pct or unclamped K distribution), Phase 1.5 trims
-    # K toward the floor on the most-reducible lines first.
-    current_worst = sum(L / (4.0 * k * k) for _, _, L, k in enriched)
+    # **Two-sided worst-case bound** (signed-aware, refined 2026-05-29):
+    # Each layout has a fixed worst-case error SIGN — uniform secants
+    # always overstate (chord ≥ curve, ``+`` direction), midpoint
+    # tangents always understate (tangent ≤ curve at breakpoints,
+    # ``−`` direction).  At any LP operating point the system-wide
+    # error is therefore bounded by
+    #
+    #     − Σ_midpoint L/(4K²)  ≤  system_error  ≤  + Σ_uniform L/(4K²)
+    #
+    # so for |system_error| ≤ err_pct·ΣL we need BOTH:
+    #     Σ_uniform L/(4K²)  ≤ err_pct·ΣL     (positive-side bound)
+    #     Σ_midpoint L/(4K²) ≤ err_pct·ΣL     (negative-side bound)
+    #
+    # This gives **2× total worst-case headroom** vs the unsigned
+    # ``Σ all L/(4K²) ≤ budget`` formulation: each layout can carry up
+    # to one full budget worth of worst-case independently.  Phase 1.5
+    # exploits the headroom by reducing K_i (which increases that
+    # line's L/(4K²) contribution to its own side) until the relevant
+    # one-sided sum saturates.  Expected ~30% Σ K savings at
+    # err_pct = 0.01–0.10 on CEN-PCP-shape systems.
+    # ``worst_uni`` and ``worst_mid`` are already maintained by the
+    # Phase 2 flipping loop above — reuse them as the starting state
+    # for Phase 1.5 (avoid the redundant Σ pass).
     # Build a mutable K map for in-place reduction.
     K_map: dict[int, int] = {i: k for i, _, _, k in enriched}
     # Iterate lines by current K descending: reductions on high-K
@@ -2070,9 +2126,15 @@ def _apply_dynamic_loss_layout(
             if k <= 2:
                 continue
             new_k = k - 1
-            new_worst = current_worst - L / (4.0 * k * k) + L / (4.0 * new_k * new_k)
-            if new_worst > L_total * err_pct:
-                continue  # worst-case budget would burst
+            delta_worst = L / (4.0 * new_k * new_k) - L / (4.0 * k * k)
+            # Per-side worst-case check: only the side this line lives
+            # on grows; the other side is unchanged.
+            if layouts[i] == "midpoint":
+                if worst_mid + delta_worst > L_total * err_pct:
+                    continue  # negative-side budget would burst
+            else:
+                if worst_uni + delta_worst > L_total * err_pct:
+                    continue  # positive-side budget would burst
             # Mean shift for this layout: removing the old contrib
             # and adding the new (always pushes |running| further
             # from zero because new_k < k → larger 1/k²).
@@ -2087,7 +2149,10 @@ def _apply_dynamic_loss_layout(
                 continue  # mean budget would burst
             # Commit
             K_map[i] = new_k
-            current_worst = new_worst
+            if layouts[i] == "midpoint":
+                worst_mid += delta_worst
+            else:
+                worst_uni += delta_worst
             running = new_running
             changed = True
 

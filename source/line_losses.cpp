@@ -1602,12 +1602,17 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
   //   E_sys = Σ_uniform L_i / (6 K_i²)  −  Σ_midpoint L_i / (12 K_i²)
   const double budget = opts.err_pct * L_total;
   double running = 0.0;
+  double all_uniform_worst = 0.0;
   for (const auto& ln : lossy) {
-    running +=
-        ln.L / (6.0 * static_cast<double>(ln.K) * static_cast<double>(ln.K));
+    const double kk = static_cast<double>(ln.K) * static_cast<double>(ln.K);
+    running += ln.L / (6.0 * kk);
+    all_uniform_worst += ln.L / (4.0 * kk);
   }
-  if (running <= budget) {
-    // Uniform mean meets the budget on its own — done.
+  // Early return: all-uniform satisfies BOTH the mean budget AND the
+  // one-sided worst-case budget (refined 2026-05-29 — without the
+  // worst-case check the all-uniform path returned even when worst_uni
+  // was over budget, violating the documented two-sided budget invariant).
+  if (running <= budget && all_uniform_worst <= budget) {
     return out;
   }
 
@@ -1623,11 +1628,17 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
               return (a.L / (ka * ka)) > (b.L / (kb * kb));
             });
 
-  // Greedy flips while either (a) outside the ±budget zone, or
-  // (b) the next flip strictly improves abs(running).  The latter
-  // guards against overshooting into the negative-budget side, which
-  // a naive ``while abs(running) > budget`` would do — the signed
-  // running can run past zero and land at -X with abs > budget again.
+  // Two-sided worst-case tracking: each layout's error has a fixed
+  // sign so the system-wide worst-case bound becomes
+  //   Σ_uniform L/(4K²) ≤ budget  AND  Σ_midpoint L/(4K²) ≤ budget
+  // (each side ≤ budget independently — see the Python
+  // ``_apply_dynamic_loss_layout`` docstring for the full derivation).
+  double worst_uni = all_uniform_worst;
+  double worst_mid = 0.0;
+
+  // Phase 2 — original mean-budget-driven flipping (unchanged contract;
+  // pins the existing dynamic-mode tests).  Each flip subtracts its
+  // worst-case contribution from worst_uni and adds it to worst_mid.
   for (const auto& ln : lossy) {
     if (std::abs(running) <= budget) {
       break;
@@ -1641,32 +1652,55 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
     }
     out[ln.idx].layout = LinePwlLayout::midpoint;
     running = next_running;
+    worst_uni -= contribution;
+    worst_mid += contribution;
+  }
+
+  // Phase 2.5 — extra flips to balance worst-case across layouts so
+  // Phase 1.5 below has uniform-side headroom for K reduction.  Only
+  // flips that (a) don't burst the mean budget AND (b) strictly
+  // reduce |worst_uni − worst_mid| are accepted.
+  for (const auto& ln : lossy) {
+    if (out[ln.idx].layout == LinePwlLayout::midpoint) {
+      continue;
+    }
+    const double contribution =
+        ln.L / (4.0 * static_cast<double>(ln.K) * static_cast<double>(ln.K));
+    const double next_running = running - contribution;
+    if (std::abs(next_running) > budget) {
+      continue;  // would burst mean budget
+    }
+    const double old_imbalance = std::abs(worst_uni - worst_mid);
+    const double new_imbalance =
+        std::abs((worst_uni - contribution) - (worst_mid + contribution));
+    if (new_imbalance >= old_imbalance) {
+      continue;  // would not improve worst-case balance
+    }
+    out[ln.idx].layout = LinePwlLayout::midpoint;
+    running = next_running;
+    worst_uni -= contribution;
+    worst_mid += contribution;
   }
 
   // ── Phase 1.5: try to reduce K on individual lines ───────────────
-  // Phase 1 set K from the cube-root rule (worst-case bound).  Phase 2
-  // chose layouts to satisfy the signed mean-error budget.  Phase 1.5
-  // attempts to *reduce* K when both budgets have slack — typically
-  // when ``err_pct`` is large enough that the floor=2 clamp has set K
-  // well below the worst-case-binding value on the heavy lines.  See
-  // the Python wrapper ``_apply_dynamic_loss_layout`` for the full
-  // contract; the C++ implementation mirrors it exactly so any
-  // converter (plp2gtopt, hand-written JSON) gets the same K assignment.
+  // Two-sided worst-case bound (refined 2026-05-29): each layout's
+  // error sign is fixed, so the signed system-wide error is bounded
+  // by ``max(worst_uni, worst_mid) ≤ budget`` — i.e. each side
+  // independently.  This gives ``2 × budget`` total worst-case
+  // headroom vs the prior unsigned ``Σ_all L/(4K²) ≤ budget``
+  // formulation.  Phase 1.5 exploits the headroom by reducing K_i
+  // on the side that still has slack.
   //
-  // No-op for ``err_pct`` regimes where the cube-root rule's KKT
-  // optimum already saturates the worst-case budget (the typical
-  // case on CEN-PCP-sized systems): every attempted reduction trips
-  // either the worst-case or mean budget check and gets skipped.
-  // The early-exit makes the no-op pass cheap.
-  double current_worst = 0.0;
-  for (const auto& ln : lossy) {
-    current_worst += ln.L / (4.0 * static_cast<double>(ln.K * ln.K));
-  }
-  const double err_budget = opts.err_pct * L_total;
-
-  // Mutable K map keyed by original line index.  Initialise from out[].
-  // We sort by current K descending each pass so high-K lines are tried
-  // first — they free the most LP segments per safe step.
+  // Reductions only fire when both Phase 2 + Phase 2.5 left actual
+  // headroom on one side — typically when the K distribution avoids
+  // ceiling clamps.  On CEN-PCP-shape bundles where Phase 1's KKT
+  // cube-root rule already lands within both sides' budgets, this is
+  // a cheap no-op (the early-return catches the all-uniform case
+  // above, and Phase 2/2.5 already balanced when needed).
+  //
+  // ``worst_uni`` and ``worst_mid`` are already maintained by the
+  // Phase 2 + Phase 2.5 flipping loops above — reuse them as the
+  // starting state for Phase 1.5.
   bool changed = true;
   while (changed) {
     changed = false;
@@ -1688,10 +1722,17 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
       const double new_kk =
           static_cast<double>(new_k) * static_cast<double>(new_k);
       const double old_kk = static_cast<double>(k) * static_cast<double>(k);
-      const double new_worst =
-          current_worst - ln.L / (4.0 * old_kk) + ln.L / (4.0 * new_kk);
-      if (new_worst > err_budget) {
-        continue;  // worst-case budget would burst
+      const double delta_worst = ln.L / (4.0 * new_kk) - ln.L / (4.0 * old_kk);
+      // Per-side worst-case check: only the side this line lives on
+      // grows; the other side is unchanged.
+      if (dst.layout == LinePwlLayout::midpoint) {
+        if (worst_mid + delta_worst > budget) {
+          continue;  // negative-side budget would burst
+        }
+      } else {
+        if (worst_uni + delta_worst > budget) {
+          continue;  // positive-side budget would burst
+        }
       }
       const double old_m = (dst.layout == LinePwlLayout::midpoint)
           ? (-ln.L / (12.0 * old_kk))
@@ -1700,12 +1741,16 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
           ? (-ln.L / (12.0 * new_kk))
           : (+ln.L / (6.0 * new_kk));
       const double new_running = running - old_m + new_m;
-      if (std::abs(new_running) > err_budget) {
+      if (std::abs(new_running) > budget) {
         continue;  // mean budget would burst
       }
       // Commit
       dst.K = new_k;
-      current_worst = new_worst;
+      if (dst.layout == LinePwlLayout::midpoint) {
+        worst_mid += delta_worst;
+      } else {
+        worst_uni += delta_worst;
+      }
       running = new_running;
       changed = true;
     }
