@@ -80,7 +80,13 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
                  table_result.error());
     return std::nullopt;
   }
-  const auto& table = *table_result;
+  // Accept long-layout aperture files transparently: pivot `[stage, block,
+  // uid, value]` (where `uid` is a scenario uid here) to the wide
+  // `[stage, block, uid:N…]` shape the scenario-column loop below expects.
+  // Reuses the same uid-agnostic helper as the field-file reader.
+  const ArrowTable table = is_long_layout(*table_result)
+      ? pivot_long_to_wide(*table_result)
+      : *table_result;
 
   auto stage_col = table->GetColumnByName("stage");
   auto block_col = table->GetColumnByName("block");

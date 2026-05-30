@@ -15,7 +15,7 @@
       "use_kirchhoff": true,
       "use_single_bus": true
     },
-    "output_compression": "snappy",
+    "output_compression": "zstd",
     "output_directory": "results",
     "output_format": "parquet",
     "sddp_options": {

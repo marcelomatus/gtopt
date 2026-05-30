@@ -147,8 +147,20 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         "--compression",
         dest="compression",
         metavar="ALG",
-        default=conf.get("compression", "lz4"),
+        default=conf.get("compression", "zstd"),
         help="compression codec for output files (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--layout",
+        dest="layout",
+        choices=["wide", "long"],
+        default=conf.get("layout", "long"),
+        help=(
+            "on-disk layout for per-element field Parquet files: 'long' "
+            "(default) emits tidy [<index cols>, uid, value] tables (read "
+            "natively by gtopt, ideal for Power BI); 'wide' emits the "
+            "legacy one-column-per-uid (uid:N) shape (default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--compression-level",

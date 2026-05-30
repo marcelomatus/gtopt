@@ -187,14 +187,23 @@ def make_parser() -> argparse.ArgumentParser:
 # gcost in plpcnfce.dat.  Writing ``demand_fail_cost = 0.0`` to the conf
 # disables that auto-detection silently — see _parsers.py:add_model_arguments.
 _SECTION_DEFAULTS: dict[str, str] = {
-    "compression": "snappy",
-    # Snappy doesn't accept a compression level (Arrow raises "Codec
-    # 'snappy' doesn't support setting a compression level").  We
-    # therefore do NOT set a default compression_level here — callers
-    # who want zstd archival must pass `--compression-level 1..22`
-    # explicitly along with `--compression zstd`.
+    "compression": "zstd",
+    # "zstd" matches the gtopt C++ default
+    # (`PlanningOptionsLP::default_output_compression`) and is a single
+    # unambiguous codec every downstream reader (pandas, polars, duckdb,
+    # Power BI / Power Query) opens natively — unlike "lz4", whose
+    # deprecated Hadoop-framed variant is frequently unreadable.  We do
+    # NOT set a default compression_level here (0 / omitted = the codec's
+    # own default); callers who want a higher zstd archival level must
+    # pass `--compression-level 1..22` explicitly.
     "output_format": "parquet",
     "input_format": "parquet",
+    # On-disk layout for the per-element field Parquet files.  "long"
+    # (default) emits the tidy `[<index cols>, uid, value]` shape — read
+    # natively by gtopt (auto-sniffed) and ideal for Power BI / Power
+    # Query, which prefer long tables and need no unpivot step.  "wide"
+    # restores the legacy one-column-per-uid (`uid:N`) shape.
+    "layout": "long",
     # `cascade` is the production-grade default since 2026-05-15.  See
     # ``_parsers.py``'s ``--method`` default for the rationale.
     "method": "cascade",
@@ -350,6 +359,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "last_time": args.last_time,
         "compression": args.compression,
         "compression_level": args.compression_level,
+        "layout": getattr(args, "layout", "long"),
         "output_format": args.output_format,
         "input_format": input_format,
         "hydrologies": "first" if args.first_scenario else args.hydrologies,

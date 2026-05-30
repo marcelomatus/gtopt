@@ -420,6 +420,10 @@ def test_hydro_4b_mono_conversion(tmp_path):
 def test_hydro_4b_afluent_parquet(tmp_path):
     """plp_hydro_4b: Flow/discharge.parquet has 3 scenarios × 9 blocks."""
     opts = _make_opts_hydro_4b(tmp_path)
+    # This test asserts the wide ``uid:N`` schema; pin it (the solver tests
+    # below run at the default long layout, exercising gtopt's long input
+    # reader end-to-end).
+    opts["layout"] = "wide"
     convert_plp_case(opts)
 
     discharge_path = Path(opts["output_dir"]) / "Flow" / "discharge.parquet"
@@ -449,6 +453,8 @@ def test_hydro_4b_afluent_parquet(tmp_path):
 def test_hydro_4b_demand_parquet(tmp_path):
     """plp_hydro_4b: Demand/lmax.parquet has per-block demands for b3 and b4."""
     opts = _make_opts_hydro_4b(tmp_path)
+    # Wide-schema assertion test; pin wide (long default covered elsewhere).
+    opts["layout"] = "wide"
     convert_plp_case(opts)
 
     lmax_path = Path(opts["output_dir"]) / "Demand" / "lmax.parquet"
