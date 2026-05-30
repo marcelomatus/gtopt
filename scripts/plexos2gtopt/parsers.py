@@ -4259,12 +4259,12 @@ def extract_commitments(
             ("year", "Max Starts Year"),
         )
         max_starts_count: int = 0
-        max_starts_scope_value: str = ""
+        starts_scope_value: str = ""
         for scope_key, prop_name in max_starts_props:
             raw = db.static_property("Generator", gen.object_id, prop_name)
             if raw and raw > 0.0:
                 max_starts_count = int(round(raw))
-                max_starts_scope_value = scope_key
+                starts_scope_value = scope_key
                 break
         # No-load cost: PLEXOS ``Heat Rate Base`` × fuel price. For
         # generators carrying ``Heat Rate Base = 0`` (the CEN PCP and
@@ -4550,7 +4550,7 @@ def extract_commitments(
                 initial_power=initial_power,
                 commit_status_profile=commit_profile,
                 max_starts=max_starts_count,
-                max_starts_scope=max_starts_scope_value,
+                starts_scope=starts_scope_value,
             )
         )
     return tuple(out)

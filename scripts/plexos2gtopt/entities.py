@@ -689,7 +689,15 @@ class CommitmentSpec:
     # tightest one applicable to the run horizon (see ``extract_
     # commitments`` for the priority rule).
     max_starts: int = 0
-    max_starts_scope: str = ""  # "hour" | "day" | "week" | "horizon"
+    # Symmetric ``min_starts`` floor (forces commitment, complement to
+    # max_starts as a cap).  PLEXOS doesn't ship a Min Starts property
+    # directly, but the same per-window LP-side primitive in gtopt
+    # (commitment_lp.cpp C9) handles both bounds.  Populated only when a
+    # converter / writer needs to inject a forced-commitment floor.
+    # Default 0 → no lower row emitted (commitment LP treats unset as
+    # +∞ on the cap side, 0 on the floor side).
+    min_starts: int = 0
+    starts_scope: str = ""  # "hour" | "day" | "week" | "horizon" (shared)
 
 
 @dataclass(frozen=True)

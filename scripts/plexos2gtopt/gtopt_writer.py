@@ -2246,16 +2246,21 @@ def build_commitment_array(
         # when the field is unset — correct for genuine cold starts).
         if c.initial_power != 0.0:
             entry["initial_power"] = c.initial_power
-        # PLEXOS ``Max Starts {Hour|Day|Week|...}`` → gtopt's
-        # ``Commitment.max_starts`` + ``max_starts_scope``.  Emitted as
-        # a paired (integer count, scope string) so gtopt's
-        # ``MaxStartsScope`` enum resolves the right rolling-window
-        # length at LP build (see ``CommitmentLP::add_to_lp`` for the
-        # ``Σ_{p ∈ window} v[p] ≤ max_starts`` row emission).  Skip
-        # emission when the cap is zero (the gtopt default = no cap row).
-        if c.max_starts > 0 and c.max_starts_scope:
-            entry["max_starts"] = int(c.max_starts)
-            entry["max_starts_scope"] = str(c.max_starts_scope)
+        # PLEXOS ``Max Starts {Hour|Day|Week|...}`` → gtopt's two-sided
+        # ``Commitment.{min_starts, max_starts}`` + ``starts_scope``.
+        # PLEXOS only ships the cap side (Max Starts family); the
+        # symmetric ``min_starts`` floor is left at 0 here but gtopt's
+        # LP-side primitive supports both bounds simultaneously
+        # (``CommitmentLP::add_to_lp`` C9: ``min_starts ≤ Σ_{p ∈ window}
+        # v[p] ≤ max_starts``).  Unset on either side → that side's row
+        # is not emitted (max unset = +∞, min unset = 0).  Emission
+        # requires AT LEAST one side > 0 plus a non-empty scope.
+        if (c.max_starts > 0 or c.min_starts > 0) and c.starts_scope:
+            if c.max_starts > 0:
+                entry["max_starts"] = int(c.max_starts)
+            if c.min_starts > 0:
+                entry["min_starts"] = int(c.min_starts)
+            entry["starts_scope"] = str(c.starts_scope)
         out.append(entry)
     return out
 

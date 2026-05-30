@@ -1100,42 +1100,39 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
-  // ── C9: Max startup events per window (PLEXOS Max Starts {Hour|Day|
-  // Week|Horizon}) ──
+  // ── C9: Startup-count bounds per window (PLEXOS Max Starts + symmetric
+  // Min Starts floor) ──
   //
-  // Cap the cumulative startup count over a rolling time window:
+  // Two-sided bound on the cumulative startup count over a rolling time
+  // window:
   //
-  //     Σ_{p ∈ window} v[p]  ≤  max_starts
+  //     min_starts  ≤  Σ_{p ∈ window} v[p]  ≤  max_starts
   //
-  // Window boundaries are determined by the constraint's scope.  We
-  // walk the periods in chronological order, accumulating their
-  // duration; when the cumulative duration crosses the scope's window
-  // length we close the row, flush, and open a fresh accumulator on
-  // the next period.  The stage's last period always closes the
-  // open window (matches ``UserConstraint.daily_sum`` semantics).
+  // Defaults: ``min_starts`` unset → 0 (no lower row); ``max_starts``
+  // unset → +∞ (no upper row).  Each side emits ONE row per window when
+  // the corresponding bound is set; both rows share the same accumulated
+  // LHS so the per-window walk runs once even when both bounds apply.
   //
-  // Scope → window-hours map:
-  //   "hour"    →   1.0    (one row per period — effectively a per-
-  //                         period cap)
-  //   "day"     →  24.0    (mirror of daily_sum, applied to v)
-  //   "week"    → 168.0    (or stage length if smaller; PLEXOS Max
+  // Window boundaries are determined by the SHARED ``starts_scope``:
+  //   "hour"    →   1.0    (one row per period)
+  //   "day"     →  24.0    (cumulative-duration boundary flush, mirror
+  //                         of ``UserConstraint.daily_sum``)
+  //   "week"    → 168.0    (or stage length if smaller — PLEXOS Max
   //                         Starts Week is the CEN PCP target use case)
   //   "horizon" → +∞       (one row per stage)
+  //   N (int)   → N hours  (arbitrary window length)
   //
-  // Scopes longer than the stage collapse to ``"horizon"`` (one row
-  // per stage).  Per-month / per-year scopes are out of band on a
-  // typical short stage and fall back to ``"horizon"`` after the
-  // collapse, so the integer cap is conservative w.r.t. PLEXOS's
-  // longer-window cap (gtopt enforces it across THIS stage; PLEXOS
-  // would amortise over its multi-stage horizon).
-  if (commitment().max_starts.has_value() && !vcols.empty()) {
-    const auto max_starts_v = static_cast<double>(*commitment().max_starts);
-    // Resolve the scope via the variant-aware helper — handles both
-    // the NamedEnum form (``"week"``) and the integer-hours form
-    // (``168``).  See ``Commitment::max_starts_window_hours`` for the
-    // mapping rules.  A window length of ``0.0`` is the "horizon"
-    // sentinel meaning "never flush until stage end".
-    const double window_hours = commitment().max_starts_window_hours();
+  // Scopes longer than the stage collapse to ``"horizon"`` (one row per
+  // stage).  See ``Commitment::starts_window_hours`` for the resolved
+  // mapping rules.
+  const bool has_max_starts = commitment().max_starts.has_value();
+  const bool has_min_starts = commitment().min_starts.has_value();
+  if ((has_max_starts || has_min_starts) && !vcols.empty()) {
+    const double window_hours = commitment().starts_window_hours();
+    const auto max_starts_v =
+        has_max_starts ? static_cast<double>(*commitment().max_starts) : 0.0;
+    const auto min_starts_v =
+        has_min_starts ? static_cast<double>(*commitment().min_starts) : 0.0;
 
     BIndexHolder<RowIndex> ms_rows;
     auto fresh_row = [&]() -> SparseRow
@@ -1156,9 +1153,24 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       if (!row_open) {
         return;
       }
-      auto bound = window_row.less_equal(max_starts_v);
-      const auto row_idx = lp.add_row(std::move(bound));
-      ms_rows[window_end_block] = row_idx;
+      // Emit upper-bound row when ``max_starts`` is set, lower-bound
+      // row when ``min_starts`` is set.  Both share the same LHS
+      // (window_row).  Clone the row for the second emission so each
+      // gets its own copy with the appropriate sense.
+      if (has_max_starts) {
+        SparseRow upper_row {window_row};
+        auto bound = std::move(upper_row).less_equal(max_starts_v);
+        const auto row_idx = lp.add_row(std::move(bound));
+        ms_rows[window_end_block] = row_idx;
+      }
+      if (has_min_starts) {
+        SparseRow lower_row {window_row};
+        auto bound = std::move(lower_row).greater_equal(min_starts_v);
+        // Capture the row index but don't store it in a dedicated
+        // holder — sensitivity work on forced-commitment can read the
+        // dual from the LP via the row name + window block.
+        [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(bound));
+      }
       window_row = fresh_row();
       row_open = false;
       acc_hours = 0.0;

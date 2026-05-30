@@ -54,7 +54,7 @@ namespace gtopt
 /// collapse to ``Horizon`` here because a typical gtopt stage is shorter
 /// than a month.  See ``Commitment::max_starts`` docstring for the full
 /// LP-row emission rule.
-enum class MaxStartsScope : std::uint8_t
+enum class StartsScope : std::uint8_t
 {
   Hour = 0,  ///< One LP row per single-period window
   Day = 1,  ///< One LP row per 24h cumulative-duration window
@@ -63,26 +63,26 @@ enum class MaxStartsScope : std::uint8_t
                 ///< for per-month / per-year PLEXOS scopes
 };
 
-inline constexpr auto max_starts_scope_entries =
-    std::to_array<EnumEntry<MaxStartsScope>>({
-        {.name = "hour", .value = MaxStartsScope::Hour},
-        {.name = "day", .value = MaxStartsScope::Day},
-        {.name = "week", .value = MaxStartsScope::Week},
-        {.name = "horizon", .value = MaxStartsScope::Horizon},
+inline constexpr auto starts_scope_entries =
+    std::to_array<EnumEntry<StartsScope>>({
+        {.name = "hour", .value = StartsScope::Hour},
+        {.name = "day", .value = StartsScope::Day},
+        {.name = "week", .value = StartsScope::Week},
+        {.name = "horizon", .value = StartsScope::Horizon},
         // Aliases for the longer PLEXOS scopes that we collapse to
         // Horizon — kept so a JSON faithfully transcribed from PLEXOS
         // parses without surfacing a misleading "expected: hour, day,
         // week, horizon" error.
-        {.name = "month", .value = MaxStartsScope::Horizon, .is_alias = true},
-        {.name = "year", .value = MaxStartsScope::Horizon, .is_alias = true},
+        {.name = "month", .value = StartsScope::Horizon, .is_alias = true},
+        {.name = "year", .value = StartsScope::Horizon, .is_alias = true},
     });
 
-[[nodiscard]] constexpr auto enum_entries(MaxStartsScope) noexcept
+[[nodiscard]] constexpr auto enum_entries(StartsScope) noexcept
 {
-  return std::span {max_starts_scope_entries};
+  return std::span {starts_scope_entries};
 }
 
-/// Two-shape scope value for ``Commitment::max_starts_scope``:
+/// Two-shape scope value for ``Commitment::starts_scope``:
 ///
 ///   * ``Name``  — a NamedEnum entry: ``"hour" | "day" | "week" |
 ///                 "horizon"`` (also ``"month" | "year"`` aliasing to
@@ -93,7 +93,7 @@ inline constexpr auto max_starts_scope_entries =
 ///                 rolling windows the NamedEnum doesn't cover.
 ///
 /// Resolved to a window length [hours] at LP-build time by
-/// ``Commitment::max_starts_window_hours()`` — a value of 0 (or unset,
+/// ``Commitment::starts_window_hours()`` — a value of 0 (or unset,
 /// or any unrecognised name) means "horizon = never flush until stage
 /// end".
 // Int FIRST: keeps variant alternative ordering aligned with the
@@ -102,8 +102,8 @@ inline constexpr auto max_starts_scope_entries =
 // serialisation, so a mismatch corrupts the JSON-out path even though
 // JSON-in still parses).  See ``json_single_id.hpp`` for the same
 // precedent (``variant<Uid, Name>`` ↔ ``json_variant_type_list<Uid, Name>``).
-using MaxStartsScopeValue = std::variant<Int, Name>;
-using OptMaxStartsScope = std::optional<MaxStartsScopeValue>;
+using StartsScopeValue = std::variant<Int, Name>;
+using OptStartsScope = std::optional<StartsScopeValue>;
 
 /**
  * @struct Commitment
@@ -249,44 +249,55 @@ struct Commitment
   OptReal cold_start_time {};  ///< Min offline hours for cold start [h]
   /// @}
 
-  /// @name Startup-count caps (PLEXOS ``Max Starts {Hour|Day|Week|...}``)
+  /// @name Startup-count bounds (PLEXOS ``Max Starts {Hour|Day|Week|...}``
+  /// + symmetric ``Min Starts`` floor for forced-commitment).
   ///
-  /// Cap on the number of startup events allowed within a rolling time
-  /// window.  Emits ONE LP row per (commitment, window) pair:
+  /// Two-sided bound on the number of startup events within a rolling
+  /// time window.  The LP emits at most TWO rows per (commitment,
+  /// window) pair — one for each side that's set:
   ///
-  ///     Σ_{block in window} startup_col[block]  ≤  max_starts
+  ///     min_starts  ≤  Σ_{block in window} startup_col[block]  ≤  max_starts
   ///
-  /// where ``window`` is determined by ``max_starts_scope``:
-  ///   - ``"hour"``    → 1 row per block (effectively startup ≤ N/h)
+  /// where ``window`` is determined by the SHARED ``starts_scope``:
+  ///   - ``"hour"``    → 1 row per block (effectively startup ≤/≥ N/h)
   ///   - ``"day"``     → 1 row per 24 h window (cumulative-duration
   ///                     boundary flush, like ``UserConstraint.daily_sum``)
   ///   - ``"week"``    → 1 row per 7×24 h window
   ///   - ``"horizon"`` (default) → 1 row per stage, Σ over all blocks
+  ///   - integer hour count (e.g. 48, 336, 720) → per-window with that
+  ///     length, for arbitrary scopes the NamedEnum doesn't cover
   ///
-  /// PLEXOS exposes the full family on its Generator class
-  /// (prop 202..207: per-horizon / hour / day / week / month / year);
-  /// gtopt covers the four scopes that meaningfully decompose against
-  /// gtopt's stage/block grid (hour / day / week / horizon).  Per-month
-  /// and per-year are not exposed because a typical stage is shorter
-  /// than a month — fall back to ``"horizon"`` with a stage-aligned
-  /// value if the caller needs them.
+  /// PLEXOS exposes the cap family on its Generator class (prop 202..207:
+  /// per-horizon / hour / day / week / month / year) — month/year alias
+  /// to Horizon here because a typical gtopt stage is shorter than a
+  /// month.  PLEXOS doesn't ship a symmetric ``Min Starts`` property,
+  /// but the same per-window mechanism naturally supports a floor too —
+  /// useful for forced-commitment patterns and as a complement when
+  /// adapting ``Min Energy {Day|Week}`` / ``Min CF`` to a startup-count
+  /// surrogate.
   ///
-  /// When unset (default) → no cap row is emitted.  The cap is a HARD
-  /// integer-count constraint; no soft-slack tier (PLEXOS itself has a
-  /// ``Max Starts Penalty`` slot but CEN PCP never populates it, so we
-  /// don't surface that yet — easy follow-up if a future case ships
-  /// non-zero Max Starts Penalty values).
+  /// Defaults (unset semantics):
+  ///   * ``max_starts`` unset → +∞ (no cap; no upper row emitted)
+  ///   * ``min_starts`` unset → 0  (no floor; no lower row emitted)
+  /// When BOTH are set to the same value the constraint pins the
+  /// per-window startup count to exactly that value (two opposing
+  /// inequality rows; CPLEX presolve detects the equality).
+  ///
+  /// Both bounds are HARD (no soft-slack tier).  PLEXOS exposes
+  /// ``Max Starts Penalty`` (prop 208) but CEN PCP never populates it;
+  /// surface it here only if a future case ships non-zero values.
   OptInt max_starts {};
+  OptInt min_starts {};
   /// Window-scope for ``max_starts``.  Accepts EITHER a named
-  /// MaxStartsScope (``"hour" | "day" | "week" | "horizon"``, plus
+  /// StartsScope (``"hour" | "day" | "week" | "horizon"``, plus
   /// ``"month" | "year"`` aliasing to Horizon) OR a positive integer
   /// number of HOURS (e.g. ``48`` for a 2-day window, ``720`` for a
-  /// calendar month).  See ``MaxStartsScopeValue`` for the variant
-  /// definition; ``max_starts_window_hours()`` resolves both shapes to
+  /// calendar month).  See ``StartsScopeValue`` for the variant
+  /// definition; ``starts_window_hours()`` resolves both shapes to
   /// the LP-side window length.
-  OptMaxStartsScope max_starts_scope {};
+  OptStartsScope starts_scope {};
 
-  /// Resolve ``max_starts_scope`` (either a named MaxStartsScope or an
+  /// Resolve ``starts_scope`` (either a named StartsScope or an
   /// integer hour count) to the rolling window length in HOURS used by
   /// ``CommitmentLP::add_to_lp`` to decide when to flush the
   /// ``Σ_{p ∈ window} v[p] ≤ max_starts`` accumulator row.
@@ -297,52 +308,51 @@ struct Commitment
   ///       Hour=1, Day=24, Week=168, Horizon=0
   ///       month/year aliases → Horizon (0)
   ///       unrecognised string → Horizon (0)
-  [[nodiscard]] constexpr double max_starts_window_hours() const noexcept
+  [[nodiscard]] constexpr double starts_window_hours() const noexcept
   {
-    if (!max_starts_scope.has_value()) {
+    if (!starts_scope.has_value()) {
       return 0.0;
     }
-    if (std::holds_alternative<Int>(*max_starts_scope)) {
-      const auto h = std::get<Int>(*max_starts_scope);
+    if (std::holds_alternative<Int>(*starts_scope)) {
+      const auto h = std::get<Int>(*starts_scope);
       return h > 0 ? static_cast<double>(h) : 0.0;
     }
     // Name variant — resolve through the NamedEnum table.
-    const auto& name = std::get<Name>(*max_starts_scope);
-    const auto resolved = enum_from_name<MaxStartsScope>(name);
+    const auto& name = std::get<Name>(*starts_scope);
+    const auto resolved = enum_from_name<StartsScope>(name);
     if (!resolved.has_value()) {
       return 0.0;  // unrecognised → Horizon
     }
     switch (*resolved) {
-      case MaxStartsScope::Hour:
+      case StartsScope::Hour:
         return 1.0;
-      case MaxStartsScope::Day:
+      case StartsScope::Day:
         return 24.0;
-      case MaxStartsScope::Week:
+      case StartsScope::Week:
         return 7.0 * 24.0;
-      case MaxStartsScope::Horizon:
+      case StartsScope::Horizon:
         return 0.0;
     }
     return 0.0;
   }
 
-  /// Symbolic view of ``max_starts_scope`` for diagnostic / test use.
+  /// Symbolic view of ``starts_scope`` for diagnostic / test use.
   /// Returns ``Horizon`` when unset, when the variant holds an Int
   /// (the explicit hour count has no enum entry), or when the Name
-  /// doesn't match an enum entry.  Use ``max_starts_window_hours()``
+  /// doesn't match an enum entry.  Use ``starts_window_hours()``
   /// for the LP-side resolved window length.
-  [[nodiscard]] constexpr MaxStartsScope max_starts_scope_enum() const noexcept
+  [[nodiscard]] constexpr StartsScope starts_scope_enum() const noexcept
   {
-    if (!max_starts_scope.has_value()
-        || std::holds_alternative<Int>(*max_starts_scope))
+    if (!starts_scope.has_value() || std::holds_alternative<Int>(*starts_scope))
     {
-      return MaxStartsScope::Horizon;
+      return StartsScope::Horizon;
     }
     if (const auto e =
-            enum_from_name<MaxStartsScope>(std::get<Name>(*max_starts_scope)))
+            enum_from_name<StartsScope>(std::get<Name>(*starts_scope)))
     {
       return *e;
     }
-    return MaxStartsScope::Horizon;
+    return StartsScope::Horizon;
   }
 };
 
