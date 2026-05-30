@@ -2098,10 +2098,20 @@ def build_user_constraint_array(
         # LHS is ``Σ_day gen·Δt`` [MWh].  Routed to the inline JSON
         # ``user_constraint_array`` (the ``.pampl`` grammar has no
         # ``daily_sum`` clause — see ``write_user_constraint_pampl``).
-        if c.daily_sum:
-            entry["daily_sum"] = True
+        #
+        # Emit ``constraint_type`` BEFORE ``daily_sum`` to match the C++
+        # ``json_data_contract<UserConstraint>`` schema order
+        # (``include/gtopt/json/json_user_constraint.hpp`` lines 80, 83).
+        # daw::json's StrictParsePolicy enforces the schema order — when
+        # both fields plus ``slack_name`` (pos 12) co-occur and
+        # ``daily_sum`` (pos 9) precedes ``constraint_type`` (pos 6) in
+        # JSON, the parser rejects the trailing ``slack_name`` with
+        # "Could not find member in JSON class".  Verified on the
+        # 2026-04-07 PCP bundle's ``PANGUEcaudal_min_diario`` UC.
         if c.constraint_type:
             entry["constraint_type"] = c.constraint_type
+        if c.daily_sum:
+            entry["daily_sum"] = True
         if c.directive is not None:
             # Typed constraint-family metadata — replaces the legacy
             # name-regex / penalty-ladder classification with an
