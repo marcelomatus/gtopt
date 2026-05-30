@@ -450,12 +450,16 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "compute_dynamic_loss_layout — K identical to adaptive rule")  // NOLINT
+    "compute_dynamic_loss_layout — K ≤ adaptive rule (looser two-sided budget)")  // NOLINT
 {
-  // Phase 1 of dynamic IS compute_adaptive_loss_segments — the K
-  // assignments must match exactly.  This pins the "single source of
-  // truth" property that any improvement to the cube-root K rule
-  // flows through dynamic for free.
+  // Dynamic uses Phase 1' — the cube-root rule with a ``2 × budget``
+  // effective budget.  The two-sided worst-case bound lets each layout
+  // side carry up to ``budget`` independently, so dynamic's per-line
+  // K is ``≤`` the adaptive rule's K (factor √2 lower on unclamped
+  // middle-band lines, equal where floor/ceiling clamps dominate).
+  // This replaces the previous "K identical" invariant which no longer
+  // holds — adaptive is the K for static layouts, dynamic uses the
+  // looser two-sided budget and produces a smaller K per line.
   const std::vector<double> R {0.0001, 0.0008, 0.005, 0.025};
   const std::vector<double> fmax {3000.0, 300.0, 100.0, 10.0};
   const line_losses::DynamicLayoutOpts opts {.err_pct = 0.01};
@@ -466,7 +470,8 @@ TEST_CASE(
       {.err_pct = opts.err_pct, .floor = opts.floor, .ceiling = opts.ceiling});
   REQUIRE(dyn.size() == adapt.size());
   for (std::size_t i = 0; i < dyn.size(); ++i) {
-    CHECK(dyn[i].K == adapt[i]);
+    CHECK(dyn[i].K <= adapt[i]);
+    CHECK(dyn[i].K >= opts.floor);
   }
 }
 

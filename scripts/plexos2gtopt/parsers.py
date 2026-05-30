@@ -1977,18 +1977,51 @@ def _apply_dynamic_loss_layout(
     L_total = sum(L for _, _, L in lossy)
     budget = err_pct * L_total
 
-    # Phase 1 already assigned K; rebuild a per-line view that includes K.
-    enriched: list[tuple[int, LineSpec, float, int]] = []
-    for i, ln, L in lossy:
-        k = lines[i].loss_segments
-        if k > 0:
-            enriched.append((i, ln, L, k))
+    # ── Phase 1' — recompute K under the two-sided budget ────────────
+    # The two-sided worst-case bound (Σ_uniform L/(4K²) ≤ budget AND
+    # Σ_midpoint L/(4K²) ≤ budget) gives 2× total worst-case headroom
+    # vs the unsigned single-sided budget the cube-root rule used in
+    # ``_apply_adaptive_loss_segments``.  Re-run the cube-root rule
+    # here with the effective ``2 × budget``: KKT gives
+    #
+    #     K_i = ⌈c · L_i^(1/3)⌉,  c = √(S / (4 · 2 · budget))
+    #         = √(S / (4·B_old)) / √2
+    #         ≈ K_i_old / √2  ≈ 71 % of Phase 1's K
+    #
+    # — i.e. ~29 % fewer LP segments per line on the unclamped middle
+    # band.  Phase 2 below then balances ~half the lines to midpoint
+    # so each side uses up its own ``budget``.  Floor=2 / ceiling
+    # clamps (from ``GTOPT_NSEG_LOSSES`` env var) still apply.
+    import os as _os_inner  # noqa: PLC0415  (local; matches the rest of the file)
 
-    # All-uniform signed mean error and worst-case sum.
+    floor = 2
+    ceiling = 6
+    _nseg_env = _os_inner.environ.get("GTOPT_NSEG_LOSSES")
+    if _nseg_env:
+        try:
+            ceiling = max(floor, int(_nseg_env))
+        except ValueError:
+            pass
+    S_dyn = sum(L ** (1.0 / 3.0) for _, _, L in lossy)
+    B_dyn = 2.0 * budget  # two-sided headroom
+    c_dyn = math.sqrt(S_dyn / (4.0 * B_dyn)) if B_dyn > 0 else float("inf")
+
+    # Re-stamp K per line under the looser dynamic budget.
+    enriched: list[tuple[int, LineSpec, float, int]] = []
+    new_lines = list(lines)
+    for i, ln, L in lossy:
+        if L <= 0.0:
+            continue
+        k_raw = c_dyn * (L ** (1.0 / 3.0))
+        k = max(floor, min(ceiling, int(math.ceil(k_raw))))
+        new_lines[i] = dataclasses.replace(new_lines[i], loss_segments=k)
+        enriched.append((i, ln, L, k))
+
+    # All-uniform signed mean error and worst-case sum (using the
+    # Phase 1'-reduced K values stamped into ``new_lines`` above).
     running = sum(L / (6.0 * k * k) for _, _, L, k in enriched)
     all_uniform_worst = sum(L / (4.0 * k * k) for _, _, L, k in enriched)
 
-    new_lines = list(lines)
     # Early return: all-uniform already satisfies BOTH the mean budget
     # AND the one-sided worst-case budget.  Without the worst-case
     # check the all-uniform path returned even when worst_uni was over
@@ -7382,6 +7415,12 @@ def extract_user_constraints(
             # this if-block) so they hit the outer branch first; the
             # is_reserve_provision_sum / catch-all $10 paths below
             # never see them.  Listed here for the audit trail only.
+            #
+            # Earlier Phase 1' work proposed promoting them to hard
+            # (penalty=0) at THIS layer too, but that reintroduces the
+            # CPLEX presolve infeasibility documented in the override
+            # comment above (line 7260-7264).  Soft $1000 at the
+            # upstream override remains the right tier.
             #
             # PLEXOS RegRange UCs (regulation-range constraints — name
             # ends in ``_RegRange_e1`` or ``_RegRange_e2``) are

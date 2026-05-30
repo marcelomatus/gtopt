@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.entities import GeneratorSpec, PlexosCase
 from plexos2gtopt.parsers import (
@@ -1493,6 +1495,21 @@ def _reset_loss_env() -> None:
         "GTOPT_LOSS_EXTEND_OVERLOAD",
     ):
         _os.environ.pop(k, None)
+
+
+@pytest.fixture(autouse=True)
+def _scrub_loss_env_after_test():
+    """Autouse fixture — clear the adaptive-loss env vars AFTER every test
+    in this module so a test that leaves ``GTOPT_NSEG_LOSSES=10`` set
+    can't leak into other test modules running on the same xdist worker
+    (the failure mode was ``test_writer.py::
+    test_build_line_array_dlr_emits_matrix_and_loss_mode`` reading
+    ``loss_segments=10`` instead of the expected default of 4 when it
+    happened to run AFTER ``test_adaptive_k_ceiling_from_env_var`` in
+    the same worker process).
+    """
+    yield
+    _reset_loss_env()
 
 
 def _ls(name: str, R: float, tmax: float, **kw) -> LineSpec:
