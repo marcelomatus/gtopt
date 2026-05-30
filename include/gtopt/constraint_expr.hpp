@@ -467,6 +467,23 @@ struct ConstraintTerm
     }
     return coefficient;
   }
+
+  /// Stored 1-BASED column of the term's anchor token in the source
+  /// expression string, populated by the parser when the term is
+  /// constructed.  Surfaced in resolver diagnostics so a stale
+  /// reference reports a ``at column N`` source location instead of
+  /// just the constraint name (task #55, the P1 safety win).
+  ///
+  /// Convention: the anchor is the token that names the referenced
+  /// entity — the element-type identifier for ``element`` /
+  /// ``sum_ref`` terms (``generator(...)``), the identifier for bare
+  /// ``param_name`` terms.  ``0`` means UNSET (term constructed by
+  /// code that doesn't track positions — e.g. internal lowering for
+  /// ``abs`` / ``min`` / ``max`` slack columns).  Stored 1-based so
+  /// the sentinel doesn't collide with the legitimate byte-offset-0
+  /// (= column 1) case; ``format_error_with_caret`` and
+  /// ``make_unresolved_element_error`` use the value verbatim.
+  std::size_t column {0};
 };
 
 /**

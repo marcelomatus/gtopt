@@ -927,6 +927,16 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_unary()
 
 std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
 {
+  // Capture the column of the term's anchor token BEFORE any
+  // advance() consumes it.  Stored 1-BASED so ``column == 0`` stays
+  // free as the "unset" sentinel — see ``ConstraintTerm::column``
+  // docstring.  Every ConstraintTerm we construct from here on gets
+  // ``term.column = anchor_col`` so resolver-time diagnostics
+  // ("unknown generator 'GX'") can report a ``at column N`` source
+  // location instead of just the constraint name — task #55, the P1
+  // safety win.
+  const auto anchor_col = m_current_.start_pos + 1;
+
   // Parenthesized subexpression
   if (m_current_.type == TokenType::LPAREN) {
     advance();
@@ -939,6 +949,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
   if (m_current_.type == TokenType::NUMBER) {
     ConstraintTerm t {
         .coefficient = std::stod(m_current_.value),
+        .column = anchor_col,
     };
     advance();
     return {
@@ -997,6 +1008,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
           ConstraintTerm {
               .coefficient = 1.0,
               .element = std::move(ref),
+              .column = anchor_col,
           },
       };
     }
@@ -1027,6 +1039,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
           ConstraintTerm {
               .coefficient = 1.0,
               .element = std::move(ref),
+              .column = anchor_col,
           },
       };
     }
@@ -1034,6 +1047,7 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     ConstraintTerm t {
         .coefficient = 1.0,
         .param_name = std::move(m_current_.value),
+        .column = anchor_col,
     };
     advance();
     return {

@@ -345,7 +345,8 @@ void reject_nested_wrappers(const LowerCtx& ctx,
 // caller wraps the returned string in `std::runtime_error` so gtopt
 // exits non-zero.
 [[nodiscard]] std::string make_unresolved_element_error(const LowerCtx& ctx,
-                                                        const ElementRef& ref)
+                                                        const ElementRef& ref,
+                                                        std::size_t column = 0)
 {
   // Does the element NAME/UID resolve at all?  If not → unknown element
   // name; suggest the nearest registered names.  If it does → the name is
@@ -376,10 +377,22 @@ void reject_nested_wrappers(const LowerCtx& ctx,
     }
   }
 
+  // Source-location prefix (task #55 — P1).  Parser stores the
+  // column 1-based on the term (see ``ConstraintTerm::column``), so
+  // we use it verbatim.  ``column == 0`` (unset — term not built by
+  // ``parse_primary``, e.g. internal lowering of abs/min/max into
+  // auxiliary slack columns) omits the location so the message stays
+  // clean.
+  std::string location;
+  if (column > 0) {
+    location = std::format(" at column {}", column);
+  }
+
   return std::format(
-      "user_constraint '{}': cannot resolve element reference '{}({}).{}' "
-      "(block {}) — {}{}",
+      "user_constraint '{}'{}: cannot resolve element reference "
+      "'{}({}).{}' (block {}) — {}{}",
       ctx.uc.name,
+      location,
       ref.element_type,
       ref.element_id,
       ref.attribute,
@@ -513,7 +526,7 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
         // element-registered-but-offline (pmax==0) case is the
         // `res.element_known` branch above and stays a silent 0.
         throw std::runtime_error(
-            make_unresolved_element_error(ctx, *term.element));
+            make_unresolved_element_error(ctx, *term.element, term.column));
       }
       continue;
     }
