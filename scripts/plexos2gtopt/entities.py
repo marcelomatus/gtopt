@@ -521,6 +521,33 @@ class DecisionVariableSpec:
 
 
 @dataclass(frozen=True)
+class PlantSpec:
+    """Declarative grouping of generator configuration variants of one
+    physical plant.
+
+    Mirrors the gtopt-side :file:`include/gtopt/plant.hpp` C++ struct.
+    Emits up to three LP rows per stage natively, replacing the
+    synthesised ``PlantCap_<stem>`` UserConstraints and the
+    ``<plant>_Uniq`` mutex UCs that the converter used to ship:
+
+      * ``plant_cap_<name>``    — Σ generation ≤ pmax  (per stage × block)
+      * ``plant_commit_<name>`` — Σ commit_coeff·status ≤ n_units (per stage)
+      * ``plant_uniq_<name>``   — Σ status ≤ 1         (per stage)
+
+    A PlantSpec carries the variant names (strings — resolved to
+    Generator names at LP build time), the aggregate ``pmax``, the
+    per-plant unit count, and the ``uniq_mutex`` flag.
+    """
+
+    name: str
+    generator_names: tuple[str, ...] = ()
+    pmax: float | None = None
+    n_units: int | None = None
+    commit_coeffs: tuple[float, ...] = ()
+    uniq_mutex: bool = False
+
+
+@dataclass(frozen=True)
 class UserConstraintSpec:
     """A PLEXOS ``Constraint`` object translated to a gtopt UserConstraint.
 
@@ -859,6 +886,7 @@ class PlexosCase:
     commitments: tuple[CommitmentSpec, ...] = field(default_factory=tuple)
     flow_rights: tuple[FlowRightSpec, ...] = field(default_factory=tuple)
     decision_variables: tuple[DecisionVariableSpec, ...] = field(default_factory=tuple)
+    plants: tuple[PlantSpec, ...] = field(default_factory=tuple)
     user_constraints: tuple[UserConstraintSpec, ...] = field(default_factory=tuple)
     # Single end-of-horizon boundary (future-cost) cut from PLEXOS
     # ``Hydro_StoWaterValues.csv``: FCF intercept + per-reservoir water

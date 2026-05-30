@@ -39,6 +39,7 @@
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
 #include <gtopt/json/json_lng_terminal.hpp>
+#include <gtopt/json/json_plant.hpp>
 #include <gtopt/json/json_pump.hpp>
 #include <gtopt/json/json_reserve_provision.hpp>
 #include <gtopt/json/json_reserve_zone.hpp>
@@ -140,6 +141,7 @@ struct json_data_contract<System>
       json_array_null<"decision_variable_array",
                       Array<DecisionVariable>,
                       DecisionVariable>,
+      json_array_null<"plant_array", Array<Plant>, Plant>,
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
@@ -191,6 +193,7 @@ struct json_data_contract<System>
                                  system.volume_right_array,
                                  system.user_param_array,
                                  system.decision_variable_array,
+                                 system.plant_array,
                                  system.user_constraint_array,
                                  system.user_constraint_file,
                                  system.user_constraint_files);

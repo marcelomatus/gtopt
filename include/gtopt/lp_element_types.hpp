@@ -59,6 +59,7 @@ class VolumeRightLP;
 class JunctionLP;
 class LineLP;
 class LngTerminalLP;
+class PlantLP;
 class PumpLP;
 class ReserveProvisionLP;
 class ReserveZoneLP;
@@ -131,6 +132,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       VolumeRightLP,
                                       LngTerminalLP,
                                       DecisionVariableLP,
+                                      PlantLP,
                                       UserConstraintLP>;
 
 /// Total number of LP element types.

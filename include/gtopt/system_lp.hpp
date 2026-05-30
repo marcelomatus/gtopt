@@ -50,6 +50,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
+#include <gtopt/plant_lp.hpp>
 #include <gtopt/pump_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
@@ -147,6 +148,7 @@ static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<DecisionVariableLP>);
+static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
 /**
@@ -311,6 +313,7 @@ public:
                                    Collection<VolumeRightLP>,
                                    Collection<LngTerminalLP>,
                                    Collection<DecisionVariableLP>,
+                                   Collection<PlantLP>,
                                    Collection<UserConstraintLP>>;
 
   /// @return The full collections tuple.

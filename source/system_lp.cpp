@@ -609,6 +609,14 @@ void create_collections(const auto& system_context,
   std::get<Collection<DecisionVariableLP>>(colls) =
       make_collection<DecisionVariableLP>(ic, sys.decision_variable_array);
 
+  // PlantLP runs after CommitmentLP / GeneratorLP so the per-(scen,
+  // stg) status_cols + generation_cols it references already exist.
+  // Placed just before UserConstraintLP so the cap / commit / uniq
+  // rows are recorded after every contributor column is built but
+  // before any UserConstraint touches the LP.
+  std::get<Collection<PlantLP>>(colls) =
+      make_collection<PlantLP>(ic, sys.plant_array);
+
   // UserConstraintLP is placed LAST so that user-constraint rows are added to
   // the LP after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =
@@ -684,6 +692,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<VolumeRightLP>(sim, sys.volume_right_array);
   register_element_names<WaterwayLP>(sim, sys.waterway_array);
   register_element_names<LngTerminalLP>(sim, sys.lng_terminal_array);
+  register_element_names<PlantLP>(sim, sys.plant_array);
 
   // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
   // level under "seepage", not the snake-case of its class name

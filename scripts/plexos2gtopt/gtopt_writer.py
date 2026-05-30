@@ -37,6 +37,7 @@ from .entities import (
     JunctionSpec,
     LineSpec,
     NodeSpec,
+    PlantSpec,
     PlexosCase,
     ReservoirSpec,
     ReserveProvisionSpec,
@@ -1998,6 +1999,40 @@ def build_decision_variable_array(
     return out
 
 
+def build_plant_array(
+    plants: tuple[PlantSpec, ...],
+) -> list[dict[str, Any]]:
+    """One ``Plant`` per :class:`PlantSpec`.
+
+    Native gtopt primitive that replaces the synthesised
+    ``PlantCap_<stem>`` UserConstraints and ``<plant>_Uniq`` mutex UCs
+    emitted by earlier converter versions.  ``PlantLP`` enforces a
+    hard ``Σ generation ≤ pmax`` row per stage × block, plus optional
+    ``Σ commit·status ≤ n_units`` / ``Σ status ≤ 1`` rows.
+
+    Only fields that the spec carries are emitted — ``n_units``,
+    ``commit_coeffs``, and ``uniq_mutex`` are skipped when at their
+    no-op defaults.
+    """
+    out: list[dict[str, Any]] = []
+    for i, p in enumerate(plants):
+        entry: dict[str, Any] = {
+            "uid": i + 1,
+            "name": p.name,
+            "generator_names": list(p.generator_names),
+        }
+        if p.pmax is not None:
+            entry["pmax"] = p.pmax
+        if p.n_units is not None:
+            entry["n_units"] = p.n_units
+        if p.commit_coeffs:
+            entry["commit_coeffs"] = list(p.commit_coeffs)
+        if p.uniq_mutex:
+            entry["uniq_mutex"] = True
+        out.append(entry)
+    return out
+
+
 def build_user_constraint_array(
     constraints: tuple[UserConstraintSpec, ...],
     *,
@@ -2595,6 +2630,7 @@ def build_planning(
         "decision_variable_array": build_decision_variable_array(
             case.decision_variables
         ),
+        "plant_array": build_plant_array(case.plants),
         "user_constraint_array": build_user_constraint_array(
             case.user_constraints,
             default_penalty=default_uc_penalty,
@@ -3466,6 +3502,7 @@ __all__ = [
     "build_junction_array",
     "build_line_array",
     "build_options",
+    "build_plant_array",
     "build_planning",
     "build_provenance",
     "build_reservoir_array",

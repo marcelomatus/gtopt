@@ -39,6 +39,7 @@ from .entities import (
     JunctionSpec,
     LineSpec,
     NodeSpec,
+    PlantSpec,
     PlexosCase,
     ReservoirSpec,
     ReserveProvisionSpec,
@@ -8385,6 +8386,62 @@ def _extract_boundary_cut(bundle: PlexosBundle) -> BoundaryCutSpec | None:
     return BoundaryCutSpec(fcf=fcf, slopes=slopes)
 
 
+def extract_plants(case: PlexosCase) -> tuple[PlantSpec, ...]:
+    """Build a :class:`PlantSpec` per multi-config Generator family.
+
+    Successor to :func:`_build_plant_cap_ucs`: emits one native
+    :class:`Plant` entry per detected family instead of a soft
+    ``PlantCap_<stem>`` UserConstraint.  The LP-side ``PlantLP`` then
+    enforces ``Σ generation ≤ pmax`` as a hard row per (stage, block),
+    eliminating the per-block UC and its 10 000 $/MWh slack column.
+
+    Detection mirrors :func:`_detect_plant_families` — group by name
+    stem (= name minus fuel-band suffix), keep only stems with ≥ 2
+    active variants.  Each PlantSpec carries:
+
+      * ``pmax = max(peak_pmax over active variants)`` — the single-
+        config envelope of the physical plant.
+      * ``n_units = None`` — disabled by default (the Σ-cap is the
+        primary mechanism; per-plant commit budgets are wired only
+        when PLEXOS data justifies it).
+      * ``uniq_mutex = False`` — disabled by default (Σ-cap subsumes
+        the mutex when every variant runs near pmax; the mutex is a
+        future refinement for CC config-binary cases).
+    """
+    families = _detect_plant_families(case.generators)
+    out: list[PlantSpec] = []
+    for stem, variants in sorted(families.items()):
+
+        def _peak_pmax(g: GeneratorSpec) -> float:
+            if g.pmax_profile:
+                return max(g.pmax_profile)
+            return g.pmax or 0.0
+
+        active_variants = [v for v in variants if _peak_pmax(v) > 0.0]
+        if len(active_variants) < 2:
+            continue
+        cap = max(_peak_pmax(v) for v in active_variants)
+        if cap <= 0.0:
+            continue
+        out.append(
+            PlantSpec(
+                name=stem,
+                generator_names=tuple(v.name for v in active_variants),
+                pmax=cap,
+                uniq_mutex=False,
+            )
+        )
+    if out:
+        logger.info(
+            "extract_plants: emitted %d native Plant primitive(s) "
+            "(one per multi-fuel-band Generator family; replaces the "
+            "synthesised PlantCap_* UserConstraints with a hard "
+            "plant_cap_<name> LP row per stage × block)",
+            len(out),
+        )
+    return tuple(out)
+
+
 #: Regex that splits a hydro min/max/maxramp UC name into ``(stem, kind)``.
 #: Matches names like ``ANTUCOmin`` / ``ELTOROmax`` / ``ANGOSTURAmaxramp``.
 #: Kind ``maxramp`` is recognised but treated like ``max`` for the
@@ -9109,20 +9166,21 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
     case = dataclasses.replace(
         case, fuels=_apply_native_fuel_offtake_caps(bundle, case.fuels)
     )
-    # Plant-family configuration caps.  Source 1: PLEXOS ``*_Uniq`` mutex
-    # groups (data-driven config exclusivity across configurations of one
-    # physical combined-cycle plant — SAN_ISIDRO, QUINTERO, NEHUENCO, …).
-    # Source 2: name-heuristic fuel-band families for the rest.  Closes
-    # the configuration-exclusivity gap that let the LP co-dispatch
-    # mutually-exclusive configurations of the same plant.
-    mutex_groups = tuple(_extract_config_mutex_groups(db))
-    plant_cap_ucs = _build_plant_cap_ucs(case, mutex_groups)
+    # Plant-family configuration caps — one per multi-fuel-band
+    # Generator family (SAN_ISIDRO_2-TG+TV, QUINTERO_1A, NEHUENCO_2-TG,
+    # NUEVA_RENCA-TG+TV, etc.).  Closes the PLEXOS configuration-
+    # exclusivity gap when no ``ConfTG`` UC is present.  Emitted as
+    # native ``Plant`` primitives that the LP enforces directly via
+    # ``PlantLP`` (one hard ``plant_cap_<name>`` row per stage × block),
+    # superseding the legacy soft ``PlantCap_*`` UserConstraint
+    # approximation.
+    plants = extract_plants(case)
     uc_stats = UserConstraintStats(
         raw_plexos_constraints=uc_stats_raw.get("raw_total", 0),
         empty_lhs_dropped=uc_stats_raw.get("lhs_dropped", 0),
         base_emitted=uc_stats_raw.get("emitted_base", len(base_ucs)),
         hydro_synthesized=len(hydro_ucs),
-        plant_cap_synthesized=len(plant_cap_ucs),
+        plant_cap_synthesized=0,
     )
     # Raw PLEXOS object counts (pre-drop), for the conversion drop funnel and
     # the emissions guard (``Emission`` objects carry carbon caps the
@@ -9144,7 +9202,8 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         )
     case = dataclasses.replace(
         case,
-        user_constraints=(tuple(base_ucs) + tuple(hydro_ucs) + tuple(plant_cap_ucs)),
+        plants=plants,
+        user_constraints=(tuple(base_ucs) + tuple(hydro_ucs)),
         uc_stats=uc_stats,
         raw_class_counts=raw_class_counts,
     )
@@ -9152,7 +9211,7 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "
         "batteries=%d reservoirs=%d waterways=%d turbines=%d flows=%d "
         "reserves=%d provisions=%d commitments=%d flow_rights=%d "
-        "user_constraints=%d",
+        "plants=%d user_constraints=%d",
         bundle.source.name,
         len(case.nodes),
         len(case.fuels),
@@ -9168,6 +9227,7 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         len(case.reserve_provisions),
         len(case.commitments),
         len(case.flow_rights),
+        len(case.plants),
         len(case.user_constraints),
     )
     return case
@@ -9188,6 +9248,7 @@ __all__ = [
     "extract_junctions",
     "extract_lines",
     "extract_nodes",
+    "extract_plants",
     "extract_reserve_provisions",
     "extract_reserves",
     "extract_reservoirs",

@@ -50,6 +50,7 @@
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
+#include <gtopt/plant.hpp>
 #include <gtopt/pump.hpp>
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
@@ -216,6 +217,11 @@ struct System
       decision_variable_array {};  ///< Free continuous decision vars referenced
                                    ///< by user constraints (PLEXOS DV maps
                                    ///< here)
+  Array<Plant>
+      plant_array {};  ///< Plant primitive: groups generator config variants
+                       ///< (combined-cycle TGA/TGB/TV, fuel-band families)
+                       ///< and emits Σ-capacity / Σ-commit / Σ-uniq rows
+                       ///< natively (replaces PlantCap_* / *_Uniq UCs)
   Array<UserConstraint>
       user_constraint_array {};  ///< User-defined LP constraints
   OptName
