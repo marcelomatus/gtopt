@@ -149,6 +149,17 @@ TEST_CASE(  // NOLINT
       {"flow_right", "target"},
       {"flow_right", "fcost"},
       {"flow_right", "uvalue"},
+      // Turbine — per-stage hydro conversion schedules.
+      {"turbine", "production_factor"},
+      {"turbine", "efficiency"},
+      {"turbine", "capacity"},
+      // Waterway — per-(stage, block) bounds + per-stage capacity /
+      // lossfactor / fcost.
+      {"waterway", "fmin"},
+      {"waterway", "fmax"},
+      {"waterway", "capacity"},
+      {"waterway", "lossfactor"},
+      {"waterway", "fcost"},
       // VolumeRight
       {"volume_right", "fmax"},
       {"volume_right", "emin"},
@@ -197,6 +208,7 @@ TEST_CASE(  // NOLINT
       "flow_right",
       "volume_right",
       "seepage",
+      "reservoir_discharge_limit",
       "reserve_provision",
       "reserve_zone",
       "bus",
@@ -574,4 +586,145 @@ TEST_CASE(  // NOLINT
   const auto sources = collect("emission_source");
   REQUIRE(sources.size() == 1);
   CHECK(sources[0] == Uid {20});
+}
+
+TEST_CASE(  // NOLINT
+    "AMPL dispatch registry — Turbine / Waterway param shims return the "
+    "scheduled value, and ReservoirDischargeLimit appears in the iter table")
+{
+  // Build a minimal hydro chain (reservoir → waterway → turbine + RDL)
+  // and call the registered shims via find_ampl_param.  This pins R4
+  // for the eight new hydro entries: a regression on the param accessor,
+  // the shim, or the registration line would fail this check.
+  const System system = {
+      .name = "ampl_dispatch_hydro_smoke",
+      .bus_array = trivial_bus_array(),
+      .generator_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "g_hydro",
+                  .bus = Uid {1},
+                  .pmax = 100.0,
+                  .gcost = 0.0,
+              },
+          },
+      .junction_array =
+          {
+              {.uid = Uid {1}, .name = "j_up"},
+              {.uid = Uid {2}, .name = "j_down", .drain = true},
+          },
+      .waterway_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "ww1",
+                  .junction_a = Uid {1},
+                  .junction_b = Uid {2},
+                  .capacity = 75.0,
+                  .lossfactor = 0.10,
+                  .fmin = 5.0,
+                  .fmax = 50.0,
+                  .fcost = 0.40,
+              },
+          },
+      .reservoir_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "rsv1",
+                  .junction = Uid {1},
+                  .capacity = 1.0e9,
+                  .emin = 0.0,
+                  .emax = 1.0e9,
+                  .eini = 1.0e9,
+              },
+          },
+      .reservoir_discharge_limit_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "rdl1",
+                  .waterway = Uid {1},
+                  .reservoir = Uid {1},
+                  .segments =
+                      {
+                          {
+                              .volume = 0.0,
+                              .slope = 0.0,
+                              .intercept = 30.0,
+                          },
+                      },
+              },
+          },
+      .turbine_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "t_hydro",
+                  .waterway = Uid {1},
+                  .generator = Uid {1},
+                  .production_factor = 2.5,
+                  .efficiency = 0.95,
+                  .capacity = 200.0,
+              },
+          },
+  };
+
+  const PlanningOptionsLP options;
+  const auto sim = make_single_block_simulation();
+  SimulationLP simulation_lp(sim, options);
+  simulation_lp.set_need_ampl_variables(/*v=*/true);
+  SystemLP system_lp(system, simulation_lp);
+  const auto& sc = system_lp.system_context();
+
+  const auto s = simulation_lp.stages().front().uid();
+  const auto b = simulation_lp.blocks().front().uid();
+  const Uid t_uid {1};
+  const Uid w_uid {1};
+
+  // Turbine per-stage params.
+  const AmplParamFn pf = sc.find_ampl_param("turbine", "production_factor");
+  REQUIRE(pf != nullptr);
+  CHECK(pf(sc, t_uid, s, b).value_or(0.0)
+        == doctest::Approx(2.5).epsilon(1e-9));
+
+  const AmplParamFn eff = sc.find_ampl_param("turbine", "efficiency");
+  REQUIRE(eff != nullptr);
+  CHECK(eff(sc, t_uid, s, b).value_or(0.0)
+        == doctest::Approx(0.95).epsilon(1e-9));
+
+  const AmplParamFn tcap = sc.find_ampl_param("turbine", "capacity");
+  REQUIRE(tcap != nullptr);
+  CHECK(tcap(sc, t_uid, s, b).value_or(0.0)
+        == doctest::Approx(200.0).epsilon(1e-9));
+
+  // Waterway per-(stage, block) and per-stage params.
+  const AmplParamFn fmin = sc.find_ampl_param("waterway", "fmin");
+  REQUIRE(fmin != nullptr);
+  CHECK(fmin(sc, w_uid, s, b).value_or(0.0)
+        == doctest::Approx(5.0).epsilon(1e-9));
+
+  const AmplParamFn fmax = sc.find_ampl_param("waterway", "fmax");
+  REQUIRE(fmax != nullptr);
+  CHECK(fmax(sc, w_uid, s, b).value_or(0.0)
+        == doctest::Approx(50.0).epsilon(1e-9));
+
+  const AmplParamFn wcap = sc.find_ampl_param("waterway", "capacity");
+  REQUIRE(wcap != nullptr);
+  CHECK(wcap(sc, w_uid, s, b).value_or(0.0)
+        == doctest::Approx(75.0).epsilon(1e-9));
+
+  const AmplParamFn lossf = sc.find_ampl_param("waterway", "lossfactor");
+  REQUIRE(lossf != nullptr);
+  CHECK(lossf(sc, w_uid, s, b).value_or(0.0)
+        == doctest::Approx(0.10).epsilon(1e-9));
+
+  const AmplParamFn fcost = sc.find_ampl_param("waterway", "fcost");
+  REQUIRE(fcost != nullptr);
+  CHECK(fcost(sc, w_uid, s, b).value_or(0.0)
+        == doctest::Approx(0.40).epsilon(1e-9));
+
+  // ReservoirDischargeLimit appears in the iter table (sum(... (all)) works).
+  CHECK(sc.find_ampl_iter("reservoir_discharge_limit") != nullptr);
 }
