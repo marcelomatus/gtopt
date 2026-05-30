@@ -1598,37 +1598,9 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
     return out;
   }
 
-  const double budget = opts.err_pct * L_total;
-
-  // ── Phase 1' — recompute K under the two-sided budget ────────────
-  // The two-sided worst-case bound (Σ_uniform L/(4K²) ≤ budget AND
-  // Σ_midpoint L/(4K²) ≤ budget) gives 2× total worst-case headroom
-  // vs the unsigned single-sided budget the cube-root rule used in
-  // ``compute_adaptive_loss_segments`` (Phase 1).  Re-run the cube-
-  // root rule here with the effective ``2 × budget``: KKT gives
-  //
-  //     K_i = ⌈c · L_i^(1/3)⌉,  c = √(S / (4·2·budget))
-  //         ≈ K_i_old / √2  ≈ 71 % of Phase 1's K
-  //
-  // — i.e. ~29 % fewer LP segments per line on the unclamped middle
-  // band.  Measured 30 % Σ K savings on CEN PCP weekly at err_pct
-  // = 0.01 default.  Floor / ceiling clamps still bound K.
-  double S_dyn = 0.0;
-  for (const auto& ln : lossy) {
-    S_dyn += std::cbrt(ln.L);
-  }
-  const double B_dyn = 2.0 * budget;
-  const double c_dyn = (B_dyn > 0.0) ? std::sqrt(S_dyn / (4.0 * B_dyn)) : 0.0;
-  for (auto& ln : lossy) {
-    const double k_raw = c_dyn * std::cbrt(ln.L);
-    const int k = std::clamp(
-        static_cast<int>(std::ceil(k_raw)), opts.floor, opts.ceiling);
-    ln.K = k;
-    out[ln.idx].K = k;
-  }
-
   // Phase 2 — system-wide signed mean error, all-uniform initial.
   //   E_sys = Σ_uniform L_i / (6 K_i²)  −  Σ_midpoint L_i / (12 K_i²)
+  const double budget = opts.err_pct * L_total;
   double running = 0.0;
   double all_uniform_worst = 0.0;
   for (const auto& ln : lossy) {
