@@ -2067,6 +2067,27 @@ def build_user_constraint_array(
             entry["daily_sum"] = True
         if c.constraint_type:
             entry["constraint_type"] = c.constraint_type
+        if c.directive is not None:
+            # Typed constraint-family metadata — replaces the legacy
+            # name-regex / penalty-ladder classification with an
+            # auditable, schema-validated sibling field that the
+            # gtopt-side ``UserConstraint::directive`` picks up.
+            # Only emit the keys actually populated on the directive
+            # so the JSON stays minimal (gtopt's daw::json contract
+            # treats every directive field as ``*_null`` / optional).
+            #
+            # See ``include/gtopt/constraint_directive.hpp`` for the
+            # discriminator → payload schema and AMPL/PAMPL
+            # modernization plan (2026-05-30) Step 4a for the migration
+            # rationale (#53).
+            directive_entry: dict[str, Any] = {"kind": c.directive.kind}
+            if c.directive.penalty is not None:
+                directive_entry["penalty"] = c.directive.penalty
+            if c.directive.scope:
+                directive_entry["scope"] = c.directive.scope
+            if c.directive.window_hours is not None:
+                directive_entry["window_hours"] = c.directive.window_hours
+            entry["directive"] = directive_entry
         out.append(entry)
     return out
 

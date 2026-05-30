@@ -1488,11 +1488,19 @@ from plexos2gtopt.parsers import _apply_adaptive_loss_segments
 
 def _reset_loss_env() -> None:
     """Clear every env var the adaptive helper consults so each test starts
-    from a known state (defaults: err_pct=0.01, ceiling=6, extend=off)."""
+    from a known state (defaults: err_pct=0.01, ceiling=6, extend=off,
+    layout=midpoint)."""
     for k in (
         "GTOPT_LOSS_ERROR_PCT",
         "GTOPT_NSEG_LOSSES",
         "GTOPT_LOSS_EXTEND_OVERLOAD",
+        # Tests at line 1890+ / 2012+ set ``GTOPT_LOSS_PWL_LAYOUT =
+        # "dynamic"`` to exercise the dynamic-layout path.  Without
+        # clearing it here the test_writer.py
+        # ``test_build_line_array_dlr_emits_matrix_and_loss_mode``
+        # asserts ``loss_pwl_layout == "midpoint"`` and fails when a
+        # previous test on the same xdist worker leaked ``dynamic``.
+        "GTOPT_LOSS_PWL_LAYOUT",
     ):
         _os.environ.pop(k, None)
 

@@ -29,6 +29,7 @@ from .entities import (
     BoundaryCutSpec,
     BundleSpec,
     CommitmentSpec,
+    ConstraintDirective,
     DecisionVariableSpec,
     DemandSpec,
     FlowRightSpec,
@@ -7252,6 +7253,13 @@ def extract_user_constraints(
         # at the PLEXOS-supplied penalty (typically hard).
         plexos_penalty = penalty_val if penalty_val and penalty_val > 0 else 0.0
         emitted_penalty = plexos_penalty
+        # Typed constraint-family directive (Step 4a, #53).  Set by the
+        # classification block below when the constraint matches a known
+        # family pattern (RegRange / ReserveProvSum); stays ``None`` for
+        # the legacy / catch-all paths so the emitted JSON omits the
+        # ``directive`` sibling and gtopt-side ``UserConstraint::
+        # directive`` stays at ``std::nullopt`` (= unchanged behaviour).
+        directive_to_emit: ConstraintDirective | None = None
         # OVERRIDE: name-based "PLEXOS-hard, but data-inconsistent"
         # ports.  RES20260422.accdb pid-3070 reports zero slack on
         # every ``Gas_MaxOpDay*`` (binding 111/111, price $78-83/h)
@@ -7478,6 +7486,27 @@ def extract_user_constraints(
                 emitted_penalty = 0.0  # hard — matches PLEXOS exactly
             elif is_reserve_provision_sum or is_regrange_uc:
                 emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
+                # Step 4a (#53) — stamp a typed directive carrying the
+                # classification + policy.  The directive's ``penalty``
+                # wins over the scalar at LP-build time
+                # (``UserConstraintLP::effective_penalty``), so policy
+                # lives in the JSON, auditable per-bundle.  Two distinct
+                # families share the high-soft tier but get different
+                # ``kind`` tags so a reader can tell them apart:
+                #   * ``regrange`` — name contains ``_RegRange_`` and
+                #     the LHS mixes commitment(.) with generator(.) or
+                #     reserve_provision(.).
+                #   * ``reserve_prov_sum`` — pure ``Σ reserve_provision``
+                #     aggregator (3+ refs, no commitment / generator),
+                #     plus the ``*Calculation`` definitional rows that
+                #     define per-zone requirements.
+                # Mirroring the C++ side discriminator tags
+                # (``include/gtopt/constraint_directive.hpp``).
+                directive_kind = "regrange" if is_regrange_uc else "reserve_prov_sum"
+                directive_to_emit = ConstraintDirective(
+                    kind=directive_kind,
+                    penalty=_RESERVE_PROVISION_SUM_PENALTY,
+                )
             elif not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
         # No-limit-sentinel line-security constraints (SD_* etc.) — a
@@ -7526,6 +7555,7 @@ def extract_user_constraints(
                 rhs_profile=rhs_profile_tuple,
                 daily_sum=is_daily_energy or is_daily_count,
                 constraint_type="energy" if is_daily_energy else "",
+                directive=directive_to_emit,
                 description=_describe_user_constraint(
                     constr.name,
                     expression,

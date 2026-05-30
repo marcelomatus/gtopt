@@ -1449,3 +1449,108 @@ def test_build_emission_array_co2() -> None:
     # upstream-only rate also triggers the pollutant definition.
     up_only = (FuelSpec(object_id=2, name="lng", co2_upstream_rate=0.05),)
     assert build_emission_array(up_only) == [{"uid": 1, "name": "co2"}]
+
+
+def test_build_user_constraint_array_omits_directive_when_unset() -> None:
+    """Legacy ``UserConstraintSpec`` (``directive=None``) round-trips
+    unchanged — the writer must NOT emit a ``directive`` JSON key.
+
+    Regression contract for Step 4a (#53): the scaffold landed in #52
+    treats the directive as optional everywhere; existing JSON
+    consumers must not see an unexpected key.
+    """
+    from plexos2gtopt.entities import UserConstraintSpec
+    from plexos2gtopt.gtopt_writer import build_user_constraint_array
+
+    specs = (
+        UserConstraintSpec(
+            name="legacy_uc",
+            expression='generator("G1").generation <= 100',
+            penalty=10.0,
+        ),
+    )
+    out = build_user_constraint_array(specs)
+    assert "directive" not in out[0]
+    assert out[0]["penalty"] == 10.0
+
+
+def test_build_user_constraint_array_emits_regrange_directive() -> None:
+    """When a ``UserConstraintSpec`` carries a ``ConstraintDirective``
+    the writer MUST emit a ``directive`` sibling field on the JSON
+    entry — with the ``kind`` discriminator and only the populated
+    optional fields.
+
+    Regression contract for Step 4a (#53):
+      * ``kind`` always emitted.
+      * Populated fields (``penalty`` / ``scope`` / ``window_hours``)
+        emitted when non-None.
+      * Unset optional fields are OMITTED so the JSON wire form
+        stays minimal and gtopt-side ``daw::json`` ``*_null``
+        bindings stay happy.
+    """
+    from plexos2gtopt.entities import ConstraintDirective, UserConstraintSpec
+    from plexos2gtopt.gtopt_writer import build_user_constraint_array
+
+    specs = (
+        UserConstraintSpec(
+            name="regrange_uc",
+            expression='commitment("uc_G1").status <= 0',
+            penalty=1000.0,
+            directive=ConstraintDirective(
+                kind="regrange",
+                penalty=1000.0,
+            ),
+        ),
+        UserConstraintSpec(
+            name="reserve_prov_sum_uc",
+            expression=(
+                'reserve_provision("p1").up + reserve_provision("p2").up '
+                '+ reserve_provision("p3").up >= 10'
+            ),
+            penalty=1000.0,
+            directive=ConstraintDirective(
+                kind="reserve_prov_sum",
+                penalty=1000.0,
+            ),
+        ),
+        UserConstraintSpec(
+            name="daily_budget_uc",
+            expression='sum(generator(all: fuel="GAS").generation) <= 800',
+            penalty=0.0,
+            directive=ConstraintDirective(
+                kind="daily_budget",
+                scope="fuel:GAS",
+            ),
+        ),
+        UserConstraintSpec(
+            name="max_starts_window_uc",
+            expression='sum(commitment("uc_G1").startup) <= 5',
+            penalty=0.0,
+            directive=ConstraintDirective(
+                kind="max_starts_window",
+                window_hours=24,
+            ),
+        ),
+    )
+    out = {entry["name"]: entry for entry in build_user_constraint_array(specs)}
+
+    # RegRange — kind + penalty only; no scope / window_hours leakage.
+    assert out["regrange_uc"]["directive"] == {
+        "kind": "regrange",
+        "penalty": 1000.0,
+    }
+    # ReserveProvSum — same shape, different discriminator.
+    assert out["reserve_prov_sum_uc"]["directive"] == {
+        "kind": "reserve_prov_sum",
+        "penalty": 1000.0,
+    }
+    # DailyBudget — kind + scope, penalty omitted (None on directive).
+    assert out["daily_budget_uc"]["directive"] == {
+        "kind": "daily_budget",
+        "scope": "fuel:GAS",
+    }
+    # MaxStartsWindow — kind + window_hours only.
+    assert out["max_starts_window_uc"]["directive"] == {
+        "kind": "max_starts_window",
+        "window_hours": 24,
+    }

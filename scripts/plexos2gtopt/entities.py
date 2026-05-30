@@ -566,6 +566,50 @@ class UserConstraintSpec:
     # matched against an energy budget [MWh].  Empty ⇒ gtopt default
     # (unweighted per-block / per-day count).
     constraint_type: str = ""
+    # Typed constraint-family directive — replaces the legacy
+    # name-regex / expression-substring classification (``_RegRange_``,
+    # ``Gas_MaxOpDay``, MinProvision) and hardcoded soft-penalty ladder
+    # that today live inside this converter (``_RESERVE_PROVISION_SUM_
+    # PENALTY``, ``_HYDRO_UC_SOFT_PENALTY``, …).  When set, the
+    # writer emits a ``directive: {kind, …}`` JSON sibling field that
+    # ``UserConstraint::directive`` (gtopt-side) picks up — the
+    # directive's payload (e.g. its own ``penalty``) wins over the
+    # scalar ``UserConstraint.penalty`` at LP-build time so policy
+    # lives in ONE auditable place.  See
+    # ``include/gtopt/constraint_directive.hpp`` for the C++-side
+    # schema and the AMPL/PAMPL modernization plan (2026-05-30) for
+    # the migration rationale.  Default ``None`` = legacy emission
+    # (scalar ``penalty`` only, behaviour unchanged).
+    directive: ConstraintDirective | None = None
+
+
+@dataclass(frozen=True)
+class ConstraintDirective:
+    """Typed constraint-family directive attached to a UserConstraintSpec.
+
+    Mirrors the C++-side ``gtopt::ConstraintDirective`` struct
+    (``include/gtopt/constraint_directive.hpp``).  Only the fields valid
+    for ``kind`` are expected to be populated; everything else stays
+    ``None``.
+
+    Attributes:
+        kind: One of ``regrange | reserve_prov_sum | daily_budget |
+            hydro_floor | max_starts_window``.  Lowercase canonical name
+            (matches the NamedEnum table on the C++ side).
+        penalty: Soft-penalty override [$ / unit-of-violation].  Set for
+            ``regrange`` / ``reserve_prov_sum`` (and any directive whose
+            policy carries a per-kind cost).  Forbidden for
+            ``hydro_floor`` / ``max_starts_window``.
+        scope: Free-form classification tag (e.g. ``"fuel:GAS"``,
+            ``"owner:CSF"``).  Used by ``daily_budget`` / ``hydro_floor``.
+        window_hours: Rolling window length in HOURS.  Required and
+            ``> 0`` for ``max_starts_window``; forbidden elsewhere.
+    """
+
+    kind: str
+    penalty: float | None = None
+    scope: str | None = None
+    window_hours: int | None = None
 
 
 @dataclass(frozen=True)
