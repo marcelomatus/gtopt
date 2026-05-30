@@ -1126,6 +1126,7 @@ _BATT_AGG_CPF_XML = f"""<?xml version="1.0" standalone="yes"?>
   <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
   <t_object><object_id>40</object_id><class_id>7</class_id><name>BAT_A</name></t_object>
   <t_object><object_id>41</object_id><class_id>7</class_id><name>BAT_B</name></t_object>
+  <t_object><object_id>42</object_id><class_id>7</class_id><name>BAT_C</name></t_object>
   <t_object>
     <object_id>100</object_id><class_id>70</class_id><name>CPF_DownMinProvision</name>
   </t_object>
@@ -1174,6 +1175,12 @@ _BATT_AGG_CPF_XML = f"""<?xml version="1.0" standalone="yes"?>
     <parent_object_id>41</parent_object_id>
     <child_object_id>100</child_object_id>
   </t_membership>
+  <t_membership>
+    <membership_id>90003</membership_id>
+    <collection_id>90</collection_id>
+    <parent_object_id>42</parent_object_id>
+    <child_object_id>100</child_object_id>
+  </t_membership>
 
   <t_data>
     <data_id>1</data_id><membership_id>700001</membership_id>
@@ -1190,6 +1197,10 @@ _BATT_AGG_CPF_XML = f"""<?xml version="1.0" standalone="yes"?>
   <t_data>
     <data_id>4</data_id><membership_id>90002</membership_id>
     <property_id>982</property_id><value>0.30</value>
+  </t_data>
+  <t_data>
+    <data_id>5</data_id><membership_id>90003</membership_id>
+    <property_id>982</property_id><value>0.35</value>
   </t_data>
 </MasterDataSet>
 """
@@ -1210,7 +1221,7 @@ def test_extract_user_constraints_aggregate_cpf_down_min_provision(
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     db = load_xml(xml_path)
     allow = {
-        "Battery": frozenset({"BAT_A", "BAT_B"}),
+        "Battery": frozenset({"BAT_A", "BAT_B", "BAT_C"}),
         "ReserveProvision": frozenset(
             {
                 "provision_BAT_A_gen__CPF_LW_BESS",
@@ -1221,21 +1232,43 @@ def test_extract_user_constraints_aggregate_cpf_down_min_provision(
                 "provision_BAT_B_gen__CPF_RS_BESS",
                 "provision_BAT_B_gen__CSF_LW_BESS",
                 "provision_BAT_B_gen__CSF_RS_BESS",
+                "provision_BAT_C_gen__CPF_LW_BESS",
+                "provision_BAT_C_gen__CPF_RS_BESS",
+                "provision_BAT_C_gen__CSF_LW_BESS",
+                "provision_BAT_C_gen__CSF_RS_BESS",
             }
         ),
     }
     out = extract_user_constraints(db, bundle, emitted_names=allow)
     by_name = {c.name: c for c in out}
     assert "CPF_DownMinProvision" in by_name
-    expr = by_name["CPF_DownMinProvision"].expression
-    # Both batteries resolve to the CPF lower (down) zone provision.
+    spec = by_name["CPF_DownMinProvision"]
+    expr = spec.expression
+    # All three batteries resolve to the CPF lower (down) zone provision.
     assert 'reserve_provision("provision_BAT_A_gen__CPF_LW_BESS").dn' in expr
     assert 'reserve_provision("provision_BAT_B_gen__CPF_LW_BESS").dn' in expr
+    assert 'reserve_provision("provision_BAT_C_gen__CPF_LW_BESS").dn' in expr
     # CPF type token in the name ⇒ NO CSF zone term, and the bare
     # never-emitted name is gone.
     assert "CSF_LW_BESS" not in expr
     assert "_RS_BESS" not in expr  # Lower kind ⇒ down only
     assert 'reserve_provision("provision_BAT_A").' not in expr
+
+    # Step 4a (#53) end-to-end coverage: with 3 batteries the LHS has
+    # 3 ``reserve_provision(`` refs and NO ``generator(`` / ``battery(``
+    # / ``commitment(`` / ``line(`` refs → the
+    # ``is_reserve_provision_sum`` branch in ``extract_user_constraints``
+    # fires and stamps the typed ``ConstraintDirective(kind=
+    # 'reserve_prov_sum', penalty=1000)`` on the spec.  This pins the
+    # parser-side stamp end-to-end; the writer-side serialization for
+    # every directive kind is covered by
+    # ``test_build_user_constraint_array_emits_regrange_directive`` in
+    # ``test_writer.py``.
+    assert spec.directive is not None
+    assert spec.directive.kind == "reserve_prov_sum"
+    assert spec.directive.penalty == 1000.0
+    assert spec.directive.scope is None
+    assert spec.directive.window_hours is None
 
 
 _BATT_STORAGEBOUND_XML = f"""<?xml version="1.0" standalone="yes"?>
