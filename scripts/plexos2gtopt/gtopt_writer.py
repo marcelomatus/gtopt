@@ -155,6 +155,19 @@ def build_options(
         # loss from ``R/V² · f² · dur`` and miss the LP's internal
         # PWL secant value entirely.
         "write_out": "all",
+        # NOTE: ``lp_matrix_options.equilibration_method`` intentionally
+        # left UNSET — the default Ruiz scaling rescales binary
+        # commitment column upper bounds (e.g. ``commitment_status_X``
+        # from [0, 1] to [0, 38.58] on CEN PCP weekly).  This is a
+        # known correctness bug (task #50), but switching to
+        # ``row_max``/``none`` here regresses production: the correctly-
+        # bounded LP exposes latent structural infeasibilities in
+        # PLEXOS RegRange UCs that the Ruiz-rescaled LP solves "around"
+        # (the LP "solves" on a semantically-wrong problem with
+        # fractional commitments up to 38.58, but it solves).  Tracked
+        # follow-up: make PLEXOS-side RegRange UCs soft like the CSF
+        # MinProvision fix (task #51) so the correctly-scaled LP can
+        # absorb the structural infeasibility at a high $/MWh penalty.
         "model_options": {
             "use_single_bus": use_single_bus,
             "use_kirchhoff": not use_single_bus,
