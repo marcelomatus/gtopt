@@ -181,89 +181,120 @@ TEST_CASE("Commitment JSON round-trip")
 }
 
 TEST_CASE(
-    "Commitment max_starts_scope_enum resolves PLEXOS spellings")  // NOLINT
+    "Commitment max_starts_scope resolves both name AND int hours")  // NOLINT
 {
-  SUBCASE("unset → Horizon (default)")
+  // Helper for terser test construction.
+  auto make = []() -> Commitment
   {
-    Commitment c {
+    return {
         .uid = Uid {1},
         .name = "x",
         .generator = Uid {1},
     };
+  };
+  auto name_scope = [](std::string_view s) -> MaxStartsScopeValue
+  { return MaxStartsScopeValue {Name {std::string {s}}}; };
+  auto int_scope = [](Int h) -> MaxStartsScopeValue
+  { return MaxStartsScopeValue {h}; };
+
+  SUBCASE("unset → window 0.0 / enum Horizon (default)")
+  {
+    Commitment c = make();
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
     CHECK(c.max_starts_scope_enum() == MaxStartsScope::Horizon);
   }
-  SUBCASE("explicit scopes")
+  SUBCASE("named scopes map to standard hour counts")
   {
-    Commitment c {
-        .uid = Uid {1},
-        .name = "x",
-        .generator = Uid {1},
-    };
-    c.max_starts_scope = OptName {std::string {"hour"}};
+    Commitment c = make();
+    c.max_starts_scope = name_scope("hour");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(1.0));
     CHECK(c.max_starts_scope_enum() == MaxStartsScope::Hour);
-    c.max_starts_scope = OptName {std::string {"day"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Day);
-    c.max_starts_scope = OptName {std::string {"week"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Week);
-    c.max_starts_scope = OptName {std::string {"horizon"}};
+    c.max_starts_scope = name_scope("day");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(24.0));
+    c.max_starts_scope = name_scope("week");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(168.0));
+    c.max_starts_scope = name_scope("horizon");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
+  }
+  SUBCASE("int variant: arbitrary hour count (e.g. fortnight = 336h)")
+  {
+    Commitment c = make();
+    c.max_starts_scope = int_scope(24);
+    CHECK(c.max_starts_window_hours() == doctest::Approx(24.0));
+    c.max_starts_scope = int_scope(336);  // 2 weeks
+    CHECK(c.max_starts_window_hours() == doctest::Approx(336.0));
+    c.max_starts_scope = int_scope(720);  // 30-day month
+    CHECK(c.max_starts_window_hours() == doctest::Approx(720.0));
+    // Int variant always resolves to enum Horizon (no symbolic name).
     CHECK(c.max_starts_scope_enum() == MaxStartsScope::Horizon);
   }
-  SUBCASE("ASCII case-insensitive (PLEXOS often ships TitleCase)")
+  SUBCASE("int <= 0 collapses to Horizon (defensive)")
   {
-    Commitment c {
-        .uid = Uid {1},
-        .name = "x",
-        .generator = Uid {1},
-    };
-    c.max_starts_scope = OptName {std::string {"Week"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Week);
-    c.max_starts_scope = OptName {std::string {"HOUR"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Hour);
+    Commitment c = make();
+    c.max_starts_scope = int_scope(0);
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
+    c.max_starts_scope = int_scope(-5);
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
   }
-  SUBCASE("month / year collapse to Horizon (PLEXOS longer scopes)")
+  SUBCASE("ASCII case-insensitive on the name variant")
   {
-    Commitment c {
-        .uid = Uid {1},
-        .name = "x",
-        .generator = Uid {1},
-    };
-    c.max_starts_scope = OptName {std::string {"month"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Horizon);
-    c.max_starts_scope = OptName {std::string {"year"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Horizon);
+    Commitment c = make();
+    c.max_starts_scope = name_scope("Week");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(168.0));
+    c.max_starts_scope = name_scope("HOUR");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(1.0));
   }
-  SUBCASE("unrecognised value also collapses to Horizon (defensive)")
+  SUBCASE("month / year aliases collapse to Horizon")
   {
-    Commitment c {
-        .uid = Uid {1},
-        .name = "x",
-        .generator = Uid {1},
-    };
-    c.max_starts_scope = OptName {std::string {"xyz"}};
-    CHECK(c.max_starts_scope_enum() == MaxStartsScope::Horizon);
+    Commitment c = make();
+    c.max_starts_scope = name_scope("month");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
+    c.max_starts_scope = name_scope("year");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
+  }
+  SUBCASE("unrecognised name collapses to Horizon (defensive)")
+  {
+    Commitment c = make();
+    c.max_starts_scope = name_scope("xyz");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(0.0));
   }
 }
 
 TEST_CASE("Commitment JSON round-trip with max_starts fields")  // NOLINT
 {
-  std::string_view json_str = R"({
-    "uid": 1,
-    "name": "thermal1_uc",
-    "generator": 10,
-    "startup_cost": 5000,
-    "max_starts": 3,
-    "max_starts_scope": "week"
-  })";
-  const auto c = daw::json::from_json<Commitment>(json_str);
-  CHECK(c.max_starts.value_or(-1) == 3);
-  CHECK(c.max_starts_scope.value_or("") == "week");
-  CHECK(c.max_starts_scope_enum() == MaxStartsScope::Week);
-
-  // Round-trip preserves the fields.
-  const auto json_out = daw::json::to_json(c);
-  const auto c2 = daw::json::from_json<Commitment>(json_out);
-  CHECK(c2.max_starts.value_or(-1) == 3);
-  CHECK(c2.max_starts_scope_enum() == MaxStartsScope::Week);
+  SUBCASE("named scope: 'week'")
+  {
+    std::string_view json_str = R"({
+      "uid": 1,
+      "name": "thermal1_uc",
+      "generator": 10,
+      "startup_cost": 5000,
+      "max_starts": 3,
+      "max_starts_scope": "week"
+    })";
+    const auto c = daw::json::from_json<Commitment>(json_str);
+    CHECK(c.max_starts.value_or(-1) == 3);
+    REQUIRE(c.max_starts_scope.has_value());
+    REQUIRE(std::holds_alternative<Name>(*c.max_starts_scope));
+    CHECK(std::get<Name>(*c.max_starts_scope) == "week");
+    CHECK(c.max_starts_window_hours() == doctest::Approx(168.0));
+  }
+  SUBCASE("int scope: explicit 336 hours (fortnight)")
+  {
+    std::string_view json_str = R"({
+      "uid": 1,
+      "name": "thermal1_uc",
+      "generator": 10,
+      "max_starts": 7,
+      "max_starts_scope": 336
+    })";
+    const auto c = daw::json::from_json<Commitment>(json_str);
+    CHECK(c.max_starts.value_or(-1) == 7);
+    REQUIRE(c.max_starts_scope.has_value());
+    REQUIRE(std::holds_alternative<Int>(*c.max_starts_scope));
+    CHECK(std::get<Int>(*c.max_starts_scope) == 336);
+    CHECK(c.max_starts_window_hours() == doctest::Approx(336.0));
+  }
 }
 
 TEST_CASE("CommitmentLP basic UC dispatch with LP relaxation")

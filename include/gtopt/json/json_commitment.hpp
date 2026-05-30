@@ -15,6 +15,14 @@
 namespace daw::json
 {
 using gtopt::Commitment;
+using gtopt::OptMaxStartsScope;
+
+// Two-shape lookup for ``Commitment.max_starts_scope``: either an
+// integer hour count (variant alternative 0 — gtopt::Int) or a named
+// scope string ("week", "day", ...) (variant alternative 1 —
+// gtopt::Name).  daw::json picks the alternative matching the JSON
+// token type (number → Int, string → Name).
+using jvtl_MaxStartsScope = json_variant_type_list<Int, Name>;
 
 template<>
 struct json_data_contract<Commitment>
@@ -61,7 +69,9 @@ struct json_data_contract<Commitment>
       json_number_null<"hot_start_time", OptReal>,
       json_number_null<"cold_start_time", OptReal>,
       json_number_null<"max_starts", OptInt>,
-      json_string_null<"max_starts_scope", OptName>>;
+      json_variant_null<"max_starts_scope",
+                        OptMaxStartsScope,
+                        jvtl_MaxStartsScope>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {

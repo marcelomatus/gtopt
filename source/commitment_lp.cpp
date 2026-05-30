@@ -1130,28 +1130,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   // would amortise over its multi-stage horizon).
   if (commitment().max_starts.has_value() && !vcols.empty()) {
     const auto max_starts_v = static_cast<double>(*commitment().max_starts);
-    // Resolve the scope via the typed enum (see
-    // ``Commitment::max_starts_scope_enum`` for the OptName→enum
-    // mapping; unrecognised + ``month``/``year`` collapse to
-    // ``Horizon``).  Map the enum to a window length in hours; a
-    // window length of ``0.0`` is the special "horizon" sentinel meaning
-    // "never flush until stage end".
-    const auto scope = commitment().max_starts_scope_enum();
-    double window_hours = 0.0;
-    switch (scope) {
-      case MaxStartsScope::Hour:
-        window_hours = 1.0;
-        break;
-      case MaxStartsScope::Day:
-        window_hours = 24.0;
-        break;
-      case MaxStartsScope::Week:
-        window_hours = 7.0 * 24.0;
-        break;
-      case MaxStartsScope::Horizon:
-        window_hours = 0.0;
-        break;
-    }
+    // Resolve the scope via the variant-aware helper — handles both
+    // the NamedEnum form (``"week"``) and the integer-hours form
+    // (``168``).  See ``Commitment::max_starts_window_hours`` for the
+    // mapping rules.  A window length of ``0.0`` is the "horizon"
+    // sentinel meaning "never flush until stage end".
+    const double window_hours = commitment().max_starts_window_hours();
 
     BIndexHolder<RowIndex> ms_rows;
     auto fresh_row = [&]() -> SparseRow

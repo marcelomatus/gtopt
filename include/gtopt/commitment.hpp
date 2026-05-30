@@ -82,6 +82,29 @@ inline constexpr auto max_starts_scope_entries =
   return std::span {max_starts_scope_entries};
 }
 
+/// Two-shape scope value for ``Commitment::max_starts_scope``:
+///
+///   * ``Name``  — a NamedEnum entry: ``"hour" | "day" | "week" |
+///                 "horizon"`` (also ``"month" | "year"`` aliasing to
+///                 Horizon).  Convenient + PLEXOS-faithful.
+///   * ``Int``   — an explicit window length in HOURS (e.g. ``48`` for
+///                 a 2-day window, ``336`` for a fortnight, ``720`` for
+///                 a calendar month).  Lets users express arbitrary
+///                 rolling windows the NamedEnum doesn't cover.
+///
+/// Resolved to a window length [hours] at LP-build time by
+/// ``Commitment::max_starts_window_hours()`` — a value of 0 (or unset,
+/// or any unrecognised name) means "horizon = never flush until stage
+/// end".
+// Int FIRST: keeps variant alternative ordering aligned with the
+// ``json_variant_type_list<Int, Name>`` in ``json_commitment.hpp``
+// (daw::json maps alternative index → type list index 1:1 during
+// serialisation, so a mismatch corrupts the JSON-out path even though
+// JSON-in still parses).  See ``json_single_id.hpp`` for the same
+// precedent (``variant<Uid, Name>`` ↔ ``json_variant_type_list<Uid, Name>``).
+using MaxStartsScopeValue = std::variant<Int, Name>;
+using OptMaxStartsScope = std::optional<MaxStartsScopeValue>;
+
 /**
  * @struct Commitment
  * @brief Unit commitment parameters for a generator
@@ -254,20 +277,70 @@ struct Commitment
   /// don't surface that yet — easy follow-up if a future case ships
   /// non-zero Max Starts Penalty values).
   OptInt max_starts {};
-  OptName max_starts_scope {};  ///< "hour" | "day" | "week" | "horizon"
+  /// Window-scope for ``max_starts``.  Accepts EITHER a named
+  /// MaxStartsScope (``"hour" | "day" | "week" | "horizon"``, plus
+  /// ``"month" | "year"`` aliasing to Horizon) OR a positive integer
+  /// number of HOURS (e.g. ``48`` for a 2-day window, ``720`` for a
+  /// calendar month).  See ``MaxStartsScopeValue`` for the variant
+  /// definition; ``max_starts_window_hours()`` resolves both shapes to
+  /// the LP-side window length.
+  OptMaxStartsScope max_starts_scope {};
 
-  /// Resolve ``max_starts_scope`` (stored as ``OptName`` for JSON
-  /// compatibility) to the typed enum.  Returns ``MaxStartsScope::
-  /// Horizon`` when unset / unrecognised — the conservative default
-  /// documented above.  See ``enum_option.hpp`` for the framework and
-  /// ``Line::line_losses_mode_enum`` for the matching pattern on the
-  /// Line side.
+  /// Resolve ``max_starts_scope`` (either a named MaxStartsScope or an
+  /// integer hour count) to the rolling window length in HOURS used by
+  /// ``CommitmentLP::add_to_lp`` to decide when to flush the
+  /// ``Σ_{p ∈ window} v[p] ≤ max_starts`` accumulator row.
+  ///
+  ///   * unset → ``0.0`` (treated as Horizon — single row per stage)
+  ///   * Int variant → that many hours (clamped to 0 if non-positive)
+  ///   * Name variant → enum-resolved hours:
+  ///       Hour=1, Day=24, Week=168, Horizon=0
+  ///       month/year aliases → Horizon (0)
+  ///       unrecognised string → Horizon (0)
+  [[nodiscard]] constexpr double max_starts_window_hours() const noexcept
+  {
+    if (!max_starts_scope.has_value()) {
+      return 0.0;
+    }
+    if (std::holds_alternative<Int>(*max_starts_scope)) {
+      const auto h = std::get<Int>(*max_starts_scope);
+      return h > 0 ? static_cast<double>(h) : 0.0;
+    }
+    // Name variant — resolve through the NamedEnum table.
+    const auto& name = std::get<Name>(*max_starts_scope);
+    const auto resolved = enum_from_name<MaxStartsScope>(name);
+    if (!resolved.has_value()) {
+      return 0.0;  // unrecognised → Horizon
+    }
+    switch (*resolved) {
+      case MaxStartsScope::Hour:
+        return 1.0;
+      case MaxStartsScope::Day:
+        return 24.0;
+      case MaxStartsScope::Week:
+        return 7.0 * 24.0;
+      case MaxStartsScope::Horizon:
+        return 0.0;
+    }
+    return 0.0;
+  }
+
+  /// Symbolic view of ``max_starts_scope`` for diagnostic / test use.
+  /// Returns ``Horizon`` when unset, when the variant holds an Int
+  /// (the explicit hour count has no enum entry), or when the Name
+  /// doesn't match an enum entry.  Use ``max_starts_window_hours()``
+  /// for the LP-side resolved window length.
   [[nodiscard]] constexpr MaxStartsScope max_starts_scope_enum() const noexcept
   {
-    if (max_starts_scope.has_value()) {
-      if (const auto e = enum_from_name<MaxStartsScope>(*max_starts_scope)) {
-        return *e;
-      }
+    if (!max_starts_scope.has_value()
+        || std::holds_alternative<Int>(*max_starts_scope))
+    {
+      return MaxStartsScope::Horizon;
+    }
+    if (const auto e =
+            enum_from_name<MaxStartsScope>(std::get<Name>(*max_starts_scope)))
+    {
+      return *e;
     }
     return MaxStartsScope::Horizon;
   }
