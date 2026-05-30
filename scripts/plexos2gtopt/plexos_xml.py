@@ -125,6 +125,14 @@ class PlexosDb:
     memberships: list[PlexosMembership] = field(default_factory=list)
     properties: list[PlexosProperty] = field(default_factory=list)
     data_rows: list[PlexosDataRow] = field(default_factory=list)
+    #: ``t_tag`` index — ``{data_id -> [scenario_object_id, …]}``.  PLEXOS
+    #: uses ``t_tag`` to mark a data row as scenario-conditional: the row
+    #: is active only when one of its tagged objects (typically a Scenario)
+    #: is enabled in the Model being run.  Untagged rows are the default.
+    #: Critical for resolving dual-row ``Include in ST Schedule`` values
+    #: (one untagged ``0``, one Scenario-tagged ``-1``): the ``-1`` wins
+    #: only when its Scenario is in the Model's ``Scenarios`` collection.
+    tag_for_data: dict[int, list[int]] = field(default_factory=dict)
     #: Simulation horizon start (Horizon "Date From" attribute, OLE-serial
     #: decoded).  ``None`` when the bundle carries no Horizon date.  Used to
     #: resolve dated property overrides (see :class:`PlexosDataRow`).
@@ -254,6 +262,57 @@ class PlexosDb:
                 idx.setdefault((d.membership_id, d.property_id), []).append(d)
             self._data_index = idx
         return self._data_index.get((membership_id, property_id), [])
+
+    def active_scenario_ids(self, model_name: str | None = None) -> set[int]:
+        """Return the set of Scenario ``object_id``s enabled by a Model.
+
+        Args:
+            model_name: Name of the Model object (PLEXOS ``Model`` class)
+                whose Scenarios collection defines the active scenario
+                set.  If ``None`` and the bundle contains exactly one
+                Model, that one is used.  If multiple Models exist and
+                ``None`` is passed, prefer the canonical CEN PRGdia name
+                ``"PRGdia_Full_Definitivo"``; fall back to the first.
+
+        Returns:
+            Set of Scenario object_ids that are members of the Model's
+            ``Scenarios`` collection.  Empty if no Model is found, the
+            Model has no Scenarios collection, or no Scenario class
+            exists.
+
+        Used by :func:`parsers.extract_user_constraints` to decide whether
+        a Scenario-tagged ``Include in ST Schedule = -1`` row overrides
+        the untagged ``0`` default, matching PLEXOS run semantics.
+        """
+        models = self.objects_of_class("Model")
+        if not models:
+            return set()
+        if model_name is None:
+            preferred = next(
+                (m for m in models if m.name == "PRGdia_Full_Definitivo"),
+                models[0],
+            )
+            chosen = preferred
+        else:
+            chosen = next((m for m in models if m.name == model_name), None)
+            if chosen is None:
+                return set()
+        scn_class_id = self.class_id("Scenario")
+        if scn_class_id is None:
+            return set()
+        # Restrict to memberships whose child is a Scenario object —
+        # the Model also memberships Horizon / Performance / Report /
+        # Stochastic / MT-Schedule / etc., none of which carry tags on
+        # data rows.
+        scenario_oids = {
+            o.object_id for o in self.objects if o.class_id == scn_class_id
+        }
+        return {
+            m.child_object_id
+            for m in self.memberships
+            if m.parent_object_id == chosen.object_id
+            and m.child_object_id in scenario_oids
+        }
 
     def system_membership_id(
         self, child_class: str, child_object_id: int
@@ -522,6 +581,27 @@ def _parse_timeslice_map(root: ET.Element) -> dict[int, str]:
     return out
 
 
+def _parse_tags(root: ET.Element) -> dict[int, list[int]]:
+    """Index ``t_tag`` as ``{data_id -> [tagged object_ids, …]}``.
+
+    PLEXOS uses ``t_tag`` to mark a ``t_data`` row as conditional on a
+    Scenario (or other tag object).  An untagged row is the unconditional
+    default; a tagged row is only active when one of its tagged objects
+    is enabled in the active Model.  Typical use: dual-row property
+    overrides where the default value is one number and the
+    scenario-conditional override is another (e.g. ``Include in ST
+    Schedule = 0`` by default, ``= -1`` when ``CSFUp_ON`` is active).
+    """
+    out: dict[int, list[int]] = {}
+    for elem in root.findall(f"{NS}t_tag"):
+        did = _findtext_int(elem, "data_id")
+        oid = _findtext_int(elem, "object_id")
+        if did is None or oid is None:
+            continue
+        out.setdefault(did, []).append(oid)
+    return out
+
+
 def _parse_data(root: ET.Element) -> list[PlexosDataRow]:
     dfrom = _parse_date_map(root, "t_date_from")
     dto = _parse_date_map(root, "t_date_to")
@@ -593,6 +673,7 @@ def load_xml(path: Path | str) -> PlexosDb:
         # (System-collection membership_id, property_id). ~72k rows on
         # the 36 MB PCP bundle, ~250 ms parse.
         data_rows=_parse_data(root),
+        tag_for_data=_parse_tags(root),
         horizon_start=_parse_horizon_start(root),
     )
 

@@ -50,7 +50,7 @@ from .entities import (
 )
 from .plexos_csv import DEFAULT_PERIODS, read_long, read_wide
 from .plexos_loader import PlexosBundle
-from .plexos_xml import PlexosDb, PlexosObject, load_xml
+from .plexos_xml import PlexosDataRow, PlexosDb, PlexosObject, load_xml
 
 
 logger = logging.getLogger(__name__)
@@ -5883,38 +5883,66 @@ def extract_user_constraints(
     # Pre-resolve the Include-in-ST-Schedule flag per constraint:
     # {constr_object_id -> bool}.  Missing entries are implicitly
     # active (PLEXOS default for the run stage).
+    #
+    # PLEXOS ``Include in ST Schedule`` semantics:
+    #   (no entry) = use PROJECT default → INCLUDE
+    #            0 = explicitly EXCLUDE from ST Schedule
+    #           -1 = use PROJECT default (sentinel form) → INCLUDE
+    #          ≥ 1 = explicitly INCLUDE
+    #
+    # Dual-row resolution (2026-05-30): many CEN PCP constraints carry
+    # TWO rows, one untagged (``0`` = exclude) and one tagged with a
+    # Scenario object (``-1`` = include).  PLEXOS evaluates the tagged
+    # row only when its Scenario is enabled in the Model being run.
+    # We resolve by:
+    #   1. ask PlexosDb for the active scenario id set (Model →
+    #      Scenarios collection)
+    #   2. partition rows by tag: (active, default, inactive)
+    #   3. active-tagged > default (untagged) > inactive-tagged
+    #   4. apply the standard {0 → exclude} rule to the winner
+    # Drops 27 wrongly-emitted CEN PCP rows: 15× InflexibilityRule,
+    # 8× ManageableRule, 4× ElToroOnlyCPF (each Scenario inactive in
+    # ``PRGdia_Full_Definitivo``).
     include_st_excluded: set[int] = set()
+    active_scen_ids = db.active_scenario_ids()
+
+    # Sort each constraint's ST-Schedule rows by priority:
+    #   tier 0: tagged with an ACTIVE scenario  (override fires)
+    #   tier 1: untagged (default — always applies)
+    #   tier 2: tagged only with INACTIVE scenarios (ignored entirely)
+    # Within the same tier, lowest ``data_id`` wins (matches the
+    # legacy single-row ordering).
+    def _row_tier(r: PlexosDataRow) -> int:
+        tags = db.tag_for_data.get(r.data_id, [])
+        if not tags:
+            return 1
+        if any(t in active_scen_ids for t in tags):
+            return 0
+        return 2
+
     if prop_include_st is not None:
         for constr_oid, constr_mid in sys_mid_by_constr.items():
             rows = db.data_for(constr_mid, prop_include_st)
             if not rows:
                 continue
-            rows.sort(key=lambda r: r.data_id)
-            val = rows[0].value
-            # PLEXOS ``Include in ST Schedule`` semantics revisited
-            # (2026-05-24): the property is tri-state
-            #   (no entry) = use PROJECT default → INCLUDE
-            #            0 = explicitly EXCLUDE from ST Schedule
-            #           -1 = use PROJECT default (sentinel form) →
-            #                INCLUDE
-            #          ≥ 1 = explicitly INCLUDE
-            # Earlier this branch treated both 0 and -1 as
-            # "exclude" — wrong for -1.  Verified on CEN PCP
-            # 2026-04-22: ``Campiche_starting`` /
-            # ``NVentanas_starting`` / ``SD_2025128381_...`` /
-            # ``NorthSecurity`` all carry value ``-1`` yet PLEXOS
-            # actively binds them (CAMPICHE's 5.7 GWh / 33h dispatch
-            # tail matches enforcement of ``startup ≤ 0`` after the
-            # initial-state shutdown).  Treating -1 as ``exclude``
-            # made gtopt under-emit 704 / 1107 constraints,
-            # producing the +20 to +32 GWh coal over-dispatch
-            # (NUEVA_VENTANAS, CAMPICHE, SANTA_MARIA, …).
+            best = min(
+                (r for r in rows if _row_tier(r) < 2),
+                key=lambda r: (_row_tier(r), r.data_id),
+                default=None,
+            )
+            if best is None:
+                # Every row is gated by an inactive scenario → PLEXOS
+                # treats the constraint as if no value were set → use
+                # project default (INCLUDE).
+                continue
+            val = best.value
             if val is not None and val == 0.0:
                 include_st_excluded.add(constr_oid)
     if include_st_excluded:
         logger.info(
             "PLEXOS Constraint: %d/%d explicitly excluded via "
-            '"Include in ST Schedule"; emitting with active=False.',
+            '"Include in ST Schedule" (after scenario-tag resolution); '
+            "emitting with active=False.",
             len(include_st_excluded),
             len(sys_mid_by_constr),
         )

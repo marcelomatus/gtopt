@@ -458,6 +458,141 @@ def test_st_schedule_zero_disables_force_active_family(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Scenario-tagged ST-Schedule resolution: dual-row constraints whose `-1`
+# override is gated by a Scenario object only fire when that Scenario is in
+# the active Model's `Scenarios` collection (PLEXOS run semantics).  Verified
+# against CEN PCP 2026-04-22 where `InflexibilityRule` / `ManageableRule` /
+# `ElToroOnlyCPF` are NOT activated by `PRGdia_Full_Definitivo`, so their
+# `-1` overrides are inert and the default `0` (exclude) wins.
+# --------------------------------------------------------------------------- #
+_ST_SCENARIO_DUAL_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_class><class_id>78</class_id><name>Scenario</name></t_class>
+  <t_class><class_id>80</class_id><name>Model</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>G1</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id>
+    <name>UC_KeepActive</name></t_object>
+  <t_object><object_id>101</object_id><class_id>70</class_id>
+    <name>UC_DropInactive</name></t_object>
+  <t_object><object_id>200</object_id><class_id>78</class_id>
+    <name>CSFUp_ON</name></t_object>
+  <t_object><object_id>201</object_id><class_id>78</class_id>
+    <name>InflexibilityRule</name></t_object>
+  <t_object><object_id>300</object_id><class_id>80</class_id>
+    <name>PRGdia_Full_Definitivo</name></t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>32</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>738</collection_id><parent_class_id>80</parent_class_id>
+    <child_class_id>78</child_class_id><name>Scenarios</name>
+  </t_collection>
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>4370</property_id><collection_id>700</collection_id>
+    <name>Include in ST Schedule</name>
+  </t_property>
+  <t_property>
+    <property_id>393</property_id><collection_id>32</collection_id>
+    <name>Generation Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>700001</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>700002</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32001</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32002</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>738001</membership_id><collection_id>738</collection_id>
+    <parent_object_id>300</parent_object_id><child_object_id>200</child_object_id>
+  </t_membership>
+  <t_data><data_id>1</data_id><membership_id>700001</membership_id>
+    <property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>2</data_id><membership_id>700001</membership_id>
+    <property_id>4384</property_id><value>10</value></t_data>
+  <t_data><data_id>3</data_id><membership_id>700001</membership_id>
+    <property_id>4370</property_id><value>-1</value></t_data>
+  <t_data><data_id>4</data_id><membership_id>700001</membership_id>
+    <property_id>4370</property_id><value>0</value></t_data>
+  <t_data><data_id>5</data_id><membership_id>32001</membership_id>
+    <property_id>393</property_id><value>1.0</value></t_data>
+  <t_data><data_id>6</data_id><membership_id>700002</membership_id>
+    <property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>7</data_id><membership_id>700002</membership_id>
+    <property_id>4384</property_id><value>10</value></t_data>
+  <t_data><data_id>8</data_id><membership_id>700002</membership_id>
+    <property_id>4370</property_id><value>-1</value></t_data>
+  <t_data><data_id>9</data_id><membership_id>700002</membership_id>
+    <property_id>4370</property_id><value>0</value></t_data>
+  <t_data><data_id>10</data_id><membership_id>32002</membership_id>
+    <property_id>393</property_id><value>1.0</value></t_data>
+  <t_tag><data_id>3</data_id><object_id>200</object_id></t_tag>
+  <t_tag><data_id>8</data_id><object_id>201</object_id></t_tag>
+</MasterDataSet>
+"""
+
+
+def test_st_schedule_scenario_tag_active_overrides_default(tmp_path: Path) -> None:
+    """Dual-row resolution: a tagged ``-1`` whose Scenario IS in the active
+    Model's Scenarios collection overrides the untagged ``0`` default →
+    constraint stays active.  Untagged ``-1`` whose Scenario is NOT active
+    is ignored → default ``0`` wins → constraint excluded.
+
+    Models the CEN PCP 2026-04-22 pattern: `MAXCSF_RALCO_U1_RALCO_U2`
+    (`CSFUp_ON` active → included) vs `KELAR_GNL_INF_ON`
+    (`InflexibilityRule` inactive → excluded).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_ST_SCENARIO_DUAL_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    # PlexosDb.tag_for_data populated from t_tag rows
+    assert db.tag_for_data == {3: [200], 8: [201]}
+    # PlexosDb.active_scenario_ids only sees the Scenario activated by
+    # the Model's Scenarios collection (membership_id=738001 → 200).
+    assert db.active_scenario_ids() == {200}
+    by_name = {c.name: c for c in extract_user_constraints(db, bundle)}
+    # CSFUp_ON IS active → -1 wins → include
+    assert by_name["UC_KeepActive"].active is not False
+    # InflexibilityRule is NOT active → -1 ignored → default 0 wins → exclude
+    assert by_name["UC_DropInactive"].active is False
+
+
+def test_st_schedule_scenario_tag_explicit_model_name(tmp_path: Path) -> None:
+    """``active_scenario_ids(model_name=...)`` selects a non-default Model."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_ST_SCENARIO_DUAL_XML)
+    db = load_xml(xml_path)
+    assert db.active_scenario_ids("PRGdia_Full_Definitivo") == {200}
+    # Unknown Model name → empty set (NOT KeyError)
+    assert db.active_scenario_ids("NoSuchModel") == set()
+
+
+# --------------------------------------------------------------------------- #
 # Timeslice tags: PLEXOS recurring hour-of-day / weekday RHS modulation
 # --------------------------------------------------------------------------- #
 
