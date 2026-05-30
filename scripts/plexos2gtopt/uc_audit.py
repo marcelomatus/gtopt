@@ -103,39 +103,6 @@ UC_FAMILY_PATTERNS = (
     (re.compile(r"^CSF_|^CPF_|^CRC"), "reserve_provision"),
 )
 
-_HYDRO_PLANTS = frozenset(
-    {
-        "ANTUCO",
-        "ANGOSTURA",
-        "CIPRESES",
-        "COLBUN",
-        "ELTORO",
-        "LMAULE",
-        "MACHICURA",
-        "PANGUE",
-        "PEHUENCHE",
-        "POLPAICO",
-        "POLCURA",
-        "RALCO",
-        "RAPEL",
-        "SAUZAL",
-        "SAUZALITO",
-    }
-)
-_HYDRO_SUFFIXES = (
-    "min",
-    "max",
-    "ramp",
-    "maxramp",
-    "lagrampup",
-    "lagrampdown",
-    "rampdown",
-    "rampup",
-    "rampdownact",
-    "eco",
-    "reserve",
-)
-
 
 def categorise(name: str) -> str:
     """Map a UC name to its family label (one of UC_FAMILY_PATTERNS)."""
@@ -151,14 +118,16 @@ def is_hydro_minmax(name: str) -> bool:
     These are excluded from the B5 hard-soft mismatch bucket by design
     — gtopt keeps them soft because it lacks a commit-status primitive
     to gate the floor on unit-online, the PLEXOS semantics.
+
+    Delegates to :func:`plexos2gtopt.parsers._is_hydro_min_max_uc` so the
+    audit's filter stays in lock-step with the converter's actual
+    hard-list exclusion logic (matches the same regex + plant stems,
+    including case-sensitive suffixes like ``_PMax`` and
+    ``caudal_min_diario`` that a naive case-folding check misses).
     """
-    upper = name.upper()
-    for plant in _HYDRO_PLANTS:
-        if plant in upper:
-            for s in _HYDRO_SUFFIXES:
-                if name.endswith(s):
-                    return True
-    return False
+    from .parsers import _is_hydro_min_max_uc
+
+    return _is_hydro_min_max_uc(name)
 
 
 # ---------------------------------------------------------------------------

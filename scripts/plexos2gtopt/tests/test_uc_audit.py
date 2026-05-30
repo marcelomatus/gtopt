@@ -88,14 +88,24 @@ def test_categorise_known_families() -> None:
 
 
 def test_is_hydro_minmax() -> None:
+    # In lock-step with parsers._is_hydro_min_max_uc — the names the
+    # converter strips from the hard list under hydro-min-mode=soft.
     assert is_hydro_minmax("ANTUCOmin") is True
     assert is_hydro_minmax("MACHICURAlagrampdown") is True
     assert is_hydro_minmax("PANGUEramp") is True
     assert is_hydro_minmax("COLBUNmax") is True
-    assert is_hydro_minmax("ANTUCOreserve") is True
+    # Case-sensitive ``_PMax`` and ``caudal_min_diario`` suffixes the
+    # earlier naive ``endswith`` heuristic missed (this was the cause
+    # of the audit's 2 false-positive B5 entries pre-fix).
+    assert is_hydro_minmax("ANTUCO_PMax") is True
+    assert is_hydro_minmax("PANGUEcaudal_min_diario") is True
     assert is_hydro_minmax("Diesel_OffTakeDay") is False
     assert is_hydro_minmax("BatMaxCycDay_BAT_X") is False
     assert is_hydro_minmax("Gas_MaxOpDay0_Colbun") is False
+    # ``*reserve`` (e.g. ``CANUTILLARreserve``) is a reservoir-energy
+    # constraint, NOT a hydro min/max — the converter's regex doesn't
+    # strip it from the hard list, so the audit must NOT silence it.
+    assert is_hydro_minmax("CANUTILLARreserve") is False
 
 
 def test_load_hard_list_parses_annotations(tmp_path: Path) -> None:
