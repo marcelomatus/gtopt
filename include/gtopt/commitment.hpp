@@ -36,11 +36,51 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <span>
+
+#include <gtopt/enum_option.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
 {
+
+/// Scope of ``Commitment::max_starts`` — defines the rolling time window
+/// over which the LP cap ``Σ startup ≤ max_starts`` is enforced.  Mirrors
+/// PLEXOS's per-Generator ``Max Starts {Hour|Day|Week|Month|Year}``
+/// properties (prop_id 203..207); the longer per-month / per-year scopes
+/// collapse to ``Horizon`` here because a typical gtopt stage is shorter
+/// than a month.  See ``Commitment::max_starts`` docstring for the full
+/// LP-row emission rule.
+enum class MaxStartsScope : std::uint8_t
+{
+  Hour = 0,  ///< One LP row per single-period window
+  Day = 1,  ///< One LP row per 24h cumulative-duration window
+  Week = 2,  ///< One LP row per 7×24h window (CEN PCP target)
+  Horizon = 3,  ///< One LP row per stage; default + collapse-target
+                ///< for per-month / per-year PLEXOS scopes
+};
+
+inline constexpr auto max_starts_scope_entries =
+    std::to_array<EnumEntry<MaxStartsScope>>({
+        {.name = "hour", .value = MaxStartsScope::Hour},
+        {.name = "day", .value = MaxStartsScope::Day},
+        {.name = "week", .value = MaxStartsScope::Week},
+        {.name = "horizon", .value = MaxStartsScope::Horizon},
+        // Aliases for the longer PLEXOS scopes that we collapse to
+        // Horizon — kept so a JSON faithfully transcribed from PLEXOS
+        // parses without surfacing a misleading "expected: hour, day,
+        // week, horizon" error.
+        {.name = "month", .value = MaxStartsScope::Horizon, .is_alias = true},
+        {.name = "year", .value = MaxStartsScope::Horizon, .is_alias = true},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(MaxStartsScope) noexcept
+{
+  return std::span {max_starts_scope_entries};
+}
 
 /**
  * @struct Commitment
@@ -185,6 +225,52 @@ struct Commitment
   OptReal hot_start_time {};  ///< Max offline hours for hot start [h]
   OptReal cold_start_time {};  ///< Min offline hours for cold start [h]
   /// @}
+
+  /// @name Startup-count caps (PLEXOS ``Max Starts {Hour|Day|Week|...}``)
+  ///
+  /// Cap on the number of startup events allowed within a rolling time
+  /// window.  Emits ONE LP row per (commitment, window) pair:
+  ///
+  ///     Σ_{block in window} startup_col[block]  ≤  max_starts
+  ///
+  /// where ``window`` is determined by ``max_starts_scope``:
+  ///   - ``"hour"``    → 1 row per block (effectively startup ≤ N/h)
+  ///   - ``"day"``     → 1 row per 24 h window (cumulative-duration
+  ///                     boundary flush, like ``UserConstraint.daily_sum``)
+  ///   - ``"week"``    → 1 row per 7×24 h window
+  ///   - ``"horizon"`` (default) → 1 row per stage, Σ over all blocks
+  ///
+  /// PLEXOS exposes the full family on its Generator class
+  /// (prop 202..207: per-horizon / hour / day / week / month / year);
+  /// gtopt covers the four scopes that meaningfully decompose against
+  /// gtopt's stage/block grid (hour / day / week / horizon).  Per-month
+  /// and per-year are not exposed because a typical stage is shorter
+  /// than a month — fall back to ``"horizon"`` with a stage-aligned
+  /// value if the caller needs them.
+  ///
+  /// When unset (default) → no cap row is emitted.  The cap is a HARD
+  /// integer-count constraint; no soft-slack tier (PLEXOS itself has a
+  /// ``Max Starts Penalty`` slot but CEN PCP never populates it, so we
+  /// don't surface that yet — easy follow-up if a future case ships
+  /// non-zero Max Starts Penalty values).
+  OptInt max_starts {};
+  OptName max_starts_scope {};  ///< "hour" | "day" | "week" | "horizon"
+
+  /// Resolve ``max_starts_scope`` (stored as ``OptName`` for JSON
+  /// compatibility) to the typed enum.  Returns ``MaxStartsScope::
+  /// Horizon`` when unset / unrecognised — the conservative default
+  /// documented above.  See ``enum_option.hpp`` for the framework and
+  /// ``Line::line_losses_mode_enum`` for the matching pattern on the
+  /// Line side.
+  [[nodiscard]] constexpr MaxStartsScope max_starts_scope_enum() const noexcept
+  {
+    if (max_starts_scope.has_value()) {
+      if (const auto e = enum_from_name<MaxStartsScope>(*max_starts_scope)) {
+        return *e;
+      }
+    }
+    return MaxStartsScope::Horizon;
+  }
 };
 
 }  // namespace gtopt

@@ -1100,6 +1100,114 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // ── C9: Max startup events per window (PLEXOS Max Starts {Hour|Day|
+  // Week|Horizon}) ──
+  //
+  // Cap the cumulative startup count over a rolling time window:
+  //
+  //     Σ_{p ∈ window} v[p]  ≤  max_starts
+  //
+  // Window boundaries are determined by the constraint's scope.  We
+  // walk the periods in chronological order, accumulating their
+  // duration; when the cumulative duration crosses the scope's window
+  // length we close the row, flush, and open a fresh accumulator on
+  // the next period.  The stage's last period always closes the
+  // open window (matches ``UserConstraint.daily_sum`` semantics).
+  //
+  // Scope → window-hours map:
+  //   "hour"    →   1.0    (one row per period — effectively a per-
+  //                         period cap)
+  //   "day"     →  24.0    (mirror of daily_sum, applied to v)
+  //   "week"    → 168.0    (or stage length if smaller; PLEXOS Max
+  //                         Starts Week is the CEN PCP target use case)
+  //   "horizon" → +∞       (one row per stage)
+  //
+  // Scopes longer than the stage collapse to ``"horizon"`` (one row
+  // per stage).  Per-month / per-year scopes are out of band on a
+  // typical short stage and fall back to ``"horizon"`` after the
+  // collapse, so the integer cap is conservative w.r.t. PLEXOS's
+  // longer-window cap (gtopt enforces it across THIS stage; PLEXOS
+  // would amortise over its multi-stage horizon).
+  if (commitment().max_starts.has_value() && !vcols.empty()) {
+    const auto max_starts_v = static_cast<double>(*commitment().max_starts);
+    // Resolve the scope via the typed enum (see
+    // ``Commitment::max_starts_scope_enum`` for the OptName→enum
+    // mapping; unrecognised + ``month``/``year`` collapse to
+    // ``Horizon``).  Map the enum to a window length in hours; a
+    // window length of ``0.0`` is the special "horizon" sentinel meaning
+    // "never flush until stage end".
+    const auto scope = commitment().max_starts_scope_enum();
+    double window_hours = 0.0;
+    switch (scope) {
+      case MaxStartsScope::Hour:
+        window_hours = 1.0;
+        break;
+      case MaxStartsScope::Day:
+        window_hours = 24.0;
+        break;
+      case MaxStartsScope::Week:
+        window_hours = 7.0 * 24.0;
+        break;
+      case MaxStartsScope::Horizon:
+        window_hours = 0.0;
+        break;
+    }
+
+    BIndexHolder<RowIndex> ms_rows;
+    auto fresh_row = [&]() -> SparseRow
+    {
+      SparseRow r;
+      r.class_name = cname;
+      r.constraint_name = MaxStartsName;
+      r.variable_uid = cuid;
+      return r;
+    };
+    SparseRow window_row = fresh_row();
+    bool row_open = false;
+    double acc_hours = 0.0;
+    BlockUid window_end_block {};
+
+    auto flush_window = [&]()
+    {
+      if (!row_open) {
+        return;
+      }
+      auto bound = window_row.less_equal(max_starts_v);
+      const auto row_idx = lp.add_row(std::move(bound));
+      ms_rows[window_end_block] = row_idx;
+      window_row = fresh_row();
+      row_open = false;
+      acc_hours = 0.0;
+    };
+
+    for (size_t p = 0; p < nperiods; ++p) {
+      const auto pstart = period_starts[p];
+      const auto pend =
+          (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+      double period_hours = 0.0;
+      for (size_t i = pstart; i < pend; ++i) {
+        period_hours += blocks[i].duration();
+      }
+      const auto& rep_blk = blocks[pstart];
+      if (!row_open) {
+        window_row.context =
+            make_block_context(scenario.uid(), stage.uid(), rep_blk.uid());
+        row_open = true;
+      }
+      window_row[period_vcol[p]] = 1.0;
+      acc_hours += period_hours;
+      window_end_block = rep_blk.uid();
+      if (window_hours > 0.0 && acc_hours >= window_hours) {
+        flush_window();
+      }
+    }
+    flush_window();  // close any open window at stage-end
+
+    if (!ms_rows.empty()) {
+      max_starts_rows_[st_key] = std::move(ms_rows);
+    }
+  }
+
   // Store index holders
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
@@ -1165,6 +1273,13 @@ bool CommitmentLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, StartupName, pid, startup_cols_);
   out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_);
   out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
+
+  // Max-starts cap row duals (one per scope window, indexed by the
+  // window-ending block).  Empty when ``commitment.max_starts`` is
+  // unset; the dual surfaces the shadow $-per-extra-startup the LP
+  // would pay if the cap were relaxed by 1 event, useful for
+  // sensitivity work on cycling-limited units.
+  out.add_row_dual(cname, MaxStartsName, pid, max_starts_rows_);
 
   out.add_row_dual(cname, LogicName, pid, logic_rows_);
   out.add_row_dual(cname, GenUpperName, pid, gen_upper_rows_);

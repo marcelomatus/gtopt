@@ -59,7 +59,9 @@ struct json_data_contract<Commitment>
       json_number_null<"warm_start_cost", OptReal>,
       json_number_null<"cold_start_cost", OptReal>,
       json_number_null<"hot_start_time", OptReal>,
-      json_number_null<"cold_start_time", OptReal>>;
+      json_number_null<"cold_start_time", OptReal>,
+      json_number_null<"max_starts", OptInt>,
+      json_string_null<"max_starts_scope", OptName>>;
 
   constexpr static auto to_json_data(Commitment const& obj)
   {
@@ -90,7 +92,9 @@ struct json_data_contract<Commitment>
                                  obj.warm_start_cost,
                                  obj.cold_start_cost,
                                  obj.hot_start_time,
-                                 obj.cold_start_time);
+                                 obj.cold_start_time,
+                                 obj.max_starts,
+                                 obj.max_starts_scope);
   }
 };
 

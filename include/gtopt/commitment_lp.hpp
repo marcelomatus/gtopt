@@ -43,6 +43,7 @@ public:
   static constexpr std::string_view WarmStartName {"warm_start"};
   static constexpr std::string_view ColdStartName {"cold_start"};
   static constexpr std::string_view StartupTypeName {"startup_type"};
+  static constexpr std::string_view MaxStartsName {"max_starts"};
 
   using Base = ObjectLP<Commitment>;
 
@@ -126,6 +127,11 @@ private:
   STBIndexHolder<RowIndex> startup_type_rows_;
   STBIndexHolder<RowIndex> hot_start_rows_;
   STBIndexHolder<RowIndex> warm_start_rows_;
+
+  /// Per-(stage, block) ``Σ startup ≤ max_starts`` cap rows — one row
+  /// per scope window (hour / day / week / horizon).  Indexed by the
+  /// window-ending block uid so the dual on each row is recoverable.
+  STBIndexHolder<RowIndex> max_starts_rows_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the
