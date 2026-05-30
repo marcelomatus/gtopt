@@ -677,6 +677,19 @@ class CommitmentSpec:
     # 2026-04-22 carry a non-zero value (mostly hydro turbines at
     # the start of their dispatch window).
     initial_power: float = 0.0
+    # PLEXOS ``Max Starts {Hour|Day|Week|Horizon}`` (prop_id 203..205,
+    # plus the per-horizon prop 202).  Encoded onto gtopt's
+    # ``Commitment.max_starts`` integer cap with an explicit scope
+    # selector — see ``include/gtopt/commitment.hpp`` ``MaxStartsScope``
+    # for the four resolved values (PLEXOS per-month / per-year collapse
+    # to ``"horizon"`` on the gtopt side because typical gtopt stages
+    # are shorter than a month).  ``max_starts = 0`` (the default)
+    # means "no cap emitted".  When a generator carries non-zero values
+    # at MULTIPLE scopes simultaneously, the converter picks the
+    # tightest one applicable to the run horizon (see ``extract_
+    # commitments`` for the priority rule).
+    max_starts: int = 0
+    max_starts_scope: str = ""  # "hour" | "day" | "week" | "horizon"
 
 
 @dataclass(frozen=True)

@@ -2246,6 +2246,16 @@ def build_commitment_array(
         # when the field is unset — correct for genuine cold starts).
         if c.initial_power != 0.0:
             entry["initial_power"] = c.initial_power
+        # PLEXOS ``Max Starts {Hour|Day|Week|...}`` → gtopt's
+        # ``Commitment.max_starts`` + ``max_starts_scope``.  Emitted as
+        # a paired (integer count, scope string) so gtopt's
+        # ``MaxStartsScope`` enum resolves the right rolling-window
+        # length at LP build (see ``CommitmentLP::add_to_lp`` for the
+        # ``Σ_{p ∈ window} v[p] ≤ max_starts`` row emission).  Skip
+        # emission when the cap is zero (the gtopt default = no cap row).
+        if c.max_starts > 0 and c.max_starts_scope:
+            entry["max_starts"] = int(c.max_starts)
+            entry["max_starts_scope"] = str(c.max_starts_scope)
         out.append(entry)
     return out
 

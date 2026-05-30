@@ -4204,6 +4204,35 @@ def extract_commitments(
         # constraint, equivalent to startup_ramp = pmax).
         run_up_rate = db.static_property("Generator", gen.object_id, "Run Up Rate")
         startup_ramp = run_up_rate * 60.0 if run_up_rate else 0.0
+        # PLEXOS ``Max Starts {Hour|Day|Week|Month|Year}`` (prop_id
+        # 203..207) plus the per-horizon ``Max Starts`` (prop 202).
+        # At solve time PLEXOS synthesises one
+        # ``GenMaxStarts<Scope>_<gen>`` Constraint per non-zero entry;
+        # the constraint's solution rows show up in the .accdb but the
+        # input definition lives ONLY as a Generator-class property
+        # (no Constraint object in t_object).  Read all five scopes and
+        # pick the tightest applicable to the horizon — shorter scopes
+        # win when populated (they're more restrictive per unit time):
+        #   priority: Week > Day > Hour > Horizon > Month > Year
+        # (Month / Year keep their PLEXOS spelling so the gtopt-side
+        # ``MaxStartsScope`` enum collapses them to ``Horizon`` via its
+        # alias entries — verified-by-tests round-trip.)
+        max_starts_props = (
+            ("week", "Max Starts Week"),
+            ("day", "Max Starts Day"),
+            ("hour", "Max Starts Hour"),
+            ("horizon", "Max Starts"),
+            ("month", "Max Starts Month"),
+            ("year", "Max Starts Year"),
+        )
+        max_starts_count: int = 0
+        max_starts_scope_value: str = ""
+        for scope_key, prop_name in max_starts_props:
+            raw = db.static_property("Generator", gen.object_id, prop_name)
+            if raw and raw > 0.0:
+                max_starts_count = int(round(raw))
+                max_starts_scope_value = scope_key
+                break
         # No-load cost: PLEXOS ``Heat Rate Base`` × fuel price. For
         # generators carrying ``Heat Rate Base = 0`` (the CEN PCP and
         # most simple PLEXOS exports), this stays zero and the LP
@@ -4487,6 +4516,8 @@ def extract_commitments(
                 pmin_profile=cmt_pmin_profile,
                 initial_power=initial_power,
                 commit_status_profile=commit_profile,
+                max_starts=max_starts_count,
+                max_starts_scope=max_starts_scope_value,
             )
         )
     return tuple(out)
