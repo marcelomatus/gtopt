@@ -297,11 +297,17 @@ _DIESEL_XML = f"""<?xml version="1.0" standalone="yes"?>
 """
 
 
-def test_fuel_offtake_daily_cap_no_gwh_scale(tmp_path: Path) -> None:
+def test_fuel_offtake_daily_cap_gwh_scale(tmp_path: Path) -> None:
     """A fuel-offtake daily cap (RHS Day + ``heat_rate·generation`` terms)
-    is a FUEL-UNIT budget — it must NOT get the ×1000 GWh→MWh energy scale
-    (which inflated Diesel_OffTakeDay to ~9.27e6). RHS stays 2-based, and
-    it is NOT classified as a daily-ENERGY (Δt-weighted) constraint."""
+    DOES get the ×1000 GWh→MWh scale applied inside the
+    ``is_fuel_offtake and rhs_from_day`` branch — it just doesn't go via
+    the ``is_daily_energy`` path (which is excluded to avoid double-
+    scaling).  Verified against PLEXOS sol for ``Diesel_OffTakeDay`` on
+    CEN PCP RES20260422 (raw RHS Day = 9.277 → per-block = 386.54).
+
+    The constraint is NOT classified as a daily-ENERGY (Δt-weighted)
+    type — it stays a per-block fuel-cap (``constraint_type=""``).
+    """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_DIESEL_XML)
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
@@ -310,8 +316,8 @@ def test_fuel_offtake_daily_cap_no_gwh_scale(tmp_path: Path) -> None:
     )
     uc = {c.name: c for c in out}["Diesel_OffTakeDay"]
     assert 'generator("G1").generation' in uc.expression
-    # NOT ×1000: the inflated daily value 2000 must not appear anywhere.
-    assert "2000" not in uc.expression
+    # ×1000 GWh→MWh applied: raw RHS Day=2.0 → expression scalar=2000.
+    assert "2000" in uc.expression
     rhs_vals = (
         [
             v
@@ -321,7 +327,9 @@ def test_fuel_offtake_daily_cap_no_gwh_scale(tmp_path: Path) -> None:
         if uc.rhs_profile
         else []
     )
-    assert all(abs(v) < 100.0 for v in rhs_vals), rhs_vals
+    # per-block split: 2000 / 24 = 83.33 in each block (×1000 of the
+    # pre-fix 0.0833).  All values are in MWh-equivalent fuel units.
+    assert all(80.0 < abs(v) < 90.0 for v in rhs_vals), rhs_vals
     # fuel-unit budget, not Δt-weighted energy
     assert uc.constraint_type != "energy"
 

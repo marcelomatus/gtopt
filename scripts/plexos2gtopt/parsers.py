@@ -7028,6 +7028,27 @@ def extract_user_constraints(
         # available_capacity above) or — when no profile is available
         # yet — from a representative generator's pmax_profile length.
         if is_fuel_offtake and not rhs_from_custom:
+            # GWh→MWh fuel-unit scale: when the RHS comes from PLEXOS's
+            # ``RHS Day`` property (input-CSV units = GWh of fuel-energy)
+            # but the LHS coefficients are emitted in MWh-equivalent
+            # units, the cap must be scaled by 1000 to align the
+            # per-block RHS with PLEXOS sol's reported per-block bound.
+            # Verified on CEN PCP RES20260422 (``Diesel_OffTakeDay``):
+            #
+            #   raw RHS Day  = 9.277   (PLEXOS XML)
+            #   gtopt before = 0.386   (= 9.277 / 24, missing scale)
+            #   PLEXOS sol   = 386.54  (= 9.277 × 1000 / 24)
+            #   ratio        = 1000   → apply ``_DAILY_ENERGY_RHS_SCALE``
+            #
+            # Applied here (NOT via the ``is_daily_energy`` branch at
+            # line ~7440, which is explicitly excluded for fuel-offtake
+            # to avoid double-scaling).  Plain ``RHS`` (without ``Day``)
+            # is in native LP units and must NOT be scaled — gated on
+            # ``rhs_from_day`` so synthetic-test fuel-offtake UCs that
+            # carry a plain ``RHS`` (e.g. unit-test fixtures) pass
+            # through unchanged.
+            if rhs_from_day:
+                rhs_val *= _DAILY_ENERGY_RHS_SCALE
             horizon = max(
                 len(rhs_shift_per_block),
                 next(
@@ -7397,11 +7418,13 @@ def extract_user_constraints(
         references_generation = any(".generation" in t for t in terms)
         # Fuel-offtake daily caps (``Diesel_OffTakeDay``, ``Gas_*``) expand to
         # ``heat_rate · generator.generation`` terms, so they spuriously pass
-        # ``references_generation`` — but their RHS is a FUEL-UNIT budget, not
-        # a GWh generation-energy budget, and must NOT get the ×1000 GWh→MWh
-        # scale (it inflated Diesel_OffTakeDay to 9.27e6, ~1000× the correct
-        # ~9277 = PLEXOS 386.54/h × 24).  The fuel-offtake path already splits
-        # the daily cap into a per-block budget above.
+        # ``references_generation`` here — but they take their OWN ×1000 GWh→MWh
+        # scale inside the ``is_fuel_offtake`` per-block split above (see the
+        # ``rhs_val *= _DAILY_ENERGY_RHS_SCALE`` block).  Excluding them from
+        # ``is_daily_energy`` prevents a double-application: if both branches
+        # fired, Diesel_OffTakeDay would inflate to 9.27e6 instead of the
+        # correct 9277 (= PLEXOS 386.54/h × 24).  Keep the exclusion strictly
+        # for the ×1000 placement, NOT to skip the scale entirely.
         is_daily_energy = (
             (rhs_from_day or ramp_day_present)
             and references_generation
