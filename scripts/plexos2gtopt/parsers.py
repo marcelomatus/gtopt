@@ -7696,9 +7696,19 @@ def extract_user_constraints(
         # 0.0`` demote-to-soft branch so a PLEXOS-supplied non-zero
         # input penalty doesn't block our override.
         if (
-            constr.name.startswith("Gas_MaxOpDay")
-            or constr.name == "limited_generation_calculation"
-        ) and not is_inactive:
+            (
+                constr.name.startswith("Gas_MaxOpDay")
+                or constr.name == "limited_generation_calculation"
+            )
+            and not is_inactive
+            and constr.name not in _load_plexos_hard_uc_list()
+        ):
+            # Name-based soft override for Fuel.X.offtake/limited_generation
+            # families when the constraint is NOT in the PLEXOS-HARD audit
+            # list.  Members of the audit list (e.g.
+            # ``limited_generation_calculation`` itself when shadow > 0)
+            # must take the HARD branch in the ``plexos_penalty == 0.0``
+            # block below — never the high-soft $1000 fallback.
             emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
         elif plexos_penalty == 0.0 and not is_inactive:
             # Two-tier soft default for active PLEXOS Constraints
@@ -8000,7 +8010,17 @@ def extract_user_constraints(
         # contingency flips active in a future run, plexos2gtopt re-reads
         # the t_data and an effective RHS below the sentinel emits the
         # real constraint.
-        if _is_nolimit_line_sentinel(expression, rhs_val):
+        if (
+            _is_nolimit_line_sentinel(expression, rhs_val)
+            and constr.name not in _load_plexos_hard_uc_list()
+        ):
+            # Skip the no-op stub when this constraint is in the
+            # PLEXOS-HARD audit list — even with the contingency-off
+            # sentinel RHS, the PLEXOS sol shows |Shadow|>0 / HrsBind>0
+            # so we must emit the real constraint (active, hard) and
+            # let CPLEX bind it.  The 8 CTFOFF_* contingency-flow
+            # constraints reach this branch and were being silently
+            # demoted to ``0 ≤ 0 (inactive)`` before this guard fired.
             sd_sentinel_dropped += 1
             logger.debug(
                 "emitting no-limit line-security constraint %s as inactive "
