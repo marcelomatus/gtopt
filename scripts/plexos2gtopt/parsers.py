@@ -7402,7 +7402,42 @@ def extract_user_constraints(
                 "commitment(" in expression
                 and ("generator(" in expression or "reserve_provision(" in expression)
             )
-            if is_reserve_provision_sum or is_regrange_uc:
+            # PLEXOS ``_Def`` rows are DEFINITIONAL equality equations
+            # for derived reserve / requirement variables, NOT
+            # inequality constraints to satisfy.  Form:
+            #
+            #     -1 * decision_variable("X_Requirement") + Σ provision = 0
+            #
+            # PLEXOS solves them at zero slack (pid-3070 audit on
+            # RES20260422 for CSF_LW_Def / CSF_RS_Def: Σ|Slack|=0,
+            # n_nz_activity=0 — the DV absorbs the constraint perfectly
+            # because PLEXOS auto-derives DV from the LHS sum).
+            #
+            # When emitted at the $1000 soft tier (the reserve_provision_
+            # sum default), gtopt's LP pins ``X_Requirement`` to its
+            # lower bound (0) and pays slack to relax the OTHER
+            # constraints that reference X_Requirement on their RHS — the
+            # $1000 slack is cheaper than the integer-corner dispatch the
+            # binding RHS would force.  Verified on CEN PCP weekly v4:
+            # CSF_LW_Requirement = 5.0 in the gtopt sol + $345K slack on
+            # CSF_LW_Def, plus $145K on CSF_RS_Def.
+            #
+            # Fix: emit ``_Def`` equality rows as HARD (penalty=0).
+            # Detection: name ends in ``_Def`` AND the LHS has
+            # ``decision_variable(`` (the defined variable) AND only
+            # reserve_provision contributions (no commitment / gen / etc.).
+            is_def_equation = (
+                constr.name.endswith("_Def")
+                and op == "="
+                and "decision_variable(" in expression
+                and "generator(" not in expression
+                and "commitment(" not in expression
+                and "battery(" not in expression
+                and "line(" not in expression
+            )
+            if is_def_equation:
+                emitted_penalty = 0.0  # hard — matches PLEXOS exactly
+            elif is_reserve_provision_sum or is_regrange_uc:
                 emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
             elif not references_commitment and not is_pure_line_flow:
                 emitted_penalty = _HYDRO_UC_SOFT_PENALTY
