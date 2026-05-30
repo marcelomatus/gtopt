@@ -18,7 +18,7 @@
  * **Formal grammar (pseudo-BNF):**
  *
  * ```text
- * pampl_file      := constraint_stmt*
+ * pampl_file      := (constraint_stmt | param_stmt | var_stmt)*
  *
  * constraint_stmt := constraint_hdr? constraint_expr ';'
  *
@@ -32,6 +32,17 @@
  *                    # single-row TB matrix [[v0, ..., vK]]; the inline
  *                    # `<op> NUMBER` tail of constraint_expr is the per-block
  *                    # fallback.
+ *
+ * var_stmt        := 'var' IDENT (',' IDENT)* ';'
+ *                    # AMPL-style free-variable declarations.  Today these
+ *                    # are bookkeeping only: every name is captured in
+ *                    # PamplParseResult.declared_vars; by naming convention
+ *                    # ``var slack_<NAME>;`` also populates
+ *                    # ``UserConstraint::slack_name`` on the matching
+ *                    # constraint, so a soft constraint's auto-created
+ *                    # slack column gets a user-controlled LP-internal
+ *                    # label (CPLEX logs, .lp dumps).  No new LP columns
+ *                    # are introduced by the declaration itself.
  *
  * constraint_expr := <same syntax as UserConstraint::expression>
  *                    e.g. generator('G1').generation + ... <= 300,
@@ -71,6 +82,7 @@
 
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -84,11 +96,20 @@ namespace gtopt
  * @brief Result of parsing a PAMPL file or string.
  *
  * Contains both parsed user constraints and parameter declarations.
+ *
+ * ``declared_vars`` carries any top-level ``var <ident>;`` declarations
+ * the file contains.  PAMPL recognises them as AMPL-style free variable
+ * declarations; each name is also matched against the parsed
+ * constraints by naming convention: ``var slack_<NAME>;`` populates
+ * ``UserConstraint::slack_name`` on the matching constraint, so the
+ * declaration travels through to the LP-side slack column label
+ * without the caller needing a separate slack-name CLI.
  */
 struct PamplParseResult
 {
   std::vector<UserConstraint> constraints {};
   std::vector<UserParam> params {};
+  std::vector<std::string> declared_vars {};
 };
 
 /**

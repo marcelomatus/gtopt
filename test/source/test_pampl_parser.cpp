@@ -513,6 +513,100 @@ constraint gen_cap:
     REQUIRE(result.params.size() == 1);
     CHECK(result.params[0].value.value_or(0) == doctest::Approx(-42.5));
   }
+
+  // ── var declarations (AMPL-style free-variable + slack-name binding) ──
+
+  TEST_CASE("var declaration captured in declared_vars")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto result = PamplParser::parse(
+        "var slack_HYDRO_FLOOR; "
+        "constraint HYDRO_FLOOR penalty 10: "
+        "generator('G').generation >= 50;");
+    REQUIRE(result.declared_vars.size() == 1);
+    CHECK(result.declared_vars[0] == "slack_HYDRO_FLOOR");
+  }
+
+  TEST_CASE("var slack_<NAME> binds to constraint's slack_name")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto result = PamplParser::parse(
+        "var slack_HYDRO_FLOOR; "
+        "constraint HYDRO_FLOOR penalty 10: "
+        "generator('G').generation >= 50;");
+    REQUIRE(result.constraints.size() == 1);
+    REQUIRE(result.constraints[0].slack_name.has_value());
+    CHECK(result.constraints[0].slack_name.value() == "slack_HYDRO_FLOOR");
+  }
+
+  TEST_CASE("Multiple var idents in one declaration")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto result = PamplParser::parse(
+        "var slack_A, slack_B, slack_C; "
+        "constraint A penalty 10: generator('G').generation >= 1; "
+        "constraint B penalty 10: generator('G').generation >= 2; "
+        "constraint C penalty 10: generator('G').generation >= 3;");
+    CHECK(result.declared_vars.size() == 3);
+    REQUIRE(result.constraints.size() == 3);
+    for (const auto& uc : result.constraints) {
+      REQUIRE(uc.slack_name.has_value());
+      CHECK(uc.slack_name.value() == "slack_" + uc.name);
+    }
+  }
+
+  TEST_CASE("var without matching slack_<NAME> leaves slack_name unset")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // ``var XYZ;`` is captured in declared_vars but does NOT match
+    // ``slack_<constraint_name>`` for the only constraint, so
+    // slack_name stays nullopt.
+    const auto result = PamplParser::parse(
+        "var helper_var; "
+        "constraint FLOOR penalty 10: "
+        "generator('G').generation >= 50;");
+    REQUIRE(result.declared_vars.size() == 1);
+    REQUIRE(result.constraints.size() == 1);
+    CHECK_FALSE(result.constraints[0].slack_name.has_value());
+  }
+
+  TEST_CASE("Missing semicolon on var throws")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // No `;` between var and constraint — must error out cleanly.
+    CHECK_THROWS_AS(
+        (void)PamplParser::parse("var slack_X constraint X penalty 1: ;"),
+        std::invalid_argument);
+  }
+
+  TEST_CASE("var without identifier throws")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS((void)PamplParser::parse("var ;"), std::invalid_argument);
+  }
+
+  TEST_CASE("Duplicate var name is captured once")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    // The unordered_set dedup means a repeat declaration is silently
+    // ignored; the public declared_vars vector keeps unique names in
+    // first-seen order.
+    const auto result = PamplParser::parse(
+        "var slack_X; var slack_X; "
+        "constraint X penalty 10: generator('G').generation >= 1;");
+    CHECK(result.declared_vars.size() == 1);
+    CHECK(result.declared_vars[0] == "slack_X");
+    REQUIRE(result.constraints.size() == 1);
+    REQUIRE(result.constraints[0].slack_name.has_value());
+    CHECK(result.constraints[0].slack_name.value() == "slack_X");
+  }
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

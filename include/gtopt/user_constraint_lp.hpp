@@ -139,6 +139,22 @@ private:
   /// ``std::nullopt`` for that key.  Empty (``has_value() == false``)
   /// when the source ``UserConstraint`` left ``rhs`` unset.
   OptTBRealSched m_rhs_ {};
+
+  /// Stable storage for the user-supplied slack column label (the
+  /// ``slack_name`` field on the underlying ``UserConstraint``, populated
+  /// by PAMPL ``var slack_<NAME>;`` declarations or by JSON callers
+  /// directly).  Empty when the source ``UserConstraint`` left
+  /// ``slack_name`` unset, in which case the LP falls back to the static
+  /// ``SlackName`` / ``SlackPosName`` / ``SlackNegName`` constants.
+  ///
+  /// Owned by the LP instance so the ``std::string_view`` published into
+  /// ``SparseCol::variable_name`` is valid for the entire LP lifecycle
+  /// (the LinearInterface's label_string_pool only needs the view to be
+  /// valid at ``add_col`` time, but downstream label compression code
+  /// reads it again).
+  std::string m_slack_label_ {};
+  std::string m_slack_pos_label_ {};
+  std::string m_slack_neg_label_ {};
 };
 
 // Pin the data-struct constant value so an accidental rename of the

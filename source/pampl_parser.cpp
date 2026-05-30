@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
@@ -380,6 +381,12 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 {
   Scanner sc(source);
   PamplParseResult result;
+  // Hot-lookup mirror of ``result.declared_vars`` so the constraint
+  // emitter can find a matching ``slack_<NAME>`` declaration in O(1).
+  // Kept local: the public surface stays the ordered vector on
+  // PamplParseResult, which preserves declaration order for downstream
+  // audit / dump consumers.
+  std::unordered_set<std::string> declared_vars_set;
 
   Uid next_uid = start_uid;
 
@@ -391,6 +398,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     // ── Optional header: [inactive] constraint NAME ["desc"] : ──────────────
     //    Or: param NAME [= value | [month] = [...]] ;
+    //    Or: var NAME [, NAME]* ;
     bool active = true;
     std::string name;
     std::string description;
@@ -407,6 +415,51 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     if (first_word == "param") {
       // Parameter declaration
       result.params.push_back(parse_param(sc, result.params));
+      continue;
+    }
+
+    if (first_word == "var") {
+      // AMPL-style free-variable declaration:
+      //   var <ident> [, <ident>]* ;
+      // The declared names are captured in ``result.declared_vars`` so a
+      // downstream audit can enumerate them; by naming convention
+      // ``var slack_<NAME>;`` also seeds ``UserConstraint::slack_name``
+      // for the matching constraint at the end of this loop, giving the
+      // auto-created soft-slack column a user-controlled LP-internal
+      // label.  No LP variable is added by the declaration itself —
+      // only soft constraints (``penalty > 0``) produce slack columns,
+      // and they do so unconditionally via the
+      // ``UserConstraintLP::add_to_lp`` slack-folding path.
+      bool saw_ident = false;
+      while (true) {
+        sc.skip_ws_comments();
+        if (sc.at_end() || sc.peek_char() == ';') {
+          break;
+        }
+        const std::string ident = sc.read_ident();
+        if (ident.empty()) {
+          throw std::invalid_argument("PAMPL: expected identifier after 'var'");
+        }
+        saw_ident = true;
+        if (declared_vars_set.insert(ident).second) {
+          result.declared_vars.push_back(ident);
+        }
+        sc.skip_ws_comments();
+        if (sc.peek_char() == ',') {
+          sc.consume(',');
+          continue;
+        }
+        break;
+      }
+      if (!saw_ident) {
+        throw std::invalid_argument(
+            "PAMPL: 'var' declaration requires at least one identifier");
+      }
+      sc.skip_ws_comments();
+      if (!sc.consume(';')) {
+        throw std::invalid_argument(
+            "PAMPL: expected ';' to terminate 'var' declaration");
+      }
       continue;
     }
 
@@ -555,6 +608,19 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     // UserConstraintLP applies with no parallel code path.
     if (rhs_sched.has_value()) {
       uc.rhs = std::vector<std::vector<double>> {std::move(*rhs_sched)};
+    }
+
+    // Slack-name binding by naming convention: when a top-level
+    // ``var slack_<NAME>;`` declaration was seen, populate
+    // ``uc.slack_name`` so the LP-internal slack column inherits the
+    // user-chosen label (CPLEX debug / LP dump readability).  The
+    // output schema is unchanged — slack values still land in the
+    // aggregated ``UserConstraint/slack_sol.parquet`` keyed by uid.
+    if (!declared_vars_set.empty()) {
+      const std::string slack_candidate = std::string {"slack_"} + uc.name;
+      if (declared_vars_set.contains(slack_candidate)) {
+        uc.slack_name = slack_candidate;
+      }
     }
 
     result.constraints.push_back(std::move(uc));

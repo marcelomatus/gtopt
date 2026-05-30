@@ -157,6 +157,31 @@ struct UserConstraint
   /// three plexos2gtopt detection sites (RegRange / Gas_MaxOpDay /
   /// MinProvision) follows in independent steps.
   OptConstraintDirective directive {};
+
+  /// User-controlled name for the auto-created slack column on soft
+  /// constraints (overrides the LP-internal default ``"slack"``).
+  ///
+  /// **Source.** Populated by the PAMPL parser when a top-level
+  /// ``var <ident> [, <ident>]*;`` declaration matches the
+  /// constraint's name by naming convention (``var slack_<NAME>``
+  /// binds to constraint ``NAME``).  JSON consumers can set this
+  /// directly without the PAMPL bridge.  Empty ⇒ LP uses the static
+  /// ``UserConstraintLP::SlackName`` default.
+  ///
+  /// **Scope.** Affects the LP-internal column label
+  /// (``SparseCol::variable_name``) only — the parquet output schema
+  /// stays aggregated as ``UserConstraint/slack_sol.parquet`` (keyed by
+  /// constraint uid) so downstream tooling never has to discover the
+  /// per-UC slack name.  The benefit is purely audit / debug:
+  ///
+  ///   * CPLEX log lines reference ``slack_HYDRO_FLOOR_X`` instead of
+  ///     a generic ``slack``;
+  ///   * ``.pampl`` files become self-documenting via the matching
+  ///     ``var slack_HYDRO_FLOOR_X;`` declaration.
+  ///
+  /// Equality constraints (which produce two slack columns) suffix
+  /// ``_pos`` / ``_neg`` on top of the user-supplied name.
+  OptName slack_name {};
 };
 
 }  // namespace gtopt

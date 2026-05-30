@@ -2263,8 +2263,12 @@ class TestPamplVisibleSlackAnnotations:
         files, _ = write_user_constraint_pampl(ucs, tmp_path)
         assert files == ["uc_operational.pampl"]
         text = (tmp_path / "uc_operational.pampl").read_text()
-        # Annotation must name the slack column the LP will create.
-        assert "#   soft: slack column 'slack' (per-block;" in text, (
+        # AMPL-style ``var slack_<ident>;`` declaration for each soft UC.
+        assert "var slack_HYDRO_FLOOR_X;" in text, (
+            f"missing visible-slack declaration in: {text!r}"
+        )
+        # Per-UC annotation names the matching slack column.
+        assert "#   soft: slack column 'slack_HYDRO_FLOOR_X' (per-block;" in text, (
             f"missing visible-slack annotation in: {text!r}"
         )
         assert 'UserConstraint/slack_sol.parquet["HYDRO_FLOOR_X"]' in text, (
@@ -2273,7 +2277,7 @@ class TestPamplVisibleSlackAnnotations:
         # File-header soft/hard tally:
         assert "hard:" in text and "soft:" in text
         # Slack column documentation present in the header banner:
-        assert "user_constraint_lp.cpp" in text
+        assert "UserConstraint::slack_name" in text
 
     def test_hard_constraint_has_no_slack_annotation(self, tmp_path):
         ucs = [
@@ -2290,6 +2294,17 @@ class TestPamplVisibleSlackAnnotations:
         text = (tmp_path / files[0]).read_text()
         # No slack-column annotation on hard rows:
         assert "soft: slack column" not in text
+        # And no ``var slack_*;`` STATEMENT either — only the header-banner
+        # description should mention the syntax.  Strip comment lines
+        # before checking so the comment example in the file header
+        # doesn't trigger a false positive.
+        statement_lines = [
+            ln for ln in text.splitlines() if ln and not ln.lstrip().startswith("#")
+        ]
+        body = "\n".join(statement_lines)
+        assert "var slack_" not in body, (
+            f"hard-only file must not emit a var slack statement, got: {body!r}"
+        )
 
     def test_directive_kind_surfaced_in_comment(self, tmp_path):
         """A ``directive`` payload is rendered as ``#   directive: kind=…``
@@ -2346,3 +2361,117 @@ class TestPamplVisibleSlackAnnotations:
         files, _ = write_user_constraint_pampl(ucs, tmp_path)
         text = (tmp_path / files[0]).read_text()
         assert "directive: kind=daily_budget scope=fuel:GAS" in text
+
+    def test_var_slack_declared_before_constraint(self, tmp_path):
+        """``var slack_<ident>;`` must precede every ``constraint <ident>``
+        that references it — the PAMPL parser is single-pass and
+        constraints look back at the declared-vars set."""
+        ucs = [
+            {
+                "uid": 1,
+                "name": "FLOOR_A",
+                "expression": '1 * generator("G").generation >= 1',
+                "penalty": 10.0,
+            },
+            {
+                "uid": 2,
+                "name": "FLOOR_B",
+                "expression": '1 * generator("G").generation >= 2',
+                "penalty": 10.0,
+            },
+        ]
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        text = (tmp_path / files[0]).read_text()
+        var_a = text.find("var slack_FLOOR_A;")
+        var_b = text.find("var slack_FLOOR_B;")
+        con_a = text.find("constraint FLOOR_A ")
+        con_b = text.find("constraint FLOOR_B ")
+        assert -1 not in (var_a, var_b, con_a, con_b)
+        assert var_a < con_a, "var slack_FLOOR_A; must precede constraint FLOOR_A:"
+        assert var_b < con_b, "var slack_FLOOR_B; must precede constraint FLOOR_B:"
+
+    def test_var_slack_uses_sanitised_ident(self, tmp_path):
+        """When a PLEXOS name contains chars invalid in PAMPL idents
+        (``+`` ``-`` space ``.``), the writer sanitises it.  The
+        ``var slack_<ident>;`` declaration MUST use the SAME sanitised
+        ident as the constraint header so the parser's name-convention
+        binding still finds it.
+        """
+        ucs = [
+            {
+                "uid": 1,
+                "name": "ATA-TG1A+0.5TV1C_DIE",
+                "expression": '1 * generator("G").generation >= 1',
+                "penalty": 10.0,
+            },
+        ]
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        text = (tmp_path / files[0]).read_text()
+        # Find the constraint line — the sanitised ident is between
+        # "constraint " and " penalty".
+        import re
+
+        m = re.search(r"^constraint\s+(\w+)", text, re.MULTILINE)
+        assert m is not None, f"no constraint header in: {text!r}"
+        ident = m.group(1)
+        # The var declaration must use the SAME sanitised ident.
+        assert f"var slack_{ident};" in text, (
+            f"var declaration must match constraint ident {ident!r} in: {text!r}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Inline JSON path: build_user_constraint_array sets slack_name on soft UCs
+# ──────────────────────────────────────────────────────────────────────────
+class TestBuildUserConstraintArraySlackName:
+    """When a UC is emitted inline (penalty > 0 + daily_sum, per-block
+    RHS, etc.), the JSON entry must carry ``slack_name`` so the gtopt
+    LP-side picks up the per-UC label even though no PAMPL ``var`` was
+    emitted (the .pampl grammar lacks ``daily_sum`` so those UCs stay
+    inline by design).
+    """
+
+    def test_soft_inline_uc_gets_slack_name(self):
+        specs = [
+            UserConstraintSpec(
+                name="DAILY_GAS_CAP",
+                expression='1 * generator("G").generation <= 100',
+                penalty=1000.0,
+                daily_sum=True,
+                constraint_type="energy",
+            )
+        ]
+        arr = build_user_constraint_array(specs)
+        assert arr and arr[0]["slack_name"] == "slack_DAILY_GAS_CAP"
+
+    def test_hard_inline_uc_omits_slack_name(self):
+        specs = [
+            UserConstraintSpec(
+                name="HARD_CAP",
+                expression='1 * generator("G").generation <= 100',
+                penalty=0.0,
+            )
+        ]
+        arr = build_user_constraint_array(specs)
+        assert arr and "slack_name" not in arr[0]
+
+    def test_inline_slack_name_uses_sanitised_ident(self):
+        """The inline-JSON slack_name must use the same sanitisation rule
+        as the PAMPL path (``+`` ``-`` ``.`` → ``_``) so cross-emission-
+        path consumers see a single naming convention."""
+        specs = [
+            UserConstraintSpec(
+                name="ATA-TG1A+0.5TV1C_DIE",
+                expression='1 * generator("G").generation <= 100',
+                penalty=10.0,
+            )
+        ]
+        arr = build_user_constraint_array(specs)
+        slack = arr[0].get("slack_name")
+        assert slack is not None
+        # The sanitised ident replaces every invalid char with _ so
+        # the resulting name is a valid PAMPL/AMPL identifier.
+        assert slack.startswith("slack_")
+        assert all(c.isalnum() or c == "_" for c in slack), (
+            f"slack_name must be a valid identifier: {slack!r}"
+        )

@@ -82,7 +82,8 @@ struct json_data_contract<UserConstraint>
       json_string_null<"penalty_class", OptName>,
       json_bool_null<"daily_sum", OptBool>,
       json_variant_null<"rhs", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_class_null<"directive", OptConstraintDirective>>;
+      json_class_null<"directive", OptConstraintDirective>,
+      json_string_null<"slack_name", gtopt::OptName>>;
 
   [[nodiscard]] constexpr static auto to_json_data(UserConstraint const& uc)
   {
@@ -96,7 +97,8 @@ struct json_data_contract<UserConstraint>
                                  uc.penalty_class,
                                  uc.daily_sum,
                                  uc.rhs,
-                                 uc.directive);
+                                 uc.directive,
+                                 uc.slack_name);
   }
 };
 

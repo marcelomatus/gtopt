@@ -2123,6 +2123,18 @@ def build_user_constraint_array(
             if c.directive.window_hours is not None:
                 directive_entry["window_hours"] = c.directive.window_hours
             entry["directive"] = directive_entry
+        # Visible-slack column label: when this UC is soft, set
+        # ``slack_name`` so the gtopt-side ``UserConstraintLP`` uses
+        # the per-UC label (``slack_<sanitised>``) for the auto-created
+        # slack column.  Keeps the inline-JSON path aligned with the
+        # PAMPL path, where the parser binds slacks via the matching
+        # ``var slack_<ident>;`` declaration (the JSON path has no
+        # ``var`` statement so we set the field directly).  The ident
+        # uses the same sanitisation rule the PAMPL writer applies so
+        # downstream tooling can match constraints to slacks the same
+        # way regardless of which emission path produced them.
+        if penalty > 0.0:
+            entry["slack_name"] = f"slack_{_pampl_ident(c.name)}"
         out.append(entry)
     return out
 
@@ -3436,15 +3448,32 @@ def write_user_constraint_pampl(
         # contributes to the LP.
         n_soft = sum(1 for uc in ucs if (uc.get("penalty") or 0.0) > 0.0)
         n_hard = len(ucs) - n_soft
+
+        # Pre-resolve each UC's PAMPL ident so the matching
+        # ``var slack_<ident>;`` declaration below uses the EXACT name
+        # the constraint header will use (after sanitisation + dedup).
+        # The PAMPL parser binds slacks by naming convention
+        # (``slack_<NAME>`` matches constraint ``NAME``), so the var
+        # declaration MUST match the constraint name byte-for-byte.
+        uc_idents: list[tuple[dict[str, Any], str, float]] = []
+        for uc in ucs:
+            uc_name = str(uc.get("name", ""))
+            ident = _unique_ident(uc_name)
+            uc_idents.append((uc, ident, float(uc.get("penalty") or 0.0)))
+
         lines = [
             "# " + "=" * 72,
             f"# {fam} user constraints ({len(ucs)}) — emitted by plexos2gtopt",
             f"#   hard: {n_hard:>5}   soft: {n_soft:>5}",
             f"# Origin: PLEXOS Constraint objects ({_UC_ORIGIN_FILE})",
-            "# Soft rows reference a tier param.  Each soft row creates one",
-            "# per-block ``slack`` LP column (gtopt-side, named ``slack`` in",
-            "# UserConstraint/slack_sol.parquet); reads of that column give",
-            "# the per-row violation MW.  See user_constraint_lp.cpp:1084.",
+            "# Soft rows declare a named slack column via the AMPL-style",
+            "# ``var slack_<ident>;`` syntax — the PAMPL parser binds each",
+            "# declaration to the matching ``constraint <ident>`` by naming",
+            "# convention (gtopt-side: ``UserConstraint::slack_name``), so",
+            "# CPLEX logs and LP dumps reference the per-UC slack label",
+            "# instead of the generic ``slack``.  The output parquet schema",
+            "# is unchanged — per-row violations live in",
+            "# ``UserConstraint/slack_sol.parquet`` keyed by uid.",
             "# " + "=" * 72,
             "",
         ]
@@ -3452,22 +3481,33 @@ def write_user_constraint_pampl(
             lines.append("# Penalty tiers — per-unit slack cost [$/unit]:")
             lines.extend(f"param {_penalty_param_name(p)} = {p:g};" for p in pens)
             lines.append("")
-        for uc in ucs:
+        # Visible-slack declarations: one ``var slack_<ident>;`` per soft
+        # UC, grouped in a single block at the top of the file so a
+        # reader sees every named slack the file contributes to the LP
+        # before walking the constraints.  Hard rows are skipped (no
+        # slack column).  When the file has no soft rows the block
+        # collapses to an empty section.
+        soft_idents = [ident for _uc, ident, pen in uc_idents if pen > 0.0]
+        if soft_idents:
+            lines.append("# Visible slack columns — one per soft constraint.")
+            for ident in soft_idents:
+                lines.append(f"var slack_{ident};")
+            lines.append("")
+        for uc, ident, pen in uc_idents:
             # Per-constraint comment carries the PLEXOS semantics + origin
             # file (from the description) for traceability.
             lines.append(f"# {uc.get('description') or uc.get('name', '')}")
             # Visible-slack annotation: soft rows tell the reader where the
-            # LP exposes the per-block violation (no PAMPL ``var`` syntax
-            # today; the slack column is auto-created by
-            # ``UserConstraintLP`` when ``penalty > 0``).  When a typed
-            # ``directive`` is attached, surface its ``kind`` so a reader
-            # can attribute the soft tier to a family without grepping
-            # ``_uc_policy.py``.
-            pen = float(uc.get("penalty") or 0.0)
+            # LP exposes the per-block violation.  The matching
+            # ``var slack_<ident>;`` declaration above seeds
+            # ``UserConstraint::slack_name`` on the gtopt side so CPLEX
+            # logs use the per-UC label.  When a typed ``directive`` is
+            # attached, surface its ``kind`` so a reader can attribute
+            # the soft tier to a family without grepping ``_uc_policy.py``.
             uc_name = str(uc.get("name", ""))
             if pen > 0.0:
                 lines.append(
-                    f"#   soft: slack column 'slack' (per-block; "
+                    f"#   soft: slack column 'slack_{ident}' (per-block; "
                     f'see UserConstraint/slack_sol.parquet["{uc_name}"])'
                 )
             directive = uc.get("directive")
@@ -3489,9 +3529,7 @@ def write_user_constraint_pampl(
                 rhs_vec = _pampl_rhs_vector(uc["rhs"])
                 if rhs_vec is not None:
                     rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
-            lines.append(
-                f"{prefix}constraint {_unique_ident(uc_name)}{pen_txt}{rhs_txt}:"
-            )
+            lines.append(f"{prefix}constraint {ident}{pen_txt}{rhs_txt}:")
             lines.append(f"  {uc['expression']};")
             lines.append("")
         (output_dir / fname).write_text("\n".join(lines), encoding="utf-8")

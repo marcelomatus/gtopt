@@ -845,6 +845,23 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
                       uc.expression));
     }
   }
+
+  // Resolve the user-supplied slack column label (the AMPL-style
+  // ``var slack_<NAME>;`` declaration in PAMPL, or an explicit JSON
+  // ``slack_name`` field).  Stable storage on the LP instance lets us
+  // hand a ``string_view`` to ``SparseCol::variable_name`` without
+  // worrying about lifetime — the strings live as long as this LP.
+  //
+  // For EQUALITY constraints the LP creates a pair of slack columns
+  // (``_pos`` / ``_neg``); we synthesise the matching suffixed labels
+  // here once so the hot per-block loop in ``add_to_lp`` just reaches
+  // into the member without any allocation.  One-sided constraints
+  // (LE / GE) use ``m_slack_label_`` directly.
+  if (uc.slack_name.has_value() && !uc.slack_name->empty()) {
+    m_slack_label_ = *uc.slack_name;
+    m_slack_pos_label_ = m_slack_label_ + "_pos";
+    m_slack_neg_label_ = m_slack_label_ + "_neg";
+  }
 }
 
 bool UserConstraintLP::add_to_lp(const SystemContext& sc,
@@ -903,6 +920,22 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   }
   const bool soft_needs_neg =
       is_soft && expr.constraint_type == ConstraintType::EQUAL;
+
+  // Resolved slack column labels.  When the underlying ``UserConstraint``
+  // ships a ``slack_name`` (set by JSON or by a PAMPL ``var slack_<NAME>;``
+  // declaration) we use the per-UC label so CPLEX logs and LP dumps name
+  // the slack column after the constraint instead of the generic
+  // ``slack``.  Output stays aggregated at the class level — the AMPL
+  // registry and the parquet writer still use the static names, so the
+  // ``UserConstraint/slack_sol.parquet`` schema is unchanged.
+  const std::string_view slack_col_name =
+      m_slack_label_.empty() ? SlackName : std::string_view {m_slack_label_};
+  const std::string_view slack_pos_col_name = m_slack_pos_label_.empty()
+      ? SlackPosName
+      : std::string_view {m_slack_pos_label_};
+  const std::string_view slack_neg_col_name = m_slack_neg_label_.empty()
+      ? SlackNegName
+      : std::string_view {m_slack_neg_label_};
 
   // Δt-weighting flag for `daily_sum`: an "energy" scale hint makes each
   // block contribute `coeff · Δt_b · col_b` so the daily LHS is energy
@@ -1084,7 +1117,8 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         const auto slack_col = lp.add_col(SparseCol {
             .cost = day_penalty,
             .class_name = Element::class_name.full_name(),
-            .variable_name = soft_needs_neg ? SlackPosName : SlackName,
+            .variable_name =
+                soft_needs_neg ? slack_pos_col_name : slack_col_name,
             .variable_uid = uid(),
             .context = day_ctx,
         });
@@ -1107,7 +1141,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           const auto slack_neg_col = lp.add_col(SparseCol {
               .cost = day_penalty,
               .class_name = Element::class_name.full_name(),
-              .variable_name = SlackNegName,
+              .variable_name = slack_neg_col_name,
               .variable_uid = uid(),
               .context = day_ctx,
           });
@@ -1270,7 +1304,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
       const auto slack_col = lp.add_col(SparseCol {
           .cost = block_penalty,
           .class_name = Element::class_name.full_name(),
-          .variable_name = soft_needs_neg ? SlackPosName : SlackName,
+          .variable_name = soft_needs_neg ? slack_pos_col_name : slack_col_name,
           .variable_uid = uid(),
           .context = block_ctx,
       });
@@ -1297,7 +1331,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         const auto slack_neg_col = lp.add_col(SparseCol {
             .cost = block_penalty,
             .class_name = Element::class_name.full_name(),
-            .variable_name = SlackNegName,
+            .variable_name = slack_neg_col_name,
             .variable_uid = uid(),
             .context = block_ctx,
         });

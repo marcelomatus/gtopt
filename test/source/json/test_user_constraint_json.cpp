@@ -287,3 +287,31 @@ TEST_CASE("enum_from_name<ConstraintScaleType> — all valid values")
   CHECK(enum_from_name<ConstraintScaleType>("unitless")
         == ConstraintScaleType::Raw);
 }
+
+TEST_CASE("UserConstraint slack_name field — round-trip")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const UserConstraint uc {
+      .uid = 7,
+      .name = "HYDRO_FLOOR",
+      .expression = R"(generator("G").generation >= 50)",
+      .penalty = 10.0,
+      .slack_name = "slack_HYDRO_FLOOR",
+  };
+
+  const auto json = daw::json::to_json(uc);
+  const auto roundtrip = daw::json::from_json<UserConstraint>(json);
+
+  REQUIRE(roundtrip.slack_name.has_value());
+  CHECK(roundtrip.slack_name.value_or("") == "slack_HYDRO_FLOOR");
+}
+
+TEST_CASE("UserConstraint slack_name field — absent ⇒ nullopt")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const std::string json = R"({"uid": 1, "name": "X", "expression": "x <= 0"})";
+  const auto uc = daw::json::from_json<UserConstraint>(json);
+  CHECK_FALSE(uc.slack_name.has_value());
+}
