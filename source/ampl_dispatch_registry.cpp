@@ -47,6 +47,7 @@
 #include <gtopt/lng_terminal_lp.hpp>
 #include <gtopt/reserve_provision_lp.hpp>
 #include <gtopt/reserve_zone_lp.hpp>
+#include <gtopt/reservoir_discharge_limit_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/reservoir_seepage_lp.hpp>
 #include <gtopt/simple_commitment_lp.hpp>
@@ -334,6 +335,71 @@ std::optional<double> fr_param_uvalue(const SystemContext& sc,
                                       BlockUid b)
 {
   return sc.get_element(ObjectSingleId<FlowRightLP> {uid}).param_uvalue(s, b);
+}
+
+// Turbine — per-stage schedules (production_factor, efficiency, capacity).
+// Exposed via PAMPL so user constraints can read the conversion factors
+// and flow cap as constants in `turbine('X').<field>` expressions.
+std::optional<double> tur_param_production_factor(const SystemContext& sc,
+                                                  Uid uid,
+                                                  StageUid s,
+                                                  BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<TurbineLP> {uid})
+      .param_production_factor(s);
+}
+std::optional<double> tur_param_efficiency(const SystemContext& sc,
+                                           Uid uid,
+                                           StageUid s,
+                                           BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_efficiency(s);
+}
+std::optional<double> tur_param_capacity(const SystemContext& sc,
+                                         Uid uid,
+                                         StageUid s,
+                                         BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s);
+}
+
+// Waterway — per-(stage, block) fmin/fmax + per-stage capacity, lossfactor,
+// fcost.  Exposed via PAMPL so user constraints can reference the channel's
+// bound and cost schedules in ``waterway('X').<field>`` expressions.
+std::optional<double> ww_param_fmin(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fmin(s, b);
+}
+std::optional<double> ww_param_fmax(const SystemContext& sc,
+                                    Uid uid,
+                                    StageUid s,
+                                    BlockUid b)
+{
+  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fmax(s, b);
+}
+std::optional<double> ww_param_capacity(const SystemContext& sc,
+                                        Uid uid,
+                                        StageUid s,
+                                        BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_capacity(s);
+}
+std::optional<double> ww_param_lossfactor(const SystemContext& sc,
+                                          Uid uid,
+                                          StageUid s,
+                                          BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_lossfactor(s);
+}
+std::optional<double> ww_param_fcost(const SystemContext& sc,
+                                     Uid uid,
+                                     StageUid s,
+                                     BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<WaterwayLP> {uid}).param_fcost(s);
 }
 
 // VolumeRight
@@ -716,6 +782,19 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   sim.register_ampl_param(flow_right_cls, "fcost", &fr_param_fcost);
   sim.register_ampl_param(flow_right_cls, "uvalue", &fr_param_uvalue);
 
+  constexpr auto turbine_cls = Turbine::class_name.snake_case();
+  sim.register_ampl_param(
+      turbine_cls, "production_factor", &tur_param_production_factor);
+  sim.register_ampl_param(turbine_cls, "efficiency", &tur_param_efficiency);
+  sim.register_ampl_param(turbine_cls, "capacity", &tur_param_capacity);
+
+  constexpr auto waterway_cls = Waterway::class_name.snake_case();
+  sim.register_ampl_param(waterway_cls, "fmin", &ww_param_fmin);
+  sim.register_ampl_param(waterway_cls, "fmax", &ww_param_fmax);
+  sim.register_ampl_param(waterway_cls, "capacity", &ww_param_capacity);
+  sim.register_ampl_param(waterway_cls, "lossfactor", &ww_param_lossfactor);
+  sim.register_ampl_param(waterway_cls, "fcost", &ww_param_fcost);
+
   constexpr auto volume_right_cls = VolumeRight::class_name.snake_case();
   sim.register_ampl_param(volume_right_cls, "fmax", &vr_param_fmax);
   sim.register_ampl_param(volume_right_cls, "emin", &vr_param_emin);
@@ -821,6 +900,10 @@ void register_ampl_iterator_dispatchers(SimulationLP& sim)
                          &iter_class<VolumeRightLP>);
   sim.register_ampl_iter(ReservoirSeepageLP::SeepageName,
                          &iter_class<ReservoirSeepageLP>);
+  // Unlocks ``sum(reservoir_discharge_limit(all).…)`` enumeration
+  // patterns over the volume-dependent discharge caps.
+  sim.register_ampl_iter(ReservoirDischargeLimit::class_name.snake_case(),
+                         &iter_class<ReservoirDischargeLimitLP>);
   sim.register_ampl_iter(ReserveProvision::class_name.snake_case(),
                          &iter_class<ReserveProvisionLP>);
   sim.register_ampl_iter(ReserveZone::class_name.snake_case(),

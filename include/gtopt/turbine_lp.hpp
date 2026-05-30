@@ -123,6 +123,22 @@ public:
     return efficiency.at(tuid).value_or(1.0);
   }
 
+  /// @name Parameter accessors for user constraint resolution.
+  /// Per-stage Turbine schedules — discard the block argument.  Returned
+  /// by the ``ampl_dispatch_registry`` shims so PAMPL constraints can
+  /// reference ``turbine('X').<field>`` as a constant scalar.
+  /// @{
+  [[nodiscard]] auto param_production_factor(StageUid s) const
+  {
+    return production_factor.at(s);
+  }
+  [[nodiscard]] auto param_efficiency(StageUid s) const
+  {
+    return efficiency.at(s);
+  }
+  [[nodiscard]] auto param_capacity(StageUid s) const { return capacity.at(s); }
+  /// @}
+
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,

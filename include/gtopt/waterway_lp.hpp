@@ -81,6 +81,27 @@ public:
     return lookup_inner(flow_cols, scenario, stage, buid);
   }
 
+  /// @name Parameter accessors for user constraint resolution.
+  /// Per-(stage, block) and per-stage Waterway schedules.  Returned by
+  /// the ``ampl_dispatch_registry`` shims so PAMPL constraints can
+  /// reference ``waterway('X').<field>`` as a constant scalar.
+  /// @{
+  [[nodiscard]] auto param_fmin(StageUid s, BlockUid b) const
+  {
+    return fmin.at(s, b);
+  }
+  [[nodiscard]] auto param_fmax(StageUid s, BlockUid b) const
+  {
+    return fmax.at(s, b);
+  }
+  [[nodiscard]] auto param_capacity(StageUid s) const { return capacity.at(s); }
+  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  {
+    return lossfactor.at(s);
+  }
+  [[nodiscard]] auto param_fcost(StageUid s) const { return fcost.at(s); }
+  /// @}
+
 private:
   OptTBRealSched fmin;
   OptTBRealSched fmax;
