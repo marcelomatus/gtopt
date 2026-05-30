@@ -493,3 +493,57 @@ TEST_CASE(
   // Only the one lossy line gets a meaningful assignment.
   CHECK(asgn[1].K >= 2);
 }
+
+TEST_CASE(
+    "compute_dynamic_loss_layout — Phase 1.5 preserves budgets")  // NOLINT
+{
+  // Phase 1.5 attempts K reduction after Phase 1+2.  Safety invariant:
+  // it must NEVER produce a final state that violates either the
+  // worst-case or the mean budget once those budgets were satisfiable
+  // at the Phase 2 output.  Run on a 5-line mix at err_pct = 0.05
+  // (loose enough that the cube-root rule lands every K_i inside
+  // [floor, ceiling] without clamps) and verify both budgets hold.
+  const std::vector<double> R {0.0001, 0.001, 0.005, 0.05, 0.10};
+  const std::vector<double> fmax {3000.0, 500.0, 100.0, 50.0, 10.0};
+  const line_losses::DynamicLayoutOpts opts {.err_pct = 0.05};
+  const auto asgn = run_dynamic(R, fmax, opts);
+
+  double L_total = 0.0;
+  double worst = 0.0;
+  double running = 0.0;
+  for (std::size_t i = 0; i < R.size(); ++i) {
+    if (R[i] <= 0.0 || fmax[i] <= 0.0 || asgn[i].K == 0) {
+      continue;
+    }
+    const double L = R[i] * fmax[i] * fmax[i];
+    const double kk =
+        static_cast<double>(asgn[i].K) * static_cast<double>(asgn[i].K);
+    L_total += L;
+    worst += L / (4.0 * kk);
+    if (asgn[i].layout == LinePwlLayout::midpoint) {
+      running -= L / (12.0 * kk);
+    } else {
+      running += L / (6.0 * kk);
+    }
+  }
+  const double budget = opts.err_pct * L_total;
+  CHECK(worst <= budget);  // worst-case bound holds
+  CHECK(std::abs(running) <= budget);  // signed mean bound holds
+}
+
+TEST_CASE("compute_dynamic_loss_layout — Phase 1.5 is idempotent")  // NOLINT
+{
+  // Running the rule twice on the same inputs must produce the same
+  // assignment.  This pins the determinism / fixed-point property of
+  // Phase 1.5's iterative reduction pass — without it the algorithm
+  // would be sensitive to call-order quirks.
+  const std::vector<double> R {0.0001, 0.001, 0.005, 0.05, 0.10};
+  const std::vector<double> fmax {3000.0, 500.0, 100.0, 50.0, 10.0};
+  const auto first = run_dynamic(R, fmax, {.err_pct = 0.05});
+  const auto second = run_dynamic(R, fmax, {.err_pct = 0.05});
+  REQUIRE(first.size() == second.size());
+  for (std::size_t i = 0; i < first.size(); ++i) {
+    CHECK(first[i].K == second[i].K);
+    CHECK(first[i].layout == second[i].layout);
+  }
+}

@@ -2022,8 +2022,82 @@ def _apply_dynamic_loss_layout(
         layouts[i] = "midpoint"
         running = next_running
 
+    # ── Phase 1.5: try to reduce K on individual lines ─────────────
+    # Phase 1 set K from the cube-root rule (worst-case bound) and
+    # Phase 2 chose layouts to satisfy the mean-error budget.  Both
+    # phases together may leave per-line K *higher than necessary*
+    # — particularly when the cube-root rule didn't hit ceiling
+    # clamps and the mean budget has slack.  Phase 1.5 hunts those
+    # over-allocated K's and reduces them step-by-step.
+    #
+    # Per-line state for the budgets:
+    #   worst_i (any layout)    =  L_i / (4 K_i²)
+    #   mean_i  (uniform)        =  + L_i / (6 K_i²)
+    #   mean_i  (midpoint)       =  − L_i / (12 K_i²)
+    #
+    # Reducing K_i → K_i − 1 makes worst_i LARGER and pushes mean_i
+    # FURTHER from zero (same sign as the layout's bias).  Safe
+    # reduction therefore requires:
+    #   new_worst_total ≤ err_pct · Σ L_max  (worst-case budget)
+    #   |new_running|    ≤ err_pct · Σ L_max  (mean budget)
+    # Both budgets must hold AFTER the reduction.  When the worst-
+    # case budget is already saturated (e.g. tight err_pct = 0.001
+    # where Phase 1 ceiling-clamped most lines), Phase 1.5 finds
+    # nothing to reduce and exits cheap.  When budgets have slack
+    # (looser err_pct or unclamped K distribution), Phase 1.5 trims
+    # K toward the floor on the most-reducible lines first.
+    current_worst = sum(L / (4.0 * k * k) for _, _, L, k in enriched)
+    # Build a mutable K map for in-place reduction.
+    K_map: dict[int, int] = {i: k for i, _, _, k in enriched}
+    # Iterate lines by current K descending: reductions on high-K
+    # lines free more LP segments per safe step.  Repeat passes
+    # until no further reduction passes both budget checks.
+    changed = True
+    while changed:
+        changed = False
+        # Re-sort each pass: K's drift as we reduce.
+        items = sorted(
+            ((i, L) for i, _, L, _ in enriched),
+            key=lambda t: K_map[t[0]],
+            reverse=True,
+        )
+        for i, L in items:
+            k = K_map[i]
+            # ``floor`` is fixed at 2 in ``_apply_adaptive_loss_segments``
+            # (a single secant is degenerate, collapses to linear loss
+            # mode handled elsewhere).  Match that contract here so
+            # Phase 1.5 never reduces K below 2.
+            if k <= 2:
+                continue
+            new_k = k - 1
+            new_worst = current_worst - L / (4.0 * k * k) + L / (4.0 * new_k * new_k)
+            if new_worst > L_total * err_pct:
+                continue  # worst-case budget would burst
+            # Mean shift for this layout: removing the old contrib
+            # and adding the new (always pushes |running| further
+            # from zero because new_k < k → larger 1/k²).
+            if layouts[i] == "midpoint":
+                old_m = -L / (12.0 * k * k)
+                new_m = -L / (12.0 * new_k * new_k)
+            else:
+                old_m = +L / (6.0 * k * k)
+                new_m = +L / (6.0 * new_k * new_k)
+            new_running = running - old_m + new_m
+            if abs(new_running) > L_total * err_pct:
+                continue  # mean budget would burst
+            # Commit
+            K_map[i] = new_k
+            current_worst = new_worst
+            running = new_running
+            changed = True
+
+    # Stamp final (K, layout) on every lossy LineSpec.
     for i, _, _, _ in enriched:
-        new_lines[i] = dataclasses.replace(new_lines[i], loss_pwl_layout=layouts[i])
+        new_lines[i] = dataclasses.replace(
+            new_lines[i],
+            loss_segments=K_map[i],
+            loss_pwl_layout=layouts[i],
+        )
     return tuple(new_lines)
 
 

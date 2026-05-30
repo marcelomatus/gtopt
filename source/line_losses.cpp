@@ -1643,6 +1643,74 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
     running = next_running;
   }
 
+  // ── Phase 1.5: try to reduce K on individual lines ───────────────
+  // Phase 1 set K from the cube-root rule (worst-case bound).  Phase 2
+  // chose layouts to satisfy the signed mean-error budget.  Phase 1.5
+  // attempts to *reduce* K when both budgets have slack — typically
+  // when ``err_pct`` is large enough that the floor=2 clamp has set K
+  // well below the worst-case-binding value on the heavy lines.  See
+  // the Python wrapper ``_apply_dynamic_loss_layout`` for the full
+  // contract; the C++ implementation mirrors it exactly so any
+  // converter (plp2gtopt, hand-written JSON) gets the same K assignment.
+  //
+  // No-op for ``err_pct`` regimes where the cube-root rule's KKT
+  // optimum already saturates the worst-case budget (the typical
+  // case on CEN-PCP-sized systems): every attempted reduction trips
+  // either the worst-case or mean budget check and gets skipped.
+  // The early-exit makes the no-op pass cheap.
+  double current_worst = 0.0;
+  for (const auto& ln : lossy) {
+    current_worst += ln.L / (4.0 * static_cast<double>(ln.K * ln.K));
+  }
+  const double err_budget = opts.err_pct * L_total;
+
+  // Mutable K map keyed by original line index.  Initialise from out[].
+  // We sort by current K descending each pass so high-K lines are tried
+  // first — they free the most LP segments per safe step.
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    // Stable rebuild of the descending-K order each pass.
+    std::vector<std::size_t> order(lossy.size());
+    std::iota(order.begin(), order.end(), std::size_t {0});
+    std::sort(order.begin(),
+              order.end(),
+              [&](std::size_t a, std::size_t b) noexcept
+              { return out[lossy[a].idx].K > out[lossy[b].idx].K; });
+    for (const auto pos : order) {
+      const auto& ln = lossy[pos];
+      auto& dst = out[ln.idx];
+      const int k = dst.K;
+      if (k <= opts.floor) {
+        continue;
+      }
+      const int new_k = k - 1;
+      const double new_kk =
+          static_cast<double>(new_k) * static_cast<double>(new_k);
+      const double old_kk = static_cast<double>(k) * static_cast<double>(k);
+      const double new_worst =
+          current_worst - ln.L / (4.0 * old_kk) + ln.L / (4.0 * new_kk);
+      if (new_worst > err_budget) {
+        continue;  // worst-case budget would burst
+      }
+      const double old_m = (dst.layout == LinePwlLayout::midpoint)
+          ? (-ln.L / (12.0 * old_kk))
+          : (+ln.L / (6.0 * old_kk));
+      const double new_m = (dst.layout == LinePwlLayout::midpoint)
+          ? (-ln.L / (12.0 * new_kk))
+          : (+ln.L / (6.0 * new_kk));
+      const double new_running = running - old_m + new_m;
+      if (std::abs(new_running) > err_budget) {
+        continue;  // mean budget would burst
+      }
+      // Commit
+      dst.K = new_k;
+      current_worst = new_worst;
+      running = new_running;
+      changed = true;
+    }
+  }
+
   return out;
 }
 
