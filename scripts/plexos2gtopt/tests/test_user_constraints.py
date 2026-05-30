@@ -1499,21 +1499,40 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     db = load_xml(xml_path)
     out = extract_user_constraints(db, bundle)
     by_name = {c.name: c for c in out}
-    assert "Gas_MaxOpDay0_X" in by_name
-    expr = by_name["Gas_MaxOpDay0_X"].expression
-    assert 'generator("G1").generation' in expr
-    # RHS = 2.0 × 1000 / (1 day × 24 h) = 83.3333…
-    assert expr.endswith("<= 83.3333")
-    # F5: description carries meaning + variable units + source file.
-    desc = by_name["Gas_MaxOpDay0_X"].description
-    assert "generator dispatch [MW]" in desc
-    assert "(File: DBSEN_PRGDIARIO.xml)" in desc
-    # Gas_MaxOpDay caps stay on the soft tier ($10): PLEXOS itself runs
-    # gas units high and treats these daily caps as soft (violating them),
-    # so over-enforcing them regresses dispatch (verified against the RES
-    # solution: every Gas_MaxOpDay binds per-period across ALL 111 blocks,
-    # never day-scoped).
-    assert by_name["Gas_MaxOpDay0_X"].penalty == 10.0
+    # Post-2026-05-29: ``Gas_MaxOpDay**X**_<group>`` per-block specs are
+    # consolidated by ``_consolidate_gas_maxopday_groups`` into ONE
+    # ``Gas_MaxOpDay_<group>`` daily_sum+energy UC per (fuel,owner) group
+    # — matches PLEXOS's per-day cumulative scope evaluation.  See the
+    # docstring on ``_consolidate_gas_maxopday_groups`` for the rationale.
+    # For a single-day test bundle (items_count=1, horizon_days=1) the
+    # consolidator's offset is 0, so PLEXOS Day0 maps directly to gtopt
+    # day 0 with RHS = 2.0 × 1000 = 2000 GJ (the daily-total cap; not
+    # divided by horizon_hours since daily_sum aggregates per day).
+    assert "Gas_MaxOpDay_X" in by_name, by_name.keys()
+    spec = by_name["Gas_MaxOpDay_X"]
+    assert 'generator("G1").generation' in spec.expression
+    assert spec.daily_sum is True
+    assert spec.constraint_type == "energy"
+    # Per-block RHS profile broadcasts the per-day total to every block in
+    # the day (gtopt's daily_sum picks the cap from the day-ending block).
+    # For 24 blocks of day 0, RHS at each = 2000 (the consolidated total).
+    assert spec.rhs_profile, "consolidator must emit per-block RHS profile"
+    # Recovery of the per-day-total RHS from the per-block expression
+    # tail goes through string-formatted truncation (`<= 83.3333`),
+    # so allow ~1e-3 relative tolerance.
+    assert all(abs(v - 2000.0) < 1e-2 for v in spec.rhs_profile), (
+        f"expected per-block RHS ≈ 2000 GJ everywhere on day 0, "
+        f"got distinct values: {sorted(set(spec.rhs_profile))}"
+    )
+    # Description carries the consolidator's audit trail.
+    desc = spec.description
+    assert "consolidated" in desc.lower()
+    assert "(File: DBSEN_PRGDIARIO.xml)" in desc or "PLEXOS" in desc
+    # Soft at $1000/MWh — same tier as reserve_provision_sum.  PLEXOS
+    # itself takes slack on these caps (Day1/Day4/Day6 in RES20260422)
+    # so going genuinely hard would risk presolve infeasibility from the
+    # internal-Big-M PLEXOS uses but we cannot reproduce.
+    assert spec.penalty == 1000.0
 
 
 # ---------------------------------------------------------------------------

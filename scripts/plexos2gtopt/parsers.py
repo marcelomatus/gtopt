@@ -5519,6 +5519,178 @@ def _is_nolimit_line_sentinel(expression: str, rhs_val: float) -> bool:
     return abs(rhs_val) >= _SD_NOLIMIT_RHS_SENTINEL
 
 
+_GAS_MAXOPDAY_NAME_RE = re.compile(r"^Gas_MaxOpDay(\d+)_(.+)$")
+
+
+def _consolidate_gas_maxopday_groups(
+    specs: list["UserConstraintSpec"],
+    *,
+    block_layout: tuple[tuple[int, ...], ...],
+    horizon_hours: float,
+    soft_penalty: float,
+) -> list["UserConstraintSpec"]:
+    """Replace per-block ``Gas_MaxOpDay**X**_<group>`` specs with one
+    consolidated ``daily_sum + energy + per-day RHS profile`` UC per
+    (fuel, owner-suffix) group.
+
+    Why: PLEXOS evaluates each ``Gas_MaxOpDayX_<group>`` as a per-DAY
+    cumulative budget (``Σ_blocks_in_day_X hr·gen·Δt ≤ RHS_X``) for a
+    single 24h window — NOT as a per-block uniform cap.  The current
+    per-block emission instead enforces ``Σ_g hr·gen ≤ RHS_Custom × 1000
+    / horizon_hours`` at EVERY block of the horizon, which over-tightens
+    by ~168× vs PLEXOS's actual daily scope (verified via t_data_0
+    pid-3069 Activity audit on RES20260422.accdb: Day0_Enel reports a
+    single non-zero Activity = 22 at block 2, RHS displayed 0.131 per
+    block, Σ slack = 0; Day1_Enel reports per-block Activity over
+    blocks 7-24 with daily-cap = 1100 GJ).
+
+    Consolidation: each PLEXOS (fuel, owner) group has 8 Day_X variants
+    (Day0..Day7) sharing the same LHS (same fuel → same generators).
+    We merge them into ONE UC with:
+      * LHS: taken from any of the Day_X specs (they're identical)
+      * ``daily_sum = True`` + ``constraint_type = "energy"``
+      * ``rhs_profile`` of length n_blocks_per_stage: each block within
+        gtopt's day ``d`` carries the per-day cap = (PLEXOS Day_{d+1}
+        RHS_Custom × 1000) — gtopt's daily_sum aggregator picks the
+        cap from the day-ending block (see
+        ``source/user_constraint_lp.cpp:1027``).
+
+    Day-X to gtopt-day mapping: PLEXOS Day0 is a "pre-horizon partial"
+    cap that binds at hour 1-2; PLEXOS Day1..Day7 cover the 7 full days
+    of the horizon.  We map gtopt day ``d`` → PLEXOS ``Day_{d+1}`` and
+    drop PLEXOS Day0 (the LP's first 24h then runs with the wider
+    Day1 cap, which is the conservative loose direction — Day0's tighter
+    partial-start cap is lost; document as deferred work if it matters
+    on a future case).
+
+    Returns a NEW list with the Gas_MaxOpDay specs replaced (other
+    specs pass through unchanged).
+    """
+    name_re = _GAS_MAXOPDAY_NAME_RE
+    by_suffix: dict[str, list[tuple[int, "UserConstraintSpec"]]] = {}
+    survivors: list["UserConstraintSpec"] = []
+    for s in specs:
+        m = name_re.match(s.name)
+        # Inactive stubs (Fix-6 emissions from extract_user_constraints
+        # for all-offline-gen LHSs: ``expression="0 <= 0", active=False``)
+        # carry no LHS coefficients and zero RHS, so they're already
+        # no-ops in the LP.  Pass them through verbatim — consolidating
+        # them would discard the per-day-X audit name that downstream
+        # diagnostic tooling (and the test_extract_user_constraints_
+        # all_offline_emits_inactive_stub regression) checks for.
+        if m and s.active is not False:
+            by_suffix.setdefault(m.group(2), []).append((int(m.group(1)), s))
+        else:
+            survivors.append(s)
+    if not by_suffix:
+        return list(specs)
+
+    # Determine the block grid the writer will use downstream.  Two
+    # cases match the rest of the converter's wiring:
+    #   * If ``block_layout`` is non-empty (PLEXOS-native aggregation):
+    #     n_blocks_per_stage = len(block_layout); each block "k"
+    #     contains the hours block_layout[k-1].
+    #   * Otherwise (uniform hourly fallback): n_blocks = horizon_hours,
+    #     each block covers one hour, hour h maps to block h.
+    if block_layout:
+        n_blocks = len(block_layout)
+        # block-id (1-indexed) → calendar day index (0-indexed).
+        # Use max(hours) for the block's day membership (the day the
+        # block ENDS in), matching gtopt's daily_sum day-flush rule.
+        block_to_day = [0] * n_blocks
+        for k_zero, intervals in enumerate(block_layout):
+            if intervals:
+                block_to_day[k_zero] = (max(intervals) - 1) // 24
+    else:
+        n_blocks = max(int(horizon_hours), 1)
+        block_to_day = [(h) // 24 for h in range(n_blocks)]
+
+    # Recover per-day-X RHS values from each spec's expression tail.
+    # extract_user_constraints emitted them as ``RHS_Custom × 1000 /
+    # horizon_hours`` (per-block rate); recover the daily total by
+    # multiplying back by horizon_hours.
+    rhs_recover_re = re.compile(r"(?:<=|>=|=)\s*(-?[\d\.eE+-]+)\s*$")
+
+    consolidated: list["UserConstraintSpec"] = []
+    for suffix, items in sorted(by_suffix.items()):
+        items.sort(key=lambda x: x[0])
+        # All Day_X share the same LHS — pick the first to inherit
+        # expression, penalty, active flag, etc.
+        first_spec = items[0][1]
+        # Recover each Day_X's daily-total RHS.
+        day_x_to_rhs: dict[int, float] = {}
+        for day_x, spec in items:
+            m_rhs = rhs_recover_re.search(spec.expression)
+            if m_rhs:
+                per_block_rhs = float(m_rhs.group(1))
+                day_x_to_rhs[day_x] = per_block_rhs * horizon_hours
+
+        # Build per-block RHS profile.  For each gtopt day d, pick the
+        # matching PLEXOS Day_X via an offset that lines up
+        # ``items_count`` PLEXOS indices with ``horizon_days`` gtopt days:
+        #
+        #   offset = max(0, items_count - horizon_days)
+        #   plexos_day_x = gtopt_day_d + offset
+        #
+        # - CEN PCP weekly: items_count=8 (Day0..Day7), horizon_days=7
+        #   ⇒ offset=1 ⇒ gtopt day d ← PLEXOS Day_{d+1}.  PLEXOS Day0
+        #   (pre-horizon partial-start cap) is dropped; LP's first 24h
+        #   uses the wider Day1 cap.
+        # - 1-day test bundle: items_count=1, horizon_days=1 ⇒ offset=0
+        #   ⇒ gtopt day 0 ← PLEXOS Day_0.  Direct mapping.
+        # - General: items_count <= horizon_days ⇒ direct mapping; tail
+        #   gtopt days beyond the available PLEXOS Day_X range get the
+        #   BIG sentinel (effectively unconstrained for that day).
+        horizon_days_local = max(1, int(horizon_hours) // 24)
+        plexos_offset = max(0, len(items) - horizon_days_local)
+        BIG = 1e9
+        rhs_profile = [BIG] * n_blocks
+        for k_zero in range(n_blocks):
+            gtopt_day_d = block_to_day[k_zero]
+            plexos_day_x = gtopt_day_d + plexos_offset
+            cap = day_x_to_rhs.get(plexos_day_x)
+            if cap is not None:
+                rhs_profile[k_zero] = cap
+
+        # Build consolidated expression: same LHS as Day0_<suffix> (they
+        # all share LHS), with a sentinel inline RHS that the profile
+        # overrides at every meaningful block.
+        lhs_expr = rhs_recover_re.sub("", first_spec.expression).rstrip()
+        consolidated_expr = f"{lhs_expr} <= {BIG}"
+
+        consolidated.append(
+            UserConstraintSpec(
+                name=f"Gas_MaxOpDay_{suffix}",
+                expression=consolidated_expr,
+                penalty=soft_penalty,
+                active=first_spec.active,
+                rhs_profile=tuple(rhs_profile),
+                daily_sum=True,
+                constraint_type="energy",
+                description=(
+                    f"Gas_MaxOpDay consolidated for fuel-owner group "
+                    f"'{suffix}' ({len(items)} PLEXOS Day_X rows merged "
+                    f"into one daily_sum UC).  PLEXOS evaluates each "
+                    f"Day_X as a per-day cumulative budget "
+                    f"(Σ_blocks_in_day_X hr·gen·Δt ≤ RHS_X); the "
+                    f"per-block RHS profile here broadcasts the per-day "
+                    f"cap to every block in its day so gtopt's daily_sum "
+                    f"aggregator (see user_constraint_lp.cpp:1027) picks "
+                    f"up the right per-day RHS at each day-ending block."
+                    f"  Days mapped: gtopt day d ← PLEXOS Day_{{d+1}}; "
+                    f"PLEXOS Day0 partial-start cap is dropped (LP's "
+                    f"first 24h uses the wider Day1 cap).  Soft at "
+                    f"${soft_penalty:g}/unit since PLEXOS itself takes "
+                    f"slack on these (Day1/Day4/Day6 have non-zero pid-"
+                    f"3070 Slack in RES20260422.accdb).  "
+                    f"File: DBSEN_PRGDIARIO.xml"
+                ),
+            )
+        )
+
+    return survivors + consolidated
+
+
 def extract_user_constraints(
     db: PlexosDb,
     _bundle: PlexosBundle,
@@ -7319,6 +7491,16 @@ def extract_user_constraints(
                 stats_out["lax_unresolved_dropped"] = len(unresolved_refs)
         else:
             raise UnresolvedConstraintReferenceError(msg)
+    # Post-process: consolidate Gas_MaxOpDay**X**_<group> per-block specs
+    # into per-(fuel,owner) daily_sum + energy UCs with per-day RHS profiles.
+    # See ``_consolidate_gas_maxopday_groups`` for the rationale.
+    block_layout_local = getattr(_bundle, "block_layout", ()) or ()
+    out = _consolidate_gas_maxopday_groups(
+        out,
+        block_layout=block_layout_local,
+        horizon_hours=horizon_hours,
+        soft_penalty=_RESERVE_PROVISION_SUM_PENALTY,
+    )
     return tuple(out)
 
 

@@ -176,6 +176,53 @@ def infer_horizon_days_from_input(xml_path: Path) -> int | None:
     return None
 
 
+def compute_day_ending_blocks(
+    block_layout: tuple[tuple[int, ...], ...],
+) -> tuple[int, ...]:
+    """For each calendar day in the horizon, return the 1-indexed block
+    whose intervals END inside (or AT the end of) that day.
+
+    Used by the Gas_MaxOpDay consolidator (and any other per-day daily-sum
+    constraint with PLEXOS-side per-day RHS profile) to map gtopt's
+    daily-row index ``d`` onto the block where gtopt's UC LP flushes
+    that day's accumulator — see
+    ``source/user_constraint_lp.cpp:1027`` for the lookup site
+    (``m_rhs_.optval(stage.uid(), day_end_block)``).
+
+    The returned tuple has length ``ceil(max_hour / 24)`` ≈ horizon_days,
+    with entry ``[d]`` = the block_id whose ``max(intervals) ≥ (d+1)*24``
+    is smallest (the LAST block whose hours fall on day ``d``).
+
+    For a uniform 168-block hourly layout, this yields
+    ``(24, 48, 72, 96, 120, 144, 168)``.  For the CEN PCP 111-block
+    PLEXOS layout, the day boundaries fall at the specific block_ids
+    that PLEXOS itself ends each 24h day on (block intervals are
+    chronological and may have non-uniform durations).
+
+    Returns ``()`` when ``block_layout`` is empty (caller is expected to
+    fall back to uniform hourly day-ending blocks `24*(d+1)`).
+    """
+    if not block_layout:
+        return ()
+    # block_id is 1-indexed by load_block_layout_from_accdb contract.
+    max_hour_per_block: list[int] = [
+        max(intervals) if intervals else 0 for intervals in block_layout
+    ]
+    horizon_last_hour = max(max_hour_per_block) if max_hour_per_block else 0
+    n_days = (horizon_last_hour + 23) // 24
+    out: list[int] = []
+    for d in range(n_days):
+        cutoff = (d + 1) * 24
+        # Largest block_id whose max(intervals) is <= cutoff.
+        last_block_id = 0
+        for block_zero_idx, mh in enumerate(max_hour_per_block):
+            if mh <= cutoff:
+                last_block_id = block_zero_idx + 1  # 1-indexed
+        if last_block_id > 0:
+            out.append(last_block_id)
+    return tuple(out)
+
+
 def parse_user_block_layout(spec: str) -> tuple[tuple[int, ...], ...]:
     """Build the interval→block grouping from a USER block-layout spec.
 

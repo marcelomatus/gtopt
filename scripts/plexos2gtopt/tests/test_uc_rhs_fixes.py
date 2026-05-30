@@ -117,15 +117,43 @@ _GAS_HORIZON_XML = f"""<?xml version="1.0" standalone="yes"?>
 
 
 def test_rhs_custom_uses_xml_horizon_days(tmp_path: Path) -> None:
-    """With a ``Horizon`` named ``..._7d`` the RHS Custom divisor is 168 h
-    (``2.0 × 1000 / 168 = 11.9048``), NOT ``n_days × 24 = 24 h`` (which gave
-    the spurious 83.3333 = ×7 inflation)."""
+    """With a ``Horizon`` named ``..._7d`` the per-block RHS Custom divisor
+    is 168 h (``2.0 × 1000 / 168 = 11.9048``), NOT ``n_days × 24 = 24 h``
+    (which gave the spurious 83.3333 = ×7 inflation).
+
+    Post-2026-05-29 ``_consolidate_gas_maxopday_groups`` merges the
+    per-block specs into one ``Gas_MaxOpDay_<group>`` daily_sum+energy
+    spec.  This test still has to verify the per-block factor 1/168 (the
+    pre-consolidation per-block-rate scaling) — recovered from the
+    consolidator's per-block RHS profile, which broadcasts the per-day
+    total ``11.9048 × 168 = 2000`` GJ at each block in the day.
+    """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_GAS_HORIZON_XML)
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)  # n_days defaults 1
     out = extract_user_constraints(load_xml(xml_path), bundle)
-    expr = {c.name: c for c in out}["Gas_MaxOpDay0_X"].expression
-    assert expr.endswith("<= 11.9048"), expr  # 2000/168, not 2000/24=83.3333
+    by_name = {c.name: c for c in out}
+    assert "Gas_MaxOpDay_X" in by_name, by_name.keys()
+    spec = by_name["Gas_MaxOpDay_X"]
+    # Per-day total = 2.0 × 1000 = 2000 GJ.  With the XML's ``_7d``
+    # horizon the consolidator builds a 168-block profile spanning 7
+    # days — only blocks of PLEXOS Day_0 (the only one in this fixture)
+    # carry the 2000 GJ cap; the other 6 gtopt days have no matching
+    # PLEXOS Day_X so they get the BIG sentinel (effectively
+    # unconstrained for those days).  This is correct: a Day_0-only
+    # input means "cap only the first day".
+    assert spec.rhs_profile, "consolidator should emit per-block RHS"
+    BIG = 1e9
+    capped = [v for v in spec.rhs_profile if v < BIG]
+    sentineled = [v for v in spec.rhs_profile if v >= BIG]
+    assert capped, "expected at least one block carrying the day-0 cap"
+    assert all(abs(v - 2000.0) < 1e-2 for v in capped), (
+        f"recovered per-day cap expected ≈ 2000 GJ, "
+        f"got capped values: {sorted(set(capped))}"
+    )
+    # ``_GAS_HORIZON_XML`` has only Day_0 input → only one gtopt day
+    # populated; the remaining 6 gtopt days are sentineled.
+    assert sentineled, "Day_0-only input should leave 6 gtopt days sentineled"
 
 
 # --------------------------------------------------------------------------- #
