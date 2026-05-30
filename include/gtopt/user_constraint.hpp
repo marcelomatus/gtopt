@@ -24,6 +24,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/constraint_directive.hpp>
 #include <gtopt/field_sched.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/user_constraint_enums.hpp>
@@ -140,6 +141,22 @@ struct UserConstraint
   /// PLEXOS PATTERN / Constraint_RHS profiles map cleanly onto this
   /// field via plexos2gtopt's writer.
   OptTBRealFieldSched rhs {};
+
+  /// Typed constraint-family directive.  Replaces the legacy name-regex
+  /// classification (``_RegRange_``, ``Gas_MaxOpDay``, MinProvision) and
+  /// hardcoded soft-penalty ladder that lived inside the
+  /// ``plexos2gtopt`` converter — see ``ConstraintDirective`` for the
+  /// payload schema and the rationale.
+  ///
+  /// Optional and defaulted to ``std::nullopt`` so every JSON written
+  /// before the migration round-trips unchanged: when no directive is
+  /// present ``UserConstraintLP`` behaves exactly as before, falling
+  /// back to ``penalty`` and ``daily_sum`` for soft-tier and
+  /// aggregation policy.  Directive scaffolding lands in Step 1 of the
+  /// AMPL/PAMPL modernization plan (2026-05-30); migration of the
+  /// three plexos2gtopt detection sites (RegRange / Gas_MaxOpDay /
+  /// MinProvision) follows in independent steps.
+  OptConstraintDirective directive {};
 };
 
 }  // namespace gtopt

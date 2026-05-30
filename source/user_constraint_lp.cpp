@@ -870,7 +870,16 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   // UserConstraint, the LP row gets one or two auto-created slack
   // columns folded in so the constraint can be relaxed at that
   // per-unit cost.  RANGE form is not yet supported.
-  const auto penalty = uc.penalty.value_or(0.0);
+  //
+  // ``directive`` (when present) wins over the scalar ``penalty``: the
+  // typed-schema constraint family decides the soft tier so policy lives
+  // in one auditable place instead of regex-detection + hardcoded
+  // ladders inside the plexos2gtopt converter.  Falls back to the
+  // scalar when the directive omits ``penalty`` (e.g. ``DailyBudget``
+  // intentionally leaves the cost choice to the constraint author).
+  const auto penalty = uc.directive.has_value()
+      ? uc.directive->effective_penalty(uc.penalty).value_or(0.0)
+      : uc.penalty.value_or(0.0);
   const bool is_soft = penalty > 0.0;
   if (is_soft && expr.constraint_type == ConstraintType::RANGE) {
     throw std::runtime_error(
@@ -907,7 +916,14 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   // `daily_cycle`-style collapsed stage (stage.duration() > 24 representing
   // a single day) flushes once at its final block; a stage ≤ 24 h is a
   // single window = the whole stage.
-  if (uc.daily_sum.value_or(false)) {
+  // Directive can promote a non-daily-sum constraint to the daily-sum
+  // path (``DailyBudget`` always; ``MaxStartsWindow`` with
+  // ``window_hours = 24``).  The underlying ``uc.daily_sum`` field is
+  // not mutated — the override is purely a build-time decision.
+  const bool daily_sum_effective = uc.daily_sum.value_or(false)
+      || (uc.directive.has_value() && uc.directive->implies_daily_sum());
+
+  if (daily_sum_effective) {
     constexpr double kDayHours = 24.0;
 
     // Index of the last in-domain block, used to force a final flush.
