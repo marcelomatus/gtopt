@@ -20,9 +20,10 @@ domain restrictions over scenarios, stages, and blocks.
 9. [External Constraint Files](#9-external-constraint-files)
 10. [Formal Grammar (BNF)](#10-formal-grammar-bnf)
 11. [Error Diagnostics](#11-error-diagnostics)
-12. [Comparison with AMPL](#12-comparison-with-ampl)
-13. [Best Practices](#13-best-practices)
-14. [See Also](#14-see-also)
+12. [Constraint Directives](#12-constraint-directives)
+13. [Comparison with AMPL](#13-comparison-with-ampl)
+14. [Best Practices](#14-best-practices)
+15. [See Also](#15-see-also)
 
 ---
 
@@ -1003,9 +1004,175 @@ which LP columns were picked up.
 > want a non-strict build *and* also want the author to notice the
 > problem, grep the logs for `non-convex` or `unknown parameter`.
 
+### Resolver-time source-location diagnostics
+
+Resolver-time errors (e.g. `unknown generator name 'GX'`) also report
+the offending token's source column, derived from
+`ConstraintTerm::column` (parser-stamped, 1-based). Example for
+`generator('g1').generation + generator('does_not_exist').generation
+<= 100`:
+
+```text
+user_constraint 'X' at column 30: cannot resolve element reference
+'generator(does_not_exist).generation' (block 1) — unknown generator
+name 'does_not_exist' — did you mean: g1?
+```
+
+The `at column 30` clause indexes into the *expression string* (not a
+file path) — column 30 points to the start of the second `generator`
+token. For a long composite LHS the column lets you jump straight to
+the bad ref without re-scanning the string by eye. Same shape as
+the parse-time `Parse error at column N` reports above.
+
+> **Note.** Today the column is populated for bare element refs,
+> singleton scalars (`system.scale_objective`), and bare parameter
+> names. Wrapper-shape terms (`sum(...)`, `abs(...)`, `min/max(...)`,
+> `if-then-else`, `state(...)`) carry an *outer* term with `column = 0`
+> (the "unset" sentinel); the inner element refs nested inside them
+> DO get their own columns through recursive parsing, so failures
+> inside a wrapper still surface a source location pointing at the
+> exact inner ref.
+
 ---
 
-## 12. Comparison with AMPL
+## 12. Constraint Directives
+
+A `directive` is typed metadata attached to a UserConstraint that
+classifies its family and carries a policy payload (soft-penalty tier,
+aggregation scope, gating, …). The directive is a JSON sibling field
+on the UserConstraint, NOT part of the expression string — so the
+expression stays pure math and the policy lives in one auditable place.
+
+Directives replace the legacy practice of detecting constraint families
+by name regex inside converters (`_RegRange_`, `Gas_MaxOpDay\d+_`,
+…) and assigning soft-penalty tiers via Python constants. With a
+directive present the JSON self-describes:
+
+```json
+{
+  "uid": 1337,
+  "name": "csflw_regrange_e1",
+  "expression": "... commitment + reserve_provision ...",
+  "directive": { "kind": "regrange", "penalty": 1000.0 }
+}
+```
+
+The gtopt-side `UserConstraint::directive` picks it up;
+`UserConstraintLP::effective_penalty()` makes the directive's
+`penalty` win over the scalar `penalty` field at LP-build time, so
+the directive is the single source of truth for soft-tier policy.
+
+### 12.1 Discriminator (`kind`)
+
+The `kind` string is the family discriminator — lowercase canonical
+name, ASCII case-insensitive on read.
+
+| `kind`              | Valid payload fields                | Implies                |
+|---------------------|-------------------------------------|------------------------|
+| `regrange`          | `penalty` (optional)                | —                      |
+| `reserve_prov_sum`  | `penalty` (optional)                | —                      |
+| `daily_budget`      | `penalty`, `scope` (both optional)  | `daily_sum = true`     |
+| `hydro_floor`       | `scope` (optional gate-ref tag)     | —                      |
+| `max_starts_window` | `window_hours` (required, > 0)      | `daily_sum = true` iff `window_hours == 24` |
+
+Validation at JSON-load time: `ConstraintDirective::valid_for_kind()`
+rejects payloads that populate fields outside the discriminator's
+allowed set. See `include/gtopt/constraint_directive.hpp` for the C++
+schema.
+
+### 12.2 `regrange` — PLEXOS regulation-range UC
+
+PLEXOS `*_RegRange_e1` / `_e2` constraints couple `commitment(g).status`
+to `reserve_provision(g, .).{up|dn}`. Under LP-relax their tight
+implied-bounds chain renders the LP structurally infeasible at
+continuous status values; the directive's `penalty` (typically
+`1000.0`) converts the infeasibility into a finite-cost slack that
+LP-relax can absorb.
+
+```json
+{
+  "name": "uc_regrange_e1",
+  "expression": "α * commitment(\"g\").status - reserve_provision(\"g\", ResUp).up - reserve_provision(\"g\", ResDn).dn >= 0",
+  "directive": { "kind": "regrange", "penalty": 1000.0 }
+}
+```
+
+### 12.3 `reserve_prov_sum` — pure reserve aggregator
+
+`Σ reserve_provision(g, R).{up|dn} ≥ requirement` shape (3+
+`reserve_provision` refs, no `commitment` / `generator` / `battery` /
+`line`), plus the `*Calculation` definitional rows that define
+per-zone requirements. Same soft-tier rationale as `regrange`.
+
+```json
+{
+  "name": "csf_lw_minprov",
+  "expression": "reserve_provision(\"p1\").up + reserve_provision(\"p2\").up + reserve_provision(\"p3\").up >= 10",
+  "directive": { "kind": "reserve_prov_sum", "penalty": 1000.0 }
+}
+```
+
+### 12.4 `daily_budget` — per-day cumulative cap
+
+Per-day cumulative budget on a `Σ` aggregator (typical scope tags:
+`fuel:GAS`, `owner:CSF`, `gas_maxopday:<suffix>`). The directive
+implies `daily_sum = true` at LP-build time without requiring the
+field to be set explicitly. For PLEXOS Gas_MaxOpDay the converter
+stamps the directive on the consolidator's output so the JSON
+self-describes which PLEXOS fuel-owner group the row consolidates.
+
+```json
+{
+  "name": "Gas_MaxOpDay_Enel",
+  "expression": "sum(generator(all: fuel=\"GAS\").generation) <= 800",
+  "daily_sum": true,
+  "constraint_type": "energy",
+  "directive": { "kind": "daily_budget", "scope": "gas_maxopday:Enel" }
+}
+```
+
+### 12.5 `hydro_floor` — gated reservoir floor
+
+Reserved for the P2 follow-up. A reservoir floor that should only
+bind when a referenced commitment binary is active (e.g.
+`reservoir.volume >= 50` only when the unit is on). The `scope` tag
+carries the gating element ref. Step 1 honours the directive's
+presence in the JSON schema; LP-build currently treats it as a
+pass-through (no gate semantics yet — needs P2 ordered-time
+primitives).
+
+### 12.6 `max_starts_window` — rolling startup count cap
+
+`Σ_{τ ∈ window(N h)} commitment(g).startup ≤ MaxStarts(g)` shape.
+Required field `window_hours` carries the rolling-window length in
+hours; `24` is the canonical daily alias (the directive implies
+`daily_sum = true` in that case), `168` the canonical weekly window.
+
+```json
+{
+  "name": "max_starts_per_day_G1",
+  "expression": "sum(commitment(\"uc_G1\").startup) <= 5",
+  "directive": { "kind": "max_starts_window", "window_hours": 24 }
+}
+```
+
+Wider rolling windows (e.g. `window_hours: 48` for a 2-day rolling
+cap) are wired in the schema but the LP-build path needs P2 to
+emit the right shape — for now they fall through to the same
+daily aggregator as the `24` case. Tagged for Step 4b v2 / P2.
+
+### 12.7 Backwards compatibility
+
+`directive` is OPTIONAL on every UserConstraint. JSON written before
+the scaffold landed (`UserConstraint.directive == std::nullopt`) is
+treated exactly as before — `UserConstraintLP` falls through to the
+scalar `penalty` and explicit `daily_sum` fields. Converters can
+add directives incrementally: any constraint without one keeps
+behaving identically.
+
+---
+
+## 13. Comparison with AMPL
 
 ### AMPL equivalents
 
@@ -1073,7 +1240,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 13. Best Practices
+## 14. Best Practices
 
 1. **Name constraints meaningfully**: use descriptive names like
    `gen_pair_limit` or `night_battery_reserve`, not `c1` or `test`.
@@ -1110,7 +1277,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 14. See Also
+## 15. See Also
 
 - **[Irrigation Agreements](irrigation-agreements.md)** — Laja and Maule
   agreement modeling, FlowRight/VolumeRight entities, PLP comparison
