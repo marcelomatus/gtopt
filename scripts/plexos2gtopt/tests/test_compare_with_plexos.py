@@ -1068,3 +1068,265 @@ def test_compute_plexos_battery_operation_uses_ac_side_pids(
     # have been 12 and 24 — assert we're definitely NOT seeing those.
     assert bat["discharge_mwh"] != pytest.approx(12.0)
     assert bat["charge_mwh"] != pytest.approx(24.0)
+
+
+# ================================================================
+# New CLI plumbing — --date, --gtopt-output, --gtopt-bundle.
+# These tests cover the input-resolution layer only; they do not
+# spin up a full PLEXOS extract.
+# ================================================================
+
+
+def test_resolve_res_zip_for_date_picks_cached_unpacked(tmp_path: Path) -> None:
+    """When ``_unpacked/PCP_RES_<date>/RES<date>.zip`` exists, use it
+    directly (the auto-extract fast path)."""
+    from plexos2gtopt.compare_with_plexos import _resolve_res_zip_for_date
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    (fake_home / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "PCP").mkdir(
+        parents=True
+    )
+    unpacked = (
+        fake_home / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "_unpacked"
+    )
+    cached = unpacked / "PCP_RES_20260422"
+    cached.mkdir(parents=True)
+    (cached / "RES20260422.zip").write_bytes(b"dummy")
+
+    with mock.patch.dict("os.environ", {"XDG_CACHE_HOME": str(fake_home / ".cache")}):
+        out = _resolve_res_zip_for_date("20260422")
+    assert out == cached / "RES20260422.zip"
+
+
+def test_resolve_res_zip_for_date_extracts_from_outer_plexos_zip(
+    tmp_path: Path,
+) -> None:
+    """When only the outer ``PLEXOS<date>.zip`` exists, auto-extract
+    the nested ``RES<date>.zip`` into the cache and return that path."""
+    import zipfile as _zipfile
+
+    from plexos2gtopt.compare_with_plexos import _resolve_res_zip_for_date
+
+    fake_home = tmp_path / "home"
+    pcp_dir = fake_home / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "PCP"
+    pcp_dir.mkdir(parents=True)
+    outer = pcp_dir / "PLEXOS20260422.zip"
+    # Build a synthetic outer zip with DATOS + RES siblings (matches
+    # the CEN PCP layout).
+    with _zipfile.ZipFile(outer, "w") as zf:
+        zf.writestr("DATOS20260422.zip", b"datos-bytes")
+        zf.writestr("RES20260422.zip", b"res-bytes")
+
+    with mock.patch.dict("os.environ", {"XDG_CACHE_HOME": str(fake_home / ".cache")}):
+        out = _resolve_res_zip_for_date("20260422")
+
+    expected = (
+        fake_home
+        / ".cache"
+        / "gtopt"
+        / "cen2gtopt"
+        / "pcp_archive"
+        / "_unpacked"
+        / "PCP_RES_20260422"
+        / "RES20260422.zip"
+    )
+    assert out == expected
+    assert out.read_bytes() == b"res-bytes"
+
+    # Second invocation must hit the cache and skip re-extraction —
+    # mutate the outer zip so any re-extract would surface here.
+    outer.unlink()
+    with mock.patch.dict("os.environ", {"XDG_CACHE_HOME": str(fake_home / ".cache")}):
+        out2 = _resolve_res_zip_for_date("20260422")
+    assert out2 == expected
+
+
+def test_resolve_res_zip_for_date_lists_paths_when_missing(tmp_path: Path) -> None:
+    """No outer zip, no sibling, no cache — the error must enumerate
+    everything checked so the user knows where to drop the file."""
+    from plexos2gtopt.compare_with_plexos import _resolve_res_zip_for_date
+
+    fake_home = tmp_path / "home"
+    (fake_home / ".cache").mkdir(parents=True)
+
+    with mock.patch.dict("os.environ", {"XDG_CACHE_HOME": str(fake_home / ".cache")}):
+        with pytest.raises(FileNotFoundError) as excinfo:
+            _resolve_res_zip_for_date("20260422")
+    msg = str(excinfo.value)
+    assert "PCP_RES_20260422" in msg
+    assert "RES20260422.zip" in msg
+    assert "PLEXOS20260422.zip" in msg
+
+
+def test_resolve_res_zip_for_date_rejects_bad_format() -> None:
+    from plexos2gtopt.compare_with_plexos import _resolve_res_zip_for_date
+
+    with pytest.raises(ValueError):
+        _resolve_res_zip_for_date("2026-04-22")  # not YYYYMMDD
+
+
+def test_stitch_gtopt_case_dir_bridges_output_and_bundle(tmp_path: Path) -> None:
+    """``_stitch_gtopt_case_dir`` returns a temp dir whose
+    ``output/`` and bundle-JSON entries point at the real
+    ``--gtopt-output`` / ``--gtopt-bundle`` paths via symlinks."""
+    from plexos2gtopt.compare_with_plexos import _stitch_gtopt_case_dir
+
+    out_dir = tmp_path / "v9_cplex_out"
+    out_dir.mkdir()
+    (out_dir / "solution.csv").write_text("scene,phase,obj_value\n0,0,100.0\n")
+    (out_dir / "Generator").mkdir()
+
+    bundle_dir = tmp_path / "v9"
+    bundle_dir.mkdir()
+    (bundle_dir / "PCP_20260422.json").write_text("{}")
+    # Bundle dir often has noisy siblings the helper must ignore.
+    (bundle_dir / "planning.json").write_text("{}")
+    (bundle_dir / "PCP_20260422.provenance.json").write_text("{}")
+
+    stitched = _stitch_gtopt_case_dir(out_dir, bundle_dir)
+    assert (stitched / "output").is_symlink()
+    assert (stitched / "output" / "solution.csv").read_text().endswith("100.0\n")
+    assert (stitched / "output" / "Generator").is_dir()
+    assert (stitched / "PCP_20260422.json").is_symlink()
+    # planning.json and *.provenance.json must NOT be picked up.
+    assert not (stitched / "planning.json").exists()
+    assert not (stitched / "PCP_20260422.provenance.json").exists()
+
+
+def test_stitch_gtopt_case_dir_errors_when_solution_csv_missing(
+    tmp_path: Path,
+) -> None:
+    """A directory without ``solution.csv`` is not a gtopt OUTPUT
+    directory — surface a precise error instead of silently failing
+    inside ``parse_gtopt_solution`` later."""
+    from plexos2gtopt.compare_with_plexos import _stitch_gtopt_case_dir
+
+    bogus = tmp_path / "bogus"
+    bogus.mkdir()
+    with pytest.raises(FileNotFoundError) as excinfo:
+        _stitch_gtopt_case_dir(bogus, None)
+    assert "solution.csv" in str(excinfo.value)
+
+
+def test_stitch_gtopt_case_dir_without_bundle_skips_json_link(
+    tmp_path: Path,
+) -> None:
+    """Bundle is optional at stitch-time — Step 1 (solution.csv) works
+    without it; Step 3-10 will surface ``no PLEXOS-source JSON`` if
+    needed."""
+    from plexos2gtopt.compare_with_plexos import _stitch_gtopt_case_dir
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "solution.csv").write_text("scene,phase,obj_value\n0,0,1.0\n")
+
+    stitched = _stitch_gtopt_case_dir(out_dir, None)
+    assert (stitched / "output").is_symlink()
+    # No JSON candidates in the stitched dir.
+    assert not list(stitched.glob("*.json"))
+
+
+def test_resolve_inputs_gtopt_output_wins_over_case(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--gtopt-output`` + ``--gtopt-case`` together: the new flag
+    wins with a one-line WARNING and the resolved case_dir is the
+    stitched bridge directory."""
+    from rich.console import Console
+
+    from plexos2gtopt.compare_with_plexos import _resolve_inputs, make_parser
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "solution.csv").write_text("scene,phase,obj_value\n0,0,2.0\n")
+    bundle_dir = tmp_path / "bundle"
+    bundle_dir.mkdir()
+    (bundle_dir / "PCP.json").write_text("{}")
+    legacy_case = tmp_path / "legacy_case"
+    legacy_case.mkdir()
+
+    parser = make_parser()
+    args = parser.parse_args(
+        [
+            "--gtopt-case",
+            str(legacy_case),
+            "--gtopt-output",
+            str(out_dir),
+            "--gtopt-bundle",
+            str(bundle_dir),
+            "--plexos-log",
+            "/dev/null",
+        ]
+    )
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=200)
+    case_dir, res_zip = _resolve_inputs(args, console)
+    assert case_dir is not None
+    assert case_dir != legacy_case  # the stitched bridge dir
+    assert (case_dir / "output" / "solution.csv").exists()
+    assert (case_dir / "PCP.json").exists()
+    assert res_zip is None  # --plexos-log was used, no res zip
+    rendered = buf.getvalue()
+    assert "--gtopt-case ignored" in rendered
+
+
+def test_resolve_inputs_date_wins_over_res_zip(
+    tmp_path: Path,
+) -> None:
+    """``--date`` + ``--plexos-res-zip`` together: ``--date`` wins
+    with a warning and the resolved res_zip comes from the cache."""
+    import zipfile as _zipfile
+
+    from rich.console import Console
+
+    from plexos2gtopt.compare_with_plexos import _resolve_inputs, make_parser
+
+    fake_home = tmp_path / "home"
+    pcp_dir = fake_home / ".cache" / "gtopt" / "cen2gtopt" / "pcp_archive" / "PCP"
+    pcp_dir.mkdir(parents=True)
+    outer = pcp_dir / "PLEXOS20260422.zip"
+    with _zipfile.ZipFile(outer, "w") as zf:
+        zf.writestr("RES20260422.zip", b"res-bytes")
+    stray = tmp_path / "stray.zip"
+    stray.write_bytes(b"stray")
+
+    parser = make_parser()
+    args = parser.parse_args(
+        [
+            "--date",
+            "20260422",
+            "--plexos-res-zip",
+            str(stray),
+        ]
+    )
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=False, width=200)
+    with mock.patch.dict("os.environ", {"XDG_CACHE_HOME": str(fake_home / ".cache")}):
+        _, res_zip = _resolve_inputs(args, console)
+    assert res_zip is not None
+    assert res_zip.name == "RES20260422.zip"
+    assert "_unpacked" in str(res_zip)
+    rendered = buf.getvalue()
+    assert "--plexos-res-zip ignored" in rendered
+
+
+def test_main_errors_when_no_plexos_source_given(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """At least one of ``--date`` / ``--plexos-res-zip`` /
+    ``--plexos-log`` must be supplied; otherwise exit 2 with a clear
+    error.  Locks in the relaxed mutex group (was ``required=True``
+    when only the two PLEXOS flags existed)."""
+    from plexos2gtopt.compare_with_plexos import main
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "solution.csv").write_text("scene,phase,obj_value\n0,0,1.0\n")
+
+    rc = main(["--gtopt-output", str(out_dir)])
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "No PLEXOS source given" in captured.out

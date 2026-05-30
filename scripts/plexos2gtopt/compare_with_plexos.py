@@ -3742,6 +3742,222 @@ def _render_report(
         )
 
 
+# ------------------------------------------------------------------
+# Input plumbing helpers — let the user point at the gtopt OUTPUT
+# directory and the bundle directory directly, and resolve the PLEXOS
+# RES zip from a single ``--date YYYYMMDD`` argument.  The legacy
+# ``--gtopt-case`` / ``--plexos-res-zip`` / ``--plexos-log`` flags
+# remain fully supported; the new flags layer on top of them so the
+# canonical one-liner becomes:
+#
+#     python -m plexos2gtopt.compare_with_plexos \
+#         --date 20260422 \
+#         --gtopt-output /home/marce/tmp/.../<run>_out \
+#         --gtopt-bundle /home/marce/tmp/.../<run>
+#
+# Resolution rules (see ``_resolve_inputs``):
+#   * ``--gtopt-output`` wins over ``--gtopt-case`` (one-line warning).
+#   * ``--date`` resolves the RES zip from the local cache
+#     (``~/.cache/gtopt/cen2gtopt/pcp_archive/PCP``) and auto-extracts
+#     the nested RES from the outer ``PLEXOS<date>.zip`` if needed.
+# ------------------------------------------------------------------
+
+_DEFAULT_PCP_ARCHIVE_REL = "gtopt/cen2gtopt/pcp_archive"
+
+
+def _default_pcp_archive_dir() -> Path:
+    """Return the local cache root used by cen2gtopt PCP archives.
+
+    Honours ``$XDG_CACHE_HOME`` (falls back to ``~/.cache``) so a
+    user with a non-standard cache layout still gets the right
+    directory.  The PCP outer-zip layout lives at ``<root>/PCP/`` and
+    the auto-extracted RES bundles land in ``<root>/_unpacked/``.
+    """
+    base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    return base / _DEFAULT_PCP_ARCHIVE_REL
+
+
+def _resolve_res_zip_for_date(date_str: str) -> Path:
+    """Return the path to ``RES<date>.zip`` for ``date_str`` (YYYYMMDD).
+
+    Search order:
+      1. ``<archive>/_unpacked/PCP_RES_<date>/RES<date>.zip`` —
+         a previous auto-extraction.
+      2. ``<archive>/PCP/RES<date>.zip`` — a sibling RES zip dropped
+         directly in the cache.
+      3. ``<archive>/PCP/PLEXOS<date>.zip`` — the outer CEN bundle
+         that contains both ``DATOS<date>.zip`` and ``RES<date>.zip``
+         as siblings.  Auto-extract the RES one to
+         ``<archive>/_unpacked/PCP_RES_<date>/RES<date>.zip`` so the
+         second invocation hits step (1).
+
+    Raises ``FileNotFoundError`` with the full list of checked paths
+    when none of the candidates resolves — diagnostic over guesswork.
+    """
+    if not re.fullmatch(r"\d{8}", date_str):
+        raise ValueError(
+            f"--date must be YYYYMMDD (got {date_str!r}); e.g. --date 20260422"
+        )
+
+    archive = _default_pcp_archive_dir()
+    pcp_dir = archive / "PCP"
+    unpacked_dir = archive / "_unpacked" / f"PCP_RES_{date_str}"
+    cached_res = unpacked_dir / f"RES{date_str}.zip"
+    sibling_res = pcp_dir / f"RES{date_str}.zip"
+    outer_zip = pcp_dir / f"PLEXOS{date_str}.zip"
+
+    if cached_res.is_file():
+        return cached_res
+    if sibling_res.is_file():
+        return sibling_res
+    if outer_zip.is_file():
+        unpacked_dir.mkdir(parents=True, exist_ok=True)
+        inner_name = f"RES{date_str}.zip"
+        with zipfile.ZipFile(outer_zip) as outer:
+            if inner_name not in outer.namelist():
+                raise FileNotFoundError(
+                    f"{outer_zip} does not contain {inner_name} "
+                    f"(found: {outer.namelist()})"
+                )
+            outer.extract(inner_name, unpacked_dir)
+        if not cached_res.is_file():  # defensive — extract should have produced it
+            raise FileNotFoundError(
+                f"auto-extracted {inner_name} from {outer_zip} but "
+                f"{cached_res} is missing"
+            )
+        return cached_res
+
+    raise FileNotFoundError(
+        "no PLEXOS RES zip found for --date "
+        f"{date_str}; checked:\n  - {cached_res}\n  - {sibling_res}\n"
+        f"  - {outer_zip} (would auto-extract {f'RES{date_str}.zip'})"
+    )
+
+
+def _find_bundle_json(bundle_dir: Path) -> Path:
+    """Return the PLEXOS-source JSON inside ``bundle_dir``.
+
+    Uses the same filtering rules as the in-tree ``compute_gtopt_*``
+    helpers: any ``*.json`` that is NOT ``planning.json`` and NOT
+    a ``*.provenance.json`` sidecar.  This is the single source of
+    truth for the bundle-JSON discovery so the stitched case dir we
+    build for ``--gtopt-output`` mirrors the layout the helpers expect.
+
+    Raises ``FileNotFoundError`` listing the inspected directory if
+    nothing matches.
+    """
+    for cand in sorted(bundle_dir.glob("*.json")):
+        if cand.name == "planning.json":
+            continue
+        if cand.name.endswith(".provenance.json"):
+            continue
+        return cand
+    raise FileNotFoundError(
+        f"no PLEXOS-source JSON found in {bundle_dir} "
+        "(looked for *.json, ignored planning.json and *.provenance.json)"
+    )
+
+
+def _stitch_gtopt_case_dir(
+    output_dir: Path,
+    bundle_dir: Path | None,
+) -> Path:
+    """Return a ``case_dir`` Path that satisfies the legacy layout.
+
+    The legacy helpers expect ``<case>/output/solution.csv`` plus
+    ``<case>/<bundle>.json`` (the PLEXOS-source JSON used to recover
+    block durations, demand uids, etc.).  When the user passes
+    ``--gtopt-output`` directly we need to bridge to that contract
+    WITHOUT requiring an ``output/`` symlink in the user's workspace.
+
+    Implementation: build a fresh temp directory containing two
+    symlinks — ``output -> output_dir`` and ``<bundle>.json ->
+    bundle_dir/<bundle>.json``.  This adds zero copies, keeps the
+    bundle / output identity stable for cache keys, and lets every
+    existing helper run unchanged.
+
+    When ``bundle_dir`` is ``None`` only the ``output`` symlink is
+    created — Steps 3-10 then surface the usual
+    ``no PLEXOS-source JSON`` error so the user knows to pass
+    ``--gtopt-bundle``.
+    """
+    output_dir = output_dir.resolve()
+    if not output_dir.is_dir():
+        raise FileNotFoundError(f"--gtopt-output: {output_dir} is not a directory")
+    if not (output_dir / "solution.csv").is_file():
+        raise FileNotFoundError(
+            f"--gtopt-output: {output_dir} has no solution.csv at its root "
+            "(expected a gtopt OUTPUT directory; pass the bundle dir with "
+            "--gtopt-bundle instead)"
+        )
+
+    stitched = Path(tempfile.mkdtemp(prefix="gtopt_compare_case_"))
+    (stitched / "output").symlink_to(output_dir, target_is_directory=True)
+
+    if bundle_dir is not None:
+        bundle_dir = bundle_dir.resolve()
+        if not bundle_dir.is_dir():
+            raise FileNotFoundError(f"--gtopt-bundle: {bundle_dir} is not a directory")
+        bundle_json = _find_bundle_json(bundle_dir)
+        (stitched / bundle_json.name).symlink_to(bundle_json)
+
+    return stitched
+
+
+def _resolve_inputs(
+    args: argparse.Namespace, console: Console
+) -> tuple[Path | None, Path | None]:
+    """Resolve ``(gtopt_case_dir, plexos_res_zip)`` from CLI args.
+
+    Returns ``(case_dir, res_zip)`` honouring the precedence rules:
+      * ``--gtopt-output`` > ``--gtopt-case`` (warn when both given;
+        the new flag wins, with the bundle dir grafted in).
+      * ``--date`` > ``--plexos-res-zip`` > ``--plexos-log``
+        (warn when both ``--date`` and ``--plexos-res-zip`` given).
+
+    Either side may return ``None`` when the user supplied no source —
+    e.g. ``--plexos-log`` mode (no .accdb available) still works, and
+    omitting the gtopt side prints only the PLEXOS summary.
+    """
+    # ---- gtopt side ----
+    case_dir: Path | None = None
+    if args.gtopt_output is not None:
+        if args.gtopt_case is not None:
+            console.print(
+                "[yellow]--gtopt-case ignored: --gtopt-output takes "
+                "precedence.[/yellow]"
+            )
+        bundle = args.gtopt_bundle
+        case_dir = _stitch_gtopt_case_dir(args.gtopt_output, bundle)
+    elif args.gtopt_case is not None:
+        case_dir = args.gtopt_case
+        if args.gtopt_bundle is not None:
+            console.print(
+                "[yellow]--gtopt-bundle ignored: --gtopt-case provides "
+                "its own bundle layout.[/yellow]"
+            )
+    elif args.gtopt_bundle is not None:
+        # Bundle without output dir — Step 1 cannot read solution.csv
+        # and Steps 3-10 would have nothing to compare.  Surface
+        # clearly rather than silently skip.
+        console.print(
+            "[yellow]--gtopt-bundle given without --gtopt-output (or "
+            "--gtopt-case); the gtopt side will be skipped.[/yellow]"
+        )
+
+    # ---- PLEXOS side ----
+    res_zip: Path | None = args.plexos_res_zip
+    if args.date is not None:
+        if args.plexos_res_zip is not None:
+            console.print(
+                "[yellow]--plexos-res-zip ignored: --date takes precedence.[/yellow]"
+            )
+        res_zip = _resolve_res_zip_for_date(args.date)
+        console.print(f"[dim]Resolved PLEXOS RES zip from --date: {res_zip}[/dim]")
+
+    return case_dir, res_zip
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="compare_with_plexos",
@@ -3755,9 +3971,44 @@ def make_parser() -> argparse.ArgumentParser:
         "--gtopt-case",
         type=Path,
         default=None,
-        help="gtopt case directory (contains output/solution.csv)",
+        help=(
+            "gtopt case directory (contains output/solution.csv).  "
+            "Legacy layout — prefer --gtopt-output + --gtopt-bundle."
+        ),
     )
-    src = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument(
+        "--gtopt-output",
+        type=Path,
+        default=None,
+        help=(
+            "gtopt OUTPUT directory (contains solution.csv at its root "
+            "alongside per-class Parquet subdirs Battery/, Generator/, "
+            "...).  Combine with --gtopt-bundle to point at the "
+            "PLEXOS-source JSON without an output/ symlink dance."
+        ),
+    )
+    parser.add_argument(
+        "--gtopt-bundle",
+        type=Path,
+        default=None,
+        help=(
+            "gtopt BUNDLE directory (the dir plexos2gtopt emitted; "
+            "contains the PLEXOS-source JSON, e.g. PCP_<date>.json).  "
+            "Required for Steps 3-10 when --gtopt-output is used."
+        ),
+    )
+    parser.add_argument(
+        "--date",
+        type=str,
+        default=None,
+        help=(
+            "PCP date as YYYYMMDD; auto-resolves --plexos-res-zip from "
+            f"{_default_pcp_archive_dir()}/PCP (auto-extracts the nested "
+            "RES<date>.zip from PLEXOS<date>.zip when needed) and caches "
+            "it under <archive>/_unpacked/PCP_RES_<date>/."
+        ),
+    )
+    src = parser.add_mutually_exclusive_group(required=False)
     src.add_argument(
         "--plexos-log",
         type=Path,
@@ -3770,7 +4021,8 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "path to a CEN PCP RES bundle (RES*.zip or RES*.zip.xz); "
-            "the scout extracts the nested log automatically"
+            "the scout extracts the nested log automatically.  Prefer "
+            "--date for the canonical one-liner."
         ),
     )
     parser.add_argument(
@@ -3844,11 +4096,26 @@ def main(argv: list[str] | None = None) -> int:
     # to avoid hiding them.
     console = Console(width=args.width)
 
+    # Resolve the gtopt case dir and PLEXOS RES zip from the user's
+    # mix of legacy + new flags (see ``_resolve_inputs`` for the
+    # precedence rules).
+    case_dir, res_zip = _resolve_inputs(args, console)
+
+    # At least one PLEXOS source must be available (legacy
+    # ``required=True`` mutex relaxed so ``--date`` can satisfy it).
+    if args.plexos_log is None and res_zip is None:
+        console.print(
+            "[red]No PLEXOS source given — pass one of --date, "
+            "--plexos-res-zip, or --plexos-log.[/red]"
+        )
+        return 2
+
     log_path: Path
     if args.plexos_log is not None:
         log_path = args.plexos_log
     else:
-        log_path = find_plexos_log_in_res_bundle(args.plexos_res_zip)
+        assert res_zip is not None  # narrowed by the guard above
+        log_path = find_plexos_log_in_res_bundle(res_zip)
         console.print(f"[dim]Extracted PLEXOS log: {log_path}[/dim]")
 
     plexos = parse_plexos_log(log_path)
@@ -3860,9 +4127,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     gtopt: dict[str, float] | None = None
-    if args.gtopt_case is not None:
+    if case_dir is not None:
         try:
-            gtopt = parse_gtopt_solution(args.gtopt_case)
+            gtopt = parse_gtopt_solution(case_dir)
         except (FileNotFoundError, ValueError) as exc:
             console.print(f"[yellow]gtopt side unavailable: {exc}[/yellow]")
 
@@ -3874,7 +4141,7 @@ def main(argv: list[str] | None = None) -> int:
     # from t_phase_3 — same source plexos2gtopt uses to lay out the
     # bundle's block_array.
     accdb_path: Path | None = None
-    if args.gtopt_case is not None and args.plexos_res_zip is not None:
+    if case_dir is not None and res_zip is not None:
         console.print()
         try:
             # ----- PLEXOS side: cache the parsed extracts -----
@@ -3883,7 +4150,7 @@ def main(argv: list[str] | None = None) -> int:
             # ``$XDG_CACHE_HOME/gtopt/plexos_compare`` (or
             # ``--cache-dir``).  Subsequent runs against the same
             # RES zip skip mdb-export entirely (~minutes → seconds).
-            cache_path = _plexos_cache_path(args.plexos_res_zip, args.cache_dir)
+            cache_path = _plexos_cache_path(res_zip, args.cache_dir)
             plexos_data: dict | None = None
             if not args.no_cache:
                 plexos_data = _load_plexos_cache(cache_path)
@@ -3896,9 +4163,7 @@ def main(argv: list[str] | None = None) -> int:
             # (cache-hit doesn't keep the accdb around otherwise).
             # Cleaned up at process exit by the OS-level /tmp policy.
             accdb_persist_dir = Path(tempfile.mkdtemp(prefix="plexos_compare_"))
-            accdb_path = _extract_accdb_from_res_zip(
-                args.plexos_res_zip, accdb_persist_dir
-            )
+            accdb_path = _extract_accdb_from_res_zip(res_zip, accdb_persist_dir)
             if plexos_data is None:
                 plexos_data = _compute_plexos_all(accdb_path)
                 _save_plexos_cache(cache_path, plexos_data)
@@ -3906,31 +4171,31 @@ def main(argv: list[str] | None = None) -> int:
 
             # Step 3 — system totals (demand, gen, op cost)
             plexos_tot = plexos_data["totals"]
-            gtopt_tot = compute_gtopt_energy_totals(args.gtopt_case)
+            gtopt_tot = compute_gtopt_energy_totals(case_dir)
             # Step 4 — per-unit SRMC + dispatch
             plexos_unit = plexos_data["unit"]
-            gtopt_unit = compute_gtopt_per_unit_srmc(args.gtopt_case)
+            gtopt_unit = compute_gtopt_per_unit_srmc(case_dir)
             # Step 5 — per-bus LMP
             plexos_bus = plexos_data["bus"]
-            gtopt_bus = compute_gtopt_per_bus_lmp(args.gtopt_case)
+            gtopt_bus = compute_gtopt_per_bus_lmp(case_dir)
             # Step 6 — per-line energy + limits + active
             plexos_line = plexos_data["line"]
-            gtopt_line = compute_gtopt_per_line(args.gtopt_case)
+            gtopt_line = compute_gtopt_per_line(case_dir)
             # Step 7 — generation by technology
             plexos_tech = plexos_data["tech"]
             gtopt_tech = compute_gtopt_generation_by_technology(
-                args.gtopt_case, cat_by_name=plexos_data["name_to_category"]
+                case_dir, cat_by_name=plexos_data["name_to_category"]
             )
             # Step 8 — reservoir trajectories
             plexos_res = plexos_data["res"]
-            gtopt_res = compute_gtopt_reservoir_volumes(args.gtopt_case)
+            gtopt_res = compute_gtopt_reservoir_volumes(case_dir)
             # Step 9 — battery operation
             plexos_bat = plexos_data["bat"]
-            gtopt_bat = compute_gtopt_battery_operation(args.gtopt_case)
+            gtopt_bat = compute_gtopt_battery_operation(case_dir)
             # Step 10 — generator commitment + cost of commitment
             plexos_commit = plexos_data.get("commit", {})
             try:
-                gtopt_commit = compute_gtopt_commitment(args.gtopt_case)
+                gtopt_commit = compute_gtopt_commitment(case_dir)
             except FileNotFoundError:
                 gtopt_commit = {}
             if plexos_tot and gtopt_tot:
@@ -3976,10 +4241,10 @@ def main(argv: list[str] | None = None) -> int:
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
             console.print(f"[yellow]Step 3-10 skipped: {exc}[/yellow]")
 
-    if args.gtopt_case is not None and not args.no_uc_drilldown:
+    if case_dir is not None and not args.no_uc_drilldown:
         console.print()
         try:
-            breakdown = load_uc_penalty_breakdown(args.gtopt_case, args.uc_penalty)
+            breakdown = load_uc_penalty_breakdown(case_dir, args.uc_penalty)
         except (FileNotFoundError, ImportError, ValueError) as exc:
             console.print(f"[yellow]UC drilldown unavailable: {exc}[/yellow]")
         else:
@@ -3992,7 +4257,7 @@ def main(argv: list[str] | None = None) -> int:
             if accdb_path is not None and breakdown:
                 try:
                     drilldown = compute_uc_block_drilldown(
-                        args.gtopt_case,
+                        case_dir,
                         accdb_path,
                         breakdown,
                         top_n=args.top_uc,
@@ -4002,7 +4267,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     if drilldown:
                         console.print()
-                        _render_uc_block_drilldown(drilldown, args.gtopt_case, console)
+                        _render_uc_block_drilldown(drilldown, case_dir, console)
 
     return 0
 
