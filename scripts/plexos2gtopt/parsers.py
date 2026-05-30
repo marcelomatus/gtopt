@@ -5732,6 +5732,23 @@ def _consolidate_gas_maxopday_groups(
                 rhs_profile=tuple(rhs_profile),
                 daily_sum=True,
                 constraint_type="energy",
+                # Step 4b (#54) — typed directive carrying the
+                # constraint-family classification + scope.  ``kind``
+                # tells any JSON consumer "this is a daily fuel-cap
+                # constraint" without re-running the name regex.
+                # ``scope`` carries the PLEXOS fuel-owner suffix
+                # (e.g. ``gas_maxopday:Enel``) so the directive is
+                # self-describing in the wire form.  The
+                # ``daily_sum=True`` and ``constraint_type=energy``
+                # literals above are kept verbatim — gtopt-side
+                # ``ConstraintDirective::implies_daily_sum()`` already
+                # OR's them on at LP-build time, but the explicit field
+                # values are still useful for diff-readability and
+                # don't depend on the directive being honoured.
+                directive=ConstraintDirective(
+                    kind="daily_budget",
+                    scope=f"gas_maxopday:{suffix}",
+                ),
                 description=(
                     f"Gas_MaxOpDay consolidated for fuel-owner group "
                     f"'{suffix}' ({len(items)} PLEXOS Day_X rows merged "

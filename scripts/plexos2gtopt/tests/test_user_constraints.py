@@ -1533,6 +1533,14 @@ def test_extract_user_constraints_rhs_custom_transform(tmp_path: Path) -> None:
     # so going genuinely hard would risk presolve infeasibility from the
     # internal-Big-M PLEXOS uses but we cannot reproduce.
     assert spec.penalty == 1000.0
+    # Step 4b (#54): typed ``daily_budget`` directive carries the
+    # constraint-family classification + the PLEXOS fuel-owner scope.
+    # The directive is what any downstream JSON consumer / gtopt-side
+    # ``UserConstraint::directive`` reads — name-regex detection on
+    # ``Gas_MaxOpDay*`` is no longer required to identify this family.
+    assert spec.directive is not None
+    assert spec.directive.kind == "daily_budget"
+    assert spec.directive.scope == "gas_maxopday:X"
 
 
 # ---------------------------------------------------------------------------
