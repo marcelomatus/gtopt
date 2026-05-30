@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import dataclasses
 import difflib
+import functools
 import logging
 import math
 import re
@@ -71,8 +72,31 @@ class UnresolvedConstraintReferenceError(RuntimeError):
     """
 
 
-# PLEXOS Sense → gtopt operator. CEN PCP uses {-1: LE, 1: GE, 0: EQ}.
-_SENSE_OP = {-1.0: "<=", 1.0: ">=", 0.0: "="}
+# PLEXOS Sense → gtopt operator.
+#
+# Conventions used in CEN PCP DBSEN_PRGDIARIO.xml (verified 2026-05-30
+# by name+behaviour audit of all explicit-Sense constraints in
+# RES20260422.accdb):
+#   * Sense = -1 → ``<=`` (cap)    — 902 constraints, mostly line
+#     security (``SD_*`` and dated numeric forms)
+#   * Sense =  0 → ``>=`` (MIN)    — 20 constraints, all of which are
+#     "MinProvision" reserve-aggregation rows (``CPF_DownMinProvision``,
+#     ``CSF_UpMinProvision``, ``CTF_DownMinProvision``, ``CPFN_*``,
+#     ``CPF_BESS_*``) — physically a lower bound on Σ provisions
+#   * Sense =  1 → ``>=`` (MIN)    — 157 constraints named ``*min`` /
+#     ``*eco`` / similar (``ANTUCOmin``, ``ANGOSTURAmin``, ``ANGOSTURAeco``)
+#   * Sense unset → ``=`` (definitional eq) — see fall-through at
+#     ``sense_val is None`` further down; covers ``MACHICURA_GENT4def``,
+#     ``CSF_LW_Def``, etc. where the constraint DEFINES a variable
+#
+# Previously Sense=0 mapped to ``=`` (equality), which made the
+# ``*MinProvision`` family infeasible when hardened — the LP couldn't
+# satisfy ``Σ provisions = RHS`` exactly when other per-generator
+# reserve-cap rows pinned individual provisions.  PLEXOS solves them
+# at the lower bound naturally (Σ provisions ≥ RHS, LP minimises cost
+# → equality at the optimum) without the data-fit risk an equality
+# would impose at LP-decision time.
+_SENSE_OP = {-1.0: "<=", 1.0: ">=", 0.0: ">="}
 
 
 # Coefficient kinds that map 1:1 to a single gtopt LP variable.
@@ -5178,6 +5202,180 @@ def _build_rhs_date_overlay_profile(
     return tuple(profile)
 
 
+# ───────────────────────────────────────────────────────────────────────
+# Hydro per-plant min/max/ramp constraints — special handling
+# ───────────────────────────────────────────────────────────────────────
+#
+# PLEXOS encodes per-plant turbine-discharge floors / caps / ramp limits
+# as UserConstraints named after the plant: ``ANTUCOmin``, ``ANTUCOmax``,
+# ``ANGOSTURAmin``, ``ANGOSTURAeco``, ``ELTOROmax``, ``PANGUEramp``,
+# ``MACHICURAlagrampup``, ``COLBUNmax``, etc.  Each is structurally
+# something like ``Σ_units generation ≥ <floor>`` or ``Σ ≤ <cap>`` or a
+# ramp delta inequality on a single hydro plant's units.
+#
+# **In PLEXOS sol these constraints solve as HARD** (Slack=0,
+# Shadow=large e.g. $7,999/MWh for ``ANTUCOmin``).  But PLEXOS gates
+# them INTERNALLY on the unit's commit status: when PLEXOS keeps the
+# plant OFF for a block, the min/max row is auto-relaxed (the LP isn't
+# asked to satisfy ``gen ≥ floor`` when the unit is OFF — that would be
+# infeasible).  This is part of PLEXOS's MIP / commitment formulation,
+# not visible in the input XML.
+#
+# **gtopt does NOT have a native commit-gated UC primitive yet**, so
+# hardening these names without the gate makes the LP primal-infeasible
+# at blocks where the hydro is fractionally / fully off (verified on
+# CEN PCP 2026-04-22: ``antucomin_constraint_1263_1_1_40`` reported
+# infeasible by CPLEX presolve when added to the PLEXOS-HARD-promote
+# list; the LP-relax can't satisfy ``Σ_ANTUCO_Ui gen ≥ 137`` at block
+# 40 because OTHER constraints force the units to a lower aggregate).
+#
+# **Workarounds in place:**
+#   * **Plan 2** (commit ``7d2c9bcd0``): auto-promote ``<NAME>min/max``
+#     UCs to a Commitment.pmin/pmax on the matching hydro generator
+#     when the LHS is a single ``generator(X).generation`` term.  Covers
+#     ANTUCO/ELTORO/ANGOSTURA per-unit floors but NOT multi-unit
+#     aggregations or ramp / lag rows.
+#   * **soft tier ($10/MWh)** for everything Plan 2 doesn't catch:
+#     the LP slacks the floor / cap when the inflow / commitment
+#     pattern can't satisfy it, paying a small penalty.
+#
+# **CLI knob** ``--hydro-min-mode {soft, hard}`` (default ``soft``):
+#   * ``soft`` (default): names matching the regex below are FILTERED
+#     OUT of the PLEXOS-HARD list before promotion.  They fall through
+#     to the normal soft-tier classification.
+#   * ``hard``: names are kept in the PLEXOS-HARD list, promoted to
+#     penalty=0.  WILL FAIL on most CEN PCP weekly cases at LP-relax
+#     time (matching PLEXOS sol Activity = RHS exactly requires the
+#     commit-gating PLEXOS provides internally and gtopt does not).
+#     Available for debug / validation against a horizon where the
+#     hydro commitment pattern happens to align between gtopt and
+#     PLEXOS.
+#
+# The detection regex below matches single-plant-named hydro min/max /
+# ramp / lag rows.  Names are case-sensitive.  Pure suffixes covered:
+# ``min``, ``max``, ``eco``, ``ramp``, ``lagrampup``, ``lagrampdown``,
+# ``rampdownact``, ``rampupact``, ``ramplogic``, ``PMax``, ``GENT4def``,
+# ``GENT7def`` (def-eqs are wired separately under the Plan 2 path).
+_HYDRO_GATED_UC_RE = re.compile(
+    r"^(?P<stem>[A-Z][A-Za-z0-9_]*?)"
+    r"(?:min|max|eco|ramp|lagrampup|lagrampdown|rampdownact|rampupact|"
+    r"ramplogic|_PMax|maxramp|caudal_min_diario)$"
+)
+# The set of hydro plant stems is sized from a small canonical list to
+# avoid accidentally matching non-hydro families like ``Gas_MaxOpDay*``
+# (which already has its own daily_sum handling).  Stems verified
+# against CEN PCP 2026-04-22.  Extending the list when a new dataset
+# introduces a hydro plant is the expected maintenance.
+_HYDRO_PLANT_STEMS = frozenset(
+    {
+        "ANTUCO",
+        "ANGOSTURA",
+        "CIPRESES",
+        "COLBUN",
+        "ELTORO",
+        "LMAULE",
+        "MACHICURA",
+        "PANGUE",
+        "PEHUENCHE",
+        "POLPAICO",
+        "POLCURA",
+        "RALCO",
+        "RAPEL",
+        "SAUZAL",
+        "SAUZALITO",
+    }
+)
+
+
+def _is_hydro_min_max_uc(name: str) -> bool:
+    """True when ``name`` is a per-plant hydro min/max/ramp UserConstraint.
+
+    Matches names of the form ``<HYDRO_PLANT_STEM><suffix>`` where the
+    stem is one of the canonical CEN PCP hydro plants and ``<suffix>``
+    is one of the recognised min/max/ramp tokens (see ``_HYDRO_GATED_UC_RE``).
+    """
+    m = _HYDRO_GATED_UC_RE.match(name)
+    if m is None:
+        return False
+    return m["stem"] in _HYDRO_PLANT_STEMS
+
+
+@functools.cache
+def _hydro_min_mode() -> str:
+    """Return the active ``--hydro-min-mode`` (``soft`` or ``hard``).
+
+    Default ``soft`` (LP-feasible fallback for runs where gtopt cannot
+    reproduce PLEXOS's commit-gated relaxation of the hydro min/max
+    constraints — see the module-level note above ``_HYDRO_GATED_UC_RE``
+    for the full rationale).  Set ``GTOPT_HYDRO_MIN_MODE=hard`` (or pass
+    ``--hydro-min-mode hard`` to plexos2gtopt) to keep these names in
+    the PLEXOS-HARD-promote list — useful for debug / validation runs.
+    """
+    import os as _os
+
+    val = _os.environ.get("GTOPT_HYDRO_MIN_MODE", "soft").strip().lower()
+    if val not in ("soft", "hard"):
+        logger.warning("GTOPT_HYDRO_MIN_MODE='%s' not recognised; using 'soft'", val)
+        return "soft"
+    return val
+
+
+@functools.cache
+def _load_plexos_hard_uc_list() -> frozenset[str]:
+    """Names of PLEXOS-HARD UCs (audited from sol .accdb) to promote to HARD.
+
+    Reads ``data/cen_pcp_hard_ucs.txt`` (one constraint name per line, an
+    optional ``  # ...`` annotation per line is stripped).  Loaded once
+    per process and cached.  Returns the legacy 2-name fallback
+    (``MACHICURA_GENT4def``, ``PEHUENCHE_GENT7def``) when the file is
+    missing or unreadable, preserving backwards-compatible behaviour.
+
+    Hydro per-plant min/max/ramp names are filtered out by default
+    (``--hydro-min-mode soft``) because they require commit-gating that
+    gtopt does not provide — see the module-level note above
+    ``_HYDRO_GATED_UC_RE``.  Pass ``--hydro-min-mode hard`` to keep
+    them in the list (debug / validation only).
+    """
+    legacy = frozenset({"MACHICURA_GENT4def", "PEHUENCHE_GENT7def"})
+    path = Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt"
+    if not path.is_file():
+        return legacy
+    try:
+        names: set[str] = set()
+        for raw in path.read_text().splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                names.add(line)
+        if not names:
+            return legacy
+        # Apply the hydro-min-mode filter.
+        if _hydro_min_mode() == "soft":
+            removed = {n for n in names if _is_hydro_min_max_uc(n)}
+            if removed:
+                logger.info(
+                    "hydro-min-mode=soft: kept %d hydro per-plant min/max/ramp "
+                    "UCs at default soft tier (HARD would be infeasible "
+                    "without commit-gating — see _HYDRO_GATED_UC_RE note): "
+                    "%s",
+                    len(removed),
+                    ", ".join(sorted(removed)),
+                )
+            names -= removed
+        else:
+            kept = {n for n in names if _is_hydro_min_max_uc(n)}
+            if kept:
+                logger.warning(
+                    "hydro-min-mode=hard: keeping %d hydro per-plant "
+                    "min/max/ramp UCs in the HARD list — LP-relax may be "
+                    "infeasible without commit-gating!  Names: %s",
+                    len(kept),
+                    ", ".join(sorted(kept)),
+                )
+        return frozenset(names)
+    except OSError:
+        return legacy
+
+
 def _format_coefficient(value: float, first: bool) -> str:
     """Format a coefficient term prefix (sign + numeric)."""
     if first:
@@ -6137,6 +6335,31 @@ def extract_user_constraints(
                         bat_obj.name
                     )
 
+    # Decision Variable → Definition (coll 711): DEFINITIONAL equation
+    # memberships.  PLEXOS uses this special collection to declare "this
+    # constraint DEFINES the value of this DV" with an IMPLICIT +1
+    # coefficient (no explicit Value Coefficient row in t_data).  Used by
+    # 4 CEN PCP weekly constraints:
+    #   * MACHICURA_GENT4def        defines GEN_T4_MACHICURA
+    #   * PEHUENCHE_GENT7def        defines GEN_T8_PEHUENCHE
+    #   * CTFOFF_CIPRESES_U3_T2def  defines OFF_T2_CIPRESES_U3
+    #   * CTFOFF_COLBUN_U2_T2def    defines OFF_T2_COLBUN_U2
+    # Without this expansion the DV term silently drops from the LHS,
+    # leaving a degenerate residual equation that conflicts with the
+    # per-unit bounds (e.g. MACHICURA_GENT4def collapsed to ``-gen_U1
+    # - gen_U2 = 0`` forcing both units off all 168 h, breaking
+    # MACHICURAmin >= 12 MWh for 108 / 111 blocks).  Detected during
+    # the v11.5 HARD-classification experiment which surfaced the
+    # infeasibility CPLEX named ``machicura_gent4def_constraint_*``.
+    definition_dv_index: dict[int, list[str]] = {}
+    def_coll = db.collection_for_named("Decision Variable", "Constraint", "Definition")
+    if def_coll is not None:
+        for m in db.memberships_of(def_coll.collection_id):
+            dv_obj = objs.get(m.parent_object_id)
+            if dv_obj is None:
+                continue
+            definition_dv_index.setdefault(m.child_object_id, []).append(dv_obj.name)
+
     # Per-constraint battery membership index: ``{constraint_oid -> [bat_name, …]}``.
     # Used to SCOPE the Reserve×Battery provision cross-product to the
     # battery members of a given constraint (e.g. ``BAT_TOCOPILLA_CF_GEN_COMP``
@@ -6936,6 +7159,32 @@ def extract_user_constraints(
                     terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
                     coefficients.append(alpha)
 
+        # 2c. Decision Variable → Definition (coll 711) — IMPLICIT +1
+        #     coefficient on the DV.  See ``definition_dv_index`` build
+        #     site above for the full rationale (PLEXOS definitional
+        #     equations like ``MACHICURA_GENT4def``).  Without this
+        #     loop the LHS collapses to ``-gen_U1 - gen_U2 = 0``
+        #     instead of ``-gen_U1 - gen_U2 + DV = 0`` (where the DV
+        #     absorbs the gen sum to make the equation hold).  When
+        #     the DV is unemitted (rare; should not happen in
+        #     practice because every Definition-DV corresponds to a
+        #     gtopt ``decision_variable`` entry), log + skip.
+        allowed_dv = (
+            emitted_names.get("DecisionVariable") if emitted_names is not None else None
+        )
+        for dv_name in definition_dv_index.get(constr.object_id, ()):
+            if allowed_dv is not None and dv_name not in allowed_dv:
+                logger.debug(
+                    "constraint %s: dropping Definition DV term for "
+                    "unemitted decision_variable '%s'",
+                    constr.name,
+                    dv_name,
+                )
+                continue
+            var_ref = f'decision_variable("{dv_name}").value'
+            terms.append(_format_coefficient(1.0, first=not terms) + var_ref)
+            coefficients.append(1.0)
+
         # 3. Derived-coefficient kinds (Capacity Factor / Generation
         #    Sent Out / Generation Curtailed / Available Capacity).
         #    These are PLEXOS-side expressions, not standalone LP vars
@@ -7282,6 +7531,21 @@ def extract_user_constraints(
             or is_battery_shutoff_artifact
             or is_generator_shutoff_artifact
         )
+        # PLEXOS-HARD-list override: when the constraint name is in the
+        # data-driven ``cen_pcp_hard_ucs.txt`` list (audited from the
+        # solution .accdb as HARD with positive shadow), it MUST be
+        # active — PLEXOS itself enforces it.  Most commonly this fires
+        # for CTFOFF_* rows that the scenario-tag resolver wrongly
+        # marked inactive because the dual-row Include in ST Schedule
+        # picked the untagged "0" instead of the CTFOffline_ON-tagged
+        # "-1" (the ON scenario IS active in PRGdia_Full_Definitivo).
+        if is_inactive and constr.name in _load_plexos_hard_uc_list():
+            logger.info(
+                "constraint %s in PLEXOS-HARD list — overriding "
+                "is_inactive=False so the LP enforces what PLEXOS enforces",
+                constr.name,
+            )
+            is_inactive = False
         if is_excluded_by_plexos:
             logger.debug(
                 "constraint %s excluded from ST run by PLEXOS "
@@ -7632,8 +7896,76 @@ def extract_user_constraints(
                 and "battery(" not in expression
                 and "line(" not in expression
             )
+            # PLEXOS-HARD-confirmed UCs — emit as HARD (penalty=0) in
+            # gtopt because PLEXOS audit (RES20260422 t_data_0) shows
+            # zero slack across the horizon with positive shadow prices.
+            # Making these HARD removes the slack column entirely (no
+            # cost, no LMP leakage), matching PLEXOS dispatch exactly.
+            #
+            # Families with confirmed PLEXOS-hard behaviour:
+            #   * ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP`` — battery-
+            #     mode complementarity (10 UCs on CEN PCP): PLEXOS binds
+            #     99-111 / 168 h with shadow $3,993-$5,388 each.  These
+            #     are physical complementarity rows (battery can't both
+            #     discharge and absorb reserve in the same direction);
+            #     softening lets the LP cheat at the $10 tier while
+            #     PLEXOS pays the true $5,000/MWh marginal cost.
+            # Additional PLEXOS-HARD families promoted to gtopt-HARD
+            # (validated on RES20260422.accdb: Σ|Slack|=0 across the
+            # horizon with positive shadow prices).  Iteratively
+            # expanded as CPLEX conflict-refiner clears each
+            # infeasibility surfaced by the hardening (the LP debug
+            # name format is ``<lowercase_uc_name>_constraint_<oid>_<scene>_<phase>_<stage>``):
+            #
+            #   * ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP`` — battery-
+            #     mode complementarity (10 UCs, shadow $3,993-$5,388,
+            #     binds 99-111 h).
+            #   * ``CPF_BESS_*`` — BESS regulation-reserve sharing
+            #     (2 UCs, shadow $56K-$94K, binds 95-111 h).
+            #   * ``MACHICURA_GENT4def`` / ``PEHUENCHE_GENT7def`` —
+            #     definitional equations (DV term now wired via
+            #     ``definition_dv_index``, shadow $1,527/$small).
+            #   * ``*_MinProvision`` / ``*_Calculation`` — CPF/CSF/CTF
+            #     reserve aggregation rows (shadow $1,830-$3,146).
+            #     These were previously at $1000 soft; PLEXOS solves
+            #     hard.  Promoting needed Plant primitive to be in
+            #     place (otherwise the LP couldn't move enough provision
+            #     between variant configs).
+            #   * ``limited_generation_calculation`` — global generation
+            #     accounting (shadow $1,855).
+            is_bat_complementarity = constr.name.endswith(
+                "_CF_GEN_COMP"
+            ) or constr.name.endswith("_CF_LOAD_COMP")
+            # Data-driven HARD-promotion list — names verified PLEXOS-HARD
+            # from RES20260422.accdb sol audit (Slack=0, HrsBind>0,
+            # |Shadow|>0).  The list is shipped as
+            # ``data/cen_pcp_hard_ucs.txt`` (one constraint name per line,
+            # optional ``  #`` annotation per line).  Loaded once per
+            # ``extract_user_constraints`` invocation via the cached
+            # ``_load_plexos_hard_uc_list`` helper.  When the list cannot
+            # be loaded (missing file / I/O error) the legacy hard-coded
+            # tuple of definitional singletons (MACHICURA_GENT4def,
+            # PEHUENCHE_GENT7def) is used.
+            _hard_set = _load_plexos_hard_uc_list()
+            is_plexos_hard_singleton = constr.name in _hard_set
+            # ``MAXCSF_*`` — N-1 secondary-frequency-control reserve
+            # SHARING placeholders (cap on a single plant's combined
+            # raise+lower reserve contribution).  PLEXOS audit shows
+            # these slack at 43,000+ MWh with shadow $0 across the
+            # horizon — PLEXOS treats them as FREE slack (N-1
+            # placeholders that never bind in practice).  Our default
+            # $1,000 tier over-penalises by ~$48K of phantom cost per
+            # plant.  Demote to the operational $10 tier so the LP
+            # slacks them freely (matching PLEXOS's $0 shadow).
+            is_maxcsf_placeholder = constr.name.startswith("MAXCSF")
             if is_def_equation:
                 emitted_penalty = 0.0  # hard — matches PLEXOS exactly
+            elif is_bat_complementarity or is_plexos_hard_singleton:
+                emitted_penalty = 0.0  # hard — PLEXOS binds at zero slack
+            elif is_maxcsf_placeholder:
+                # Demote from default-soft $1000 to operational $10 to
+                # match PLEXOS's $0 shadow on these N-1 placeholders.
+                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
             elif is_reserve_provision_sum or is_regrange_uc:
                 emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
                 # Step 4a (#53) — stamp a typed directive carrying the

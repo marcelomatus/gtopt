@@ -538,6 +538,37 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--hydro-min-mode",
+        choices=("soft", "hard"),
+        default="soft",
+        help=(
+            "How to enforce hydro per-plant minimum-generation / ramp "
+            "UserConstraints (``ANTUCOmin``, ``ANTUCOmax``, "
+            "``ANGOSTURAmin``, ``ELTOROmax``, ``PANGUEramp``, "
+            "``MACHICURAlag*``, ``MACHICURAramp*``, ``COLBUNmax`` and "
+            "similar named after a single hydro plant).  Default "
+            "``soft`` ($10/MWh soft tier): the LP slacks the floor / "
+            "cap when the natural-inflow / commitment combination of a "
+            "given block can't satisfy it.  PLEXOS itself solves these "
+            "as HARD constraints, BUT gates them internally on the "
+            "unit's commit status (when PLEXOS keeps the unit OFF the "
+            "min/max row is auto-relaxed).  gtopt does NOT have a "
+            "native commit-gated UC primitive yet, so hardening them "
+            "without the gate makes the LP primal-infeasible at "
+            "blocks where the hydro is fractionally / fully off "
+            "(verified on CEN PCP 2026-04-22: ``antucomin_constraint_"
+            "1263_1_1_40`` reported infeasible by CPLEX presolve when "
+            "added to the hard list).  ``hard`` mode is available for "
+            "debug / validation runs against a known-feasible "
+            "horizon, BUT WILL FAIL on most CEN PCP weekly cases until "
+            "gtopt grows commit-gated UC support (related: Plan 2 "
+            "``_auto_promote_hydro_min_max_to_commitments`` covers "
+            "ANTUCO/ELTORO when the LHS is a single ``generator(X)"
+            ".generation`` term — broader patterns still fall through "
+            "to this knob)."
+        ),
+    )
+    parser.add_argument(
         "--spill-fcost",
         type=float,
         default=None,
@@ -832,6 +863,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_error_pct": args.loss_error_pct,
         "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
+        "hydro_min_mode": args.hydro_min_mode,
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,
         "nseg_uniform": args.nseg_uniform,

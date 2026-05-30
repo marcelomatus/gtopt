@@ -1254,21 +1254,18 @@ def test_extract_user_constraints_aggregate_cpf_down_min_provision(
     assert "_RS_BESS" not in expr  # Lower kind ⇒ down only
     assert 'reserve_provision("provision_BAT_A").' not in expr
 
-    # Step 4a (#53) end-to-end coverage: with 3 batteries the LHS has
-    # 3 ``reserve_provision(`` refs and NO ``generator(`` / ``battery(``
-    # / ``commitment(`` / ``line(`` refs → the
-    # ``is_reserve_provision_sum`` branch in ``extract_user_constraints``
-    # fires and stamps the typed ``ConstraintDirective(kind=
-    # 'reserve_prov_sum', penalty=1000)`` on the spec.  This pins the
-    # parser-side stamp end-to-end; the writer-side serialization for
-    # every directive kind is covered by
-    # ``test_build_user_constraint_array_emits_regrange_directive`` in
-    # ``test_writer.py``.
-    assert spec.directive is not None
-    assert spec.directive.kind == "reserve_prov_sum"
-    assert spec.directive.penalty == 1000.0
-    assert spec.directive.scope is None
-    assert spec.directive.window_hours is None
+    # As of the data-driven HARD-promote work, ``CPF_DownMinProvision``
+    # is one of the 90 names listed in
+    # ``data/cen_pcp_hard_ucs.txt`` (PLEXOS-HARD per RES20260422 audit:
+    # Slack=0, HrsBind=30, Shadow=$232).  The HARD-promote branch fires
+    # BEFORE ``is_reserve_provision_sum`` so the spec ends up with
+    # penalty=0 and no directive stamped.  This matches PLEXOS's
+    # solving behaviour (binds tight at zero slack).  When the
+    # constraint is REMOVED from the hard-list (or the list cannot be
+    # loaded), it falls through to the ``reserve_prov_sum`` $1000 soft
+    # default — covered by other tests in this file.
+    assert spec.penalty == 0.0
+    assert spec.directive is None
 
 
 _BATT_STORAGEBOUND_XML = f"""<?xml version="1.0" standalone="yes"?>

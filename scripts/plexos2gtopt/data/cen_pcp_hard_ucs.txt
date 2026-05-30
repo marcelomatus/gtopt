@@ -1,0 +1,211 @@
+# PLEXOS-HARD constraint names from RES20260422 audit (auto-promoted to HARD by extract_user_constraints)
+# Each line: <constraint_name>  # HrsBind=N Shadow=$X
+BatMaxCycDay_BAT_DEL_DESIERTO  # HrsBind=111 Shadow=$3,676,991
+BatMaxCycDay_BAT_VICTOR_JARA_FV  # HrsBind=98 Shadow=$3,083,762
+BatMaxCycDay_BAT_GABRIELA_FV  # HrsBind=111 Shadow=$3,069,794
+BatMaxCycDay_BAT_TOCOPILLA  # HrsBind=111 Shadow=$2,210,774
+BatMaxCycDay_BAT_COYA_FV  # HrsBind=111 Shadow=$1,867,164
+BatMaxCycDay_BAT_ARENA  # HrsBind=111 Shadow=$1,629,855
+BatMaxCycDay_BAT_ANDES_3_FV  # HrsBind=111 Shadow=$1,191,506
+BatMaxCycDay_BAT_DON_HUMBERTO_FV  # HrsBind=111 Shadow=$1,139,792
+BatMaxCycDay_BAT_MANZANO_FV  # HrsBind=111 Shadow=$1,134,576
+BatMaxCycDay_BAT_LIBELULA_FV  # HrsBind=111 Shadow=$1,128,983
+BatMaxCycDay_BAT_LA_CABANA_EO  # HrsBind=111 Shadow=$1,056,242
+BatMaxCycDay_BAT_NUEVO_QUILLAGUA_2_FV  # HrsBind=74 Shadow=$983,980
+BatMaxCycDay_BAT_TAMAYA_FV  # HrsBind=98 Shadow=$920,154
+BatMaxCycDay_BAT_NUEVO_QUILLAGUA_FV  # HrsBind=74 Shadow=$890,268
+BatMaxCycDay_BAT_CAPRICORNIO_FV  # HrsBind=111 Shadow=$738,552
+BatMaxCycDay_BAT_ANDES_2B_FV  # HrsBind=75 Shadow=$526,860
+BatMaxCycDay_BAT_ANDES_2A_FV  # HrsBind=27 Shadow=$337,795
+BatMaxCycDay_BAT_SALVADOR_FV  # HrsBind=111 Shadow=$331,723
+BatMaxCycDay_BAT_ARICA_2  # HrsBind=98 Shadow=$308,220
+BatMaxCycDay_BAT_DESIERTO_DE_ATACAMA_FV  # HrsBind=87 Shadow=$220,615
+BatMaxCycDay_BAT_ALFALFAL_VR2  # HrsBind=111 Shadow=$208,135
+BatMaxCycDay_BAT_SAN_ANDRES_FV  # HrsBind=87 Shadow=$174,401
+CPF_BESS_ANGAMOS  # HrsBind=111 Shadow=$93,806
+CPF_BESS_COCHRANE  # HrsBind=95 Shadow=$56,382
+BatMaxCycDay_BAT_DIEGO_ALMAGRO_SUR_FV  # HrsBind=111 Shadow=$44,217
+BatMaxCycDay_BAT_NUEVA_IMPERIAL  # HrsBind=61 Shadow=$31,770
+Gas_MaxOpDay6_Enel_GN_B  # HrsBind=111 Shadow=$21,413
+Gas_MaxOpDay1_Enel_GN_C  # HrsBind=111 Shadow=$12,137
+Gas_MaxOpDay7_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$11,063
+FueMaxOffWeek_Gas_EnelMejillones_E  # HrsBind=111 Shadow=$10,983
+Gas_MaxOpDay6_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$10,524
+Gas_MaxOpDay1_Colbun  # HrsBind=111 Shadow=$10,272
+BatMaxCycDay_BAT_URIBE_SOLAR_FV  # HrsBind=87 Shadow=$10,257
+Gas_MaxOpDay0_Enel  # HrsBind=111 Shadow=$8,833
+Gas_MaxOpDay0_Enel_GN_B  # HrsBind=111 Shadow=$8,454
+BatMaxCycDay_BAT_PUNTA_SIERRA_EO  # HrsBind=111 Shadow=$7,961
+Gas_MaxOpDay5_Colbun  # HrsBind=111 Shadow=$7,867
+Gas_MaxOpDay7_Enel_Mejillones_GN_A  # HrsBind=111 Shadow=$7,669
+Gas_MaxOpDay7_Colbun  # HrsBind=111 Shadow=$6,534
+BatMaxCycDay_BAT_ARICA  # HrsBind=111 Shadow=$5,930
+Gas_MaxOpDay5_Enel_Mejillones_GN_A  # HrsBind=111 Shadow=$5,803
+BAT_MANZANO_FV_CF_GEN_COMP  # HrsBind=111 Shadow=$5,388
+BAT_TOCOPILLA_CF_GEN_COMP  # HrsBind=111 Shadow=$5,388
+BAT_DON_HUMBERTO_FV_CF_GEN_COMP  # HrsBind=111 Shadow=$5,387
+BAT_DEL_DESIERTO_CF_GEN_COMP  # HrsBind=111 Shadow=$5,335
+BAT_TOCOPILLA_CF_LOAD_COMP  # HrsBind=109 Shadow=$5,320
+BAT_DEL_DESIERTO_CF_LOAD_COMP  # HrsBind=109 Shadow=$5,267
+Gas_MaxOpDay7_Colbun_GN_B  # HrsBind=111 Shadow=$5,201
+Gas_MaxOpDay6_Colbun_GN_B  # HrsBind=111 Shadow=$4,928
+BAT_DON_HUMBERTO_FV_CF_LOAD_COMP  # HrsBind=100 Shadow=$4,721
+BAT_MANZANO_FV_CF_LOAD_COMP  # HrsBind=99 Shadow=$4,655
+BAT_LA_CABANA_EO_CF_GEN_COMP  # HrsBind=110 Shadow=$4,271
+BAT_LA_CABANA_EO_CF_LOAD_COMP  # HrsBind=107 Shadow=$3,993
+Gas_MaxOpDay7_Enel_Mejillones_GN_B  # HrsBind=111 Shadow=$3,827
+CPF_Up10MinProvision  # HrsBind=111 Shadow=$3,146
+Gas_MaxOpDay1_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$3,134
+Gas_MaxOpDay6_NuevaRenca  # HrsBind=111 Shadow=$2,945
+Gas_MaxOpDay3_Enel  # HrsBind=111 Shadow=$2,926
+Gas_MaxOpDay2_Enel  # HrsBind=111 Shadow=$2,919
+CPF_Up5Calculation  # HrsBind=111 Shadow=$2,909
+Gas_MaxOpDay5_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$2,901
+Gas_MaxOpDay7_Enel  # HrsBind=111 Shadow=$2,732
+Gas_MaxOpDay5_Enel_Mejillones_GN_B  # HrsBind=111 Shadow=$2,631
+CSF_UpMinProvision  # HrsBind=111 Shadow=$1,926
+Gas_MaxOpDay4_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$1,875
+limited_generation_calculation  # HrsBind=53 Shadow=$1,855
+Gas_MaxOpDay5_Enel  # HrsBind=111 Shadow=$1,854
+CPF_UpMinProvision  # HrsBind=111 Shadow=$1,830
+Gas_MaxOpDay3_Enel_Mejillones_GN_C  # HrsBind=111 Shadow=$1,612
+MACHICURA_GENT4def  # HrsBind=9 Shadow=$1,527
+FueMaxOffWeek_Gas_Newen_GN_A  # HrsBind=24 Shadow=$1,235
+CPF_DownCalculation  # HrsBind=111 Shadow=$1,032
+CTFOFF_CMPC_LAJA_BL2  # HrsBind=42 Shadow=$428
+CTFOFF_CMPC_LAJA_BL3  # HrsBind=42 Shadow=$428
+CTFOFF_CMPC_LAJA_BL4  # HrsBind=42 Shadow=$428
+CTFOFF_CMPC_LAJA_BL5  # HrsBind=42 Shadow=$428
+CTFOFF_ESPINOS_BL2  # HrsBind=42 Shadow=$428
+CTFOFF_LICANTEN_BL1  # HrsBind=42 Shadow=$428
+CTFOFF_OLIVOS_BL2  # HrsBind=42 Shadow=$428
+CTFOFF_VALDIVIA_BL2_PINO  # HrsBind=42 Shadow=$428
+CTFOFF_VALDIVIA_BL3_PINO  # HrsBind=42 Shadow=$428
+CTFOFF_VALDIVIA_BL4_PINO  # HrsBind=42 Shadow=$428
+Gas_MaxOpDay4_Colbun  # HrsBind=111 Shadow=$322
+CPF_DownMinProvision  # HrsBind=30 Shadow=$232
+CPF_BESS_ANGAMOS_LW  # HrsBind=10 Shadow=$196
+CSF_DownMinProvision  # HrsBind=38 Shadow=$157
+COLBUN_U2_CPF_Simmetry  # HrsBind=36 Shadow=$151
+Generation_Calculation  # HrsBind=111 Shadow=$113
+CTF_DownMinProvision  # HrsBind=18 Shadow=$66
+Inertia_Calculation_e1  # HrsBind=111 Shadow=$11
+
+# === Added 2026-05-30 audit pass 2: PLEXOS HARD-not-binding + wrongly-inactive ===
+# These are PLEXOS HARD constraints that either don't bind in the sol (NOT_BINDING)
+# or that gtopt wrongly marked inactive (HARD_BINDING but gtopt-INACTIVE).
+# Promoting them to HARD aligns gtopt with PLEXOS-enforced behaviour.
+ANGOSTURAeco
+ANTUCO_PMax
+ANTUCOmax
+ANTUCOmin
+CAMPOS_DEL_SOL_Comparison
+CANUTILLARreserve
+CEME_Comparison
+CFRS_COLBUN
+COLBUNmax
+CPF_Up10Calculation_I
+CPF_Up10Calculation_II
+CPF_Up10Calculation_III
+CPF_Up10Calculation_IV
+CPF_Up10Calculation_IX
+CPF_Up10Calculation_V
+CPF_Up10Calculation_VI
+CPF_Up10Calculation_VII
+CPF_Up10Calculation_VIII
+CPF_Up10Calculation_X
+CPF_Up10Calculation_XI
+CPF_Up10Calculation_XII
+CRCA_BAT_ALFALFAL_VR1
+CRCA_BAT_ANDES_2B_FV
+CRCA_BAT_ANDES_3_FV
+CRCA_BAT_ANDES_4_FV
+CRCA_BAT_BOLERO_FV
+CRCA_BAT_CAPRICORNIO_FV
+CRCA_BAT_COYA_FV
+CRCA_BAT_DESIERTO_DE_ATACAMA_FV
+CRCA_BAT_DIEGO_ALMAGRO_SUR_FV
+CRCA_BAT_ESTEPA_FV
+CRCA_BAT_GABRIELA_FV
+CRCA_BAT_HUATACONDO_FV
+CRCA_BAT_LOS_LOROS_FV
+CRCA_BAT_MARIA_ELENA_FV
+CRCA_BAT_PUNTA_SIERRA_EO
+CRCA_BAT_URIBE_SOLAR_FV
+CTFOFF_CELCO_BL2
+CTFOFF_CHOLGUAN_BL2
+CTFOFF_CMPC_PACIFICO_BL2
+CTFOFF_CMPC_PACIFICO_BL3
+CTFOFF_NUEVA_ALDEA_BL3
+CTFOFF_SANTA_FE_BL2
+CTFOFF_SANTA_FE_BL3
+CTFOFF_SANTA_FE_BL4
+CTFOFF_TOCOPILLA_TG3_GNL
+CTFOFF_VALDIVIA_BL2_EUCA
+CTFOFF_VALDIVIA_BL3_EUCA
+CTFOFF_VALDIVIA_BL4_EUCA
+CTFOFF_VINALES_BL2
+DOWNStorageBound_BAT_DEL_DESIERTO
+DOWNStorageBound_BAT_DON_HUMBERTO_FV
+DOWNStorageBound_BAT_LA_CABANA_EO
+DOWNStorageBound_BAT_MANZANO_FV
+DOWNStorageBound_BAT_TOCOPILLA
+Diesel_OffTakeDay
+GUANCHOI_Comparison
+GenerationBESSAndes2A
+GenerationBESSAndes2B
+GenerationBESSAndes3
+GenerationBESSAndes4
+GenerationBESSTamaya
+GenerationBESSTocopilla
+GxManzano
+Gx_SE_Teno
+HORIZONTE_NORTE_Comparison
+HORIZONTE_SUR_Comparison
+IEMEJILLONES_Comparison
+InertiaGlobalMin_New
+KALLPA_Comparison
+LAS_SALINAS_Comparison
+LAUTARO_1_Order
+LAUTARO_2_Order
+MACHICURAlagrampdown
+MACHICURAlagrampup
+MACHICURAmax
+MACHICURAmin
+MACHICURArampdownact
+MAXCSF_RALCO_U1_RALCO_U2
+NEHUENCO_1_DIE_Comparison
+NEHUENCO_1_GNL_Comparison
+NEHUENCO_2_DIE_Comparison
+NEHUENCO_2_GNL_Comparison
+NUEVARENCA_DIE_Comparison
+NUEVARENCA_GNL_Comparison
+NUEVA_RENCA_CSFLW_RegRange_e1
+NUEVA_RENCA_CSFLW_RegRange_e2
+NUEVA_RENCA_CSFRS_RegRange_e1
+NUEVA_RENCA_CSFRS_RegRange_e2
+PANGUEcaudal_min_diario
+PANGUEramp
+RALCO_U1_Comparison
+RALCO_U2_Comparison
+RALCOramp_max_e1
+RALCOramp_max_e2
+Reg_SouthZone
+SANISIDRO_2_DIE_Comparison
+SANISIDRO_2_GNL_Comparison
+SANISIDRO_DIE_Comparison
+SANISIDRO_GNL_Comparison
+SANTAMARIA_Comparison
+SD_2025079667_Gx_Pullinque_Lautaro
+SD_2026035629_Gx_Vinales_Celco
+SD_2026038801_Horizonte_SyN
+SSCC_TER_SanJavier_LT_SJavierConst66
+SalarCalamaRxGen
+TOCOPILLA_U16_DIE_Comparison
+TOCOPILLA_U16_GNL_Comparison
+UPStorageBound_BAT_DEL_DESIERTO
+UPStorageBound_BAT_DON_HUMBERTO_FV
+UPStorageBound_BAT_LA_CABANA_EO
+UPStorageBound_BAT_MANZANO_FV
+UPStorageBound_BAT_TOCOPILLA
+Z_Gx_Ralco

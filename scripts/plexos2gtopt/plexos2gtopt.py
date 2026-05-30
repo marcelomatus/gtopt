@@ -141,6 +141,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
     if options.get("loss_pwl_layout") is not None:
         os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
+    if options.get("hydro_min_mode") is not None:
+        os.environ["GTOPT_HYDRO_MIN_MODE"] = str(options["hydro_min_mode"])
     # Explicit tangent-line escape hatch (the R·P² percentile ranking /
     # --loss-tangent-top-pct was removed; midpoint+envelope match PLEXOS
     # without the hybrid tangent tier).
