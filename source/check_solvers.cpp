@@ -317,7 +317,7 @@ SolverTestResult test_add_rows(std::string_view solver)
     r1.uppb = 7.0;
 
     const std::array<SparseRow, 2> rows {r0, r1};
-    (void)lp.add_rows(rows);
+    lp.add_rows(rows);
 
     TC_CHECK(ctx, lp.get_numrows() == 2);
 
