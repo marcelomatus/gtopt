@@ -27,16 +27,25 @@
  * ### Connection modes
  *
  * A turbine connects to the water system via **one** of:
- * - `waterway` — traditional mode: reads water flow from a waterway
- *   variable in the junction balance LP.
- * - `flow` — simplified mode: reads discharge directly from a Flow
+ * - `waterway` — traditional mode: reads water flow from a separate
+ *   `Waterway` element's flow column in the junction balance LP.
+ * - `flow` — simplified mode: reads discharge directly from a `Flow`
  *   element's fixed schedule.  No junctions or waterways needed.
  *   Useful for simple run-of-river (pasada) units.
+ * - `junction_a` (+ optional `junction_b`) — **built-in waterway mode**:
+ *   the turbine owns its own per-block flow column (`Turbine/flow`,
+ *   units m³/s) that debits `junction_a`, credits `junction_b` (when
+ *   set), and converts to power — replacing the separate penstock
+ *   Waterway.  `junction_b` unset = terminal/drain (no synthetic ocean
+ *   junction needed).  Mode priority: `flow` > `junctions` > `waterway`.
  *
- * When `flow` is set, `waterway` is ignored.  The turbine's power
- * constraint becomes: `power ≤ discharge[block] × efficiency ×
- * production_factor`. Aperture updates automatically change the flow discharge,
- * so the turbine power bound varies correctly across scenarios.
+ * When `flow` is set, `waterway` and `junction_a/b` are ignored.
+ * When `junction_a` is set (without `flow`), the turbine owns its own
+ * flow column and the (possibly-stale) `waterway` reference is ignored.
+ * The turbine's power constraint becomes: `power = efficiency ×
+ * production_factor × flow` (equality, or ≤ when `drain=true`).
+ * Aperture updates automatically change the flow discharge in `flow`
+ * mode, so the turbine power bound varies correctly across scenarios.
  *
  * ### JSON Example (waterway mode)
  * ```json
@@ -59,6 +68,31 @@
  *   "flow": "f_river",
  *   "generator": "g_pasada",
  *   "production_factor": 1.0
+ * }
+ * ```
+ *
+ * ### JSON Example (built-in waterway, terminal drain)
+ * ```json
+ * {
+ *   "uid": 3,
+ *   "name": "t_terminal",
+ *   "junction_a": "res_intake",
+ *   "generator": "g_hydro_terminal",
+ *   "production_factor": 2.0
+ * }
+ * ```
+ * ``junction_b`` is omitted, so the turbined flow drains directly out of
+ * the modelled system (no synthetic ocean / sink junction needed).
+ *
+ * ### JSON Example (built-in waterway, cascade)
+ * ```json
+ * {
+ *   "uid": 4,
+ *   "name": "t_cascade",
+ *   "junction_a": "res_upstream",
+ *   "junction_b": "res_downstream",
+ *   "generator": "g_hydro_cascade",
+ *   "production_factor": 2.0
  * }
  * ```
  *
@@ -105,44 +139,77 @@ struct Turbine
   /// `TurbineLP::Element::class_name` in generic contexts).
   static constexpr LPClassName class_name {"Turbine"};
 
-  Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};  ///< Human-readable name
-  OptActive active {};  ///< Activation status (default: active)
-  OptName type {};  ///< Optional element type/category tag
-  OptName description {};  ///< Optional free-text description (e.g. conversion
-                           ///< provenance)
+  Uid uid {unknown_uid};  ///< Unique turbine identifier.
+  Name name {};  ///< Human-readable name (used in LP row labels and CSV
+                 ///< outputs).
+  OptActive active {};  ///< Operational status (default: active when unset).
+  OptName type {};  ///< Optional element type / category tag (free-text).
+  OptName description {};  ///< Optional free-text description
+                           ///< (e.g. conversion provenance from PLP / PLEXOS).
 
-  OptSingleId
-      waterway {};  ///< ID of the connected waterway (optional if flow set)
-  OptSingleId flow {};  ///< ID of the connected flow (alternative to waterway)
-  // Built-in waterway mode: when ``junction_a`` is set the turbine carries
-  // its own flow arc (no separate Waterway needed) — it owns a flow column
-  // that debits ``junction_a`` and credits ``junction_b``, converting the
-  // flow to power.  ``junction_b`` is OPTIONAL: when unset the turbined flow
-  // is drained (leaves the system), which models terminal (run-to-sea) hydro
-  // plants without a synthesised ocean junction.
-  OptSingleId junction_a {};  ///< Upstream (intake) junction — enables the
-                              ///< built-in waterway mode when set.
-  OptSingleId junction_b {};  ///< Downstream junction; unset ⇒ drain to ocean.
-  SingleId generator {
-      unknown_uid};  ///< ID of the connected electrical generator
+  /// Waterway uid or name to read the flow from (legacy "waterway"
+  /// connection mode).  IGNORED when ``flow`` or ``junction_a`` is set
+  /// — mode priority: ``flow`` > ``junctions`` > ``waterway``.  When
+  /// active, the turbine's conversion row binds the generator's power
+  /// to ``waterway.flow_cols`` (units m³/s).
+  OptSingleId waterway {};
+  /// Flow uid or name (alternative to ``waterway`` for pasada / run-of-
+  /// river units).  When set, the turbine reads the fixed discharge
+  /// directly from the ``Flow`` element's schedule [m³/s].  Aperture
+  /// updates change the discharge so the turbine power bound varies
+  /// across scenarios.  Highest priority of the three connection modes.
+  OptSingleId flow {};
+  /// Upstream (intake) junction reference (uid or name) — enables the
+  /// built-in waterway mode when set.  The turbine then owns its own
+  /// per-block flow column ``Turbine/flow`` (units m³/s) that debits
+  /// this junction's water balance.  Mutually exclusive with ``flow``;
+  /// takes priority over ``waterway`` when both are set.
+  OptSingleId junction_a {};
+  /// Downstream junction reference (uid or name) — OPTIONAL companion
+  /// to ``junction_a`` in built-in waterway mode.  When set, the
+  /// turbine credits this junction's balance with ``+1.0 × flow``
+  /// (lossless penstock).  When unset, the turbined flow drains out
+  /// of the modelled system (terminal / run-to-sea plants — no
+  /// synthetic ocean junction needed).
+  OptSingleId junction_b {};
+  /// Generator uid or name that represents the turbine's electrical
+  /// output (REQUIRED).  The conversion row binds
+  /// ``generator.generation_cols`` to the chosen water-source flow via
+  /// ``power = efficiency × production_factor × flow``.
+  SingleId generator {unknown_uid};
 
-  OptBool
-      drain {};  ///< If true, turbine can spill water without generating power
+  /// Spill flag.  When ``true``, the conversion row is relaxed to
+  /// ``power ≤ efficiency × production_factor × flow`` (≤ instead of
+  /// =), letting excess water bypass the turbine without generating
+  /// power — used for terminal hydro plants with a controlled spillway.
+  OptBool drain {};
 
-  OptTRealFieldSched
-      production_factor {};  ///< Water-to-power production factor [MW·s/m³]
-  OptTRealFieldSched
-      efficiency {};  ///< Turbine efficiency [p.u.] (default 1.0)
-  OptTRealFieldSched capacity {};  ///< Maximum turbine power output [MW]
+  /// Water-to-power production factor [MW·s/m³ = MW / (m³/s)].
+  /// Multiplied by ``efficiency`` to form the effective conversion
+  /// rate in the LP.  Accepts scalar, ``[stage]`` 1-D array, or a
+  /// filename string referencing a Parquet/CSV schedule under
+  /// ``input_directory/Turbine/``.
+  OptTRealFieldSched production_factor {};
+  /// Turbine efficiency [p.u., dimensionless] (default 1.0).
+  /// Effective conversion rate is ``efficiency × production_factor``.
+  /// Accepts the same value forms as ``production_factor``.
+  OptTRealFieldSched efficiency {};
+  /// Maximum turbine flow [m³/s] — caps the per-block flow column
+  /// (``waterway.flow``, ``flow.discharge``, or built-in
+  /// ``Turbine/flow``) via a per-block ``≤ capacity`` row.  Note this
+  /// is a FLOW bound, not a power bound: the corresponding power cap
+  /// is ``capacity × efficiency × production_factor`` [MW].  Accepts
+  /// the same value forms as ``production_factor``.
+  OptTRealFieldSched capacity {};
 
-  /// Optional ID of the main reservoir whose volume drives the turbine's
-  /// conversion rate.  When set, the SDDP solver will update the
-  /// conversion-rate LP coefficient at each forward-pass iteration based
-  /// on the current reservoir volume and the matching ReservoirProductionFactor
-  /// element's piecewise-linear curve.  The ReservoirProductionFactor element
-  /// must reference this turbine's UID in its @c turbine field and the
-  /// reservoir's UID in its @c reservoir field.
+  /// Optional reservoir uid or name whose volume drives the turbine's
+  /// conversion rate (hydraulic-head effects).  When set, the SDDP
+  /// solver updates the conversion-rate LP coefficient at each
+  /// forward-pass iteration using the current reservoir volume and
+  /// the matching ``ReservoirProductionFactor`` element's piecewise-
+  /// linear curve.  The matching element must reference this turbine's
+  /// UID in its ``turbine`` field and the reservoir's UID in its
+  /// ``reservoir`` field.
   OptSingleId main_reservoir {};
 };
 

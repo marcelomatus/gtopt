@@ -1870,8 +1870,12 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         (
             "junction_b",
             _J_ID,
-            True,
-            "Downstream junction uid or name",
+            False,
+            "Downstream junction uid or name.  OPTIONAL: when unset the "
+            "waterway is an outflow that debits ``junction_a`` and drains "
+            "its flow out of the system (no downstream credit, no synthetic "
+            "ocean/sink junction needed).  Mirrors ``Turbine.junction_b`` "
+            "built-in waterway drain mode.",
             "j2",
         ),
         ("capacity", _J_SCHED, False, "Maximum flow capacity [m³/s]", None),
@@ -2153,9 +2157,25 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
         (
             "waterway",
             _J_ID,
-            True,
-            "Waterway uid or name whose discharge is limited",
+            False,
+            "Waterway uid or name whose discharge is limited.  Exactly one "
+            "of ``waterway`` / ``turbine`` must be set: ``waterway`` is the "
+            "legacy reference for the classic Reservoir → Waterway → drain "
+            "topology; ``turbine`` is the new reference for built-in "
+            "waterway turbines (``Turbine.junction_a/b``) that own their "
+            "own flow column instead of going through a Waterway.",
             "ww1",
+        ),
+        (
+            "turbine",
+            _J_ID,
+            False,
+            "Turbine uid or name whose built-in waterway flow is limited.  "
+            "Alternative to ``waterway`` — exactly one of the two must be "
+            "set.  Use this when the cascade plant carries its flow via the "
+            "Turbine itself (``junction_a/junction_b``) rather than through "
+            "a separate Waterway element.",
+            None,
         ),
         (
             "reservoir",
@@ -2217,6 +2237,28 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             _J_ID,
             False,
             "Flow uid or name (alternative to waterway for pasada/run-of-river mode)",
+            None,
+        ),
+        (
+            "junction_a",
+            _J_ID,
+            False,
+            "Upstream/intake junction uid or name.  Setting this enables "
+            "the built-in waterway mode: the turbine owns its own flow "
+            "column, debits ``junction_a``, credits ``junction_b`` (when "
+            "set), and converts the carried flow to power — replacing the "
+            "separate penstock Waterway.  Mode priority: flow > junctions "
+            "> waterway.",
+            None,
+        ),
+        (
+            "junction_b",
+            _J_ID,
+            False,
+            "Downstream junction uid or name.  Optional companion to "
+            "``junction_a`` in built-in waterway mode.  When unset, the "
+            "turbined flow drains out of the system (run-to-sea plants — "
+            "no synthetic ocean junction needed).",
             None,
         ),
         (

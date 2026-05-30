@@ -880,6 +880,8 @@ $$
 \;+\; \sum_{f \in \mathcal{F}_j^+} Q_f
 \;-\; \sum_{f \in \mathcal{F}_j^-} Q_f
 \;+\; \sum_{r \in \mathcal{R}_j} d_{r,s,t,b}
+\;-\; \sum_{u \in \mathcal{U}_j^{\text{intake}}} \tilde{\varphi}_{u,s,t,b}
+\;+\; \sum_{u \in \mathcal{U}_j^{\text{tail}}} \tilde{\varphi}_{u,s,t,b}
 \;=\; 0
 \qquad \forall \; j, s, t, b
 $$
@@ -888,6 +890,25 @@ where:
 - $\lambda_w$ is the waterway transport loss factor
 - $Q_f$ is a fixed exogenous inflow or outflow
 - $d_{r,s,t,b}$ is the net extraction/injection from reservoir $r$
+- $\tilde{\varphi}_{u,s,t,b}$ is the **built-in turbine flow** column (units
+  m³/s) owned by turbine $u$ in built-in waterway mode, when the turbine's
+  `junction_a` debits junction $j$ ($\mathcal{U}_j^{\text{intake}}$) and its
+  optional `junction_b` credits junction $j$ ($\mathcal{U}_j^{\text{tail}}$).
+
+**Built-in waterway turbine.** When a `Turbine` element sets `junction_a`,
+the turbine owns its own per-block flow column and the separate `Waterway`
+element can be omitted (mode priority: `flow` > `junctions` > `waterway`).
+The same conversion row `power = efficiency · production_factor · flow`
+applies — only the source of `flow` changes.  When `junction_b` is unset,
+the carried flow drains out of the system (terminal / run-to-sea plants —
+no synthetic ocean junction needed).
+
+**Outflow waterway.** A `Waterway` may also leave `junction_b` unset; it
+then debits `junction_a` and drains the carried flow out of the modelled
+system, mirroring the turbine's terminal-drain behaviour.  Useful for
+spillage arcs (e.g. PLEXOS `Vert_*`) when the flow needs to remain
+visible / accountable rather than collapsed onto a `Junction.drain`
+column.
 
 #### Waterway Flow Bounds
 
@@ -924,20 +945,32 @@ target.
 
 #### Turbine Power Conversion
 
-Each turbine $u$ links a waterway $w$ to a generator $g$ via a
-water-to-power conversion:
+Each turbine $u$ links a water-source flow column $q_{u,s,t,b}$ to a
+generator $g$ via a water-to-power conversion:
 
 $$
-p_{g,s,t,b} = \kappa_u \cdot \varphi_{w,s,t,b}
+p_{g,s,t,b} = \kappa_u \cdot q_{u,s,t,b}
 \qquad \forall \; u, s, t, b
 $$
 
 or, when the turbine allows partial water bypass (drain mode):
 
 $$
-p_{g,s,t,b} \;\leq\; \kappa_u \cdot \varphi_{w,s,t,b}
+p_{g,s,t,b} \;\leq\; \kappa_u \cdot q_{u,s,t,b}
 \qquad \forall \; u, s, t, b
 $$
+
+The flow source $q_{u,s,t,b}$ depends on the turbine's connection mode:
+
+- `flow` mode (highest priority): $q_{u,s,t,b} = Q_{f,s,t,b}$ where $f$
+  is the referenced `Flow` element's fixed schedule.
+- **built-in waterway** mode (`junction_a` set):
+  $q_{u,s,t,b} = \tilde{\varphi}_{u,s,t,b}$, the turbine's own per-block
+  flow column.  This column enters the upstream junction's balance as
+  an outflow and (when `junction_b` is set) the downstream junction as
+  an inflow — see the Junction Water Balance above.
+- `waterway` mode (legacy): $q_{u,s,t,b} = \varphi_{w,s,t,b}$ where $w$
+  is the referenced `Waterway`.
 
 ##### Volume-Dependent Efficiency
 
@@ -1056,9 +1089,16 @@ balance (§5.1) respectively; the pump element adds only the coupling row
 ### 5.10 ter Reservoir Discharge Limit
 
 A `ReservoirDischargeLimit` element $\ell \in \mathcal{DL}$ imposes a
-**volume-dependent cap** on the stage-average hourly turbine discharge of
-a waterway $w$, selected from a piecewise-linear concave envelope indexed
-by reservoir volume.
+**volume-dependent cap** on the stage-average hourly turbine discharge,
+selected from a piecewise-linear concave envelope indexed by reservoir
+volume.  Exactly one of `waterway` / `turbine` must be set on the
+element:
+
+- `waterway`-referenced: the cap binds a classic `Waterway`'s flow
+  column $\varphi_{w,s,t,b}$.
+- `turbine`-referenced: the cap binds a built-in waterway turbine's
+  own flow column $\tilde{\varphi}_{u,s,t,b}$ (the LP picks the
+  source via `ReservoirDischargeLimitLP::uses_turbine()`).
 
 #### Stage-Average Flow Variable
 

@@ -150,10 +150,26 @@
     {"class": "turbine", "canonical": "production_factor", "alt": "Rho",     "dialect": "sddp"},
     {"class": "turbine", "canonical": "production_factor", "alt": "FProd",   "dialect": "sddp"},
 
+    {"class": "turbine", "canonical": "junction_a", "alt": "intake_junction",   "dialect": "gtopt"},
+    {"class": "turbine", "canonical": "junction_a", "alt": "Head Storage",      "dialect": "plexos"},
+    {"class": "turbine", "canonical": "junction_a", "alt": "EmbA",              "dialect": "plp"},
+
+    {"class": "turbine", "canonical": "junction_b", "alt": "tailrace_junction", "dialect": "gtopt"},
+    {"class": "turbine", "canonical": "junction_b", "alt": "Tail Storage",      "dialect": "plexos"},
+    {"class": "turbine", "canonical": "junction_b", "alt": "EmbB",              "dialect": "plp"},
+
     {"class": "waterway", "canonical": "fmax", "alt": "QMax",     "dialect": "plp"},
     {"class": "waterway", "canonical": "fmin", "alt": "QMin",     "dialect": "plp"},
     {"class": "waterway", "canonical": "fmin", "alt": "Min Flow", "dialect": "plexos"},
     {"class": "waterway", "canonical": "lossfactor", "alt": "Perdida", "dialect": "plp"},
+
+    {"class": "waterway", "canonical": "junction_a", "alt": "Storage From", "dialect": "plexos"},
+    {"class": "waterway", "canonical": "junction_a", "alt": "EmbA",         "dialect": "plp"},
+    {"class": "waterway", "canonical": "junction_b", "alt": "Storage To",   "dialect": "plexos"},
+    {"class": "waterway", "canonical": "junction_b", "alt": "EmbB",         "dialect": "plp"},
+
+    {"class": "reservoir_discharge_limit", "canonical": "turbine",  "alt": "tur",          "dialect": "gtopt-legacy"},
+    {"class": "reservoir_discharge_limit", "canonical": "waterway", "alt": "ww",           "dialect": "gtopt-legacy"},
 
     {"class": "emission_zone", "canonical": "cap",      "alt": "Emission Cap",     "dialect": "plexos"},
     {"class": "emission_zone", "canonical": "cap_cost", "alt": "Emission Penalty", "dialect": "plexos"},
