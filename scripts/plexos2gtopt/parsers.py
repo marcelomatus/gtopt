@@ -6087,6 +6087,54 @@ def extract_user_constraints(
                                 gen_obj.name
                             )
 
+    # Reserve→Battery eligibility (BESS-side companion of
+    # ``reserve_to_providers``).  Needed for ``BAT_*_CF_GEN_COMP`` /
+    # ``CF_LOAD_COMP`` battery-mode complementarity rows: PLEXOS evaluates
+    # those with a ``Reserve→Constraint Provision Coefficient`` × battery-
+    # scoped sum, but the generator-only expansion above can't reach the
+    # SSCC zone-suffixed ``provision_<bat>_gen__<reserve>`` names.  Drop
+    # the reserve's BESS direction into ``reserve_direction`` using the
+    # zone-suffix convention (``*_LW_BESS`` → dn, ``*_RS_BESS`` → up).
+    reserve_to_battery_providers: dict[str, list[str]] = {}
+    bess_elig_coll = db.collection_for_named("Reserve", "Battery", "Batteries")
+    if bess_elig_coll is not None:
+        for parent, children in db.parent_to_children(
+            bess_elig_coll.collection_id
+        ).items():
+            rsv_obj = objs.get(parent)
+            if rsv_obj is None:
+                continue
+            if rsv_obj.name not in reserve_direction:
+                upper = rsv_obj.name.upper()
+                if "_LW" in upper:
+                    reserve_direction[rsv_obj.name] = "dn"
+                elif "_RS" in upper:
+                    reserve_direction[rsv_obj.name] = "up"
+                else:
+                    reserve_direction[rsv_obj.name] = "up"
+            for cid in children:
+                bat_obj = objs.get(cid)
+                if bat_obj is not None:
+                    reserve_to_battery_providers.setdefault(rsv_obj.name, []).append(
+                        bat_obj.name
+                    )
+
+    # Per-constraint battery membership index: ``{constraint_oid -> [bat_name, …]}``.
+    # Used to SCOPE the Reserve×Battery provision cross-product to the
+    # battery members of a given constraint (e.g. ``BAT_TOCOPILLA_CF_GEN_COMP``
+    # restricts the 0.3 × Σ provision_<bat>_gen__CSF_LW_BESS sum to just
+    # BAT_TOCOPILLA / BAT_TOCOPILLA_AUX, not all BESS providers).
+    constraint_battery_members: dict[int, list[str]] = {}
+    bat_constr_coll = db.collection_for_named("Battery", "Constraint", "Constraints")
+    if bat_constr_coll is not None:
+        for m in db.memberships_of(bat_constr_coll.collection_id):
+            bat_obj = objs.get(m.parent_object_id)
+            if bat_obj is None:
+                continue
+            constraint_battery_members.setdefault(m.child_object_id, []).append(
+                bat_obj.name
+            )
+
     # Pre-build a set of generator names that are HYDROS — i.e. have
     # no Fuel membership.  PLEXOS UserConstraints whose ENTIRE LHS
     # references hydros are typically per-reservoir operational floors
@@ -6813,6 +6861,62 @@ def extract_user_constraints(
                 var_ref = f'reserve_provision("{ref_name}").{direction}'
                 terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
                 coefficients.append(alpha)
+
+        # 2b'. BESS-side Reserve.Provision expansion.
+        #     PLEXOS BAT_*_CF_GEN_COMP / CF_LOAD_COMP constraints couple
+        #     a battery's discharge/charge against its own SSCC reserve
+        #     provision: ``α × Σ provision[bat, rsv] − Gen[bat] ≤ 0`` (or
+        #     LOAD variant).  The Reserve×Constraint Provision Coefficient
+        #     applies to (rsv, bat) pairs where BOTH the reserve and the
+        #     battery are members of this constraint.  Without this loop
+        #     the term silently dropped (the constraint emitted a
+        #     degenerate ``-1 * battery(...).discharge = 0`` row, marked
+        #     inactive) — leaving ~$48k of PLEXOS-binding reserve cost
+        #     unenforced on CEN PCP 2026-04-22 (10 BAT_*_CF_*_COMP rows).
+        #     The SSCC emitter names each BESS provision
+        #     ``provision_<bat>_gen__<rsv>``; redirect via the AUX→main
+        #     mapping (BAT_*_AUX → BAT_* / BAT_*_FV_AUX → BAT_*_FV) so
+        #     constraint Battery memberships that reference the PLEXOS
+        #     auxiliary variable still resolve to the emitted main name.
+        bat_members = constraint_battery_members.get(constr.object_id, ())
+        if bat_members:
+            allowed_bat = (
+                emitted_names.get("Battery") if emitted_names is not None else None
+            )
+            for rsv_name, alpha in reserve_provision_index.get(constr.object_id, ()):
+                providers = reserve_to_battery_providers.get(rsv_name, ())
+                if not providers:
+                    continue
+                direction = reserve_direction.get(
+                    rsv_name, "dn" if rsv_name.upper().endswith("_LW_BESS") else "up"
+                )
+                for bat_name in bat_members:
+                    if bat_name not in providers:
+                        continue
+                    # AUX→main redirect (mirrors the Generation/Load
+                    # Coefficient logic above): if the AUX battery isn't
+                    # in the emitted set, route the term to the main
+                    # battery's SSCC provision instead.
+                    effective_bat = bat_name
+                    if (
+                        allowed_bat is not None
+                        and bat_name not in allowed_bat
+                        and bat_name.endswith("_AUX")
+                        and bat_name[:-4] in allowed_bat
+                    ):
+                        effective_bat = bat_name[:-4]
+                    ref_name = f"provision_{effective_bat}_gen__{rsv_name}"
+                    if allowed_rp is not None and ref_name not in allowed_rp:
+                        logger.debug(
+                            "constraint %s: dropping BESS reserve term "
+                            "for unemitted provision '%s'",
+                            constr.name,
+                            ref_name,
+                        )
+                        continue
+                    var_ref = f'reserve_provision("{ref_name}").{direction}'
+                    terms.append(_format_coefficient(alpha, first=not terms) + var_ref)
+                    coefficients.append(alpha)
 
         # 3. Derived-coefficient kinds (Capacity Factor / Generation
         #    Sent Out / Generation Curtailed / Available Capacity).

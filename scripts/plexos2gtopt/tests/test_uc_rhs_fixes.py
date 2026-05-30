@@ -582,6 +582,107 @@ def test_st_schedule_scenario_tag_active_overrides_default(tmp_path: Path) -> No
     assert by_name["UC_DropInactive"].active is False
 
 
+# --------------------------------------------------------------------------- #
+# BAT_*_CF_*_COMP: Reserve×Battery Provision Coefficient cross-product.
+# PLEXOS scopes the ``α × Σ Provision[bat, rsv]`` term to (bat, rsv) pairs
+# where BOTH are members of the same constraint.  Without the cross-product
+# expansion the term silently dropped, leaving a degenerate
+# ``-α × battery.discharge = 0`` row that the parser marked inactive →
+# 10 PLEXOS-binding constraints (~$48k of shadow cost) unenforced.
+# --------------------------------------------------------------------------- #
+_BAT_CF_COMP_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>14</class_id><name>Reserve</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_class><class_id>76</class_id><name>Battery</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>50</object_id><class_id>76</class_id><name>BAT_X</name></t_object>
+  <t_object><object_id>51</object_id><class_id>76</class_id><name>BAT_X_AUX</name></t_object>
+  <t_object><object_id>60</object_id><class_id>14</class_id><name>CSF_LW_BESS</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id>
+    <name>BAT_X_CF_GEN_COMP</name></t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>90</collection_id><parent_class_id>76</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>172</collection_id><parent_class_id>14</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>200</collection_id><parent_class_id>14</parent_class_id>
+    <child_class_id>76</child_class_id><name>Batteries</name>
+  </t_collection>
+  <t_property><property_id>4369</property_id><collection_id>700</collection_id>
+    <name>Sense</name></t_property>
+  <t_property><property_id>4384</property_id><collection_id>700</collection_id>
+    <name>RHS</name></t_property>
+  <t_property><property_id>967</property_id><collection_id>90</collection_id>
+    <name>Generation Coefficient</name></t_property>
+  <t_property><property_id>1448</property_id><collection_id>172</collection_id>
+    <name>Provision Coefficient</name></t_property>
+  <t_membership>
+    <membership_id>700100</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>90100</membership_id><collection_id>90</collection_id>
+    <parent_object_id>51</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>90101</membership_id><collection_id>90</collection_id>
+    <parent_object_id>50</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>172100</membership_id><collection_id>172</collection_id>
+    <parent_object_id>60</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>200100</membership_id><collection_id>200</collection_id>
+    <parent_object_id>60</parent_object_id><child_object_id>51</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>200101</membership_id><collection_id>200</collection_id>
+    <parent_object_id>60</parent_object_id><child_object_id>50</child_object_id>
+  </t_membership>
+  <t_data><data_id>1</data_id><membership_id>700100</membership_id>
+    <property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>2</data_id><membership_id>700100</membership_id>
+    <property_id>4384</property_id><value>0</value></t_data>
+  <t_data><data_id>3</data_id><membership_id>90100</membership_id>
+    <property_id>967</property_id><value>-1</value></t_data>
+  <t_data><data_id>4</data_id><membership_id>172100</membership_id>
+    <property_id>1448</property_id><value>0.3</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_bat_cf_comp_emits_reserve_battery_cross_product(tmp_path: Path) -> None:
+    """A ``BAT_*_CF_GEN_COMP`` constraint with a Reserve→Constraint
+    Provision Coefficient must emit BOTH the battery generation term
+    AND the (battery, reserve) provision cross-product term.  Pins the
+    fix that closes 10 PLEXOS-binding gaps (~$48k of reserve cost).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_BAT_CF_COMP_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    by_name = {c.name: c for c in extract_user_constraints(load_xml(xml_path), bundle)}
+    expr = by_name["BAT_X_CF_GEN_COMP"].expression or ""
+    # Both terms must be present
+    assert "battery(" in expr
+    assert "discharge" in expr
+    assert 'reserve_provision("provision_BAT_X_gen__CSF_LW_BESS").dn' in expr
+    # Coefficient on the reserve provision term
+    assert "0.3" in expr
+    # Constraint should NOT be marked inactive
+    assert by_name["BAT_X_CF_GEN_COMP"].active is not False
+
+
 def test_st_schedule_scenario_tag_explicit_model_name(tmp_path: Path) -> None:
     """``active_scenario_ids(model_name=...)`` selects a non-default Model."""
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
