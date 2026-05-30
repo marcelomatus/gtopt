@@ -48,7 +48,7 @@ from rich.table import Table
 # A schema mismatch silently falls back to re-extraction; do not
 # guard with try/except in the call site, the unpickler will surface
 # AttributeError / KeyError naturally.
-_PLEXOS_CACHE_VERSION = 5  # +gen_cost_srmc_usd in totals (Step 3 SRMC switch)
+_PLEXOS_CACHE_VERSION = 6  # +startup_cost_usd in totals (Step 3 cost breakdown)
 
 
 def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
@@ -562,6 +562,11 @@ def compute_plexos_energy_totals(
         "gen_mwh": _energy_mwh(PLEXOS_PROP_REGION_GENERATION),
         "gen_unit_mwh": _energy_mwh(PLEXOS_PROP_GENERATOR_GENERATION),
         "gen_cost_usd": _block_sum(PLEXOS_PROP_GENERATOR_GENCOST),
+        # Start & Shutdown Cost (prop 120) — already integrated $ per
+        # block per generator.  Summed across all generators and blocks
+        # for the system-wide commitment cost component that adds to
+        # the dispatch $ (Σ gen×srmc×dt) to form total operational $.
+        "startup_cost_usd": _block_sum(PLEXOS_PROP_GENERATOR_STARTUP_COST),
         "block_count": len(durations),
         "hours_covered": sum(durations.values()),
     }
@@ -939,6 +944,60 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
         losses_total = losses_line_analytic_mwh
     else:
         losses_total = losses_bus_residual_mwh
+
+    # Start & Shutdown $ — mirror of PLEXOS prop 120 (Start & Shutdown
+    # Cost).  PLEXOS publishes already-integrated per-block $ on each
+    # generator; gtopt's equivalent is a multiplication of the
+    # commitment LP variables by their declared per-event costs:
+    #   startup $   = Σ_{c,t} startup_sol[c,t]  × commitment[c].startup_cost
+    #   shutdown $  = Σ_{c,t} shutdown_sol[c,t] × commitment[c].shutdown_cost
+    # The startup_sol / shutdown_sol parquets are population counts (0/1
+    # event flags per block), so no Δt-weighting is needed.  Keyed via
+    # commitment.uid → cost map from planning.json's commitment_array.
+    # When the bundle has no commitment array or the parquets are
+    # absent (e.g. an LP-relax run without commitment binaries),
+    # contributes 0 — the metric still adds cleanly into the operational
+    # total.
+    import json as _json
+
+    startup_cost_usd = 0.0
+    shutdown_cost_usd = 0.0
+    commit_dir = case_dir / "output" / "Commitment"
+    planning_path = case_dir / "output" / "planning.json"
+    if commit_dir.is_dir() and planning_path.is_file():
+        try:
+            with planning_path.open() as f:
+                _plan = _json.load(f)
+            _commit_arr = _plan.get("system", {}).get("commitment_array", [])
+            su_by_uid = {
+                int(c["uid"]): float(c.get("startup_cost") or 0.0)
+                for c in _commit_arr
+                if "uid" in c
+            }
+            sd_by_uid = {
+                int(c["uid"]): float(c.get("shutdown_cost") or 0.0)
+                for c in _commit_arr
+                if "uid" in c
+            }
+            for fname, cost_map, target in (
+                ("startup_sol.parquet", su_by_uid, "startup"),
+                ("shutdown_sol.parquet", sd_by_uid, "shutdown"),
+            ):
+                fpath = commit_dir / fname
+                if not fpath.exists():
+                    continue
+                df = pq.read_table(fpath).to_pandas()
+                if df.empty:
+                    continue
+                df["unit_cost"] = df["uid"].astype(int).map(cost_map).fillna(0.0)
+                total = float((df["value"] * df["unit_cost"]).sum())
+                if target == "startup":
+                    startup_cost_usd = total
+                else:
+                    shutdown_cost_usd = total
+        except (OSError, ValueError, KeyError):
+            pass
+
     return {
         "gen_mwh": gen_total,
         # Split for the bus-balance decomposition (gen_real + synth = gen_total).
@@ -962,6 +1021,12 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
         # Implicit transmission losses (energy-balance residual).
         "losses_mwh": losses_total,
         "op_cost_usd": op_cost,
+        # Per-event commitment costs (PLEXOS prop 120 equivalent).
+        # Added to op_cost in the Step 3 rendering for the
+        # total-operational-cost line; reported separately too so the
+        # dispatch / commitment split is visible.
+        "startup_cost_usd": startup_cost_usd,
+        "shutdown_cost_usd": shutdown_cost_usd,
         "block_count": len(block_array),
         "hours_covered": sum(durations.values()),
     }
@@ -3028,42 +3093,70 @@ def _render_solution_compare(
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
     _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
 
-    # Operational cost — BOTH sides as Σ_unit Σ_block gen × srmc × dur
-    # for apples-to-apples comparison.  PLEXOS pid-119 GenCost (the
-    # integrated piecewise-offer cost) shows a methodology mismatch vs
-    # gtopt's SRMC-based op_cost (gtopt's only available cost output is
-    # the marginal SRMC × MW product); the SRMC×MW basis avoids the
-    # inframarginal-band counting difference and matches what both
-    # solvers actually publish.  Kept the pid-119 number alongside in
-    # parentheses for reference; an LP with linear costs has GenCost
-    # ≡ SRMC×MW, so the parenthesised value is a quick sanity check.
-    p_cost_srmc = plexos_tot.get("gen_cost_srmc_usd", 0.0)
-    p_cost_pid119 = plexos_tot.get("gen_cost_usd", 0.0)
-    g_cost = gtopt_tot.get("op_cost_usd", 0.0)
-    delta_cost = g_cost - p_cost_srmc
-    rel_cost = (100.0 * delta_cost / p_cost_srmc) if p_cost_srmc else 0.0
-    table.add_row(
-        "Operational $ (Σ gen×srmc×dt)",
-        _format_money(p_cost_srmc),
-        _format_money(g_cost),
-        _format_money(delta_cost),
-        f"{rel_cost:+.2f}%",
-    )
+    # Operational cost — break down into the cost components both PLEXOS
+    # and gtopt declare in their objective functions, then sum.
+    #
+    #   Dispatch $ (Σ gen × srmc × dt)        — pid-137 SRMC weighted by
+    #     dispatch, both sides; this is the dispatch-energy cost.  PLEXOS
+    #     pid-119 GenCost (already-integrated piecewise) is kept as a
+    #     side-channel sanity check.
+    #   Start & Shutdown $ (Σ_t v_{c,t} × cost) — pid-120 on PLEXOS;
+    #     gtopt computes startup_sol × commitment.startup_cost +
+    #     shutdown_sol × commitment.shutdown_cost.  Captures cycling
+    #     costs missing from the pure dispatch line.
+    #   TOTAL Operational $                    — sum of the above.
+    #
+    # Each row reports both sides, the Δ (gtopt − PLEXOS), and the
+    # relative %.  The breakdown makes it obvious whether a gap is in
+    # dispatch (wrong unit dispatched, wrong fuel band) or in commitment
+    # (more / fewer starts than PLEXOS).
+    p_dispatch = plexos_tot.get("gen_cost_srmc_usd", 0.0)
+    p_pid119 = plexos_tot.get("gen_cost_usd", 0.0)
+    p_startup = plexos_tot.get("startup_cost_usd", 0.0)
+    g_dispatch = gtopt_tot.get("op_cost_usd", 0.0)
+    g_startup = gtopt_tot.get("startup_cost_usd", 0.0)
+    g_shutdown = gtopt_tot.get("shutdown_cost_usd", 0.0)
+    g_commit = g_startup + g_shutdown
+    p_total = p_dispatch + p_startup
+    g_total = g_dispatch + g_commit
+
+    def _cost_row(label: str, p_val: float, g_val: float) -> None:
+        d = g_val - p_val
+        rel = (100.0 * d / p_val) if p_val else (0.0 if g_val == 0.0 else float("inf"))
+        rel_txt = f"{rel:+.2f}%" if rel != float("inf") else "  +∞%"
+        table.add_row(
+            label, _format_money(p_val), _format_money(g_val), _format_money(d), rel_txt
+        )
+
+    _cost_row("  Dispatch $ (Σ gen×srmc×dt)", p_dispatch, g_dispatch)
+    # PLEXOS pid-120 lumps start+shutdown into one stream; gtopt splits
+    # them.  Sum gtopt's two to align with PLEXOS's single value.
+    _cost_row("  Start & Shutdown $", p_startup, g_commit)
+    _cost_row("TOTAL Operational $", p_total, g_total)
 
     console.print(table)
     pid119_note = (
         f"  PLEXOS pid-119 GenCost (integrated piecewise): "
-        f"{_format_money(p_cost_pid119)} — kept as a side-channel; "
+        f"{_format_money(p_pid119)} — kept as a side-channel; "
         "differs from Σ gen×srmc×dt when generators carry a multi-band "
         "offer curve."
-        if p_cost_pid119
+        if p_pid119
         else ""
     )
+    extra_note = ""
+    if g_commit > 0.0 and g_startup > 0.0 and g_shutdown > 0.0:
+        extra_note = (
+            f"  gtopt split: Σ startup_sol × startup_cost = "
+            f"{_format_money(g_startup)}; Σ shutdown_sol × shutdown_cost = "
+            f"{_format_money(g_shutdown)}."
+        )
     console.print(
         "[dim]Demand/Gen are duration-weighted ∫MW dt across the "
         "111-block PLEXOS layout (block durations from t_phase_3).  "
-        "Operational $ uses gen × SRMC × duration on BOTH sides for "
-        "apples-to-apples comparison." + pid119_note + "[/dim]"
+        "Dispatch $ uses gen × SRMC × duration on BOTH sides; Start & "
+        "Shutdown $ on PLEXOS is pid-120 Generator.StartShutdownCost "
+        "(already integrated $ per block), on gtopt is Σ_t v_{c,t} × "
+        "commitment[c].(start|shutdown)_cost." + pid119_note + extra_note + "[/dim]"
     )
 
 
