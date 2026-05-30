@@ -1,5 +1,11 @@
 # plexos2gtopt — Design Doc (v0)
 
+> **For the current operational reference** (every emitted gtopt
+> element, every UC family, the validation pipeline, CLI, and CEN PCP
+> 2026-04-22 numbers), see
+> [`docs/scripts/plexos2gtopt.md`](../../docs/scripts/plexos2gtopt.md).
+> This file is preserved as the v0 design proposal.
+
 Convert a **CEN PCP daily PLEXOS bundle** into a gtopt JSON planning,
 mirroring the role `plp2gtopt` plays for PLP and `sddp2gtopt` plays
 for PSR-SDDP. Same CLI ergonomics, same JSON + Parquet output, same

@@ -109,55 +109,17 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
     input_path = Path(raw_input)
 
     # Propagate CLI-level knobs to the extractors via process env vars.
-    # ``extract_waterways`` reads these directly (avoids threading extra
-    # parameters through every extractor signature).  CLI flag wins over
-    # any value the user pre-set in the shell env.
-    import os
+    # The :class:`ConversionOptions` dataclass is the typed source of
+    # truth; ``install_env`` is the legacy back-compat bridge — every
+    # consumer that still reads ``os.environ["GTOPT_*"]`` (in
+    # :mod:`parsers` / :mod:`gtopt_writer`) keeps working unchanged.
+    # Future PRs will migrate individual call sites to accept
+    # ``opts: ConversionOptions`` directly; the env-var bridge can be
+    # removed once the last reader is gone.
+    from ._options import ConversionOptions
 
-    if options.get("vert_routing") is not None:
-        os.environ["GTOPT_VERT_ROUTING"] = str(options["vert_routing"])
-    if options.get("use_plexos_commit"):
-        os.environ["GTOPT_USE_PLEXOS_COMMIT"] = "1"
-    if options.get("use_plexos_gen_cap"):
-        os.environ["GTOPT_USE_PLEXOS_GEN_CAP"] = "1"
-    if options.get("use_plexos_efin"):
-        os.environ["GTOPT_USE_PLEXOS_EFIN"] = "1"
-    if options.get("lift_line_caps") is not None:
-        os.environ["GTOPT_LIFT_LINE_CAPS"] = str(options["lift_line_caps"])
-    if options.get("el0_lines") is not None:
-        os.environ["GTOPT_EL0_LINES"] = str(options["el0_lines"])
-    rs_mode = options.get("reservoir_spillway")
-    if rs_mode is not None:
-        os.environ["GTOPT_RESERVOIR_SPILL"] = str(rs_mode)
-    if options.get("spill_fcost") is not None:
-        os.environ["GTOPT_SPILL_FCOST"] = str(options["spill_fcost"])
-    if options.get("spill_fcost_scale") is not None:
-        os.environ["GTOPT_SPILL_FCOST_SCALE"] = str(options["spill_fcost_scale"])
-    if options.get("nseg_losses") is not None:
-        os.environ["GTOPT_NSEG_LOSSES"] = str(int(options["nseg_losses"]))
-    if options.get("loss_error_pct") is not None:
-        os.environ["GTOPT_LOSS_ERROR_PCT"] = str(float(options["loss_error_pct"]))
-    if options.get("loss_extend_overload"):
-        os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
-    if options.get("loss_pwl_layout") is not None:
-        os.environ["GTOPT_LOSS_PWL_LAYOUT"] = str(options["loss_pwl_layout"])
-    if options.get("hydro_min_mode") is not None:
-        os.environ["GTOPT_HYDRO_MIN_MODE"] = str(options["hydro_min_mode"])
-    # Explicit tangent-line escape hatch (the R·P² percentile ranking /
-    # --loss-tangent-top-pct was removed; midpoint+envelope match PLEXOS
-    # without the hybrid tangent tier).
-    if options.get("loss_tangent_lines"):
-        os.environ["GTOPT_LOSS_TANGENT_LINES"] = str(options["loss_tangent_lines"])
-    if options.get("nseg_tangent") is not None:
-        os.environ["GTOPT_NSEG_TANGENT"] = str(int(options["nseg_tangent"]))
-    if options.get("nseg_uniform") is not None:
-        os.environ["GTOPT_NSEG_UNIFORM"] = str(int(options["nseg_uniform"]))
-    if "emin_eod_day1" in options:
-        os.environ["GTOPT_EMIN_EOD_DAY1"] = "1" if options["emin_eod_day1"] else "0"
-    if "battery_efin_pin" in options:
-        os.environ["GTOPT_BATTERY_PIN_EFIN"] = (
-            "1" if options["battery_efin_pin"] else "0"
-        )
+    conversion_opts = ConversionOptions.from_options_dict(options)
+    conversion_opts.install_env()
 
     with locate_bundle(input_path) as bundle:
         # Resolve horizon mode + day count + block layout.

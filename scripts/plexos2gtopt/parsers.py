@@ -50,6 +50,7 @@ from .entities import (
     UserConstraintStats,
     WaterwaySpec,
 )
+from . import _uc_policy
 from .plexos_csv import DEFAULT_PERIODS, read_long, read_wide
 from .plexos_loader import PlexosBundle
 from .plexos_xml import PlexosDataRow, PlexosDb, PlexosObject, load_xml
@@ -6381,34 +6382,13 @@ def extract_user_constraints(
     # references hydros are typically per-reservoir operational floors
     # (``PANGUEcaudal_min_diario``, ``ANGOSTURAmin``, ``ANTUCOmin``,
     # ``ELTOROmin``, ``PANGUEramp``, ``ANGOSTURAmaxramp``, …).  PLEXOS
-    # gates these on the unit's commitment status internally (only
-    # enforced when the unit is committed) but our extractor emits
-    # them as raw hard floors — when the LP wants to dispatch the
-    # unit BELOW the floor (or off entirely) the constraint becomes
-    # primal-infeasible.  Mirror PLEXOS's effective treatment by
-    # emitting these as SOFT constraints with a small penalty
-    # (``$10/MWh`` — matches the existing
-    # ``discharge_ANTUCOmin`` penalty).  Thermal/mixed constraints
-    # stay HARD as before.
-    _HYDRO_UC_SOFT_PENALTY = 10.0
-    # NOTE: a high fuel-cap penalty tier + per-day RHS scoping for the
-    # ``Gas_MaxOpDay*`` caps was trialled (binding them ~$500) but proved a
-    # net dispatch regression: PLEXOS itself runs the gas units high and
-    # treats these caps as soft (violates them), so over-enforcing crushed
-    # NEHUENCO/NUEVA_RENCA far below PLEXOS while CAMPICHE (uncapped coal)
-    # absorbed the load.  The gas caps therefore stay on the $10 soft tier
-    # (PLEXOS-soft behaviour); their RHS calibration is a separate item.
-    #
-    # Reserve-provision-sum UCs (CSF / CPF / CTF *MinProvision,
-    # *Calculation) get a HIGH soft penalty ($1,000/MWh, 100× the
-    # hydro tier) — high enough that the LP almost never elects to
-    # violate at this price (vs the $5-50/MWh marginal dispatch cost),
-    # but low enough to absorb the rare per-block PLEXOS data
-    # inconsistencies that broke the hard-equality version (see
-    # ``is_reserve_provision_sum`` branch below for the CEN PCP
-    # weekly block-78 case).  ReserveZone.urcost/drcost from PLEXOS
-    # VoRS remains the proper shortage-cost backstop.
-    _RESERVE_PROVISION_SUM_PENALTY = 1000.0
+    # Per-tier soft penalties live in :mod:`_uc_policy` (single source of
+    # truth shared with :func:`_uc_policy.classify` below).  Kept as local
+    # bindings so the few call sites that still need the scalar values
+    # (e.g. the Gas_MaxOpDay consolidator) read them by name rather than
+    # by magic number.
+    _HYDRO_UC_SOFT_PENALTY = _uc_policy.HYDRO_SOFT
+    _RESERVE_PROVISION_SUM_PENALTY = _uc_policy.RESERVE_PROV_SUM
 
     out: list[UserConstraintSpec] = []
     # Constraints dropped because their LHS cannot be faithfully represented
@@ -7678,352 +7658,25 @@ def extract_user_constraints(
             rhs_profile_tuple = tuple(
                 v * _DAILY_ENERGY_RHS_SCALE for v in rhs_profile_tuple
             )
-        # Soften UCs whose ENTIRE Generator-side LHS references hydros
-        # — PLEXOS gates these per-reservoir floors / ramps on the
-        # unit's commitment status internally, but we emit them as
-        # raw hard floors which collide with off-state dispatch.
-        # Override the PLEXOS-supplied penalty (typically 0 = hard)
-        # with $10/MWh so the LP can take small slacks instead of
-        # going infeasible (matches the existing
-        # ``discharge_ANTUCOmin`` precedent).  Constraints with no
-        # generator references OR with mixed thermal+hydro refs stay
-        # at the PLEXOS-supplied penalty (typically hard).
+        # Soft-tier classification.  The legacy regex+penalty ladder used to
+        # live here as a ~330-line if/elif tree mixing _HYDRO_UC_SOFT_PENALTY
+        # / _RESERVE_PROVISION_SUM_PENALTY with hard-coded name patterns.  It
+        # is now centralised in ``_uc_policy.classify`` so the penalty values
+        # live in a single auditable place and the typed
+        # :class:`ConstraintDirective` is the wire-form authority.  See
+        # ``_uc_policy.py`` for the per-branch rationale that used to be
+        # inline here.
         plexos_penalty = penalty_val if penalty_val and penalty_val > 0 else 0.0
-        emitted_penalty = plexos_penalty
-        # Typed constraint-family directive (Step 4a, #53).  Set by the
-        # classification block below when the constraint matches a known
-        # family pattern (RegRange / ReserveProvSum); stays ``None`` for
-        # the legacy / catch-all paths so the emitted JSON omits the
-        # ``directive`` sibling and gtopt-side ``UserConstraint::
-        # directive`` stays at ``std::nullopt`` (= unchanged behaviour).
-        directive_to_emit: ConstraintDirective | None = None
-        # OVERRIDE: name-based "PLEXOS-hard, but data-inconsistent"
-        # ports.  RES20260422.accdb pid-3070 reports zero slack on
-        # every ``Gas_MaxOpDay*`` (binding 111/111, price $78-83/h)
-        # and ``limited_generation_calculation`` (binding 53/111,
-        # price ~$35/h) — so PLEXOS effectively solves them HARD.
-        # Promoting them to ``penalty=0`` in gtopt, however, produces
-        # a CPLEX presolve infeasibility (``Implied bounds make row
-        # c1280073 infeasible`` on the v3 LP-relax, 2026-05-29) —
-        # PLEXOS absorbs the discrepancy via internal-solver
-        # tolerance / Big-M that we cannot replicate.
-        #
-        # Compromise: same tier as the reserve_provision_sum family
-        # ($1,000/MWh — 100× the catch-all $10 hydro tier).  At
-        # $1,000 the LP almost never elects to violate (PLEXOS shadow
-        # prices are all <$100/h) but the row can absorb the rare
-        # per-block contradiction without going infeasible.  When the
-        # source data is repaired (Fuel.X.offtake schedule cleanup or
-        # explicit Big-M emission), bump this to ``0.0`` to match
-        # PLEXOS exactly.  Applied BEFORE the ``plexos_penalty ==
-        # 0.0`` demote-to-soft branch so a PLEXOS-supplied non-zero
-        # input penalty doesn't block our override.
-        if (
-            (
-                constr.name.startswith("Gas_MaxOpDay")
-                or constr.name == "limited_generation_calculation"
-            )
-            and not is_inactive
-            and constr.name not in _load_plexos_hard_uc_list()
-        ):
-            # Name-based soft override for Fuel.X.offtake/limited_generation
-            # families when the constraint is NOT in the PLEXOS-HARD audit
-            # list.  Members of the audit list (e.g.
-            # ``limited_generation_calculation`` itself when shadow > 0)
-            # must take the HARD branch in the ``plexos_penalty == 0.0``
-            # block below — never the high-soft $1000 fallback.
-            emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
-        elif plexos_penalty == 0.0 and not is_inactive:
-            # Two-tier soft default for active PLEXOS Constraints
-            # without an explicit Penalty Price:
-            #
-            #   HARD (penalty=0) — constraints that reference a
-            #   commitment binary (``commitment(...).status`` /
-            #   ``.startup`` / ``.shutdown``).  These encode UNIT
-            #   COMMITMENT / SCHEDULING decisions that drive the
-            #   PLEXOS dispatch pattern: ``Campiche_starting``
-            #   (``startup ≤ 0`` → no restart), ``NVentanas_starting``
-            #   (NV stays off), ``SD_2025128381_Campiche_o_NVentanas``
-            #   (CAMPICHE-or-NV mutex), ``NorthSecurity`` (coal
-            #   commitment count), the ``*ConfTG*`` / ``*_Uniq``
-            #   configuration mutexes.  These are individually
-            #   feasible (a unit can always stay off / on) and MUST
-            #   bind — softening them at $10/MWh let the LP pay a
-            #   trivial slack to dispatch coal PLEXOS keeps off
-            #   (CAMPICHE +30 GWh, NUEVA_VENTANAS +13 GWh).
-            #
-            #   SOFT ($10/MWh) — operational floors / caps on
-            #   ``generator.generation`` / ``battery.energy`` /
-            #   ``line.flow`` (``PANGUEcaudal_min_diario``,
-            #   ``ANGOSTURAmin``, ``SD_2025079667_Gx_Pullinque_
-            #   Lautaro``).  PLEXOS gates these on commitment status
-            #   internally and its own solution VIOLATES many
-            #   (``Pullinque_Lautaro >= 59`` is infeasible-as-hard:
-            #   gen capacity sums to only 58.97 MW).  Emitting hard
-            #   makes the LP primal-infeasible; soft keeps it
-            #   feasible and surfaces violations as slack-cost line
-            #   items.
-            #   HARD (penalty=0) — also pure transmission-flow limits
-            #   (only ``line(X).flow`` terms).  The RES20260422
-            #   solution-vs-RHS classification found all pure-flow
-            #   ``SD_*`` line limits SATISFIED by PLEXOS, so they port
-            #   HARD with no infeasibility risk (gtopt's flows sit below
-            #   these ``<=`` caps).
-            #
-            #   SOFT ($10/MWh) — everything else: operational generation
-            #   floors and reserve-provision requirements.  An "all-hard"
-            #   experiment (2026-05-24) proved these cannot all be hard:
-            #   ``ANTUCOmin >= 137 MW`` conflicts with the hard
-            #   ``discharge_ANTUCOmax <= 63 m³/s`` cap, and the
-            #   CPF/CSF/CTF reserve requirements (e.g.
-            #   ``CTF_DownMinProvision``) are infeasible-as-hard.  PLEXOS
-            #   treats all of these as soft (implicit slack) and violates
-            #   many, so they stay soft here.  (Fuel-offtake caps no
-            #   longer travel through UserConstraints at all — they use
-            #   the native ``Fuel.max_offtake`` budget; reserve will
-            #   likewise move to native ``ReserveZone.urcost/drcost`` in
-            #   a follow-up.)
-            references_commitment = "commitment(" in expression
-            is_pure_line_flow = (
-                "line(" in expression
-                and "generator(" not in expression
-                and "commitment(" not in expression
-                and "battery(" not in expression
-                and "reserve_provision(" not in expression
-                and "decision_variable(" not in expression
-            )
-            # Reserve-provision-sum UCs (CSF/CPF/CTF *MinProvision,
-            # *Calculation) are pure ``Σ_i reserve_provision_i.up/dn``
-            # rows.  PLEXOS solves them HARD (verified 2026-05-29 on
-            # RES20260422.accdb: every CSF/CPF/CTF UC reports zero
-            # slack across all 168 h with a binding shadow price).
-            # Earlier we promoted them straight to hard ``penalty=0``,
-            # which captured $577K of slack-cost reduction on CEN PCP
-            # weekly — BUT exposed a per-block data inconsistency on
-            # CEN PCP weekly (block 78 of CSF_DownMinProvision: the
-            # CSF row sums 188 dprovs to 219.333 while the same-block
-            # ReserveZone_3 drequirement sums a 3-dprov subset to
-            # 219.333; some of the other 185 dprovs are pinned >0 by
-            # generator-reserve-cap constraints → no feasible
-            # assignment).  PLEXOS solves it because PLEXOS has an
-            # internal-solver-specific tolerance / Big-M absorbing the
-            # discrepancy; we cannot reproduce that without copying
-            # the data-cleanup path PLEXOS runs at solve time.
-            #
-            # Compromise: keep the soft penalty but raise it to a
-            # tier that DOMINATES dispatch decisions ($1,000/MWh,
-            # 100× the legacy ``_HYDRO_UC_SOFT_PENALTY``).  This
-            # recovers ~95 % of the operational-$ improvement (LP
-            # almost never elects to violate at $1,000/MWh vs the
-            # $5-50/MWh marginal dispatch cost), while staying
-            # feasible when block-level data inconsistencies surface
-            # — exactly the regime that broke under the hard
-            # equality.  Detection criteria unchanged:
-            #   ≥3 reserve_provision refs AND no other LHS variable kinds
-            # The native ``ReserveZone.urcost/drcost`` mechanism
-            # (populated from PLEXOS VoRS in ``extract_reserves``)
-            # remains the shortage-cost backstop.
-            #
-            # Filter detail (2026-05-29 audit on RES20260422.accdb):
-            # ``decision_variable(`` IS allowed.  Earlier we excluded it
-            # because we wanted "pure reserve_provision rows" only, but
-            # PLEXOS's CPF/CSF schema attaches *scaling* DVs
-            # (``CPF5mDown_Requirement``, ``Generation_SEN``) to the
-            # *MinProvision rows — verified zero-slack with shadow
-            # prices $7-26/MWh avg on CPF_Down/UpMinProvision and
-            # CPF_Down/Up5Calculation.  Without this clause they were
-            # falling through to the $10 hydro tier → $336K of gtopt
-            # soft slack (the LP cheats at $10/unit when PLEXOS pays
-            # the real $7-26 dispatch cost).
-            #
-            # Two-pattern match:
-            #   (a) "pure" reserve aggregation — ≥3 reserve_provision
-            #       refs + optional decision_variable scaling.
-            #   (b) reserve *Calculation rows — pure decision_variable
-            #       definitional equations (CPF_DownCalculation,
-            #       CPF_Up*Calculation_*) recognisable by the
-            #       constraint name ending in "Calculation".  These
-            #       define the per-zone requirement; PLEXOS solves
-            #       them hard, the LP needs the same pressure.
-            has_reserve_provision_sum = (
-                expression.count("reserve_provision(") >= 3
-                and "generator(" not in expression
-                and "commitment(" not in expression
-                and "battery(" not in expression
-                and "line(" not in expression
-            )
-            is_reserve_calculation = (
-                constr.name.endswith("Calculation") or "Calculation_" in constr.name
-            ) and (
-                "generator(" not in expression
-                and "commitment(" not in expression
-                and "battery(" not in expression
-                and "line(" not in expression
-                and "reserve_provision(" not in expression
-                and "decision_variable(" in expression
-            )
-            is_reserve_provision_sum = (
-                has_reserve_provision_sum or is_reserve_calculation
-            )
-            # ``Gas_MaxOpDay*`` / ``limited_generation_calculation``
-            # are handled by the upstream name-based override (above
-            # this if-block) so they hit the outer branch first; the
-            # is_reserve_provision_sum / catch-all $10 paths below
-            # never see them.  Listed here for the audit trail only.
-            #
-            # Earlier Phase 1' work proposed promoting them to hard
-            # (penalty=0) at THIS layer too, but that reintroduces the
-            # CPLEX presolve infeasibility documented in the override
-            # comment above (line 7260-7264).  Soft $1000 at the
-            # upstream override remains the right tier.
-            #
-            # PLEXOS RegRange UCs (regulation-range constraints — name
-            # ends in ``_RegRange_e1`` or ``_RegRange_e2``) are
-            # STRUCTURALLY INFEASIBLE under LP-relax with correct
-            # [0, 1] commitment_status bounds.  PLEXOS solves them at
-            # INTEGER status corners where the constraint IS
-            # satisfiable.  Once the equilibration rescaling that
-            # silently inflated status bounds to [0, ~38] is fixed
-            # (task #50), the LP becomes infeasible.  Promote them to
-            # the same high soft penalty as reserve-provision sums so
-            # LP-relax can absorb the infeasibility at $1000/MWh
-            # while MIP solves at the integer corners.  Detection:
-            #   * name contains ``_RegRange_``
-            #   * has commitment refs AND (generator OR reserve_provision)
-            # The mixed-atom shape distinguishes RegRange from pure
-            # reserve sums (which have no commitment / generator refs).
-            is_regrange_uc = "_RegRange_" in constr.name and (
-                "commitment(" in expression
-                and ("generator(" in expression or "reserve_provision(" in expression)
-            )
-            # PLEXOS ``_Def`` rows are DEFINITIONAL equality equations
-            # for derived reserve / requirement variables, NOT
-            # inequality constraints to satisfy.  Form:
-            #
-            #     -1 * decision_variable("X_Requirement") + Σ provision = 0
-            #
-            # PLEXOS solves them at zero slack (pid-3070 audit on
-            # RES20260422 for CSF_LW_Def / CSF_RS_Def: Σ|Slack|=0,
-            # n_nz_activity=0 — the DV absorbs the constraint perfectly
-            # because PLEXOS auto-derives DV from the LHS sum).
-            #
-            # When emitted at the $1000 soft tier (the reserve_provision_
-            # sum default), gtopt's LP pins ``X_Requirement`` to its
-            # lower bound (0) and pays slack to relax the OTHER
-            # constraints that reference X_Requirement on their RHS — the
-            # $1000 slack is cheaper than the integer-corner dispatch the
-            # binding RHS would force.  Verified on CEN PCP weekly v4:
-            # CSF_LW_Requirement = 5.0 in the gtopt sol + $345K slack on
-            # CSF_LW_Def, plus $145K on CSF_RS_Def.
-            #
-            # Fix: emit ``_Def`` equality rows as HARD (penalty=0).
-            # Detection: name ends in ``_Def`` AND the LHS has
-            # ``decision_variable(`` (the defined variable) AND only
-            # reserve_provision contributions (no commitment / gen / etc.).
-            is_def_equation = (
-                constr.name.endswith("_Def")
-                and op == "="
-                and "decision_variable(" in expression
-                and "generator(" not in expression
-                and "commitment(" not in expression
-                and "battery(" not in expression
-                and "line(" not in expression
-            )
-            # PLEXOS-HARD-confirmed UCs — emit as HARD (penalty=0) in
-            # gtopt because PLEXOS audit (RES20260422 t_data_0) shows
-            # zero slack across the horizon with positive shadow prices.
-            # Making these HARD removes the slack column entirely (no
-            # cost, no LMP leakage), matching PLEXOS dispatch exactly.
-            #
-            # Families with confirmed PLEXOS-hard behaviour:
-            #   * ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP`` — battery-
-            #     mode complementarity (10 UCs on CEN PCP): PLEXOS binds
-            #     99-111 / 168 h with shadow $3,993-$5,388 each.  These
-            #     are physical complementarity rows (battery can't both
-            #     discharge and absorb reserve in the same direction);
-            #     softening lets the LP cheat at the $10 tier while
-            #     PLEXOS pays the true $5,000/MWh marginal cost.
-            # Additional PLEXOS-HARD families promoted to gtopt-HARD
-            # (validated on RES20260422.accdb: Σ|Slack|=0 across the
-            # horizon with positive shadow prices).  Iteratively
-            # expanded as CPLEX conflict-refiner clears each
-            # infeasibility surfaced by the hardening (the LP debug
-            # name format is ``<lowercase_uc_name>_constraint_<oid>_<scene>_<phase>_<stage>``):
-            #
-            #   * ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP`` — battery-
-            #     mode complementarity (10 UCs, shadow $3,993-$5,388,
-            #     binds 99-111 h).
-            #   * ``CPF_BESS_*`` — BESS regulation-reserve sharing
-            #     (2 UCs, shadow $56K-$94K, binds 95-111 h).
-            #   * ``MACHICURA_GENT4def`` / ``PEHUENCHE_GENT7def`` —
-            #     definitional equations (DV term now wired via
-            #     ``definition_dv_index``, shadow $1,527/$small).
-            #   * ``*_MinProvision`` / ``*_Calculation`` — CPF/CSF/CTF
-            #     reserve aggregation rows (shadow $1,830-$3,146).
-            #     These were previously at $1000 soft; PLEXOS solves
-            #     hard.  Promoting needed Plant primitive to be in
-            #     place (otherwise the LP couldn't move enough provision
-            #     between variant configs).
-            #   * ``limited_generation_calculation`` — global generation
-            #     accounting (shadow $1,855).
-            is_bat_complementarity = constr.name.endswith(
-                "_CF_GEN_COMP"
-            ) or constr.name.endswith("_CF_LOAD_COMP")
-            # Data-driven HARD-promotion list — names verified PLEXOS-HARD
-            # from RES20260422.accdb sol audit (Slack=0, HrsBind>0,
-            # |Shadow|>0).  The list is shipped as
-            # ``data/cen_pcp_hard_ucs.txt`` (one constraint name per line,
-            # optional ``  #`` annotation per line).  Loaded once per
-            # ``extract_user_constraints`` invocation via the cached
-            # ``_load_plexos_hard_uc_list`` helper.  When the list cannot
-            # be loaded (missing file / I/O error) the legacy hard-coded
-            # tuple of definitional singletons (MACHICURA_GENT4def,
-            # PEHUENCHE_GENT7def) is used.
-            _hard_set = _load_plexos_hard_uc_list()
-            is_plexos_hard_singleton = constr.name in _hard_set
-            # ``MAXCSF_*`` — N-1 secondary-frequency-control reserve
-            # SHARING placeholders (cap on a single plant's combined
-            # raise+lower reserve contribution).  PLEXOS audit shows
-            # these slack at 43,000+ MWh with shadow $0 across the
-            # horizon — PLEXOS treats them as FREE slack (N-1
-            # placeholders that never bind in practice).  Our default
-            # $1,000 tier over-penalises by ~$48K of phantom cost per
-            # plant.  Demote to the operational $10 tier so the LP
-            # slacks them freely (matching PLEXOS's $0 shadow).
-            is_maxcsf_placeholder = constr.name.startswith("MAXCSF")
-            if is_def_equation:
-                emitted_penalty = 0.0  # hard — matches PLEXOS exactly
-            elif is_bat_complementarity or is_plexos_hard_singleton:
-                emitted_penalty = 0.0  # hard — PLEXOS binds at zero slack
-            elif is_maxcsf_placeholder:
-                # Demote from default-soft $1000 to operational $10 to
-                # match PLEXOS's $0 shadow on these N-1 placeholders.
-                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
-            elif is_reserve_provision_sum or is_regrange_uc:
-                emitted_penalty = _RESERVE_PROVISION_SUM_PENALTY  # high soft
-                # Step 4a (#53) — stamp a typed directive carrying the
-                # classification + policy.  The directive's ``penalty``
-                # wins over the scalar at LP-build time
-                # (``UserConstraintLP::effective_penalty``), so policy
-                # lives in the JSON, auditable per-bundle.  Two distinct
-                # families share the high-soft tier but get different
-                # ``kind`` tags so a reader can tell them apart:
-                #   * ``regrange`` — name contains ``_RegRange_`` and
-                #     the LHS mixes commitment(.) with generator(.) or
-                #     reserve_provision(.).
-                #   * ``reserve_prov_sum`` — pure ``Σ reserve_provision``
-                #     aggregator (3+ refs, no commitment / generator),
-                #     plus the ``*Calculation`` definitional rows that
-                #     define per-zone requirements.
-                # Mirroring the C++ side discriminator tags
-                # (``include/gtopt/constraint_directive.hpp``).
-                directive_kind = "regrange" if is_regrange_uc else "reserve_prov_sum"
-                directive_to_emit = ConstraintDirective(
-                    kind=directive_kind,
-                    penalty=_RESERVE_PROVISION_SUM_PENALTY,
-                )
-            elif not references_commitment and not is_pure_line_flow:
-                emitted_penalty = _HYDRO_UC_SOFT_PENALTY
+        _outcome = _uc_policy.classify(
+            constraint_name=constr.name,
+            expression=expression,
+            op=op,
+            plexos_penalty=plexos_penalty,
+            is_inactive=is_inactive,
+            hard_set=_load_plexos_hard_uc_list(),
+        )
+        emitted_penalty = _outcome.penalty
+        directive_to_emit: ConstraintDirective | None = _outcome.directive
         # No-limit-sentinel line-security constraints (SD_* etc.) — a
         # PURE line-flow constraint at the 100000 "contingency off" sentinel
         # is inert.  Emit as an inactive stub instead of silently dropping,

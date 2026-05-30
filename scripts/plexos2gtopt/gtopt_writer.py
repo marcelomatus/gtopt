@@ -3431,11 +3431,20 @@ def write_user_constraint_pampl(
                 if (uc.get("penalty") or 0.0) > 0.0
             }
         )
+        # Count soft / hard rows for the file header banner — gives a reader
+        # an at-a-glance summary of how many slack columns this file
+        # contributes to the LP.
+        n_soft = sum(1 for uc in ucs if (uc.get("penalty") or 0.0) > 0.0)
+        n_hard = len(ucs) - n_soft
         lines = [
             "# " + "=" * 72,
             f"# {fam} user constraints ({len(ucs)}) — emitted by plexos2gtopt",
+            f"#   hard: {n_hard:>5}   soft: {n_soft:>5}",
             f"# Origin: PLEXOS Constraint objects ({_UC_ORIGIN_FILE})",
-            "# Hard rows carry no penalty; soft rows reference a tier param.",
+            "# Soft rows reference a tier param.  Each soft row creates one",
+            "# per-block ``slack`` LP column (gtopt-side, named ``slack`` in",
+            "# UserConstraint/slack_sol.parquet); reads of that column give",
+            "# the per-row violation MW.  See user_constraint_lp.cpp:1084.",
             "# " + "=" * 72,
             "",
         ]
@@ -3447,8 +3456,31 @@ def write_user_constraint_pampl(
             # Per-constraint comment carries the PLEXOS semantics + origin
             # file (from the description) for traceability.
             lines.append(f"# {uc.get('description') or uc.get('name', '')}")
-            prefix = "inactive " if uc.get("active") is False else ""
+            # Visible-slack annotation: soft rows tell the reader where the
+            # LP exposes the per-block violation (no PAMPL ``var`` syntax
+            # today; the slack column is auto-created by
+            # ``UserConstraintLP`` when ``penalty > 0``).  When a typed
+            # ``directive`` is attached, surface its ``kind`` so a reader
+            # can attribute the soft tier to a family without grepping
+            # ``_uc_policy.py``.
             pen = float(uc.get("penalty") or 0.0)
+            uc_name = str(uc.get("name", ""))
+            if pen > 0.0:
+                lines.append(
+                    f"#   soft: slack column 'slack' (per-block; "
+                    f'see UserConstraint/slack_sol.parquet["{uc_name}"])'
+                )
+            directive = uc.get("directive")
+            if isinstance(directive, dict) and directive.get("kind"):
+                kind = directive["kind"]
+                extra: list[str] = []
+                if directive.get("scope"):
+                    extra.append(f"scope={directive['scope']}")
+                if directive.get("window_hours") is not None:
+                    extra.append(f"window_hours={directive['window_hours']}")
+                tail = (" " + ", ".join(extra)) if extra else ""
+                lines.append(f"#   directive: kind={kind}{tail}")
+            prefix = "inactive " if uc.get("active") is False else ""
             pen_txt = (
                 f" penalty {_penalty_param_name(round(pen, 6))}" if pen > 0.0 else ""
             )
@@ -3458,8 +3490,7 @@ def write_user_constraint_pampl(
                 if rhs_vec is not None:
                     rhs_txt = " rhs [" + ", ".join(f"{v:g}" for v in rhs_vec) + "]"
             lines.append(
-                f"{prefix}constraint "
-                f"{_unique_ident(str(uc.get('name', '')))}{pen_txt}{rhs_txt}:"
+                f"{prefix}constraint {_unique_ident(uc_name)}{pen_txt}{rhs_txt}:"
             )
             lines.append(f"  {uc['expression']};")
             lines.append("")

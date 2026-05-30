@@ -2238,3 +2238,111 @@ def test_fuel_offtake_legacy_is_default(tmp_path: Path) -> None:
     )
     assert '0.5 * generator("G1").generation' in expr
     assert '0.3 * generator("G2").generation' in expr
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Visible-slack + typed-directive annotations in the .pampl files (Task 3)
+# ──────────────────────────────────────────────────────────────────────────
+class TestPamplVisibleSlackAnnotations:
+    """The PAMPL grammar has no ``var slack_<name>;`` syntax today, so the
+    visibility win is delivered as structured comments next to each
+    soft constraint (where the LP slack column LIVES) and a directive
+    summary line for typed-directive rows.  These tests pin the
+    annotations so a future tweak doesn't quietly drop them."""
+
+    def test_soft_constraint_gets_slack_annotation(self, tmp_path):
+        ucs = [
+            {
+                "uid": 1,
+                "name": "HYDRO_FLOOR_X",
+                "expression": '1 * generator("G").generation >= 50',
+                "penalty": 10.0,
+                "description": "Test hydro floor",
+            },
+        ]
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        assert files == ["uc_operational.pampl"]
+        text = (tmp_path / "uc_operational.pampl").read_text()
+        # Annotation must name the slack column the LP will create.
+        assert "#   soft: slack column 'slack' (per-block;" in text, (
+            f"missing visible-slack annotation in: {text!r}"
+        )
+        assert 'UserConstraint/slack_sol.parquet["HYDRO_FLOOR_X"]' in text, (
+            "annotation must include the per-UC slack parquet key"
+        )
+        # File-header soft/hard tally:
+        assert "hard:" in text and "soft:" in text
+        # Slack column documentation present in the header banner:
+        assert "user_constraint_lp.cpp" in text
+
+    def test_hard_constraint_has_no_slack_annotation(self, tmp_path):
+        ucs = [
+            {
+                "uid": 1,
+                "name": "BAT_X_CF_GEN_COMP",
+                "expression": '1 * battery("B").discharge <= 0',
+                "penalty": 0.0,
+                "description": "Test hard complementarity",
+            },
+        ]
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        assert files
+        text = (tmp_path / files[0]).read_text()
+        # No slack-column annotation on hard rows:
+        assert "soft: slack column" not in text
+
+    def test_directive_kind_surfaced_in_comment(self, tmp_path):
+        """A ``directive`` payload is rendered as ``#   directive: kind=…``
+        so a reader can attribute the soft tier to a family without
+        grepping the policy module."""
+        ucs = [
+            {
+                "uid": 1,
+                "name": "Gas_MaxOpDayEnel",
+                "expression": '1 * generator("G").generation <= 100',
+                "penalty": 1000.0,
+                "directive": {
+                    "kind": "daily_budget",
+                    "scope": "gas_maxopday:Enel",
+                },
+                "description": "gas cap",
+                "daily_sum": True,  # ⇒ stays inline; PAMPL has no daily_sum
+            },
+        ]
+        # daily_sum constraints stay inline (no .pampl emission), so add a
+        # non-daily-sum copy to exercise the .pampl path.
+        ucs.append(
+            {
+                "uid": 2,
+                "name": "X_RegRange_e1",
+                "expression": (
+                    '1 * commitment("uc_g").status + 1 * generator("g").generation >= 0'
+                ),
+                "penalty": 1000.0,
+                "directive": {"kind": "regrange", "penalty": 1000.0},
+                "description": "RegRange test",
+            }
+        )
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        all_text = "\n".join((tmp_path / fname).read_text() for fname in files)
+        # The non-daily-sum RegRange row writes a directive comment line:
+        assert "#   directive: kind=regrange" in all_text, (
+            f"expected typed directive annotation in: {all_text!r}"
+        )
+
+    def test_directive_with_scope_surfaces_scope(self, tmp_path):
+        ucs = [
+            {
+                "uid": 1,
+                "name": "X",
+                "expression": '1 * generator("G").generation <= 0',
+                "penalty": 100.0,
+                "directive": {
+                    "kind": "daily_budget",
+                    "scope": "fuel:GAS",
+                },
+            },
+        ]
+        files, _ = write_user_constraint_pampl(ucs, tmp_path)
+        text = (tmp_path / files[0]).read_text()
+        assert "directive: kind=daily_budget scope=fuel:GAS" in text
