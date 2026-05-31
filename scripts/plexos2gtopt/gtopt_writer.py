@@ -2064,10 +2064,20 @@ def build_user_constraint_array(
 
     def _shape_profile(profile: tuple[float, ...]) -> list[float]:
         hourly = list(profile)
-        if block_layout:
-            return _aggregate_to_blocks(hourly, block_layout, reducer="mean")
+        # Already per-block (matches the target layout)?  Pass through.
+        # Consolidators like ``_consolidate_gas_maxopday_groups`` emit a
+        # profile of length ``len(block_layout)`` directly when block_layout
+        # is supplied; aggregating it again via ``_aggregate_to_blocks``
+        # would misinterpret it as hourly (intervals 1..168) and zero out
+        # every block whose ``max(intervals) > len(profile)``.  Verified on
+        # CEN PCP 2026-04-07 ``Gas_MaxOpDay_NuevaRenca``: 33 trailing
+        # blocks (intervals 113..168) were silently zeroed, causing the
+        # LP to slack $1.62 M of NuevaRenca gas dispatch PLEXOS itself
+        # never restricts.
         if len(hourly) == target_len:
             return hourly
+        if block_layout:
+            return _aggregate_to_blocks(hourly, block_layout, reducer="mean")
         if len(hourly) > 0 and target_len % len(hourly) == 0:
             return hourly * (target_len // len(hourly))
         padded = hourly[:target_len]
