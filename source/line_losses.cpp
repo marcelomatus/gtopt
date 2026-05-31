@@ -32,15 +32,27 @@ namespace
 /// active KVL formulation:
 ///   - has expansion           → `bidirectional` (2K+4 cols, 4 rows)
 ///   - no expansion + cycle_basis → `piecewise_direct` (2K cols, 0 rows)
-///   - no expansion + node_angle  → `piecewise`        (K+3 cols, 2 rows)
+///   - no expansion + node_angle  → `piecewise`        (2K+4 cols, 4 rows
+///                                                      since piecewise now
+///                                                      wraps bidirectional)
 ///
 /// Under cycle_basis the per-cycle KVL row already supports stamping
 /// segments directly (see ``kirchhoff_cycle_basis.cpp:379-390``), so
-/// the aggregator + link + loss rows of `piecewise` add no information
-/// — picking `piecewise_direct` saves 2 rows per (line, block, scenario,
-/// stage) at the cost of skipping the per-line `flowp`/`flown` solution
-/// columns.  AMPL access to `line.flow` is preserved via the multi-col
-/// segment-sum registration in ``line_lp.cpp``.
+/// the aggregator + link + loss rows of `piecewise`/`bidirectional`
+/// add no information — picking `piecewise_direct` saves 4 rows per
+/// (line, block, scenario, stage) at the cost of skipping the per-line
+/// `flowp`/`flown` solution columns.  AMPL access to `line.flow` is
+/// preserved via the multi-col segment-sum registration in
+/// ``line_lp.cpp``.
+///
+/// ⚠ Phantom-flow caveat: `piecewise_direct` has NO link row and NO
+/// fp/fn aggregator, so the LP can run both directions simultaneously
+/// to dump quadratic loss at a negative-LMP receiving bus.  In
+/// meshed networks where some receivers see negative LMPs (typical of
+/// PCP cases with congestion + curtailment-priced demand), prefer
+/// `piecewise` or `bidirectional`; both now use per-direction loss
+/// columns billed at each direction's OWN receiver, defusing the
+/// arbitrage.
 ///
 /// `piecewise_direct` is selectable explicitly in either KVL mode.
 constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
@@ -844,16 +856,45 @@ BlockResult add_linear(const LossConfig& config,
   return result;
 }
 
-/// Piecewise-linear (single-direction): shared segments for |f| = fp + fn.
+/// Piecewise-linear (per-direction): delegates to the bidirectional
+/// per-direction PWL.
 ///
-/// Approximates P_loss = R · f² / V²  [1] with K segments.
-/// Variables per block: fp, fn, seg_1..seg_K, loss.
-/// Constraints per block: 1 linking + 1 loss-tracking = 2 rows.
+/// Historical (pre-2026-05-31) `piecewise` used a SINGLE shared-segment
+/// formulation:
+///   Linking:    fp + fn − Σ seg_k = 0
+///   Loss track: loss − Σ loss_k · seg_k = 0
+/// with a single `loss` column consumed (allocation-aware) on one bus.
 ///
-/// Linking:      fp + fn − Σ seg_k = 0
-/// Loss track:   loss − Σ loss_k · seg_k = 0
+/// That formulation is structurally vulnerable to a phantom-flow
+/// arbitrage: nothing in the LP forces `fp · fn = 0`, and because the
+/// link row uses `fp + fn` (not `|fp − fn|`), the LP can inflate both
+/// directions while only paying loss on ONE bus.  In meshed networks
+/// with periods of negative LMP at the receiver, the LP profits by
+/// inflating `fp + fn` and dumping the resulting quadratic loss "for
+/// free" at the negative-LMP bus.  Verified empirically on CEN PCP
+/// v0407: 99 % of dispatched blocks had both fp > 0 AND fn > 0,
+/// producing 220 GWh of fictitious "waste" energy system-wide and a
+/// 6× overstatement of `loss_sol` vs the physical reference.
 ///
-/// Ref: Macedo et al. [1], single-direction formulation.
+/// The bidirectional formulation (per-direction segments + per-
+/// direction loss column consumed at each direction's own receiver)
+/// breaks this arbitrage: setting fp = fn = X pays loss on BOTH
+/// receivers (cancelling any negative-LMP gain unless BOTH buses are
+/// negative, which is rare), instead of being a single-bus free dump.
+/// Verified empirically on the same case: bidirectional held the dual-
+/// direction rate to 1.5 % of blocks.
+///
+/// We therefore implement `piecewise` as a thin wrapper around
+/// `bidirectional`.  This roughly doubles the per-line PWL row /
+/// column count vs the legacy `piecewise` (2 × (K cols + 2 rows + 1
+/// loss col) instead of K cols + 2 rows + 1 loss col), but the LP is
+/// physically correct.  Callers wanting the legacy single-direction
+/// behaviour have no use case — it was always either fine (network
+/// with no negative-LMP buses, where LP self-organised to one
+/// direction) or broken (the documented case).
+///
+/// Ref: Macedo et al. [1], single-direction formulation (legacy);
+///      FERC [3], bidirectional decomposition (current).
 BlockResult add_piecewise(const LossConfig& config,
                           const ScenarioLP& scenario,
                           const StageLP& stage,
@@ -866,7 +907,27 @@ BlockResult add_piecewise(const LossConfig& config,
                           double block_tcost,
                           std::optional<ColIndex> capacity_col,
                           Uid uid,
-                          bool enforce_capacity)
+                          bool enforce_capacity);
+
+/// Legacy single-direction PWL implementation, kept behind the
+/// `tangent` layout path which still relies on the shared-loss column
+/// + per-direction `fp/fn` aggregator (tangent rows reference both
+/// `fp_col` and `fn_col` symmetrically; it has no per-direction
+/// counterpart in the current code).  All other layouts now route
+/// through `add_bidirectional` for the phantom-flow fix.
+BlockResult add_piecewise_shared(const LossConfig& config,
+                                 const ScenarioLP& scenario,
+                                 const StageLP& stage,
+                                 const BlockLP& block,
+                                 LinearProblem& lp,
+                                 SparseRow& brow_a,
+                                 SparseRow& brow_b,
+                                 double block_tmax_ab,
+                                 double block_tmax_ba,
+                                 double block_tcost,
+                                 std::optional<ColIndex> capacity_col,
+                                 Uid uid,
+                                 bool enforce_capacity)
 {
   BlockResult result;
   const double fmax = std::max(block_tmax_ab, block_tmax_ba);
@@ -1036,8 +1097,8 @@ BlockResult add_piecewise(const LossConfig& config,
       .variable_uid = uid,
       .context = block_ctx,
   };
-  auto lossrow = debias ? std::move(lossrow_proto).greater_equal(debias_rhs)
-                        : std::move(lossrow_proto).equal(0);
+  auto lossrow =
+      debias ? lossrow_proto.greater_equal(debias_rhs) : lossrow_proto.equal(0);
   lossrow.reserve(loss_reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1199,8 +1260,8 @@ DirResult add_direction(const LossConfig& config,
       .variable_uid = uid,
       .context = block_ctx,
   };
-  auto lossrow = debias ? std::move(lossrow_proto).greater_equal(debias_rhs)
-                        : std::move(lossrow_proto).equal(0);
+  auto lossrow =
+      debias ? lossrow_proto.greater_equal(debias_rhs) : lossrow_proto.equal(0);
   lossrow.reserve(reserve_sz);
   lossrow[loss_col] = +config.loss_row_scale;
 
@@ -1291,6 +1352,73 @@ BlockResult add_bidirectional(const LossConfig& config,
       .seg_p_cols = {},
       .seg_n_cols = {},
   };
+}
+
+/// `add_piecewise` definition — see forward declaration above.
+///
+/// For every non-`tangent` layout (uniform / equal_error / midpoint)
+/// we delegate to `add_bidirectional` to defuse the phantom-flow
+/// arbitrage of the legacy single-direction formulation (see the
+/// forward declaration's docstring for the empirical evidence on the
+/// CEN PCP v0407 case).  The bidirectional structure prevents the LP
+/// from inflating `fp + fn` to dump quadratic loss at a single
+/// negative-LMP bus, because each direction's loss is paid at its
+/// own direction's receiver.
+///
+/// The `tangent` layout is preserved on the legacy single-direction
+/// shared-loss path (`add_piecewise_shared`): the tangent
+/// inequalities reference both `fp_col` and `fn_col` symmetrically on
+/// a single shared `loss_col`, and the outer-approximation math has
+/// no obvious per-direction counterpart in the current code base.
+/// The phantom-flow risk for tangent layout is bounded structurally:
+/// the tangent rows enforce `loss ≥ 2 · k · t · (fp + fn) − k · t²`
+/// (with the LP minimising `loss`), so inflating `fp + fn` can only
+/// raise the binding tangent's lower bound on `loss`.  Combined with
+/// the fact that `tangent` is currently a documented placeholder
+/// (`add_tangents` is the only non-`add_segments` PWL path), the
+/// single-direction route is acceptable for that mode.
+BlockResult add_piecewise(const LossConfig& config,
+                          const ScenarioLP& scenario,
+                          const StageLP& stage,
+                          const BlockLP& block,
+                          LinearProblem& lp,
+                          SparseRow& brow_a,
+                          SparseRow& brow_b,
+                          double block_tmax_ab,
+                          double block_tmax_ba,
+                          double block_tcost,
+                          std::optional<ColIndex> capacity_col,
+                          Uid uid,
+                          bool enforce_capacity)
+{
+  if (config.pwl_layout == LinePwlLayout::tangent) {
+    return add_piecewise_shared(config,
+                                scenario,
+                                stage,
+                                block,
+                                lp,
+                                brow_a,
+                                brow_b,
+                                block_tmax_ab,
+                                block_tmax_ba,
+                                block_tcost,
+                                capacity_col,
+                                uid,
+                                enforce_capacity);
+  }
+  return add_bidirectional(config,
+                           scenario,
+                           stage,
+                           block,
+                           lp,
+                           brow_a,
+                           brow_b,
+                           block_tmax_ab,
+                           block_tmax_ba,
+                           block_tcost,
+                           capacity_col,
+                           uid,
+                           enforce_capacity);
 }
 
 /// PLP-direct per-direction helper.
@@ -1384,13 +1512,27 @@ BlockResult add_bidirectional(const LossConfig& config,
 }
 
 /// PLP-direct piecewise-linear: no loss variables, no loss-tracking
-/// rows.  Per-segment bus stamps encode the quadratic loss curve
-/// directly.  Requires no capacity column.
+/// rows, no aggregator columns, no link rows.  Per-segment bus
+/// stamps encode the quadratic loss curve directly.  Requires no
+/// capacity column.
 ///
-/// Variables per block: fp_agg, fn_agg, 2·K segment cols.
-/// Constraints per block: 2 linking rows (one per direction).
+/// Variables per block: 2·K segment cols (K positive + K negative).
+/// Constraints per block: 0 extra rows (segments stamp directly into
+///                        the existing sending/receiving bus-balance
+///                        rows).
 ///
-/// Ref: PLP `genpdlin.f` (GenPDLinA).
+/// ⚠ Phantom-flow caveat: with no link row and no fp/fn aggregator,
+/// the LP can have BOTH positive- and negative-direction segments
+/// non-zero simultaneously.  In meshed networks with negative-LMP
+/// receiving buses this is exploited to dump quadratic loss "for
+/// free" at the cheap bus.  Use ``add_bidirectional`` (per-direction
+/// loss column at each direction's OWN receiver) when phantom-flow
+/// purity matters; ``piecewise_direct`` is only safe in networks
+/// that never see negative LMPs at receiving buses.  See
+/// ``LineLossesMode::piecewise_direct`` in include/gtopt/line_enums.hpp
+/// for full discussion.
+///
+/// Ref: PLP Fortran `genpdlin.f` (GenPDLinA).
 BlockResult add_piecewise_direct(const LossConfig& config,
                                  const ScenarioLP& scenario,
                                  const StageLP& stage,
@@ -1647,14 +1789,13 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
   // Sort by mean-error contribution descending so the heaviest is
   // first.  ``L / K²`` is monotone in ``L_max,i / (6 K_i²)`` so it
   // gives the same ordering with one fewer division.
-  std::sort(lossy.begin(),
-            lossy.end(),
-            [](const Lossy& a, const Lossy& b) noexcept
-            {
-              const double ka = static_cast<double>(a.K);
-              const double kb = static_cast<double>(b.K);
-              return (a.L / (ka * ka)) > (b.L / (kb * kb));
-            });
+  std::ranges::sort(lossy,
+                    [](const Lossy& a, const Lossy& b) noexcept
+                    {
+                      const auto ka = static_cast<double>(a.K);
+                      const auto kb = static_cast<double>(b.K);
+                      return (a.L / (ka * ka)) > (b.L / (kb * kb));
+                    });
 
   // Two-sided worst-case tracking: each layout's error has a fixed
   // sign so the system-wide worst-case bound becomes
@@ -1734,11 +1875,10 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
     changed = false;
     // Stable rebuild of the descending-K order each pass.
     std::vector<std::size_t> order(lossy.size());
-    std::iota(order.begin(), order.end(), std::size_t {0});
-    std::sort(order.begin(),
-              order.end(),
-              [&](std::size_t a, std::size_t b) noexcept
-              { return out[lossy[a].idx].K > out[lossy[b].idx].K; });
+    std::ranges::iota(order, std::size_t {0});
+    std::ranges::sort(order,
+                      [&](std::size_t a, std::size_t b) noexcept
+                      { return out[lossy[a].idx].K > out[lossy[b].idx].K; });
     for (const auto pos : order) {
       const auto& ln = lossy[pos];
       auto& dst = out[ln.idx];
@@ -1750,7 +1890,8 @@ std::vector<DynamicAssignment> compute_dynamic_loss_layout(
       const double new_kk =
           static_cast<double>(new_k) * static_cast<double>(new_k);
       const double old_kk = static_cast<double>(k) * static_cast<double>(k);
-      const double delta_worst = ln.L / (4.0 * new_kk) - ln.L / (4.0 * old_kk);
+      const double delta_worst =
+          (ln.L / (4.0 * new_kk)) - (ln.L / (4.0 * old_kk));
       // Per-side worst-case check: only the side this line lives on
       // grows; the other side is unchanged.
       if (dst.layout == LinePwlLayout::midpoint) {

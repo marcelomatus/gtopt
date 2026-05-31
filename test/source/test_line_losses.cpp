@@ -930,55 +930,85 @@ TEST_CASE("line_losses LP structure - linear mode")
 
 TEST_CASE("line_losses LP structure - piecewise mode")
 {
-  // 3 segments, R=0.01, V=100 → V²=10000
+  // 3 segments, R=0.01, V=100 → V²=10000.
+  //
+  // As of 2026-05-31 `piecewise` is a thin wrapper around
+  // `bidirectional` for every non-`tangent` layout (CEN PCP v0407
+  // empirical finding: the legacy single-direction shared-loss
+  // formulation lets the LP run fp · fn > 0 on negative-LMP
+  // receivers, inflating system loss by 6×).  Selecting `piecewise`
+  // therefore now produces the same LP shape as `bidirectional`:
+  // per-direction flow + segment + loss columns and per-direction
+  // link rows.  This test pins that wrapper invariant — the legacy
+  // single-direction shape is verified only on the `tangent` layout
+  // path (not exercised here; tangent is a documented placeholder).
   LPFixture fix("piecewise", /*loss_segments=*/3);
   auto& li = fix.lp();
 
-  SUBCASE("creates fp, fn, loss, and K=3 segment variables")
+  SUBCASE("creates per-direction flow, loss, and K=3 segment variables")
   {
-    CHECK(count_cols_containing(li, "line_flowp_") == 1);
-    CHECK(count_cols_containing(li, "line_flown_") == 1);
+    // bidirectional shape: flowp_ matches both the base flow var and
+    // segment vars (1 + 3 = 4); same for flown_.  loss is split into
+    // a positive- and a negative-direction column.
+    CHECK(count_cols_containing(li, "line_flowp_") == 4);
+    CHECK(count_cols_containing(li, "line_flown_") == 4);
+    CHECK(count_cols_containing(li, "line_flowp_seg_") == 3);
+    CHECK(count_cols_containing(li, "line_flown_seg_") == 3);
     CHECK(count_cols_containing(li, "line_lossp_") == 1);
-    CHECK(count_cols_containing(li, "line_seg_") == 3);
+    CHECK(count_cols_containing(li, "line_lossn_") == 1);
+    // No shared single-direction segments: the legacy "line_seg_"
+    // category is empty under the bidirectional wrapper.
+    CHECK(count_cols_containing(li, "line_seg_") == 0);
   }
 
-  SUBCASE("segment variables have [0, fmax/K] bounds")
+  SUBCASE("segment variables have [0, tmax_dir/K] bounds")
   {
-    // fmax = max(tmax_ab, tmax_ba) = 200, K=3 → width ≈ 66.667
+    // tmax_ab = tmax_ba = 200, K=3 → width ≈ 66.667 for both directions.
     const double expected_width = 200.0 / 3.0;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("line_seg_")) {
+      if (name.contains("line_flowp_seg_") || name.contains("line_flown_seg_"))
+      {
         CHECK(li.get_col_low()[idx] == doctest::Approx(0.0));
         CHECK(li.get_col_upp()[idx] == doctest::Approx(expected_width));
       }
     }
   }
 
-  SUBCASE("linking row: fp + fn - seg1 - seg2 - seg3 = 0")
+  SUBCASE("per-direction link rows: flowp - Σ segp_k = 0 (and likewise flown)")
   {
-    const auto lnk = find_row(li, "line_flow_link_");
-    const auto fp = find_col(li, "line_flowp_");
-    const auto fn = find_col(li, "line_flown_");
+    const auto lnkp = find_row(li, "line_flowp_link_");
+    const auto lnkn = find_row(li, "line_flown_link_");
+    const auto fp = find_col(li, "line_flowp_", "_seg_");
+    const auto fn = find_col(li, "line_flown_", "_seg_");
 
-    // Equality constraint: lowb == uppb == 0
-    CHECK(li.get_row_low()[value_of(lnk)] == doctest::Approx(0.0));
-    CHECK(li.get_row_upp()[value_of(lnk)] == doctest::Approx(0.0));
+    // Both link rows are equalities.
+    CHECK(li.get_row_low()[value_of(lnkp)] == doctest::Approx(0.0));
+    CHECK(li.get_row_upp()[value_of(lnkp)] == doctest::Approx(0.0));
+    CHECK(li.get_row_low()[value_of(lnkn)] == doctest::Approx(0.0));
+    CHECK(li.get_row_upp()[value_of(lnkn)] == doctest::Approx(0.0));
 
-    CHECK(li.get_coeff(lnk, fp) == doctest::Approx(1.0));
-    CHECK(li.get_coeff(lnk, fn) == doctest::Approx(1.0));
+    // Aggregator column carries +1 in its own direction's link row.
+    CHECK(li.get_coeff(lnkp, fp) == doctest::Approx(1.0));
+    CHECK(li.get_coeff(lnkn, fn) == doctest::Approx(1.0));
 
-    // Each segment has coefficient -1.0 in the linking row
-    int seg_count = 0;
+    // Each positive segment has coefficient -1.0 in the positive
+    // link row; same for negative segments in the negative link row.
+    int segp_count = 0;
+    int segn_count = 0;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("line_seg_")) {
-        CHECK(li.get_coeff(lnk, idx) == doctest::Approx(-1.0));
-        ++seg_count;
+      if (name.contains("line_flowp_seg_")) {
+        CHECK(li.get_coeff(lnkp, idx) == doctest::Approx(-1.0));
+        ++segp_count;
+      } else if (name.contains("line_flown_seg_")) {
+        CHECK(li.get_coeff(lnkn, idx) == doctest::Approx(-1.0));
+        ++segn_count;
       }
     }
-    CHECK(seg_count == 3);
+    CHECK(segp_count == 3);
+    CHECK(segn_count == 3);
   }
 
-  SUBCASE("loss-tracking row coefficients match PWL formula")
+  SUBCASE("per-direction loss-tracking row coefficients match PWL formula")
   {
     // loss_k = width · R · (2k-1) / V²       (geometric, pre-scaling)
     // width = 200/3, R = 0.01, V² = 10000
@@ -1000,17 +1030,17 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     const double s_line = K * V2 / (fmax * R * ((2.0 * K) - 1));
     REQUIRE(s_line == doctest::Approx(3000.0));
 
-    const auto lsl = find_row(li, "line_loss_link_");
-    const auto loss_col = find_col(li, "line_lossp_");
+    const auto lslp = find_row(li, "line_lossp_link_");
+    const auto lossp_col = find_col(li, "line_lossp_");
 
-    // Loss variable has coeff +s_line in loss-tracking row.
-    CHECK(li.get_coeff(lsl, loss_col) == doctest::Approx(s_line));
+    // Loss variable has coeff +s_line in its own direction's row.
+    CHECK(li.get_coeff(lslp, lossp_col) == doctest::Approx(s_line));
 
-    // Collect segment coefficients sorted by name
+    // Collect positive-direction segment coefficients sorted by name.
     std::vector<std::pair<std::string, double>> seg_coeffs;
     for (const auto& [name, idx] : li.col_name_map()) {
-      if (name.contains("line_seg_")) {
-        seg_coeffs.emplace_back(name, li.get_coeff(lsl, idx));
+      if (name.contains("line_flowp_seg_")) {
+        seg_coeffs.emplace_back(name, li.get_coeff(lslp, idx));
       }
     }
     std::ranges::sort(seg_coeffs);
@@ -1026,13 +1056,15 @@ TEST_CASE("line_losses LP structure - piecewise mode")
     CHECK(seg_coeffs.back().second == doctest::Approx(-1.0));
   }
 
-  SUBCASE("two rows total for line (linking + loss-tracking)")
+  SUBCASE("four rows total for line (per-direction link + loss-tracking)")
   {
-    CHECK(count_rows_containing(li, "line_flow_link_") == 1);
-    CHECK(count_rows_containing(li, "line_loss_link_") == 1);
-    // No per-direction linking rows
-    CHECK(count_rows_containing(li, "line_flowp_link") == 0);
-    CHECK(count_rows_containing(li, "line_flown_link") == 0);
+    CHECK(count_rows_containing(li, "line_flowp_link_") == 1);
+    CHECK(count_rows_containing(li, "line_flown_link_") == 1);
+    CHECK(count_rows_containing(li, "line_lossp_link_") == 1);
+    CHECK(count_rows_containing(li, "line_lossn_link_") == 1);
+    // No legacy single-direction link/loss rows.
+    CHECK(count_rows_containing(li, "line_flow_link_") == 0);
+    CHECK(count_rows_containing(li, "line_loss_link_") == 0);
   }
 }
 
@@ -1117,22 +1149,32 @@ TEST_CASE("line_losses LP structure - bidirectional mode")
     }
   }
 
-  SUBCASE("bidirectional has 2x the rows of piecewise")
+  SUBCASE("piecewise wraps bidirectional → identical LP shape")
   {
+    // Since 2026-05-31 `piecewise` delegates to `add_bidirectional`
+    // for every non-`tangent` layout (see add_piecewise in
+    // source/line_losses.cpp), so the two modes now produce the
+    // same per-direction row + col structure.  We pin the wrapper
+    // invariant here.
     LPFixture fix_pw("piecewise", /*loss_segments=*/3);
     auto& li_pw = fix_pw.lp();
 
-    // bidirectional: flowp_link + flown_link + lossp_link + lossn_link = 4
     const int bidir_line_rows = count_rows_containing(li, "line_flowp_link")
         + count_rows_containing(li, "line_flown_link")
         + count_rows_containing(li, "line_lossp_link")
         + count_rows_containing(li, "line_lossn_link");
-    // piecewise: flow_link + loss_link = 2
-    const int pw_line_rows = count_rows_containing(li_pw, "line_flow_link")
-        + count_rows_containing(li_pw, "line_loss_link");
+    const int pw_line_rows = count_rows_containing(li_pw, "line_flowp_link")
+        + count_rows_containing(li_pw, "line_flown_link")
+        + count_rows_containing(li_pw, "line_lossp_link")
+        + count_rows_containing(li_pw, "line_lossn_link");
 
     CHECK(bidir_line_rows == 4);
-    CHECK(pw_line_rows == 2);
+    CHECK(pw_line_rows == 4);
+    // Sanity: no legacy single-direction link/loss rows on either side.
+    CHECK(count_rows_containing(li, "line_flow_link_") == 0);
+    CHECK(count_rows_containing(li, "line_loss_link_") == 0);
+    CHECK(count_rows_containing(li_pw, "line_flow_link_") == 0);
+    CHECK(count_rows_containing(li_pw, "line_loss_link_") == 0);
   }
 }
 
@@ -1239,29 +1281,40 @@ TEST_CASE("line_losses LP structure - piecewise_direct mode")
     }
   }
 
-  SUBCASE("direct has zero line-loss-engine rows; piecewise has 2")
+  SUBCASE("direct has zero line-loss-engine rows; piecewise has 4")
   {
+    // Since 2026-05-31 `piecewise` wraps `bidirectional`, so it
+    // emits 4 per-direction rows (flowp_link, flown_link,
+    // lossp_link, lossn_link) instead of the legacy 2 single-
+    // direction rows.  `piecewise_direct` keeps the PLP-faithful
+    // structural choice of stamping segments directly into the bus
+    // balance + KVL rows, so it still adds zero loss-engine rows.
     LPFixture fix_pw("piecewise", /*loss_segments=*/3);
     auto& li_pw = fix_pw.lp();
 
-    // piecewise: 1 flow_link + 1 loss_link = 2 line-specific rows
-    const int pw_rows = count_rows_containing(li_pw, "line_flow_link")
-        + count_rows_containing(li_pw, "line_loss_link");
-    // direct: zero — bus stamps and KVL stamps replace both.
+    const int pw_rows = count_rows_containing(li_pw, "line_flowp_link")
+        + count_rows_containing(li_pw, "line_flown_link")
+        + count_rows_containing(li_pw, "line_lossp_link")
+        + count_rows_containing(li_pw, "line_lossn_link");
+    // direct: zero — bus stamps and KVL stamps replace all link rows.
     const int dir_rows = count_rows_containing(li, "line_flowp_link")
         + count_rows_containing(li, "line_flown_link")
+        + count_rows_containing(li, "line_lossp_link")
+        + count_rows_containing(li, "line_lossn_link")
+        + count_rows_containing(li, "line_flow_link")
         + count_rows_containing(li, "line_loss_link");
 
-    CHECK(pw_rows == 2);
+    CHECK(pw_rows == 4);
     CHECK(dir_rows == 0);
 
-    // direct has zero loss variables and zero aggregator columns
+    // direct has zero loss variables; piecewise (wrapping bidirectional)
+    // has one positive- and one negative-direction loss column.
     CHECK(count_cols_containing(li, "line_lossp_")
               + count_cols_containing(li, "line_lossn_")
           == 0);
     CHECK(count_cols_containing(li_pw, "line_lossp_")
               + count_cols_containing(li_pw, "line_lossn_")
-          == 1);
+          == 2);
   }
 }
 
@@ -1379,18 +1432,30 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
   // |---------------------|-----------------------|---------------------|
   // | none                | 1                     | 0                   |
   // | linear              | 2                     | 0                   |
-  // | piecewise           | K + 3                 | 2                   |
+  // | piecewise           | 2·(K + 2)             | 4                   |
   // | bidirectional       | 2·(K + 2)             | 4                   |
-  // | dynamic             | K + 3                 | 2                   |
+  // | dynamic             | 2·(K + 2)             | 4                   |
   // | adaptive (→piecewise_direct) | 2·K         | 0                   |
   // | piecewise_direct    | 2·K                   | 0                   |
+  //
+  // NOTE: As of 2026-05-31, `piecewise` is a thin wrapper around
+  // `bidirectional` (see add_piecewise in source/line_losses.cpp).
+  // The legacy single-direction shared-loss formulation is
+  // structurally vulnerable to a phantom-flow arbitrage where the LP
+  // dumps quadratic loss at a single negative-LMP receiver while
+  // both `fp` and `fn` are non-zero (verified on CEN PCP v0407:
+  // ~6× system loss inflation).  The bidirectional shape (per-
+  // direction loss column billed at each direction's OWN receiver)
+  // defuses the arbitrage.  `dynamic` (placeholder) also falls back
+  // to `piecewise` and inherits the new shape.
   //
   // NOTE: Under cycle_basis (the default kirchhoff_mode), `adaptive`
   // resolves to `piecewise_direct` — the per-cycle KVL row stamps
   // segments directly, making the aggregator + link + loss rows of
-  // `piecewise` redundant.  This saves 2 rows per (line, block,
-  // scenario, stage). AMPL access to `line.flow` is preserved via the
-  // multi-col seg-sum registration in `line_lp.cpp::add_to_lp`.
+  // `piecewise`/`bidirectional` redundant.  This saves 4 rows per
+  // (line, block, scenario, stage).  AMPL access to `line.flow` is
+  // preserved via the multi-col seg-sum registration in
+  // `line_lp.cpp::add_to_lp`.
   const std::array<ModeExpect, 7> expect = {{
       {.name = "none",
        .flowp_like_cols = 1,
@@ -1424,22 +1489,26 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .lossn_link_rows = 0,
        .total_loss_cols = 2,
        .total_loss_rows = 0},
+      // `piecewise` now wraps `bidirectional` (see header note above)
+      // → same per-direction shape: 1 + K cols for each flow_*,
+      //   K seg cols per direction, 1 loss col per direction,
+      //   4 link rows (flowp/flown × link/loss).
       {.name = "piecewise",
-       .flowp_like_cols = 1,
-       .flown_like_cols = 1,
-       .seg_cols = K,
-       .flowp_seg_cols = 0,
-       .flown_seg_cols = 0,
+       .flowp_like_cols = 1 + K,
+       .flown_like_cols = 1 + K,
+       .seg_cols = 0,
+       .flowp_seg_cols = K,
+       .flown_seg_cols = K,
        .lossp_cols = 1,
-       .lossn_cols = 0,
-       .flow_link_rows = 1,
-       .flowp_link_rows = 0,
-       .flown_link_rows = 0,
-       .loss_link_rows = 1,
-       .lossp_link_rows = 0,
-       .lossn_link_rows = 0,
-       .total_loss_cols = K + 3,
-       .total_loss_rows = 2},
+       .lossn_cols = 1,
+       .flow_link_rows = 0,
+       .flowp_link_rows = 1,
+       .flown_link_rows = 1,
+       .loss_link_rows = 0,
+       .lossp_link_rows = 1,
+       .lossn_link_rows = 1,
+       .total_loss_cols = 2 * (K + 2),
+       .total_loss_rows = 4},
       {.name = "bidirectional",
        .flowp_like_cols = 1 + K,
        .flown_like_cols = 1 + K,
@@ -1456,22 +1525,24 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .lossn_link_rows = 1,
        .total_loss_cols = 2 * (K + 2),
        .total_loss_rows = 4},
-      {.name = "dynamic",  // placeholder → piecewise
-       .flowp_like_cols = 1,
-       .flown_like_cols = 1,
-       .seg_cols = K,
-       .flowp_seg_cols = 0,
-       .flown_seg_cols = 0,
+      // `dynamic` (placeholder) → `piecewise`, which now wraps
+      // `bidirectional` → inherits the per-direction shape.
+      {.name = "dynamic",  // placeholder → piecewise → bidirectional
+       .flowp_like_cols = 1 + K,
+       .flown_like_cols = 1 + K,
+       .seg_cols = 0,
+       .flowp_seg_cols = K,
+       .flown_seg_cols = K,
        .lossp_cols = 1,
-       .lossn_cols = 0,
-       .flow_link_rows = 1,
-       .flowp_link_rows = 0,
-       .flown_link_rows = 0,
-       .loss_link_rows = 1,
-       .lossp_link_rows = 0,
-       .lossn_link_rows = 0,
-       .total_loss_cols = K + 3,
-       .total_loss_rows = 2},
+       .lossn_cols = 1,
+       .flow_link_rows = 0,
+       .flowp_link_rows = 1,
+       .flown_link_rows = 1,
+       .loss_link_rows = 0,
+       .lossp_link_rows = 1,
+       .lossn_link_rows = 1,
+       .total_loss_cols = 2 * (K + 2),
+       .total_loss_rows = 4},
       {.name = "adaptive",  // → piecewise_direct (cycle_basis default)
        .flowp_like_cols = K,
        .flown_like_cols = K,
@@ -1603,31 +1674,18 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     // All PWL modes must use the same per-segment
     //   λ_k = width · R · (2k-1) / V²
     // but encode it differently:
-    //  - piecewise / dynamic: coefficient -λ_k
-    //    on the `loss_link_` row for each `line_seg_` col.
-    //  - bidirectional: coefficient -λ_k on `lossn_link_` for each
-    //    `line_flown_seg_` col (and analogously for the positive side).
+    //  - piecewise / dynamic / bidirectional: coefficient -λ_k on
+    //    `lossn_link_` for each `line_flown_seg_` col (and
+    //    analogously for the positive side).  `piecewise` and
+    //    `dynamic` route through `add_bidirectional` since
+    //    2026-05-31 to defuse the single-direction phantom-flow
+    //    arbitrage, so all three share the same encoding now.
     //  - piecewise_direct / adaptive (→piecewise_direct): no loss row —
     //    +(1 − λ_k) stamped on the receiver bus-balance row for each
     //    `line_flowp_seg_` col.
-    if (e.name == "piecewise" || e.name == "dynamic") {
-      const auto lsl = find_row(li, "line_loss_link_");
-      std::vector<std::pair<std::string, double>> coeffs;
-      for (const auto& [n, idx] : li.col_name_map()) {
-        if (n.contains("line_seg_")) {
-          coeffs.emplace_back(n, li.get_coeff(lsl, idx));
-        }
-      }
-      std::ranges::sort(coeffs);
-      REQUIRE(coeffs.size() == static_cast<size_t>(K));
-      for (int k = 1; k <= K; ++k) {
-        const double expected = -width * R * ((2.0 * k) - 1.0) * s_line / V2;
-        CHECK(coeffs[static_cast<size_t>(k - 1)].second
-              == doctest::Approx(expected));
-      }
-    }
-
-    if (e.name == "bidirectional") {
+    if (e.name == "piecewise" || e.name == "dynamic"
+        || e.name == "bidirectional")
+    {
       const auto lsln = find_row(li, "line_lossn_link_");
       std::vector<std::pair<std::string, double>> coeffs;
       for (const auto& [n, idx] : li.col_name_map()) {

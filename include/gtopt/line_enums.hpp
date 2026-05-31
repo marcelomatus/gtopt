@@ -72,16 +72,28 @@ inline constexpr auto loss_allocation_mode_entries =
  *   Ref: Wood & Wollenberg, "Power Generation, Operation and Control",
  *        Ch. 13, incremental transmission losses.
  *
- * - `piecewise` (2): Single-direction piecewise-linear approximation
- *   of `P_loss = R · f² / V²`.  One set of K segments covers the
- *   absolute flow range `[0, f_max]`, producing K segment variables,
- *   1 linking row, and 1 loss-tracking row per block.  Segment k
- *   (1-based) has loss coefficient `(f_max/K) · R · (2k−1) / V²`.
- *   This is the PLP/PSR approach and produces half the rows of the
- *   `bidirectional` mode.
+ * - `piecewise` (2): Piecewise-linear approximation of
+ *   `P_loss = R · f² / V²`.  The historical single-direction
+ *   implementation used one shared K-segment set covering `[0, f_max]`
+ *   with link row `fp + fn − Σ seg_k = 0` and a single shared `loss`
+ *   column charged once to one bus.  As of 2026-05-31 `piecewise` is
+ *   implemented as a thin wrapper around `bidirectional` for every
+ *   non-`tangent` PWL layout: the single-direction shared-loss
+ *   formulation is structurally vulnerable to a phantom-flow
+ *   arbitrage (`fp · fn > 0` while only one bus pays loss) that
+ *   inflates total system loss in meshed networks with negative-LMP
+ *   receiving buses.  Selecting `piecewise` therefore now produces
+ *   the same LP shape as `bidirectional` (2 × K segment columns,
+ *   per-direction link + loss-tracking rows, per-direction loss
+ *   column).  The legacy single-direction code path is kept only for
+ *   `LinePwlLayout::tangent`, which has no per-direction counterpart.
+ *   Segment k (1-based) has loss coefficient
+ *   `(f_max/K) · R · (2k−1) / V²` (`uniform` layout).
  *   Ref: Macedo, Vallejos, Fernández, "A Dynamic Piecewise Linear
  *        Model for DC Transmission Losses in Optimal Scheduling
- *        Problems", IEEE Trans. Power Syst., vol. 26, no. 1, 2011.
+ *        Problems", IEEE Trans. Power Syst., vol. 26, no. 1, 2011;
+ *        FERC Staff Paper, "Optimal Power Flow Paper 2:
+ *        Linearization", December 2012 (bidirectional shape).
  *
  * - `bidirectional` (3): Two independent piecewise-linear models,
  *   one per flow direction (A→B and B→A).  Each direction gets its
@@ -113,10 +125,23 @@ inline constexpr auto loss_allocation_mode_entries =
  *   `λ_k = (tmax_dir/K) · (2k−1) · R / V²` baked into the coefficients
  *   (PLP `genpdlin.f`).  There is no loss variable, no loss-tracking
  *   row, no aggregator column, and no flow-link row: each segment also
- *   stamps directly into the Kirchhoff (KVL) row with `±x_τ`, so the
- *   identity `Σ seg_k = |f|` is recovered without an explicit equality.
+ *   stamps directly into the Kirchhoff (KVL) row with `±x_τ`.
  *   This produces the most compact LP (2K cols, 0 extra rows per block
  *   per line) and matches the row count of PLP exactly.
+ *
+ *   ⚠ Phantom-flow caveat: because there is NO link row and NO
+ *   `fp/fn` aggregator, the LP has no structural barrier preventing
+ *   simultaneous non-zero positive- AND negative-direction segments.
+ *   Empirically on CEN PCP v0407, `piecewise_direct` is the WORST
+ *   mode for phantom bidirectional flow.  In meshed networks with
+ *   blocks where the receiving bus has negative LMP, the LP can
+ *   inflate both directions to dump quadratic loss "for free" at the
+ *   negative-LMP bus.  Use `bidirectional` (or `piecewise`, which now
+ *   wraps `bidirectional`) instead when phantom-flow purity matters
+ *   more than LP row count.  `piecewise_direct` is only safe in
+ *   networks that never see negative LMPs at receiving buses (PLP's
+ *   historical operating regime).
+ *
  *   Trade-off: the `line.flowp` / `line.flown` solution columns are
  *   *not emitted* for piecewise_direct lines — the AMPL compound
  *   `line.flow` is unavailable for these lines (use `piecewise` if you
@@ -132,11 +157,12 @@ enum class LineLossesMode : uint8_t
 {
   none = 0,  ///< No losses modeled
   linear = 1,  ///< Lumped linear loss factor
-  piecewise = 2,  ///< Single-direction piecewise-linear (PLP-style)
-  bidirectional = 3,  ///< Two-direction piecewise-linear (gtopt legacy)
+  piecewise = 2,  ///< Per-direction PWL (wraps bidirectional; PLP-named)
+  bidirectional = 3,  ///< Two-direction piecewise-linear
   adaptive = 4,  ///< Piecewise if fixed capacity, bidirectional if expandable
   dynamic = 5,  ///< Dynamic piecewise-linear (future; falls back to piecewise)
-  piecewise_direct = 6,  ///< PLP-style compact PWL (no loss vars/rows)
+  piecewise_direct =
+      6,  ///< PLP-style compact PWL (NOT arbitrage-proof, see docstring)
 };
 
 inline constexpr auto line_losses_mode_entries =
@@ -202,6 +228,19 @@ inline constexpr auto line_losses_mode_entries =
  *   loss-overstatement of the secant layout while keeping the exact LP
  *   structure (K cols + 1 row).  `uniform` is preserved as the default
  *   for callers that need a guaranteed upper bound on losses.
+ *
+ *   ⚠ Negative-LMP caveat: the inequality `loss ≥ …` makes `loss` a
+ *   free variable above its lower bound, so in blocks where the
+ *   receiver bus has a NEGATIVE LMP the LP can pick `loss` arbitrarily
+ *   high (up to whatever upstream generation can supply) to gain on
+ *   the dual.  Empirically on CEN PCP v0407 this inflates `loss_sol`
+ *   reporting by ~6× system-wide on lines whose receivers see
+ *   periodic negative-LMP excursions (must-dispatch wind, fixed-load
+ *   exports), but the LP-objective impact is bounded by the gen
+ *   merit-order at the sender so the SOLVE stays well-conditioned.
+ *   Use `uniform` (strict equality) when the reported `loss_sol`
+ *   values matter for downstream accounting and your network has
+ *   recurring negative-LMP receivers.
  *
  * Theory references:
  *   - Imamura et al., *On piecewise linear approximation of quadratic
