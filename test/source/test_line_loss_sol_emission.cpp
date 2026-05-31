@@ -73,12 +73,11 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
           .capacity = 100.0,
       },
   };
-  // Force ``piecewise`` (single-direction PWL) explicitly: this is the
-  // mode that populates ``lossp_cols`` (the precondition for the
-  // consolidated ``loss_sol`` emission).  Default ``adaptive`` under
-  // the default ``cycle_basis`` KVL would resolve to ``piecewise_direct``,
-  // which uses ``seg_p_cols`` / ``seg_n_cols`` and leaves
-  // ``lossp_cols`` / ``lossn_cols`` empty.
+  // Force ``piecewise`` explicitly so this test is independent of the
+  // global ``adaptive`` resolution.  ``piecewise`` populates both
+  // ``lossp_cols`` and ``lossn_cols`` (the precondition for the
+  // consolidated ``loss_sol`` emission); ``piecewise_direct`` would
+  // leave them empty.
   const Array<Line> line_array = {
       {
           .uid = Uid {1},

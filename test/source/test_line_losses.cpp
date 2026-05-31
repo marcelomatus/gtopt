@@ -97,19 +97,21 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
   {
     Line line;
     line.use_line_losses = true;
-    // Global default is adaptive, default kirchhoff_mode is cycle_basis
-    // → resolves to piecewise_direct (no expansion).  Under cycle_basis
-    // the per-cycle KVL row stamps segments directly, so piecewise_direct
-    // saves 2 rows per (line, block, scenario, stage).
+    // Global default is `adaptive`; the cycle_basis → piecewise_direct
+    // shortcut has been retired (piecewise_direct allows phantom flow
+    // on meshed networks with negative-LMP receivers — see CEN PCP
+    // v0407 LP-relax evidence).  Adaptive now always resolves to
+    // `piecewise` (which itself wraps `bidirectional`) when there is
+    // no capacity expansion.
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise_direct);
+          == LineLossesMode::piecewise);
   }
 
-  SUBCASE("adaptive + cycle_basis (default) + no expansion → piecewise_direct")
+  SUBCASE("adaptive + cycle_basis (default) + no expansion → piecewise")
   {
     Line line;
     CHECK(line_losses::resolve_mode(line, options_lp, false)
-          == LineLossesMode::piecewise_direct);
+          == LineLossesMode::piecewise);
   }
 
   SUBCASE("adaptive + expansion → bidirectional (any kirchhoff mode)")
@@ -119,21 +121,15 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
           == LineLossesMode::bidirectional);
   }
 
-  SUBCASE("adaptive + cycle_basis + no expansion → piecewise_direct")
+  SUBCASE("adaptive + cycle_basis + no expansion → piecewise")
   {
-    // Under cycle_basis the per-cycle KVL row stamps segments directly,
-    // so the aggregator + link + loss rows of `piecewise` add no
-    // information.  `adaptive` therefore picks `piecewise_direct` to
-    // save 2 rows per (line, block, scenario, stage).  AMPL access to
-    // `line.flow` is preserved by the multi-col seg-sum registration
-    // in `line_lp.cpp::add_to_lp`.
     PlanningOptions opts_cb;
     opts_cb.model_options.kirchhoff_mode = OptName {"cycle_basis"};
     const PlanningOptionsLP options_cb(opts_cb);
 
     Line line;
     CHECK(line_losses::resolve_mode(line, options_cb, false)
-          == LineLossesMode::piecewise_direct);
+          == LineLossesMode::piecewise);
   }
 
   SUBCASE("adaptive + cycle_basis + expansion → bidirectional")
@@ -149,14 +145,9 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
 
   SUBCASE("adaptive + node_angle + no expansion → piecewise")
   {
-    // Mirror of the cycle_basis cases above for the older
-    // B-θ formulation.  Under node_angle the per-line KVL row stamps
-    // the `flowp` / `flown` aggregator cols, so `piecewise_direct`
-    // (which only emits segments) would force the kirchhoff stamper
-    // onto the per-segment path — same physics but with K stamps per
-    // line per block instead of 1.  `adaptive` therefore keeps
-    // `piecewise` (K+3 cols, 2 rows) here as the more compact
-    // choice for node_angle.
+    // node_angle and cycle_basis now resolve identically for `adaptive`
+    // (both → piecewise) because piecewise == bidirectional shape and
+    // there is no phantom-flow-safe shortcut for cycle_basis.
     PlanningOptions opts_na;
     opts_na.model_options.kirchhoff_mode = OptName {"node_angle"};
     const PlanningOptionsLP options_na(opts_na);
@@ -210,11 +201,16 @@ TEST_CASE("line_losses::resolve_mode fallback chain")
 
     Line line;
     line.use_line_losses = true;
-    // Global is none, but per-line enables → falls back to default (adaptive)
-    // Without expansion → piecewise_direct (cycle_basis default)
+    // Global is none, but per-line enables → falls back to default
+    // (adaptive).  Without expansion → `piecewise` since 2026-05-31
+    // (was `piecewise_direct` under cycle_basis; retired because
+    // piecewise_direct has no link row and lets the LP run phantom
+    // bidirectional flow on meshed networks with negative-LMP
+    // receivers — see `resolve_adaptive_dynamic` in line_losses.cpp).
     CHECK(line_losses::resolve_mode(line, options_none, false)
-          == LineLossesMode::piecewise_direct);
-    // With expansion → bidirectional
+          == LineLossesMode::piecewise);
+    // With expansion → bidirectional (capacity rows need the
+    // per-direction decomposition).
     CHECK(line_losses::resolve_mode(line, options_none, true)
           == LineLossesMode::bidirectional);
   }
@@ -1543,22 +1539,27 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
        .lossn_link_rows = 1,
        .total_loss_cols = 2 * (K + 2),
        .total_loss_rows = 4},
-      {.name = "adaptive",  // → piecewise_direct (cycle_basis default)
-       .flowp_like_cols = K,
-       .flown_like_cols = K,
+      // `adaptive` now resolves to `piecewise` for the no-expansion
+      // case (formerly `piecewise_direct` under cycle_basis — retired
+      // since 2026-05-31 because piecewise_direct has phantom-flow
+      // exposure on meshed networks; see add_piecewise docstring).
+      // Same shape as `piecewise` / `bidirectional`.
+      {.name = "adaptive",
+       .flowp_like_cols = 1 + K,
+       .flown_like_cols = 1 + K,
        .seg_cols = 0,
        .flowp_seg_cols = K,
        .flown_seg_cols = K,
-       .lossp_cols = 0,
-       .lossn_cols = 0,
+       .lossp_cols = 1,
+       .lossn_cols = 1,
        .flow_link_rows = 0,
-       .flowp_link_rows = 0,
-       .flown_link_rows = 0,
+       .flowp_link_rows = 1,
+       .flown_link_rows = 1,
        .loss_link_rows = 0,
-       .lossp_link_rows = 0,
-       .lossn_link_rows = 0,
-       .total_loss_cols = 2 * K,
-       .total_loss_rows = 0},
+       .lossp_link_rows = 1,
+       .lossn_link_rows = 1,
+       .total_loss_cols = 2 * (K + 2),
+       .total_loss_rows = 4},
       {.name = "piecewise_direct",
        .flowp_like_cols = K,
        .flown_like_cols = K,
@@ -1680,11 +1681,13 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
     //    `dynamic` route through `add_bidirectional` since
     //    2026-05-31 to defuse the single-direction phantom-flow
     //    arbitrage, so all three share the same encoding now.
-    //  - piecewise_direct / adaptive (→piecewise_direct): no loss row —
-    //    +(1 − λ_k) stamped on the receiver bus-balance row for each
-    //    `line_flowp_seg_` col.
+    //  - piecewise_direct: no loss row — +(1 − λ_k) stamped on the
+    //    receiver bus-balance row for each `line_flowp_seg_` col.
+    //  - adaptive resolves to `piecewise` since 2026-05-31 (the
+    //    cycle_basis → piecewise_direct shortcut was retired) and
+    //    therefore lives in the lossn_link branch below.
     if (e.name == "piecewise" || e.name == "dynamic"
-        || e.name == "bidirectional")
+        || e.name == "bidirectional" || e.name == "adaptive")
     {
       const auto lsln = find_row(li, "line_lossn_link_");
       std::vector<std::pair<std::string, double>> coeffs;
@@ -1702,7 +1705,7 @@ TEST_CASE("line_losses - all modes cross-comparison matrix")
       }
     }
 
-    if (e.name == "piecewise_direct" || e.name == "adaptive") {
+    if (e.name == "piecewise_direct") {
       // Direct: no loss row — λ_k is stamped on the bus-balance row
       // (receiver allocation: bus_b coeff = +(1 - λ_k)).
       const auto bal_b = find_row(li, "bus_balance_2");

@@ -24,49 +24,40 @@ namespace gtopt::line_losses
 namespace
 {
 
-/// Map `adaptive` → piecewise/piecewise_direct/bidirectional;
-/// `dynamic` → piecewise; demote `piecewise_direct` → `piecewise` if
-/// expansion is active.
+/// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
+/// demote `piecewise_direct` → `piecewise` if expansion is active.
 ///
-/// `adaptive` picks the smallest-LP piecewise-linear option for the
-/// active KVL formulation:
-///   - has expansion           → `bidirectional` (2K+4 cols, 4 rows)
-///   - no expansion + cycle_basis → `piecewise_direct` (2K cols, 0 rows)
-///   - no expansion + node_angle  → `piecewise`        (2K+4 cols, 4 rows
-///                                                      since piecewise now
-///                                                      wraps bidirectional)
+/// `adaptive` now always picks `piecewise` (which itself wraps
+/// `bidirectional` for every non-`tangent` layout — see `add_piecewise`
+/// in this file).  Both KVL formulations get the same arbitrage-free
+/// LP shape: 2K+4 cols and 4 rows per (line, block, scenario, stage):
+///   - has expansion              → `bidirectional` (2K+4 cols, 4 rows)
+///   - no expansion + cycle_basis → `piecewise`    (2K+4 cols, 4 rows)
+///   - no expansion + node_angle  → `piecewise`    (2K+4 cols, 4 rows)
 ///
-/// Under cycle_basis the per-cycle KVL row already supports stamping
-/// segments directly (see ``kirchhoff_cycle_basis.cpp:379-390``), so
-/// the aggregator + link + loss rows of `piecewise`/`bidirectional`
-/// add no information — picking `piecewise_direct` saves 4 rows per
-/// (line, block, scenario, stage) at the cost of skipping the per-line
-/// `flowp`/`flown` solution columns.  AMPL access to `line.flow` is
-/// preserved via the multi-col segment-sum registration in
-/// ``line_lp.cpp``.
+/// Prior `adaptive` routed `cycle_basis` + no-expansion to
+/// `piecewise_direct` (2K cols, 0 rows — the smallest-LP option).  That
+/// choice has been retired because `piecewise_direct` has no link row
+/// and no `fp`/`fn` aggregator, so the LP can dump quadratic loss into
+/// fictitious bidirectional flow at any meshed line whose receiving bus
+/// has a negative LMP.  Verified empirically on CEN PCP v0407 LP-relax:
+/// `piecewise_direct` produced ~1500 GWh of fictitious bidirectional
+/// flow vs ~130 GWh under `piecewise` (which is itself 99 % cleaner
+/// after the `piecewise` → `bidirectional` wrapping).  The 4-row cost
+/// of `piecewise` is worth the arbitrage immunity in any case where
+/// curtailment-priced demand or must-dispatch surplus can drive
+/// receivers negative — i.e. virtually every realistic GTEP case.
 ///
-/// ⚠ Phantom-flow caveat: `piecewise_direct` has NO link row and NO
-/// fp/fn aggregator, so the LP can run both directions simultaneously
-/// to dump quadratic loss at a negative-LMP receiving bus.  In
-/// meshed networks where some receivers see negative LMPs (typical of
-/// PCP cases with congestion + curtailment-priced demand), prefer
-/// `piecewise` or `bidirectional`; both now use per-direction loss
-/// columns billed at each direction's OWN receiver, defusing the
-/// arbitrage.
-///
-/// `piecewise_direct` is selectable explicitly in either KVL mode.
-constexpr LineLossesMode resolve_adaptive_dynamic(LineLossesMode mode,
-                                                  bool has_expansion,
-                                                  KirchhoffMode kirchhoff_mode)
+/// `piecewise_direct` remains selectable explicitly when the caller
+/// can guarantee non-negative receiver LMPs (PLP's historical
+/// operating regime: no congestion + no curtailment pricing).
+constexpr LineLossesMode resolve_adaptive_dynamic(
+    LineLossesMode mode, bool has_expansion, KirchhoffMode /*kirchhoff_mode*/)
 {
   switch (mode) {
     case LineLossesMode::adaptive:
-      if (has_expansion) {
-        return LineLossesMode::bidirectional;
-      }
-      return (kirchhoff_mode == KirchhoffMode::cycle_basis)
-          ? LineLossesMode::piecewise_direct
-          : LineLossesMode::piecewise;
+      return has_expansion ? LineLossesMode::bidirectional
+                           : LineLossesMode::piecewise;
     case LineLossesMode::dynamic:
       return LineLossesMode::piecewise;
     case LineLossesMode::piecewise_direct:

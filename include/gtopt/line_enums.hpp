@@ -104,13 +104,19 @@ inline constexpr auto loss_allocation_mode_entries =
  *   Ref: FERC Staff Paper, "Optimal Power Flow Paper 2: Linearization",
  *        December 2012.
  *
- * - `adaptive` (4): Automatically selects `piecewise` for lines with
- *   fixed capacity (no expansion modules) and `bidirectional` for
- *   expandable lines.  Fixed-capacity lines can encode `f ≤ tmax` in
- *   segment variable bounds, so a single-direction model suffices.
- *   Expandable lines need explicit capacity rows (`cap − f ≥ 0`)
- *   per direction, requiring the bidirectional decomposition.
- *   This is the recommended default for mixed networks.
+ * - `adaptive` (4): Automatically selects an arbitrage-free PWL mode
+ *   based on whether the line carries capacity expansion:
+ *     - has expansion              → `bidirectional` (capacity rows
+ *                                     need the per-direction decomposition)
+ *     - no expansion + any KVL     → `piecewise` (which itself wraps
+ *                                     `bidirectional` for non-tangent
+ *                                     layouts; both produce identical LP).
+ *   The previous shortcut that routed `cycle_basis + no-expansion` to
+ *   `piecewise_direct` has been retired because `piecewise_direct` is
+ *   not phantom-flow safe on meshed networks with negative-LMP
+ *   receivers (see `piecewise_direct` docstring below).  Recommended
+ *   default for any GTEP case that may produce negative receiver LMPs
+ *   (curtailment-priced demand, must-dispatch surplus, congestion).
  *
  * - `dynamic` (5): Iteratively adjusted piecewise-linear segments
  *   that track the current operating point.  Achieves higher accuracy
