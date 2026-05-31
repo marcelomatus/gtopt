@@ -2046,8 +2046,7 @@ def test_extract_user_constraints_cf_gen_comp_emits_activity_flow(
     tmp_path: Path,
 ) -> None:
     """``BAT_*_CF_GEN_COMP`` must emit BOTH ``.charge`` AND ``.discharge``
-    legs (the L1 of net dispatch / activity-flow) AND use ``=`` sense
-    (PLEXOS-faithful equality, not the ``>=`` default).
+    legs (the L1 of net dispatch / activity-flow).
 
     Empirical PLEXOS sol audit (2026-05-31): at solar peak in northern
     Chile, the 4 BESS plants (DON_HUMBERTO_FV, MANZANO_FV, TOCOPILLA,
@@ -2062,11 +2061,9 @@ def test_extract_user_constraints_cf_gen_comp_emits_activity_flow(
     activity-flow expansion ``charge + discharge`` is the simplest
     AUX-free reproduction that binds correctly in both operating modes.
 
-    PLEXOS-faithful sense: the XML ships Sense=unset on these
-    constraints; PLEXOS treats unset as EQUALITY ``=``.  The legacy
-    ``_SENSE_OP[0.0] → ">="`` default would let the LP set the
-    reserve term to 0 and satisfy the inequality trivially; the
-    equality forces both sides to track each other.
+    Default sense is ``<=`` (physical UPPER bound on reserve from
+    activity).  See the ``--plexos-legacy`` test below for the
+    PLEXOS-faithful ``=`` alternative.
     """
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(_UC_AUX_REDIRECT_XML)
@@ -2080,17 +2077,51 @@ def test_extract_user_constraints_cf_gen_comp_emits_activity_flow(
     # Both legs are present with the same (negative) coefficient.
     assert 'battery("BAT_TEST").discharge' in expr
     assert 'battery("BAT_TEST").charge' in expr
-    # PLEXOS-faithful sense: equality, not the legacy ``>=`` default.
-    # Catches both ``= 0`` (with whitespace) and ``= 0`` at EOL.
-    assert " = " in expr, (
-        f"BAT_*_CF_GEN_COMP must emit equality sense (PLEXOS unset = "
-        f"equality); got {expr!r}"
+    # Default sense is ``<=`` — physical UPPER bound on reserve from
+    # activity (no negative-dual artifact).
+    assert "<=" in expr, (
+        f"BAT_*_CF_GEN_COMP must emit ``<=`` sense by default "
+        f"(physical upper bound); got {expr!r}"
     )
-    assert ">=" not in expr, (
-        f"legacy ``>=`` default would let the LP set the reserve term "
-        f"to 0 and satisfy the inequality trivially; got {expr!r}"
+    assert " = " not in expr, (
+        f"default mode must NOT emit equality (that's --plexos-legacy "
+        f"only — produces negative-dual artifacts); got {expr!r}"
     )
     # No AUX leaks through.
+    assert "_AUX" not in expr
+
+
+def test_extract_user_constraints_cf_gen_comp_plexos_legacy_uses_equality(
+    tmp_path: Path,
+) -> None:
+    """With ``--plexos-legacy`` (i.e. ``plexos_legacy=True``), the
+    ``BAT_*_CF_*_COMP`` family flips back to ``=`` (the PLEXOS-faithful
+    equality).  Use for LMP-comparison testing where reproducing
+    PLEXOS's negative duals at the northern BESS buses matters.
+
+    Mirrors plp2gtopt's ``--plp-legacy`` pattern: a single global
+    switch gating PLEXOS-reproduction quirks that diverge from the
+    physics-correct default.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UC_AUX_REDIRECT_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    allow = {"Battery": frozenset({"BAT_TEST"})}
+    out = extract_user_constraints(db, bundle, emitted_names=allow, plexos_legacy=True)
+    by_name = {c.name: c for c in out}
+
+    expr = by_name["BAT_TEST_CF_GEN_COMP"].expression
+    assert 'battery("BAT_TEST").discharge' in expr
+    assert 'battery("BAT_TEST").charge' in expr
+    # PLEXOS-faithful sense: equality.
+    assert " = " in expr, (
+        f"--plexos-legacy must emit equality (PLEXOS unset = "
+        f"equality on this family); got {expr!r}"
+    )
+    assert "<=" not in expr, (
+        f"--plexos-legacy must NOT keep the physical ``<=``; got {expr!r}"
+    )
     assert "_AUX" not in expr
 
 

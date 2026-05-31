@@ -6127,6 +6127,7 @@ def extract_user_constraints(
     stats_out: dict[str, int] | None = None,
     lax_refs: bool = False,
     reserves: tuple[ReserveSpec, ...] = (),
+    plexos_legacy: bool = False,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -6726,25 +6727,42 @@ def extract_user_constraints(
         if op is None:
             logger.debug("constraint %s has unknown Sense %s", constr.name, sense_val)
             continue
-        # ── PLEXOS-faithful sense for BAT_*_CF_GEN_COMP / CF_LOAD_COMP ──
+        # ── Sense override for BAT_*_CF_GEN_COMP / CF_LOAD_COMP ──
         # The ``_SENSE_OP`` table maps ``0.0 → ">="`` (legacy default
         # for the broad set of unset-Sense constraints PLEXOS ships),
-        # but PLEXOS treats unset Sense as EQUALITY ``=`` — verified
-        # 2026-05-31 on v0407 sol for the BAT_<bat>_CF_<dir>_COMP
-        # family.  A one-sided ``>=`` lets the LP trivially set the
-        # right-hand reserve-provision term to 0 (its lower bound)
-        # and satisfy the inequality at zero cost; the LP never
-        # incurs the binding-equality opportunity cost (~$31-$54 dual
-        # in PLEXOS) and the battery's downward reserve-provision
-        # capacity stays unbounded → free-riding on reserve revenue
-        # without operational coupling, missing the negative LMPs at
-        # northern BESS buses.  Surgical fix: flip the sense to ``=``
-        # only for this family; the other ~52 default-equality
-        # constraints (``_ConfTGA*``, ``*_CPF_Simmetry``,
-        # ``Inertia_Calculation_e*``) are left at ``>=`` pending a
-        # separate sense-audit.
+        # but for BAT_<bat>_CF_<dir>_COMP the legacy ``>=`` makes no
+        # physical sense — it would force ``reserve_provision ≥
+        # activity / 0.3`` (a LOWER bound forcing the battery to
+        # ALWAYS commit reserve when active), which doesn't match
+        # either physics or PLEXOS.
+        #
+        # Two defensible choices:
+        #
+        #   * ``<=`` (DEFAULT, physical): ``reserve_provision ≤
+        #     activity / 0.3`` — UPPER bound on reserve from
+        #     operational engagement.  Captures the real physics
+        #     ("you can't promise more reserve than you can deliver")
+        #     without forcing the LP to commit reserve unnecessarily.
+        #     Avoids the negative-LMP artifact (no equality-binding
+        #     opportunity cost contaminating downstream prices).
+        #
+        #   * ``=`` (PLEXOS-faithful, opt-in via ``--plexos-legacy``):
+        #     ``reserve_provision = activity / 0.3`` — tight
+        #     complementarity that matches PLEXOS's auto-expansion of
+        #     these constraints.  Produces the negative LP shadow
+        #     prices (-$31 to -$54 in v0407 sol) and the corresponding
+        #     northern-BESS-bus negative LMPs (Andes220 -$6.38,
+        #     MariaElena220 -$1.30).  Use for PLEXOS-comparison tests;
+        #     not recommended for production gtopt because the
+        #     negative duals propagate through the LP shadow price
+        #     stack.
+        #
+        # Surgical scope: only for ``_is_bat_complementarity`` family;
+        # the other ~52 default-equality constraints (``_ConfTGA*``,
+        # ``*_CPF_Simmetry``, ``Inertia_Calculation_e*``) keep the
+        # legacy ``>=`` pending a separate sense-audit.
         if sense_val == 0.0 and _uc_policy._is_bat_complementarity(constr.name):
-            op = "="
+            op = "=" if plexos_legacy else "<="
         penalty_val = (
             _horizon_value(db.data_for(mid, prop_penalty), horizon_start)
             if prop_penalty
@@ -8841,7 +8859,12 @@ def _auto_promote_hydro_min_max_to_commitments(
     return tuple(new_commitments), drop_names
 
 
-def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCase:
+def extract_case(
+    bundle: PlexosBundle,
+    *,
+    lax_uc_refs: bool = False,
+    plexos_legacy: bool = False,
+) -> PlexosCase:
     """Run every extractor and return the assembled :class:`PlexosCase`.
 
     This is the single entry-point the writer should consume; the
@@ -8852,6 +8875,10 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         reference check (``UnresolvedConstraintReferenceError``) to a
         warning + silent per-term drop.  See ``--lax-uc-refs`` on the
         CLI for the use case (debugging / iterative parser work).
+    :param plexos_legacy: when True, emit PLEXOS-faithful formulations
+        even when they're not the physically / economically right
+        choice.  See ``--plexos-legacy`` on the CLI for the running
+        list of toggles.  Mirrors plp2gtopt's ``--plp-legacy``.
     """
     db = load_xml(bundle.xml_path)
     reservoirs = extract_reservoirs(db, bundle)
@@ -9379,6 +9406,7 @@ def extract_case(bundle: PlexosBundle, *, lax_uc_refs: bool = False) -> PlexosCa
         stats_out=uc_stats_raw,
         lax_refs=lax_uc_refs,
         reserves=reserves,
+        plexos_legacy=plexos_legacy,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, case.turbines, case.generators

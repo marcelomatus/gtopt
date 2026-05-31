@@ -133,6 +133,30 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--plexos-legacy",
+        action="store_true",
+        help=(
+            "EMIT PLEXOS-FAITHFUL FORMULATIONS even when they're not the "
+            "physically / economically right choice.  Use for PLEXOS-"
+            "comparison testing (closer LMP/dual reproduction); leave OFF "
+            "for normal gtopt use (cleaner LP, no artifact negative duals).\n"
+            "\n"
+            "Mirrors plp2gtopt's ``--plp-legacy`` (single switch gating a "
+            "growing list of source-reproduction quirks).\n"
+            "\n"
+            "Toggles:\n"
+            "  * BAT_*_CF_GEN_COMP / CF_LOAD_COMP sense — PLEXOS treats "
+            "Sense=unset as EQUALITY (=).  Default (--plexos-legacy OFF) "
+            "emits ``<=`` (physical upper bound: reserve provision capped "
+            "by battery activity).  With --plexos-legacy emits ``=`` "
+            "(PLEXOS-faithful complementarity, produces negative duals in "
+            "the LP shadow as in PLEXOS sol — for LMP-reproduction tests).\n"
+            "\n"
+            "Add new entries here as we discover PLEXOS reproduction quirks "
+            "that diverge from the physics-correct default."
+        ),
+    )
+    parser.add_argument(
         "--use-single-bus",
         action="store_true",
         help="collapse the multi-bus topology to a single bus (copperplate)",
@@ -885,6 +909,7 @@ def main(argv: list[str] | None = None) -> None:
         "run_check": args.run_check,
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
+        "plexos_legacy": args.plexos_legacy,
     }
 
     if args.compare_json:
