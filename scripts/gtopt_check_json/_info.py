@@ -138,6 +138,11 @@ class SystemIndicators:
     num_fuelled_generators: int = 0
     total_fuel_offtake_cap: float = 0.0  # Σ Fuel.max_offtake (weekly caps)
     num_fuel_caps: int = 0
+    # Take-or-pay floors (Fuel.min_offtake; PLEXOS Min Offtake family
+    # pids 595-602).  Zero across every cached CEN PCP bundle
+    # (2025-10..2026-05) — the converter ships dormant plumbing.
+    total_fuel_offtake_floor: float = 0.0  # Σ Fuel.min_offtake
+    num_fuel_floors: int = 0
     # -- Tier 2: commitment --
     total_startup_cost: float = 0.0
     total_shutdown_cost: float = 0.0
@@ -862,6 +867,13 @@ def compute_indicators(
         )
         if c is not None
     ]
+    fuel_floors = [
+        c
+        for c in (
+            _first_scalar(f.get("min_offtake")) for f in sys_data.get("fuel_array", [])
+        )
+        if c is not None
+    ]
 
     # Σ generator minimum stable level (Gen_MinStableLevel / Gen_FixedLoad).
     total_gen_min_stable = sum(
@@ -981,6 +993,8 @@ def compute_indicators(
         num_fuelled_generators=len(heat_rates),
         total_fuel_offtake_cap=sum(fuel_caps),
         num_fuel_caps=len(fuel_caps),
+        total_fuel_offtake_floor=sum(fuel_floors),
+        num_fuel_floors=len(fuel_floors),
         total_startup_cost=total_startup_cost,
         total_shutdown_cost=total_shutdown_cost,
         num_committable=num_committable,

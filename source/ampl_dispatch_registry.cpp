@@ -516,6 +516,20 @@ std::optional<double> fuel_param_max_offtake_cost(const SystemContext& sc,
 {
   return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_max_offtake_cost(s);
 }
+std::optional<double> fuel_param_min_offtake(const SystemContext& sc,
+                                             Uid uid,
+                                             StageUid s,
+                                             BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_min_offtake(s);
+}
+std::optional<double> fuel_param_min_offtake_cost(const SystemContext& sc,
+                                                  Uid uid,
+                                                  StageUid s,
+                                                  BlockUid /*b*/)
+{
+  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_min_offtake_cost(s);
+}
 
 // LngTerminal — delivery (m³/stage).  Per-stage scheduled LNG
 // arrival; the LP per-block inflow rate is ``delivery /
@@ -823,6 +837,12 @@ void register_ampl_param_dispatchers(SimulationLP& sim)
   sim.register_ampl_param(fuel_cls, "max_offtake", &fuel_param_max_offtake);
   sim.register_ampl_param(
       fuel_cls, "max_offtake_cost", &fuel_param_max_offtake_cost);
+  // Fuel — min_offtake floor row (PLEXOS take-or-pay; pids 595-602).
+  // Symmetric to the max-side params above; PAMPL exposes both so
+  // compliance / audit UCs can reference the floor identically.
+  sim.register_ampl_param(fuel_cls, "min_offtake", &fuel_param_min_offtake);
+  sim.register_ampl_param(
+      fuel_cls, "min_offtake_cost", &fuel_param_min_offtake_cost);
 
   // LngTerminal — scheduled LNG delivery per stage.
   constexpr auto lng_terminal_cls = LngTerminal::class_name.snake_case();
