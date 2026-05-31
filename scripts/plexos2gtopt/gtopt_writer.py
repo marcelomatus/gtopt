@@ -1293,6 +1293,7 @@ def build_demand_array(
 
 def build_battery_array(
     batteries: tuple[BatterySpec, ...],
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One battery entry per :class:`BatterySpec`.
 
@@ -1331,15 +1332,63 @@ def build_battery_array(
                 bat.emin,
             )
             eini = bat.emin
+        # End-of-horizon anchoring via per-block emin / emax profiles.
+        # gtopt's legacy ``efin`` field is enforced as
+        # ``vol_end >= efin`` (a lower bound) — for the common
+        # ``efin = eini = 0`` configuration that's mathematically
+        # redundant with the variable's natural bound, leaving the
+        # energy-balance dual chain unanchored
+        # (UPStorageBound_BAT_* duals cascading to -inf, verified
+        # 2026-05-31 on v0407 LP-relax).
+        #
+        # Anchor the chain via per-block emin / emax HARD equalities
+        # at both endpoints (BESS daily-cycle physics):
+        #   * First block: emin = emax = eini  →  energy[1] = eini
+        #   * Last block:  emin = emax = eini  →  energy[N] = eini
+        #   * Other blocks: emin = bat.emin, emax = bat.emax (default)
+        #
+        # Both endpoints pinned to the PLEXOS-supplied initial SoC.
+        # For batteries that PLEXOS initialises (``BESS_IniValue.csv``
+        # > 0) this matches the natural daily-cycle return-to-start
+        # behaviour.  For batteries with eini = 0 it forces the LP to
+        # end empty too — combined with the self-discharge loss below,
+        # the LP-relax dual cascade is cured for all batteries.
+        # ``daily_cycle = False`` disables gtopt's auto-anchor.
+        emin_field: Any = bat.emin
+        emax_field: Any = bat.emax
+        use_cycle_anchor = (
+            bat.max_cycles_day > 0.0
+            and bat.emax > 0.0
+            and block_layout  # need to know n_blocks per stage
+        )
+        if use_cycle_anchor:
+            n_blocks = len(block_layout)
+            emin_blocks = [bat.emin] * n_blocks
+            emax_blocks = [bat.emax] * n_blocks
+            # Pin block 1 hard to eini.
+            emin_blocks[0] = eini
+            emax_blocks[0] = eini
+            # Pin block N hard to eini — full daily-cycle equality.
+            emin_blocks[-1] = eini
+            emax_blocks[-1] = eini
+            emin_field = [emin_blocks]
+            emax_field = [emax_blocks]
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": bat.name,
             "bus": bat.bus_name,
-            "emin": bat.emin,
-            "emax": bat.emax,
+            "emin": emin_field,
+            "emax": emax_field,
             "eini": eini,
             "efin": bat.efin,
         }
+        if use_cycle_anchor:
+            # Disable gtopt's auto-cycle ``efin == eini`` anchor —
+            # the per-block emin/emax profiles already encode the
+            # daily-cycle physics.  Leaving ``daily_cycle = true``
+            # (the BatteryLP default) would double-anchor and force
+            # the LP into a strictly tighter region than PLEXOS.
+            entry["daily_cycle"] = False
         if bat.pmax_discharge > 0.0:
             entry["pmax_discharge"] = bat.pmax_discharge
         if bat.pmax_charge > 0.0:
@@ -1380,6 +1429,39 @@ def build_battery_array(
         if bat.max_cycles_day > 0.0 and bat.emax > 0.0:
             entry["capacity"] = bat.emax
             entry["max_cycles_day"] = bat.max_cycles_day
+        # Default self-discharge for Li-ion BESS — gtopt's
+        # ``Battery.annual_loss`` (p.u./year linear) drives the
+        # energy-balance row coefficient
+        # ``SoC[t+1] = SoC[t] × (1 − annual_loss / 8760) + flows``.
+        #
+        # Literature on Li-ion BESS self-discharge:
+        #   * Battery University BU-802b: 0.35–2.5 %/month at 20 °C
+        #   * NREL Energy Storage Database: LFP 1–3 %/month;
+        #     NMC 2–5 %/month
+        #   * IEA Battery Storage Roadmap 2024: 1–3 %/month typical
+        #
+        # 2 %/month is mid-range — representative of LFP cells (the
+        # dominant grid-BESS chemistry in CEN deployments) at
+        # ambient operating temperatures (northern Chile averages
+        # ~25 °C).  Cumulative annual fraction lost:
+        # ``1 − (1 − 0.02)^12 ≈ 0.215`` (21.5 %/year linear).
+        #
+        # Setting an explicit loss has TWO LP-conditioning benefits
+        # beyond physical realism: (a) it gently penalises holding
+        # energy in storage, regularising the energy-balance equality
+        # chain and curing the LP-relax dual cascade we observe at
+        # eini = 0 batteries; (b) it makes the writer's emitted JSON
+        # self-documenting for downstream tools (gtopt_check, audit
+        # scripts) that expect explicit physical parameters.
+        #
+        # Only emit when PLEXOS doesn't already ship its own
+        # ``annual_loss`` value (which the converter pulls from
+        # ``Battery.Self-discharge Rate`` if PLEXOS sets it — never
+        # observed populated in v0407 but the safety check costs
+        # nothing).
+        if bat.max_cycles_day > 0.0 and bat.emax > 0.0:
+            if "annual_loss" not in entry:
+                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year
         out.append(entry)
     return out
 
@@ -1678,6 +1760,39 @@ def build_reservoir_array(
             mode = _os.environ.get("GTOPT_RESERVOIR_SPILL", "").lower()
             if mode in ("1", "true", "yes", "basic", "strict"):
                 entry["spillway_cost"] = 0.0
+        # Default annual evaporation / seepage loss for hydroelectric
+        # reservoirs — gtopt's ``Reservoir.annual_loss`` (p.u./year
+        # linear) drives the energy-balance row coefficient
+        # ``V[t+1] = V[t] × (1 − annual_loss / 8760 × duration) + flows``.
+        #
+        # Literature on reservoir evaporation losses (annual fraction
+        # of usable storage lost to surface evaporation + seepage):
+        #   * ICOLD Bulletin on Reservoir Operation: 3–5 %/year average
+        #     worldwide
+        #   * World Bank Hydropower Sustainability Assessment Protocol:
+        #     0.5–10 %/year, climate-dependent
+        #   * Andean / cool-climate reservoirs (CEN: PEHUENCHE, RALCO,
+        #     COLBUN, ELTORO, MACHICURA, PANGUE — all alpine):
+        #     1–3 %/year typical
+        #   * Mediterranean / arid reservoirs: 4–7 %/year
+        #   * Tropical / desert reservoirs: 8–15 %/year
+        #
+        # 4 %/year is a reasonable mid-range default for CEN's
+        # Andean reservoirs — slightly above the cool-climate 1–3 %
+        # band to account for the high-altitude UV-driven evaporation
+        # at the larger surface-area reservoirs (RAPEL, COLBUN).
+        # Conservative enough not to distort the LP economics but
+        # large enough to gently anchor the storage chain and
+        # regularise the LP basis.
+        #
+        # Only emit when PLEXOS doesn't already ship its own
+        # ``annual_loss`` value (which the converter pulls from
+        # ``Storage.Annual Loss Rate`` if PLEXOS sets it — never
+        # observed populated in v0407 but the safety check costs
+        # nothing).  Skip reservoirs with effectively zero storage
+        # (pass-through / RoR pondage where the loss is meaningless).
+        if "annual_loss" not in entry and res.emax > 0.0:
+            entry["annual_loss"] = 0.04  # 4 %/year — CEN Andean default
         out.append(entry)
     return out
 
@@ -2653,7 +2768,9 @@ def build_planning(
             overload_penalty=line_overload_penalty,
         ),
         "demand_array": demand_array,
-        "battery_array": build_battery_array(case.batteries),
+        "battery_array": build_battery_array(
+            case.batteries, block_layout=case.bundle.block_layout
+        ),
         "fuel_array": fuel_array,
         "emission_array": emission_array,
         "junction_array": build_junction_array(case.junctions),
