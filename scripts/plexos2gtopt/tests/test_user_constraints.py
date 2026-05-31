@@ -2005,6 +2005,18 @@ def test_extract_user_constraints_aux_battery_redirect(tmp_path: Path) -> None:
     assert 'battery("BAT_TEST").discharge' in expr, (
         f"redirect must rewrite AUX → main; got {expr!r}"
     )
+    # Activity-flow expansion: BAT_*_CF_GEN_COMP / CF_LOAD_COMP must
+    # include BOTH .discharge AND .charge so the constraint binds in
+    # either battery operating mode.  Without the .charge leg, the
+    # constraint is trivially zero at solar peak when the battery is
+    # charging (discharge=0), which broke the PLEXOS-LMP reproduction
+    # at the northern BESS buses (Andes220 / MariaElena220) — see
+    # the parsers.py docstring near the AUX redirect for the
+    # 2026-05-31 audit + PLEXOS sol cross-check.
+    assert 'battery("BAT_TEST").charge' in expr, (
+        f"BAT_*_CF_GEN_COMP must also emit the complementary "
+        f".charge leg (L1 of net dispatch); got {expr!r}"
+    )
     assert "_AUX" not in expr, "no AUX ref should survive the redirect"
 
 
@@ -2028,6 +2040,41 @@ def test_extract_user_constraints_aux_redirect_only_when_main_emitted(
     msg = str(excinfo.value)
     assert "BAT_TEST_CF_GEN_COMP" in msg
     assert "BAT_TEST_AUX" in msg
+
+
+def test_extract_user_constraints_cf_gen_comp_emits_activity_flow(
+    tmp_path: Path,
+) -> None:
+    """``BAT_*_CF_GEN_COMP`` must emit BOTH ``.charge`` AND ``.discharge``
+    legs (the L1 of net dispatch / activity-flow).
+
+    Empirical PLEXOS sol audit (2026-05-31): at solar peak in northern
+    Chile, the 4 BESS plants (DON_HUMBERTO_FV, MANZANO_FV, TOCOPILLA,
+    LA_CABANA_EO) are CHARGING — ``main.discharge = 0``, ``main.load >
+    0``.  A constraint emitted as ``-1 * battery.discharge + ... >= 0``
+    is then trivially zero on the LHS and never binds, letting the LP
+    free-ride on the battery's downward reserve provision without any
+    operational coupling.
+
+    PLEXOS's actual model uses a synthetic ``BAT_*_AUX`` mirror battery
+    whose Generation tracks the main's Load when charging.  The
+    activity-flow expansion ``charge + discharge`` is the simplest
+    AUX-free reproduction that binds correctly in both operating modes.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_UC_AUX_REDIRECT_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    allow = {"Battery": frozenset({"BAT_TEST"})}
+    out = extract_user_constraints(db, bundle, emitted_names=allow)
+    by_name = {c.name: c for c in out}
+
+    expr = by_name["BAT_TEST_CF_GEN_COMP"].expression
+    # Both legs are present with the same (negative) coefficient.
+    assert 'battery("BAT_TEST").discharge' in expr
+    assert 'battery("BAT_TEST").charge' in expr
+    # No AUX leaks through.
+    assert "_AUX" not in expr
 
 
 # ---------------------------------------------------------------------------

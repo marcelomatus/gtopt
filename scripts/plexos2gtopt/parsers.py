@@ -6842,6 +6842,35 @@ def extract_user_constraints(
                     # composition equation against the single
                     # battery's dispatch column, the closest gtopt
                     # equivalent of PLEXOS's two-battery model.
+                    #
+                    # CRITICAL — battery activity-flow expansion for
+                    # ``BAT_*_CF_GEN_COMP`` / ``CF_LOAD_COMP``: PLEXOS's
+                    # ``BAT_<name>_AUX`` is a synthetic "mirror battery"
+                    # whose ``Generation`` variable equals the main's
+                    # ``Load`` when charging (verified on v0407 PLEXOS
+                    # sol: AUX.gen = MAIN.load at midday for all 4
+                    # northern batteries).  Emitting only
+                    # ``-1 × main.discharge`` (the naive AUX→main
+                    # rewrite) gives a degenerate constraint at solar
+                    # peak — ``main.discharge = 0`` while charging,
+                    # so the LHS is trivially zero regardless of how
+                    # much reserve the battery promises.  Result: the
+                    # LP free-rides on reserve provision without any
+                    # operational coupling, missing PLEXOS's negative
+                    # LMPs at the northern BESS buses (Andes220
+                    # min -$6.38, MariaElena220 min -$1.30 — verified
+                    # 2026-05-31).
+                    #
+                    # The faithful expansion is the L1 of net dispatch:
+                    # ``aflow = charge + discharge``.  Both legs share
+                    # the same coefficient (PLEXOS's AUX.gen tracks
+                    # MAIN.load on the charge side at α=1.0; tracks
+                    # MAIN.gen on the discharge side at α≈0.4-0.5 with
+                    # per-block variation we can't recover from XML —
+                    # use 1.0 as a conservative-but-correct upper
+                    # bound that keeps the constraint binding at the
+                    # right times.  Future tuning may apply per-block
+                    # coefficients from ``ReserveUsageTxCompensation.csv``).
                     if (
                         parent_class == "Battery"
                         and parent_missing
@@ -6850,11 +6879,33 @@ def extract_user_constraints(
                         main_name = parent_name[:-4]
                         if allowed_parent is not None and main_name in allowed_parent:
                             redirected_ref = name_tmpl.format(name=main_name)
+                            # Emit the primary leg (the original accessor,
+                            # typically ``.discharge`` for Generation
+                            # Coefficient on AUX).
                             terms.append(
                                 _format_coefficient(coeff, first=not terms)
                                 + f'{gtopt_class}("{redirected_ref}").{accessor}'
                             )
                             coefficients.append(coeff)
+                            # For BAT_*_CF_GEN_COMP / CF_LOAD_COMP add
+                            # the COMPLEMENTARY leg with the SAME
+                            # coefficient so the constraint binds in
+                            # both battery operating modes (the L1 of
+                            # net dispatch).  Without this, the
+                            # constraint never binds at solar peak when
+                            # battery is charging (main.discharge = 0).
+                            if (
+                                gtopt_class == "battery"
+                                and _uc_policy._is_bat_complementarity(constr.name)
+                            ):
+                                complement = (
+                                    "charge" if accessor == "discharge" else "discharge"
+                                )
+                                terms.append(
+                                    _format_coefficient(coeff, first=not terms)
+                                    + f'{gtopt_class}("{redirected_ref}").{complement}'
+                                )
+                                coefficients.append(coeff)
                             logger.debug(
                                 "constraint %s: redirected dropped "
                                 "auxiliary battery '%s' → '%s' (main "

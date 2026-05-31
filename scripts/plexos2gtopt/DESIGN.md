@@ -116,7 +116,7 @@ parser auto-discovers Line / Reserve / Constraint by walking
 | `Res_Requirement.csv` | reserve requirements (MW) | `ReserveZone.urreq` |
 | `Res_Timeslice.csv` | reserve time-slice mapping | per-day day-type selector for `Res_Requirement` → `ReserveZone.urreq`/`drreq` |
 | `SSCC_Activation_BESS.csv` | BESS in ancillary services | per-block `ur`/`dr_provision_factor` on each eligible `<battery>_gen` ReserveProvision |
-| `ReserveUsageTxCompensation.csv` | per-BESS reserve Tx-usage compensation fractions | not modelled — settlement/cost-allocation only (no dispatch-LP effect) |
+| `ReserveUsageTxCompensation.csv` | per-(BESS, reserve, direction, 2h-pattern) provision coefficient | partially modelled — PLEXOS sol audit (2026-05-31) confirmed these are real per-block dispatch-LP coefficients on `BAT_*_CF_GEN_COMP` / `CF_LOAD_COMP` constraints (NOT settlement-only as previously noted). Today: converter uses XML default `Provision Coefficient` and emits the LHS as `charge + discharge` activity-flow. Per-block 12-pattern overrides from the CSV are a follow-up tuning. |
 | `BESS_IniValue.csv` | battery initial SOC | `Battery.eini` |
 | `CFdata/CPF/*.csv` | per-unit ramp curves (MRU/MRD) | `Commitment.ramp_up`/`ramp_down` |
 
