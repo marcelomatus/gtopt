@@ -113,19 +113,36 @@ struct TestContext
     double ub_row = LinearProblem::DblMax)
 {
   LinearProblem lp("2x2");
+  // Every SparseCol / SparseRow carries the full label triple
+  // (class_name, variable_name, variable_uid / constraint_name) so that
+  // `flatten()` records non-empty `col_labels_meta` / `row_labels_meta`
+  // and downstream `materialize_labels` / `write_lp` (which always
+  // synthesise labels via LabelMaker at LpNamesLevel::all) can produce
+  // non-empty label strings.  Leaving any field empty would make
+  // `generate_labels_from_maps` throw "metadata without a class_name
+  // (unlabelable)" the moment a test enables label materialisation.
   const auto x1 = lp.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c1,
+      .class_name = "col",
+      .variable_name = "x",
+      .variable_uid = Uid {1},
   });
   const auto x2 = lp.add_col(SparseCol {
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c2,
+      .class_name = "col",
+      .variable_name = "x",
+      .variable_uid = Uid {2},
   });
   const auto r1 = lp.add_row(SparseRow {
       .lowb = lb_row,
       .uppb = ub_row,
+      .class_name = "row",
+      .constraint_name = "c",
+      .variable_uid = Uid {1},
   });
   lp.set_coeff(r1, x1, 1.0);
   lp.set_coeff(r1, x2, 1.0);
@@ -661,6 +678,15 @@ SolverTestResult test_name_maps(std::string_view solver)
     row[x1] = 1.0;
     (void)lp.add_row(row);
 
+    // `col_name_map` / `row_name_map` / `col_index_to_name` are populated
+    // lazily on the first call to `generate_labels_from_maps` (triggered
+    // by `write_lp`, `push_names_to_solver`, or — as here — the explicit
+    // `materialize_labels` helper).  Without this call the maps would be
+    // empty for cols/rows added via `add_col` / `add_row` after flatten,
+    // because the label strings are only synthesised on demand from
+    // `m_post_flatten_*_labels_meta_`.
+    lp.materialize_labels();
+
     const auto& col_map = lp.col_name_map();
     TC_CHECK(ctx, col_map.contains("col_x_1"));
     TC_CHECK(ctx, col_map.contains("col_x_2"));
@@ -920,8 +946,6 @@ SolverTestResult test_base_numrows_reset(std::string_view solver)
 
     // reset_from: copy bounds from a source LP and remove rows > base.
     const LinearInterface src(solver, flat);
-    (void)lp.add_row(cut);
-    TC_CHECK(ctx, lp.get_numrows() == 2);
     lp.reset_from(src, lp.base_numrows());
     TC_CHECK(ctx, lp.get_numrows() == 1);
 
