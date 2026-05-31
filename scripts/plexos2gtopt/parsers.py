@@ -6726,6 +6726,30 @@ def extract_user_constraints(
         if op is None:
             logger.debug("constraint %s has unknown Sense %s", constr.name, sense_val)
             continue
+        # ── PLEXOS-faithful sense for BAT_*_CF_GEN_COMP / CF_LOAD_COMP ──
+        # The ``_SENSE_OP`` table maps ``0.0 → ">="`` (legacy default
+        # for the broad set of unset-Sense constraints PLEXOS ships),
+        # but PLEXOS treats unset Sense as EQUALITY ``=`` — verified
+        # 2026-05-31 on v0407 sol for the BAT_<bat>_CF_<dir>_COMP
+        # family.  A one-sided ``>=`` lets the LP trivially set the
+        # right-hand reserve-provision term to 0 (its lower bound)
+        # and satisfy the inequality at zero cost; the LP never
+        # incurs the binding-equality opportunity cost (~$31-$54 dual
+        # in PLEXOS) and the battery's downward reserve-provision
+        # capacity stays unbounded → free-riding on reserve revenue
+        # without operational coupling, missing the negative LMPs at
+        # northern BESS buses.  Surgical fix: flip the sense to ``=``
+        # only for this family; the other ~52 default-equality
+        # constraints (``_ConfTGA*``, ``*_CPF_Simmetry``,
+        # ``Inertia_Calculation_e*``) are left at ``>=`` pending a
+        # separate sense-audit.
+        if sense_val == 0.0 and _uc_policy._is_bat_complementarity(constr.name):
+            op = "="
+        penalty_val = (
+            _horizon_value(db.data_for(mid, prop_penalty), horizon_start)
+            if prop_penalty
+            else None
+        )
         penalty_val = (
             _horizon_value(db.data_for(mid, prop_penalty), horizon_start)
             if prop_penalty
