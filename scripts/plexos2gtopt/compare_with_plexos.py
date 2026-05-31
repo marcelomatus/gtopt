@@ -1597,14 +1597,47 @@ def compute_plexos_per_line(
             "min_flow": 0.0,
             "active": 0.0,
         }
+        # Build a per-period {abs(ExportLimit) + abs(ImportLimit)} map so
+        # the energy / peak aggregation can SKIP periods where the line
+        # is effectively outaged (both limits clamped to 0 by PLEXOS).
+        # Without this filter, PLEXOS publishes phantom Flow values on
+        # outage periods (the unconstrained DC-OPF pre-limit angle-
+        # difference solution, NOT physical flow) that inflate
+        # ``energy_mwh`` by orders of magnitude.  Verified on CEN PCP
+        # 2026-04-07 ``Duqueco220→Temuco220``: PLEXOS reports peak
+        # 10,457 MW on 96 outage blocks where Export/Import Limit are
+        # both 0 — fictitious 1.5 TWh of "transferred" energy that
+        # actually never flowed (Loss = 0 on those same blocks).
+        # gtopt's converter HONOURS the PLEXOS Lin_Units derate via
+        # per-block ``in_service`` so the gtopt side correctly reports
+        # 0 — the divergence is entirely on PLEXOS's reporting side.
+        cap_by_period: dict[int, float] = {}
+        for fname in ("max_flow", "min_flow"):
+            for p, v in fields.get(fname, ()):
+                cap_by_period[p] = cap_by_period.get(p, 0.0) + abs(v)
+
+        def _is_in_service(period: int) -> bool:
+            # Service iff at least one direction has a non-zero limit.
+            # Default to TRUE when no limit data exists (legacy lines that
+            # don't ship Export/Import Limit but still get a Flow series).
+            return not cap_by_period or cap_by_period.get(period, 0.0) > 1e-9
+
         for fname, rows in fields.items():
             if fname == "flow":
-                # Total absolute energy transferred (non-cancelling).
-                entry["energy_mwh"] = sum(abs(v) * durations.get(p, 0) for p, v in rows)
+                # Total absolute energy transferred (non-cancelling) —
+                # filter to in-service periods only (see comment above).
+                entry["energy_mwh"] = sum(
+                    abs(v) * durations.get(p, 0) for p, v in rows if _is_in_service(p)
+                )
                 # Peak instantaneous |flow| — pairs with max_flow to
                 # detect cap-violating lines (PLEXOS Enforce Limits=0
-                # signal).  NOT duration-weighted.
-                entry["peak_flow_mw"] = max((abs(v) for _, v in rows), default=0.0)
+                # signal).  NOT duration-weighted; also filtered to
+                # in-service periods so an outage-block phantom value
+                # doesn't masquerade as a real peak.
+                entry["peak_flow_mw"] = max(
+                    (abs(v) for p, v in rows if _is_in_service(p)),
+                    default=0.0,
+                )
                 entry["active"] = 1.0 if rows else 0.0
             elif fname == "min_flow":
                 # PLEXOS Import Limit is published as a positive MW
