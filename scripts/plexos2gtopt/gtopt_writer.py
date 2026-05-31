@@ -2435,9 +2435,37 @@ def build_reserve_provision_array(
             "ur_provision_factor": _factor(p.ur_provision_factor_profile),
             "dr_provision_factor": _factor(p.dr_provision_factor_profile),
         }
-        if p.urmax > 0.0:
+        # Per-block urmax / drmax profile from CEN's CFdata/{CPF,CSF,CTF}
+        # MRU/MRD files (the AUTHORITATIVE per-(gen, reserve, hour) MAX
+        # RESERVE CAPABILITY in MW).  When populated, takes precedence
+        # over the scalar ``urmax = pmax`` fallback because the CFdata
+        # cap is 2-16000× tighter than ``pmax`` — verified 2026-05-31
+        # on v0407 PLEXOS sol: the per-hour cap == PLEXOS sol binding
+        # provision exactly for every (gen, reserve) pair.  Without
+        # this, gtopt's ``reserve_provision.up / .dn`` columns sit
+        # unbounded above and the PLEXOS reserve UCs
+        # (CPF_Up5Calculation -$84, CSF_UpMinProvision -$43) never
+        # bind; also triggers the UPStorageBound_BAT_* -inf dual
+        # cascade.  Aggregator: SUM of MRU across CPF/CSF/CTF (CTFON
+        # tertiary on-line) per direction — the conservative upper
+        # envelope for the single-column reserve_provision LP variable.
+        if p.urmax_profile:
+            blocks = (
+                _aggregate_to_blocks(list(p.urmax_profile), block_layout, reducer="min")
+                if block_layout
+                else list(p.urmax_profile)
+            )
+            entry["urmax"] = [blocks]
+        elif p.urmax > 0.0:
             entry["urmax"] = p.urmax
-        if p.drmax > 0.0:
+        if p.drmax_profile:
+            blocks = (
+                _aggregate_to_blocks(list(p.drmax_profile), block_layout, reducer="min")
+                if block_layout
+                else list(p.drmax_profile)
+            )
+            entry["drmax"] = [blocks]
+        elif p.drmax > 0.0:
             entry["drmax"] = p.drmax
         # PLEXOS "Min Provision" is a hard floor on reserve provision
         # that PLEXOS itself gates on the generator being COMMITTED in

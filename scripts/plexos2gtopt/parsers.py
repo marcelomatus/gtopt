@@ -3941,6 +3941,7 @@ def extract_reserve_provisions(
     db: PlexosDb | None = None,
     committed_gens: frozenset[str] = frozenset(),
     extra_provision_gens: frozenset[str] = frozenset(),
+    bundle: PlexosBundle | None = None,
 ) -> tuple[ReserveProvisionSpec, ...]:
     """Invert Reserve→Generator memberships into per-Generator
     provisions.
@@ -4069,6 +4070,29 @@ def extract_reserve_provisions(
                     target = urmin_by_gen if direction == "up" else drmin_by_gen
                     if pair_min > target.get(gen_obj.name, 0.0):
                         target[gen_obj.name] = pair_min
+    # Per-(gen, direction) hourly MAX RESERVE caps from CFdata/.  This
+    # is the AUTHORITATIVE upper bound on ``reserve_provision.up`` /
+    # ``.dn`` columns — PLEXOS sol max == CFdata cap EXACTLY across
+    # every binding pair (verified v0407 sol 2026-05-31).  Without
+    # this, ``urmax = drmax = pmax`` leaves the LP DV 2-16000× too
+    # loose, the PLEXOS-binding reserve UCs
+    # (``CPF_Up5Calculation``, ``CPF_UpMinProvision``,
+    # ``CSF_UpMinProvision``) don't bind in gtopt, and the BESS
+    # ``UPStorageBound_BAT_*`` rows go -inf via dual cascade.
+    # ``bundle`` is optional so existing callers / tests that bypass
+    # the CFdata wiring (synthetic bundles without ``CFdata/``) keep
+    # the legacy ``urmax = pmax`` fallback.
+    urmax_profile_by_gen: dict[str, tuple[float, ...]] = {}
+    drmax_profile_by_gen: dict[str, tuple[float, ...]] = {}
+    if bundle is not None and (bundle.root / "CFdata").is_dir():
+        for gen_name in by_gen:
+            mru = _cf_maxresp_aggregate(bundle, gen_name, "MRU")
+            mrd = _cf_maxresp_aggregate(bundle, gen_name, "MRD")
+            if mru:
+                urmax_profile_by_gen[gen_name] = tuple(mru)
+            if mrd:
+                drmax_profile_by_gen[gen_name] = tuple(mrd)
+
     return tuple(
         ReserveProvisionSpec(
             generator_name=gen_name,
@@ -4077,6 +4101,8 @@ def extract_reserve_provisions(
             drmax=pmax_by_gen.get(gen_name, 0.0),
             urmin=urmin_by_gen.get(gen_name, 0.0),
             drmin=drmin_by_gen.get(gen_name, 0.0),
+            urmax_profile=urmax_profile_by_gen.get(gen_name, ()),
+            drmax_profile=drmax_profile_by_gen.get(gen_name, ()),
         )
         for gen_name, zones in sorted(by_gen.items())
     )
@@ -4191,12 +4217,45 @@ def extract_sscc_bess_provisions(
         if not members:
             continue
         is_up = "_RS_BESS" in zone
+        # Pick the right CFdata subdir + prefix per BESS reserve zone.
+        # Each SSCC provision is PER-(battery, zone) — one LP variable
+        # per pair — so the per-zone urmax must use ONLY that zone's
+        # CFdata file (NOT the SUM across all reserve subdirs that
+        # extract_reserve_provisions uses for the single-column gen
+        # case).  Mapping:
+        #   CPF_*_BESS → CFdata/CPF/CPF_<bat>_<MRU|MRD>.csv
+        #   CSF_*_BESS → CFdata/CSF/CSF_<bat>_<MRU|MRD>.csv
+        #   CTF_*_BESS → CFdata/CTF/CTFON_<bat>_<MRU|MRD>.csv
+        # If the zone family doesn't match (e.g. a future non-CPF/CSF/
+        # CTF BESS zone), leave the profile empty so the writer falls
+        # back to the scalar ``pmax_discharge`` legacy bound.
+        if zone.startswith("CPF_"):
+            cf_subdir, cf_prefix = "CPF", "CPF"
+        elif zone.startswith("CSF_"):
+            cf_subdir, cf_prefix = "CSF", "CSF"
+        elif zone.startswith("CTF_"):
+            cf_subdir, cf_prefix = "CTF", "CTFON"
+        else:
+            cf_subdir, cf_prefix = "", ""
         for bname in sorted(members):
             batt = bat_by_name.get(bname)
             power = batt.pmax_discharge if batt else 0.0
             if power <= 0.0:
                 continue
             prof = tuple(frac)
+            # Per-block MAX RESERVE CAPABILITY from CEN's CFdata for
+            # this SPECIFIC (battery, zone) pair only.  PLEXOS files
+            # are named under the battery (e.g.
+            # ``CFdata/CPF/CPF_BAT_LA_CABANA_EO_MRU.csv``), NOT under
+            # the synthetic ``<battery>_gen`` discharge gen gtopt
+            # creates — so we look up against ``bname``.
+            direction = "MRU" if is_up else "MRD"
+            bess_profile: tuple[float, ...] = ()
+            if cf_subdir and (bundle.root / "CFdata").is_dir():
+                series = _cf_maxresp_series(
+                    bundle, bname, cf_subdir, cf_prefix, direction
+                )
+                bess_profile = tuple(series)
             out.append(
                 ReserveProvisionSpec(
                     generator_name=f"{bname}_gen",
@@ -4205,26 +4264,55 @@ def extract_sscc_bess_provisions(
                     drmax=0.0 if is_up else power,
                     ur_provision_factor_profile=prof if is_up else (),
                     dr_provision_factor_profile=() if is_up else prof,
+                    urmax_profile=bess_profile if is_up else (),
+                    drmax_profile=() if is_up else bess_profile,
                     name=f"provision_{bname}_gen__{zone}",
                 )
             )
     return tuple(out)
 
 
-def _cpf_ramp_series(
-    bundle: PlexosBundle, gen_name: str, direction: str
-) -> list[float]:
-    """Per-unit per-period ramp series [MW/h] from the ``CFdata`` CPF curve.
+#: CFdata reserve subdirs + the prefix PLEXOS uses for each file.
+#: CTFON (tertiary, ON-line) — files ``CTFON_<gen>_{MRU,MRD}.csv``.
+#: CTFOFF (tertiary, OFF-line) — wired separately via constraint
+#: coefficients (property 399), not part of MRU/MRD MW caps.
+_CF_RESERVE_DIRS: tuple[tuple[str, str], ...] = (
+    ("CPF", "CPF"),
+    ("CSF", "CSF"),
+    ("CTF", "CTFON"),
+)
 
-    ``CFdata/CPF/CPF_<gen>_MRU.csv`` / ``..._MRD.csv`` is the authoritative
-    daily-PCP per-unit ramp source — already in MW/h (per-period), distinct
-    from the DB ``Max Ramp Up/Down`` (MW/min).  These live in the ``CFdata``
-    sub-directory, which ``PlexosBundle.csv()`` excludes, so they are read
-    directly off ``bundle.root``.  Returns the full per-period list (empty
-    when the file is absent or all-zero, so the caller falls back to the DB
-    static value).
+
+def _cf_maxresp_series(
+    bundle: PlexosBundle, gen_name: str, subdir: str, prefix: str, direction: str
+) -> list[float]:
+    """Per-(gen, reserve-subdir, direction) per-hour MAX RESPONSE [MW].
+
+    Reads ``CFdata/<subdir>/<prefix>_<gen>_<direction>.csv`` where:
+      * ``subdir`` ∈ {"CPF", "CSF", "CTF"} (Primary / Secondary / Tertiary FC)
+      * ``prefix`` ∈ {"CPF", "CSF", "CTFON"} — matches the filename prefix
+      * ``direction`` ∈ {"MRU", "MRD"} (Margen Reserva Up / Down)
+
+    These files are the **authoritative per-(gen, reserve-type, hour) MAX
+    RESERVE CAPABILITY** PLEXOS uses to bound Reserve.Provision LP
+    variables.  Verified 2026-05-31 on v0407 PLEXOS sol: the per-(gen,
+    reserve) cap == PLEXOS sol max EXACTLY for every binding pair (e.g.
+    ANDINA CPF_LW: PLEXOS sol max 65.0, CFdata cap 65.0).  The XML
+    linkage is `t_membership(coll 159 Reserve→Generators) → t_data
+    (property_id 1400 "Max Response") → t_text (Data File) → CSV
+    filename`.
+
+    Returns the full per-hour MW list (CEN PCP ships 168 = 7 days × 24h
+    per file).  Empty when the file is absent or all-zero — caller
+    should treat that as "no contribution from this reserve subdir".
+
+    NOTE: this function replaced the misnamed ``_cpf_ramp_series`` that
+    treated these MAX RESERVE values as RAMP RATES (MW/h), producing
+    artificially crushed ramp ceilings (e.g. 0.01 MW/h on sentinel
+    rows).  Ramp data lives in ``Gen_MaxRampDay.csv`` / DB ``Max Ramp
+    Up/Down`` properties — see ``extract_commitments``.
     """
-    path = bundle.root / "CFdata" / "CPF" / f"CPF_{gen_name}_{direction}.csv"
+    path = bundle.root / "CFdata" / subdir / f"{prefix}_{gen_name}_{direction}.csv"
     if not path.is_file():
         return []
     vals: list[float] = []
@@ -4237,6 +4325,40 @@ def _cpf_ramp_series(
             except ValueError:
                 continue  # header row ("VALUE")
     return vals if any(v > 0.0 for v in vals) else []
+
+
+def _cf_maxresp_aggregate(
+    bundle: PlexosBundle, gen_name: str, direction: str
+) -> list[float]:
+    """Aggregate per-hour MAX RESERVE [MW] across ALL reserve subdirs
+    (CPF + CSF + CTFON) for one (gen, direction).
+
+    PLEXOS imposes one cap per (gen, reserve-type) pair; gtopt's
+    ``reserve_provision`` carries a single ``up`` / ``dn`` column per
+    gen that covers ALL up-reserves (resp. down).  The conservative
+    upper envelope for that single column is the SUM of the per-type
+    MRU (or MRD) values — each reserve type CAN simultaneously call up
+    to its own MRU MW, and the sum is the gen's maximum total
+    contribution across all up-reserve commitments.
+
+    Returns the per-hour aggregated MW list (length 168 on CEN PCP
+    weekly), or empty when NO reserve subdir has populated data for
+    this gen.
+    """
+    per_subdir = [
+        _cf_maxresp_series(bundle, gen_name, subdir, prefix, direction)
+        for subdir, prefix in _CF_RESERVE_DIRS
+    ]
+    populated = [s for s in per_subdir if s]
+    if not populated:
+        return []
+    n = max(len(s) for s in populated)
+    out = [0.0] * n
+    for s in populated:
+        for i, v in enumerate(s):
+            if i < n:
+                out[i] += v
+    return out
 
 
 def extract_commitments(
@@ -4368,33 +4490,25 @@ def extract_commitments(
         # primal-infeasible on the very first block.
         raw_ramp_up = db.static_property("Generator", gen.object_id, "Max Ramp Up")
         raw_ramp_down = db.static_property("Generator", gen.object_id, "Max Ramp Down")
-        # Reconcile with the CPF (``CFdata``) per-unit ramp curve, which is
-        # the authoritative daily-PCP ramp source and covers 39 CEN PCP
-        # units the DB leaves at 0.  Rule (issue audit, 0/73 curves agree
-        # with the DB): use the CPF value when present (>0), else fall back
-        # to the DB static ``Max Ramp Up/Down`` (×60, MW/min → MW/h) so
-        # units with a DB ramp but no CPF curve (CAMPICHE, COCHRANE, …)
-        # keep theirs.
-        cpf_ru_series = _cpf_ramp_series(bundle, gen.name, "MRU")
-        cpf_rd_series = _cpf_ramp_series(bundle, gen.name, "MRD")
-        db_ru = raw_ramp_up * 60.0 if raw_ramp_up else 0.0
-        db_rd = raw_ramp_down * 60.0 if raw_ramp_down else 0.0
-        # Scalar ramp = CPF max when present, else the DB static value.
-        ramp_up = max(cpf_ru_series) if cpf_ru_series else db_ru
-        ramp_down = max(cpf_rd_series) if cpf_rd_series else db_rd
-        # Per-block ramp profile (gtopt Commitment.ramp_up/down TB schedule):
-        # carried only when the CPF curve genuinely varies intra-horizon;
-        # constant curves keep the scalar above.
-        ramp_up_profile: tuple[float, ...] = (
-            tuple(cpf_ru_series)
-            if cpf_ru_series and len(set(cpf_ru_series)) > 1
-            else ()
-        )
-        ramp_down_profile: tuple[float, ...] = (
-            tuple(cpf_rd_series)
-            if cpf_rd_series and len(set(cpf_rd_series)) > 1
-            else ()
-        )
+        # Per-unit ramp limits come from PLEXOS's ``Max Ramp Up`` /
+        # ``Max Ramp Down`` Generator properties (MW/min → ×60 for MW/h).
+        # Previously the converter also read
+        # ``CFdata/CPF/CPF_<gen>_MRU.csv`` / ``..._MRD.csv`` and treated
+        # those values as ramp curves — that was a misinterpretation
+        # (verified 2026-05-31): those files ship per-(gen, reserve, hour)
+        # MAX RESERVE CAPABILITY in MW (PLEXOS property 1400 "Max
+        # Response"), NOT ramp rates.  Reading them as ramps produced
+        # artificially crushed ceilings (0.01 MW/h on sentinel rows) and
+        # silently overwrote any DB ramp.  The CFdata files are now
+        # consumed correctly by ``extract_reserve_provisions`` via
+        # ``_cf_maxresp_aggregate``.
+        ramp_up = raw_ramp_up * 60.0 if raw_ramp_up else 0.0
+        ramp_down = raw_ramp_down * 60.0 if raw_ramp_down else 0.0
+        # Per-block ramp profile is not currently sourced from any input
+        # file (the only PCP ramp source is the static scalar above).
+        # Kept as empty tuple so downstream code that probes for it works.
+        ramp_up_profile: tuple[float, ...] = ()
+        ramp_down_profile: tuple[float, ...] = ()
         # PLEXOS ``Run Up Rate`` is expressed in MW/min.  gtopt's
         # ``Commitment.startup_ramp`` is the maximum output [MW] the
         # unit can reach in the startup block.  Block duration in CEN
@@ -9275,6 +9389,7 @@ def extract_case(
                 for c in extract_commitments(db, bundle, generators, fuels)
             ),
             extra_provision_gens=_uc_reserve_provision_gens(db),
+            bundle=bundle,
         )
         + extract_sscc_bess_provisions(db, bundle, extract_batteries(db, bundle)),
         commitments=extract_commitments(db, bundle, generators, fuels),

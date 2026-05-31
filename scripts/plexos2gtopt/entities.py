@@ -838,6 +838,25 @@ class ReserveProvisionSpec:
     # default.  RS (raise) zones drive ``ur``; LW (lower) zones drive ``dr``.
     ur_provision_factor_profile: tuple[float, ...] = field(default_factory=tuple)
     dr_provision_factor_profile: tuple[float, ...] = field(default_factory=tuple)
+    # Per-block up / down MAX RESERVE CAPABILITY (MW), from CEN's
+    # ``CFdata/{CPF,CSF,CTF}/{CPF,CSF,CTFON}_<gen>_{MRU,MRD}.csv``
+    # files.  These are the authoritative per-(gen, reserve-type, hour)
+    # caps PLEXOS uses to bound its Reserve.Provision LP variables
+    # (verified 2026-05-31: PLEXOS sol max == CFdata cap EXACTLY for
+    # every binding (gen, reserve) pair on v0407).  When populated,
+    # ``urmax_profile`` is the SUM of MRU across all up-reserve types
+    # (CPF_RS + CSF_RS + CTF_RS) the gen participates in; likewise
+    # ``drmax_profile`` for MRD across down-reserve types.  Empty →
+    # the writer falls back to the scalar ``urmax`` / ``drmax``
+    # (currently ``pmax``, an over-loose bound 2-16000× larger than
+    # the CFdata caps).  Without the per-block profile, the LP
+    # leaves ``reserve_provision.up`` / ``.dn`` unbounded above ⇒
+    # PLEXOS-binding reserve UCs (``CPF_Up5Calculation`` -$84/MW,
+    # ``CPF_UpMinProvision`` -$74, ``CSF_UpMinProvision`` -$43) never
+    # bind in gtopt; also triggers the ``UPStorageBound_BAT_*`` -inf
+    # dual cascade on BESS plants.
+    urmax_profile: tuple[float, ...] = field(default_factory=tuple)
+    drmax_profile: tuple[float, ...] = field(default_factory=tuple)
     # Optional explicit provision name (overrides the default
     # ``provision_<generator_name>``).  Used by the SSCC BESS mapping to
     # emit one provision per (battery, ``*_BESS`` zone) without colliding

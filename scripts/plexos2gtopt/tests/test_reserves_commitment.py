@@ -279,6 +279,101 @@ def test_extract_reserve_provisions_extra_provision_gens() -> None:
     assert by_gen["zero_gen"].drmax == 0.0
 
 
+def test_extract_reserve_provisions_cfdata_caps(tmp_path: Path) -> None:
+    """CFdata/{CPF,CSF,CTF}/{CPF,CSF,CTFON}_<gen>_{MRU,MRD}.csv files
+    populate ``urmax_profile`` / ``drmax_profile`` on the spec.
+
+    The aggregated profile is the SUM over reserve subdirs (each
+    direction summed across CPF + CSF + CTFON) — the conservative
+    upper envelope for the single-column gtopt reserve_provision LP
+    variable.
+
+    Verifies the fix wired in 2026-05-31: before this, MRU/MRD were
+    being read as RAMP RATES (wrong physical mapping) and the
+    reserve_provision DV was bounded only by pmax (2-16000× too
+    loose), so the PLEXOS-binding CPF_Up5Calculation / CSF_*MinProv
+    UCs never bound in gtopt.
+    """
+    # Build a synthetic bundle with CFdata/ on-disk content.
+    bundle, _ = _build_bundle(tmp_path)
+    # CFdata/CPF/CPF_GEN_A_MRU.csv: 4 hours, cap = 30 MW each
+    cf_root = tmp_path / "CFdata"
+    (cf_root / "CPF").mkdir(parents=True, exist_ok=True)
+    (cf_root / "CSF").mkdir(parents=True, exist_ok=True)
+    (cf_root / "CTF").mkdir(parents=True, exist_ok=True)
+    (cf_root / "CPF" / "CPF_GEN_A_MRU.csv").write_text(
+        "YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "2026,4,7,1,1,30\n"
+        "2026,4,7,2,1,30\n"
+        "2026,4,7,3,1,30\n"
+        "2026,4,7,4,1,30\n",
+    )
+    # CSF MRU: 4 hours, cap = 12 MW each.  Sum (CPF+CSF) → 42 per hour.
+    (cf_root / "CSF" / "CSF_GEN_A_MRU.csv").write_text(
+        "YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "2026,4,7,1,1,12\n"
+        "2026,4,7,2,1,12\n"
+        "2026,4,7,3,1,12\n"
+        "2026,4,7,4,1,12\n",
+    )
+    # CTF (CTFON prefix): 0 → not aggregated.
+    (cf_root / "CTF" / "CTFON_GEN_A_MRU.csv").write_text(
+        "YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "2026,4,7,1,1,0\n"
+        "2026,4,7,2,1,0\n"
+        "2026,4,7,3,1,0\n"
+        "2026,4,7,4,1,0\n",
+    )
+    # Down side: only CPF, cap 18 MW each
+    (cf_root / "CPF" / "CPF_GEN_A_MRD.csv").write_text(
+        "YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "2026,4,7,1,1,18\n"
+        "2026,4,7,2,1,18\n"
+        "2026,4,7,3,1,18\n"
+        "2026,4,7,4,1,18\n",
+    )
+
+    reserves = (
+        ReserveSpec(object_id=20, name="CPF_RS", eligible_generators=("GEN_A",)),
+        ReserveSpec(object_id=21, name="CPF_LW", eligible_generators=("GEN_A",)),
+    )
+    gens = (GeneratorSpec(object_id=1, name="GEN_A", bus_name="b", pmax=200.0),)
+    provisions = extract_reserve_provisions(reserves, generators=gens, bundle=bundle)
+    by_gen = {p.generator_name: p for p in provisions}
+
+    p = by_gen["GEN_A"]
+    # urmax_profile = CPF MRU 30 + CSF MRU 12 + CTFON MRU 0 = 42 per hour
+    assert p.urmax_profile == (42.0, 42.0, 42.0, 42.0), (
+        f"expected aggregated SUM 42 across all hours, got {p.urmax_profile}"
+    )
+    # drmax_profile = CPF MRD 18 per hour (CSF/CTF absent)
+    assert p.drmax_profile == (18.0, 18.0, 18.0, 18.0), (
+        f"expected 18 from CPF MRD only, got {p.drmax_profile}"
+    )
+    # Scalar urmax / drmax stays at pmax (the conservative scalar
+    # fallback for callers that ignore the profile).  Writer uses the
+    # profile when populated; scalar is the legacy fallback.
+    assert p.urmax == 200.0
+    assert p.drmax == 200.0
+
+
+def test_extract_reserve_provisions_no_cfdata_directory(tmp_path: Path) -> None:
+    """When no CFdata/ subdir exists, the profile fields stay empty —
+    backward-compatible with bundles that don't ship CEN reserve
+    capability data (synthetic test bundles, non-CEN PLEXOS exports)."""
+    bundle, _ = _build_bundle(tmp_path)
+    # No CFdata/ written
+    reserves = (ReserveSpec(object_id=20, name="Z", eligible_generators=("G",)),)
+    gens = (GeneratorSpec(object_id=1, name="G", bus_name="b", pmax=50.0),)
+    provisions = extract_reserve_provisions(reserves, generators=gens, bundle=bundle)
+    p = provisions[0]
+    assert p.urmax_profile == ()
+    assert p.drmax_profile == ()
+    # Falls back to scalar pmax — the legacy loose bound.
+    assert p.urmax == 50.0
+    assert p.drmax == 50.0
+
+
 def test_build_reserve_zone_array_emits_matrix() -> None:
     """urreq / drreq emit as [[24-block]] matrices when present."""
     reserves = (
@@ -397,6 +492,53 @@ def test_build_reserve_provision_array() -> None:
     out = build_reserve_provision_array(provs)
     assert out[0]["generator"] == "g1"
     assert out[0]["reserve_zones"] == ["Z1", "Z2"]
+
+
+def test_build_reserve_provision_array_emits_urmax_profile() -> None:
+    """When ``urmax_profile`` is populated (per-block MW cap from
+    CEN's CFdata MRU/MRD files), it MUST take precedence over the
+    scalar ``urmax`` fallback — emitted as ``[[per-block values]]``
+    matrix matching gtopt's TBRealFieldSched JSON shape.
+    """
+    profile = (10.0, 15.0, 20.0, 12.0)  # 4-hour per-block profile
+    provs = (
+        ReserveProvisionSpec(
+            generator_name="GEN_A",
+            reserve_zones=("CPF_RS",),
+            urmax=200.0,  # scalar pmax fallback, should be IGNORED
+            drmax=200.0,
+            urmax_profile=profile,
+            drmax_profile=(5.0, 8.0, 10.0, 6.0),
+        ),
+    )
+    out = build_reserve_provision_array(provs)
+    # Per-block profile emitted as [[...]] matrix, not the scalar pmax.
+    assert out[0]["urmax"] == [[10.0, 15.0, 20.0, 12.0]], (
+        f"urmax must be the per-block profile, got {out[0]['urmax']!r}"
+    )
+    assert out[0]["drmax"] == [[5.0, 8.0, 10.0, 6.0]], (
+        f"drmax must be the per-block profile, got {out[0]['drmax']!r}"
+    )
+
+
+def test_build_reserve_provision_array_falls_back_to_scalar() -> None:
+    """When ``urmax_profile`` is EMPTY (no CFdata or all-zero), the
+    writer falls back to the scalar ``urmax`` (legacy ``pmax``
+    behaviour) — backward compatible.
+    """
+    provs = (
+        ReserveProvisionSpec(
+            generator_name="GEN_B",
+            reserve_zones=("Z",),
+            urmax=50.0,
+            drmax=50.0,
+            urmax_profile=(),
+            drmax_profile=(),
+        ),
+    )
+    out = build_reserve_provision_array(provs)
+    assert out[0]["urmax"] == 50.0
+    assert out[0]["drmax"] == 50.0
 
 
 # ----- P6 commitment tests ---------------------------------------------------

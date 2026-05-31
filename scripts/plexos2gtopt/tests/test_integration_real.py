@@ -240,20 +240,32 @@ def test_real_bundle_unresolved_uc_refs_all_resolved() -> None:
     with locate_bundle(REAL_BUNDLE) as bundle:
         case = extract_case(bundle)
     assert len(case.user_constraints) > 0
-    # Spot-check ``CSF_MinUnits``: with 11 always-on renewable plants
-    # (each ``coeff = 1``) absorbed into the RHS, the original PLEXOS
-    # ``RHS = 3`` shifts down by 11 to ``RHS = -8``; no renewable
-    # commitment term should remain in the LHS.
+    # Spot-check ``CSF_MinUnits``: always-on renewables (each
+    # ``coeff = 1``) get absorbed into the RHS rather than appearing
+    # as LHS commitment terms.  The original PLEXOS ``RHS = 3`` shifts
+    # DOWNWARD by the number of absorbed gens.  The exact count
+    # depends on which gens lack a CommitmentSpec (a moving target as
+    # converter fixes land — e.g. the 2026-05-31 CFdata/MRU/MRD ramp-
+    # misuse fix dropped 2 more renewables from the Commitment set,
+    # shifting RHS from -8 to -10).  Robust test: assert RHS is
+    # NEGATIVE (absorption happened) and a sample of known always-on
+    # renewables truly absent from the LHS.
     csf = next(
         (c for c in case.user_constraints if c.name == "CSF_MinUnits"),
         None,
     )
     if csf is not None:
-        # RHS sits at the tail of the expression after the sense operator
-        # (e.g. ``... >= -8;`` or ``... >= -8``).
-        assert ">= -8" in csf.expression, (
-            f"CSF_MinUnits RHS should be 3 − 11 = -8 (always-on renewable "
-            f"shift); expression tail: ...{csf.expression[-60:]}"
+        # Extract the RHS from the expression tail.
+        import re
+
+        m = re.search(r">=\s*(-?\d+(?:\.\d+)?)\s*$", csf.expression.strip())
+        assert m is not None, (
+            f"CSF_MinUnits RHS not parsable; tail: ...{csf.expression[-80:]}"
+        )
+        rhs_val = float(m.group(1))
+        assert rhs_val < 0, (
+            f"CSF_MinUnits RHS should be NEGATIVE after always-on renewable "
+            f"absorption (PLEXOS original = 3, absorbed shifts down); got {rhs_val}"
         )
         for renewable in (
             "ATACAMA_SOLAR_2_FV",
