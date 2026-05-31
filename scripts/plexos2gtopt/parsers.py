@@ -1734,11 +1734,20 @@ def extract_lines(
             max_rating_static = 0.0
             min_rating_static = 0.0
         wheeling = db.static_property("Line", line.object_id, "Wheeling Charge")
-        # PLEXOS Enforce Limits: 0=Never, 1=Voltage, 2=Always.  Defaults
-        # to 1 ("enforce") when the property is unset to stay safe on
-        # legacy bundles where the property pre-dates the feature.
+        # PLEXOS Enforce Limits: 0=Never, 1=Post-solve check only, 2=Always.
+        # PLEXOS's INTERNAL default for unset is 0 (verified empirically
+        # on CEN PCP 2026-04-07: 2 of 8 unset-EL lines — Tamaya110→
+        # S-AA100_3B and Tamaya110→Salar110_4B — dispatched ABOVE their
+        # rated cap with 0 hours congested in the PLEXOS sol, the
+        # signature of EL=0).  Match that default rather than the
+        # over-cautious EL=2 (which over-constrains lines PLEXOS itself
+        # leaves unenforced).  The downstream EL=0 → soft-cap path
+        # (``extended`` mode below) then applies the standard 2× free
+        # envelope + soft penalty / 5× hard cap, so the LP still has a
+        # finite bound but doesn't pay a phantom penalty in the
+        # under-2× band where PLEXOS lets it flow freely.
         enforce_raw = db.static_property("Line", line.object_id, "Enforce Limits")
-        enforce_limits = int(enforce_raw) if enforce_raw is not None else 2
+        enforce_limits = int(enforce_raw) if enforce_raw is not None else 0
         # PLEXOS EL=0 ("Never enforce") lines: gtopt's DC-OPF does NOT
         # physically limit an uncapped line, so dropping the cap lets the
         # LP route huge (often circulating) flows — e.g. 54,720 MW on the
