@@ -114,6 +114,33 @@ class FuelSpec:
     #: ``None`` ⇒ hard cap.
     max_offtake_cost: float | None = None
 
+    #: Minimum offtake floor for the bundle horizon ``[fuel-unit]``
+    #: from PLEXOS ``Fuel.Min Offtake`` family (pids 595-600 — bare,
+    #: Hour, Day, Week, Month, Year — combined into a single
+    #: horizon-wide budget the same way ``max_offtake`` aggregates
+    #: ``Fuel_MaxOfftakeWeek.csv`` rows).  Models take-or-pay (ToP)
+    #: contracts.  ``None`` ⇒ no floor; 0 ⇒ explicit zero floor (rare
+    #: but legal — PLEXOS XML may ship it).  Across the 14 cached CEN
+    #: PCP bundles 2025-10 → 2026-05, **zero fuels populate any Min
+    #: Offtake property**, so this field is dormant on current CEN
+    #: cases; the plumbing exists to honour future bundles that do
+    #: ship the property and to mirror the symmetric ``max_offtake``
+    #: shape end-to-end.
+    min_offtake: float | None = None
+
+    #: Per-unit shortfall penalty ``[$/<fuel_unit>]`` (gtopt
+    #: ``Fuel.min_offtake_cost``).  PLEXOS asymmetry: PLEXOS's
+    #: ``Min Offtake Penalty`` (pid 602) defaults to **$1000/fuel-unit**
+    #: (soft-by-default) — opposite of the ``Max Offtake Penalty``
+    #: convention.  The converter translates this idiom: when a PLEXOS
+    #: bundle ships ``min_offtake`` without an explicit penalty, the
+    #: parser injects ``min_offtake_cost = 1000`` here so the emitted
+    #: JSON preserves PLEXOS-faithful soft-by-default semantics, while
+    #: the gtopt LP model keeps the gtopt-native "unset ⇒ hard"
+    #: convention symmetric with ``max_offtake_cost``.
+    #: ``None`` ⇒ hard floor.
+    min_offtake_cost: float | None = None
+
 
 @dataclass(frozen=True)
 class GeneratorSpec:

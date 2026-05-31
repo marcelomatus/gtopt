@@ -438,6 +438,127 @@ def test_extract_fuels_max_offtake_week_absent(tmp_path: Path) -> None:
     assert fuels[0].max_offtake is None
 
 
+# ---------------------------------------------------------------------------
+# Fuel.min_offtake (PLEXOS Min Offtake / take-or-pay reproduction)
+# ---------------------------------------------------------------------------
+
+
+def test_extract_fuels_min_offtake_unset_default(tmp_path: Path) -> None:
+    """Bundle without any Min Offtake property → ``min_offtake = None``.
+
+    This is the state of every fuel across the 14 cached CEN PCP
+    bundles (2025-10 → 2026-05).  Confirms the parser stays silent /
+    no JSON field emitted when the entire family is unpopulated.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].min_offtake is None
+    assert fuels[0].min_offtake_cost is None
+
+
+def _build_min_offtake_xml(
+    weekly_value: float | None = None,
+    explicit_penalty: float | None = None,
+) -> str:
+    """Synthetic PLEXOS XML with the System→Fuels collection and a
+    ``Min Offtake Week`` (pid 598) value optionally set on the fuel.
+    """
+    extras = []
+    if weekly_value is not None:
+        extras.append(
+            f"  <t_data><data_id>5001</data_id>"
+            f"<membership_id>9501</membership_id>"
+            f"<property_id>598</property_id>"
+            f"<value>{weekly_value}</value></t_data>"
+        )
+    if explicit_penalty is not None:
+        extras.append(
+            f"  <t_data><data_id>5002</data_id>"
+            f"<membership_id>9501</membership_id>"
+            f"<property_id>602</property_id>"
+            f"<value>{explicit_penalty}</value></t_data>"
+        )
+    extras_str = "\n".join(extras)
+    return f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>4</class_id><name>Fuel</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>31</object_id><class_id>4</class_id><name>diesel</name>
+  </t_object>
+  <t_collection>
+    <collection_id>40</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>4</child_class_id>
+    <name>Fuels</name>
+  </t_collection>
+  <t_property>
+    <property_id>598</property_id><collection_id>40</collection_id>
+    <name>Min Offtake Week</name>
+  </t_property>
+  <t_property>
+    <property_id>602</property_id><collection_id>40</collection_id>
+    <name>Min Offtake Penalty</name>
+  </t_property>
+  <t_membership>
+    <membership_id>9501</membership_id>
+    <collection_id>40</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>31</child_object_id>
+  </t_membership>
+{extras_str}
+</MasterDataSet>
+"""
+
+
+def test_extract_fuels_min_offtake_week_default_penalty(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``Min Offtake Week = 2000`` without an explicit penalty →
+    ``min_offtake`` folded to horizon-wide budget and
+    ``min_offtake_cost = 1000`` (PLEXOS soft-by-default translation).
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_build_min_offtake_xml(weekly_value=2000.0))
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    with caplog.at_level("WARNING", logger="plexos2gtopt.parsers"):
+        fuels = extract_fuels(db, bundle)
+    # n_days defaults to 7 → horizon_hours = 168 → windows_in_horizon
+    # for the weekly bucket = 168 / 168 = 1, so contribution = 2000.0
+    assert fuels[0].min_offtake == 2000.0
+    # PLEXOS soft-by-default → 1000 $/fuel-unit injected by the parser.
+    assert fuels[0].min_offtake_cost == 1000.0
+    # WARNING is emitted so the first real bundle to ship a non-zero
+    # Min Offtake surfaces loudly.
+    assert any(
+        "Min Offtake" in rec.message and "diesel" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_extract_fuels_min_offtake_week_explicit_penalty(
+    tmp_path: Path,
+) -> None:
+    """Explicit ``Min Offtake Penalty = 250`` overrides the
+    PLEXOS-default $1000 — the parser passes the literal value through.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(
+        _build_min_offtake_xml(weekly_value=2000.0, explicit_penalty=250.0)
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].min_offtake == 2000.0
+    assert fuels[0].min_offtake_cost == 250.0
+
+
 def test_extract_fuels_max_offtake_week_explicit_zero(tmp_path: Path) -> None:
     """Explicit 0 in the CSV → ``max_offtake = 0.0`` (PLEXOS "shut").
 

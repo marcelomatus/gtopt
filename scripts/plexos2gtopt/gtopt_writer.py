@@ -1455,6 +1455,19 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
             # violates it; a hard cap re-throttles LNG and forces coal.
             if fuel.max_offtake_cost is not None:
                 entry["max_offtake_cost"] = fuel.max_offtake_cost
+        # Min Offtake floor (PLEXOS pids 595-600 — bare /
+        # Hour / Day / Week / Month / Year — folded into a horizon-wide
+        # budget by the parser).  ``min_offtake_cost`` ships the
+        # PLEXOS-faithful $1000/fuel-unit default when the bundle
+        # populates a floor without an explicit penalty; the gtopt LP
+        # model keeps the gtopt-native "unset ⇒ hard" convention so
+        # the translation lives entirely at the conversion boundary.
+        # Default per-stage SUM mode (matches the per-stage budget
+        # semantics of the folded value).
+        if fuel.min_offtake is not None:
+            entry["min_offtake"] = fuel.min_offtake
+            if fuel.min_offtake_cost is not None:
+                entry["min_offtake_cost"] = fuel.min_offtake_cost
         out.append(entry)
     return out
 
@@ -3122,8 +3135,21 @@ _PROVENANCE_CLASS_DOC: dict[str, dict[str, Any]] = {
         "gtopt": "Fuel",
         "plexos": "Fuel",
         "files": ["DBSEN_PRGDIARIO.xml", "Fuel_Price.csv", "Fuel_MaxOfftakeWeek.csv"],
-        "units": {"price": "$/fuel-unit", "max_offtake": "fuel-unit/period"},
-        "transforms": ["Fuel_MaxOfftakeWeek → Fuel.max_offtake (weekly budget)"],
+        "units": {
+            "price": "$/fuel-unit",
+            "max_offtake": "fuel-unit/period",
+            "min_offtake": "fuel-unit/period",
+        },
+        "transforms": [
+            "Fuel_MaxOfftakeWeek → Fuel.max_offtake (weekly budget)",
+            (
+                "Fuel.Min Offtake {Hour,Day,Week,Month,Year} → "
+                "Fuel.min_offtake (horizon-wide budget, PLEXOS pids "
+                "595-600); Min Offtake Penalty → min_offtake_cost "
+                "with PLEXOS-faithful $1000/fuel-unit soft default "
+                "when unset"
+            ),
+        ],
     },
     "junction_array": {
         "gtopt": "Junction",

@@ -961,6 +961,120 @@ def _extract_fuel_max_offtake_week(
     return out
 
 
+#: PLEXOS ``Fuel.Min Offtake`` family — pids 595-600 plus the
+#: ``Min Offtake Penalty`` pid 602 (default ``$1000/fuel-unit``
+#: when the bundle ships an offtake floor without an explicit
+#: penalty — PLEXOS soft-by-default; the converter mirrors that
+#: idiom on the gtopt-native "unset ⇒ hard" model).
+#:
+#: Each property is a CUMULATIVE total over the named window in the
+#: fuel's native unit.  We fold all six period flavours into a single
+#: horizon-wide ``min_offtake`` scalar (matching the way
+#: ``max_offtake`` folds ``Fuel_MaxOfftakeWeek.csv`` rows): each
+#: variant's contribution is its value × the number of windows of
+#: that length contained in the bundle horizon, then summed.
+#:
+#: Across the 14 cached CEN PCP bundles (2025-10 → 2026-05) **zero**
+#: fuels populate ANY of these properties — the entire family is
+#: dormant in current CEN cases.  The parser is defensive plumbing:
+#: it logs a WARNING when a non-zero Min Offtake property is found
+#: so the first real CEN bundle to ship one surfaces loudly rather
+#: than being silently dropped.
+_MIN_OFFTAKE_PROPS_AND_HOURS: tuple[tuple[str, float | None], ...] = (
+    # Property name in PLEXOS,        nominal window length (hours)
+    ("Min Offtake", None),  # bare: per-simulation-interval; unknown
+    ("Min Offtake Hour", 1.0),  # one window per hour
+    ("Min Offtake Day", 24.0),
+    ("Min Offtake Week", 168.0),
+    ("Min Offtake Month", 730.0),  # 30.42 d × 24 h, calendar-month avg
+    ("Min Offtake Year", 8760.0),
+)
+_MIN_OFFTAKE_PENALTY_PROP = "Min Offtake Penalty"
+#: PLEXOS-faithful soft-by-default penalty when bundle ships a Min
+#: Offtake floor without an explicit ``Min Offtake Penalty``.  Matches
+#: PLEXOS pid 602 default; gtopt itself has no such default, so the
+#: converter must inject it explicitly to preserve PLEXOS economics.
+_PLEXOS_DEFAULT_MIN_OFFTAKE_PENALTY = 1000.0
+
+
+def _extract_fuel_min_offtake_horizon(
+    db: PlexosDb,
+    fuel_object_id: int,
+    fuel_name: str,
+    horizon_hours: float,
+) -> tuple[float | None, float | None]:
+    """Return ``(min_offtake_for_horizon, min_offtake_cost)`` for one fuel.
+
+    Reads the PLEXOS Min Offtake family (pids 595-600) and folds each
+    populated variant into the same horizon-wide budget that
+    ``Fuel.min_offtake`` represents on the gtopt side.  Returns
+    ``(None, None)`` when the entire family is unset for this fuel
+    (the common case across the cached CEN PCP archive).
+
+    The cost return value applies the PLEXOS soft-by-default idiom:
+    if any Min Offtake property is set but ``Min Offtake Penalty`` is
+    NOT explicitly set, returns ``_PLEXOS_DEFAULT_MIN_OFFTAKE_PENALTY``
+    so the gtopt LP model preserves PLEXOS economics.  If the bundle
+    explicitly ships a penalty (including 0 or a negative value), that
+    value is returned verbatim and the caller's normalisation rules
+    apply.
+    """
+    total: float | None = None
+    any_set = False
+    for prop_name, window_hours in _MIN_OFFTAKE_PROPS_AND_HOURS:
+        raw = db.static_property("Fuel", fuel_object_id, prop_name)
+        if raw == 0.0:
+            continue
+        any_set = True
+        if total is None:
+            total = 0.0
+        # Convert the per-window cumulative value to a horizon-wide
+        # contribution.  ``window_hours = None`` (the bare property)
+        # is treated as "per simulation interval"; without knowing
+        # the period count we conservatively use the bundle horizon
+        # directly so the floor binds at the same magnitude PLEXOS
+        # would report.  Pro-rating for shorter windows divides the
+        # per-window total across windows that overlap the horizon.
+        if window_hours is None or window_hours <= 0.0:
+            contrib = raw
+        else:
+            windows_in_horizon = max(1.0, horizon_hours / window_hours)
+            contrib = raw * windows_in_horizon
+        total += contrib
+        logger.warning(
+            "Fuel %r: Min Offtake property %r populated (raw=%g, "
+            "horizon contribution=%g %s units) — this is the first "
+            "CEN bundle to ship a non-zero Min Offtake; gtopt floor "
+            "wiring is new, please cross-check the LP-side enforcement.",
+            fuel_name,
+            prop_name,
+            raw,
+            contrib,
+            "fuel",
+        )
+
+    if not any_set:
+        return (None, None)
+
+    # Penalty side — PLEXOS soft-by-default at $1000/fuel-unit.
+    explicit_penalty = db.static_property(
+        "Fuel", fuel_object_id, _MIN_OFFTAKE_PENALTY_PROP
+    )
+    # ``static_property`` returns 0.0 when the property is undefined
+    # for this object (the System collection ships the class-wide
+    # default which we treat as "no override").  Distinguishing
+    # "explicit 0" from "unset" requires probing ``data_for``
+    # directly; for the PLEXOS-default-1000 idiom the conservative
+    # rule is "treat 0 as unset" — a literal 0 penalty on a Min
+    # Offtake floor means the floor is unenforced anyway.
+    cost = (
+        explicit_penalty
+        if explicit_penalty != 0.0
+        else _PLEXOS_DEFAULT_MIN_OFFTAKE_PENALTY
+    )
+    return (total, cost)
+
+
 def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     """One :class:`FuelSpec` per ``t_object`` in class ``Fuel``.
 
@@ -994,6 +1108,13 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
     # fuel consumption per band; gtopt's ``Fuel.max_offtake`` field
     # (landed in PR #487) is the corresponding LP row.
     max_offtake_week = _extract_fuel_max_offtake_week(bundle, db.horizon_start)
+
+    # Bundle horizon length in hours — used to fold the
+    # ``Fuel.Min Offtake {Hour, Day, Week, Month, Year}`` family into
+    # a single horizon-wide budget.  ``bundle.n_days`` defaults to 7
+    # on CEN PCP weekly bundles; treat 0 / unknown as 168 h so the
+    # parser never divides by zero.
+    horizon_hours = float(max(int(bundle.n_days) or 7, 1) * 24)
 
     membership_rates = _extract_fuel_co2_membership_rates(db)
     out: list[FuelSpec] = []
@@ -1034,6 +1155,14 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         # (band shut on this week).
         cap_week = max_offtake_week.get(fuel.name)
 
+        # Min Offtake floor + PLEXOS soft-by-default penalty
+        # translation.  Returns ``(None, None)`` when the entire
+        # Min Offtake family is unset for this fuel — the case for
+        # every CEN PCP bundle in the 2025-10..2026-05 cache.
+        min_off, min_off_cost = _extract_fuel_min_offtake_horizon(
+            db, fuel.object_id, fuel.name, horizon_hours
+        )
+
         out.append(
             FuelSpec(
                 object_id=fuel.object_id,
@@ -1042,6 +1171,8 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 co2_rate=co2_rate,
                 co2_upstream_rate=co2_upstream_rate,
                 max_offtake=cap_week,
+                min_offtake=min_off,
+                min_offtake_cost=min_off_cost,
             )
         )
     return tuple(out)

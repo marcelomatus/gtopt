@@ -575,6 +575,117 @@ def test_fuel_max_offtake_absent_when_none() -> None:
     assert "max_offtake_per_block" not in out[0]
 
 
+# ---------------------------------------------------------------------------
+# Fuel.min_offtake (PLEXOS Min Offtake / take-or-pay reproduction)
+# ---------------------------------------------------------------------------
+
+
+def test_fuel_min_offtake_emitted_when_set() -> None:
+    """``FuelSpec.min_offtake`` ≥ 0 lands on the JSON as ``min_offtake``.
+
+    Default per-stage SUM mode mirrors the ``max_offtake`` semantics —
+    no ``min_offtake_per_block`` field is emitted (gtopt's FuelLP
+    defaults to per-stage SUM).  Take-or-pay floors operate on a
+    horizon-wide budget basis identical to the upper-bound family.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=1,
+            name="Gas_Quintero_A",
+            price=10.0,
+            min_offtake=1500.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["min_offtake"] == 1500.0
+    # No cost ⇒ no soft-floor slack on the LP (gtopt-native hard floor).
+    assert "min_offtake_cost" not in out[0]
+    assert "min_offtake_per_block" not in out[0]
+
+
+def test_fuel_min_offtake_soft_emits_cost() -> None:
+    """``min_offtake_cost`` rides alongside the floor as the shortfall
+    slack price ($/fuel-unit).  Mirrors the PLEXOS Min Offtake Penalty
+    default; the parser injects $1000/fuel-unit when the bundle ships
+    a floor without an explicit penalty.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=2,
+            name="Gas_NuevaRenca_GN_A",
+            price=12.0,
+            min_offtake=2000.0,
+            min_offtake_cost=1000.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["min_offtake"] == 2000.0
+    assert out[0]["min_offtake_cost"] == 1000.0
+
+
+def test_fuel_min_offtake_explicit_zero_propagates() -> None:
+    """``min_offtake == 0.0`` IS emitted (PLEXOS-style explicit zero
+    floor).  Semantically the row is trivially satisfied but the LP
+    still gets the symbol so any UC that references the slack column
+    can resolve."""
+    fuels = (
+        FuelSpec(
+            object_id=3,
+            name="Gas_Colbun_GN_C",
+            price=14.0,
+            min_offtake=0.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["min_offtake"] == 0.0
+
+
+def test_fuel_min_offtake_absent_when_none() -> None:
+    """``min_offtake == None`` omits all min-side fields (no floor binds).
+
+    Default state for every fuel across the 14 cached CEN PCP bundles
+    (2025-10 → 2026-05) — no CEN bundle in the archive populates any
+    Min Offtake property.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=4,
+            name="Gas_Quintero_C",
+            price=14.0,
+            min_offtake=None,
+            min_offtake_cost=None,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert "min_offtake" not in out[0]
+    assert "min_offtake_cost" not in out[0]
+    assert "min_offtake_per_block" not in out[0]
+
+
+def test_fuel_ranged_pair_min_and_max_coexist() -> None:
+    """Both ``min_offtake`` and ``max_offtake`` set on the same fuel
+    emit both fields side-by-side on the JSON entry — gtopt's FuelLP
+    then materialises two separate LP rows sharing the offtake DV
+    LHS, mirroring the ``Commitment::{min,max}_starts`` pattern.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=5,
+            name="Gas_NuevaRenca_GN_A",
+            price=10.0,
+            min_offtake=200.0,
+            min_offtake_cost=1000.0,
+            max_offtake=5000.0,
+            max_offtake_cost=500.0,
+        ),
+    )
+    out = build_fuel_array(fuels)
+    assert out[0]["min_offtake"] == 200.0
+    assert out[0]["min_offtake_cost"] == 1000.0
+    assert out[0]["max_offtake"] == 5000.0
+    assert out[0]["max_offtake_cost"] == 500.0
+
+
 def test_thermal_generator_emits_fuel_fk_for_offtake_cap_binding() -> None:
     """End-to-end coupling: a thermal generator must emit ``fuel`` +
     ``heat_rate`` so gtopt's ``FuelLP.max_offtake`` cap row can find
