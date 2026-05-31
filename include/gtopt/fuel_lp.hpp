@@ -18,6 +18,17 @@
  * with an optional slack column priced at `max_offtake_cost` when the
  * cap is soft.  Mirrors PLEXOS's `FueMaxOffWeek_<fuel>` /
  * `FueMaxOffDay_<fuel>` Constraint pattern.
+ *
+ * Symmetrically, when `Fuel.min_offtake` is set FuelLP creates a
+ * per-(scenario, stage) FLOOR row
+ *
+ *   Σ_g (heat_rate · gen · dur)  ≥  min_offtake(s)
+ *
+ * with an optional shortfall slack priced at `min_offtake_cost` when
+ * the floor is soft.  Mirrors PLEXOS's `Fuel.Min Offtake {Hour, Day,
+ * Week, Month, Year}` family (pids 595-600) used for take-or-pay
+ * obligations.  When BOTH bounds are set the two rows share the
+ * offtake DV LHS — same pattern as `Commitment::{min,max}_starts`.
  */
 
 #pragma once
@@ -46,6 +57,14 @@ public:
   /// LP row / col name constants (snake_case for output filenames).
   static constexpr std::string_view MaxOfftakeName {"max_offtake"};
   static constexpr std::string_view MaxOfftakeSlackName {"max_offtake_slack"};
+  /// Symmetric min-side floor names — see ``Fuel::min_offtake``.  When
+  /// both ``min_offtake`` and ``max_offtake`` are populated FuelLP
+  /// emits two separate rows sharing the offtake DV LHS (same
+  /// pattern as ``Commitment::{min,max}_starts``).  Each side gets
+  /// its own dual stream + slack column when softened by a positive
+  /// ``*_cost``.
+  static constexpr std::string_view MinOfftakeName {"min_offtake"};
+  static constexpr std::string_view MinOfftakeSlackName {"min_offtake_slack"};
   /// Per-(scenario, stage, block) fuel offtake decision variable
   /// ``Y_f[b] = Σ_g heat_rate_g · dur_b · generation_g[b]`` exposed to
   /// PAMPL as ``fuel("X").offtake``.  Lets PLEXOS ``Offtake
@@ -106,6 +125,14 @@ public:
   {
     return max_offtake_cost_.at(s);
   }
+  [[nodiscard]] auto param_min_offtake(StageUid s) const
+  {
+    return min_offtake_.at(s);
+  }
+  [[nodiscard]] auto param_min_offtake_cost(StageUid s) const
+  {
+    return min_offtake_cost_.at(s);
+  }
   /// @}
 
 private:
@@ -115,6 +142,8 @@ private:
   OptTRealSched upstream_ef_;
   OptTRealSched max_offtake_;
   OptTRealSched max_offtake_cost_;
+  OptTRealSched min_offtake_;
+  OptTRealSched min_offtake_cost_;
 
   /// Per-(scenario, stage) cap row + optional slack column.  Empty
   /// when `max_offtake` is unset for every (scenario, stage), or
@@ -130,6 +159,21 @@ private:
   /// stage duration.
   STBIndexHolder<RowIndex> max_offtake_block_rows_;
   STBIndexHolder<ColIndex> max_offtake_block_slack_cols_;
+
+  /// Per-(scenario, stage) FLOOR row + optional shortfall-slack column
+  /// (``Σ_b Y_f[b] + slack ≥ min_offtake``).  Empty when
+  /// `min_offtake` is unset for every (scenario, stage), or when the
+  /// per-block path is selected via `Fuel.min_offtake_per_block`.
+  /// Symmetric to ``max_offtake_rows_`` / ``max_offtake_slack_cols_``.
+  STIndexHolder<RowIndex> min_offtake_rows_;
+  STIndexHolder<ColIndex> min_offtake_slack_cols_;
+
+  /// Per-(scenario, stage, block) FLOOR rows + optional shortfall
+  /// slack columns.  Populated only when
+  /// `Fuel.min_offtake_per_block = true` — pro-rates the stage floor
+  /// by each block's share of total stage duration.
+  STBIndexHolder<RowIndex> min_offtake_block_rows_;
+  STBIndexHolder<ColIndex> min_offtake_block_slack_cols_;
 
   /// Per-(scenario, stage, block) offtake decision variable
   /// ``Y_f[b]``.  Populated only for cells where at least one

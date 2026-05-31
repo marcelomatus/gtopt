@@ -214,6 +214,73 @@ struct Fuel
   /// the slack is shared across the per-block rows via a single
   /// stage-scoped column.
   OptBool max_offtake_per_block {};
+
+  /// Minimum fuel consumption per stage `[<fuel_unit>/stage]`,
+  /// stage-schedulable.  When set, FuelLP creates a per-(scenario,
+  /// stage) lower-bound row enforcing
+  ///
+  ///   Σ_{g : Generator(g).fuel = this_fuel} (heat_rate_g(s, b) ·
+  ///       generation_g(s, t, b) · duration_b)  ≥  min_offtake(s)
+  ///
+  /// summed across every active generator referencing this Fuel and
+  /// every block in the stage.  Mirrors PLEXOS's
+  /// `Fuel.Min Offtake {Hour, Day, Week, Month, Year}` family
+  /// (property IDs 595-600), used to model take-or-pay (ToP)
+  /// contracts where the buyer commits to a minimum purchase
+  /// quantity per period and pays a penalty for shortfall.  Mirrors
+  /// PSR SDDP's per-period TOP minima (without the SDDP make-up bank
+  /// — that is a future state-column extension).
+  ///
+  /// Canonical reference: Guerra, O.J. et al. "Analysis of a
+  /// Multiple Year Gas Sales Agreement with Make-up, Carry-Forward
+  /// and Indexation", Energy Economics 73 (2018), 358-374
+  /// (DOI 10.1016/j.eneco.2018.03.013).
+  ///
+  /// Stage = the natural fuel-contract period.  Unit-flexibility
+  /// contract applies: `<fuel_unit>` must match `price`, `heat_rate`,
+  /// etc. for this fuel.  When both `min_offtake` and `max_offtake`
+  /// are set on the same fuel, FuelLP emits two separate rows that
+  /// share the per-block offtake DV (Y_f[b]) — same pattern as
+  /// `Commitment.{min,max}_starts`.
+  OptTRealFieldSched min_offtake {};
+
+  /// Per-unit penalty for SHORTFALL below `min_offtake`
+  /// `[$/<fuel_unit>]`, stage-schedulable.  When set and > 0 the
+  /// floor becomes SOFT: a non-negative slack column with this cost
+  /// is added to the floor row so the LP can under-consume at a
+  /// per-unit price rather than going infeasible.  When unset, the
+  /// floor is HARD (gtopt-native convention).
+  ///
+  /// PLEXOS asymmetry note: PLEXOS's `Fuel.Min Offtake Penalty`
+  /// (property 602) defaults to **1000 $/fuel-unit** (NOT unset/hard
+  /// like `Max Offtake Penalty`).  gtopt keeps the symmetric
+  /// "unset = hard" convention for both directions; the converter
+  /// `plexos2gtopt` is responsible for injecting `min_offtake_cost
+  /// = 1000` when a PLEXOS bundle ships a Min Offtake without an
+  /// explicit penalty, so PLEXOS-faithful behaviour is preserved at
+  /// the conversion boundary rather than baked into the LP model.
+  OptTRealFieldSched min_offtake_cost {};
+
+  /// When `true`, enforce the floor **per block** instead of summed
+  /// over the stage.  The per-stage floor `min_offtake` is pro-rated
+  /// by each block's share of stage duration:
+  ///
+  ///   block_floor_b = min_offtake(s) · duration_b / Σ_b duration_b
+  ///
+  /// and `FuelLP` creates one lower-bound row per
+  /// (scenario, stage, block):
+  ///
+  ///   Σ_g (heat_rate_g(s, b) · gen_g(s, t, b) · duration_b)
+  ///       ≥ block_floor_b
+  ///
+  /// When `false` / unset (default), the per-stage sum applies (one
+  /// row per scenario × stage).  Soft-floor slack (`min_offtake_cost`)
+  /// is supported in both modes.
+  ///
+  /// `min_offtake_per_block` is independent of `max_offtake_per_block`:
+  /// e.g., a fuel may have a per-block min (hourly take-or-pay floor)
+  /// alongside a per-stage sum max (weekly delivery cap).
+  OptBool min_offtake_per_block {};
 };
 
 }  // namespace gtopt

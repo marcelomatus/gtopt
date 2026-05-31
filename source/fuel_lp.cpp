@@ -60,6 +60,10 @@ FuelLP::FuelLP(const Fuel& fuel, const InputContext& ic)
           ic, Element::class_name, id(), std::move(object().max_offtake))
     , max_offtake_cost_(
           ic, Element::class_name, id(), std::move(object().max_offtake_cost))
+    , min_offtake_(
+          ic, Element::class_name, id(), std::move(object().min_offtake))
+    , min_offtake_cost_(
+          ic, Element::class_name, id(), std::move(object().min_offtake_cost))
 {
 }
 
@@ -224,9 +228,11 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
         ampl_name, uid(), OfftakeName, scenario, stage, obcols);
   }
 
-  if (!stage_cap) {
-    // No cap set — offtake DV stays exposed (UCs can still reference
-    // it), but no cap / slack row is emitted.
+  const auto stage_floor = param_min_offtake(stage_uid);
+
+  if (!stage_cap && !stage_floor) {
+    // No cap nor floor set — offtake DV stays exposed (UCs can still
+    // reference it), but no cap / floor / slack row is emitted.
     return true;
   }
 
@@ -244,48 +250,98 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
                                     stage.discount_factor())
       : 0.0;
 
+  const auto stage_floor_cost = param_min_offtake_cost(stage_uid);
+  const double floor_slack_cost_per_unit =
+      (stage_floor_cost && *stage_floor_cost > 0.0) ? *stage_floor_cost
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor())
+                                                    : 0.0;
+
   const bool per_block = fuel().max_offtake_per_block.value_or(false);
+  const bool floor_per_block = fuel().min_offtake_per_block.value_or(false);
 
   // Cap rows reference the offtake DV directly (sparser than re-summing
   // per-gen coefficients here — the binding equation above already
   // accumulates ``Σ hr·dur·gen`` into ``Y_f[b]``).
-  if (per_block) {
-    // ── Per-block mode ────────────────────────────────────────────────
-    // Pro-rate the stage cap by each block's share of stage duration
-    // — equivalent to enforcing a uniform per-hour rate cap
-    // `max_offtake / total_duration`.  Mirrors PLEXOS's per-period
-    // `FueMaxOffWeek_<fuel>` semantics.
-    double total_duration = 0.0;
-    for (const auto& block : blocks) {
-      total_duration += block.duration();
-    }
-    if (total_duration <= 0.0) {
-      return true;
-    }
+  //
+  // Total stage duration is needed by either side's per-block path
+  // (pro-rates the per-stage scalar by each block's share); compute
+  // once.
+  double total_duration = 0.0;
+  for (const auto& block : blocks) {
+    total_duration += block.duration();
+  }
+  if (total_duration <= 0.0) {
+    return true;
+  }
 
-    BIndexHolder<RowIndex> brows;
-    BIndexHolder<ColIndex> bslacks;
-    map_reserve(brows, blocks.size());
-    if (slack_cost_per_unit > 0.0) {
-      map_reserve(bslacks, blocks.size());
-    }
+  const auto st_key = std::tuple {scen_uid, stage_uid};
 
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
-      const auto ocol_it = obcols.find(buid);
-      if (ocol_it == obcols.end()) {
-        // No offtake DV on this block (no active gens) — skip the cap
-        // row; cap is trivially satisfied with zero offtake.
-        continue;
+  // ── Upper-bound (max_offtake) path ─────────────────────────────────
+  if (stage_cap) {
+    if (per_block) {
+      // Per-block: pro-rate the stage cap by each block's share of
+      // stage duration — equivalent to enforcing a uniform per-hour
+      // rate cap `max_offtake / total_duration`.  Mirrors PLEXOS's
+      // per-period `FueMaxOffWeek_<fuel>` semantics.
+      BIndexHolder<RowIndex> brows;
+      BIndexHolder<ColIndex> bslacks;
+      map_reserve(brows, blocks.size());
+      if (slack_cost_per_unit > 0.0) {
+        map_reserve(bslacks, blocks.size());
       }
-      const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
-      SparseRow brow {
+
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        const auto ocol_it = obcols.find(buid);
+        if (ocol_it == obcols.end()) {
+          // No offtake DV on this block (no active gens) — skip; the
+          // cap is trivially satisfied with zero offtake.
+          continue;
+        }
+        const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
+        SparseRow brow {
+            .class_name = cname,
+            .constraint_name = MaxOfftakeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        };
+        brow[ocol_it->second] = 1.0;
+        if (slack_cost_per_unit > 0.0) {
+          const auto slack_col = lp.add_col(SparseCol {
+              .lowb = 0.0,
+              .cost = slack_cost_per_unit,
+              .class_name = cname,
+              .variable_name = MaxOfftakeSlackName,
+              .variable_uid = uid(),
+              .context = block_ctx,
+          });
+          brow[slack_col] = -1.0;
+          bslacks[buid] = slack_col;
+        }
+        const double block_cap = *stage_cap * block.duration() / total_duration;
+        brows[buid] = lp.add_row(std::move(brow).less_equal(block_cap));
+      }
+
+      if (!brows.empty()) {
+        max_offtake_block_rows_[st_key] = std::move(brows);
+      }
+      if (!bslacks.empty()) {
+        max_offtake_block_slack_cols_[st_key] = std::move(bslacks);
+      }
+    } else {
+      // Per-stage SUM (default): Σ_b Y_f[b] ≤ max_offtake.
+      SparseRow cap_row {
           .class_name = cname,
           .constraint_name = MaxOfftakeName,
           .variable_uid = uid(),
-          .context = block_ctx,
+          .context = stage_ctx,
       };
-      brow[ocol_it->second] = 1.0;
+      for (const auto& [_buid, ocol] : obcols) {
+        const double existing = cap_row[ocol];
+        cap_row[ocol] = existing + 1.0;
+      }
+
       if (slack_cost_per_unit > 0.0) {
         const auto slack_col = lp.add_col(SparseCol {
             .lowb = 0.0,
@@ -293,50 +349,107 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
             .class_name = cname,
             .variable_name = MaxOfftakeSlackName,
             .variable_uid = uid(),
-            .context = block_ctx,
+            .context = stage_ctx,
         });
-        brow[slack_col] = -1.0;
-        bslacks[buid] = slack_col;
+        cap_row[slack_col] = -1.0;
+        max_offtake_slack_cols_[st_key] = slack_col;
       }
-      const double block_cap = *stage_cap * block.duration() / total_duration;
-      brows[buid] = lp.add_row(std::move(brow).less_equal(block_cap));
+      max_offtake_rows_[st_key] =
+          lp.add_row(std::move(cap_row).less_equal(*stage_cap));
     }
+  }
 
-    const auto st_key = std::tuple {scen_uid, stage_uid};
-    if (!brows.empty()) {
-      max_offtake_block_rows_[st_key] = std::move(brows);
-    }
-    if (!bslacks.empty()) {
-      max_offtake_block_slack_cols_[st_key] = std::move(bslacks);
-    }
-  } else {
-    // ── Per-stage SUM mode (default) ──────────────────────────────────
-    // Σ_b Y_f[b] ≤ max_offtake  (one row per stage).
-    SparseRow cap_row {
-        .class_name = cname,
-        .constraint_name = MaxOfftakeName,
-        .variable_uid = uid(),
-        .context = stage_ctx,
-    };
-    for (const auto& [_buid, ocol] : obcols) {
-      const double existing = cap_row[ocol];
-      cap_row[ocol] = existing + 1.0;
-    }
+  // ── Lower-bound (min_offtake) FLOOR path — symmetric to max ────────
+  // Same shape as the max-side branch (per-block pro-rate or per-stage
+  // SUM), but the row sense is ``≥`` and the slack column enters with
+  // coefficient +1 so it ABSORBS shortfall (LHS + slack ≥ RHS).  When
+  // both sides are populated FuelLP emits both rows — they share the
+  // offtake DV LHS terms but each is independently bounded + dualised.
+  if (stage_floor) {
+    if (floor_per_block) {
+      BIndexHolder<RowIndex> brows;
+      BIndexHolder<ColIndex> bslacks;
+      map_reserve(brows, blocks.size());
+      if (floor_slack_cost_per_unit > 0.0) {
+        map_reserve(bslacks, blocks.size());
+      }
 
-    if (slack_cost_per_unit > 0.0) {
-      const auto slack_col = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .cost = slack_cost_per_unit,
+      for (const auto& block : blocks) {
+        const auto buid = block.uid();
+        const auto ocol_it = obcols.find(buid);
+        if (ocol_it == obcols.end()) {
+          // No active gens on this block — floor is unreachable
+          // without slack; skip when soft (the per-block slack alone
+          // would satisfy a `0 + slack ≥ floor` row at full price),
+          // emit the hard row so the LP errors loudly when the user
+          // mis-configured an unreachable floor.
+          if (floor_slack_cost_per_unit > 0.0) {
+            continue;
+          }
+        }
+        const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
+        SparseRow brow {
+            .class_name = cname,
+            .constraint_name = MinOfftakeName,
+            .variable_uid = uid(),
+            .context = block_ctx,
+        };
+        if (ocol_it != obcols.end()) {
+          brow[ocol_it->second] = 1.0;
+        }
+        if (floor_slack_cost_per_unit > 0.0) {
+          const auto slack_col = lp.add_col(SparseCol {
+              .lowb = 0.0,
+              .cost = floor_slack_cost_per_unit,
+              .class_name = cname,
+              .variable_name = MinOfftakeSlackName,
+              .variable_uid = uid(),
+              .context = block_ctx,
+          });
+          // +1 — the slack absorbs shortfall on the ≥ row, so the
+          // augmented constraint is ``Σ Y_f + slack ≥ floor``.
+          brow[slack_col] = 1.0;
+          bslacks[buid] = slack_col;
+        }
+        const double block_floor =
+            *stage_floor * block.duration() / total_duration;
+        brows[buid] = lp.add_row(std::move(brow).greater_equal(block_floor));
+      }
+
+      if (!brows.empty()) {
+        min_offtake_block_rows_[st_key] = std::move(brows);
+      }
+      if (!bslacks.empty()) {
+        min_offtake_block_slack_cols_[st_key] = std::move(bslacks);
+      }
+    } else {
+      // Per-stage SUM floor: Σ_b Y_f[b] + slack ≥ min_offtake.
+      SparseRow floor_row {
           .class_name = cname,
-          .variable_name = MaxOfftakeSlackName,
+          .constraint_name = MinOfftakeName,
           .variable_uid = uid(),
           .context = stage_ctx,
-      });
-      cap_row[slack_col] = -1.0;
-      max_offtake_slack_cols_[{scen_uid, stage_uid}] = slack_col;
+      };
+      for (const auto& [_buid, ocol] : obcols) {
+        const double existing = floor_row[ocol];
+        floor_row[ocol] = existing + 1.0;
+      }
+
+      if (floor_slack_cost_per_unit > 0.0) {
+        const auto slack_col = lp.add_col(SparseCol {
+            .lowb = 0.0,
+            .cost = floor_slack_cost_per_unit,
+            .class_name = cname,
+            .variable_name = MinOfftakeSlackName,
+            .variable_uid = uid(),
+            .context = stage_ctx,
+        });
+        floor_row[slack_col] = 1.0;  // shortfall slack (+1)
+        min_offtake_slack_cols_[st_key] = slack_col;
+      }
+      min_offtake_rows_[st_key] =
+          lp.add_row(std::move(floor_row).greater_equal(*stage_floor));
     }
-    max_offtake_rows_[{scen_uid, stage_uid}] =
-        lp.add_row(std::move(cap_row).less_equal(*stage_cap));
   }
 
   return true;
@@ -344,7 +457,11 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
 
 bool FuelLP::add_to_output(OutputContext& out) const
 {
-  if (max_offtake_rows_.empty() && max_offtake_block_rows_.empty()) {
+  const bool any_max =
+      !max_offtake_rows_.empty() || !max_offtake_block_rows_.empty();
+  const bool any_min =
+      !min_offtake_rows_.empty() || !min_offtake_block_rows_.empty();
+  if (!any_max && !any_min) {
     return true;
   }
 
@@ -366,6 +483,22 @@ bool FuelLP::add_to_output(OutputContext& out) const
         cname, MaxOfftakeSlackName, pid, max_offtake_block_slack_cols_);
     out.add_col_cost(
         cname, MaxOfftakeSlackName, pid, max_offtake_block_slack_cols_);
+  }
+  if (!min_offtake_rows_.empty()) {
+    out.add_row_dual(cname, MinOfftakeName, pid, min_offtake_rows_);
+  }
+  if (!min_offtake_slack_cols_.empty()) {
+    out.add_col_sol(cname, MinOfftakeSlackName, pid, min_offtake_slack_cols_);
+    out.add_col_cost(cname, MinOfftakeSlackName, pid, min_offtake_slack_cols_);
+  }
+  if (!min_offtake_block_rows_.empty()) {
+    out.add_row_dual(cname, MinOfftakeName, pid, min_offtake_block_rows_);
+  }
+  if (!min_offtake_block_slack_cols_.empty()) {
+    out.add_col_sol(
+        cname, MinOfftakeSlackName, pid, min_offtake_block_slack_cols_);
+    out.add_col_cost(
+        cname, MinOfftakeSlackName, pid, min_offtake_block_slack_cols_);
   }
   return true;
 }
