@@ -100,6 +100,7 @@ UC_FAMILY_PATTERNS = (
     (re.compile(r"^GenMaxStarts(Week|Day|Month)?_"), "gen_max_starts"),
     (re.compile(r"_starting$"), "commit_startup"),
     (re.compile(r"^MutuallyExclusive_", re.IGNORECASE), "mutually_exclusive"),
+    (re.compile(r"^Inertia_"), "inertia_calc"),
     (re.compile(r"_PMax$"), "pmax_cap"),
     (re.compile(r"_PMin$"), "pmin_floor"),
     (re.compile(r"^discharge_"), "discharge_min"),
@@ -174,6 +175,16 @@ NATIVE_PRIMITIVE_FAMILIES: dict[str, str] = {
     "hydro_max": "soft tier ($10/MWh slack); commit-gating handled by Commitment",
     "hydro_ramp": "soft tier ($10/MWh slack); commit-gating handled by Commitment",
     "reservoir_economy": "soft tier ($10/MWh slack); hydro economy UC",
+    # ``inertia_calc`` family (Inertia_Calculation_e1, _e2, ...): gtopt
+    # encodes the system inertia balance as a UC with a synthetic
+    # ``decision_variable("Inertia_SEN")`` term:
+    #   −1000·Inertia_SEN + Σ (inertia_const·commit.status) ≥ rhs_raw
+    # The raw RHS from PLEXOS XML (here −622.54) reads correctly; PLEXOS
+    # at solve time reports ``rhs_max = 0`` because its internal
+    # encoding cancels the Inertia_SEN contribution at the binding point.
+    # gtopt's raw-DB value is the right input — the discrepancy is the
+    # different LP formulation, not a parser bug.
+    "inertia_calc": "decision_variable Inertia_SEN + Σ inertia·commit.status",
 }
 
 

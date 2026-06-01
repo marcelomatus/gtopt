@@ -10,7 +10,6 @@
   "n_duplicates_in_gtopt": 0,
   "bucket_counts": {
    "B6_soft_in_plexos_hard_in_gtopt": 388,
-   "B2_rhs_mismatch": 1,
    "B10_native_primitive": 4,
    "B8_synthetic_in_gtopt": 355
   },
@@ -2129,17 +2128,6 @@
     {
      "name": "uc_2025142490_PAzucar_Polpaico500_C1_C2_Neg",
      "plexos_slack": 1166943.4128079305
-    }
-   ]
-  },
-  "B2_rhs_mismatch": {
-   "count": 1,
-   "items": [
-    {
-     "name": "Inertia_Calculation_e1",
-     "plexos_rhs_max": 0.0,
-     "gtopt_rhs_eff": -622.54,
-     "ratio": null
     }
    ]
   },
@@ -9604,25 +9592,8 @@
    "in_hard_list": false
   },
   {
-   "name": "Inertia_Calculation_e1",
-   "family": "other",
-   "gtopt_op": ">=",
-   "gtopt_penalty": 0.0,
-   "gtopt_penalty_class": "hard",
-   "gtopt_active": true,
-   "gtopt_n_terms": 693,
-   "plexos_rhs_max": 0.0,
-   "plexos_rhs_min": 0.0,
-   "plexos_hours_binding": 111.0,
-   "plexos_slack_sum_abs": 0.0,
-   "plexos_price_sum_abs": 2.451378186001601,
-   "plexos_active_in_sol": true,
-   "plexos_hard_solved": true,
-   "in_hard_list": true
-  },
-  {
    "name": "Inertia_Calculation_e2",
-   "family": "other",
+   "family": "inertia_calc",
    "gtopt_op": ">=",
    "gtopt_penalty": 0.0,
    "gtopt_penalty_class": "hard",
