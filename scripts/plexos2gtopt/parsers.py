@@ -5941,10 +5941,32 @@ def _describe_user_constraint(
     fuel_offtake: bool = False,
     from_rhs_custom: bool = False,
     inactive: bool = False,
+    n_terms: int = 0,
+    n_filtered: int = 0,
+    tautology: bool = False,
 ) -> str:
-    """Build a human-readable ``description`` for a UserConstraint: what
-    it is (PLEXOS provenance), what it means (LHS variable kinds), the
-    units of each LP variable it references, and the source file.
+    """Build a human-readable ``description`` for a UserConstraint.
+
+    Describes provenance (PLEXOS Constraint name + source file), LHS
+    variable kinds + units, and notable transformations applied during
+    translation (combined-cycle consolidation drops, tautology
+    downgrade, inactive-stub status).
+
+    ``n_terms`` is the number of LHS terms actually emitted into
+    ``expression``.  When ``n_terms <= 1`` the ``Σ`` prefix is omitted —
+    the previous unconditional template lied about sums when the
+    converter's combined-cycle consolidator (or PLEXOS itself) had only
+    produced a single member.
+
+    ``n_filtered`` counts PLEXOS Generator memberships that were
+    consolidated away during translation (offline-gen / shadow-line /
+    always-on-renewable / fuel-without-consumer drops tracked by
+    ``silent_zero_drops``).  When > 0, the description annotates the
+    original membership count so an operator reading the .pampl can
+    verify the consolidation against PLEXOS source data.
+
+    ``tautology`` flips the description's tail to flag the constraint
+    as trivially satisfied under the variable's natural binary domain.
 
     gtopt LP variables and their units:
       ``generation`` / ``flow`` / ``charge`` / ``discharge`` — power [MW];
@@ -5964,7 +5986,17 @@ def _describe_user_constraint(
     if "reserve_provision(" in expression:
         parts.append("reserve provision [MW]")
     if "commitment(" in expression:
-        parts.append("commitment status [0/1]")
+        # Detect which commitment accessors actually appear in the
+        # expression rather than always labelling them "status".  Bundle
+        # audit surfaced 41 single-term Σ rows where the comment said
+        # "status" but the term used ``.startup`` / ``.shutdown``.
+        accessors = [
+            kind
+            for kind in ("status", "startup", "shutdown")
+            if f".{kind}" in expression
+        ]
+        kinds = "/".join(accessors) if accessors else "status"
+        parts.append(f"commitment {kinds} [0/1]")
     if "decision_variable(" in expression:
         parts.append("decision variable")
     op_txt = _UC_OP_TXT.get(op, op)
@@ -5979,10 +6011,72 @@ def _describe_user_constraint(
             )
     else:
         lhs = " + ".join(parts) if parts else "LP terms"
-        desc = f"PLEXOS Constraint '{name}': Σ {lhs} {op_txt} {rhs:g}"
+        # ``Σ`` only when there is actually a sum.  Single-term rows
+        # arise when PLEXOS itself had one member, when gtopt's
+        # combined-cycle consolidator collapsed N variants into one
+        # primary config, or when offline/shadow filtering reduced the
+        # term list.  Stamping ``Σ`` unconditionally misled operators
+        # auditing the bundle against the PLEXOS source.
+        sigma = "Σ " if n_terms > 1 else ""
+        desc = f"PLEXOS Constraint '{name}': {sigma}{lhs} {op_txt} {rhs:g}"
+    if n_filtered > 0:
+        original = n_terms + n_filtered
+        desc += (
+            f" — consolidated from {original} PLEXOS member(s); "
+            f"{n_filtered} subsumed by gtopt's element model "
+            "(offline gens, shadow lines, always-on renewables, or "
+            "fuel without consuming gens)"
+        )
+    if tautology:
+        desc += (
+            " — tautology under binary [0,1] domain (LP-redundant, "
+            "kept as inactive stub for PLEXOS provenance audit)"
+        )
     if inactive:
         desc += " — active=False (excluded from PLEXOS ST schedule / contingency row)"
     return f"{desc} (File: {source_file})"
+
+
+_TAUTOLOGY_TERM_RE = re.compile(
+    r"^([+-]?\d+(?:\.\d+)?)\s*\*\s*"
+    r"commitment\([^)]+\)\.(status|startup|shutdown)\s*$"
+)
+
+
+def _is_tautology_single_term(terms: list[str], op: str, rhs: float) -> bool:
+    """True when a 1-term ``[±]c × commitment(...).{status,startup,shutdown}``
+    constraint is trivially satisfied by the column's natural binary
+    domain ``[0, 1]``.
+
+    Rule: with coefficient ``c`` on ``u ∈ [0, 1]`` the LHS range is
+    ``[min(0, c), max(0, c)]``.  The constraint is then redundant iff:
+
+      ``≤ rhs`` : ``rhs >= max(0, c)``    e.g. ``+1·u ≤ 1`` always true
+      ``≥ rhs`` : ``rhs <= min(0, c)``    e.g. ``-1·u ≥ -1`` always true
+      ``= rhs`` : ``c == 0`` and ``rhs == 0``  (degenerate)
+
+    Returns False for any expression that isn't this exact 1-term
+    commitment shape — broader tautology detection (multi-term, mixed
+    classes) is out of scope here; this function only covers the
+    specific SSCC / Uniq family surfaced by the bundle audit
+    (``ATA_TG1B_DIE_SSCC``, ``SSCC_NVentanas_{Up,Down}``,
+    ``COLMITO_Uniq``, ``CTFOFF_TOCOPILLA_TG3_GNL_B``, etc.).
+    """
+    if len(terms) != 1:
+        return False
+    m = _TAUTOLOGY_TERM_RE.match(terms[0].strip())
+    if not m:
+        return False
+    coef = float(m.group(1))
+    lhs_max = max(0.0, coef)
+    lhs_min = min(0.0, coef)
+    if op == "<=":
+        return rhs >= lhs_max
+    if op == ">=":
+        return rhs <= lhs_min
+    if op == "=":
+        return coef == 0.0 and rhs == 0.0
+    return False
 
 
 def _parse_hydro_maxrampday_csv(path: Path) -> dict[str, list[float]]:
@@ -8117,12 +8211,22 @@ def extract_user_constraints(
                 )
             )
             continue
+        # Tautology detection: when a single-term row reduces to
+        # ``±c · binary <op> rhs`` and the LP-natural domain ``[0, 1]``
+        # already satisfies it, the row is LP-redundant.  Bundle audit
+        # surfaced 14 such rows (``ATA_TG1B_DIE_SSCC``,
+        # ``SSCC_NVentanas_{Up,Down}``, ``COLMITO_Uniq``, …) where
+        # PLEXOS itself reports ``hours_binding = 0`` and ``price = 0``
+        # — they sit in the model as audit guards, never bind.  Downgrade
+        # to ``active=False`` so CPLEX presolve doesn't bother allocating
+        # row state.
+        is_tautology = _is_tautology_single_term(terms, op, rhs_val)
         out.append(
             UserConstraintSpec(
                 name=constr.name,
                 expression=expression,
                 penalty=emitted_penalty,
-                active=False if is_inactive else None,
+                active=False if (is_inactive or is_tautology) else None,
                 rhs_profile=rhs_profile_tuple,
                 daily_sum=is_daily_energy or is_daily_count,
                 constraint_type="energy" if is_daily_energy else "",
@@ -8136,6 +8240,9 @@ def extract_user_constraints(
                     fuel_offtake=is_fuel_offtake,
                     from_rhs_custom=rhs_from_custom,
                     inactive=is_inactive,
+                    n_terms=len(terms),
+                    n_filtered=silent_zero_drops,
+                    tautology=is_tautology,
                 ),
             )
         )
