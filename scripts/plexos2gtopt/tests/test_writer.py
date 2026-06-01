@@ -1554,7 +1554,7 @@ def test_build_fcf_alpha_terms_default_scale_matches_obj_scale() -> None:
 def test_build_emission_array_co2() -> None:
     """emission_array['co2'] is emitted iff a fuel carries a CO2 rate."""
     no_co2 = (FuelSpec(object_id=1, name="coal", price=4.0),)
-    assert build_emission_array(no_co2) == []
+    assert not build_emission_array(no_co2)
     with_co2 = (FuelSpec(object_id=1, name="coal", price=4.0, co2_rate=0.34),)
     assert build_emission_array(with_co2) == [{"uid": 1, "name": "co2"}]
     # upstream-only rate also triggers the pollutant definition.
@@ -1665,3 +1665,109 @@ def test_build_user_constraint_array_emits_regrange_directive() -> None:
         "kind": "max_starts_window",
         "window_hours": 24,
     }
+
+
+# ---------------------------------------------------------------------------
+# write_boundary_cut_csv — silent-drop bug C3 regression guard
+#
+# ``Hydro_StoWaterValues.csv`` defines a water-value slope per reservoir + an
+# FCF intercept; the writer filters to bundle reservoirs (``reservoir_array``
+# membership) and emits one column per kept slope.  A real CEN PCP example:
+# PILMAIQUEN is a PLEXOS Generator only (no Storage object), so its $576/CMD
+# slope cannot be attached and is dropped — historically at INFO level, which
+# silently lost the row from ``boundary_cuts.csv`` and removed the terminal-
+# value coupling on the implicit reservoir.  These tests pin down:
+#   (1) the drop is WARN (not INFO), so the omission surfaces in normal logs
+#   (2) the emitted row count equals the number of MATCHED slopes (= input
+#       slopes minus dropped non-bundle entries)
+#   (3) ``None`` is still returned when every slope drops
+# ---------------------------------------------------------------------------
+
+
+def test_write_boundary_cut_csv_emits_row_per_bundle_reservoir(tmp_path) -> None:
+    """Row count == #(slopes that match a bundle reservoir)."""
+    import csv as _csv
+
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import write_boundary_cut_csv
+
+    cut = BoundaryCutSpec(
+        fcf=1.247e9,
+        slopes={
+            "L_Maule": 9037.748,
+            "CIPRESES": 6683.819,
+            "PILMAIQUEN": 576.479,  # non-bundle (Generator-only in PLEXOS)
+        },
+    )
+    reservoirs = frozenset({"L_Maule", "CIPRESES"})  # no PILMAIQUEN
+    out_name = write_boundary_cut_csv(cut, reservoirs, tmp_path)
+    assert out_name == "boundary_cuts.csv"
+    with (tmp_path / "boundary_cuts.csv").open(encoding="utf-8") as fh:
+        rows = list(_csv.reader(fh))
+    # Header + 1 data row.
+    assert len(rows) == 2
+    # Header carries one column per MATCHED slope (PILMAIQUEN absent).
+    assert rows[0] == ["scene", "rhs", "L_Maule", "CIPRESES"]
+    # Coefficients are stored as -water_value (more storage → lower cost).
+    assert rows[1][0] == "0"
+    assert float(rows[1][1]) == pytest.approx(1.247e9)
+    assert float(rows[1][2]) == pytest.approx(-9037.748)
+    assert float(rows[1][3]) == pytest.approx(-6683.819)
+
+
+def test_write_boundary_cut_csv_warns_on_non_bundle_drop(
+    tmp_path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Dropping a slope (e.g. PILMAIQUEN) emits a WARN-level log so the
+    omission surfaces in operator-facing logs — previously INFO, which the
+    standard converter run silenced and lost terminal-value couplings without
+    a peep (bug C3 from the PLEXOS audit).
+    """
+    import logging as _logging
+
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import write_boundary_cut_csv
+
+    cut = BoundaryCutSpec(
+        fcf=1.0,
+        slopes={"R1": 2.0, "PILMAIQUEN": 576.479},
+    )
+    with caplog.at_level(_logging.WARNING, logger="plexos2gtopt.gtopt_writer"):
+        write_boundary_cut_csv(cut, frozenset({"R1"}), tmp_path)
+    drop_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == _logging.WARNING
+        and "PILMAIQUEN" in r.getMessage()
+        and "no matching reservoir_array" in r.getMessage()
+    ]
+    assert drop_warnings, (
+        "expected a WARN log naming PILMAIQUEN when a water-value slope "
+        f"has no bundle reservoir; got: {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_write_boundary_cut_csv_returns_none_when_no_match(
+    tmp_path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """All slopes drop → no CSV, ``None`` returned, single WARN explaining."""
+    import logging as _logging
+
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import write_boundary_cut_csv
+
+    cut = BoundaryCutSpec(fcf=1.0, slopes={"PILMAIQUEN": 576.479})
+    with caplog.at_level(_logging.WARNING, logger="plexos2gtopt.gtopt_writer"):
+        result = write_boundary_cut_csv(cut, frozenset({"R1"}), tmp_path)
+    assert result is None
+    assert not (tmp_path / "boundary_cuts.csv").exists()
+    matched = [
+        r
+        for r in caplog.records
+        if r.levelno == _logging.WARNING
+        and "none of" in r.getMessage()
+        and "PILMAIQUEN" in r.getMessage()
+    ]
+    assert matched, (
+        f"expected a WARN log, got: {[r.getMessage() for r in caplog.records]}"
+    )

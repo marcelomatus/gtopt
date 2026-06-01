@@ -43,7 +43,8 @@ struct json_data_contract<GeneratorAttrs>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
-      json_bool_null<"integer_expmod", OptBool>>;
+      json_bool_null<"integer_expmod", OptBool>,
+      json_number_null<"uini", OptReal>>;
 
   constexpr static auto to_json_data(GeneratorAttrs const& attrs)
   {
@@ -63,7 +64,8 @@ struct json_data_contract<GeneratorAttrs>
                                  attrs.capmax,
                                  attrs.annual_capcost,
                                  attrs.annual_derating,
-                                 attrs.integer_expmod);
+                                 attrs.integer_expmod,
+                                 attrs.uini);
   }
 };
 
@@ -107,6 +109,7 @@ struct json_data_contract<Generator>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_bool_null<"integer_expmod", OptBool>,
+      json_number_null<"uini", OptReal>,
       json_variant_null<"emission_rate",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
@@ -139,6 +142,7 @@ struct json_data_contract<Generator>
                                  generator.annual_capcost,
                                  generator.annual_derating,
                                  generator.integer_expmod,
+                                 generator.uini,
                                  generator.emission_rate,
                                  generator.emissions,
                                  generator.emission_captures);

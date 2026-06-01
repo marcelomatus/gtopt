@@ -186,6 +186,19 @@ struct Commitment
 
   OptReal initial_status {};  ///< Initial on/off (1.0 = online, 0.0 = offline)
   OptReal initial_hours {};  ///< Hours in current state at t=0
+
+  /// Raw PLEXOS ``Gen_IniHoursUp.csv`` value [h]: hours the unit has
+  /// been continuously online at t = 0.  Informational round-trip
+  /// field for the plexos2gtopt converter — the LP uses the collapsed
+  /// signed ``initial_hours`` (positive when ``initial_status = 1``)
+  /// for min-up / min-down enforcement.  Carrying the raw pair lets
+  /// downstream tooling (audits, PLEXOS diffs) inspect the original
+  /// values without re-reading the CSV.  Unset → not published.
+  OptReal ini_hours_up {};
+  /// Raw PLEXOS ``Gen_IniHoursDown.csv`` value [h]: hours the unit
+  /// has been continuously offline at t = 0.  See ``ini_hours_up``
+  /// for the round-trip rationale.
+  OptReal ini_hours_down {};
   /// Initial power output [MW] at ``t = -1``.  When set, the
   /// first-block ramp-up / ramp-down rows include the
   /// ``p_prev = initial_power`` term:

@@ -122,6 +122,16 @@ struct GeneratorAttrs
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
+
+  /// Initial number of units online at t = 0 [dimensionless].
+  /// Sourced from PLEXOS ``Gen_IniUnits.csv``.  Informational on the
+  /// gtopt side — the unit-commitment continuity / hot-start state is
+  /// carried by ``Commitment.initial_status`` / ``initial_hours`` (one
+  /// value per gtopt Generator, which models a single physical unit).
+  /// Kept here so the PLEXOS conversion round-trips the raw input
+  /// faithfully; future multi-unit / aggregated-generator work can
+  /// consume it directly.  Unset → no information published.
+  OptReal uini {};
 };
 
 /**
@@ -197,6 +207,11 @@ struct Generator
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
   OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
+  /// Initial number of units online at t = 0.  See
+  /// ``GeneratorAttrs::uini`` for semantics.  Sourced from PLEXOS
+  /// ``Gen_IniUnits.csv`` by the plexos2gtopt converter.
+  OptReal uini {};
+
   OptTBRealFieldSched emission_rate {};  ///< Direct CO₂ emission rate
                                          ///< [tCO₂/MWh] per-(stage, block).
                                          ///< Additive with fuel-derived
@@ -245,6 +260,7 @@ struct Generator
     self.annual_capcost = std::exchange(attrs.annual_capcost, {});
     self.annual_derating = std::exchange(attrs.annual_derating, {});
     self.integer_expmod = std::exchange(attrs.integer_expmod, {});
+    self.uini = std::exchange(attrs.uini, {});
 
     return self;
   }

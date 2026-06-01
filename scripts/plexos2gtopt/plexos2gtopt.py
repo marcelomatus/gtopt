@@ -61,6 +61,57 @@ def validate_plexos_bundle(options: dict[str, Any]) -> bool:
         return False
 
 
+def _maybe_patch_with_plp_embalses(
+    case: Any,
+    options: dict[str, Any],
+    input_path: Path,
+) -> Any:
+    """Cross-reference PLP ``embalses.csv`` to patch missing reservoirs.
+
+    Three knobs:
+
+    * ``--plexos-legacy`` (options['plexos_legacy']) — force-disables
+      the patch (strict PLEXOS semantics).
+    * ``--no-plp-embalses`` (options['no_plp_embalses']) — disables
+      auto-detect and explicit-path patching alike.
+    * ``--plp-embalses PATH`` (options['plp_embalses']) — explicit
+      path; takes precedence over auto-detect.
+
+    When neither flag is set, auto-detect probes well-known sibling
+    locations next to ``input_path`` and silently no-ops when none of
+    them ship an ``embalses.csv``.
+    """
+    if options.get("plexos_legacy"):
+        return case
+    if options.get("no_plp_embalses"):
+        return case
+
+    from ._plp_patch import auto_detect_embalses, patch_case_with_plp_embalses
+
+    explicit = options.get("plp_embalses")
+    embalses_path: Path | None
+    if explicit is not None:
+        embalses_path = Path(explicit)
+        if not embalses_path.exists():
+            # Fall back via the auto-detect resolver in case the user
+            # passed a stem without the .xz suffix.
+            from ._plp_patch import find_compressed_path
+
+            resolved = find_compressed_path(embalses_path)
+            if resolved is None:
+                raise FileNotFoundError(
+                    f"--plp-embalses path does not exist: {embalses_path}"
+                )
+            embalses_path = resolved
+    else:
+        embalses_path = auto_detect_embalses(input_path)
+
+    if embalses_path is None:
+        return case
+
+    return patch_case_with_plp_embalses(case, embalses_path)
+
+
 def _resolve_output_paths(
     input_path: Path,
     output_dir: Path | None,
@@ -291,6 +342,12 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             lax_uc_refs=bool(options.get("lax_uc_refs")),
             plexos_legacy=bool(options.get("plexos_legacy")),
         )
+        # Cross-reference PLP's ``embalses.csv`` to patch any reservoir
+        # the PLEXOS XML omits but a water-value slope still references
+        # (e.g. PILMAIQUEN on CEN PCP bundles).  Suppressed when
+        # ``--plexos-legacy`` is on (strict PLEXOS semantics — no
+        # cross-bundle mixing) or when ``--no-plp-embalses`` is set.
+        case = _maybe_patch_with_plp_embalses(case, options, input_path)
         # The block layout (if any) rides on the bundle_spec so the
         # writer can pick it up.  ``extract_case`` already populated
         # the bundle_spec; we patch the layout in.
@@ -319,6 +376,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             lp_relax=bool(options.get("lp_relax", False)),
             soft_efin_reservoirs=soft_efin_set,
             soft_penalty_override=options.get("soft_penalty_cost"),
+            loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
             **(
                 {"fcf_scale_alpha": float(fcf_scale_alpha)}
                 if fcf_scale_alpha is not None

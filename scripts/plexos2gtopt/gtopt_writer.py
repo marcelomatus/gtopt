@@ -101,6 +101,7 @@ def build_options(
     *,
     use_single_bus: bool = False,
     demand_fail_cost: float = 1000.0,
+    loss_cost_eps: float = 0.0,
 ) -> dict[str, Any]:
     """Map :class:`BundleSpec` onto gtopt's ``options`` block.
 
@@ -174,6 +175,12 @@ def build_options(
             "use_kirchhoff": not use_single_bus,
             "scale_objective": _DEFAULT_OBJ_SCALE,
             "demand_fail_cost": demand_fail_cost,
+            # ``loss_cost_eps`` (default 0.0) is emitted ONLY when > 0
+            # so legacy JSON output stays byte-identical when the flag
+            # is not passed.  When set, every PWL/bidirectional line
+            # inherits this ε to break LP-relax bidirectional-flow
+            # degeneracy.
+            **({"loss_cost_eps": loss_cost_eps} if loss_cost_eps > 0.0 else {}),
         },
         # Enable the backend solver log by default.  Two knobs are
         # needed (they are independent):
@@ -586,6 +593,14 @@ def build_generator_array(
         # cascade-state work is a follow-up).  Emitting it here
         # triggers gtopt's strict daw::json "Could not find member"
         # failure at LP build.
+
+        # PLEXOS ``Generator.Units`` (Gen_IniUnits.csv) → gtopt
+        # ``Generator.uini`` (informational round-trip — the LP-side
+        # commitment continuity lives on Commitment.initial_status /
+        # initial_hours).  Emit only when the CSV listed this gen so
+        # the JSON stays clean for cases without IniUnits data.
+        if gen.initial_units is not None:
+            entry["uini"] = gen.initial_units
 
         # Conversion provenance (F5): coarse tech tag + standardized
         # ``description`` documenting source + key field units.  No C++
@@ -2444,6 +2459,15 @@ def build_commitment_array(
         entry["initial_status"] = c.initial_status
         if c.initial_hours != 0.0:
             entry["initial_hours"] = c.initial_hours
+        # Raw PLEXOS pair (Gen_IniHoursUp.csv / Gen_IniHoursDown.csv) —
+        # round-tripped onto gtopt's Commitment.ini_hours_up /
+        # ini_hours_down as informational fields.  Emit only when the
+        # CSV listed this generator (parser passes None to mean
+        # "no entry"; the converted 0.0 stays as a real explicit zero).
+        if c.ini_hours_up is not None:
+            entry["ini_hours_up"] = c.ini_hours_up
+        if c.ini_hours_down is not None:
+            entry["ini_hours_down"] = c.ini_hours_down
         if c.noload_cost > 0.0:
             entry["noload_cost"] = c.noload_cost
         # commitment.pmin: per-unit Min Stable Level when committed —
@@ -2707,6 +2731,7 @@ def build_planning(
     soft_penalty_override: float | None = None,
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
+    loss_cost_eps: float = 0.0,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -2952,6 +2977,7 @@ def build_planning(
             case.bundle,
             use_single_bus=use_single_bus,
             demand_fail_cost=case.bundle.demand_fail_cost,
+            loss_cost_eps=loss_cost_eps,
         ),
         "simulation": build_simulation(case.bundle),
         "system": system,
@@ -3137,7 +3163,21 @@ def write_boundary_cut_csv(
         return None
     dropped = sorted(set(boundary_cut.slopes) - set(cols))
     if dropped:
-        logger.info("boundary cut: skipping non-bundle reservoirs %s", dropped)
+        # WARN (not INFO): a Hydro_StoWaterValues.csv row with no matching
+        # ``reservoir_array`` element is dropped silently from
+        # ``boundary_cuts.csv``, losing that reservoir's terminal-value
+        # coupling.  Real CEN PCP example: PILMAIQUEN is a PLEXOS Generator
+        # only (no Storage object), so its $/CMD slope cannot be attached;
+        # without this warning the LP empties the implicit reservoir in
+        # week 1 with zero future-cost penalty.  Promoting to WARN makes
+        # the omission visible to operators auditing the converter run.
+        logger.warning(
+            "boundary cut: dropping %d water-value slope(s) with no "
+            "matching reservoir_array element: %s (these reservoirs are "
+            "absent from the bundle — their terminal-value coupling is lost)",
+            len(dropped),
+            dropped,
+        )
     path = output_dir / filename
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)

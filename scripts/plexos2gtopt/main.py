@@ -38,9 +38,9 @@ and ``--validate`` are wired today; full conversion is in development
 
 _EPILOG = """\
 Examples:
-  plexos2gtopt --info  support/plexos_pcp_2026-04-22/DATOS20260422.zip.xz
-  plexos2gtopt --validate support/plexos_pcp_2026-04-22
-  plexos2gtopt -i support/plexos_pcp_2026-04-22/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
+  plexos2gtopt --info  support/plexos/pcp_2026-04-22/DATOS20260422.zip.xz
+  plexos2gtopt --validate support/plexos/pcp_2026-04-22
+  plexos2gtopt -i support/plexos/pcp_2026-04-22/PLEXOS20260422.zip -o gtopt_PLEXOS20260422
 """
 
 
@@ -130,6 +130,39 @@ def make_parser() -> argparse.ArgumentParser:
             "the rescued constraints may be weakened.  Pair with "
             "`gtopt --constraint-mode debug` for the matching gtopt-side "
             "leniency."
+        ),
+    )
+    plp_emb = parser.add_mutually_exclusive_group()
+    plp_emb.add_argument(
+        "--plp-embalses",
+        dest="plp_embalses",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to the CEN-published ``embalses.csv`` (plain or "
+            "``.xz``) used to patch reservoirs that PLP knows about but "
+            "the PLEXOS XML omits (e.g. PILMAIQUEN on CEN PCP bundles).  "
+            "Every name referenced by a water-value slope in "
+            "``Hydro_StoWaterValues.csv`` that has no matching "
+            "``Storage`` object is synthesised with the PLP-side "
+            "``VolMin`` / ``VolMax`` / ``FactRendim`` so the boundary cut "
+            "row is emitted instead of silently dropped.  When omitted "
+            "and ``--no-plp-embalses`` is not set, the converter auto-"
+            "detects ``embalses.csv[.xz]`` next to the input bundle.  "
+            "Suppressed when ``--plexos-legacy`` is on (legacy mode = "
+            "no cross-bundle data mixing)."
+        ),
+    )
+    plp_emb.add_argument(
+        "--no-plp-embalses",
+        dest="no_plp_embalses",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable the PLP cross-reference patch (PLEXOS-strict, "
+            "auto-detect off).  Mirrors the WARN-only legacy behaviour: "
+            "water-value slopes for non-bundle reservoirs are dropped."
         ),
     )
     parser.add_argument(
@@ -299,6 +332,25 @@ def make_parser() -> argparse.ArgumentParser:
             "— heavier MIP).  ``equal_error``: √-spaced secant chords "
             "(aliases to uniform for the convex quadratic — see "
             "line_losses.cpp seg_geom docstring)."
+        ),
+    )
+    parser.add_argument(
+        "--loss-cost-eps",
+        type=float,
+        default=0.0,
+        help=(
+            "Small positive cost ($/MWh) stamped on every per-direction "
+            "loss column (``loss_p`` / ``loss_n``) of PWL-loss lines.  "
+            "Strictly breaks the pure LP-relax bidirectional-flow "
+            "degeneracy: the LP picks single-direction dispatch among "
+            "primal-optimal solutions sharing the same net flow.  "
+            "Recommended: ``1e-6`` — essentially zero objective impact "
+            "(well below LP optimality tolerance) yet eliminates the "
+            "residual ~1-11%% phantom bidirectional flow that survives "
+            "the ``piecewise → bidirectional`` wrapping.  Default 0.0 "
+            "preserves legacy behaviour.  Emitted as the global "
+            "``options.model_options.loss_cost_eps`` field — every "
+            "PWL/bidirectional line inherits the same ε."
         ),
     )
     parser.add_argument(
@@ -887,6 +939,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_error_pct": args.loss_error_pct,
         "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
+        "loss_cost_eps": args.loss_cost_eps,
         "hydro_min_mode": args.hydro_min_mode,
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,
@@ -910,6 +963,8 @@ def main(argv: list[str] | None = None) -> None:
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
         "plexos_legacy": args.plexos_legacy,
+        "plp_embalses": args.plp_embalses,
+        "no_plp_embalses": args.no_plp_embalses,
     }
 
     if args.compare_json:

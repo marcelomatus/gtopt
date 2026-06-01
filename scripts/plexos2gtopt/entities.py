@@ -196,6 +196,15 @@ class GeneratorSpec:
     # period-1 value.  Defaults to 0 when the CSV doesn't list the
     # generator.
     initial_generation: float = 0.0
+    # PLEXOS ``Generator.Units`` (``Gen_IniUnits.csv``): initial number
+    # of units online at t=0.  In CEN PCP this is a {0, 1} flag per
+    # ``<plant>_U<k>`` Generator (one PLEXOS Generator per physical
+    # unit).  Round-tripped onto gtopt's ``Generator.uini`` for
+    # downstream tooling; the unit-commitment continuity state is
+    # carried separately via ``Commitment.initial_status`` /
+    # ``initial_hours``.  ``None`` ⇒ CSV not present / no entry for
+    # this generator.
+    initial_units: float | None = None
 
 
 @dataclass(frozen=True)
@@ -723,6 +732,15 @@ class CommitmentSpec:
     min_down_time: float = 0.0
     initial_status: float = 0.0  # 1 = online at t=0, 0 = offline
     initial_hours: float = 0.0  # signed: + hours up, - hours down
+    # Raw PLEXOS ``Gen_IniHoursUp.csv`` / ``Gen_IniHoursDown.csv``
+    # values [h] — non-negative.  ``initial_status`` / ``initial_hours``
+    # above is the collapsed view (signed, picking whichever of the
+    # two pairs is the "active" side at t=0); these raw fields keep
+    # the original pair so the converter round-trips PLEXOS input
+    # faithfully.  ``None`` ⇒ CSV not present / no entry for this
+    # generator (distinct from 0.0 which means "explicit zero hours").
+    ini_hours_up: float | None = None
+    ini_hours_down: float | None = None
     ramp_up: float = 0.0  # MW/h
     ramp_down: float = 0.0  # MW/h
     # Per-block ramp-up / ramp-down profiles (MW/h, length = bundle.n_days

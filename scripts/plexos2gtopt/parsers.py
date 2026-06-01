@@ -1279,6 +1279,16 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         if bundle.has("Gen_IniGeneration.csv")
         else {}
     )
+    # PLEXOS ``Generator.Units`` (``Gen_IniUnits.csv``): initial number
+    # of units online at t=0 — {0, 1} flag per ``<plant>_U<k>`` Generator
+    # in CEN PCP.  Round-tripped onto ``GeneratorSpec.initial_units`` for
+    # the writer to emit as gtopt ``Generator.uini``.  Period 1 only
+    # (initial-condition value).
+    ini_units_long: dict[str, list[float]] = (
+        read_long(bundle.csv("Gen_IniUnits.csv"), n_days=1)
+        if bundle.has("Gen_IniUnits.csv")
+        else {}
+    )
     # Per-generator nameplate "Max Units" property — denominator for
     # the proportional derating.  Falls back to 1.0 for single-unit
     # gens missing the explicit declaration (the common CEN PCP case).
@@ -1665,6 +1675,12 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         ini_gen_raw = initial_generations.get(gen.name, ())
         initial_generation = float(ini_gen_raw[0]) if ini_gen_raw else 0.0
 
+        # PLEXOS Generator.Units (Gen_IniUnits.csv): initial unit count
+        # online at t=0.  None when the CSV is missing or has no row
+        # for this gen (so the writer can distinguish from explicit 0).
+        ini_units_raw = ini_units_long.get(gen.name, ())
+        initial_units = float(ini_units_raw[0]) if ini_units_raw else None
+
         out.append(
             GeneratorSpec(
                 object_id=gen.object_id,
@@ -1683,6 +1699,7 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 heat_rate_segments=hr_segments,
                 fixed_load_profile=fixed_load_profile,
                 initial_generation=initial_generation,
+                initial_units=initial_units,
             )
         )
     return tuple(out)
@@ -4470,12 +4487,34 @@ def extract_commitments(
         # ``initial_hours`` is signed (+ up, − down).
         ih_up = up[0] if up else 0.0
         ih_down = down[0] if down else 0.0
-        if ih_up > 0.0:
+        # Round-trip the raw PLEXOS pair onto the CommitmentSpec so
+        # the writer can emit ``ini_hours_up`` / ``ini_hours_down``
+        # as informational fields on the gtopt JSON (the collapsed
+        # signed ``initial_hours`` is still the LP-consumed value).
+        # ``None`` when the CSV doesn't list this generator (distinct
+        # from explicit 0).
+        ini_hours_up_raw: float | None = float(up[0]) if up else None
+        ini_hours_down_raw: float | None = float(down[0]) if down else None
+        # PLEXOS publishes BOTH ``Gen_IniHoursUp`` and ``Gen_IniHoursDown``
+        # for the same unit (verified for ANGOSTURA_U1..U3, COLBUN_U1..U2
+        # on v0407: 732 generators carry both, 659 of them with
+        # ``Gen_IniUnits = 0``).  A heuristic "ih_up wins when > 0" picks
+        # the WRONG sign for OFF units — e.g. an OFF unit with 168h
+        # downtime + 168h up-history would collapse to +168 (online for
+        # 168h) instead of the correct −168 (offline for 168h).  Derive
+        # the sign from ``initial_status`` (which itself comes from
+        # ``Gen_IniUnits``) so the OFF/ON branch picks the matching
+        # PLEXOS scalar; fall back to max-magnitude only when units is
+        # absent (``initial_units is None``) AND both scalars are set.
+        if units:
+            if initial_status > 0.5:
+                initial_hours = ih_up if ih_up > 0.0 else 0.0
+            else:
+                initial_hours = -ih_down if ih_down > 0.0 else 0.0
+        elif ih_up >= ih_down:
             initial_hours = ih_up
-        elif ih_down > 0.0:
-            initial_hours = -ih_down
         else:
-            initial_hours = 0.0
+            initial_hours = -ih_down
         # t_data fallbacks for static UC parameters.
         min_up = db.static_property("Generator", gen.object_id, "Min Up Time")
         min_down = db.static_property("Generator", gen.object_id, "Min Down Time")
@@ -4820,6 +4859,8 @@ def extract_commitments(
                 min_down_time=min_down,
                 initial_status=initial_status,
                 initial_hours=initial_hours,
+                ini_hours_up=ini_hours_up_raw,
+                ini_hours_down=ini_hours_down_raw,
                 ramp_up=ramp_up,
                 ramp_down=ramp_down,
                 ramp_up_profile=ramp_up_profile,
@@ -4892,23 +4933,22 @@ def extract_hydro_discharge_user_constraints(
         if t.production_factor and t.production_factor > 0.0:
             pf_by_gen[t.generator_name] = float(t.production_factor)
 
-    # Generators are dispatchable iff their pmax is positive at EVERY
-    # block — gtopt drops gen columns at blocks where the per-block
-    # pmax_profile entry is 0 (out-of-service hour), and any
-    # UserConstraint referencing a column that disappears for some
-    # block fails its row build with "element is missing or inactive".
-    # Partial-availability units (e.g. ELTORO_U1 with 13 non-zero out
-    # of 111 blocks) are therefore EXCLUDED — losing precision but
-    # keeping the constraint emittable.  Promoting partial gens into
-    # the constraint would require a gtopt-side "always-emit zero-
-    # bounded columns" change.
-    dispatchable: set[str] = set()
-    for g in generators:
-        if g.pmax_profile:
-            if all(v > 0.0 for v in g.pmax_profile):
-                dispatchable.add(g.name)
-        elif g.pmax and g.pmax > 0.0:
-            dispatchable.add(g.name)
+    # Index known generator names so we can drop membership rows whose
+    # parent generator never made it into the converted case (e.g.
+    # dropped during ``extract_generators`` because the bus was unknown
+    # — referencing such a name would trip the gtopt strict resolver).
+    # Generators with ``pmax = 0`` at every block are intentionally
+    # KEPT in the LHS: gtopt's UC resolver treats element-known-but-
+    # offline references as silent-zero contributions (see
+    # ``element_column_resolver.hpp`` ``element_known = true`` branch
+    # + ``user_constraint_lp.cpp`` ``no LP column for this block``
+    # branch), so dropping the term changes nothing physically and
+    # only obscures the audit trail vs PLEXOS, which itself enumerates
+    # every membership in the constraint LHS regardless of UnitsOut /
+    # commitment state.  Pre-fix behaviour over-filtered: ANTUCO_U2
+    # (UnitsOut=1 day-of) and EL_TORO_U1 were silently dropped from
+    # the LHS of ``ANTUCOmin / ANTUCOmax / ELTOROmax`` discharge UCs.
+    known_gen_names: set[str] = {g.name for g in generators}
 
     # PLEXOS Generator → Constraint memberships (coll_id=32 in CEN PCP).
     coll = db.collection_for_named("Generator", "Constraint", "Constraints")
@@ -4923,7 +4963,13 @@ def extract_hydro_discharge_user_constraints(
             continue
         if cstr_obj.name not in rhs_by_name:
             continue
-        if dispatchable and gen_obj.name not in dispatchable:
+        # Only drop the term when the parent generator isn't in the
+        # converted case at all (PLEXOS object existed but our
+        # extractor pruned it — typically a stranded sentinel gen).
+        # ``known_gen_names`` is empty when no GeneratorSpec list was
+        # supplied (older callers / test fixtures), in which case we
+        # trust the PLEXOS membership unconditionally.
+        if known_gen_names and gen_obj.name not in known_gen_names:
             continue
         members_by_constraint.setdefault(cstr_obj.name, []).append(gen_obj.name)
 
@@ -9102,6 +9148,14 @@ def extract_case(
     generators = extract_generators(db, bundle)
     fuels = extract_fuels(db, bundle)
     turbines = extract_turbines(db, bundle)
+    # Pre-filter snapshot — discharge UCs (``extract_hydro_discharge_
+    # user_constraints``) need the production_factor for EVERY PLEXOS
+    # membership generator, including units whose ``Gen_UnitsOut.csv``
+    # entry makes them inactive day-of (e.g. ``ANTUCO_U2`` /
+    # ``EL_TORO_U1`` on the 2026-04-07 bundle).  Without this snapshot
+    # the UC LHS falls back to ``coeff = 1.0`` for the dropped units,
+    # corrupting the m³/s discharge sum.
+    all_turbines_for_pf = turbines
 
     # Drop turbines whose generator has ``pmax = 0`` (unit out of
     # service for the whole horizon — e.g. ``EL_TORO_U1`` in the
@@ -9524,7 +9578,7 @@ def extract_case(
         plexos_legacy=plexos_legacy,
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
-        db, bundle, case.turbines, case.generators
+        db, bundle, all_turbines_for_pf, case.generators
     )
     # Auto-promote hydro ``<NAME>min/max`` UCs (per-unit single-term
     # ``generator(...).generation`` bounds) to native ``Commitment``
