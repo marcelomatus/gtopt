@@ -34,6 +34,22 @@ public:
       "flow"};  ///< compound: `flowp − flown`
   static constexpr std::string_view FlowpName {"flowp"};
   static constexpr std::string_view FlownName {"flown"};
+  /// Signed flow column emitted by `LineLossesMode::tangent_signed_flow`
+  /// (Coffrin outer approximation; one column per (line, block) covering
+  /// `[−tmax_ba, +tmax_ab]`).  Distinct from `FlowpName` / `FlownName`
+  /// so AMPL / output consumers can opt in to the signed shape when
+  /// they want it; existing tools keep reading `flowp_sol` / `flown_sol`
+  /// (derived `max(0, f)` / `max(0, −f)` are emitted for back-compat).
+  static constexpr std::string_view FlowsName {"flows"};
+  /// Auxiliary `|f|`-envelope column emitted by
+  /// `LineLossesMode::tangent_signed_flow` to tighten the upper bound on
+  /// the loss column.  Bounded `[0, fmax]` and tied to the signed flow
+  /// column `f` via two rows `v ≥ +f` and `v ≥ −f` (so `v ≥ |f|` at the
+  /// optimum).  Replaces the loose constant loss UB `ℓ ≤ R·fmax²/V²`
+  /// with the linear-in-`v` chord `ℓ ≤ (R·fmax/V²)·v`, which is the
+  /// secant chord of the convex quadratic `R·v²/V²` on `[0, fmax]`.
+  /// See `add_tangent_signed_flow` for the math + derivation.
+  static constexpr std::string_view FlowAbsName {"flow_abs"};
   static constexpr std::string_view LosspName {"lossp"};
   static constexpr std::string_view LossnName {"lossn"};
   /// Consolidated per-(line, block) loss output emitted as
@@ -118,6 +134,17 @@ public:
                                                     const StageLP& stage) const
   {
     return find_or_empty_inner(flown_cols, scenario, stage);
+  }
+
+  /// Per-block signed-flow column map (populated only under
+  /// `LineLossesMode::tangent_signed_flow`).  When present, the
+  /// `flowp_cols` / `flown_cols` maps are empty for this `(scenario,
+  /// stage)` and KVL stamps `+x_τ` on each signed flow column.  Same
+  /// missing-key tolerance as the other flow accessors.
+  [[nodiscard]] constexpr const auto& flows_cols_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return find_or_empty_inner(flows_cols, scenario, stage);
   }
 
   /// Per-block segment columns for the A→B direction (only populated
@@ -251,6 +278,7 @@ private:
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  STBIndexHolder<ColIndex> flows_cols;  ///< signed flow (tangent_signed_flow)
   STBIndexHolder<std::vector<ColIndex>> flowp_seg_cols;
   STBIndexHolder<std::vector<ColIndex>> flown_seg_cols;
   STBIndexHolder<ColIndex> lossp_cols;

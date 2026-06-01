@@ -116,6 +116,11 @@ namespace
       (loss_env && *loss_env > 0.0) ? *loss_env : 0.0;
 
   const auto allocation = raw_line.loss_allocation_mode_enum();
+  // Resolve the per-MWh loss-column ε cost: per-line override (when set)
+  // beats the global ``model_options.loss_cost_eps`` default.  ``0.0``
+  // preserves legacy behaviour — no extra cost on loss columns.
+  const double loss_cost_eps =
+      raw_line.loss_cost_eps.value_or(sc.options().loss_cost_eps());
   return line_losses::make_config(loss_mode,
                                   raw_line,
                                   allocation,
@@ -125,7 +130,8 @@ namespace
                                   nseg,
                                   fmax,
                                   sc.options().scale_loss_link(),
-                                  explicit_envelope);
+                                  explicit_envelope,
+                                  loss_cost_eps);
 }
 
 }  // namespace
@@ -216,6 +222,11 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> lncols;
   BIndexHolder<std::vector<ColIndex>> fpsegcols;
   BIndexHolder<std::vector<ColIndex>> fnsegcols;
+  /// Per-block signed-flow column (populated only under
+  /// ``LineLossesMode::tangent_signed_flow``).  When populated, the
+  /// directional ``fpcols`` / ``fncols`` maps are empty for this
+  /// block — KVL will stamp ``+x_τ`` directly on the signed column.
+  BIndexHolder<ColIndex> fscols;
   // Soft-cap (overload) slack columns + rows.  Only populated when
   // the feature is enabled AND the per-block threshold is strictly
   // below the per-block hard cap.  Kept empty otherwise — the
@@ -241,6 +252,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
   map_reserve(lncols, blocks.size());
   map_reserve(fpsegcols, blocks.size());
   map_reserve(fnsegcols, blocks.size());
+  map_reserve(fscols, blocks.size());
   if (soft_cap_enabled) {
     map_reserve(opcols, blocks.size());
     map_reserve(oncols, blocks.size());
@@ -340,6 +352,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
     store_opt(cnrows, result.capn_row);
     store_vec(fpsegcols, result.seg_p_cols);
     store_vec(fnsegcols, result.seg_n_cols);
+    store_opt(fscols, result.flow_col);
 
     // ── Soft cap / overload penalty ────────────────────────────────
     // For each direction with a flow aggregator (fp_col / fn_col),
@@ -454,6 +467,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(capacityn_rows, std::move(cnrows));
   cond_assign(flowp_cols, std::move(fpcols));
   cond_assign(flown_cols, std::move(fncols));
+  cond_assign(flows_cols, std::move(fscols));
   cond_assign(lossp_cols, std::move(lpcols));
   cond_assign(lossn_cols, std::move(lncols));
   cond_assign(flowp_seg_cols, std::move(fpsegcols));
@@ -487,7 +501,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                             flowp_cols_at(scenario, stage),
                                             flown_cols_at(scenario, stage),
                                             flowp_seg_cols_at(scenario, stage),
-                                            flown_seg_cols_at(scenario, stage));
+                                            flown_seg_cols_at(scenario, stage),
+                                            flows_cols_at(scenario, stage));
   if (!trows.empty()) {
     theta_rows[st_key] = std::move(trows);
   }
@@ -535,6 +550,14 @@ bool LineLP::add_to_lp(SystemContext& sc,
   };
   register_if_present(FlowpName, flowp_cols);
   register_if_present(FlownName, flown_cols);
+  register_if_present(FlowsName, flows_cols);
+  // ``tangent_signed_flow`` mode: register the signed column under both
+  // ``flows`` (its native attribute) AND ``flow`` (the compound name
+  // used by AMPL/PAMPL user constraints).  The latter direct
+  // registration shadows the class-level compound ``+flowp − flown``
+  // for these lines so ``line("X").flow`` resolves to the signed
+  // column with coefficient +1, matching the physical sign convention.
+  register_if_present(FlowName, flows_cols);
   register_if_present(LosspName, lossp_cols);
   register_if_present(LossnName, lossn_cols);
   register_if_present(OverloadpName, overloadp_cols);
@@ -596,6 +619,28 @@ bool LineLP::add_to_output(OutputContext& out) const
   }
   if (!flown_seg_cols.empty()) {
     out.add_col_sol(cname, FlownName, pid, flown_seg_cols);
+  }
+
+  // ``tangent_signed_flow`` mode: emit the signed flow column under
+  // ``Line/flows_sol.parquet`` AND derived ``flowp_sol = max(0, f)`` /
+  // ``flown_sol = max(0, −f)`` for back-compat with consumers that read
+  // the directional shape (gtopt_check_lp, PLP-diff scripts, …).
+  if (!flows_cols.empty()) {
+    out.add_col_sol(cname, FlowsName, pid, flows_cols);
+
+    STBIndexHolder<double> flowp_derived;
+    STBIndexHolder<double> flown_derived;
+    for (const auto& [st_key, blocks] : flows_cols) {
+      auto& fp_blocks = flowp_derived[st_key];
+      auto& fn_blocks = flown_derived[st_key];
+      for (const auto& [buid, col] : blocks) {
+        const double f = out.primal(col);
+        fp_blocks[buid] = std::max(0.0, f);
+        fn_blocks[buid] = std::max(0.0, -f);
+      }
+    }
+    out.add_col_sol_values(cname, FlowpName, pid, flowp_derived);
+    out.add_col_sol_values(cname, FlownName, pid, flown_derived);
   }
 
   // Consolidated loss output: piecewise / bidirectional only.  none /

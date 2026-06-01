@@ -217,6 +217,27 @@ struct Line
                                  ///< scalar (broadcasts), a 2-D nested
                                  ///< array, or a file-backed schedule.
 
+  /// Small positive cost per MWh of dissipated loss, breaks LP-relax
+  /// bidirectional-flow degeneracy.
+  ///
+  /// In ``piecewise`` / ``bidirectional`` modes the LP has a per-direction
+  /// loss column (``loss_p`` / ``loss_n``).  For any required net flow
+  /// ``f = fp − fn ≥ 0`` the convex PWL of the loss curve is strictly
+  /// minimised at ``fn = 0`` (single-direction dispatch).  Adding a tiny
+  /// positive cost ``ε`` on the loss columns makes the LP STRICTLY pick
+  /// that single-direction optimum, eliminating LP-degeneracy phantom
+  /// bidirectional flow without SOS1, MIP, or binaries.
+  ///
+  /// Recommended value: ``1e-6`` $/MWh — essentially zero objective
+  /// impact (well below LP optimality tolerance, ~1e-9 relative) yet
+  /// strictly breaks the degeneracy.  Default ``0.0`` (unset)
+  /// preserves legacy behaviour.  Per-line override beats the global
+  /// ``model_options.loss_cost_eps`` default.  Inert for ``none``,
+  /// ``linear``, ``piecewise_direct``, and ``tangent`` layouts — those
+  /// either have no loss column (``none`` / ``linear`` / ``direct``) or
+  /// the loss column is already implicitly minimised by tangent rows.
+  OptReal loss_cost_eps {};
+
   /// Soft (normal) flow threshold in the B→A direction [MW].  When set
   /// and `overload_penalty > 0`, the LP allows `flown` up to `tmax_ba`
   /// (the hard cap, unchanged) but adds a per-MWh cost

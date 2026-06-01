@@ -158,6 +158,52 @@ inline constexpr auto loss_allocation_mode_entries =
  *   expandable lines this mode falls back to `piecewise` with a
  *   warning.
  *   Ref: PLP Fortran `genpdlin.f` (GenPDLinA).
+ *
+ * - `tangent_signed_flow` (7): Coffrin-style outer approximation on a
+ *   SINGLE signed flow variable.  Per (line, block) the LP carries:
+ *     * one signed flow column `f ∈ [−tmax_ba, +tmax_ab]` (no
+ *       `flowp`/`flown` decomposition; KVL uses `f` directly);
+ *     * one loss column `ℓ ∈ [0, (R/V²)·fmax²]` (the quadratic upper
+ *       envelope on `[−fmax, +fmax]`, exact at the rated flow);
+ *     * `K` tangent inequalities of the form
+ *         `ℓ ≥ (2·R/V²)·f_k·f − (R/V²)·f_k²`,    k = 1..K
+ *       where `f_k` are uniformly spread (midpoint placement)
+ *       across `[−fmax, +fmax]`:
+ *         `f_k = fmax · (2k − K − 1) / K`.
+ *
+ *   Each tangent is the gradient of the quadratic loss curve at
+ *   `f = f_k`; the K-fold maximum is a piecewise-affine LOWER
+ *   approximation of `ℓ(f) = (R/V²)·f²`, exact at every tangent point
+ *   and within `(fmax/K)²·R/V²` of the curve at the partition
+ *   boundaries.  Combined with the upper bound on `ℓ`, the LP's
+ *   feasible loss region tightly brackets the true quadratic.
+ *
+ *   ✔ **Phantom-flow IMPOSSIBLE by construction**: there is no
+ *   `fp`/`fn` decomposition, so the LP has no way to express
+ *   simultaneous bidirectional flow on a line.  KVL stamps the single
+ *   signed `f` column with its natural `±x_τ` coefficient.
+ *
+ *   LP size (per line per block): **2 cols + (K+1) rows**
+ *   (signed flow, loss column, K tangent rows, 1 implicit loss upper
+ *   bound via the col bound).  At K=5 that's `2 + 6 = 8` non-zeros
+ *   vs `bidirectional` at K=5 (`14 + 4 = 18`) — roughly 56 % fewer LP
+ *   elements while preserving the convex-quadratic shape.
+ *
+ *   Works with BOTH `node_angle` and `cycle_basis` Kirchhoff modes
+ *   (the signed `f` column drops directly into the KVL row with
+ *   `+x_τ` instead of the `+x_τ·fp − x_τ·fn` pair).
+ *
+ *   Activation: opt-in only via explicit `line_losses_mode =
+ *   "tangent_signed_flow"`.  The `adaptive` resolver does NOT route
+ *   here (its decision tree is unchanged); a future PR can lift the
+ *   constraint after wider-system validation on negative-LMP and
+ *   expansion-line workloads.
+ *
+ *   Refs:
+ *   - Coffrin & Van Hentenryck, *A Linear-Programming Approximation of
+ *     AC Power Flows*, INFORMS J. Computing, 2014 (arXiv:1206.3614).
+ *   - Aigner & Van Hentenryck, *Line Loss Outer Approximation*,
+ *     arXiv:2112.10975 (2022).
  */
 enum class LineLossesMode : uint8_t
 {
@@ -169,6 +215,9 @@ enum class LineLossesMode : uint8_t
   dynamic = 5,  ///< Dynamic piecewise-linear (future; falls back to piecewise)
   piecewise_direct =
       6,  ///< PLP-style compact PWL (NOT arbitrage-proof, see docstring)
+  tangent_signed_flow =
+      7,  ///< Coffrin outer-approximation; single signed flow column
+          ///< (NO fp/fn) + K tangent rows; phantom-flow impossible.
 };
 
 inline constexpr auto line_losses_mode_entries =
@@ -180,6 +229,8 @@ inline constexpr auto line_losses_mode_entries =
         {.name = "adaptive", .value = LineLossesMode::adaptive},
         {.name = "dynamic", .value = LineLossesMode::dynamic},
         {.name = "piecewise_direct", .value = LineLossesMode::piecewise_direct},
+        {.name = "tangent_signed_flow",
+         .value = LineLossesMode::tangent_signed_flow},
     });
 
 [[nodiscard]] constexpr auto enum_entries(LineLossesMode /*tag*/) noexcept

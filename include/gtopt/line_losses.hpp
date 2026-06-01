@@ -103,6 +103,16 @@ struct LossConfig
   /// compatible.  See `add_piecewise`/`add_direction` for how flow past
   /// the envelope extrapolates on the last segment's slope.
   double loss_envelope {0.0};
+  /// Per-MWh cost stamped on the per-direction loss columns
+  /// (``loss_p`` / ``loss_n``) in ``piecewise``/``bidirectional`` modes.
+  /// Strictly breaks LP-relax bidirectional-flow degeneracy: among all
+  /// primal-feasible solutions sharing the same net dispatch the LP
+  /// picks the one with single-direction flow.  ``0.0`` (default)
+  /// preserves legacy behaviour.  Recommended ε ≈ 1e-6 $/MWh — well
+  /// below LP optimality tolerance, so the objective is essentially
+  /// unchanged.  Inert for ``none``, ``linear``, ``piecewise_direct``,
+  /// and ``tangent`` layouts.
+  double loss_cost_eps {0.0};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────
@@ -350,6 +360,17 @@ struct BlockResult
   /// Per-segment columns for the B→A direction.  Same semantics as
   /// `seg_p_cols`; KVL stamps each with `−x_τ`.
   std::vector<ColIndex> seg_n_cols;
+  /// Single SIGNED flow column used by `tangent_signed_flow` mode
+  /// (Coffrin outer approximation; no `fp`/`fn` decomposition).  When
+  /// populated, `fp_col` / `fn_col` are empty and KVL stamps `+x_τ` on
+  /// `flow_col` directly (sign comes from `f` itself).  Combined with
+  /// `lossp_col` (a single quadratic-upper-bounded loss column).
+  std::optional<ColIndex> flow_col;
+  /// Auxiliary `|f|`-envelope column used by `tangent_signed_flow` to
+  /// tighten the loss upper bound from the loose constant `R·fmax²/V²`
+  /// to the linear-in-`|f|` chord `(R·fmax/V²) · v` (with `v ≥ |f|`).
+  /// Internal to the loss model — KVL / bus balance do NOT stamp it.
+  std::optional<ColIndex> f_abs_col;
 };
 
 // ─── Mode resolution ────────────────────────────────────────────────
@@ -402,7 +423,8 @@ struct BlockResult
                                      int loss_segments,
                                      double fmax,
                                      double loss_row_scale = 1.0,
-                                     double loss_envelope = 0.0);
+                                     double loss_envelope = 0.0,
+                                     double loss_cost_eps = 0.0);
 
 // ─── LP construction ────────────────────────────────────────────────
 

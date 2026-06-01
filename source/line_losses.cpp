@@ -4,9 +4,9 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
-#include <string>
 
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/line_losses.hpp>
@@ -128,7 +128,8 @@ LossConfig make_config(LineLossesMode mode,
                        int loss_segments,
                        double fmax,
                        double loss_row_scale,
-                       double loss_envelope)
+                       double loss_envelope,
+                       double loss_cost_eps)
 {
   const double V2 = voltage * voltage;
   // Honour the caller's ``loss_segments`` verbatim (no ``max(1, …)``
@@ -147,7 +148,8 @@ LossConfig make_config(LineLossesMode mode,
 
   // Validate PWL prerequisites; fall back gracefully.
   if (mode == LineLossesMode::piecewise || mode == LineLossesMode::bidirectional
-      || mode == LineLossesMode::piecewise_direct)
+      || mode == LineLossesMode::piecewise_direct
+      || mode == LineLossesMode::tangent_signed_flow)
   {
     if (nseg <= 0) {
       // "No PWL segments" → no loss approximation at all.  The
@@ -258,6 +260,7 @@ LossConfig make_config(LineLossesMode mode,
       .loss_row_scale = effective_scale,
       .pwl_layout = requested,
       .loss_envelope = (loss_envelope > 0.0) ? loss_envelope : 0.0,
+      .loss_cost_eps = (loss_cost_eps > 0.0) ? loss_cost_eps : 0.0,
   };
 }
 
@@ -760,6 +763,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .capn_row = {},
       .seg_p_cols = {},
       .seg_n_cols = {},
+      .flow_col = {},
+      .f_abs_col = {},
   };
 }
 
@@ -877,15 +882,23 @@ BlockResult add_linear(const LossConfig& config,
 ///
 /// We therefore implement `piecewise` as a thin wrapper around
 /// `bidirectional`.  This roughly doubles the per-line PWL row /
-/// column count vs the legacy `piecewise` (2 × (K cols + 2 rows + 1
-/// loss col) instead of K cols + 2 rows + 1 loss col), but the LP is
-/// physically correct.  Callers wanting the legacy single-direction
-/// behaviour have no use case — it was always either fine (network
-/// with no negative-LMP buses, where LP self-organised to one
+/// column count vs the historical `piecewise` (2 × (K cols + 2 rows
+/// + 1 loss col) instead of K cols + 2 rows + 1 loss col), but the
+/// LP is physically correct.  The historical single-direction
+/// behaviour has no use case — it was always either fine (network
+/// with no negative-LMP buses, where the LP self-organised to one
 /// direction) or broken (the documented case).
 ///
-/// Ref: Macedo et al. [1], single-direction formulation (legacy);
-///      FERC [3], bidirectional decomposition (current).
+/// Recommended modern default for new cases is
+/// `LineLossesMode::tangent_signed_flow` (Coffrin outer-approx on a
+/// single signed flow column + |f|-aux chord upper bound); see
+/// `add_tangent_signed_flow` below.  Use `bidirectional` when an
+/// explicit per-direction loss accounting (separate `loss_p` /
+/// `loss_n` columns at each receiver) is required.
+///
+/// Ref: Macedo et al. [1], single-direction formulation (historical);
+///      FERC [3], bidirectional decomposition (fallback);
+///      Coffrin & Van Hentenryck [4], tangent_signed_flow (default).
 BlockResult add_piecewise(const LossConfig& config,
                           const ScenarioLP& scenario,
                           const StageLP& stage,
@@ -899,6 +912,32 @@ BlockResult add_piecewise(const LossConfig& config,
                           std::optional<ColIndex> capacity_col,
                           Uid uid,
                           bool enforce_capacity);
+
+/// Coffrin-style outer-approximation loss model on a SINGLE signed
+/// flow column `f ∈ [−tmax_ba, +tmax_ab]`.  Emits, per (line, block):
+///   - 1 loss col `ℓ ≥ 0`
+///   - 1 abs-value aux col `v ∈ [0, fmax_phys]`     (task #102)
+///   - K tangent rows `ℓ ≥ R/V²·(2 f_k f − f_k²)`   (k = 1..K)
+///   - 2 abs-value rows `v ≥ +f` and `v ≥ −f`       (task #102)
+///   - 1 chord upper-bound row `ℓ ≤ (R·fmax_phys/V²)·v`  (task #102)
+/// Phantom-flow proof: structurally impossible — only one signed `f`
+/// variable, so `fp · fn > 0` cannot arise.  Forward-declared here so
+/// the `add_piecewise` dispatcher (below) can route to it on
+/// `LineLossesMode::tangent_signed_flow` even though the body lives
+/// after `add_bidirectional`.  See the definition for the math.
+BlockResult add_tangent_signed_flow(const LossConfig& config,
+                                    const ScenarioLP& scenario,
+                                    const StageLP& stage,
+                                    const BlockLP& block,
+                                    LinearProblem& lp,
+                                    SparseRow& brow_a,
+                                    SparseRow& brow_b,
+                                    double block_tmax_ab,
+                                    double block_tmax_ba,
+                                    double block_tcost,
+                                    std::optional<ColIndex> capacity_col,
+                                    Uid uid,
+                                    bool enforce_capacity);
 
 /// Legacy single-direction PWL implementation, kept behind the
 /// `tangent` layout path which still relies on the shared-loss column
@@ -1020,9 +1059,21 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   }
 
   // Loss variable: tracks total power dissipated.
+  //
+  // ``loss_cost_eps`` (default 0.0) stamps a tiny per-MWh cost on the
+  // loss column so the LP strictly prefers single-direction dispatch
+  // among otherwise-degenerate solutions.  ``add_piecewise_shared`` has
+  // ONE shared loss column for both directions (``tangent`` layout only
+  // post-2026-05-31), so the cost still applies — the LP minimises
+  // ``loss`` which equals ``ε·(loss)`` here vs ``ε·(loss_p + loss_n)``
+  // in the bidirectional path; either way it picks the smallest loss.
+  const double loss_block_cost = config.loss_cost_eps > 0.0
+      ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
+      : 0.0;
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
+      .cost = loss_block_cost,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::LosspName,
       .variable_uid = uid,
@@ -1208,9 +1259,20 @@ DirResult add_direction(const LossConfig& config,
       .context = block_ctx,
   });
 
+  // ``loss_cost_eps`` (default 0.0) stamps a tiny per-MWh cost on each
+  // per-direction loss column so the LP strictly prefers single-
+  // direction dispatch.  The per-direction loss curve is convex; with
+  // ε > 0 on both ``loss_p`` and ``loss_n`` the LP picks the unique
+  // ``fn = 0`` (or ``fp = 0``) solution for any required net flow
+  // ``f = fp − fn ≥ 0``, eliminating the LP-degeneracy phantom
+  // bidirectional flow without SOS1, MIP, or binaries.
+  const double loss_block_cost = config.loss_cost_eps > 0.0
+      ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
+      : 0.0;
   const auto loss_col = lp.add_col({
       .lowb = 0,
       .uppb = LinearProblem::DblMax,
+      .cost = loss_block_cost,
       .class_name = Line::class_name.full_name(),
       .variable_name = labels.loss,
       .variable_uid = uid,
@@ -1342,7 +1404,382 @@ BlockResult add_bidirectional(const LossConfig& config,
       .capn_row = capn,
       .seg_p_cols = {},
       .seg_n_cols = {},
+      .flow_col = {},
+      .f_abs_col = {},
   };
+}
+
+/// Coffrin-style outer approximation on a SINGLE signed flow column.
+///
+/// Per (line, block) this creates:
+///   * 1 signed flow column `f ∈ [−tmax_ba, +tmax_ab]`
+///     (`enforce_capacity == false` releases bounds to `±DblMax`).
+///   * 1 loss column `ℓ ∈ [0, (R/V²)·fmax²]` — the quadratic upper
+///     envelope on `[−fmax, +fmax]`, exact at `f = ±fmax` and a
+///     strict over-estimate for `|f| < fmax`.  Without this upper
+///     bound the LP can inflate `ℓ` arbitrarily whenever the
+///     receiver-bus LMP propagates negative (same arbitrage we
+///     observed on the `midpoint` layout in negative-LMP networks).
+///   * K tangent inequalities `ℓ ≥ (2·R/V²)·f_k·f − (R/V²)·f_k²` at
+///     tangent points `f_k = fmax · (2k − K − 1) / K`, k = 1..K
+///     (uniform spacing centred on `[−fmax, +fmax]`, NOT touching
+///     the endpoints).  Each tangent is the gradient of the convex
+///     quadratic at `f_k`; the K-fold maximum is a piecewise-affine
+///     LOWER envelope, exact at every tangent point and within
+///     `(fmax/K)² · R/V²` at the partition boundaries.
+///
+/// Bus balance: `sender = −f`, `receiver = +f` (with loss allocated
+/// per the standard `apply_loss_allocation` rule on `loss_col`).  KVL
+/// uses the signed `f` column directly with a single `+x_τ`
+/// coefficient — no `fp/fn` decomposition needed.
+///
+/// Phantom flow IMPOSSIBLE by construction: there is no way to
+/// represent simultaneous bidirectional flow on a line because the
+/// LP carries one (signed) variable per (line, block).
+///
+/// LP size: 2 cols + (K + 1) rows + 1 col upper-bound (the quadratic
+/// envelope).  At K = 5 → 2 + 6 = 8 non-zero matrix entries per
+/// (line, block); compare `bidirectional` at K = 5 (~18 non-zeros).
+///
+/// Refs: Coffrin & Van Hentenryck, *A Linear-Programming
+///       Approximation of AC Power Flows*, INFORMS J. Computing
+///       (2014); Aigner & Van Hentenryck, arXiv:2112.10975 (2022).
+BlockResult add_tangent_signed_flow(const LossConfig& config,
+                                    const ScenarioLP& scenario,
+                                    const StageLP& stage,
+                                    const BlockLP& block,
+                                    LinearProblem& lp,
+                                    SparseRow& brow_a,
+                                    SparseRow& brow_b,
+                                    double block_tmax_ab,
+                                    double block_tmax_ba,
+                                    double block_tcost,
+                                    std::optional<ColIndex> capacity_col,
+                                    Uid uid,
+                                    bool enforce_capacity)
+{
+  BlockResult result;
+
+  // Effective flow envelope: ``loss_envelope`` (when explicitly set;
+  // typically the ORIGINAL rating of a soft-cap / lifted line) else the
+  // max of the per-direction physical caps.  Used both for the quadratic
+  // upper bound on ``ℓ`` and for the tangent point placement.
+  const double fmax_phys = std::max(block_tmax_ab, block_tmax_ba);
+  const bool decoupled_envelope = config.loss_envelope > 0.0;
+  const double effective_fmax =
+      decoupled_envelope ? config.loss_envelope : fmax_phys;
+
+  if (effective_fmax <= 0.0) {
+    return result;
+  }
+
+  const int nseg = config.nseg;
+  assert(nseg > 0 && "line_losses: nseg must be positive");
+
+  const double k_loss = config.resistance / config.V2;
+  // Skip the entire model if R/V² is effectively zero — same physical-
+  // noise floor used by ``add_segments`` / ``add_tangents``.  Falls
+  // through to ``add_none`` semantics: a single bidirectional flow
+  // column without any loss approximation.  Returning empty here lets
+  // the caller decide whether to fall back; for symmetry with
+  // ``add_segments`` we still create the signed flow column below if
+  // possible so the line participates in KCL / KVL.
+  // Note: we deliberately mirror the dropout policy of ``add_tangents``:
+  // the col is still created so KVL has something to stamp.
+
+  // ── Signed flow column ──────────────────────────────────────────────
+  // Sign convention: positive = A→B, negative = B→A (matches the
+  // ``fp``/``fn`` aggregator semantics in the other modes).
+  const double flow_lowb =
+      enforce_capacity ? -block_tmax_ba : -LinearProblem::DblMax;
+  const double flow_uppb =
+      enforce_capacity ? block_tmax_ab : LinearProblem::DblMax;
+
+  const auto block_ctx =
+      make_block_context(scenario.uid(), stage.uid(), block.uid());
+
+  const auto flow_col = lp.add_col({
+      .lowb = flow_lowb,
+      .uppb = flow_uppb,
+      .cost = block_tcost,
+      .class_name = Line::class_name.full_name(),
+      .variable_name = LineLP::FlowsName,
+      .variable_uid = uid,
+      .context = block_ctx,
+  });
+  result.flow_col = flow_col;
+
+  // Bus balance: sender contributes -f, receiver contributes +f.  The
+  // loss column (created below) absorbs the dissipated power via
+  // ``apply_loss_allocation``.  ``f`` carries its own sign, so the
+  // bus-balance stamp does NOT change sign per direction — exactly
+  // what the loss allocation expects from a unified flow column.
+  brow_a[flow_col] = -1.0;
+  brow_b[flow_col] = +1.0;
+
+  // ── Loss column ─────────────────────────────────────────────────────
+  // Upper bound: a LINEAR-IN-|f| chord rather than the loose constant
+  // ``(R/V²) · fmax²``.  Concretely we introduce an auxiliary
+  // ``v ≥ |f|`` column (``f_abs_col`` below, bounded ``[0, fmax]``) tied
+  // to the signed flow column by two rows
+  //
+  //     v − f ≥ 0      (so v ≥ +f)
+  //     v + f ≥ 0      (so v ≥ −f)
+  //
+  // and replace the previous constant column bound with the row
+  //
+  //     ℓ ≤ (R · fmax / V²) · v
+  //
+  // i.e. the secant chord of the convex quadratic ``R·v²/V²`` between
+  // ``(0, 0)`` and ``(fmax, R·fmax²/V²)``.  Because the curve is convex
+  // the secant lies ABOVE it on ``[0, fmax]``, so the row is a valid
+  // upper bound on ``ℓ`` for any ``|f| ∈ [0, fmax]``.  It is tight at
+  // both endpoints (``v = 0`` ⇒ ``ℓ ≤ 0``; ``v = fmax`` ⇒
+  // ``ℓ ≤ R·fmax²/V²``, matching the legacy constant bound) and
+  // linearly interpolates in between — so for intermediate ``|f|`` it is
+  // 2–4× tighter than the constant bound.  This closes the 0.3 %
+  // CEN-PCP objective gap vs ``bidirectional`` where the LP was
+  // previously free to inflate ``ℓ`` up to ``R·fmax²/V²`` regardless of
+  // how small ``|f|`` was.
+  //
+  // Arbitrage immunity still holds: with the chord row, ``ℓ`` cannot
+  // exceed ``(R·fmax/V²) · |f|`` at the optimum, so a negative-LMP
+  // receiver cannot draw "free" power by inflating ``ℓ`` past the
+  // physical loss.  The K tangent LOWER bounds remain unchanged.
+  //
+  // Asymmetric ratings (``tmax_ab ≠ tmax_ba``): we anchor the chord at
+  // ``fmax = max(tmax_ab, tmax_ba)`` (via ``fmax_phys`` above), so the
+  // chord remains a valid upper bound across the FULL signed flow range.
+  // The chord is slightly loose at ``|f| > min(tmax_ab, tmax_ba)``
+  // (lives in the unreachable half-space for the smaller direction) but
+  // never violates feasibility.
+
+  // Optional per-MWh ε on the loss column.  Inert for this mode under
+  // ordinary conditions (the LP already drives ``ℓ`` to its tangent
+  // envelope, which is the unique minimiser at any chosen ``f``) but
+  // preserved so the wiring stays consistent with the other PWL paths
+  // — a future contract that needs ε > 0 here works identically.
+  const double loss_block_cost = config.loss_cost_eps > 0.0
+      ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
+      : 0.0;
+
+  const auto loss_col = lp.add_col({
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+      .cost = loss_block_cost,
+      .class_name = Line::class_name.full_name(),
+      .variable_name = LineLP::LosspName,
+      .variable_uid = uid,
+      .context = block_ctx,
+  });
+  result.lossp_col = loss_col;
+
+  // ── Loss allocation (forced ``split`` for signed flow) ─────────────
+  // The signed-flow formulation has ONE loss column ``ℓ ≥ 0`` and
+  // ONE flow column ``f ∈ [−tmax_ba, +tmax_ab]``.  The per-direction
+  // ``sender`` and ``receiver`` allocation modes assume a FIXED
+  // physical direction (sender = bus_a, receiver = bus_b) — but for
+  // signed flow the actual physical sender/receiver SWAP when f<0.
+  // ``apply_loss_allocation`` cannot express direction-dependent
+  // allocation in pure LP (would need binary indicators or SOS1).
+  // Concretely, emitting ``-1·ℓ`` on bus_a (sender mode) is WRONG
+  // when f<0 because bus_a is the actual receiver in that block:
+  // the LP gets a free arbitrage channel at the misallocated bus
+  // whenever it has negative LMP, inflating ``ℓ`` asymmetrically
+  // between the two flow directions.  Empirically (v0407 K=12 L=3
+  // ε=0.01): allocation=receiver showed R/A=1.86× for A→B blocks
+  // but R/A=2.57× for B→A blocks, with some lines giving R/A=0.8×
+  // in one direction and R/A=18× in the other.
+  //
+  // The only sign-symmetric allocation is ``split`` (each bus pays
+  // 50% of ℓ regardless of flow direction), so we force it here.
+  // A one-time warning fires if the caller requested a different
+  // mode so the override is visible.  Per-direction loss accounting
+  // for signed flow would require splitting ℓ into ℓ_p + ℓ_n with
+  // SOS1-style mutual exclusion — out of scope for pure LP.
+  if (config.allocation != LossAllocationMode::split) {
+    static bool warned = false;
+    if (!warned) {
+      spdlog::warn(
+          "tangent_signed_flow: loss_allocation_mode '{}' is "
+          "direction-blind for signed flow and was overridden to "
+          "'split' (only sign-symmetric mode).  This is the cure for "
+          "the R/A asymmetry observed in v0407 (see task #107).",
+          (config.allocation == LossAllocationMode::sender) ? "sender"
+                                                            : "receiver");
+      warned = true;
+    }
+  }
+  apply_loss_allocation(brow_a, brow_b, loss_col, LossAllocationMode::split);
+
+  // ── |f|-envelope auxiliary column + chord upper bound ───────────────
+  // Column ``v ∈ [0, fmax]`` with ``v ≥ |f|`` (via two abs rows below).
+  // The chord row ``ℓ ≤ (R·fmax/V²) · v`` bounds the loss column ℓ
+  // by the secant from origin to ``(fmax, R·fmax²/V²)`` — IF the LP
+  // can be made to bind ``v = |f|``.  Otherwise the LP saturates
+  // ``v = fmax`` and the chord collapses to the loose constant
+  // ceiling ``R·fmax²/V²``.
+  //
+  // STRUCTURAL CAVEAT (verified 2026-06-01): ``v ≥ |f|`` is
+  // LP-equivalent to ``fp + fn ≥ |fp − fn|`` from the bidirectional
+  // mode — i.e. ``v − |f| = 2·phantom_flow``.  The aux variable
+  // therefore re-introduces the same LP-relaxation degeneracy that
+  // signed-flow was designed to escape: WITHOUT ε > 0 on ``v``, the
+  // LP inflates ``v`` to fmax and the chord no longer tightens.  WITH
+  // ε ≥ arb_per_v (≈ ``c·fmax × max|negative_LMP|``, typically ~$0.1
+  // for CEN lines), the LP picks ``v = |f|`` and the chord becomes
+  // the proper origin-to-fmax secant.  Empirically (v0407): ε=0.1
+  // closes the LP-relaxation R/A from ~3.0× to ~1.2×.
+  //
+  // The structural insight that ``tangent_signed_flow`` "makes phantom
+  // flow impossible by construction" is TRUE for the flow variable
+  // (single signed col cannot have fp · fn > 0) but only PARTIALLY
+  // true for the loss column: phantom losses (ℓ > c·f²) are still
+  // possible whenever the LP gets arbitrage benefit AND ε is too
+  // small.  See ``docs/analysis/tangent-signed-flow-k-secants-design.md``
+  // for the full derivation.
+  const double v_cost = config.loss_cost_eps > 0.0
+      ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
+      : 0.0;
+  const auto f_abs_col = lp.add_col({
+      .lowb = 0.0,
+      .uppb = effective_fmax,
+      .cost = v_cost,
+      .class_name = Line::class_name.full_name(),
+      .variable_name = LineLP::FlowAbsName,
+      .variable_uid = uid,
+      .context = block_ctx,
+  });
+  result.f_abs_col = f_abs_col;
+
+  // Row 1: v − f ≥ 0  ⇔  v ≥ +f.
+  {
+    auto absp =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = flow_abs_constraint_name,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid(), 1),
+        }
+            .greater_equal(0.0);
+    absp.reserve(2);
+    absp[f_abs_col] = +1.0;
+    absp[flow_col] = -1.0;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(absp));
+  }
+
+  // Row 2: v + f ≥ 0  ⇔  v ≥ −f.
+  {
+    auto absn =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = flow_abs_constraint_name,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid(), 2),
+        }
+            .greater_equal(0.0);
+    absn.reserve(2);
+    absn[f_abs_col] = +1.0;
+    absn[flow_col] = +1.0;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(absn));
+  }
+
+  // Row 3: ℓ ≤ (R·fmax/V²) · v   ⇔   (R·fmax/V²) · v − ℓ ≥ 0.
+  // Stored as ``≥`` so it shares the row-orientation convention of the
+  // tangent rows below.  Row-scaled by ``loss_row_scale`` for the same
+  // numerical reason the tangent rows are scaled.
+  {
+    const double chord_slope = k_loss * effective_fmax;
+    auto ubrow =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = loss_link_constraint_name,
+            .variable_uid = uid,
+            // Distinct context tag so the row label cannot collide with
+            // the K tangent rows below (which use k ∈ [1, K]).
+            .context = make_block_context(
+                scenario.uid(), stage.uid(), block.uid(), nseg + 1),
+        }
+            .greater_equal(0.0);
+    ubrow.reserve(2);
+    ubrow[f_abs_col] = +chord_slope * config.loss_row_scale;
+    ubrow[loss_col] = -config.loss_row_scale;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(ubrow));
+  }
+
+  // ── K tangent inequalities ──────────────────────────────────────────
+  // Tangent points: f_k = fmax · (2k − K − 1) / K, k = 1..K.
+  // For K=5 / fmax=10: f_k ∈ {−8, −4, 0, +4, +8}.  Uniform spacing on
+  // (−fmax, +fmax) excluding the endpoints (the col bound on ``ℓ``
+  // already pins the quadratic at f = ±fmax).
+  //
+  // Row form (after row scaling ``s = loss_row_scale``):
+  //   s · ℓ − 2 · s · k_loss · f_k · f ≥ −s · k_loss · f_k²
+  // i.e. ``loss ≥ (2·R/V²)·f_k·f − (R/V²)·f_k²``.
+  //
+  // Per-tangent dropout (matches ``add_tangents`` / ``add_segments``):
+  // if the slope coefficient ``2·k_loss·f_k`` lands below the pre-scale
+  // or post-scale numerical noise floor, the row degenerates to
+  // ``loss ≥ −k_loss·f_k² ≤ 0`` (always satisfied by ``loss ≥ 0``).
+  // Stamping it just pollutes the coefficient-range statistics.
+  for (const auto k : iota_range(1, nseg + 1)) {
+    const double f_k = effective_fmax * static_cast<double>((2 * k) - nseg - 1)
+        / static_cast<double>(nseg);
+    const double slope_coef = 2.0 * k_loss * f_k;
+    const double scaled_slope = slope_coef * config.loss_row_scale;
+    if (std::abs(slope_coef) < kLossCoeffTolerance
+        || std::abs(scaled_slope) < kLossLpRowTolerance)
+    {
+      continue;
+    }
+    auto trow =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = loss_link_constraint_name,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid(), k),
+        }
+            .greater_equal(-k_loss * f_k * f_k * config.loss_row_scale);
+    trow.reserve(2);
+    trow[loss_col] = +config.loss_row_scale;
+    trow[flow_col] = -scaled_slope;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(trow));
+  }
+
+  // ── Capacity row (expandable lines only) ────────────────────────────
+  // Two-sided capacity: ``capacity − |f| ≥ 0`` is non-linear, so we
+  // express it via two one-sided rows ``capacity − f ≥ 0`` and
+  // ``capacity + f ≥ 0`` reusing ``add_capacity_row`` for the +
+  // direction and an inline mirror for the − direction.
+  if (capacity_col) {
+    // +direction: capacity_col − flow_col ≥ 0  (binds when f > 0)
+    result.capp_row = add_capacity_row(lp,
+                                       scenario,
+                                       stage,
+                                       block,
+                                       LineLP::CapacitypName,
+                                       uid,
+                                       *capacity_col,
+                                       flow_col);
+    // −direction: capacity_col + flow_col ≥ 0  (binds when f < 0)
+    auto neg_cap_row =
+        SparseRow {
+            .class_name = Line::class_name.full_name(),
+            .constraint_name = LineLP::CapacitynName,
+            .variable_uid = uid,
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        }
+            .greater_equal(0);
+    neg_cap_row[*capacity_col] = 1;
+    neg_cap_row[flow_col] = +1;
+    result.capn_row = lp.add_row(std::move(neg_cap_row));
+  }
+
+  return result;
 }
 
 /// `add_piecewise` definition — see forward declaration above.
@@ -1572,6 +2009,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
       .capn_row = {},
       .seg_p_cols = std::move(seg_p_cols),
       .seg_n_cols = std::move(seg_n_cols),
+      .flow_col = {},
+      .f_abs_col = {},
   };
 }
 
@@ -1948,7 +2387,8 @@ BlockResult add_block(const LossConfig& config,
   if (config.nseg <= 0
       && (config.mode == LineLossesMode::piecewise
           || config.mode == LineLossesMode::bidirectional
-          || config.mode == LineLossesMode::piecewise_direct))
+          || config.mode == LineLossesMode::piecewise_direct
+          || config.mode == LineLossesMode::tangent_signed_flow))
   {
     return add_none(scenario,
                     stage,
@@ -2054,6 +2494,21 @@ BlockResult add_block(const LossConfig& config,
                                   block_tcost,
                                   uid,
                                   enforce_capacity);
+
+    case LineLossesMode::tangent_signed_flow:
+      return add_tangent_signed_flow(config,
+                                     scenario,
+                                     stage,
+                                     block,
+                                     lp,
+                                     brow_a,
+                                     brow_b,
+                                     block_tmax_ab,
+                                     block_tmax_ba,
+                                     block_tcost,
+                                     capacity_col,
+                                     uid,
+                                     enforce_capacity);
 
     default:
       return add_none(scenario,

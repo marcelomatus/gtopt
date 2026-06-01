@@ -426,6 +426,18 @@ public:
     return m_options_.model_options.scale_loss_link.value_or(1.0);
   }
 
+  /// @brief Gets the per-MWh cost on the per-direction loss columns.
+  ///
+  /// Returns the resolved global ``loss_cost_eps`` ($/MWh) applied to
+  /// every PWL/bidirectional line's ``loss_p``/``loss_n`` column to
+  /// strictly break the LP-relax bidirectional-flow degeneracy.  When
+  /// unset, returns ``0.0`` (legacy behaviour — no epsilon).  Per-line
+  /// ``Line.loss_cost_eps`` overrides this value when present.
+  [[nodiscard]] constexpr auto loss_cost_eps() const
+  {
+    return m_options_.model_options.loss_cost_eps.value_or(0.0);
+  }
+
   /// @brief Gets the bound for voltage-angle variables (`θ ∈
   /// [−theta_max, +theta_max]`).
   ///

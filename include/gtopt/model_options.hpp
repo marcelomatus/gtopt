@@ -73,6 +73,18 @@ struct ModelOptions
   /// `1.0` to disable row scaling.  Has no effect on `linear`,
   /// `piecewise_direct`, or `none` loss modes.
   OptReal scale_loss_link {};
+  /// Global per-MWh cost on the per-direction loss columns
+  /// (``loss_p``/``loss_n`` in ``piecewise``/``bidirectional`` modes).
+  /// Strictly breaks the LP-relax bidirectional-flow degeneracy: among
+  /// all primal-feasible solutions sharing the same net dispatch, the
+  /// LP picks the one with single-direction flow (``fn = 0`` for net
+  /// flow ``f = fp − fn ≥ 0``).  Recommended: ``1e-6`` $/MWh — well
+  /// below LP optimality tolerance so the objective is essentially
+  /// unchanged.  Default ``0.0`` (unset) preserves legacy behaviour.
+  /// Per-line ``Line.loss_cost_eps`` overrides this global default.
+  /// Inert for ``none``, ``linear``, ``piecewise_direct``, and
+  /// ``tangent`` layouts.
+  OptReal loss_cost_eps {};
   /// Bound for voltage-angle variables: `θ ∈ [−theta_max, +theta_max]`.
   /// When unset, `PlanningLP::auto_scale_theta` computes it as
   /// `Σ_l tmax_l · x_τ_l` (a topology-aware upper bound on the
@@ -201,6 +213,7 @@ struct ModelOptions
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
     merge_opt(scale_loss_link, opts.scale_loss_link);
+    merge_opt(loss_cost_eps, opts.loss_cost_eps);
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
@@ -222,12 +235,12 @@ struct ModelOptions
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
         || dc_line_reactance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
-        || scale_loss_link.has_value() || theta_max.has_value()
-        || demand_fail_cost.has_value() || reserve_shortage_cost.has_value()
-        || hydro_spill_cost.has_value() || hydro_use_value.has_value()
-        || state_violation_cost.has_value() || demand_fail_rhs_shift.has_value()
-        || continuous_phases.has_value() || naming_dialect.has_value()
-        || strict_storage_emin.has_value();
+        || scale_loss_link.has_value() || loss_cost_eps.has_value()
+        || theta_max.has_value() || demand_fail_cost.has_value()
+        || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
+        || hydro_use_value.has_value() || state_violation_cost.has_value()
+        || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
+        || naming_dialect.has_value() || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -249,6 +262,7 @@ struct ModelOptions
         && covers_opt(scale_objective, other.scale_objective)
         && covers_opt(scale_theta, other.scale_theta)
         && covers_opt(scale_loss_link, other.scale_loss_link)
+        && covers_opt(loss_cost_eps, other.loss_cost_eps)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
         && covers_opt(reserve_shortage_cost, other.reserve_shortage_cost)

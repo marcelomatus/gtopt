@@ -77,6 +77,11 @@ inline constexpr std::string_view flow_link_constraint_name = "flow_link";
 /// Linearised line-loss constraint (segments approximating |P|² · R).
 inline constexpr std::string_view loss_link_constraint_name = "loss_link";
 
+/// Auxiliary `v ≥ |f|` envelope row used by the
+/// `tangent_signed_flow` loss model to tighten the upper bound on the
+/// loss column.  Two rows per (line, block): `v − f ≥ 0` and `v + f ≥ 0`.
+inline constexpr std::string_view flow_abs_constraint_name = "flow_abs";
+
 /// Kirchhoff Voltage Law cycle constraint (Σ X·P = 0 around a loop).
 inline constexpr std::string_view kirchhoff_cycle_constraint_name = "cycle";
 
