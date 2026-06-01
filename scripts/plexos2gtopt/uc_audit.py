@@ -618,10 +618,25 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             name not in hard_list
             and pen_class == "hard"
             and not p["plexos_hard_solved"]
-            and p["slack_sum_abs"] > 0.0
+            # Require PLEXOS to have actually PAID for the slack (price > 0).
+            # ``slack_sum_abs > 0`` alone is NOT enough: PLEXOS reports the
+            # natural ``RHS − LHS`` gap as "slack" on every row, INCLUDING
+            # inactive contingency rows (Include in ST Schedule = 0) that
+            # the LP never enforces.  Without the ``price > 0`` guard the
+            # audit floods B6 with ~380 inactive SD_* rows.  Only when
+            # PLEXOS reports a non-zero shadow price has the LP genuinely
+            # paid for the slack — that's the meaningful "PLEXOS soft"
+            # signal.
+            and p["price_sum_abs"] > 0.0
+            and p["hours_binding_sum"] > 0
         ):
             buckets["B6_soft_in_plexos_hard_in_gtopt"].append(
-                {"name": name, "plexos_slack": p["slack_sum_abs"]}
+                {
+                    "name": name,
+                    "plexos_slack": p["slack_sum_abs"],
+                    "plexos_price": p["price_sum_abs"],
+                    "plexos_hours_binding": p["hours_binding_sum"],
+                }
             )
 
         # B9: inactive in gtopt but PLEXOS reports binding activity.
