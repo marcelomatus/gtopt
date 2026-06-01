@@ -22,7 +22,7 @@ def maule_parser():
     """Parse the 2-year PLP Maule convention file."""
     resolved = find_compressed_path(_PLP_2Y / "plpmaulen.dat")
     if resolved is None:
-        pytest.skip("plpmaulen.dat not found in support/plp_2_years")
+        pytest.skip("plpmaulen.dat not found in support/plp/2_years")
     parser = MauleParser(resolved)
     parser.parse()
     return parser
@@ -59,7 +59,7 @@ class TestMauleParser:
         assert maule_config["v_comp_elec_max"] == pytest.approx(350.0)
 
     def test_initial_volumes(self, maule_config):
-        # Values from support/plp_2_years/plpmaulen.dat.xz (in 10^3 m3 → hm3):
+        # Values from support/plp/2_years/plpmaulen.dat.xz (in 10^3 m3 → hm3):
         # VGastoElecMenIni=0, VGastoElecAnuIni=184049, VGastoRiegoIni=133406,
         # VCompElecIni=0.
         assert maule_config["v_gasto_elec_men_ini"] == pytest.approx(0.0)
@@ -75,7 +75,7 @@ class TestMauleParser:
     def test_monthly_modulation(self, maule_config):
         mod = maule_config["mod_elec_reserva"]
         assert len(mod) == 12
-        # support/plp_2_years/plpmaulen.dat: 7 leading 100s, then 5 zeros.
+        # support/plp/2_years/plpmaulen.dat: 7 leading 100s, then 5 zeros.
         assert mod[:7] == [100.0] * 7
         assert mod[7:] == [0.0] * 5
 

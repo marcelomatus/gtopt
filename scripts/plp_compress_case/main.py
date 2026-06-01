@@ -22,9 +22,9 @@ User preferences are stored in ``~/.gtopt.conf`` under
 
 Examples::
 
-    plp_compress_case support/plp_long_term
+    plp_compress_case support/plp/long_term
     plp_compress_case scripts/cases/plp_case_2y --split-mb 8
-    plp_compress_case --decompress support/plp_long_term
+    plp_compress_case --decompress support/plp/long_term
     plp_compress_case cases/my_case --codec zstd --codec-args ""
 """
 
@@ -73,9 +73,9 @@ Compresses .dat, .csv, .prn, and .png files using a configurable codec
 With --decompress, restores original files (reassembling splits).
 
 Examples:
-  plp_compress_case support/plp_long_term
+  plp_compress_case support/plp/long_term
   plp_compress_case cases/plp_case_2y --split-mb 8
-  plp_compress_case --decompress support/plp_long_term
+  plp_compress_case --decompress support/plp/long_term
   plp_compress_case cases/my_case --codec zstd --codec-args ""
 """
 

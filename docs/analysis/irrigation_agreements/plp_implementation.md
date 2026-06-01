@@ -488,7 +488,7 @@ The following evidence was found in the gtopt codebase:
    handles `plpralco.dat` which contains reservoir drawdown limits -- a
    related but different constraint type.
 
-4. **Run scripts**: The support scripts (`support/plp_2_years/run_plp_cen65_*.sh`)
+4. **Run scripts**: The support scripts (`support/plp/2_years/run_plp_cen65_*.sh`)
    set `PLP_CONVLAJA_MODE=2` and `PLP_CONVMAULE_MODE=2`, confirming these
    agreements are active in production PLP runs.
 

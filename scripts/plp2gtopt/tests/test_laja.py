@@ -22,7 +22,7 @@ def laja_parser():
     """Parse the 2-year PLP Laja convention file."""
     resolved = find_compressed_path(_PLP_2Y / "plplajam.dat")
     if resolved is None:
-        pytest.skip("plplajam.dat not found in support/plp_2_years")
+        pytest.skip("plplajam.dat not found in support/plp/2_years")
     parser = LajaParser(resolved)
     parser.parse()
     return parser
@@ -243,7 +243,7 @@ class TestLajaParser:
         assert usage[0] == pytest.approx(0.0)  # Apr
 
     def test_initial_rights(self, laja_config):
-        # Fixture support/plp_2_years/plplajam.dat.xz updated in 4a3264cc6
+        # Fixture support/plp/2_years/plplajam.dat.xz updated in 4a3264cc6
         # (PLP 2-year case). The "Derechos iniciales" line in that file is
         # `234 145 0 0`, so ini_irr=234 / ini_elec=145.
         assert laja_config["ini_irr"] == pytest.approx(234)
@@ -503,7 +503,7 @@ class TestLajaWriter:
         writer = LajaWriter(laja_config)
 
         # Initial values come from `Derechos iniciales` line in
-        # support/plp_2_years/plplajam.dat (234 / 145 / 0 / 0).
+        # support/plp/2_years/plplajam.dat (234 / 145 / 0 / 0).
         vol_irr = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )

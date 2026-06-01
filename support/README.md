@@ -1,112 +1,49 @@
-# Support PLP Cases
+# Support — Reference Cases for gtopt Validation
 
-This directory contains PLP (Programacion Lineal de la Produccion) test
-cases used for validation and benchmarking of plp2gtopt conversions.
+This directory holds the **reference data sets** used to validate the
+gtopt LP/MIP backend against the two industry tools it converts from:
 
-All data files (`.dat`, `.csv`) are stored as xz-compressed files to keep
-the repository small. plp2gtopt reads them transparently — no manual
-decompression is needed.
+| Subdirectory | What's there | Reader |
+|---|---|---|
+| [`plp/`](plp/README.md) | PLP (*Programación de Largo Plazo*) cases — long-term hydro-thermal scheduling, `.dat`/`.csv` files xz-compressed. | [`scripts/plp2gtopt/`](../scripts/plp2gtopt/) |
+| [`plexos/`](plexos/README.md) | CEN PCP daily PLEXOS bundles — outer-wrapper unwrapped to `DATOS{date}.zip.xz` + `RES{date}.zip.xz` (inputs + solution). | [`scripts/plexos2gtopt/`](../scripts/plexos2gtopt/) |
 
-## Directory Structure
+Each subdirectory ships its own `README.md` with the file-format
+conventions, the source / fetch protocol, and the canonical reference
+case used for end-to-end validation.
 
-```
-support/
-  plp_5_years/          # 5-year planning horizon case
-    plpblo.dat.xz
-    plpcnfce.dat.xz
-    plpmance.dat.xz
-    ...
-  plp_long_term/        # Long-term planning case
-    plpaflce.dat.1.xz   # Large file split into parts
-    plpaflce.dat.2.xz
-    ...
-    plpblo.dat.xz
-    ...
-```
+## Other entries
 
-## Adding a New PLP Case
+The rest of `support/` collects ad-hoc artifacts:
 
-### 1. Create the case directory
+| Path | Role |
+|---|---|
+| `gtopt_*/` | Converted gtopt cases produced from the above PLP / PLEXOS sources — typically built by running `plp2gtopt` / `plexos2gtopt` and committed for fast smoke testing. |
+| `gtopt_long_term.zip` | Zipped snapshot of `gtopt_long_term/` for archival; the unpacked dir is what tests read. |
+| `lps/` | Standalone LP dumps used for solver-level regression / debugging. |
+| `juan/`, `ivan/` | Per-engineer scratch directories holding larger benchmark cases that live outside the canonical reference set; **gitignored** to keep the tree small. |
+| `output/` | Default output destination when a `gtopt` invocation does not pass `--output-dir`; **gitignored**. |
 
-```bash
-mkdir support/my_new_case
-```
+`.gitignore` is configured so `gtopt_*/`, `juan/`, `ivan/`, and
+`output/` stay out of source control by default — the converted
+cases are sized in tens to hundreds of MB and are rebuilt from the
+PLP / PLEXOS sources on demand.
 
-### 2. Copy PLP files into the directory
+## Canonical reference cases
 
-Copy all `.dat` and `.csv` files from your PLP case:
+| Reference | Subdir | Notes |
+|---|---|---|
+| Irrigation-agreement validation | `plp/2_years/` | Laja + Maule configs (`plplajam.dat.xz`, `plpmaulen.dat.xz`); BAT_ALICANTO reproducer. |
+| PLP long-horizon validation | `plp/long_term/` | Full hydrology (seepage on ELTORO / CIPRESES / COLBUN). |
+| PLEXOS end-to-end validation | `plexos/pcp_2026-04-22/` | The canonical bundle that all `plexos2gtopt` docs, benchmarks, and the doctest pipeline reference. |
+| PLEXOS broader date sweep | `plexos/pcp_2025-10-05/` … `plexos/pcp_2026-05-17/` | 14 bundles spanning Oct 2025 – May 2026 for regression / day-to-day variance studies. |
 
-```bash
-cp /path/to/plp/case/*.dat support/my_new_case/
-cp /path/to/plp/case/*.csv support/my_new_case/
-```
+## See also
 
-### 3. Compress files before committing
-
-Run `plp_compress_case.sh` to compress all data files with xz:
-
-```bash
-scripts/plp_compress_case.sh support/my_new_case
-```
-
-This will:
-- Compress each `.dat`, `.csv`, `.prn`, and `.png` file with `xz -6`
-- Automatically split files that compress to more than 10 MB into numbered
-  parts (e.g. `plpaflce.dat.1.xz`, `plpaflce.dat.2.xz`, ...)
-- Remove the original uncompressed files
-
-Example output:
-
-```
-Compressing 28 file(s) in support/my_new_case (xz -6, split > 10MB)...
-
-  plpblo.dat                                   27K ->      2K  (xz)
-  plpcnfce.dat                               1488K ->     26K  (xz)
-  plpmance.dat                              74554K ->    750K  (xz)
-  plpaflce.dat: 61234567 bytes compressed > 10485760 limit, splitting...
-    plpaflce.dat.1.xz: 2917K
-    plpaflce.dat.2.xz: 6404K
-    ...
-
-Done. Files are ready to commit.
-```
-
-### 4. Commit the compressed files
-
-```bash
-git add support/my_new_case/
-git commit -m "feat: add my_new_case PLP test case"
-```
-
-### 5. Verify with plp2gtopt
-
-```bash
-plp2gtopt --input-dir support/my_new_case --output-dir /tmp/my_new_case_out
-```
-
-plp2gtopt automatically detects and reads `.xz` files and split parts.
-
-## Customizing the Split Threshold
-
-By default, files are split if the compressed size exceeds 10 MB. To change
-this limit:
-
-```bash
-scripts/plp_compress_case.sh support/my_new_case --split-mb 8
-```
-
-## How Compression Works
-
-- **Codec**: xz (LZMA2) at level 6 with multi-threaded compression (`-T0`)
-- **Split files**: Large files are split by lines into parts, then each part
-  is compressed independently. plp2gtopt decompresses parts in parallel
-  (4 threads) and concatenates them transparently.
-- **Naming convention**:
-  - Single file: `plpmance.dat.xz`
-  - Split file: `plpaflce.dat.1.xz`, `plpaflce.dat.2.xz`, ...
-
-## File Size Guidelines
-
-- **Maximum uncompressed file**: No limit (splitting handles large files)
-- **Maximum compressed file/part**: 10 MB (GitHub recommended limit is 50 MB)
-- **Typical compression ratio**: 10x–100x for PLP `.dat` files
+- [`docs/scripts/plp2gtopt.md`](../docs/scripts/plp2gtopt.md) — PLP
+  converter reference.
+- [`docs/scripts/plexos2gtopt.md`](../docs/scripts/plexos2gtopt.md)
+  — PLEXOS converter reference (every emitted gtopt element, every
+  UC family, the validation pipeline).
+- [`docs/scripts/sddp2gtopt.md`](../docs/scripts/sddp2gtopt.md) —
+  PSR-SDDP converter (no reference cases vendored here yet).

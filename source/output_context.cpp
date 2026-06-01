@@ -261,7 +261,7 @@ auto make_field_arrays(FieldVector&& field_vector, int round_digits = 0)
 // 6-column table:
 //   `(scenario, stage, block, uid, value, valid)`
 // with one row per *non-zero* cell across every uid column in the field
-// vector.  POC measurements on `support/plp_2_years` showed 5-7× smaller
+// vector.  POC measurements on `support/plp/2_years` showed 5-7× smaller
 // per-partition files on the heavy Generator streams (0.1 % cell density)
 // and 2-3× on the LMP / line-flow streams.  The legacy wide
 // `make_field_arrays` is kept for callers that hit the back-compat option
@@ -524,7 +524,7 @@ auto make_table(FieldVector&& field_vector,
   // codec: lz4`) but `resolve_parquet_codec` then fell off the loop
   // and returned UNCOMPRESSED.  Result: every parquet column was
   // written uncompressed even though the user had asked for snappy
-  // or lz4.  See the support/plp_2_years bloat regression.
+  // or lz4.  See the support/plp/2_years bloat regression.
   static constexpr std::array<std::pair<std::string_view, codec_t>, 9>
       codec_map {
           {

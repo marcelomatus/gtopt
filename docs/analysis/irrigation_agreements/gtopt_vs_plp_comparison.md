@@ -1546,13 +1546,13 @@ scenarios.
 
 | File | Content |
 |------|---------|
-| `support/plp_long_term/plplajam.dat.xz` | Laja agreement parameters |
-| `support/plp_5_years/plplajam.dat.xz` | Laja (5-year horizon) |
-| `support/plp_2_years/plplajam.dat.xz` | Laja (2-year horizon) |
-| `support/plp_long_term/plpmaulen.dat.xz` | Maule agreement parameters |
-| `support/plp_5_years/plpmaulen.dat.xz` | Maule (5-year horizon) |
-| `support/plp_2_years/plpmaulen.dat.xz` | Maule (2-year horizon) |
-| `support/plp_long_term/plpfilemb.dat.xz` | Seepage curves (3 reservoirs) |
+| `support/plp/long_term/plplajam.dat.xz` | Laja agreement parameters |
+| `support/plp/5_years/plplajam.dat.xz` | Laja (5-year horizon) |
+| `support/plp/2_years/plplajam.dat.xz` | Laja (2-year horizon) |
+| `support/plp/long_term/plpmaulen.dat.xz` | Maule agreement parameters |
+| `support/plp/5_years/plpmaulen.dat.xz` | Maule (5-year horizon) |
+| `support/plp/2_years/plpmaulen.dat.xz` | Maule (2-year horizon) |
+| `support/plp/long_term/plpfilemb.dat.xz` | Seepage curves (3 reservoirs) |
 
 ### gtopt Converter Files
 

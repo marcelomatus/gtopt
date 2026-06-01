@@ -66,19 +66,19 @@ can always be run as `python -m plexos2gtopt`.
 
 ```bash
 # Sanity check + summary (no conversion):
-plexos2gtopt --info support/plexos_pcp_2026-04-22/PLEXOS20260422.zip
+plexos2gtopt --info support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
 
 # Schema-light validation (no conversion):
-plexos2gtopt --validate support/plexos_pcp_2026-04-22
+plexos2gtopt --validate support/plexos/pcp_2026-04-22
 
 # Default conversion (writes to gtopt_PLEXOS20260422/ next to the input).
 # Auto-discovers RES<DATE>.zip[.xz] sibling for the PLEXOS block layout.
-plexos2gtopt support/plexos_pcp_2026-04-22/PLEXOS20260422.zip \
+plexos2gtopt support/plexos/pcp_2026-04-22/PLEXOS20260422.zip \
   -o gtopt_PLEXOS20260422
 
 # Standalone re-comparison: parse the bundle vs an existing JSON.
 plexos2gtopt --compare gtopt_PLEXOS20260422/PLEXOS20260422.json \
-  support/plexos_pcp_2026-04-22/PLEXOS20260422.zip
+  support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
 
 # Solve the resulting case (MIP by default; --solver picks the backend):
 gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json --solver cplex
@@ -92,7 +92,7 @@ gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json --solver cplex
   CSVs (extracted by hand).
 * A `DATOS{YYYYMMDD}.zip` archive (the input dataset).
 * A `DATOS{YYYYMMDD}.zip.xz` (the on-disk form vendored under
-  `support/plexos_pcp_2026-04-22/`).
+  `support/plexos/pcp_2026-04-22/`).
 * A `PLEXOS{YYYYMMDD}.zip` outer wrapper (auto-unwrapped to its
   DATOS inner zip).
 * A directory containing a single `DATOS*.zip[.xz]` inside (auto-
@@ -642,7 +642,7 @@ This is the canonical reference bundle. The complete pipeline:
 # 1. Convert (default == PLEXOS-native 111-block layout, MIP commitments,
 #              auto soft EL=1 caps, default --loss-pwl-layout dynamic):
 plexos2gtopt \
-  -i support/plexos_pcp_2026-04-22/PLEXOS20260422.zip \
+  -i support/plexos/pcp_2026-04-22/PLEXOS20260422.zip \
   -o gtopt_PLEXOS20260422
 
 # 2. Solve with CPLEX MIP, write full Parquet output stream:
@@ -652,7 +652,7 @@ gtopt gtopt_PLEXOS20260422/PLEXOS20260422.json \
 # 3. Compare against the PLEXOS reference solution
 #    (auto-discovers RES{date}.zip[.xz] sibling):
 plexos2gtopt --compare gtopt_PLEXOS20260422/PLEXOS20260422.json \
-  support/plexos_pcp_2026-04-22/PLEXOS20260422.zip
+  support/plexos/pcp_2026-04-22/PLEXOS20260422.zip
 ```
 
 ### What the converter produces (observed)
@@ -908,5 +908,5 @@ X come from?" without re-reading the converter source.
 * `include/gtopt/{generator,line,battery,reservoir,turbine,waterway,reserve_provision,decision_variable,commitment}.hpp`
   + matching `_lp.cpp` — the gtopt LP class catalogue (types,
   accessors registered via `add_ampl_variable`, schedule fields).
-* `support/plexos_pcp_2026-04-22/` — the canonical reference
+* `support/plexos/pcp_2026-04-22/` — the canonical reference
   bundle the converter is exercised against in every release.

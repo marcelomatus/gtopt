@@ -84,7 +84,7 @@ std::expected<Planning, std::string> parse_planning_files(
       // for the surrounding line.  Passing a different buffer (the
       // pre-canonicalisation source) causes that walk to segfault when
       // the canonicalisation shifted byte offsets — see the
-      // `BAT_ALICANTO` reproducer on `support/plp_2_years`.
+      // `BAT_ALICANTO` reproducer on `support/plp/2_years`.
       const auto canonical =
           canonicalize_json_keys(json_result.value(), enforce_dialect);
       try {

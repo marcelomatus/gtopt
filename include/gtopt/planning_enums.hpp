@@ -152,7 +152,7 @@ inline constexpr auto data_format_entries =
  *   schema: (scenario, stage, block, uid:1, uid:2, …, uid:N)
  *   one row per (stage, block).  Pays ~150 bytes of per-column
  *   metadata for *every* uid in *every* partition file — on the
- *   support/plp_2_years 1335-generator case that's ~110 KB of pure
+ *   support/plp/2_years 1335-generator case that's ~110 KB of pure
  *   parquet footer per file, ~46% of the on-disk footprint, and
  *   the metadata cost grows linearly with the model size.
  *
