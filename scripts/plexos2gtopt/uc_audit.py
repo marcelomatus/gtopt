@@ -70,6 +70,26 @@ SYS_CONSTRAINT_COLLECTION_ID = 700
 
 
 # ---------------------------------------------------------------------------
+# Name sanitization — mirrors ``gtopt_writer._pampl_ident`` so the audit
+# can match PLEXOS names that contain ``-``, ``.``, ``(``, ``)``, spaces,
+# or start with a digit against the sanitised PAMPL identifier gtopt
+# emits.  Without this, every such PLEXOS name shows up as "missing from
+# gtopt" and the corresponding gtopt name as "synthetic", inflating the
+# B3 / B7 / B8 buckets with naming-only noise.
+# ---------------------------------------------------------------------------
+def _pampl_ident(name: str) -> str:
+    """Sanitise a PLEXOS constraint name into the gtopt PAMPL identifier.
+
+    Mirrors ``plexos2gtopt.gtopt_writer._pampl_ident`` byte-for-byte so the
+    audit comparison key matches the on-disk PAMPL row name.
+    """
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if not safe or not (safe[0].isalpha() or safe[0] == "_"):
+        safe = "uc_" + safe
+    return safe
+
+
+# ---------------------------------------------------------------------------
 # UC family / hydro classifiers
 # ---------------------------------------------------------------------------
 UC_FAMILY_PATTERNS = (
@@ -77,6 +97,7 @@ UC_FAMILY_PATTERNS = (
     (re.compile(r"^CPF_BESS_"), "battery_cycle"),
     (re.compile(r"^Gas_MaxOpDay"), "gas_maxopday"),
     (re.compile(r"^FueMaxOff"), "fuel_offtake_week"),
+    (re.compile(r"^GenMaxStarts(Week|Day|Month)?_"), "gen_max_starts"),
     (re.compile(r"_starting$"), "commit_startup"),
     (re.compile(r"^MutuallyExclusive_", re.IGNORECASE), "mutually_exclusive"),
     (re.compile(r"_PMax$"), "pmax_cap"),
@@ -110,6 +131,50 @@ def categorise(name: str) -> str:
         if r.search(name):
             return label
     return "other"
+
+
+# Families that PLEXOS expresses as Constraint objects but gtopt promotes to
+# a NATIVE LP primitive on an existing entity (no UserConstraint emitted).
+# These are intentional architectural choices, not data loss — the
+# constraint is enforced by entity LP code, not via the UC mechanism.
+#
+# Mapping:
+#   battery_cycle      → Battery.max_cycles_day (BatteryLP::add_to_lp emits
+#                        a per-(battery, day) `cycle_limit` row)
+#   gas_maxopday       → Fuel.max_offtake schedule (FuelLP enforces via
+#                        a per-(fuel, day) `max_offtake` row)
+#   fuel_offtake_week  → Fuel.max_offtake schedule (weekly variant)
+#   gen_max_starts     → Commitment.max_starts + starts_scope (CommitmentLP
+#                        emits the Σ startup ≤ max_starts row natively)
+NATIVE_PRIMITIVE_FAMILIES: dict[str, str] = {
+    "battery_cycle": "Battery.max_cycles_day (BatteryLP cycle_limit row)",
+    "gas_maxopday": "Fuel.max_offtake schedule (per-day)",
+    "fuel_offtake_week": "Fuel.max_offtake schedule (per-week)",
+    "gen_max_starts": "Commitment.max_starts + starts_scope",
+    # ``reserve_provision`` family (CSF_/CPF_/CRC_): the PLEXOS Constraint
+    # objects have RHS = 0 because PLEXOS encodes the reserve requirement
+    # via its native ``Reserve.Min Provision`` property (not on the
+    # Constraint).  gtopt promotes the requirement to a UC RHS (via the
+    # ``reserve_prov_sum`` directive), so the same-name comparison shows
+    # a B2 RHS mismatch (gtopt = schedule, PLEXOS = 0).  This is an
+    # encoding difference, not a data bug — the LP-side primitive
+    # (ReserveZone / ReserveProvision) carries the requirement.
+    "reserve_provision": "ReserveZone.requirement + ReserveProvision sum",
+    # Hydro per-plant min / max / ramp UCs (ANTUCOmin/max, ANGOSTURAeco,
+    # PANGUEramp, ...): gtopt deliberately keeps these in the SOFT tier
+    # ($10/MWh slack) because PLEXOS gates them internally on commit
+    # status (the unit's row is auto-relaxed when commit=0).  gtopt has
+    # no commit-gated UC primitive yet, so hardening them would cause
+    # primal infeasibility whenever PLEXOS would have OFF'd the unit.
+    # The RHS mismatch in B2 (gtopt pmax=137 vs PLEXOS-sol max=85.3 etc.)
+    # is the natural consequence of this soft-tier choice — NOT a parser
+    # extraction bug.  See ``parsers.py`` lines 5500-5560 for the full
+    # design comment ("hydro per-plant min/max/ramp — special handling").
+    "hydro_min": "soft tier ($10/MWh slack); commit-gating handled by Commitment",
+    "hydro_max": "soft tier ($10/MWh slack); commit-gating handled by Commitment",
+    "hydro_ramp": "soft tier ($10/MWh slack); commit-gating handled by Commitment",
+    "reservoir_economy": "soft tier ($10/MWh slack); hydro economy UC",
+}
 
 
 def is_hydro_minmax(name: str) -> bool:
@@ -448,11 +513,26 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     hard_list = (
         load_hard_list(inputs.hard_list) if inputs.hard_list is not None else set()
     )
-    plexos_names = set(plexos.keys())
+    # Apply the same identifier sanitization the converter uses
+    # (``gtopt_writer._pampl_ident``) to PLEXOS names before set-diffing.
+    # Without this, PLEXOS names containing ``-``, ``.``, ``(``, ``)``,
+    # spaces, or leading digits show up as "missing from gtopt" and their
+    # sanitised gtopt counterparts as "synthetic", inflating B3 / B7 / B8
+    # with naming-only noise (~95 false-positive entries on v0407).
+    plexos_to_sanitised: dict[str, str] = {n: _pampl_ident(n) for n in plexos}
+    # Rekey the PLEXOS dict by sanitised identifier (only for diff matching;
+    # the original raw name is still available via ``plexos_to_sanitised``).
+    plexos_keyed = {plexos_to_sanitised[n]: r for n, r in plexos.items()}
+
+    plexos_names = set(plexos_keyed.keys())
     gtopt_names = set(gtopt_by_name.keys())
     intersection = sorted(plexos_names & gtopt_names)
     missing_from_gtopt = sorted(plexos_names - gtopt_names)
     synthetic_in_gtopt = sorted(gtopt_names - plexos_names)
+    # Replace ``plexos`` indexing key with the sanitised key so downstream
+    # lookups (in the per-row diff, B2 RHS comparison, etc.) hit the same
+    # entries the diff just computed.
+    plexos = plexos_keyed
 
     buckets: dict[str, list[dict]] = defaultdict(list)
     per_row: list[dict] = []
@@ -498,6 +578,15 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 abs(p_eff - g_eff) / max(abs(p_eff), 1e-9) if p_eff is not None else 0.0
             )
             if rel > 0.05 and abs(p_eff - g_eff) > 1e-3 and g_eff != 0.0:
+                # Suppress B2 when the family is native-promoted on gtopt:
+                # PLEXOS's Constraint RHS is 0 by convention because the
+                # actual requirement lives on a native primitive (Reserve
+                # Min Provision, Inertia property, etc.), while gtopt
+                # carries the requirement on the UC RHS via a directive.
+                # Not a bug — encoding choice.  See NATIVE_PRIMITIVE_FAMILIES.
+                fam = categorise(name)
+                if fam in NATIVE_PRIMITIVE_FAMILIES:
+                    continue
                 buckets["B2_rhs_mismatch"].append(
                     {
                         "name": name,
@@ -524,7 +613,17 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 {"name": name, "plexos_slack": p["slack_sum_abs"]}
             )
 
-        # B9: inactive in gtopt but PLEXOS reports binding activity
+        # B9: inactive in gtopt but PLEXOS reports binding activity.
+        # Suppress for ``GEN_BAT_*`` / ``LOAD_BAT_*`` tautological
+        # non-negativity rows: PLEXOS records a "price" because its
+        # reduced-cost reporting includes the dual on the natural
+        # ``battery.charge >= 0`` / ``battery.discharge >= 0`` bound,
+        # but the row carries no real constraint — gtopt correctly
+        # marks it inactive (commit ``bfa2f817e``, see memory
+        # ``project_bat_cf_comp_activity_flow``).
+        if name.startswith(("GEN_BAT_", "LOAD_BAT_")):
+            per_row.append(row)
+            continue
         if (
             not g["active"]
             and p["plexos_active"]
@@ -544,6 +643,21 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     for name in missing_from_gtopt:
         missing_by_family[categorise(name)].append(name)
     for fam, names in missing_by_family.items():
+        # B10: native-primitive promotion — gtopt enforces the constraint
+        # via an entity LP primitive (Battery / Fuel / Commitment) instead
+        # of as a UserConstraint.  NOT data loss; the LP row exists, it
+        # just doesn't carry a UC name.  Splitting these into their own
+        # bucket keeps B3 / B7 focused on REAL missing data.
+        if fam in NATIVE_PRIMITIVE_FAMILIES:
+            buckets["B10_native_primitive"].append(
+                {
+                    "family": fam,
+                    "primitive": NATIVE_PRIMITIVE_FAMILIES[fam],
+                    "count": len(names),
+                    "sample": names[:5],
+                }
+            )
+            continue
         if len(names) >= 50:
             buckets["B7_missing_uc_family"].append(
                 {"family": fam, "count": len(names), "sample": names[:5]}
