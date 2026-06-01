@@ -412,6 +412,84 @@ public:
     return simulation().state_variable(std::move(stamped));
   }
 
+  // ── Integer-variable choke-point ────────────────────────────────────────
+  //
+  // The "no integer column without `IntegerVariable`" invariant from
+  // `docs/design/commitment-layout.md §5` is enforced here: every
+  // producer of an integer LP column (`Commitment`, `SimpleCommitment`,
+  // `Converter`, `CapacityObject`, future `Battery` / `Pump` /
+  // `ReserveProvision`) routes through `add_integer_col` so cut
+  // audits, integer-feasibility checks, and the Phase-2 binding stack
+  // can iterate the set without grepping for `is_integer = true`.
+  //
+  // Phase 0 only adds the LP column and the registry entry — producers
+  // still call `add_ampl_variable` themselves.  Auto-AMPL is Phase 1.
+
+  /// Register one integer LP column in the simulation's integer-variable
+  /// map.  Mirrors `add_state_variable` (void wrapper around
+  /// `SimulationLP::add_integer_variable`).
+  ///
+  /// Honours the silent-flatten gate: under rebuild, the registry
+  /// already holds an equivalent entry, so this call is a no-op (same
+  /// rationale as the state-variable wrapper).
+  template<typename Key>
+  constexpr void add_integer_variable(Key&& key,
+                                      ColIndex col,
+                                      IntegerDomain domain,
+                                      IntegerScope scope,
+                                      GroupUid group_uid,
+                                      std::span<const BlockUid> blocks)
+  {
+    if (m_silent_flatten_pass_) {
+      return;
+    }
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // route to forward / aperture registry
+    std::ignore = simulation().add_integer_variable(
+        std::move(stamped), col, domain, scope, group_uid, blocks);
+  }
+
+  /// Atomic helper: add an integer LP column AND register it in the
+  /// integer-variable map.  The preferred API for every producer of an
+  /// integer column.
+  ///
+  /// `domain` selects {Binary, Integer, Relaxed}; `Relaxed` keeps the
+  /// column continuous (`is_integer = false`).  The producer is
+  /// responsible for the relax precedence: per-element `relax` flag
+  /// wins over the global option, which wins over the call-site
+  /// default — `Commitment.relax` and `SimpleCommitment.relax` are
+  /// already resolved before this call.
+  ///
+  /// `blocks` is the per-block fan-out for the registry's
+  /// `IntegerVariable::blocks()` accessor.  For `Block` scope it is
+  /// the single block uid; for `Group` scope it is every block in the
+  /// group; for `Stage` scope it is every block of the stage; for
+  /// `Phase` scope it should be empty (the registry returns
+  /// `std::nullopt` to callers regardless of what is passed).
+  template<typename Key, typename Col>
+  auto add_integer_col(LinearProblem& lp,
+                       Key&& key,
+                       Col&& col,
+                       IntegerDomain domain,
+                       IntegerScope scope,
+                       GroupUid group_uid,
+                       std::span<const BlockUid> blocks) -> ColIndex
+  {
+    col.is_integer = (domain != IntegerDomain::Relaxed);
+    const auto idx = lp.add_col(std::forward<Col>(col));
+    add_integer_variable(
+        std::forward<Key>(key), idx, domain, scope, group_uid, blocks);
+    return idx;
+  }
+
+  template<typename Key>
+  [[nodiscard]] constexpr auto get_integer_variable(Key&& key) const noexcept
+  {
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;
+    return simulation().integer_variable(std::move(stamped));
+  }
+
   /// Queue a deferred dependent-variable link to be resolved later by
   /// the per-scene tightening pass.  Use this in element `add_to_lp`
   /// instead of calling `get_state_variable(prev_key)->add_dependent_variable`

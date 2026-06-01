@@ -160,15 +160,24 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
   }
   const auto nperiods = period_starts.size();
 
-  // Map every block index → its period index
+  // Map every block index → its period index, AND materialise per-period
+  // block-uid vectors used by the IntegerVariable registry fan-out
+  // (consumed by both the u/v/w loop below and the startup-tier loop).
   std::vector<size_t> block_period(blocks.size());
+  std::vector<std::vector<BlockUid>> period_block_uids(nperiods);
   for (size_t p = 0; p < nperiods; ++p) {
     const auto start = period_starts[p];
     const auto end = (p + 1 < nperiods) ? period_starts[p + 1] : blocks.size();
+    period_block_uids[p].reserve(end - start);
     for (size_t i = start; i < end; ++i) {
       block_period[i] = p;
+      period_block_uids[p].push_back(blocks[i].uid());
     }
   }
+  const auto period_scope =
+      (period_hours > 0.0) ? IntegerScope::Group : IntegerScope::Block;
+  const auto period_domain =
+      is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
 
   // ── Phase A: Create u/v/w per commitment period, C1 and C3 ──
   BIndexHolder<ColIndex> ucols;  // period representative buid → u col
@@ -246,16 +255,28 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       }
     }
 
-    auto ucol = lp.add_col({
-        .lowb = u_lowb,
-        .uppb = u_uppb,
-        .cost = u_cost,
-        .is_integer = !is_relax,
-        .class_name = cname,
-        .variable_name = StatusName,
-        .variable_uid = cuid,
-        .context = ctx,
-    });
+    auto ucol =
+        sc.add_integer_col(lp,
+                           IntegerVariable::key(scenario,
+                                                stage,
+                                                Element::class_name,
+                                                cuid,
+                                                StatusName,
+                                                period_scope,
+                                                rep_buid),
+                           SparseCol {
+                               .lowb = u_lowb,
+                               .uppb = u_uppb,
+                               .cost = u_cost,
+                               .class_name = cname,
+                               .variable_name = StatusName,
+                               .variable_uid = cuid,
+                               .context = ctx,
+                           },
+                           period_domain,
+                           period_scope,
+                           rep_buid,
+                           std::span<const BlockUid> {period_block_uids[p]});
     ucols[rep_buid] = ucol;
 
     // ── Create v (startup) and w (shutdown) variables ──
@@ -896,47 +917,86 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
           make_block_context(scenario.uid(), stage.uid(), rep_buid);
       const auto& rep_block = blocks[period_starts[p]];
 
+      // Tier-column scope / domain / blocks reuse the values computed
+      // once for the u/v/w loop above (`period_scope`, `period_domain`,
+      // `period_block_uids[p]`).
+      const auto tier_blocks_span =
+          std::span<const BlockUid> {period_block_uids[p]};
+
       // Create tier variables with their respective costs
       const auto h_cost =
           CostHelper::block_ecost(scenario, stage, rep_block, hot_cost);
-      auto hcol = lp.add_col({
-          .lowb = 0.0,
-          .uppb = 1.0,
-          .cost = h_cost,
-          .is_integer = !is_relax,
-          .class_name = cname,
-          .variable_name = HotStartName,
-          .variable_uid = cuid,
-          .context = bctx,
-      });
+      auto hcol = sc.add_integer_col(lp,
+                                     IntegerVariable::key(scenario,
+                                                          stage,
+                                                          Element::class_name,
+                                                          cuid,
+                                                          HotStartName,
+                                                          period_scope,
+                                                          rep_buid),
+                                     SparseCol {
+                                         .lowb = 0.0,
+                                         .uppb = 1.0,
+                                         .cost = h_cost,
+                                         .class_name = cname,
+                                         .variable_name = HotStartName,
+                                         .variable_uid = cuid,
+                                         .context = bctx,
+                                     },
+                                     period_domain,
+                                     period_scope,
+                                     rep_buid,
+                                     tier_blocks_span);
       hcols[rep_buid] = hcol;
 
       const auto wm_cost =
           CostHelper::block_ecost(scenario, stage, rep_block, warm_cost);
-      auto wmcol = lp.add_col({
-          .lowb = 0.0,
-          .uppb = 1.0,
-          .cost = wm_cost,
-          .is_integer = !is_relax,
-          .class_name = cname,
-          .variable_name = WarmStartName,
-          .variable_uid = cuid,
-          .context = bctx,
-      });
+      auto wmcol = sc.add_integer_col(lp,
+                                      IntegerVariable::key(scenario,
+                                                           stage,
+                                                           Element::class_name,
+                                                           cuid,
+                                                           WarmStartName,
+                                                           period_scope,
+                                                           rep_buid),
+                                      SparseCol {
+                                          .lowb = 0.0,
+                                          .uppb = 1.0,
+                                          .cost = wm_cost,
+                                          .class_name = cname,
+                                          .variable_name = WarmStartName,
+                                          .variable_uid = cuid,
+                                          .context = bctx,
+                                      },
+                                      period_domain,
+                                      period_scope,
+                                      rep_buid,
+                                      tier_blocks_span);
       wmcols[rep_buid] = wmcol;
 
       const auto c_cost =
           CostHelper::block_ecost(scenario, stage, rep_block, cold_cost);
-      auto ccol = lp.add_col({
-          .lowb = 0.0,
-          .uppb = 1.0,
-          .cost = c_cost,
-          .is_integer = !is_relax,
-          .class_name = cname,
-          .variable_name = ColdStartName,
-          .variable_uid = cuid,
-          .context = bctx,
-      });
+      auto ccol = sc.add_integer_col(lp,
+                                     IntegerVariable::key(scenario,
+                                                          stage,
+                                                          Element::class_name,
+                                                          cuid,
+                                                          ColdStartName,
+                                                          period_scope,
+                                                          rep_buid),
+                                     SparseCol {
+                                         .lowb = 0.0,
+                                         .uppb = 1.0,
+                                         .cost = c_cost,
+                                         .class_name = cname,
+                                         .variable_name = ColdStartName,
+                                         .variable_uid = cuid,
+                                         .context = bctx,
+                                     },
+                                     period_domain,
+                                     period_scope,
+                                     rep_buid,
+                                     tier_blocks_span);
       ccols[rep_buid] = ccol;
 
       // C8: v[p] - y_hot[p] - y_warm[p] - y_cold[p] = 0

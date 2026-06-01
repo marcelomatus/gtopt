@@ -221,16 +221,29 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       // discharge envelope is non-degenerate (pmax > 0).
       if (block_pmax > 0.0) {
         lp.col_at(gcol).lowb = 0.0;
-        const auto u_disc = lp.add_col({
-            .lowb = 0.0,
-            .uppb = 1.0,
-            .cost = 0.0,
-            .is_integer = true,
-            .class_name = Element::class_name.full_name(),
-            .variable_name = UDischargeName,
-            .variable_uid = uid(),
-            .context = block_ctx,
-        });
+        const std::array<BlockUid, 1> u_disc_blocks {buid};
+        const auto u_disc = sc.add_integer_col(
+            lp,
+            IntegerVariable::key(scenario,
+                                 stage,
+                                 Element::class_name,
+                                 uid(),
+                                 UDischargeName,
+                                 IntegerScope::Block,
+                                 buid),
+            SparseCol {
+                .lowb = 0.0,
+                .uppb = 1.0,
+                .cost = 0.0,
+                .class_name = Element::class_name.full_name(),
+                .variable_name = UDischargeName,
+                .variable_uid = uid(),
+                .context = block_ctx,
+            },
+            IntegerDomain::Binary,
+            IntegerScope::Block,
+            buid,
+            std::span<const BlockUid> {u_disc_blocks});
         {
           auto row =
               SparseRow {
@@ -263,16 +276,29 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       // synthetic ``Demand.lmin`` / ``Demand.lmax``.
       if (block_lmax > 0.0) {
         lp.col_at(dcol).lowb = 0.0;
-        const auto u_chg = lp.add_col({
-            .lowb = 0.0,
-            .uppb = 1.0,
-            .cost = 0.0,
-            .is_integer = true,
-            .class_name = Element::class_name.full_name(),
-            .variable_name = UChargeName,
-            .variable_uid = uid(),
-            .context = block_ctx,
-        });
+        const std::array<BlockUid, 1> u_chg_blocks {buid};
+        const auto u_chg = sc.add_integer_col(
+            lp,
+            IntegerVariable::key(scenario,
+                                 stage,
+                                 Element::class_name,
+                                 uid(),
+                                 UChargeName,
+                                 IntegerScope::Block,
+                                 buid),
+            SparseCol {
+                .lowb = 0.0,
+                .uppb = 1.0,
+                .cost = 0.0,
+                .class_name = Element::class_name.full_name(),
+                .variable_name = UChargeName,
+                .variable_uid = uid(),
+                .context = block_ctx,
+            },
+            IntegerDomain::Binary,
+            IntegerScope::Block,
+            buid,
+            std::span<const BlockUid> {u_chg_blocks});
         {
           auto row =
               SparseRow {
