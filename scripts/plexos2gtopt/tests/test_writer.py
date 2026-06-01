@@ -496,6 +496,33 @@ def test_fuel_emission_factors_absent_when_zero() -> None:
     assert "emission_factors" not in out[0]
 
 
+def test_build_fuel_array_emits_canonical_type_tag() -> None:
+    """``build_fuel_array`` surfaces ``FuelSpec.type_tag`` as the gtopt
+    ``Fuel.type`` field — the same canonical family tag the parser
+    derives via ``fuel_family_of_fuel`` and the generator-side suffix
+    matcher uses for orphan recovery.  The field is emitted
+    unconditionally so downstream consumers always see a non-null
+    classification.
+    """
+    fuels = (
+        FuelSpec(object_id=1, name="Diesel_Collahuasi", type_tag="diesel"),
+        FuelSpec(object_id=2, name="Gas_Kelar_A", type_tag="gas"),
+        FuelSpec(object_id=3, name="FuelOil_Norgener", type_tag="fuel_oil"),
+        FuelSpec(object_id=4, name="Biomasa_CMPCLaja_B1", type_tag="biomasa"),
+        # Hand-rolled fuel name that doesn't match any CEN prefix —
+        # parser-side default ``"other"`` round-trips into the JSON.
+        FuelSpec(object_id=5, name="virtual_fuel", type_tag="other"),
+    )
+    out = build_fuel_array(fuels)
+    assert [e["type"] for e in out] == [
+        "diesel",
+        "gas",
+        "fuel_oil",
+        "biomasa",
+        "other",
+    ]
+
+
 def test_fuel_emission_factors_upstream_only() -> None:
     """Pure upstream (e.g. hydrogen WTT) emits no ``combustion`` key."""
     fuels = (
@@ -727,6 +754,53 @@ def test_thermal_generator_emits_fuel_fk_for_offtake_cap_binding() -> None:
     # and bound by `max_offtake`.
     fuel_out = build_fuel_array(fuels)
     assert fuel_out[0]["max_offtake"] == 5000.0
+
+
+def test_generator_with_fuel_but_zero_heat_rate_still_emits_fk() -> None:
+    """Emission-audit gap #1: when a Generator carries a Fuel
+    membership but ``heat_rate == 0`` (no rated heat rate in PLEXOS
+    XML), the writer must STILL emit the Fuel FK so:
+
+    * gtopt's ``Fuel.max_offtake`` cap row includes this generator
+      (with a zero coefficient — no effect today, but binding once a
+      per-stage heat_rate schedule is later supplied);
+    * gtopt's ``System::expand_fuel_emission_sources`` can attach a
+      per-MWh CO2 source row as soon as a heat_rate becomes non-zero.
+
+    Pre-fix the writer dropped the FK on this path because the
+    ``elif`` condition required ``heat_rate > 0``.
+    """
+    fuels = (
+        FuelSpec(
+            object_id=1,
+            name="Diesel_North",
+            price=80.0,
+        ),
+    )
+    gens = (
+        GeneratorSpec(
+            object_id=11,
+            name="DieselPlant_NoHR",
+            bus_name="b1",
+            pmax=50.0,
+            heat_rate=0.0,  # not rated in this hypothetical PLEXOS XML
+            vom_charge=2.0,
+            fuel_transport=0.5,
+            fuel_names=("Diesel_North",),
+        ),
+    )
+    gen_out = build_generator_array(gens, fuels)
+    entry = gen_out[0]
+    # Fuel FK preserved
+    assert entry["fuel"] == "Diesel_North"
+    # heat_rate is NOT emitted when it would be 0 (mutex with segments
+    # would otherwise be a concern; emitting a zero scalar is also
+    # noise in the JSON).
+    assert "heat_rate" not in entry
+    # gcost is the non-fuel part only — when heat_rate is unset,
+    # gtopt's ``primary_slope_cost_at`` (generator_lp.cpp:151-154)
+    # collapses to just gcost, so no double-counting risk.
+    assert entry["gcost"] == 2.0 + 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -1367,11 +1441,70 @@ def test_generator_emits_type_and_description() -> None:
     )
     out = build_generator_array(gens, fuels=fuels)
     by = {e["name"]: e for e in out}
+    # Inline GeneratorSpec construction (no type_tag set) — writer's
+    # safety-net falls back to the legacy binary classification
+    # (fuel signal → "thermal", else "renewable").
     assert by["THERM"]["type"] == "thermal"
     assert by["SOLAR"]["type"] == "renewable"
     for e in out:
         assert "[MW]" in e["description"]
         assert "(File:" in e["description"]
+
+
+def test_generator_emits_hierarchical_type_when_tag_explicit() -> None:
+    """When ``GeneratorSpec.type_tag`` carries a canonical primary-energy
+    tag, the writer composes the hierarchical ``Generator.type`` string
+    (``"thermal:<family>"`` / ``"renewable:<tech>"``).  The sub-tag
+    matches ``FuelSpec.type_tag`` exactly — same taxonomy on both sides.
+    """
+    fuels = (FuelSpec(object_id=1, name="Diesel_X", price=1000.0),)
+    gens = (
+        GeneratorSpec(
+            object_id=1,
+            name="diesel_peaker",
+            bus_name="b",
+            pmax=10.0,
+            heat_rate=0.3,
+            fuel_names=("Diesel_X",),
+            type_tag="diesel",
+        ),
+        GeneratorSpec(
+            object_id=2,
+            name="ccgt",
+            bus_name="b",
+            pmax=400.0,
+            heat_rate=0.2,
+            fuel_names=("Gas_X",),
+            type_tag="gas",
+        ),
+        GeneratorSpec(object_id=3, name="solar", bus_name="b", type_tag="solar"),
+        GeneratorSpec(object_id=4, name="wind", bus_name="b", type_tag="wind"),
+        GeneratorSpec(object_id=5, name="hydro", bus_name="b", type_tag="hydro"),
+        # Unclassified renewable falls through to bare ``"renewable"``.
+        GeneratorSpec(object_id=6, name="other_ren", bus_name="b"),
+        # Unclassified thermal (no canonical family) falls through to
+        # bare ``"thermal"`` via the writer's has-fuel safety net.
+        GeneratorSpec(
+            object_id=7,
+            name="mystery_thermal",
+            bus_name="b",
+            heat_rate=0.4,
+            type_tag="thermal",
+        ),
+    )
+    out = build_generator_array(gens, fuels=fuels)
+    by = {e["name"]: e["type"] for e in out}
+    assert by["diesel_peaker"] == "thermal:diesel"
+    assert by["ccgt"] == "thermal:gas"
+    assert by["solar"] == "renewable:solar"
+    assert by["wind"] == "renewable:wind"
+    assert by["hydro"] == "renewable:hydro"
+    assert by["other_ren"] == "renewable"
+    assert by["mystery_thermal"] == "thermal"
+    # Backward-compat invariant: every value starts with one of the
+    # two top-level families.
+    for t in by.values():
+        assert t.startswith(("thermal", "renewable")), t
 
 
 def test_build_provenance_documents_element_classes() -> None:

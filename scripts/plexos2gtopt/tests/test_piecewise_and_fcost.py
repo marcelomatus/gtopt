@@ -106,6 +106,57 @@ def test_scalar_path_unchanged_when_no_segments() -> None:
     assert "heat_rate_segments" not in out[0]
 
 
+def test_legacy_baked_path_preserves_heat_rate_metadata() -> None:
+    """Thermals with a real heat_rate but no Fuel FK (PLEXOS CCGT
+    mode-variants like ``ATA-TG1A_GNL_X`` or CSV-only entries like
+    ``UJINA_U5_DIE``) bake ``HR × price`` into ``gcost`` and *also*
+    publish the raw ``heat_rate`` as informational metadata so the
+    PLEXOS HR signal survives the conversion.  The LP behaviour is
+    unchanged: gtopt's ``GeneratorLP`` ignores ``heat_rate`` when no
+    ``fuel`` is bound (``source/generator_lp.cpp:151-154``).
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=1,
+            name="ATA-TG1A_GNL_X",
+            bus_name="b1",
+            pmax=100.0,
+            heat_rate=0.21,
+            vom_charge=2.0,
+            fuel_transport=0.5,
+            fuel_price_override=300.0,
+            fuel_names=(),
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    entry = out[0]
+    assert entry["heat_rate"] == 0.21
+    assert "fuel" not in entry
+    # gcost = HR × price + vom + transport = 0.21·300 + 2 + 0.5 = 65.5
+    assert entry["gcost"] == 65.5
+
+
+def test_legacy_baked_path_skips_heat_rate_for_renewables() -> None:
+    """Renewables (heat_rate=0, no fuel) must not emit a redundant
+    ``heat_rate=0`` field — only thermals with a real HR signal get
+    the metadata.
+    """
+    gens = (
+        GeneratorSpec(
+            object_id=1,
+            name="solar_fv",
+            bus_name="b1",
+            pmax=50.0,
+            heat_rate=0.0,
+            vom_charge=0.0,
+            fuel_names=(),
+        ),
+    )
+    out = build_generator_array(gens, fuels=())
+    assert "heat_rate" not in out[0]
+    assert out[0]["gcost"] == 0.0
+
+
 def test_build_planning_synthesises_virtual_fuel() -> None:
     """When any gen needs piecewise without a real fuel, planning ships the virtual one."""
     case = PlexosCase(

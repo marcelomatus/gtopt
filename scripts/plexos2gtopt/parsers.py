@@ -1163,6 +1163,14 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
             db, fuel.object_id, fuel.name, horizon_hours
         )
 
+        # Classify the fuel into the canonical family taxonomy shared
+        # with ``fuel_family_of_generator`` — keeps the orphan-recovery
+        # sibling matcher and the published ``Fuel.type`` aligned by
+        # construction.  ``"other"`` falls back when the bundle ships a
+        # fuel whose name doesn't match any CEN prefix family (none
+        # observed in the 2025-10 → 2026-05 PCP cache, but the default
+        # keeps the field non-null for hand-rolled / 118-Bus fuels).
+        type_tag = fuel_family_of_fuel(fuel.name) or FUEL_FAMILY_OTHER
         out.append(
             FuelSpec(
                 object_id=fuel.object_id,
@@ -1173,9 +1181,459 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 max_offtake=cap_week,
                 min_offtake=min_off,
                 min_offtake_cost=min_off_cost,
+                type_tag=type_tag,
             )
         )
     return tuple(out)
+
+
+# ----------------------------------------------------------------------
+# Canonical fuel-family tags
+# ----------------------------------------------------------------------
+#
+# A single source of truth for "what kind of fuel is this?", usable
+# uniformly across:
+#
+# * The **generator** side — PLEXOS encodes the fuel family in the
+#   trailing segment of the Generator name (``UJINA_U5_DIE`` → diesel,
+#   ``ATA-TG1A_GNL_X`` → gas).  ``fuel_family_of_generator`` returns
+#   the canonical tag.
+# * The **fuel** side — PLEXOS encodes the fuel family in the prefix
+#   of the Fuel object name (``Diesel_Collahuasi`` → diesel,
+#   ``Gas_Kelar_A`` → gas).  ``fuel_family_of_fuel`` returns the same
+#   canonical tag for the matching family.
+# * The **JSON output** — ``FuelSpec.type_tag`` is populated in
+#   :func:`extract_fuels` and surfaces as ``Fuel.type`` in
+#   ``build_fuel_array`` (gtopt-side field documented at
+#   ``include/gtopt/fuel.hpp:126`` as "Optional element type/category
+#   tag").  Mirrors the ``Generator.type = "thermal" | "renewable"``
+#   convention already established for Generators.
+#
+# Tag values are stable lowercase strings matching the standard
+# commodity vocabulary: ``"diesel"``, ``"fuel_oil"``, ``"gas"``,
+# ``"glp"``, ``"biomasa"``, ``"biogas"``, ``"carbon"``, ``"otros"``.
+# ``"other"`` is the conventional fallback for unrecognised names —
+# kept distinct from ``"otros"`` (CEN's "Otros_*" residual category)
+# so downstream consumers can tell "we tried and failed to classify"
+# apart from "PLEXOS itself labelled this as residual".
+
+FUEL_FAMILY_DIESEL = "diesel"
+FUEL_FAMILY_FUEL_OIL = "fuel_oil"
+FUEL_FAMILY_GAS = "gas"
+FUEL_FAMILY_GLP = "glp"
+FUEL_FAMILY_BIOMASA = "biomasa"
+FUEL_FAMILY_BIOGAS = "biogas"
+FUEL_FAMILY_CARBON = "carbon"
+FUEL_FAMILY_OTROS = "otros"
+FUEL_FAMILY_OTHER = "other"
+
+#: Renewable / non-fuel primary-energy tags.  Shared with the
+#: thermal-side ``FUEL_FAMILY_*`` namespace so the Generator-level
+#: classification ``GeneratorSpec.type_tag`` carries a single canonical
+#: token regardless of whether the unit burns fuel or harvests a
+#: renewable resource.  ``Fuel.type`` only ever uses the thermal-side
+#: subset (no Fuel object is renewable).
+FUEL_FAMILY_SOLAR = "solar"
+FUEL_FAMILY_WIND = "wind"
+FUEL_FAMILY_HYDRO = "hydro"
+FUEL_FAMILY_GEOTHERMAL = "geothermal"
+#: Generic fallbacks — preserved from the legacy binary
+#: ``"thermal"`` / ``"renewable"`` Generator-side classification so
+#: downstream tools that rely on ``type.startswith("thermal")`` /
+#: ``startswith("renewable")`` keep working when the hierarchical
+#: ``<top>:<sub>`` string falls back to top-only.
+FUEL_FAMILY_THERMAL = "thermal"
+FUEL_FAMILY_RENEWABLE = "renewable"
+
+#: Canonical tags that classify as thermal (fuel-burning) — used by
+#: the writer to compose the hierarchical ``Generator.type`` string
+#: (``thermal:<family>`` vs. ``renewable:<family>``).
+THERMAL_FAMILIES: frozenset[str] = frozenset(
+    {
+        FUEL_FAMILY_DIESEL,
+        FUEL_FAMILY_FUEL_OIL,
+        FUEL_FAMILY_GAS,
+        FUEL_FAMILY_GLP,
+        FUEL_FAMILY_BIOMASA,
+        FUEL_FAMILY_BIOGAS,
+        FUEL_FAMILY_CARBON,
+        FUEL_FAMILY_OTROS,
+    }
+)
+
+#: Canonical tags that classify as renewable / non-burning.
+RENEWABLE_FAMILIES: frozenset[str] = frozenset(
+    {
+        FUEL_FAMILY_SOLAR,
+        FUEL_FAMILY_WIND,
+        FUEL_FAMILY_HYDRO,
+        FUEL_FAMILY_GEOTHERMAL,
+    }
+)
+
+#: Generator-name suffix → canonical fuel family.  Empirically derived
+#: from the 716-Fuel-FK tally on CEN-PCP 2026-03-15: every suffix below
+#: binds 1:1 to exactly one fuel family.  ``_GN``/``_INF`` are CEN-PCP
+#: gas variants (pipeline, "inflexible LNG"); ``_IFO``/``_FO6`` are
+#: Intermediate Fuel Oil and Bunker C respectively, both bound to the
+#: ``FuelOil_*`` family.
+_GEN_SUFFIX_TO_FUEL_FAMILY: dict[str, str] = {
+    "DIE": FUEL_FAMILY_DIESEL,
+    "HFO": FUEL_FAMILY_FUEL_OIL,
+    "IFO": FUEL_FAMILY_FUEL_OIL,
+    "FO6": FUEL_FAMILY_FUEL_OIL,
+    "GN": FUEL_FAMILY_GAS,
+    "GNL": FUEL_FAMILY_GAS,
+    "INF": FUEL_FAMILY_GAS,
+    "GLP": FUEL_FAMILY_GLP,
+}
+
+#: Fuel-object name prefix → canonical fuel family.  Verified on the
+#: 240-fuel ``Fuel_Price.csv`` 2026-03-15 (8 distinct family prefixes,
+#: each 1:1 with one of the canonical tags above).
+_FUEL_NAME_PREFIX_TO_FAMILY: dict[str, str] = {
+    "Diesel_": FUEL_FAMILY_DIESEL,
+    "FuelOil_": FUEL_FAMILY_FUEL_OIL,
+    "Gas_": FUEL_FAMILY_GAS,
+    "GLP_": FUEL_FAMILY_GLP,
+    "Biomasa_": FUEL_FAMILY_BIOMASA,
+    "Biogas_": FUEL_FAMILY_BIOGAS,
+    "Carbon_": FUEL_FAMILY_CARBON,
+    "Otros_": FUEL_FAMILY_OTROS,
+}
+
+#: CEN renewable-generator name suffix → canonical tag.  Verified on
+#: the CEN-PCP 2026-03-15 bundle: every ``*_FV`` generator (740 / 740)
+#: lives in PLEXOS category ``"Solar Farms"`` and every ``*_EO`` (66 /
+#: 66) lives in ``"Wind Farms"`` — perfect agreement, suffix and
+#: category are interchangeable signals.
+_GEN_SUFFIX_TO_RENEWABLE_TECH: dict[str, str] = {
+    "FV": FUEL_FAMILY_SOLAR,
+    "EO": FUEL_FAMILY_WIND,
+}
+
+#: PLEXOS category name **substring** → canonical primary-energy tag.
+#: Matched case-insensitively on the FIRST occurrence below (order
+#: matters — ``"thermal"`` is intentionally last so a hypothetical
+#: ``"Thermal Solar"`` category still resolves to ``solar``).  The
+#: substring approach handles CEN-PCP's group variants
+#: (``"Hydro Gen Group A/B/C"``, ``"Thermal Gen N./S. Zone"``,
+#: ``"Termicas Ficticias"``) without an exhaustive enumeration.
+_PLEXOS_CATEGORY_SUBSTR_TO_FAMILY: tuple[tuple[str, str], ...] = (
+    ("solar", FUEL_FAMILY_SOLAR),
+    ("wind", FUEL_FAMILY_WIND),
+    # PLEXOS / Spanish synonyms — ``eolica`` covers CEN's
+    # accent-stripped category name should one appear.
+    ("eolic", FUEL_FAMILY_WIND),
+    # PLEXOS uses ``Hydro Gen Group A/B/C``; Spanish: ``hidr*``.
+    ("hydro", FUEL_FAMILY_HYDRO),
+    ("hidr", FUEL_FAMILY_HYDRO),
+    ("geother", FUEL_FAMILY_GEOTHERMAL),
+    # Thermals fall through to ``thermal`` only when no fuel signal
+    # is available — kept here so renewable-vs-thermal detection
+    # works even when the generator carries no Fuel FK (e.g. CEN's
+    # ``"Termicas Ficticias"`` fictitious thermal reserve units).
+    ("thermal", FUEL_FAMILY_THERMAL),
+    ("termic", FUEL_FAMILY_THERMAL),
+)
+
+
+def fuel_family_of_generator(name: str) -> str | None:
+    """Return the canonical fuel-family tag implied by a PLEXOS Generator name.
+
+    The CEN-PCP naming convention is ``<plant>[_<mode>]_<FUEL>[_<sub>]``:
+
+    * ``UJINA_U5_DIE`` → ``"diesel"`` (last segment is the tag)
+    * ``ATA-TG1A_GNL_X`` → ``"gas"`` (second-to-last segment; trailing
+      ``_X`` is the dispatch-mode marker, not a fuel tag)
+    * ``COLMITO_GNL_B`` → ``"gas"``
+    * ``KELAR-TG1+0.5TV_GNL_X`` → ``"gas"``
+
+    Returns ``None`` when no recognised suffix is present
+    (``EL_TOTORAL_U2`` — ``_U2`` is a unit index, not a fuel tag).
+    """
+    parts = name.rsplit("_", 1)
+    if len(parts) == 2 and parts[1] in _GEN_SUFFIX_TO_FUEL_FAMILY:
+        return _GEN_SUFFIX_TO_FUEL_FAMILY[parts[1]]
+    parts2 = name.rsplit("_", 2)
+    if len(parts2) == 3 and parts2[1] in _GEN_SUFFIX_TO_FUEL_FAMILY:
+        return _GEN_SUFFIX_TO_FUEL_FAMILY[parts2[1]]
+    return None
+
+
+def fuel_family_of_fuel(name: str) -> str | None:
+    """Return the canonical fuel-family tag implied by a PLEXOS Fuel name.
+
+    * ``Diesel_Collahuasi`` → ``"diesel"``
+    * ``Gas_Kelar_A`` → ``"gas"``
+    * ``FuelOil_Norgener`` → ``"fuel_oil"``
+    * ``Biomasa_CMPCLaja_B1`` → ``"biomasa"``
+    * ``Otros_Noracid`` → ``"otros"``
+
+    Returns ``None`` when the name doesn't begin with one of the eight
+    canonical prefixes (any non-CEN bundle or a hand-rolled fuel name).
+    Callers that want a guaranteed-non-None default should use
+    ``fuel_family_of_fuel(name) or FUEL_FAMILY_OTHER``.
+    """
+    for prefix, family in _FUEL_NAME_PREFIX_TO_FAMILY.items():
+        if name.startswith(prefix):
+            return family
+    return None
+
+
+def _sibling_fuel_family_matches(sib: GeneratorSpec, family: str) -> bool:
+    """``True`` iff any of ``sib``'s Fuels classifies to ``family``."""
+    return any(fuel_family_of_fuel(fn) == family for fn in sib.fuel_names)
+
+
+def renewable_tech_of_generator(name: str) -> str | None:
+    """Return the canonical renewable-tech tag implied by a Generator name.
+
+    CEN-PCP encodes the renewable technology in the trailing name
+    segment: ``*_FV`` → solar PV, ``*_EO`` → wind.  Returns ``None``
+    when the suffix doesn't match; callers may then fall back to
+    :func:`primary_energy_of_generator`'s category branch.
+    """
+    last = name.rsplit("_", 1)[-1] if "_" in name else ""
+    return _GEN_SUFFIX_TO_RENEWABLE_TECH.get(last)
+
+
+def family_from_plexos_category(category_name: str) -> str | None:
+    """Map a PLEXOS Generator category name to a canonical family tag.
+
+    Case-insensitive substring match — handles CEN-PCP's group
+    variants (``"Hydro Gen Group A/B/C"`` → ``"hydro"``,
+    ``"Thermal Gen N./S. Zone"`` → ``"thermal"``,
+    ``"Termicas Ficticias"`` → ``"thermal"``) without enumerating every
+    suffix.  Returns ``None`` when no substring matches.
+    """
+    if not category_name:
+        return None
+    lowered = category_name.lower()
+    for substr, family in _PLEXOS_CATEGORY_SUBSTR_TO_FAMILY:
+        if substr in lowered:
+            return family
+    return None
+
+
+def primary_energy_of_generator(
+    name: str,
+    category_name: str | None,
+    fuel_names: tuple[str, ...] = (),
+    *,
+    has_heat_rate: bool = False,
+) -> str:
+    """Classify a Generator into the canonical primary-energy taxonomy.
+
+    Returns one of the ``FUEL_FAMILY_*`` tags — a thermal family
+    (``diesel``/``fuel_oil``/``gas``/``glp``/``biomasa``/``biogas``/
+    ``carbon``/``otros``) for fuel-burning units, a renewable tag
+    (``solar``/``wind``/``hydro``/``geothermal``) for renewables, or
+    the generic ``thermal`` / ``renewable`` fallbacks when no specific
+    family can be inferred.  Guaranteed non-empty so the writer can
+    always emit a non-null ``Generator.type`` field.
+
+    Detection priority (the first signal to fire wins).  Specific
+    classifications (a fuel family, a renewable technology) win over
+    generic ones (the bare ``"thermal"`` category bucket); within the
+    specific tier, name-encoded signals win over category lookups,
+    which win over Fuel-attachment lookups:
+
+    1. **Name-suffix family** (``fuel_family_of_generator``) — the
+       PLEXOS thermal-suffix taxonomy (``_DIE``/``_HFO``/``_GNL``/…).
+    2. **Renewable-tech suffix** (``renewable_tech_of_generator``) —
+       CEN's ``_FV``/``_EO``.
+    3. **Renewable PLEXOS category** — only when the category
+       resolves to a *specific* renewable tag
+       (``solar``/``wind``/``hydro``/``geothermal``).  This catches
+       hydro generators which carry no name-suffix signal.  A generic
+       ``"Thermal Gen N. Zone"`` category does NOT fire here — we let
+       the fuel-attachment lookup find the carbon/biomasa/diesel/…
+       sub-family first.
+    4. **Fuel attachment** — if the first ``fuel_names`` entry maps
+       via ``fuel_family_of_fuel``, use it; the orphan-recovery
+       phantoms ride this branch via the inherited sibling fuel.
+    5. **Generic PLEXOS category** — the remaining category match
+       (``thermal``) when steps 1-4 didn't fire.  Catches CEN's
+       fictitious thermal reserve units which carry a category but
+       no Fuel FK.
+    6. **Generic fallback** — ``thermal`` when the unit has any fuel
+       signal (``fuel_names`` non-empty OR ``has_heat_rate``); else
+       ``renewable``.
+    """
+    family = fuel_family_of_generator(name)
+    if family is not None:
+        return family
+    tech = renewable_tech_of_generator(name)
+    if tech is not None:
+        return tech
+    category_family = (
+        family_from_plexos_category(category_name) if category_name else None
+    )
+    # Specific renewable category wins over fuel-attachment lookup
+    # (hydro generators have no name suffix and may carry no fuel).
+    if category_family in RENEWABLE_FAMILIES:
+        return category_family
+    if fuel_names:
+        fuel_fam = fuel_family_of_fuel(fuel_names[0])
+        if fuel_fam is not None:
+            return fuel_fam
+    # Generic category-thermal — only fires when steps 1-4 found
+    # nothing more specific (e.g. fictitious thermal reserve units
+    # whose name + fuel give no signal but PLEXOS labelled the
+    # category as "Termicas Ficticias").
+    if category_family is not None:
+        return category_family
+    if fuel_names or has_heat_rate:
+        return FUEL_FAMILY_THERMAL
+    return FUEL_FAMILY_RENEWABLE
+
+
+def _recover_csv_only_thermals(
+    xml_specs: list[GeneratorSpec],
+    heat_rate_csv: dict[str, list[float]],
+    vom_csv: dict[str, list[float]],
+) -> list[GeneratorSpec]:
+    """Build :class:`GeneratorSpec` for thermals in CSV but absent from XML.
+
+    CEN PCP bundles ship a small set of generators in ``Gen_HeatRate.csv``
+    (and ``Gen_VOMCharge`` + ``Gen_StartCost`` + ``Gen_ShutDownCost``) that
+    have NO Generator ``t_object`` in ``DBSEN_PRGDIARIO.xml``. These are:
+
+    * CCGT alternative dispatch modes — ``ATA-TG1A_GNL_X``,
+      ``KELAR-TG1+TG2+TV_GNL_X``, ``MEJILLONES_3-TG+TV_GNL_X``,
+      ``SAN_ISIDRO-TG+TV_GNL_X``, … (~42 names, all ``_GNL_X`` suffix).
+    * Legacy CSV-only units — ``UJINA_U{5,6}_DIE``,
+      ``EL_TOTORAL_U{2,3}``, ``COLMITO_GNL_B``.
+    * Steam-turbine variants with no XML twin — ``LAGUNA_VERDE_T{G,V}``.
+
+    PLEXOS ships ``Gen_Rating = (missing)`` for all of them so they have
+    pmax = 0 and never dispatch, but the CSVs still carry the real heat
+    rate, VO&M, and (for 44 of 46) startup / shutdown costs.  Recovering
+    them as zero-capacity GeneratorSpec entries preserves the cost
+    metadata for downstream auditing and keeps the generator catalogue
+    in 1:1 sync with PLEXOS-side accounting.
+
+    Each phantom inherits its bus and fuel-membership from the
+    longest-common-prefix XML sibling, **biased to siblings whose fuel
+    family matches the orphan's PLEXOS suffix tag** (see
+    :data:`_FUEL_TAG_PREFIX`).  Examples:
+
+    * ``ATA-TG1A_GNL_X`` (tag ``GNL`` → ``Gas_*``) → ``ATA-TG1A_GNL_A``,
+      fuel ``Gas_EnelMejillones_A``.  Both the longest-prefix winner
+      and the tagged winner are the same.
+    * ``UJINA_U5_DIE`` (tag ``DIE`` → ``Diesel_*``) → the 9-char-prefix
+      sibling ``UJINA_U5_HFO`` is **rejected** because it carries
+      ``FuelOil_Collahuasi``; the next-best ``UJINA_U1_DIE`` (7-char
+      prefix, fuel ``Diesel_Collahuasi``) wins.  Without the tag bias
+      the orphan would silently under-price by ~15 % at audit-time.
+    * ``EL_TOTORAL_U2`` (no recognised fuel tag; ``_U2`` is a unit
+      index) → falls back to plain longest-prefix → ``EL_TOTORAL``,
+      fuel ``Diesel_ElTotoral``.
+
+    Phantoms with no sibling sharing a 6-character prefix are skipped —
+    observed in CEN PCP 2026-03-15: ``LAGUNA_VERDE_T{G,V}`` (no other
+    ``LAGUNA_VERDE_*`` generators in the XML).
+    """
+    xml_names = {s.name for s in xml_specs}
+    siblings = [s for s in xml_specs if s.bus_name and s.fuel_names]
+
+    def _longest_prefix(
+        name: str, candidates: list[GeneratorSpec]
+    ) -> GeneratorSpec | None:
+        best, best_score = None, 0
+        for sib in candidates:
+            n = 0
+            for a, b in zip(name, sib.name):
+                if a != b:
+                    break
+                n += 1
+            if n > best_score and n >= 6:
+                best, best_score = sib, n
+        return best
+
+    def _best_sibling(name: str) -> GeneratorSpec | None:
+        # First-pass: when the orphan name classifies to a canonical
+        # fuel family (``UJINA_U5_DIE`` → ``"diesel"``,
+        # ``ATA-TG1A_GNL_X`` → ``"gas"``), restrict the sibling pool to
+        # XML neighbours whose Fuels classify to the same family.  This
+        # is the only way to distinguish ``UJINA_U5_DIE`` (Diesel) from
+        # its 9-char-prefix XML twin ``UJINA_U5_HFO`` (FuelOil) — the
+        # raw longest-prefix winner would inherit the wrong fuel and
+        # under-price the orphan by ~15 % at audit-time.  The same
+        # ``fuel_family_of_*`` helpers feed ``FuelSpec.type_tag`` via
+        # :func:`extract_fuels`, so the orphan-recovery rule and the
+        # fuel-definition tag stay aligned by construction.
+        family = fuel_family_of_generator(name)
+        if family is not None:
+            in_family = [s for s in siblings if _sibling_fuel_family_matches(s, family)]
+            best = _longest_prefix(name, in_family)
+            if best is not None:
+                return best
+        # Fallback: no fuel-family tag detected (e.g. ``EL_TOTORAL_U2``),
+        # or the orphan's family is absent from every prefix-sibling.
+        # Take the raw longest-prefix sibling — same behaviour as before
+        # the family-aware step landed.
+        return _longest_prefix(name, siblings)
+
+    next_oid = max((s.object_id for s in xml_specs), default=0) + 10_000_001
+    recovered: list[GeneratorSpec] = []
+    for name, hr_vals in heat_rate_csv.items():
+        if name in xml_names:
+            continue
+        if not hr_vals or hr_vals[0] <= 0.0:
+            continue
+        sib = _best_sibling(name)
+        if sib is None:
+            logger.info(
+                "extract_generators: CSV-only thermal %r has no XML sibling "
+                "sharing a ≥6-char prefix — skipping (no bus available)",
+                name,
+            )
+            continue
+        # Classify the phantom on the primary-energy axis using the
+        # inherited fuel — phantoms carry HR > 0 so they're always
+        # thermals; the sibling's fuel resolves the family
+        # (``UJINA_U5_DIE`` → ``"diesel"``, ``ATA-TG1A_GNL_X`` →
+        # ``"gas"``).  Falls back to bare ``"thermal"`` if the fuel
+        # name doesn't match any canonical prefix.
+        phantom_type_tag = primary_energy_of_generator(
+            name=name,
+            category_name=None,
+            fuel_names=sib.fuel_names,
+            has_heat_rate=True,
+        )
+        recovered.append(
+            GeneratorSpec(
+                object_id=next_oid,
+                name=name,
+                bus_name=sib.bus_name,
+                type_tag=phantom_type_tag,
+                pmin=0.0,
+                pmax=0.0,
+                heat_rate=hr_vals[0],
+                vom_charge=(vom_csv.get(name) or [0.0])[0],
+                fuel_transport=0.0,
+                fuel_names=sib.fuel_names,
+                pmax_profile=(),
+                fuel_price_override=0.0,
+                pmax_segments=(),
+                heat_rate_segments=(),
+                fixed_load_profile=(),
+                initial_generation=0.0,
+                initial_units=0.0,
+                aux_use=0.0,
+            )
+        )
+        next_oid += 1
+    if recovered:
+        logger.info(
+            "extract_generators: recovered %d CSV-only thermals as "
+            "zero-capacity audit entries (HR + VO&M preserved, fuel "
+            "inherited from longest-prefix sibling)",
+            len(recovered),
+        )
+    return recovered
 
 
 def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpec, ...]:
@@ -1681,18 +2139,37 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         ini_units_raw = ini_units_long.get(gen.name, ())
         initial_units = float(ini_units_raw[0]) if ini_units_raw else None
 
+        # Primary-energy classification — derived from the PLEXOS name
+        # suffix (``_DIE``/``_GNL``/``_FV``/``_EO``) + category
+        # (``Solar Farms``/``Hydro Gen Group *``) + Fuel attachment.
+        # Surfaces on ``GeneratorSpec.type_tag`` and ultimately on the
+        # gtopt ``Generator.type`` JSON field via the writer's
+        # hierarchical ``<top>:<sub>`` composer.
+        gen_category = (
+            db.categories_by_id.get(gen.category_id)
+            if gen.category_id is not None
+            else None
+        )
+        gen_fuel_names = fuel_map.get(gen.object_id, ())
+        type_tag = primary_energy_of_generator(
+            name=gen.name,
+            category_name=gen_category,
+            fuel_names=gen_fuel_names,
+            has_heat_rate=heat_rate > 0.0,
+        )
         out.append(
             GeneratorSpec(
                 object_id=gen.object_id,
                 name=gen.name,
                 bus_name=bus_name,
+                type_tag=type_tag,
                 pmin=pmin,
                 pmax=pmax,
                 aux_use=aux_use_map.get(gen.name, 0.0),
                 heat_rate=heat_rate,
                 vom_charge=vom,
                 fuel_transport=fuel_transport,
-                fuel_names=fuel_map.get(gen.object_id, ()),
+                fuel_names=gen_fuel_names,
                 pmax_profile=profile,
                 fuel_price_override=fuel_price_override,
                 pmax_segments=pmax_segments,
@@ -1702,6 +2179,14 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                 initial_units=initial_units,
             )
         )
+    # CEN-PCP-only: recover ~46 PLEXOS thermals that ship in
+    # ``Gen_HeatRate.csv`` + ``Gen_VOMCharge.csv`` (+ Start/Shut costs)
+    # but carry no XML Generator object — CCGT alternative dispatch
+    # modes (``*_GNL_X``), legacy CSV-only units (``UJINA_U{5,6}_DIE``,
+    # ``EL_TOTORAL_U{2,3}``, ``COLMITO_GNL_B``), and steam-turbine
+    # variants (``LAGUNA_VERDE_T{G,V}``).  See
+    # ``_recover_csv_only_thermals`` for the sibling-inheritance logic.
+    out.extend(_recover_csv_only_thermals(out, heat_rate_csv, vom_csv))
     return tuple(out)
 
 

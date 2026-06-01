@@ -26,6 +26,7 @@ from gtopt_shared.pampl_ident import (
     pampl_ident as _pampl_ident,
     penalty_param_name as _penalty_param_name,
 )
+from gtopt_shared.pampl_rhs import pampl_rhs_vector as _pampl_rhs_vector
 
 from .entities import (
     BatterySpec,
@@ -49,6 +50,13 @@ from .entities import (
     TurbineSpec,
     UserConstraintSpec,
     WaterwaySpec,
+)
+from .parsers import (
+    FUEL_FAMILY_RENEWABLE,
+    FUEL_FAMILY_THERMAL,
+    RENEWABLE_FAMILIES,
+    THERMAL_FAMILIES,
+    primary_energy_of_generator,
 )
 from .uc_families import UC_FAMILY_NAMES, uc_family  # re-exported (see __all__)
 
@@ -437,31 +445,70 @@ def build_generator_array(
             entry["pmax_segments"] = list(gen.pmax_segments)
             entry["heat_rate_segments"] = list(segments_scaled)
             entry["gcost"] = gen.vom_charge + gen.fuel_transport
-        elif primary_fuel is not None and gen.heat_rate > 0.0:
-            # Scalar path WITH a known Fuel + heat_rate — emit the
-            # explicit FK so gtopt's `FuelLP::add_to_lp` can find
-            # this generator when building the per-stage offtake
-            # cap row (PR #487 + #489).  gtopt computes
+        elif primary_fuel is not None:
+            # Scalar path WITH a known Fuel — emit the explicit FK so
+            # gtopt's ``FuelLP::add_to_lp`` can find this generator when
+            # building the per-stage offtake cap row (PR #487 + #489)
+            # AND so ``System::expand_fuel_emission_sources`` can attach
+            # a per-MWh CO2 source row.  gtopt computes
             #
             #   effective_gcost = fuel.price × heat_rate + gcost
             #
             # at LP-build, so we pass the *non-fuel* part of the
             # variable cost as ``gcost`` and let gtopt resolve the
             # fuel-price contribution from the Fuel element.  The
-            # numerical result is identical to the legacy
-            # pre-baked path below.
+            # numerical result is identical to the legacy pre-baked
+            # path below (when both branches matched).
+            #
+            # The ``heat_rate > 0`` precondition was widened to ALWAYS
+            # fire when ``primary_fuel`` is set (PR for emissions
+            # audit gap #1): a generator with a known Fuel but
+            # ``heat_rate == 0`` still benefits from emitting the FK —
+            # the Fuel.max_offtake cap row binds (with a zero
+            # coefficient, no effect), and any later schedule that
+            # supplies a non-zero per-stage heat_rate gets attached
+            # cleanly.  gtopt's ``primary_slope_cost_at``
+            # (generator_lp.cpp:145-155) returns
+            # ``fuel.price × heat_rate + gcost`` which collapses to
+            # just ``gcost`` when ``heat_rate`` is unset — no
+            # double-counting risk.
             entry["fuel"] = primary_fuel
-            entry["heat_rate"] = gen.heat_rate
+            if gen.heat_rate > 0.0:
+                entry["heat_rate"] = gen.heat_rate
             entry["gcost"] = gen.vom_charge + gen.fuel_transport
         else:
-            # Legacy baked-gcost path: no Fuel FK (renewables, units
-            # without a Fuel membership in PLEXOS, virtual gens).
-            # Everything is collapsed into a single scalar coefficient
-            # on `generation` — the Fuel.max_offtake cap row will not
-            # apply to these gens, which is correct: they don't draw
-            # from a constrained fuel band.
+            # Legacy baked-gcost path: ``primary_fuel is None`` —
+            # genuine renewables, virtual-priced units (118-Bus), or
+            # the CEN-PCP thermals that ship a heat-rate CSV but no
+            # Generator→Fuel ``t_membership`` in PLEXOS XML (4 units
+            # named in the comment below).  Everything is collapsed
+            # into a single scalar coefficient on ``generation`` —
+            # the Fuel.max_offtake cap row will not apply to these
+            # gens, which is correct: they don't draw from a
+            # constrained fuel band.  (When ``primary_fuel is not
+            # None`` even with ``heat_rate == 0``, the elif above now
+            # captures the case so the FK is preserved for emissions
+            # — gap #1 from the emission-computability audit.)
             gcost = gen.heat_rate * primary_price + gen.vom_charge + gen.fuel_transport
             entry["gcost"] = gcost
+            # Preserve the PLEXOS heat-rate signal as informational
+            # metadata for the ~46 CEN-PCP CCGT mode-variants
+            # (`ATA-TG1A_GNL_X`, `KELAR-TG1_GNL_X`, `MEJILLONES_3-TG_GNL_X`,
+            # …) and the four CSV-only thermals (`UJINA_U{5,6}_DIE`,
+            # `LAGUNA_VERDE_T{G,V}`) which carry a real ``Gen_HeatRate.csv``
+            # value but no Generator→Fuel ``t_membership`` in PLEXOS.
+            # Without this branch the JSON loses the per-unit HR after
+            # the ``HR × price`` baking, breaking comparisons against
+            # PLEXOS dispatch and downstream auditing tools.  gtopt's
+            # ``GeneratorLP::add_to_lp`` silently ignores ``heat_rate``
+            # when no ``fuel`` reference is set (see
+            # ``source/generator_lp.cpp:151-154``: ``fuel_lp == nullptr``
+            # → ``primary_slope_cost_at`` returns ``block_gcost``
+            # unchanged), so the LP cost stays exactly equal to the
+            # baked ``gcost`` above — emitting ``heat_rate`` here is
+            # purely metadata, never double-counted.
+            if gen.heat_rate > 0.0:
+                entry["heat_rate"] = gen.heat_rate
         # When the per-hour rating profile actually varies (renewable
         # availability, scheduled maintenance) emit the profile as a
         # [[stage_blocks]] matrix so the LP honours it block-by-block.
@@ -609,12 +656,51 @@ def build_generator_array(
         # Conversion provenance (F5): coarse tech tag + standardized
         # ``description`` documenting source + key field units.  No C++
         # schema change — Generator already carries ``type``/``description``.
-        has_fuel = (
-            bool(gen.fuel_names)
-            or gen.heat_rate > 0.0
-            or (gen.fuel_price_override > 0.0)
-        )
-        entry["type"] = "thermal" if has_fuel else "renewable"
+        #
+        # The parser populates ``GeneratorSpec.type_tag`` with a single
+        # canonical primary-energy tag (``"diesel"``, ``"gas"``,
+        # ``"solar"``, ``"hydro"``, …) derived from name suffix +
+        # PLEXOS category + Fuel attachment (see
+        # :func:`parsers.primary_energy_of_generator`).  We compose the
+        # hierarchical ``Generator.type`` string here:
+        #
+        # * A specific thermal family → ``"thermal:<family>"`` (e.g.
+        #   ``"thermal:diesel"``, ``"thermal:gas"``).
+        # * A specific renewable tech → ``"renewable:<family>"`` (e.g.
+        #   ``"renewable:solar"``, ``"renewable:hydro"``).
+        # * Bare ``"thermal"`` / ``"renewable"`` when only the
+        #   top-level family is known (preserves the legacy binary
+        #   classification for downstream consumers using
+        #   ``startswith()``).
+        #
+        # The sub-tag after the ``":"`` matches ``FuelSpec.type_tag``
+        # values exactly — the same canonical taxonomy on both sides.
+        #
+        # Safety-net for ``GeneratorSpec`` instances constructed
+        # outside the parser (synthetic tests, hand-rolled cases): when
+        # ``type_tag`` is the dataclass default ``"renewable"`` and the
+        # unit clearly carries a fuel signal (Fuel attachment, scalar
+        # heat-rate, fuel-price override), re-classify on the fly so
+        # the writer still emits a meaningful ``Generator.type``.  The
+        # parser-side ``extract_generators`` already populates
+        # ``type_tag`` explicitly, so the safety-net is a no-op on real
+        # PLEXOS bundles.
+        tag = gen.type_tag
+        if tag == FUEL_FAMILY_RENEWABLE and (
+            gen.fuel_names or gen.heat_rate > 0.0 or gen.fuel_price_override > 0.0
+        ):
+            tag = primary_energy_of_generator(
+                name=gen.name,
+                category_name=None,
+                fuel_names=gen.fuel_names,
+                has_heat_rate=gen.heat_rate > 0.0 or gen.fuel_price_override > 0.0,
+            )
+        if tag in THERMAL_FAMILIES:
+            entry["type"] = f"{FUEL_FAMILY_THERMAL}:{tag}"
+        elif tag in RENEWABLE_FAMILIES:
+            entry["type"] = f"{FUEL_FAMILY_RENEWABLE}:{tag}"
+        else:
+            entry["type"] = tag  # bare ``thermal`` / ``renewable``
         entry["description"] = (
             f"PLEXOS Generator '{gen.name}' at bus '{gen.bus_name}' → gtopt "
             f"Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate "
@@ -1516,6 +1602,16 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
             "price": fuel.price,
             "heat_content": fuel.heat_content,
         }
+        # Canonical fuel-family tag — gtopt-side ``Fuel.type``
+        # (``include/gtopt/fuel.hpp:126``).  Populated by
+        # ``parsers.extract_fuels`` from the PLEXOS Fuel-object name
+        # prefix via the same ``fuel_family_of_*`` mapping that drives
+        # the generator-side suffix classification, so the published
+        # ``Fuel.type`` and the orphan-recovery sibling search agree by
+        # construction.  Emitted unconditionally — the parser-side
+        # default (``"other"``) keeps the field non-null even for
+        # bundles outside the CEN PCP naming convention.
+        entry["type"] = fuel.type_tag
         if fuel.co2_rate != 0.0 or fuel.co2_upstream_rate != 0.0:
             factor: dict[str, Any] = {"emission": "co2"}
             if fuel.co2_rate != 0.0:
@@ -3502,26 +3598,6 @@ def write_provenance(provenance: dict[str, Any], output_path: Path) -> Path:
 # Source of the PLEXOS Constraint objects emitted to ``.pampl`` (the model
 # DB).  Recorded in each file/constraint comment for traceability.
 _UC_ORIGIN_FILE = "DBSEN_PRGDIARIO.xml"
-
-
-def _pampl_rhs_vector(rhs: Any) -> list[float] | None:
-    """Return the per-block RHS vector if ``rhs`` is a TB-matrix profile.
-
-    ``UserConstraint.rhs`` accepts several shapes; only the single-row
-    TB-matrix form ``[[v0, v1, ...]]`` (what ``build_user_constraint_array``
-    emits for a per-block profile) has a PAMPL ``rhs [v0, v1, ...]`` encoding.
-    Returns the inner block vector for that shape, or ``None`` for scalar /
-    per-stage / string / multi-stage forms that must stay inline in the JSON.
-    """
-    if (
-        isinstance(rhs, list)
-        and len(rhs) == 1
-        and isinstance(rhs[0], list)
-        and rhs[0]
-        and all(isinstance(v, (int, float)) for v in rhs[0])
-    ):
-        return [float(v) for v in rhs[0]]
-    return None
 
 
 # Default slack penalty forced onto every UC under ``--pampl-uc-mode soft``

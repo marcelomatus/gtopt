@@ -46,6 +46,15 @@ class PlexosObject:
     object_id: int
     class_id: int
     name: str
+    #: Optional PLEXOS category id (``t_object.category_id``) — links to a
+    #: ``t_category`` row carrying a human-readable category name (e.g.
+    #: ``"Solar Farms"``, ``"Wind Farms"``, ``"Hydro Gen Group A"``,
+    #: ``"Thermal Gen S. Zone"``).  Used by the converter to classify
+    #: generators into the canonical primary-energy taxonomy when the
+    #: name suffix alone is insufficient (e.g. CEN hydro names like
+    #: ``ABANICO`` / ``ALFALFAL`` carry no fuel suffix).  ``None`` when
+    #: the bundle XML omits the field (older PLEXOS schemas).
+    category_id: int | None = None
 
 
 @dataclass
@@ -121,6 +130,12 @@ class PlexosDb:
     classes_by_id: dict[int, str] = field(default_factory=dict)
     classes_by_name: dict[str, int] = field(default_factory=dict)
     objects: list[PlexosObject] = field(default_factory=list)
+    #: ``t_category.category_id → category_name`` lookup — populated
+    #: from ``t_category`` rows.  Combined with
+    #: :attr:`PlexosObject.category_id` to classify generators into the
+    #: canonical primary-energy taxonomy (see
+    #: :func:`plexos2gtopt.parsers.primary_energy_of_generator`).
+    categories_by_id: dict[int, str] = field(default_factory=dict)
     collections: list[PlexosCollection] = field(default_factory=list)
     memberships: list[PlexosMembership] = field(default_factory=list)
     properties: list[PlexosProperty] = field(default_factory=list)
@@ -444,7 +459,33 @@ def _parse_objects(root: ET.Element) -> list[PlexosObject]:
         name = elem.findtext(f"{NS}name")
         if oid is None or cid is None or name is None:
             continue
-        out.append(PlexosObject(object_id=oid, class_id=cid, name=name))
+        cat_id = _findtext_int(elem, "category_id")
+        out.append(
+            PlexosObject(
+                object_id=oid,
+                class_id=cid,
+                name=name,
+                category_id=cat_id,
+            )
+        )
+    return out
+
+
+def _parse_categories(root: ET.Element) -> dict[int, str]:
+    """Build the ``t_category.category_id → category_name`` lookup.
+
+    Used by :func:`plexos2gtopt.parsers.extract_generators` to classify
+    generators into the canonical primary-energy taxonomy (solar / wind
+    / hydro / thermal-by-fuel-family) — CEN PCP categories include
+    ``"Solar Farms"``, ``"Wind Farms"``, ``"Hydro Gen Group A/B/C"``,
+    and several thermal-zone variants.
+    """
+    out: dict[int, str] = {}
+    for elem in root.findall(f"{NS}t_category"):
+        cid = _findtext_int(elem, "category_id")
+        name = elem.findtext(f"{NS}name") or ""
+        if cid is not None:
+            out[cid] = name
     return out
 
 
@@ -665,6 +706,7 @@ def load_xml(path: Path | str) -> PlexosDb:
         classes_by_id=classes_by_id,
         classes_by_name=classes_by_name,
         objects=_parse_objects(root),
+        categories_by_id=_parse_categories(root),
         collections=_parse_collections(root),
         memberships=_parse_memberships(root),
         properties=_parse_properties(root),

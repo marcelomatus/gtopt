@@ -97,6 +97,20 @@ class FuelSpec:
     heat_content: float = 0.0
     co2_rate: float = 0.0
     co2_upstream_rate: float = 0.0
+    #: Canonical fuel-family tag derived from ``name`` by
+    #: :func:`plexos2gtopt.parsers.fuel_family_of_fuel`.  Values are
+    #: stable lowercase strings — ``"diesel"`` / ``"fuel_oil"`` /
+    #: ``"gas"`` / ``"glp"`` / ``"biomasa"`` / ``"biogas"`` /
+    #: ``"carbon"`` / ``"otros"`` (CEN's residual category) — and
+    #: ``"other"`` when the prefix doesn't match any known family.
+    #: The writer surfaces this as the gtopt ``Fuel.type`` field
+    #: (``include/gtopt/fuel.hpp:126`` — "Optional element type/category
+    #: tag"), mirroring the ``Generator.type = "thermal"|"renewable"``
+    #: convention.  Shared with
+    #: :func:`plexos2gtopt.parsers.fuel_family_of_generator` so the
+    #: orphan-recovery sibling search and the published fuel definition
+    #: agree by construction.
+    type_tag: str = "other"
     #: Weekly fuel offtake cap from ``Fuel_MaxOfftakeWeek.csv`` (one
     #: scalar per fuel, for the week containing the bundle's
     #: reference date).  Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>``
@@ -155,6 +169,17 @@ class GeneratorSpec:
     object_id: int
     name: str
     bus_name: str
+    #: Canonical primary-energy tag derived by
+    #: :func:`plexos2gtopt.parsers.primary_energy_of_generator` from the
+    #: PLEXOS name suffix (``_DIE``/``_GNL``/``_FV``/``_EO`` etc.) +
+    #: category (``Solar Farms``/``Hydro Gen Group *``) + fuel
+    #: attachment.  Surfaces on the gtopt ``Generator.type`` JSON field
+    #: as a hierarchical ``<top>:<sub>`` string (``"thermal:diesel"``,
+    #: ``"renewable:solar"``, ``"renewable:hydro"``); falls back to
+    #: bare ``"thermal"`` / ``"renewable"`` when no specific family
+    #: was detected — preserving the legacy binary classification for
+    #: downstream consumers that rely on ``startswith()``.
+    type_tag: str = "renewable"
     pmin: float = 0.0
     pmax: float = 0.0
     # PLEXOS ``Auxiliary Use`` (``Gen_AuxUse.csv``): fraction of gross

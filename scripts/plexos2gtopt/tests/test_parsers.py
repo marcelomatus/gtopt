@@ -15,6 +15,21 @@ import pytest
 from plexos2gtopt.entities import BundleSpec
 from plexos2gtopt.entities import GeneratorSpec, PlexosCase
 from plexos2gtopt.parsers import (
+    FUEL_FAMILY_BIOGAS,
+    FUEL_FAMILY_BIOMASA,
+    FUEL_FAMILY_CARBON,
+    FUEL_FAMILY_DIESEL,
+    FUEL_FAMILY_FUEL_OIL,
+    FUEL_FAMILY_GAS,
+    FUEL_FAMILY_GEOTHERMAL,
+    FUEL_FAMILY_GLP,
+    FUEL_FAMILY_HYDRO,
+    FUEL_FAMILY_OTHER,
+    FUEL_FAMILY_OTROS,
+    FUEL_FAMILY_RENEWABLE,
+    FUEL_FAMILY_SOLAR,
+    FUEL_FAMILY_THERMAL,
+    FUEL_FAMILY_WIND,
     _build_plant_cap_ucs,
     _extract_config_mutex_groups,
     extract_batteries,
@@ -24,6 +39,11 @@ from plexos2gtopt.parsers import (
     extract_lines,
     extract_nodes,
     extract_reservoirs,
+    family_from_plexos_category,
+    fuel_family_of_fuel,
+    fuel_family_of_generator,
+    primary_energy_of_generator,
+    renewable_tech_of_generator,
 )
 from plexos2gtopt.plexos_loader import PlexosBundle
 from plexos2gtopt.plexos_xml import NS, load_xml
@@ -149,12 +169,20 @@ def test_extract_nodes(tmp_path: Path) -> None:
 
 
 def test_extract_fuels(tmp_path: Path) -> None:
-    """One FuelSpec per Fuel object; price=0 when Fuel_Price.csv absent."""
+    """One FuelSpec per Fuel object; price=0 when Fuel_Price.csv absent.
+
+    Also confirms the canonical fuel-family tag falls back to
+    ``"other"`` when the bundle uses a non-CEN-prefix name (the
+    synthetic bundle ships a lowercase ``"diesel"`` fuel rather than
+    the CEN-PCP ``Diesel_*`` prefix convention).
+    """
     bundle, xml_path = _build_bundle(tmp_path)
     db = load_xml(xml_path)
     fuels = extract_fuels(db, bundle)
     assert [f.name for f in fuels] == ["diesel"]
     assert fuels[0].price == 0.0
+    # No canonical CEN prefix on the synthetic name → default fallback.
+    assert fuels[0].type_tag == FUEL_FAMILY_OTHER
 
 
 def test_extract_fuels_with_price(tmp_path: Path) -> None:
@@ -687,6 +715,317 @@ def test_extract_generators(tmp_path: Path) -> None:
     # Profile peaks at hour 12 (idx 11).
     assert by_name["solar_b"].pmax == 80.0
     assert by_name["solar_b"].pmax_profile[11] == 80.0
+
+
+def test_extract_generators_recovers_csv_only_thermals(tmp_path: Path) -> None:
+    """CSV-only thermals (no XML Generator object) are recovered as
+    zero-capacity audit entries by inheriting bus + fuel from the
+    longest-common-prefix XML sibling.
+
+    Mirrors CEN-PCP CCGT mode-variant pattern: ``ATA-TG1A_GNL_X``
+    has no XML object but a real heat-rate in ``Gen_HeatRate.csv`` and
+    a fuel-bearing XML sibling ``ATA-TG1A_GNL_A``.  Phantoms with no
+    sibling sharing ≥6 chars of prefix are skipped.
+    """
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nthermal_a,2026,1,1,1,1,100\n",
+    )
+    # thermal_a is the XML sibling; thermal_aX is the CSV-only phantom
+    # (sibling share = "thermal_a", 9 chars, well above the 6-char floor).
+    # orphan_unknown has no sibling, must be skipped.
+    _write_csv(
+        tmp_path,
+        "Gen_HeatRate.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,0.31\n"
+        "thermal_aX,2026,1,1,1,1,0.33\n"
+        "orphan_unknown,2026,1,1,1,1,0.40\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_VOMCharge.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,2.0\n"
+        "thermal_aX,2026,1,1,1,1,4.5\n"
+        "orphan_unknown,2026,1,1,1,1,8.0\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    # XML sibling intact.
+    assert "thermal_a" in by_name
+    # CSV-only phantom recovered with bus + fuel inherited from sibling.
+    phantom = by_name.get("thermal_aX")
+    assert phantom is not None
+    assert phantom.pmax == 0.0
+    assert phantom.heat_rate == 0.33
+    assert phantom.vom_charge == 4.5
+    assert phantom.bus_name == by_name["thermal_a"].bus_name
+    assert phantom.fuel_names == by_name["thermal_a"].fuel_names
+    # orphan_unknown has no sibling (prefix shared with "thermal_a" is
+    # zero chars) → skipped, no GeneratorSpec emitted.
+    assert "orphan_unknown" not in by_name
+
+
+def test_fuel_family_of_generator_canonical_mapping() -> None:
+    """Generator-name suffix → canonical fuel family.
+
+    Covers every entry in ``_GEN_SUFFIX_TO_FUEL_FAMILY`` plus the two
+    "tag is the second-to-last segment" cases (``_GNL_X`` /
+    ``_GNL_B``).  Unrecognised suffixes (``_U2``, ``_TG``) return
+    ``None`` so callers fall back cleanly.
+    """
+    # Last-segment fuel tags.
+    assert fuel_family_of_generator("UJINA_U5_DIE") == FUEL_FAMILY_DIESEL
+    assert fuel_family_of_generator("UJINA_U5_HFO") == FUEL_FAMILY_FUEL_OIL
+    assert fuel_family_of_generator("CMPC_X_IFO") == FUEL_FAMILY_FUEL_OIL
+    assert fuel_family_of_generator("ANY_FO6") == FUEL_FAMILY_FUEL_OIL
+    assert fuel_family_of_generator("ATA_GN") == FUEL_FAMILY_GAS
+    assert fuel_family_of_generator("KELAR_TG1_GNL") == FUEL_FAMILY_GAS
+    assert fuel_family_of_generator("COLBUN_INF") == FUEL_FAMILY_GAS
+    assert fuel_family_of_generator("RENCA_GLP") == FUEL_FAMILY_GLP
+    # Second-to-last segment fuel tags (dispatch-mode marker last).
+    assert fuel_family_of_generator("ATA-TG1A_GNL_X") == FUEL_FAMILY_GAS
+    assert fuel_family_of_generator("COLMITO_GNL_B") == FUEL_FAMILY_GAS
+    assert fuel_family_of_generator("KELAR-TG1+0.5TV_GNL_X") == FUEL_FAMILY_GAS
+    # Non-fuel suffixes (unit indexes, technology markers) → None.
+    assert fuel_family_of_generator("EL_TOTORAL_U2") is None
+    assert fuel_family_of_generator("LAGUNA_VERDE_TG") is None
+    assert fuel_family_of_generator("LAGUNA_VERDE_TV") is None
+    assert fuel_family_of_generator("PEHUENCHE_U1") is None
+
+
+def test_fuel_family_of_fuel_canonical_mapping() -> None:
+    """Fuel-object name prefix → canonical fuel family.
+
+    The eight CEN-PCP prefixes round-trip to the eight canonical tags;
+    a name that doesn't begin with any known prefix returns ``None``
+    (callers default to ``FUEL_FAMILY_OTHER``).
+    """
+    assert fuel_family_of_fuel("Diesel_Collahuasi") == FUEL_FAMILY_DIESEL
+    assert fuel_family_of_fuel("FuelOil_Norgener") == FUEL_FAMILY_FUEL_OIL
+    assert fuel_family_of_fuel("Gas_Kelar_A") == FUEL_FAMILY_GAS
+    assert fuel_family_of_fuel("Gas_Colbun_GN_A") == FUEL_FAMILY_GAS
+    assert fuel_family_of_fuel("GLP_TenoGas") == FUEL_FAMILY_GLP
+    assert fuel_family_of_fuel("Biomasa_CMPCLaja_B1") == FUEL_FAMILY_BIOMASA
+    assert fuel_family_of_fuel("Biogas_SantaMarta") == FUEL_FAMILY_BIOGAS
+    assert fuel_family_of_fuel("Carbon_Angamos1") == FUEL_FAMILY_CARBON
+    assert fuel_family_of_fuel("Otros_Noracid") == FUEL_FAMILY_OTROS
+    # Unknown / hand-rolled name → None; caller defaults to "other".
+    assert fuel_family_of_fuel("synthetic_pseudo_fuel") is None
+    assert fuel_family_of_fuel("VIRTUAL_FUEL") is None
+
+
+def test_renewable_tech_of_generator_canonical_mapping() -> None:
+    """CEN-PCP renewable-suffix → canonical tech tag.
+
+    Verified against the bundle's perfect 1:1 correspondence between
+    name suffix and PLEXOS category: 740 ``*_FV`` units all in
+    ``"Solar Farms"`` and 66 ``*_EO`` all in ``"Wind Farms"``.
+    """
+    assert renewable_tech_of_generator("AILLIN_FV") == FUEL_FAMILY_SOLAR
+    assert renewable_tech_of_generator("ALENA_EO") == FUEL_FAMILY_WIND
+    assert renewable_tech_of_generator("plain_name") is None
+    # The fuel-tag suffixes are NOT renewable tech tags — keep the
+    # two namespaces separate.
+    assert renewable_tech_of_generator("UJINA_U5_DIE") is None
+    assert renewable_tech_of_generator("ATA_GNL") is None
+
+
+def test_family_from_plexos_category_substring_match() -> None:
+    """PLEXOS category names → canonical primary-energy tag.
+
+    Case-insensitive substring match — handles CEN-PCP's group
+    variants (``"Hydro Gen Group A/B/C"``, ``"Thermal Gen N. Zone"``,
+    ``"Termicas Ficticias"``) without enumerating every suffix.
+    """
+    assert family_from_plexos_category("Solar Farms") == FUEL_FAMILY_SOLAR
+    assert family_from_plexos_category("Wind Farms") == FUEL_FAMILY_WIND
+    assert family_from_plexos_category("Hydro Gen Group A") == FUEL_FAMILY_HYDRO
+    assert family_from_plexos_category("Hydro Gen Group B") == FUEL_FAMILY_HYDRO
+    assert family_from_plexos_category("Hydro Gen Group C") == FUEL_FAMILY_HYDRO
+    assert family_from_plexos_category("Thermal Gen N. Zone") == FUEL_FAMILY_THERMAL
+    assert family_from_plexos_category("Thermal Gen S. Zone") == FUEL_FAMILY_THERMAL
+    # Spanish accent-stripped variant.
+    assert family_from_plexos_category("Termicas Ficticias") == FUEL_FAMILY_THERMAL
+    assert family_from_plexos_category("Hidroeléctrica") == FUEL_FAMILY_HYDRO
+    assert family_from_plexos_category("Geothermal") == FUEL_FAMILY_GEOTHERMAL
+    # Unknown category → None.
+    assert family_from_plexos_category("Some Other Category") is None
+    assert family_from_plexos_category("") is None
+
+
+def test_primary_energy_of_generator_priority_order() -> None:
+    """Detection priority: name-suffix → renewable-suffix → category
+    → fuel attachment → generic fallback.
+    """
+    # 1. Name-suffix family wins even when category disagrees.
+    assert (
+        primary_energy_of_generator(
+            "UJINA_U5_DIE", category_name="Solar Farms", fuel_names=("Gas_X",)
+        )
+        == FUEL_FAMILY_DIESEL
+    )
+    # 2. Renewable-suffix wins when no thermal-suffix.
+    assert (
+        primary_energy_of_generator("ALENA_EO", category_name=None, fuel_names=())
+        == FUEL_FAMILY_WIND
+    )
+    # 3. PLEXOS category catches hydro (no name suffix).
+    assert (
+        primary_energy_of_generator(
+            "ABANICO", category_name="Hydro Gen Group A", fuel_names=()
+        )
+        == FUEL_FAMILY_HYDRO
+    )
+    # 4. Fuel attachment classifies when name + category are silent.
+    assert (
+        primary_energy_of_generator(
+            "PLAIN_NAME", category_name=None, fuel_names=("Diesel_X",)
+        )
+        == FUEL_FAMILY_DIESEL
+    )
+    # 5. Bare-thermal fallback when fuel signal present but unclassified.
+    assert (
+        primary_energy_of_generator(
+            "PLAIN_NAME",
+            category_name=None,
+            fuel_names=("synthetic_pseudo_fuel",),
+            has_heat_rate=True,
+        )
+        == FUEL_FAMILY_THERMAL
+    )
+    # 6. Renewable fallback when no fuel signal at all.
+    assert (
+        primary_energy_of_generator("MYSTERY_PLANT", category_name=None, fuel_names=())
+        == FUEL_FAMILY_RENEWABLE
+    )
+
+
+def test_fuel_family_generator_and_fuel_agree_on_canonical_tag() -> None:
+    """The two helpers return the SAME canonical tag for matching
+    Generator/Fuel name pairs — the property the orphan-recovery
+    sibling search and the published ``FuelSpec.type_tag`` rely on.
+    """
+    pairs = [
+        ("UJINA_U5_DIE", "Diesel_Collahuasi"),
+        ("UJINA_U5_HFO", "FuelOil_Collahuasi"),
+        ("ATA-TG1A_GNL_X", "Gas_EnelMejillones_A"),
+        ("COLMITO_GNL_B", "Gas_Colmito_A"),
+        ("KELAR-TG1+0.5TV_GNL_X", "Gas_Kelar_A"),
+        ("NUEVA_RENCA_GLP", "GLP_NuevaRencaFA"),
+    ]
+    for gen_name, fuel_name in pairs:
+        gen_family = fuel_family_of_generator(gen_name)
+        fuel_family = fuel_family_of_fuel(fuel_name)
+        assert gen_family is not None
+        assert fuel_family is not None
+        assert gen_family == fuel_family, (
+            f"family mismatch for {gen_name}↔{fuel_name}: "
+            f"gen={gen_family} fuel={fuel_family}"
+        )
+
+
+def test_recover_csv_thermals_fuel_tag_picks_correct_family() -> None:
+    """``_recover_csv_only_thermals`` honours the PLEXOS fuel-family
+    tag at the end of the name: ``UJINA_U5_DIE`` must inherit a
+    ``Diesel_*`` fuel from the 7-char-prefix sibling ``UJINA_U1_DIE``
+    even when the 9-char-prefix neighbour ``UJINA_U5_HFO`` is
+    available (whose ``FuelOil_*`` fuel would be wrong).
+    """
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.parsers import _recover_csv_only_thermals
+
+    siblings = [
+        GeneratorSpec(
+            object_id=10,
+            name="UJINA_U1_DIE",
+            bus_name="Collahuasi220",
+            fuel_names=("Diesel_Collahuasi",),
+        ),
+        GeneratorSpec(
+            object_id=11,
+            name="UJINA_U5_HFO",
+            bus_name="Collahuasi220",
+            fuel_names=("FuelOil_Collahuasi",),
+        ),
+    ]
+    recovered = _recover_csv_only_thermals(
+        siblings,
+        heat_rate_csv={"UJINA_U5_DIE": [0.246]},
+        vom_csv={"UJINA_U5_DIE": [18.98]},
+    )
+    assert len(recovered) == 1
+    phantom = recovered[0]
+    assert phantom.name == "UJINA_U5_DIE"
+    # Fuel-tag bias rejects the 9-char-prefix UJINA_U5_HFO winner and
+    # picks the fuel-family-matching UJINA_U1_DIE instead.
+    assert phantom.fuel_names == ("Diesel_Collahuasi",)
+    assert phantom.bus_name == "Collahuasi220"
+    assert phantom.heat_rate == 0.246
+    assert phantom.vom_charge == 18.98
+    assert phantom.pmax == 0.0
+
+
+def test_recover_csv_thermals_no_tag_falls_back_to_longest_prefix() -> None:
+    """Orphans whose suffix is NOT a PLEXOS fuel tag (e.g. ``_U2`` is a
+    unit index, not a fuel family) fall back to the plain longest-prefix
+    sibling — preserves the bus-only inheritance for non-thermal-tag
+    name patterns like ``EL_TOTORAL_U2``.
+    """
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.parsers import _recover_csv_only_thermals
+
+    siblings = [
+        GeneratorSpec(
+            object_id=20,
+            name="EL_TOTORAL",
+            bus_name="ASanta110",
+            fuel_names=("Diesel_ElTotoral",),
+        ),
+    ]
+    recovered = _recover_csv_only_thermals(
+        siblings,
+        heat_rate_csv={"EL_TOTORAL_U2": [0.200]},
+        vom_csv={"EL_TOTORAL_U2": [28.06]},
+    )
+    assert len(recovered) == 1
+    assert recovered[0].name == "EL_TOTORAL_U2"
+    assert recovered[0].fuel_names == ("Diesel_ElTotoral",)
+    assert recovered[0].bus_name == "ASanta110"
+
+
+def test_recover_csv_thermals_tag_with_no_match_falls_back() -> None:
+    """When the orphan's fuel tag is recognised but NO sibling carries a
+    matching fuel family, the helper falls back to the longest-prefix
+    sibling regardless of fuel — better than skipping a real audit
+    entry.
+    """
+    # pylint: disable=import-outside-toplevel
+    from plexos2gtopt.parsers import _recover_csv_only_thermals
+
+    # FAKE_PLANT_GNL_X has tag GNL → expects Gas_*, but the only sibling
+    # carries FuelOil_*.  Fallback path keeps the orphan rather than
+    # dropping it.
+    siblings = [
+        GeneratorSpec(
+            object_id=30,
+            name="FAKE_PLANT_HFO",
+            bus_name="bus_X",
+            fuel_names=("FuelOil_Norgener",),
+        ),
+    ]
+    recovered = _recover_csv_only_thermals(
+        siblings,
+        heat_rate_csv={"FAKE_PLANT_GNL_X": [0.30]},
+        vom_csv={"FAKE_PLANT_GNL_X": [5.0]},
+    )
+    assert len(recovered) == 1
+    # No GNL-tagged sibling existed → fell back to the FuelOil neighbour.
+    assert recovered[0].fuel_names == ("FuelOil_Norgener",)
 
 
 def test_extract_generators_units_out_overrides_rating(tmp_path: Path) -> None:
