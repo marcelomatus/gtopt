@@ -17,11 +17,15 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import re
 import shutil
 from pathlib import Path
 from collections.abc import Iterable, Iterator
 from typing import Any
+
+from gtopt_shared.pampl_ident import (
+    pampl_ident as _pampl_ident,
+    penalty_param_name as _penalty_param_name,
+)
 
 from .entities import (
     BatterySpec,
@@ -3490,35 +3494,14 @@ def write_provenance(provenance: dict[str, Any], output_path: Path) -> Path:
     return output_path
 
 
-def _pampl_ident(name: str) -> str:
-    """Sanitise a PLEXOS constraint name into a PAMPL ``IDENT``.
+# PAMPL identifier sanitisation + canonical penalty tier names live in
+# ``gtopt_shared`` (imported at the top of the module). The private
+# ``_pampl_ident`` / ``_penalty_param_name`` aliases keep the legacy
+# call sites in this 3 800-line writer untouched.
 
-    PAMPL identifiers are ``[A-Za-z_][A-Za-z0-9_]*``; PLEXOS names may start
-    with a digit (``2024084134_…``) or contain ``+ > - . space``.  Replace
-    every invalid char with ``_`` and prefix ``uc_`` when the result would
-    not start with a letter/underscore.  The original name is preserved in
-    the constraint's description for traceability.
-    """
-    safe = re.sub(r"[^A-Za-z0-9_]", "_", name)
-    if not safe or not (safe[0].isalpha() or safe[0] == "_"):
-        safe = "uc_" + safe
-    return safe
-
-
-# Canonical names for the converter's penalty tiers — good-AMPL named
-# constants instead of inline magic numbers.  Any other distinct PLEXOS
-# penalty gets a value-derived name (``penalty_467_19`` …).
-_PENALTY_TIER_NAMES: dict[float, str] = {10.0: "soft_floor_penalty"}
 # Source of the PLEXOS Constraint objects emitted to ``.pampl`` (the model
 # DB).  Recorded in each file/constraint comment for traceability.
 _UC_ORIGIN_FILE = "DBSEN_PRGDIARIO.xml"
-
-
-def _penalty_param_name(value: float) -> str:
-    """PAMPL ``param`` name for a given per-unit penalty tier."""
-    if value in _PENALTY_TIER_NAMES:
-        return _PENALTY_TIER_NAMES[value]
-    return "penalty_" + re.sub(r"[^0-9]", "_", f"{value:g}")
 
 
 def _pampl_rhs_vector(rhs: Any) -> list[float] | None:

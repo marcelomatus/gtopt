@@ -355,6 +355,22 @@ def add_scenario_arguments(
             "If not set, defaults to <output-dir>/apertures when needed."
         ),
     )
+    parser.add_argument(
+        "--aperture-chunk-size",
+        dest="aperture_chunk_size",
+        type=int,
+        default=None,
+        metavar="K",
+        help=(
+            "SDDP chunked aperture pass: K apertures solved serially per "
+            "task on a shared LP clone (warm-start reuse). 0/unset = auto "
+            "(currently resolves to 1, empirically fastest under the "
+            "parallel-safe manual-clone path on juan/IPLP-scale workloads), "
+            "1 = legacy 1-task-per-aperture, > 1 = K per task, "
+            "-1 = fully serial per scene. Emitted as "
+            "options.sddp_options.aperture_chunk_size."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -948,6 +964,7 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "adaptive",
             "dynamic",
             "piecewise_direct",
+            "tangent_signed_flow",
         ],
         help=(
             "transmission-line loss model emitted as "
@@ -957,7 +974,46 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
             "bus stamps, no loss rows) at the cost of 2·K segment cols "
             "per direction — use for PLP LP-diff parity. "
+            "'tangent_signed_flow' (Coffrin-Van Hentenryck 2014) uses a "
+            "single signed-flow column + K outer-approximation tangents "
+            "and a |f|-aux chord upper bound — strongest LP relaxation, "
+            "no bidirectional-flow degeneracy. "
             "(default: not set — gtopt picks 'adaptive')"
+        ),
+    )
+    parser.add_argument(
+        "--loss-cost-eps",
+        dest="loss_cost_eps",
+        type=float,
+        default=None,
+        metavar="EPS",
+        help=(
+            "Small positive cost ($/MWh) stamped on every per-direction "
+            "loss column (loss_p / loss_n) of PWL-loss lines. Strictly "
+            "breaks the pure LP-relax bidirectional-flow degeneracy: "
+            "the LP picks single-direction dispatch among primal-optimal "
+            "solutions sharing the same net flow. Recommended: 1e-6 — "
+            "essentially zero objective impact yet eliminates the "
+            "residual phantom bidirectional flow. Emitted as "
+            "options.model_options.loss_cost_eps. "
+            "(default: not set — gtopt picks 0.0, legacy behaviour)"
+        ),
+    )
+    parser.add_argument(
+        "--lift-line-caps",
+        dest="lift_line_caps",
+        metavar="NAMES",
+        default=None,
+        help=(
+            "Comma-separated list of Line names whose loss_envelope is "
+            "widened beyond tmax_normal to cover the overload band the "
+            "LP can actually flow into under PWL-loss relaxation. "
+            "Format: 'L1:FACTOR,L2:FACTOR' (FACTOR multiplies tmax_ab); "
+            "or 'L1,L2' to use the converter's default factor (2.0). "
+            "Emitted as per-line Line.loss_envelope. Useful when the "
+            "default envelope [0, tmax_normal] under-approximates the "
+            "true loss curve in the overload band, producing inflated "
+            "secant losses or phantom flow."
         ),
     )
     parser.add_argument(

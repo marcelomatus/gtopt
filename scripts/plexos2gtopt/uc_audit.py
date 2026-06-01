@@ -51,6 +51,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from gtopt_shared.pampl_ident import pampl_ident as _pampl_ident
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,23 +72,10 @@ SYS_CONSTRAINT_COLLECTION_ID = 700
 
 
 # ---------------------------------------------------------------------------
-# Name sanitization — mirrors ``gtopt_writer._pampl_ident`` so the audit
-# can match PLEXOS names that contain ``-``, ``.``, ``(``, ``)``, spaces,
-# or start with a digit against the sanitised PAMPL identifier gtopt
-# emits.  Without this, every such PLEXOS name shows up as "missing from
-# gtopt" and the corresponding gtopt name as "synthetic", inflating the
-# B3 / B7 / B8 buckets with naming-only noise.
+# Name sanitization lives in :mod:`gtopt_shared` (imported above) so
+# ``gtopt_writer`` and this audit share byte-exact behaviour.  The
+# private ``_pampl_ident`` alias keeps the call sites untouched.
 # ---------------------------------------------------------------------------
-def _pampl_ident(name: str) -> str:
-    """Sanitise a PLEXOS constraint name into the gtopt PAMPL identifier.
-
-    Mirrors ``plexos2gtopt.gtopt_writer._pampl_ident`` byte-for-byte so the
-    audit comparison key matches the on-disk PAMPL row name.
-    """
-    safe = re.sub(r"[^A-Za-z0-9_]", "_", name)
-    if not safe or not (safe[0].isalpha() or safe[0] == "_"):
-        safe = "uc_" + safe
-    return safe
 
 
 # ---------------------------------------------------------------------------

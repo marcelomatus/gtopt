@@ -27,6 +27,7 @@ class Line(TypedDict, total=False):
     loss_segments: int
     use_line_losses: bool
     loss_allocation_mode: str
+    loss_envelope: float
 
 
 class LineWriter(BaseWriter):
@@ -109,6 +110,14 @@ class LineWriter(BaseWriter):
                 loss_mode = self.line_parser.loss_allocation_mode
                 if loss_mode != "receiver":
                     json_line["loss_allocation_mode"] = loss_mode
+
+            # --lift-line-caps: widen loss_envelope on the named lines.
+            # Only stamps a numeric envelope when tmax_ab is a numeric
+            # literal — when tmax_ab is a parquet column reference the
+            # per-block envelope would need parquet rewiring, deferred.
+            lift = self.options.get("lift_line_caps") if self.options else None
+            if lift and line_name in lift and isinstance(line["tmax_ab"], (int, float)):
+                json_line["loss_envelope"] = float(line["tmax_ab"]) * lift[line_name]
 
             json_lines.append(json_line)
 

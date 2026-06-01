@@ -127,6 +127,37 @@ def _parse_name_value_pairs(spec: str) -> dict[str, float]:
     return result
 
 
+DEFAULT_LIFT_LINE_CAPS_FACTOR = 2.0
+
+
+def _parse_lift_line_caps(spec: str) -> dict[str, float]:
+    """Parse a --lift-line-caps spec into ``{line_name: factor}``.
+
+    Accepts either ``L1:F1,L2:F2`` (per-line override factor) or
+    ``L1,L2`` (uses the default factor 2.0). The factor multiplies
+    ``tmax_ab`` to produce ``loss_envelope``.
+
+    Raises ``ValueError`` if a numeric factor cannot be parsed.
+    """
+    result: dict[str, float] = {}
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            name, val_str = token.split(":", maxsplit=1)
+            name = name.strip()
+            try:
+                result[name] = float(val_str.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid factor in --lift-line-caps token '{token}': {exc}"
+                ) from exc
+        else:
+            result[token] = DEFAULT_LIFT_LINE_CAPS_FACTOR
+    return result
+
+
 def signal_handler(sig, _frame):
     """Handle termination signals gracefully."""
     signame = signal.strsignal(sig)
@@ -452,7 +483,15 @@ def build_options(args: argparse.Namespace) -> dict:
         model_opts["use_line_losses"] = args.use_line_losses
     if args.line_losses_mode is not None:
         model_opts["line_losses_mode"] = args.line_losses_mode
+    if getattr(args, "loss_cost_eps", None) is not None:
+        model_opts["loss_cost_eps"] = args.loss_cost_eps
     opts["model_options"] = model_opts
+
+    if getattr(args, "aperture_chunk_size", None) is not None:
+        sddp_opts = opts.setdefault("sddp_options", {})
+        sddp_opts["aperture_chunk_size"] = args.aperture_chunk_size
+    if getattr(args, "lift_line_caps", None):
+        opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 
     if args.cut_sharing_mode is not None:
         opts["cut_sharing_mode"] = args.cut_sharing_mode
