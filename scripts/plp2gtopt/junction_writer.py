@@ -241,14 +241,26 @@ class Reservoir(_ReservoirRequired, total=False):
     efin_cost: float
 
 
-class Turbine(TypedDict):
-    """Represents an energy conversion point in the hydro system."""
+class Turbine(TypedDict, total=False):
+    """Represents an energy conversion point in the hydro system.
+
+    Connection mode is one of (mutually exclusive):
+
+    * ``waterway`` — legacy: a pre-existing Waterway carries the flow.
+    * ``junction_a`` (+ optional ``junction_b``) — built-in waterway
+      mode: the Turbine owns its own flow arc, no Waterway needed.
+      ``junction_b`` unset = terminal drain (no synthetic ocean Junction
+      required).  When this mode is used, ``capacity`` (m³/s) caps the
+      per-block water throughput on the built-in arc.
+    """
 
     uid: int
     name: str
     generator: str
     waterway: str
+    junction_a: str
     production_factor: float
+    capacity: float
 
 
 class ProductionFactorSegment(TypedDict):
@@ -469,12 +481,29 @@ class JunctionWriter(BaseWriter):
         # untouched.  ``--drop-spillway-waterway`` still wins (early
         # return), see ``_process_central``.
         self._vrebemb_as_sink = bool(self.options.get("vrebemb_as_sink", False))
+        # Centrals whose gen Waterway is needed downstream by
+        # ``pmin_flowright_writer`` (FlowRight attached to waterway uid)
+        # or by ``_ror_reservoir_spec`` (reservoir at gen_waterway's
+        # junction_a).  These cannot be migrated to the built-in
+        # Turbine waterway because the downstream consumers grep the
+        # waterway by name.  Resolved lazily — empty when neither
+        # ``--pmin-as-flowright`` nor a whitelist is set.
+        self._pmin_flowright_centrals: frozenset[str] = (
+            self._resolve_pmin_flowright_centrals()
+        )
         # Number of vrebemb centrals whose ``_ver`` waterway was redirected
         # to a synthetic ``<name>_ocean`` drain by ``--vrebemb-as-sink``.
         # Reported via ``_logger.info`` at the end of ``to_json_array``.
         self._vrebemb_as_sink_count: int = 0
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
+        # Counter for terminal turbine centrals (bus > 0, ser_hid = 0,
+        # not an RoR-promotion candidate) that use the gtopt
+        # ``Turbine.junction_a`` built-in waterway, eliding one
+        # synthetic ``<central>_ocean`` Junction + one ``<central>_gen``
+        # Waterway each.  Reported via ``_logger.info`` at the end of
+        # ``to_json_array``.
+        self._builtin_turbine_waterway_count: int = 0
         self._junction_names: dict[int, str] = {}
         self._skipped_isolated: list[str] = []
         self._referenced_junctions: set[int] = set()
@@ -523,6 +552,34 @@ class JunctionWriter(BaseWriter):
     def central_parser(self) -> CentralParser:
         """Get the central parser instance."""
         return cast(CentralParser, self.parser)
+
+    def _resolve_pmin_flowright_centrals(self) -> frozenset[str]:
+        """Return the set of centrals destined for FlowRight attachment.
+
+        Mirrors :func:`pmin_flowright_writer.resolve_whitelist` but
+        returns a frozenset for O(1) membership tests.  These centrals
+        must keep their gen Waterway (used as the FlowRight's
+        ``waterway`` reference) — the built-in Turbine waterway
+        optimization skips them.
+        """
+        spec = self.options.get("pmin_as_flowright") if self.options else None
+        if spec is None:
+            return frozenset()
+        # Defer to the canonical resolver in pmin_flowright_writer.
+        from ._parsers import DEFAULT_PMIN_FLOWRIGHT_FILE  # noqa: PLC0415
+        from .pmin_flowright_writer import resolve_whitelist  # noqa: PLC0415
+
+        try:
+            names = resolve_whitelist(
+                str(spec), default_csv=DEFAULT_PMIN_FLOWRIGHT_FILE
+            )
+        except (FileNotFoundError, ValueError):
+            # Caller will surface the error when pmin_flowright_writer
+            # actually runs — here we just stay conservative and skip
+            # the optimization (empty set means every terminal turbine
+            # keeps its legacy gen-Waterway, same as pre-change).
+            return frozenset()
+        return frozenset(names)
 
     def _create_waterway(
         self,
@@ -651,6 +708,8 @@ class JunctionWriter(BaseWriter):
         self._plp_no_limit_count = 0
         # Reset vrebemb-as-sink counter for this conversion run.
         self._vrebemb_as_sink_count = 0
+        # Reset built-in Turbine waterway counter for this run.
+        self._builtin_turbine_waterway_count = 0
         # Reset dead-zero waterway suppression counter for this run.
         self._dead_zero_waterway_count = 0
         # Reset seepage-redundant-spillway suppression state for this run.
@@ -768,6 +827,14 @@ class JunctionWriter(BaseWriter):
                 "--vrebemb-as-sink: routed %d vrebemb-listed centrals' "
                 "_ver to synthetic ocean drain (fcost dropped)",
                 self._vrebemb_as_sink_count,
+            )
+
+        if self._builtin_turbine_waterway_count > 0:
+            _logger.info(
+                "Built-in Turbine waterway: emitted %d terminal turbine "
+                "central(s) with Turbine.junction_a (no synthetic "
+                "<central>_ocean Junction + <central>_gen Waterway pair)",
+                self._builtin_turbine_waterway_count,
             )
 
         if self._dead_zero_waterway_count > 0:
@@ -1220,17 +1287,37 @@ class JunctionWriter(BaseWriter):
                     junction_drain_cost = float(spill_fcost)
                 junction_drain_from_spill = True
 
-        # For embalse/serie/pasada centrals with ser_hid=0, complete the
-        # missing generation waterway outlet by routing it to the shared
-        # synthetic "{name}_ocean" drain junction (created above by the
-        # spill-fallback path, OR created here on first use).  Sharing
-        # the drain across both `_gen` and `_ver` arcs keeps the
-        # topology minimal — one source + one drain per terminal
-        # central, rather than the historical two-drain emission
-        # (`_spill` + `_ocean`) that wasted one synthetic junction
-        # per ser_hid=0+ser_ver=0 case.  The ocean junction is created
-        # regardless of bus so the hydro topology is always complete.
-        if central_type in ("embalse", "serie", "pasada") and gen_waterway is None:
+        # For embalse/serie/pasada centrals with ser_hid=0, the gen arc
+        # has no PLP downstream junction.
+        #
+        # **Built-in Turbine waterway** (bus > 0 terminal turbines, e.g.
+        # LA_HIGUERA): gtopt's ``Turbine.junction_a`` (with
+        # ``junction_b`` unset) models the per-block water debit on the
+        # central's own junction PLUS the power conversion in a single
+        # primitive — no synthetic ``<central>_ocean`` Junction, no
+        # ``<central>_gen`` Waterway needed.  Emitted further below.
+        # Saves one Junction + one Waterway per terminal turbine
+        # central.  Per-block ``Turbine.capacity`` carries the same
+        # ``fmax = PotMax / Rendi`` cap the legacy gen Waterway had.
+        #
+        # **Legacy gen Waterway path** (bus == 0 transit-only or RoR
+        # promotion): the gen Waterway carries per-stage plpmance
+        # bounds via ``_transit_gen_waterways`` and is the reservoir's
+        # ``junction_a`` anchor for ``--ror-as-reservoirs`` promotion.
+        # Both rely on a concrete Waterway object to bind parquet refs
+        # to, so we keep the ocean+gen_waterway pair for these cases.
+        use_builtin_turbine_waterway = (
+            central_type in ("embalse", "serie", "pasada")
+            and gen_waterway is None
+            and central.get("bus", 0) > 0
+            and central_name not in self._ror_reservoir_spec
+            and central_name not in self._pmin_flowright_centrals
+        )
+        if (
+            central_type in ("embalse", "serie", "pasada")
+            and gen_waterway is None
+            and not use_builtin_turbine_waterway
+        ):
             if synthetic_drain_uid is None:
                 self._ocean_junction_counter += 1
                 synthetic_drain_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
@@ -1315,6 +1402,22 @@ class JunctionWriter(BaseWriter):
                     "production_factor": production_factor,
                 }
                 system["turbine_array"].append(turbine)
+        elif use_builtin_turbine_waterway:
+            # Built-in Turbine waterway path — Turbine.junction_a on the
+            # central's own junction with ``junction_b`` unset models a
+            # terminal drain natively.  Per-block ``capacity`` carries
+            # the legacy gen-Waterway ``fmax = PotMax / Rendi`` cap.
+            turbine_builtin: Turbine = {
+                "uid": central_id,
+                "name": central_name,
+                "generator": central_name,
+                "junction_a": central_name,
+                "production_factor": central["efficiency"],
+            }
+            if gen_fmax is not None:
+                turbine_builtin["capacity"] = gen_fmax
+            system["turbine_array"].append(turbine_builtin)
+            self._builtin_turbine_waterway_count += 1
 
         if ver_waterway:
             system["waterway_array"].append(ver_waterway)
@@ -1379,6 +1482,14 @@ class JunctionWriter(BaseWriter):
             drain = True
         elif junction_drain_from_spill:
             drain = True
+        elif use_builtin_turbine_waterway:
+            # Built-in Turbine waterway IS the central's physical
+            # outlet (debits this junction every block).  Stamping
+            # ``drain = True`` here would add a free escape valve on
+            # top of the turbine — water could leave at zero cost
+            # without producing power.  Keep ``drain = False`` so the
+            # turbine's per-block capacity remains the binding cap.
+            drain = False
         else:
             drain = gen_waterway is None and ver_waterway is None
         junction: Junction = {
@@ -2100,7 +2211,7 @@ class JunctionWriter(BaseWriter):
 
         # Build name→waterway name lookup from the already-created turbines
         turbine_waterway: Dict[str, str] = {
-            t["name"]: t["waterway"] for t in system["turbine_array"]
+            t["name"]: t["waterway"] for t in system["turbine_array"] if "waterway" in t
         }
 
         seep_array = system["reservoir_seepage_array"]
@@ -2308,10 +2419,14 @@ class JunctionWriter(BaseWriter):
                 name.strip() for name in str(disabled_raw).split(",") if name.strip()
             }
 
-        # Build reservoir name → turbine waterway name map
+        # Build reservoir name → turbine waterway name map.
+        # Built-in Turbine waterway turbines (``Turbine.junction_a``) have
+        # no ``waterway`` field — they're skipped here because the
+        # discharge-limit code currently keys off the gen-waterway name.
         turbine_waterway: Dict[str, str] = {}
         for turbine in system["turbine_array"]:
-            turbine_waterway[turbine["name"]] = turbine["waterway"]
+            if "waterway" in turbine:
+                turbine_waterway[turbine["name"]] = turbine["waterway"]
 
         for entry in self.ralco_parser.reservoir_discharge_limits:
             rsv_name = entry["reservoir"]
@@ -2466,7 +2581,7 @@ class JunctionWriter(BaseWriter):
 
         # Turbine name → gen-waterway name (to lookup and mutate fmax)
         turbine_waterway: Dict[str, str] = {
-            t["name"]: t["waterway"] for t in system["turbine_array"]
+            t["name"]: t["waterway"] for t in system["turbine_array"] if "waterway" in t
         }
 
         # Waterway name → waterway dict (to set fmax in place)

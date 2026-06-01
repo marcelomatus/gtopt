@@ -209,6 +209,36 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
             "(default: <output-file>.xlsx)"
         ),
     )
+    parser.add_argument(
+        "--plexos-overlay",
+        dest="plexos_overlay",
+        type=Path,
+        metavar="PATH",
+        default=None,
+        help=(
+            "overlay heat-rate / fuel data from a plexos2gtopt-emitted "
+            "gtopt case onto the plp2gtopt output.  PATH is either the "
+            "gtopt JSON file or the directory containing it.  Per the "
+            "SDDP no-integer rule, only continuous Generator fields are "
+            "carried: heat_rate, heat_rate_segments+pmax_segments, fuel "
+            "FK, lossfactor, plus the referenced Fuel elements (price, "
+            "co2_*, max_offtake).  Conflict policy: PLEXOS wins."
+        ),
+    )
+    parser.add_argument(
+        "--plexos-overlay-report",
+        dest="plexos_overlay_report",
+        type=Path,
+        metavar="FILE",
+        default=None,
+        help=(
+            "write a JSON report of the overlay outcome (matched / "
+            "unmatched-plp-only / unmatched-plexos-only / synthesized "
+            "Fuel elements / skipped fields) to FILE.  Defaults to "
+            "<output-dir>/plexos_overlay_report.json when --plexos-overlay "
+            "is set."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

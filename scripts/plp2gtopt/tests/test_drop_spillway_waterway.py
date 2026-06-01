@@ -159,21 +159,29 @@ def test_terminal_serie_no_synthetic_ocean_for_spillway():
     """``ser_ver = 0 + VertMax > 0`` no longer triggers a synthetic ocean.
 
     With drop_spillway_waterway on, the terminal-spillway ocean fallback
-    is bypassed.  Exactly one ocean junction is created (for the gen
-    path, since ``ser_hid = 0`` too), shared across nothing — the gen
-    arc terminates there alone.
+    is bypassed.  The gen path used to synthesise its own ocean too,
+    but bus > 0 terminal turbines now use the built-in
+    ``Turbine.junction_a`` waterway — zero synthetic ocean Junctions,
+    zero ``_gen``/``_ver`` Waterways to the ocean.
     """
     cent = _serie("Term", 1, ser_hid=0, ser_ver=0, vert_max=50.0)
     system = _run([cent])
 
     oceans = [j for j in system["junction_array"] if "_ocean" in j["name"]]
-    assert len(oceans) == 1
-    # Only the gen arc reaches the ocean; no _ver arc exists at all.
+    assert not oceans, "expected no synthetic ocean junctions for terminal turbine"
+    # No waterway ends in an ocean — the built-in Turbine waterway
+    # debits the central's own junction and drains terminal-style.
     to_ocean = [
         w for w in system["waterway_array"] if w["junction_b"].endswith("_ocean")
     ]
-    assert len(to_ocean) == 1
-    assert to_ocean[0]["name"].startswith("Term_gen_")
+    assert not to_ocean
+
+    # The terminal turbine is emitted with the built-in waterway form.
+    turbines = system.get("turbine_array", [])
+    assert len(turbines) == 1
+    assert turbines[0]["junction_a"] == "Term"
+    assert "waterway" not in turbines[0]
+    assert "junction_b" not in turbines[0]
 
 
 def test_no_spillway_fcost_in_suppress_mode():

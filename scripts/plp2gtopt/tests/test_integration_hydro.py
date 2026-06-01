@@ -422,18 +422,25 @@ def test_min_reservoir_conversion(tmp_path):
     turb_j = next(j for j in junctions if j["name"] == "TurbineGen")
     assert turb_j["drain"] is False
 
-    # Waterways: embalse→serie (ser_hid=2) + serie→ocean (ser_hid=0 fix)
+    # Waterways: embalse→serie (ser_hid=2) only.  The legacy serie→ocean
+    # arc (ser_hid=0 terminal) is now collapsed onto the Turbine itself
+    # via the built-in Turbine.junction_a waterway — no synthetic ocean
+    # Junction, no <central>_gen Waterway.
     waterways = sys_data.get("waterway_array", [])
-    assert len(waterways) == 2
-    # The original waterway from Reservoir1 to TurbineGen
+    assert len(waterways) == 1
     ww_res = next(w for w in waterways if w["junction_a"] == "Reservoir1")
     assert ww_res["junction_b"] == "TurbineGen"
 
-    # Turbines: Reservoir1 (embalse, bus>0) + TurbineGen (serie, bus>0, ocean fix)
+    # Turbines: Reservoir1 (legacy waterway path — gen_waterway exists)
+    # + TurbineGen (built-in waterway — junction_a only, no waterway field).
     turbines = sys_data.get("turbine_array", [])
     assert len(turbines) == 2
     rsv_turb = next(t for t in turbines if t["generator"] == "Reservoir1")
     assert rsv_turb["waterway"] == ww_res["name"]
+    term_turb = next(t for t in turbines if t["generator"] == "TurbineGen")
+    assert term_turb["junction_a"] == "TurbineGen"
+    assert "waterway" not in term_turb
+    assert "junction_b" not in term_turb
 
     # Flow (discharge) is a parquet reference
     flows = sys_data.get("flow_array", [])

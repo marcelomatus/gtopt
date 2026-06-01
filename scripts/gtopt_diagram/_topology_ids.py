@@ -128,6 +128,64 @@ class TopologyIdsMixin:
     def _lngid(lt):
         return TopologyIdsMixin._make_id("lng", lt)
 
+    @staticmethod
+    def _ucid(uc):
+        return TopologyIdsMixin._make_id("uc", uc)
+
+    @staticmethod
+    def _dvid(dv):
+        return TopologyIdsMixin._make_id("dv", dv)
+
+    @staticmethod
+    def _cmtid(cm):
+        return TopologyIdsMixin._make_id("cmt", cm)
+
+    @staticmethod
+    def _scmtid(cm):
+        return TopologyIdsMixin._make_id("scmt", cm)
+
+    @staticmethod
+    def _fuelid(fl):
+        return TopologyIdsMixin._make_id("fuel", fl)
+
+    @staticmethod
+    def _emid(em):
+        return TopologyIdsMixin._make_id("em", em)
+
+    @staticmethod
+    def _emzid(ez):
+        return TopologyIdsMixin._make_id("emz", ez)
+
+    @staticmethod
+    def _emsrcid(es):
+        return TopologyIdsMixin._make_id("emsrc", es)
+
+    @staticmethod
+    def _ccid(cc):
+        return TopologyIdsMixin._make_id("cconv", cc)
+
+    @staticmethod
+    def _plantid(p):
+        """ID for a Plant cluster (used as a subcluster tag, not a node).
+
+        Plants are pure metadata — they do not occupy a node in the graph.
+        Instead, member generators carry ``subcluster=f"plant:{name}"`` so
+        the renderer can wrap them in a labelled subgraph.  The id helper
+        is provided for symmetry / future extension.
+        """
+        return TopologyIdsMixin._make_id("plant", p)
+
+    @staticmethod
+    def _drainid(t):
+        """ID for the synthetic terminal-drain marker of a Mode B turbine.
+
+        These markers are NOT in any JSON array — they are emitted alongside
+        the parent turbine when ``junction_a`` is set and ``junction_b`` is
+        unset.  The ID derives from the parent turbine so it is stable
+        across renders and unique per turbine.
+        """
+        return TopologyIdsMixin._make_id("drain", t)
+
     def _resolve_field(
         self, class_name: str, elem: dict, field: str, fallback: str = "—"
     ) -> str:

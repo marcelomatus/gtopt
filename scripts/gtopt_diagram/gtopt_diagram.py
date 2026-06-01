@@ -268,6 +268,11 @@ class TopologyBuilder(
         self.subsystem = subsystem
         self.opts = opts or FilterOptions()
         self.model = GraphModel(title=self.sys.get("name", "gtopt Network"))
+        # Propagate the collapse-on-load list to the renderer (HTML).
+        # Empty list = layout-hint mode (default).
+        self.model.collapse_groups = list(  # type: ignore[attr-defined]
+            self.opts.collapse_groups or []
+        )
         self._resolver = resolver  # FieldSchedResolver or None
         self._turb_refs = _turbine_gen_refs(self.sys)
         self._turb_way_refs = _turbine_waterway_refs(self.sys)
@@ -324,6 +329,16 @@ class TopologyBuilder(
                 "flow_right_array",
                 "pump_array",
                 "lng_terminal_array",
+                "fuel_array",
+                "emission_array",
+                "emission_zone_array",
+                "emission_source_array",
+                "user_constraint_array",
+                "decision_variable_array",
+                "commitment_array",
+                "simple_commitment_array",
+                "carrier_converter_array",
+                "plant_array",
             )
         )
 
@@ -414,9 +429,68 @@ class TopologyBuilder(
             self._lines()
             self._batteries()
             self._converters()
-            self._generator_profiles()
-            self._demand_profiles()
-            self._lng_terminals()
+            # Auxiliary "metadata" overlays — Fuel, LngTerminal, and
+            # CarrierConverter nodes are conceptually physical but
+            # visually they pile cylinder icons on top of the
+            # network without adding insight; the per-generator fuel
+            # tag is already carried by the ``fuel:<family>``
+            # subcluster grouping.  Gated behind ``--draw-logical``.
+            if self.opts.draw_logical_elements:
+                self._lng_terminals()
+                self._fuels()
+                self._carrier_converters()
+            # Logical / LP-internal overlays — gated behind
+            # ``draw_logical_elements`` (default OFF).  Commitment /
+            # ReserveZone / UserConstraint / DecisionVariable / Emission
+            # / Generator-Demand profiles are LP-side abstractions that
+            # clutter the topology view without adding insight.  Set
+            # ``--draw-logical`` to opt back in.
+            if self.opts.draw_logical_elements:
+                self._generator_profiles()
+                self._demand_profiles()
+                self._emissions()
+                self._emission_zones()
+                self._emission_sources()
+                self._commitments()
+                self._simple_commitments()
+                self._decision_variables()
+                self._user_constraints()
+            # Plant clustering runs last so every generator node (and any
+            # filtering applied to them above) is already in the model
+            # when we tag subcluster membership.
+            self._plants()
+            # Substation clustering — buses sharing a name prefix AND
+            # joined by a transformer or short line are grouped into a
+            # substation subgraph.
+            self._substations()
+            # N1: bridges + articulation points (single-point-of-failure
+            # buses/lines).
+            self._critical_topology()
+            # Isolated buses — zero AC connections, can't trade power.
+            self._isolated_buses()
+            # N11: orphan generators — bus can't reach any demand bus.
+            self._orphan_generators()
+            # N3: edge betweenness centrality — scale line pen-width
+            # by backbone-importance so the HV trunk pops visually.
+            self._backbone_betweenness()
+            # N5: HV backbone overlay (k-core ≥ 3 of the AC graph).
+            self._hv_backbone()
+            # N6: electrical-distance from focus_buses (when set).
+            self._focus_distance()
+            # N10: AC cycle basis — stash for renderer overlays.
+            self._electrical_loops()
+            # N2: community detection — auto-detect topological
+            # regions on the AC graph and tag bus nodes with a
+            # ``community:N`` super_cluster.  Runs BEFORE basins so
+            # the hydro-side basin tagging wins for any node that
+            # belongs to both (community for buses, basin for water).
+            self._communities()
+            # Reserve-zone grouping (B) — fallback subcluster for
+            # generators not already in a plant.
+            self._reserve_zone_groups()
+            # Fuel grouping (C) — final subcluster fallback for
+            # thermal/gas generators sharing a Fuel.
+            self._fuel_groups()
         if s in ("full", "hydro"):
             self._junctions()
             self._waterways()
@@ -428,7 +502,18 @@ class TopologyBuilder(
             self._volume_rights()
             self._flow_rights()
             self._reservoir_efficiencies()
-        if s == "full":
+            # Basin grouping (A) — outer super-cluster wrapping the
+            # whole hydro drainage area (junctions + reservoirs +
+            # turbines + generators reached via the cascade).  Runs
+            # AFTER every hydro entity is in the model.
+            self._basins()
+            # N4: topological-sort layout hints for each basin.  Runs
+            # AFTER _basins so it sees the basin tags it needs to
+            # group on.
+            self._basin_layout_hints()
+        if s == "full" and self.opts.draw_logical_elements:
+            # Reserve zones / provisions are LP-side requirements; gated
+            # behind ``--draw-logical`` (default OFF).
             self._reserve_zones()
             self._reserve_provisions()
         # Remove edges that reference nodes absent from the model (e.g. when

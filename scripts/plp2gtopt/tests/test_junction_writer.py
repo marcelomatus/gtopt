@@ -276,19 +276,20 @@ def test_to_json_array_single_plant():
 
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
-    capacity is encoded as ``Junction.drain_capacity`` + ``drain_cost``
-    on the central's own junction, and only the gen waterway (which the
-    turbine needs) still routes to a synthetic ``<central>_ocean``.
+    capacity is encoded as ``Junction.drain_capacity`` on the central's
+    own junction, the gen path uses the built-in Turbine waterway
+    (``Turbine.junction_a``), and no synthetic ``<central>_ocean``
+    Junction or ``<central>_gen`` Waterway is emitted.
 
-    Pre-Junction-drain-capacity patch the spillway was modelled as a
-    separate ``_ver`` Waterway from ``<central> → <central>_ocean``
-    with ``fmax = VertMax`` and ``fcost = CVert``; that pair has been
-    collapsed into ``Junction{drain: True, drain_capacity: VertMax,
-    drain_cost: CVert}`` on the source junction — same LP (same
-    per-block drain column, same upper bound, same cost), one less
-    Waterway.  The ``<central>_ocean`` Junction is still created for
-    the gen-path fallback (the turbine references it), so the
-    junction count stays at 2.
+    Two LP outlets remain on the same junction:
+
+    * **Turbine.junction_a** (debit, capped at ``PotMax / Rendi``) — the
+      power-producing path.
+    * **Junction.drain_capacity** (free escape, capped at ``VertMax``,
+      priced at ``CVert``) — the spillway path.
+
+    Same LP physics as the legacy ocean+Waterway emission, minus one
+    Junction and one Waterway.
     """
     central = {
         "name": "PlantDrain",
@@ -308,33 +309,28 @@ def test_drain_junction():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Source junction + ocean junction for the gen waterway = 2.
-    assert len(result["junction_array"]) == 2
-
-    plant_junction = next(
-        j for j in result["junction_array"] if j["name"] == "PlantDrain"
-    )
+    # Only the central's own junction — no synthetic ocean junction.
+    assert len(result["junction_array"]) == 1
+    plant_junction = result["junction_array"][0]
+    assert plant_junction["name"] == "PlantDrain"
     assert plant_junction["uid"] == 5
-    # The source junction now carries the spillway capacity as its own
-    # drain column (replacing the legacy ``_ver`` arc).
+    # Source junction carries the spillway capacity as its own drain
+    # column (drain=True chosen by ``junction_drain_from_spill`` path
+    # which precedes the built-in turbine drain rule).
     assert plant_junction["drain"] is True
     assert plant_junction["drain_capacity"] == pytest.approx(50.0)
-    # drain_cost is omitted when ``plpmat_parser`` is absent — no
-    # CVert default available, so the drain column gets cost 0.
     assert "drain_cost" not in plant_junction
 
-    drain_junction = next(
-        j for j in result["junction_array"] if j["name"] == "PlantDrain_ocean"
-    )
-    assert drain_junction["drain"] is True
+    # No waterways at all — the gen arc lives inside Turbine.junction_a.
+    assert not result["waterway_array"]
 
-    # Only the gen waterway remains; the legacy ``_ver`` arc is gone
-    # because its constraint has migrated to Junction.drain_capacity.
-    waterways = result["waterway_array"]
-    assert len(waterways) == 1
-    gen_ww = waterways[0]
-    assert "_gen_" in gen_ww["name"]
-    assert gen_ww["junction_b"] == drain_junction["name"]
+    # Terminal turbine uses the built-in waterway form.
+    turbines = result["turbine_array"]
+    assert len(turbines) == 1
+    assert turbines[0]["name"] == "PlantDrain"
+    assert turbines[0]["junction_a"] == "PlantDrain"
+    assert "waterway" not in turbines[0]
+    assert "junction_b" not in turbines[0]
 
 
 def test_no_turbine_creation():
@@ -475,18 +471,22 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     )
     result = writer.to_json_array()[0]
 
-    # PlantA + PlantB + PlantC junctions + 2 ocean junctions
-    # PlantC (serie, bus=0, ser_hid=0, ser_ver=0) is kept because PlantA's
-    # ser_ver=3 references PlantC as a downstream drain junction.
-    assert len(result["junction_array"]) == 5
+    # PlantA + PlantB + PlantC junctions + 1 ocean junction (PlantC only).
+    # PlantB used to need a synthetic ``PlantB_ocean`` for its terminal
+    # gen path; with the built-in ``Turbine.junction_a`` waterway the
+    # turbine debits PlantB directly and no ocean junction is needed.
+    # PlantC stays as bus=0 transit-only (no turbine), so its gen path
+    # still routes to a synthetic ``PlantC_ocean`` because we cannot
+    # elide a Waterway with attached transit-only flow bounds.
+    assert len(result["junction_array"]) == 4
 
     # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
-    # PlantB: gen(ocean, ser_hid=0) + ver (in-network → PlantC) = 2.
-    # PlantC (ser_hid=0 AND ser_ver=0): gen(ocean) only — the legacy
-    #   ver-to-ocean arc collapsed into Junction.drain_capacity on
-    #   PlantC = 1.
-    # plus 1 extraction = 6 total.
-    assert len(result["waterway_array"]) == 6
+    # PlantB: ver (in-network → PlantC) only — gen path moved to
+    #   built-in Turbine waterway (no Waterway).
+    # PlantC (bus=0): gen(ocean) only — the legacy ver-to-ocean arc was
+    #   already collapsed into Junction.drain_capacity on PlantC.
+    # plus 1 extraction = 5 total.
+    assert len(result["waterway_array"]) == 5
     # PlantC carries the spillway capacity as a junction-level drain.
     plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
     assert plantc["drain"] is True
@@ -788,37 +788,41 @@ def _rapel_parser() -> MockCentralParser:
 
 
 def test_embalse_ocean_junction_created():
-    """An embalse with bus>0 and ser_hid/ser_ver==0 gets a '<name>_ocean' drain junction."""
+    """Embalse (bus>0, ser_hid/ser_ver=0): no synthetic ocean junction.
+
+    The terminal turbine now uses the built-in
+    ``Turbine.junction_a`` waterway, eliding the legacy
+    ``<name>_ocean`` drain junction.  The spillway capacity remains on
+    the source junction via ``drain_capacity``.
+    """
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
     ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
-    assert len(ocean_junctions) == 1
-    ocean = ocean_junctions[0]
-    assert ocean["name"] == "RAPEL_ocean"
-    assert ocean["drain"] is True
-    assert ocean["uid"] > 10000  # above _OCEAN_UID_OFFSET
+    assert not ocean_junctions
 
 
 def test_embalse_ocean_junction_waterways_created():
-    """Only the `_gen` waterway targets the synthetic ocean drain.
+    """No waterways head to the ocean — the gen path is on the Turbine.
 
-    The legacy ``_ver`` arc that used to share the same ocean drain has
-    been collapsed into ``Junction.drain_capacity`` + ``drain_cost`` on
-    the source junction.  The gen path stays untouched because the
-    turbine references its waterway by name.
+    Both the ``_gen`` (turbine flow) and the ``_ver`` (spillway) arcs
+    that used to terminate at a synthetic ``RAPEL_ocean`` Junction are
+    now expressed on the source junction itself:
+
+    * gen via ``Turbine.junction_a`` (built-in waterway)
+    * spill via ``Junction.drain_capacity`` (per-block drain column)
     """
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Only the gen arc terminates at the ocean drain now.
-    to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"]
-    assert len(to_ocean) == 1
-    assert to_ocean[0]["junction_a"] == "RAPEL"
-    assert "_gen_" in to_ocean[0]["name"]
+    # No waterway terminates at any synthetic ocean junction.
+    to_ocean = [
+        w for w in result["waterway_array"] if w["junction_b"].endswith("_ocean")
+    ]
+    assert not to_ocean
 
     # The RAPEL source junction carries the spillway capacity (drain
-    # column with uppb = 50).  drain_cost is omitted because the test
+    # column with uppb = 6000).  drain_cost is omitted because the test
     # parser has no plpmat (no CVert default available).
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
     assert rapel_junction["drain"] is True
@@ -827,7 +831,12 @@ def test_embalse_ocean_junction_waterways_created():
 
 
 def test_embalse_ocean_junction_turbine_created():
-    """A turbine is created for the embalse via the generation waterway to ocean."""
+    """The terminal embalse turbine uses ``Turbine.junction_a`` (built-in waterway).
+
+    No synthetic ``<central>_ocean`` Junction, no ``<central>_gen``
+    Waterway — the Turbine debits the embalse's own junction directly
+    and drains terminal-style (``junction_b`` unset).
+    """
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
@@ -836,9 +845,9 @@ def test_embalse_ocean_junction_turbine_created():
     assert turbine["name"] == "RAPEL"
     assert turbine["generator"] == "RAPEL"
     assert turbine["production_factor"] == pytest.approx(0.9)
-    # The turbine's waterway must terminate at the ocean junction
-    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
-    assert ww["junction_b"] == "RAPEL_ocean"
+    assert turbine["junction_a"] == "RAPEL"
+    assert "waterway" not in turbine
+    assert "junction_b" not in turbine
 
 
 def test_embalse_ocean_junction_enables_efficiency():

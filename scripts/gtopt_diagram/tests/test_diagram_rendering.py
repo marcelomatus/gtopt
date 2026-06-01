@@ -851,30 +851,39 @@ class TestGeneratorProfileLinkageUnderAggregation:
         assert ("gprof_GP_wind_2", "gen_G_wind_3") in pairs
 
     def test_aggregate_bus_links_to_bus_super_node(self):
-        """``aggregate='bus'`` links each profile to its bus's agg-gen node."""
+        """``aggregate='bus'`` links each profile to its bus's agg-gen node
+        when the bus has ≥2 generators; singleton buses render the
+        unit individually and the profile links there directly."""
         model = self._build("bus")
         edges = self._profile_edges(model)
         pairs = {(e.src, e.dst) for e in edges}
+        # Bus 1 has G_solar + G_thermal → aggregated.
         assert ("gprof_GP_solar_1", "agg_bus_1") in pairs
-        assert ("gprof_GP_wind_2", "agg_bus_2") in pairs
+        # Bus 2 has G_wind only → singleton → individual node.
+        assert ("gprof_GP_wind_2", "gen_G_wind_3") in pairs
         _assert_no_dangling_edges(model)
 
     def test_aggregate_type_links_to_bus_type_super_node(self):
-        """``aggregate='type'`` links each profile to its (bus, type) node."""
+        """``aggregate='type'`` collapses (bus, type) only when there
+        are ≥2 units in that combo.  In this fixture every
+        (bus, type) is a singleton, so every profile links to the
+        individual generator."""
         model = self._build("type")
         edges = self._profile_edges(model)
         pairs = {(e.src, e.dst) for e in edges}
-        assert ("gprof_GP_solar_1", "agg_type_1_solar") in pairs
-        assert ("gprof_GP_wind_2", "agg_type_2_wind") in pairs
+        assert ("gprof_GP_solar_1", "gen_G_solar_1") in pairs
+        assert ("gprof_GP_wind_2", "gen_G_wind_3") in pairs
         _assert_no_dangling_edges(model)
 
     def test_aggregate_global_links_to_global_type_node(self):
-        """``aggregate='global'`` links each profile to the global type node."""
+        """``aggregate='global'`` only collapses when ≥2 units share
+        a type.  Each type in this fixture is a singleton, so every
+        profile links to the individual generator."""
         model = self._build("global")
         edges = self._profile_edges(model)
         pairs = {(e.src, e.dst) for e in edges}
-        assert ("gprof_GP_solar_1", "agg_global_solar") in pairs
-        assert ("gprof_GP_wind_2", "agg_global_wind") in pairs
+        assert ("gprof_GP_solar_1", "gen_G_solar_1") in pairs
+        assert ("gprof_GP_wind_2", "gen_G_wind_3") in pairs
         _assert_no_dangling_edges(model)
 
     def test_no_dangling_edges_in_any_mode(self):

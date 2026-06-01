@@ -45,13 +45,42 @@ def turbine_waterway_refs(sys: dict) -> set:
 
     Used to suppress the direct ``junction_a -> junction_b`` edge for waterways
     that already have a turbine node representing the arc.
+
+    A turbine in legacy ``waterway`` mode references an external Waterway by
+    uid/name.  Mode B (built-in waterway via ``junction_a``/``junction_b``)
+    owns its own flow column and does NOT reference any Waterway here — so
+    Mode B turbines are intentionally excluded from this set.
     """
     refs: set = set()
     for t in sys.get("turbine_array", []):
+        # Skip Mode B (built-in waterway) — ``junction_a`` takes priority
+        # over ``waterway`` and the ``waterway`` ref (if any) is ignored
+        # at the LP layer per the priority rule documented in turbine.hpp.
+        if t.get("junction_a") is not None or t.get("flow") is not None:
+            continue
         w = t.get("waterway")
         if w is not None:
             refs.add(w)
     return refs
+
+
+def turbine_is_builtin_waterway(t: dict) -> bool:
+    """Return True iff the turbine uses Mode B (built-in waterway).
+
+    Mode B is signalled by ``junction_a`` being set while ``flow`` is unset.
+    Mode priority in ``Turbine``: ``flow`` > ``junctions`` > ``waterway``.
+    """
+    return t.get("flow") is None and t.get("junction_a") is not None
+
+
+def turbine_is_terminal_drain(t: dict) -> bool:
+    """Return True iff the Mode B turbine has no downstream junction.
+
+    Terminal-drain turbines (``junction_a`` set, ``junction_b`` unset) model
+    plants that discharge directly out of the system (e.g. run-to-sea hydro
+    centrals); no synthetic "ocean" junction is required in the diagram.
+    """
+    return turbine_is_builtin_waterway(t) and t.get("junction_b") is None
 
 
 def efficiency_turbine_pairs(sys: dict) -> set:

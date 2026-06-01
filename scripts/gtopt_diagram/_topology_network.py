@@ -102,6 +102,55 @@ class TopologyNetworkMixin(TopologyIdsMixin):
         else:
             self._gen_agg_global(gens)
 
+    @staticmethod
+    def _common_stem(names: list[str]) -> str:
+        """Return a human-readable common name root for a list of names.
+
+        Strategy:
+          1. Longest common prefix of all names.
+          2. Strip trailing separator / digit / single-letter variants
+             (``_``, ``-``, ``.``, space, ``[0-9]``, ``[A-Z]``).
+          3. If the result is too short (< 3 chars), fall back to the
+             first name itself (the user wanted the base name; better
+             to show the first unit than an unhelpful 1-2 char prefix).
+        """
+        if not names:
+            return ""
+        if len(names) == 1:
+            return names[0]
+        first = names[0]
+        n = len(first)
+        for nm in names[1:]:
+            n = min(n, len(nm))
+            while n > 0 and first[:n] != nm[:n]:
+                n -= 1
+            if n == 0:
+                return first
+        stem = first[:n]
+        # Strip trailing junk so "COLBUN_" becomes "COLBUN" and
+        # "ATA-T" stays "ATA-T".
+        stem = stem.rstrip("_-. ")
+        # If the stem ends with one trailing letter or digit AND the
+        # NEXT char in every member is the same family (so the
+        # trailing char is the variant suffix), drop it.  Eg first
+        # name "ATA_TG1A", second "ATA_TG1B" → LCP "ATA_TG1" — already
+        # clean.  But "Plant1A" / "Plant1B" → LCP "Plant1" → drop "1".
+        # Conservative: only strip a single trailing digit-or-letter
+        # if every member's next char (at position n-1) is a single
+        # variant char [A-Z0-9].
+        if (
+            len(stem) >= 4
+            and stem[-1].isalnum()
+            and all(n - 1 < len(nm) and nm[n - 1 : n].isalnum() for nm in names)
+            # Only strip when names AFTER the stem actually diverge —
+            # never strip a digit that's part of a shared word.
+            and len({nm[n - 1 : n] for nm in names}) > 1
+        ):
+            stem = stem[:-1].rstrip("_-. ")
+        if len(stem) < 3:
+            return first
+        return stem
+
     def _gen_individual(self, gens):
         for gen in gens:
             # Capacity first, pmax as fallback
@@ -136,6 +185,12 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                 continue
             if self.opts.top_gens > 0:
                 grp = sorted(grp, key=_gen_pmax, reverse=True)[: self.opts.top_gens]
+            # Single-unit groups: render exactly like the individual
+            # generator so the user sees its real name and pmax
+            # instead of a synthetic "Agg. generators …" placeholder.
+            if len(grp) == 1:
+                self._gen_individual(grp)
+                continue
             total = sum(_gen_pmax(g) for g in grp)
             rep = _resolve_bus_ref(bus_ref, self._vmap)
             bus = self._find("bus_array", rep) or self._find("bus_array", bus_ref)
@@ -147,14 +202,21 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             types = [_classify_gen(g, self._turb_refs) for g in grp]
             kind = _dominant_kind(types)
             nid = f"agg_bus_{bus_ref}"
-            lbl = f"{bname} generators\n{len(grp)} units · {total:.0f} MW"
+            # Label = common name stem of the members (e.g. "COLBUN"
+            # for COLBUN_1 / COLBUN_2 / COLBUN_3) with a unit count
+            # suffix.  Falls back to a generic placeholder only when
+            # no usable common stem exists.
+            # Use the raw ``name`` field (no ``:uid`` suffix) so the
+            # common-stem detection sees the shared prefix cleanly.
+            stem = self._common_stem([str(g.get("name") or _elem_name(g)) for g in grp])
+            lbl = f"{stem} ({len(grp)} units)\n{total:.0f} MW"
             self.model.add_node(
                 Node(
                     node_id=nid,
                     label=lbl,
                     kind=kind,
                     cluster="electrical",
-                    tooltip=f"Agg. generators at {bname}: {len(grp)} units, {total:.0f} MW",
+                    tooltip=(f"{stem} @ {bname}: {len(grp)} units, {total:.0f} MW"),
                 )
             )
             self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
@@ -170,6 +232,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                 continue
             if self.opts.top_gens > 0:
                 grp = sorted(grp, key=_gen_pmax, reverse=True)[: self.opts.top_gens]
+            # Single-unit (bus, type) groups: render the unit directly.
+            if len(grp) == 1:
+                self._gen_individual(grp)
+                continue
             total = sum(_gen_pmax(g) for g in grp)
             rep = _resolve_bus_ref(bus_ref, self._vmap)
             bus = self._find("bus_array", rep) or self._find("bus_array", bus_ref)
@@ -181,14 +247,19 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
             label, icon, palette_key = meta
             nid = f"agg_type_{bus_ref}_{gt}"
-            lbl = f"{icon} {label} @ {bname}\n{len(grp)} units · {total:.0f} MW"
+            # Use the raw ``name`` field (no ``:uid`` suffix) so the
+            # common-stem detection sees the shared prefix cleanly.
+            stem = self._common_stem([str(g.get("name") or _elem_name(g)) for g in grp])
+            lbl = f"{icon} {stem} ({len(grp)} units)\n{total:.0f} MW"
             self.model.add_node(
                 Node(
                     node_id=nid,
                     label=lbl,
                     kind=palette_key,
                     cluster="electrical",
-                    tooltip=f"{label} at {bname}: {len(grp)} units, {total:.0f} MW",
+                    tooltip=(
+                        f"{stem} ({label}) @ {bname}: {len(grp)} units, {total:.0f} MW"
+                    ),
                 )
             )
             self.model.add_edge(Edge(nid, bus_id, color=_PALETTE["bus_border"]))
@@ -200,6 +271,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
         for gt, grp in by_type.items():
             if self.opts.top_gens > 0:
                 grp = sorted(grp, key=_gen_pmax, reverse=True)[: self.opts.top_gens]
+            # Single-unit type groups: render the unit directly.
+            if len(grp) == 1:
+                self._gen_individual(grp)
+                continue
             total = sum(_gen_pmax(g) for g in grp)
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
             label, icon, palette_key = meta
@@ -390,6 +465,11 @@ class TopologyNetworkMixin(TopologyIdsMixin):
         the id of the matching super-node so that profile/converter/turbine
         edges still land on something visible. Falls back to the individual
         generator id in ``none`` mode.
+
+        Single-unit groups are short-circuited to the individual
+        generator id — the aggregator emits the unit directly (with
+        its real name) instead of a synthetic ``agg_bus_…`` placeholder,
+        so the super-node id would dangle.
         """
         gen = self._find("generator_array", gen_ref)
         if gen is None:
@@ -397,13 +477,29 @@ class TopologyNetworkMixin(TopologyIdsMixin):
         agg = self._eff_agg
         if agg == "none":
             return self._gid(gen)
+        all_gens = self.sys.get("generator_array", []) or []
         if agg == "bus":
-            return f"agg_bus_{gen.get('bus')}"
+            bus = gen.get("bus")
+            same_bus = [g for g in all_gens if g.get("bus") == bus]
+            if len(same_bus) <= 1:
+                return self._gid(gen)
+            return f"agg_bus_{bus}"
         if agg == "type":
             gt = _classify_gen(gen, self._turb_refs)
-            return f"agg_type_{gen.get('bus')}_{gt}"
+            bus = gen.get("bus")
+            same = [
+                g
+                for g in all_gens
+                if g.get("bus") == bus and _classify_gen(g, self._turb_refs) == gt
+            ]
+            if len(same) <= 1:
+                return self._gid(gen)
+            return f"agg_type_{bus}_{gt}"
         if agg == "global":
             gt = _classify_gen(gen, self._turb_refs)
+            same = [g for g in all_gens if _classify_gen(g, self._turb_refs) == gt]
+            if len(same) <= 1:
+                return self._gid(gen)
             return f"agg_global_{gt}"
         return self._gid(gen)
 

@@ -8,6 +8,7 @@ the results.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import textwrap
@@ -15,7 +16,7 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from gtopt_diagram._graph_model import GraphModel, Node
+from gtopt_diagram._graph_model import Edge, GraphModel, Node
 from gtopt_diagram._svg_constants import (
     _FA_CDN,
     _GV_SHAPE_MAP,
@@ -128,7 +129,180 @@ def render_graphviz(
         icon = _icon_png_path(node.kind)
         attrs = _gv_node_attrs(node, icon)
         attrs["tooltip"] = node.tooltip or node.label
+        # N1: articulation-point buses get a red border + thicker pen.
+        if node.is_critical:
+            attrs["color"] = "#D32F2F"
+            attrs["penwidth"] = "2.5"
         d.node(node.node_id, **attrs)
+
+    # Plant subclusters: render every node sharing a ``subcluster`` tag
+    # inside a nested subgraph.  Plant metadata (pmax / n_units / uniq)
+    # lives on ``model.plant_meta`` keyed by the same tag.
+    plant_meta: dict[str, str] = getattr(model, "plant_meta", {}) or {}
+
+    # Pre-compute node → cluster lookups so the edge-loop below can
+    # decide which subgraph each edge belongs to: inner (subcluster)
+    # if both endpoints share the same subcluster, else outer
+    # (super_cluster) if both share the same super_cluster, else
+    # top-level.
+    node_subcluster: dict[str, str] = {n.node_id: n.subcluster for n in model.nodes}
+    node_super: dict[str, str] = {n.node_id: n.super_cluster for n in model.nodes}
+    # N3 edge betweenness — symmetric dict keyed by (node_id, node_id).
+    betweenness: dict = getattr(model, "edge_betweenness", {}) or {}
+    edges_in_subcluster: dict[str, list[Edge]] = {}
+    for e in model.edges:
+        sa = node_subcluster.get(e.src, "")
+        sb = node_subcluster.get(e.dst, "")
+        if sa and sa == sb:
+            edges_in_subcluster.setdefault(sa, []).append(e)
+            continue
+        pa = node_super.get(e.src, "")
+        pb = node_super.get(e.dst, "")
+        if pa and pa == pb:
+            edges_in_subcluster.setdefault(pa, []).append(e)
+            continue
+        edges_in_subcluster.setdefault("", []).append(e)
+
+    def _add_edge_to(parent, e: Edge) -> None:
+        attrs: dict = {}
+        # N1: bridge edges are painted red — override any color.
+        if e.is_critical:
+            attrs["color"] = "#D32F2F"
+            attrs["penwidth"] = "3.0"
+            attrs["style"] = "dashed"
+        elif e.color:
+            attrs["color"] = e.color
+        if e.label:
+            attrs["label"] = e.label.replace("\n", "\\n")
+        if not e.is_critical and e.style == "dashed":
+            attrs.update(style="dashed", penwidth="1.2")
+        elif not e.is_critical and e.style == "dotted":
+            attrs.update(style="dotted", penwidth="1.0")
+        if not e.directed:
+            attrs["dir"] = "none"
+            attrs["penwidth"] = str(max(1.5, min(4.0, 1.0 + e.weight / 100)))
+        # N3: backbone emphasis — boost pen-width on high-betweenness
+        # edges.  Applied at render time so it doesn't mutate the
+        # edge.weight read by other consumers / tests.
+        betw_score = betweenness.get((e.src, e.dst)) if not e.is_critical else None
+        if betw_score is not None and betw_score >= 0.5:
+            try:
+                cur = float(attrs.get("penwidth", "1.5"))
+            except ValueError:
+                cur = 1.5
+            attrs["penwidth"] = f"{max(cur, 2.0 + 3.0 * betw_score):.2f}"
+        parent.edge(e.src, e.dst, **attrs)
+
+    def _subcluster_style(tag: str) -> dict[str, str]:
+        """Per-tag SVG style overrides keyed on the tag prefix."""
+        if tag.startswith("substation:"):
+            return {"bgcolor": "#E3F2FD", "color": "#1976D2"}
+        if tag.startswith("reserve_zone:"):
+            return {"bgcolor": "#E8F5E9", "color": "#388E3C"}
+        if tag.startswith("fuel:"):
+            return {"bgcolor": "#FFF3E0", "color": "#E65100"}
+        # Plant is the default (yellow).
+        return {"bgcolor": "#FFF8E1", "color": "#FFB300"}
+
+    def _emit_inner_subclusters(parent, nodes: list[Node]) -> None:
+        """Emit nodes grouped by their ``subcluster`` tag.
+
+        Nodes with the same non-empty ``subcluster`` value are wrapped
+        in a single rounded subgraph; nodes with an empty subcluster go
+        directly under ``parent``.  Intra-subcluster edges (both
+        endpoints share the same subcluster) are also drawn inside the
+        subgraph.
+        """
+        by_sub: dict[str, list[Node]] = {}
+        loose: list[Node] = []
+        for nd in nodes:
+            if nd.subcluster:
+                by_sub.setdefault(nd.subcluster, []).append(nd)
+            else:
+                loose.append(nd)
+        for nd in loose:
+            add_node(parent, nd)
+        for tag in sorted(by_sub):
+            safe = tag.replace(":", "_").replace(" ", "_")
+            style = _subcluster_style(tag)
+            with parent.subgraph(name=f"cluster_{safe}") as sub:
+                sub.attr(
+                    label=plant_meta.get(tag, tag),
+                    style="rounded,dashed",
+                    fontname="Arial Bold",
+                    fontsize="9",
+                    **style,
+                )
+                for nd in by_sub[tag]:
+                    add_node(sub, nd)
+                for sub_edge in edges_in_subcluster.get(tag, []):
+                    _add_edge_to(sub, sub_edge)
+
+    def _emit_subcluster_groups(parent, nodes: list[Node]) -> None:
+        """Render ``nodes`` honoring both ``super_cluster`` (basin) and
+        ``subcluster`` (plant / substation / reserve zone / fuel).
+
+        Two-level nesting: when a node carries a non-empty
+        ``super_cluster``, it is wrapped in an OUTER rounded subgraph
+        (the basin), and its ``subcluster`` membership produces an
+        INNER subgraph nested inside that.  Nodes without a
+        ``super_cluster`` use the single-level ``subcluster`` rendering
+        directly under ``parent``.
+        """
+        by_super: dict[str, list[Node]] = {}
+        outside: list[Node] = []
+        for nd in nodes:
+            if nd.super_cluster:
+                by_super.setdefault(nd.super_cluster, []).append(nd)
+            else:
+                outside.append(nd)
+        # Nodes outside any super-cluster: directly emit by subcluster.
+        _emit_inner_subclusters(parent, outside)
+        for super_tag in sorted(by_super):
+            safe = super_tag.replace(":", "_").replace(" ", "_")
+            # Distinct palette per super-cluster prefix:
+            #   basin (hydro drainage area) — water-cyan
+            #   community (electrical region) — lavender / purple
+            #   anything else — neutral grey-blue fallback
+            if super_tag.startswith("basin:"):
+                super_bg, super_fg = "#E1F5FE", "#0277BD"  # cyan / deep blue
+            elif super_tag.startswith("community:"):
+                super_bg, super_fg = "#F3E5F5", "#6A1B9A"  # lavender / purple
+            else:
+                super_bg, super_fg = "#ECEFF1", "#37474F"  # neutral grey-blue
+            with parent.subgraph(name=f"cluster_{safe}") as outer:
+                outer.attr(
+                    label=plant_meta.get(super_tag, super_tag),
+                    bgcolor=super_bg,
+                    color=super_fg,
+                    style="rounded",
+                    fontname="Arial Bold",
+                    fontsize="10",
+                )
+                _emit_inner_subclusters(outer, by_super[super_tag])
+                # Edges fully inside the super-cluster also live inside
+                # the outer subgraph.  An edge between two nodes that
+                # share the same super_cluster but DIFFERENT subclusters
+                # belongs here too.
+                for ed in edges_in_subcluster.get(super_tag, []):
+                    _add_edge_to(outer, ed)
+                # N4 layout hint — basin water-flow topological sort.
+                # Emit ``{ rank=source; <upstream>; }`` /
+                # ``{ rank=sink; <downstream>; }`` so the cluster lays
+                # out top → bottom following the cascade.  Only emit
+                # when the target nodes ARE in the model (filtering /
+                # aggregation may have dropped them).
+                basin_topo = getattr(model, "basin_topo_order", {}) or {}
+                order = basin_topo.get(super_tag, [])
+                present = {n.node_id for n in by_super[super_tag]}
+                ordered_present = [nid for nid in order if nid in present]
+                if len(ordered_present) >= 2:
+                    with outer.subgraph() as rk:
+                        rk.attr(rank="source")
+                        rk.node(ordered_present[0])
+                    with outer.subgraph() as rk:
+                        rk.attr(rank="sink")
+                        rk.node(ordered_present[-1])
 
     if has_both and use_clusters:
         with dot.subgraph(name="cluster_elec") as c:
@@ -139,9 +313,9 @@ def render_graphviz(
                 style="rounded",
                 fontname="Arial Bold",
             )
-            for n in model.nodes:
-                if n.cluster == "electrical":
-                    add_node(c, n)
+            _emit_subcluster_groups(
+                c, [n for n in model.nodes if n.cluster == "electrical"]
+            )
         with dot.subgraph(name="cluster_hydro") as c:
             c.attr(
                 label="Hydro Cascade",
@@ -150,27 +324,17 @@ def render_graphviz(
                 style="rounded",
                 fontname="Arial Bold",
             )
-            for n in model.nodes:
-                if n.cluster == "hydro":
-                    add_node(c, n)
+            _emit_subcluster_groups(c, [n for n in model.nodes if n.cluster == "hydro"])
     else:
-        for n in model.nodes:
-            add_node(dot, n)
+        # Even without electrical/hydro split, honour plant subclusters
+        # so Plant grouping is visible in the flat layout.
+        _emit_subcluster_groups(dot, list(model.nodes))
 
-    for e in model.edges:
-        attrs: dict = {}
-        if e.color:
-            attrs["color"] = e.color
-        if e.label:
-            attrs["label"] = e.label.replace("\n", "\\n")
-        if e.style == "dashed":
-            attrs.update(style="dashed", penwidth="1.2")
-        elif e.style == "dotted":
-            attrs.update(style="dotted", penwidth="1.0")
-        if not e.directed:
-            attrs["dir"] = "none"
-            attrs["penwidth"] = str(max(1.5, min(4.0, 1.0 + e.weight / 100)))
-        dot.edge(e.src, e.dst, **attrs)
+    # Intra-subcluster edges were already emitted inside their subgraph
+    # by ``_emit_subcluster_groups``.  Here we draw only edges that
+    # cross subcluster boundaries (or whose endpoints have no subcluster).
+    for e in edges_in_subcluster.get("", []):
+        _add_edge_to(dot, e)
 
     # Add legend as a subgraph when multiple node kinds are present
     kinds_in_model = {n.kind for n in model.nodes}
@@ -314,7 +478,7 @@ def model_to_visjs(model: GraphModel) -> dict:
                     "color": colors,
                     "size": base_size + 8,
                     "kind": node.kind,
-                    "group": node.cluster or node.kind,
+                    "group": node.subcluster or node.cluster or node.kind,
                 }
             )
         else:
@@ -327,7 +491,7 @@ def model_to_visjs(model: GraphModel) -> dict:
                     "color": colors,
                     "size": base_size,
                     "kind": node.kind,
-                    "group": node.cluster or node.kind,
+                    "group": node.subcluster or node.cluster or node.kind,
                 }
             )
 
@@ -461,6 +625,7 @@ def model_to_reactflow(model: GraphModel) -> dict:
                     "tooltip": node.tooltip or node.label,
                     "kind": node.kind,
                     "cluster": node.cluster or "",
+                    "subcluster": node.subcluster or "",
                     "background": colors.get("background", "#F0F0F0"),
                     "border": colors.get("border", "#555"),
                     "size": node.size
@@ -629,39 +794,78 @@ def render_html(model: GraphModel, output_path: str) -> str:
       }
     }""")
 
+    # Per-cluster-prefix palette so the user sees the grouping at a
+    # glance even when vis.js's auto-color cycler runs out of distinct
+    # colours.  Keys are cluster-tag prefixes; the matching node
+    # background/border are applied on top of the kind-based defaults.
+    _CLUSTER_TINT = {
+        "basin": ("#B3E5FC", "#0277BD"),  # cyan
+        "community": ("#E1BEE7", "#6A1B9A"),  # lavender
+        "substation": ("#90CAF9", "#1565C0"),  # blue
+        "plant": ("#FFE082", "#F9A825"),  # amber
+        "fuel": ("#FFCC80", "#E65100"),  # orange
+        "reserve_zone": ("#A5D6A7", "#2E7D32"),  # green
+    }
+
     for node in model.nodes:
         color = dict(
             _PYVIS_COLORS.get(node.kind, {"background": "#FFF", "border": "#333"})
         )
+        # Override colour by the finest-grained cluster tag the node
+        # carries — makes the per-group colour visible even without
+        # icons or subgraph boxes (vis.js doesn't draw cluster
+        # boundaries the way graphviz does).
+        primary_tag = node.subcluster or node.super_cluster
+        if primary_tag and ":" in primary_tag:
+            tint = _CLUSTER_TINT.get(primary_tag.split(":", 1)[0])
+            if tint:
+                color["background"], color["border"] = tint
+        # N1 / isolated / orphan: red border + thicker pen.
+        if node.is_critical:
+            color["border"] = "#D32F2F"
         color["highlight"] = {"background": color["background"], "border": "#E74C3C"}
         size = int(node.size) if node.size > 0 else _PYVIS_SIZE_MAP.get(node.kind, 20)
+        if node.is_critical:
+            size += 4
+        group = node.subcluster or node.super_cluster or node.cluster or node.kind
 
         icon_uri = _icon_b64_uri(node.kind)
+        # pyvis's ``add_node`` silently drops the explicit ``color``
+        # kwarg whenever ``group`` is also set (its internal Node ctor
+        # treats them as mutually exclusive — group-based styling
+        # always wins).  We need BOTH: the group drives the vis.js
+        # legend / filter dropdown, and the per-cluster tint above
+        # makes the grouping visible at a glance.  Bypass ``add_node``
+        # and write the node dict directly to ``net.nodes`` so both
+        # fields survive into the serialised HTML.
+        node_dict: dict = {
+            "id": node.node_id,
+            "label": node.label,
+            "title": node.tooltip or node.label,
+            "color": color,
+            "group": group,
+            "size": size + 8 if icon_uri else size,
+            "font": {"size": 11, "face": "Arial"},
+            "borderWidth": 3 if node.is_critical else 1,
+        }
         if icon_uri:
-            net.add_node(
-                node.node_id,
-                label=node.label,
-                title=node.tooltip or node.label,
-                shape="image",
-                image=icon_uri,
-                size=size + 8,
-                font={"size": 11, "face": "Arial"},
-                color=color,
-            )
+            node_dict["shape"] = "image"
+            node_dict["image"] = icon_uri
         else:
-            net.add_node(
-                node.node_id,
-                label=node.label,
-                title=node.tooltip or node.label,
-                shape=_PYVIS_SHAPE_MAP.get(node.kind, "dot"),
-                color=color,
-                size=size,
-                font={"size": 11, "face": "Arial"},
-            )
+            node_dict["shape"] = _PYVIS_SHAPE_MAP.get(node.kind, "dot")
+        net.nodes.append(node_dict)
+        net.node_ids.append(node.node_id)
+        net.node_map[node.node_id] = node_dict
 
+    betweenness: dict = getattr(model, "edge_betweenness", {}) or {}
     for e in model.edges:
-        dashes = e.style in ("dashed", "dotted")
-        c = e.color or "#2C3E50"
+        dashes = e.style in ("dashed", "dotted") or e.is_critical
+        c = "#D32F2F" if e.is_critical else (e.color or "#2C3E50")
+        base_w = max(1.0, min(8.0, e.weight))
+        # N3 backbone emphasis: blend betweenness score into edge width.
+        score = betweenness.get((e.src, e.dst)) if not e.is_critical else None
+        if score is not None and score >= 0.5:
+            base_w = max(base_w, 2.0 + 5.0 * score)
         net.add_edge(
             e.src,
             e.dst,
@@ -670,7 +874,7 @@ def render_html(model: GraphModel, output_path: str) -> str:
             color={"color": c, "opacity": 0.80},
             dashes=dashes,
             arrows="to" if e.directed else "",
-            width=max(1.0, min(8.0, e.weight)) if not dashes else 1.5,
+            width=4.0 if e.is_critical else base_w,
         )
 
     net.save_graph(output_path)
@@ -688,6 +892,72 @@ def render_html(model: GraphModel, output_path: str) -> str:
     html = html.replace("</head>", fa + "</head>", 1)
     html = html.replace("<body>", f"<body>\n{info}", 1)
     html = html.replace("</body>", f"\n{_legend_html(model)}\n</body>", 1)
+
+    # \u2500\u2500 Auto-clustering: after the network stabilises, collapse every
+    # ``group:<tag>`` whose **prefix** is in ``opts.collapse_groups``
+    # into a single vis.js cluster.  Tiers NOT listed stay expanded so
+    # the grouping acts as a layout hint only (vis.js still gathers
+    # members spatially via the shared ``group`` field).  Empty list
+    # = no auto-collapse.  Double-click any collapsed bubble to
+    # expand.  Each cluster keeps the group's colour + a count label.
+    plant_meta: dict = getattr(model, "plant_meta", {}) or {}
+    # Empty list = layout-hint mode → no auto-collapse on load.  When
+    # non-empty, only the listed prefixes are collapsed; the others
+    # stay expanded so vis.js physics still pulls members together.
+    collapse_prefixes: set = set(getattr(model, "collapse_groups", []) or [])
+    cluster_labels: dict = {}
+    seen_groups: set = set()
+    if collapse_prefixes:
+        for n in model.nodes:
+            tag = n.subcluster or n.super_cluster
+            if not tag or tag in seen_groups:
+                continue
+            prefix = tag.split(":", 1)[0] if ":" in tag else ""
+            if prefix not in collapse_prefixes:
+                continue
+            seen_groups.add(tag)
+            cluster_labels[tag] = plant_meta.get(tag, tag)
+    if cluster_labels:
+        labels_json = json.dumps(cluster_labels)
+        cluster_script = (
+            '\n<script type="text/javascript">\n'
+            "window.addEventListener('load', function() {\n"
+            "  if (typeof network === 'undefined') return;\n"
+            f"  var clusterLabels = {labels_json};\n"
+            "  network.once('stabilized', function() {\n"
+            "    Object.keys(clusterLabels).forEach(function(tag) {\n"
+            "      var label = clusterLabels[tag];\n"
+            "      var opts = {\n"
+            "        joinCondition: function(nodeOpts) {\n"
+            "          return nodeOpts.group === tag;\n"
+            "        },\n"
+            "        processProperties: function(clusterOptions, childNodes) {\n"
+            "          clusterOptions.label = label + ' (' + childNodes.length + ')';\n"
+            "          clusterOptions.shape = 'box';\n"
+            "          clusterOptions.borderWidth = 3;\n"
+            "          clusterOptions.font = { size: 14, face: 'Arial', "
+            "color: '#1A252F', strokeWidth: 0 };\n"
+            "          return clusterOptions;\n"
+            "        },\n"
+            "        clusterNodeProperties: {\n"
+            "          id: 'cluster_' + tag.replace(/[^A-Za-z0-9_]/g, '_'),\n"
+            "          allowSingleNodeCluster: false\n"
+            "        }\n"
+            "      };\n"
+            "      network.cluster(opts);\n"
+            "    });\n"
+            "    network.fit();\n"
+            "  });\n"
+            "  network.on('doubleClick', function(params) {\n"
+            "    if (params.nodes.length === 1 "
+            "&& network.isCluster(params.nodes[0])) {\n"
+            "      network.openCluster(params.nodes[0]);\n"
+            "    }\n"
+            "  });\n"
+            "});\n"
+            "</script>\n"
+        )
+        html = html.replace("</body>", cluster_script + "</body>", 1)
     Path(output_path).write_text(html, encoding="utf-8")
     return output_path
 

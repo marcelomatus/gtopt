@@ -543,6 +543,36 @@ _PALETTE: dict[str, str] = {
     "waterway_edge": "#0277BD",
     "bat_link_edge": "#7D3C98",
     "efficiency_edge": "#A04000",
+    # Turbine terminal-drain marker (Mode B without junction_b)
+    "terminal_drain": "#90A4AE",
+    "terminal_drain_border": "#455A64",
+    # Fuel — earth-brown
+    "fuel": "#EFEBE9",
+    "fuel_border": "#5D4037",
+    "fuel_edge": "#795548",
+    # Emissions — soft grey for the pollutant tag, smoky red for sources,
+    # khaki for zones; balance edge in burnt sienna.
+    "emission": "#ECEFF1",
+    "emission_border": "#455A64",
+    "emission_zone": "#FBE9E7",
+    "emission_zone_border": "#BF360C",
+    "emission_source": "#F5F5F5",
+    "emission_source_border": "#616161",
+    "emission_edge": "#8D6E63",
+    # User-defined constraints & decision variables — neutral slate
+    "user_constraint": "#FFF8E1",
+    "user_constraint_border": "#827717",
+    "user_constraint_edge": "#9E9D24",
+    "decision_variable": "#F3E5F5",
+    "decision_variable_border": "#6A1B9A",
+    # Commitment overlays — yellow gold, lighter for simple commitment
+    "commitment": "#FFF59D",
+    "commitment_border": "#F57F17",
+    "simple_commitment": "#FFF9C4",
+    "simple_commitment_border": "#F9A825",
+    # Multi-carrier converter (electrolyser, fuel cell, Haber-Bosch, …)
+    "carrier_converter": "#E8F5E9",
+    "carrier_converter_border": "#2E7D32",
 }
 
 # Colorblind-safe palette (Wong 2011), selected via --palette colorblind
@@ -605,6 +635,31 @@ _PALETTE_COLORBLIND: dict[str, str] = {
     "efficiency_edge": "#BF360C",
     "reserve_edge": "#F57F17",
     "profile_edge": "#95A5A6",
+    # Mode B turbine terminal drain
+    "terminal_drain": "#ECEFF1",
+    "terminal_drain_border": "#37474F",
+    # Fuel + emissions + UCs + DVs + commitments + carrier converters
+    "fuel": "#EFEBE9",
+    "fuel_border": "#4E342E",
+    "fuel_edge": "#5D4037",
+    "emission": "#ECEFF1",
+    "emission_border": "#37474F",
+    "emission_zone": "#FFEBEE",
+    "emission_zone_border": "#B71C1C",
+    "emission_source": "#FAFAFA",
+    "emission_source_border": "#424242",
+    "emission_edge": "#6D4C41",
+    "user_constraint": "#FFFDE7",
+    "user_constraint_border": "#33691E",
+    "user_constraint_edge": "#827717",
+    "decision_variable": "#F3E5F5",
+    "decision_variable_border": "#4A148C",
+    "commitment": "#FFF9C4",
+    "commitment_border": "#F57F17",
+    "simple_commitment": "#FFF9C4",
+    "simple_commitment_border": "#FBC02D",
+    "carrier_converter": "#E8F5E9",
+    "carrier_converter_border": "#1B5E20",
 }
 
 # Voltage-based line coloring: maps voltage ranges to (color, width).
@@ -659,6 +714,7 @@ _LEGEND_LABELS: dict[str, str] = {
     "reservoir_md": "Reservoir (medium)",
     "reservoir_lg": "Reservoir (large)",
     "turbine": "Turbine",
+    "terminal_drain": "Turbine drain (terminal)",
     "flow": "Flow",
     "seepage": "ReservoirSeepage",
     "pump": "Pump",
@@ -668,6 +724,15 @@ _LEGEND_LABELS: dict[str, str] = {
     "reserve_zone": "Reserve zone",
     "gen_profile": "Generator profile",
     "dem_profile": "Demand profile",
+    "fuel": "Fuel",
+    "emission": "Emission (pollutant tag)",
+    "emission_zone": "EmissionZone",
+    "emission_source": "EmissionSource",
+    "user_constraint": "UserConstraint",
+    "decision_variable": "DecisionVariable",
+    "commitment": "Commitment (UC)",
+    "simple_commitment": "SimpleCommitment",
+    "carrier_converter": "CarrierConverter",
 }
 
 _MM_SHAPES: dict[str, tuple[str, str]] = {
@@ -684,6 +749,7 @@ _MM_SHAPES: dict[str, tuple[str, str]] = {
     "reservoir_md": ("[/", "/]"),
     "reservoir_lg": ("[/", "/]"),
     "turbine": ("{", "}"),
+    "terminal_drain": ("((", "))"),
     "flow": ("((", "))"),
     "seepage": ("((", "))"),
     "pump": ("{", "}"),
@@ -693,6 +759,15 @@ _MM_SHAPES: dict[str, tuple[str, str]] = {
     "reserve_zone": (">", "]"),
     "gen_profile": ("[", "]"),
     "dem_profile": ("[", "]"),
+    "fuel": ("[(", ")]"),
+    "emission": ("((", "))"),
+    "emission_zone": (">", "]"),
+    "emission_source": ("[", "]"),
+    "user_constraint": ("[/", "/]"),
+    "decision_variable": ("([", "])"),
+    "commitment": ("[", "]"),
+    "simple_commitment": ("[", "]"),
+    "carrier_converter": ("([", "])"),
 }
 
 _MM_STYLES: dict[str, str] = {
@@ -709,6 +784,7 @@ _MM_STYLES: dict[str, str] = {
     "reservoir_md": "fill:#81D4FA,stroke:#0288D1,color:#1C2833",
     "reservoir_lg": "fill:#039BE5,stroke:#01579B,color:#FFF",
     "turbine": "fill:#D1F2EB,stroke:#1E8449,color:#1C2833",
+    "terminal_drain": "fill:#ECEFF1,stroke:#455A64,color:#1C2833",
     "flow": "fill:#EAF2FF,stroke:#2980B9,color:#1C2833",
     "seepage": "fill:#EAECEE,stroke:#717D7E,color:#1C2833",
     "pump": "fill:#E3F2FD,stroke:#0D47A1,color:#1C2833",
@@ -718,6 +794,15 @@ _MM_STYLES: dict[str, str] = {
     "reserve_zone": "fill:#FFF8E1,stroke:#F57F17,color:#1C2833",
     "gen_profile": "fill:#F3E5F5,stroke:#7B1FA2,color:#1C2833",
     "dem_profile": "fill:#FCE4EC,stroke:#AD1457,color:#1C2833",
+    "fuel": "fill:#EFEBE9,stroke:#5D4037,color:#1C2833",
+    "emission": "fill:#ECEFF1,stroke:#455A64,color:#1C2833",
+    "emission_zone": "fill:#FBE9E7,stroke:#BF360C,color:#1C2833",
+    "emission_source": "fill:#F5F5F5,stroke:#616161,color:#1C2833",
+    "user_constraint": "fill:#FFF8E1,stroke:#827717,color:#1C2833",
+    "decision_variable": "fill:#F3E5F5,stroke:#6A1B9A,color:#1C2833",
+    "commitment": "fill:#FFF59D,stroke:#F57F17,color:#1C2833",
+    "simple_commitment": "fill:#FFF9C4,stroke:#F9A825,color:#1C2833",
+    "carrier_converter": "fill:#E8F5E9,stroke:#2E7D32,color:#1C2833",
 }
 
 _MM_ICONS: dict[str, str] = {
@@ -731,6 +816,7 @@ _MM_ICONS: dict[str, str] = {
     "junction": "\U0001f535",
     "reservoir": "\U0001f3de\ufe0f",
     "turbine": "\u2699\ufe0f",
+    "terminal_drain": "\u2bbf",  # downward arrow into circle
     "flow": "\U0001f30a",
     "seepage": "\U0001f53d",
     "pump": "\U0001f4a7\u2191",  # water drop + up arrow
@@ -741,6 +827,15 @@ _MM_ICONS: dict[str, str] = {
     "gen_wind": "\U0001f32c\ufe0f",
     "gen_nuclear": "\u2622\ufe0f",
     "gen_gas": "\U0001f525",
+    "fuel": "\u26fd",  # fuel pump
+    "emission": "\U0001f32b\ufe0f",  # fog
+    "emission_zone": "\U0001f30d",  # earth-globe
+    "emission_source": "\U0001f3ed",  # factory
+    "user_constraint": "\U0001f4dd",  # memo
+    "decision_variable": "\U0001f522",  # input-numbers
+    "commitment": "\U0001f7e1",  # yellow circle (commit)
+    "simple_commitment": "\u26ab",  # black circle
+    "carrier_converter": "\U0001f504",  # cycle arrows
 }
 
 _FA_CDN = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
@@ -759,6 +854,12 @@ _PYVIS_COLORS: dict[str, dict] = {
     "reservoir_md": {"background": "#81D4FA", "border": "#0288D1"},
     "reservoir_lg": {"background": "#039BE5", "border": "#01579B"},
     "turbine": {"background": "#BBDEFB", "border": "#1565C0"},
+    # Turbine that drains to the sea (Mode B with junction_b unset):
+    # a more muted, steel-grey shade vs the bright cascading-turbine
+    # blue, so the user can tell at a glance which turbines are
+    # terminal vs in a cascade.
+    "turbine_drain": {"background": "#CFD8DC", "border": "#455A64"},
+    "terminal_drain": {"background": "#ECEFF1", "border": "#455A64"},
     "flow": {"background": "#E3F2FD", "border": "#0277BD"},
     "seepage": {"background": "#E0E0E0", "border": "#616161"},
     "pump": {"background": "#E3F2FD", "border": "#0D47A1"},
@@ -768,6 +869,15 @@ _PYVIS_COLORS: dict[str, dict] = {
     "reserve_zone": {"background": "#FFF8E1", "border": "#F57F17"},
     "gen_profile": {"background": "#F3E5F5", "border": "#7B1FA2"},
     "dem_profile": {"background": "#FCE4EC", "border": "#AD1457"},
+    "fuel": {"background": "#EFEBE9", "border": "#5D4037"},
+    "emission": {"background": "#ECEFF1", "border": "#455A64"},
+    "emission_zone": {"background": "#FBE9E7", "border": "#BF360C"},
+    "emission_source": {"background": "#F5F5F5", "border": "#616161"},
+    "user_constraint": {"background": "#FFF8E1", "border": "#827717"},
+    "decision_variable": {"background": "#F3E5F5", "border": "#6A1B9A"},
+    "commitment": {"background": "#FFF59D", "border": "#F57F17"},
+    "simple_commitment": {"background": "#FFF9C4", "border": "#F9A825"},
+    "carrier_converter": {"background": "#E8F5E9", "border": "#2E7D32"},
 }
 
 _PYVIS_SHAPE_MAP: dict[str, str] = {
@@ -784,6 +894,8 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "reservoir_md": "box",
     "reservoir_lg": "box",
     "turbine": "diamond",
+    "turbine_drain": "diamond",
+    "terminal_drain": "dot",
     "flow": "dot",
     "seepage": "dot",
     "pump": "diamond",
@@ -793,6 +905,15 @@ _PYVIS_SHAPE_MAP: dict[str, str] = {
     "reserve_zone": "star",
     "gen_profile": "dot",
     "dem_profile": "dot",
+    "fuel": "database",
+    "emission": "dot",
+    "emission_zone": "star",
+    "emission_source": "square",
+    "user_constraint": "box",
+    "decision_variable": "ellipse",
+    "commitment": "box",
+    "simple_commitment": "box",
+    "carrier_converter": "ellipse",
 }
 
 _PYVIS_SIZE_MAP: dict[str, int] = {
@@ -806,12 +927,23 @@ _PYVIS_SIZE_MAP: dict[str, int] = {
     "junction": 28,
     "reservoir": 28,
     "turbine": 22,
+    "turbine_drain": 22,
+    "terminal_drain": 10,
     "flow": 16,
     "seepage": 14,
     "pump": 22,
     "volume_right": 18,
     "flow_right": 14,
     "lng_terminal": 26,
+    "fuel": 22,
+    "emission": 14,
+    "emission_zone": 22,
+    "emission_source": 14,
+    "user_constraint": 18,
+    "decision_variable": 16,
+    "commitment": 14,
+    "simple_commitment": 14,
+    "carrier_converter": 20,
 }
 
 # Graphviz native shape mapping (distinct shapes for each element type)
@@ -829,6 +961,7 @@ _GV_SHAPE_MAP: dict[str, str] = {
     "reservoir_md": "box3d",
     "reservoir_lg": "box3d",
     "turbine": "diamond",
+    "terminal_drain": "doublecircle",
     "flow": "circle",
     "seepage": "circle",
     "pump": "diamond",
@@ -838,4 +971,13 @@ _GV_SHAPE_MAP: dict[str, str] = {
     "reserve_zone": "star",
     "gen_profile": "note",
     "dem_profile": "note",
+    "fuel": "cylinder",
+    "emission": "circle",
+    "emission_zone": "star",
+    "emission_source": "box",
+    "user_constraint": "note",
+    "decision_variable": "ellipse",
+    "commitment": "tab",
+    "simple_commitment": "tab",
+    "carrier_converter": "ellipse",
 }

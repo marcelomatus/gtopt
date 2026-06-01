@@ -453,6 +453,10 @@ def build_options(args: argparse.Namespace) -> dict:
         # plpvrebemb.dat, route ``_ver`` to a synthetic ocean drain and drop
         # ``fmax``/``fcost``.  See JunctionWriter._process_central.
         "vrebemb_as_sink": args.vrebemb_as_sink,
+        # Plexos overlay: source of heat-rate / Fuel data to merge into
+        # the PLP-derived planning.  Resolved by _plexos_overlay.
+        "plexos_overlay": getattr(args, "plexos_overlay", None),
+        "plexos_overlay_report": getattr(args, "plexos_overlay_report", None),
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {
