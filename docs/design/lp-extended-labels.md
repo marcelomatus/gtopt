@@ -1,6 +1,7 @@
 # LP Label Style: Compact vs Extended
 
-**Status:** draft · **Owner:** marcelo · **Last updated:** 2026-05-31
+**Status:** draft · **Owner:** marcelo · **Last updated:** 2026-06-01
+**Tracking issue:** [#508](https://github.com/marcelomatus/gtopt/issues/508)
 **Tracks:** LP debug ergonomics, PLEXOS / SDDP traceability
 
 ---
