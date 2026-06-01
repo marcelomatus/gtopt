@@ -11,8 +11,11 @@ Add an `lp_label_style` option with values `compact` (current —
 `line_overloadp_307_1_1_111`) and `extended`
 (`line_overloadp_jadresic220_ii__montemina220_1_1_111`) so LP file
 output, fingerprints, and solver diagnostics name columns and rows by
-the element's human-readable name when the user opts in, while keeping
-the existing UID-only format as the default.
+the element's human-readable name when the user opts in.  **All work
+is deferred to the first label render**: a run that never invokes
+`write_lp` (or any other labelled-output consumer) pays nothing —
+no asciification, no string allocation, no cache memory, no extra
+bytes on `SparseCol` / `SparseRow`.
 
 ---
 
@@ -42,14 +45,15 @@ benefits scoped to the runs that need them.
   `LabelMaker::format_label` renders cols and rows.
 - An `asciify` sanitizer producing a strict `[A-Za-z0-9_]` subset
   from arbitrary UTF-8 element names.
-- A per-element name slot on `SparseCol` and `SparseRow` (a
-  `std::string_view` borrowed from the owning element's `Id::name`).
-- A per-`SystemLP` cache that asciifies each element name ONCE at
-  collection-build time and stores the result for `LabelMaker` to
-  borrow (see §6 — caching is the principal performance concern and
-  is treated as a first-class design decision, not an optimization
-  afterthought).
+- A **lazy** per-`SimulationLP` `AsciiNameCache` populated on the
+  first `LabelMaker::lookup` call (which is only made when a consumer
+  such as `write_lp` actually emits labels). The cache is empty until
+  then — see §6.
 - CLI flag, JSON option, igtopt sync, glossary, tests.
+
+**Hard invariant.** Producers do not change. There is no
+`element_name` field on `SparseCol` / `SparseRow`. Runs that never
+ask for labels pay nothing from this design.
 
 **Out of scope.**
 
@@ -158,82 +162,92 @@ column/row name strings are produced**"
 invariant — the only change is that `format_label` now branches on
 the style.
 
-### 5.2 New data on `SparseCol`, `SparseRow`, and `SparseColLabel`
+### 5.2 No new fields on `SparseCol` / `SparseRow` / their labels
+
+**Hard requirement: no build-time cost when `write_lp` is not called.**
+That means no new fields, no per-producer threading, no asciification,
+no allocations at LP-build time.
+
+The existing four-tuple on `SparseCol{Label}` and `SparseRow{Label}` —
+`class_name`, `variable_name`, `variable_uid`, `context` — is
+sufficient to identify the parent element. **`LabelMaker` queries the
+asciified-name cache by `(class_name, variable_uid)` at render time
+only**, after the user has explicitly invoked `write_lp` (or any other
+labelled-output consumer). Producers do nothing new; their call sites
+are byte-identical to today.
 
 ```cpp
-// include/gtopt/sparse_col.hpp
+// include/gtopt/sparse_col.hpp — UNCHANGED.
 struct SparseCol {
   // ... existing fields
   std::string_view class_name {};
   std::string_view variable_name {};
   Uid              variable_uid {unknown_uid};
-  std::string_view element_name {};  // NEW — points into the element's
-                                     // ASCIIfied name cache.  Empty
-                                     // when the column has no parent
-                                     // element (synthetic aux cols).
   LpContext        context {};
 };
 
-// include/gtopt/sparse_col.hpp — lightweight label-side struct that
-// FlatLinearProblem / LinearInterface actually stores at flatten time.
-// LabelMaker::make_col_label reads from this at write-LP time, NOT
-// from the full SparseCol (which is consumed and discarded).
-struct SparseColLabel {
-  std::string_view class_name {};
-  std::string_view variable_name {};
-  Uid              variable_uid {unknown_uid};
-  std::string_view element_name {};  // NEW — same source as SparseCol;
-                                     // populated by the flatten step
-                                     // when copying SparseCol fields.
-  LpContext        context {};
-};
+// SparseColLabel + SparseRow + SparseRowLabel: all unchanged.
 ```
 
-Identical additions on `SparseRow` + `SparseRowLabel`. Lifetime contract:
-`element_name` must point at storage with `SimulationLP`-equivalent
-lifetime — the asciified-name cache (§6, hoisted to `SimulationLP` per
-§6.8) provides this.
+**Memory cost at LP-build time: zero.** All renaming work — including
+cache construction itself (§6.2) — is deferred to the first label
+render. If `write_lp` is never called, no asciification ever runs.
 
-**Memory cost.** `std::string_view` is 16 bytes. For a 100K-col /
-80K-row LP that's ~2.9 MB extra resident on the flat-LP label vectors.
-This is paid only when labels are enabled (`LpNamesLevel::all`); under
-the default `none` the label vectors are empty.
-
-### 5.3 `LabelMaker` carries the style
+### 5.3 `LabelMaker` carries the style and (optionally) a cache pointer
 
 ```cpp
 class LabelMaker {
 public:
   constexpr LabelMaker(LpNamesLevel level,
-                       LpLabelStyle style = LpLabelStyle::compact) noexcept;
+                       LpLabelStyle style = LpLabelStyle::compact,
+                       const AsciiNameCache* cache = nullptr) noexcept;
 
-  [[nodiscard]] std::string make_col_label(const SparseCol&) const;
-  [[nodiscard]] std::string make_row_label(const SparseRow&) const;
+  [[nodiscard]] std::string make_col_label(const SparseColLabel&) const;
+  [[nodiscard]] std::string make_row_label(const SparseRowLabel&) const;
+
+  // §6.8.5 — write into a caller-owned buffer; the only path called
+  // by `write_lp` proper.  Returns a view into the appended bytes.
+  std::string_view make_col_label_into(
+      std::string& out, const SparseColLabel&) const;
+  std::string_view make_row_label_into(
+      std::string& out, const SparseRowLabel&) const;
 
 private:
-  LpNamesLevel m_level_ {LpNamesLevel::none};
-  LpLabelStyle m_style_ {LpLabelStyle::compact};  // NEW — 1 byte
+  LpNamesLevel        m_level_ {LpNamesLevel::none};
+  LpLabelStyle        m_style_ {LpLabelStyle::compact};      // 1 byte
+  const AsciiNameCache* m_cache_ {nullptr};                  // 8 bytes
 };
 ```
 
-`LabelMaker` stays a 2-byte value type. Constructed at the same call
-sites as today (`lp_debug`, `lp_file`, `flatten`).
+`LabelMaker` is constructed at `write_lp` time (and other label
+consumers — solver diagnostics, fingerprint debug). The cache pointer
+is non-null **only** when `m_style_ == extended`; under `compact` the
+field is unused and stays `nullptr`. The cache itself is owned by
+`SimulationLP` (§6.2) and is built on demand on the first label
+render that needs it.
 
 ### 5.4 Format branch
 
 ```cpp
 // source/label_maker.cpp
 [[nodiscard]] auto format_label(LpLabelStyle style,
+                                const AsciiNameCache* cache,
                                 std::string_view class_name,
                                 std::string_view variable,
                                 Uid uid,
-                                std::string_view element_name,
                                 const LpContext& context) -> std::string
 {
   if (class_name.empty()) return {};
 
-  const bool use_name = (style == LpLabelStyle::extended)
-                     && !element_name.empty();
+  // Lookup is lazy: the cache's first probe under `extended` style
+  // triggers population (§6.2).  Under `compact`, `cache` is nullptr
+  // and we skip the probe entirely.
+  const std::string_view element_name =
+      (style == LpLabelStyle::extended && cache != nullptr)
+          ? cache->lookup(class_name, uid)
+          : std::string_view {};
+
+  const bool use_name = !element_name.empty();
 
   return std::visit(
       [&](const auto& ctx) -> std::string {
@@ -253,84 +267,161 @@ sites as today (`lp_debug`, `lp_file`, `flatten`).
 }
 ```
 
-Two near-identical render lambdas, branching on `use_name`. Could be
-collapsed to one templated helper; left as two for diff clarity.
-
-`element_name` here is **already asciified** by the time it reaches
-`LabelMaker` — `format_label` does not call `asciify`. See §6.
+`cache->lookup` is the lazy entry point. The first call triggers
+population (single-shot via `std::call_once` or equivalent); every
+subsequent probe is a constant-time read.
 
 ---
 
-## 6. Performance — the asciified-name cache
+## 6. Performance — the lazy asciified-name cache
 
-This is the principal design decision in the doc.
+This is the principal design decision in the doc, and it is built
+around one hard invariant from the requirements:
+
+> **Zero cost if `write_lp` is never called.**
+
+That rules out any eager population — at `SimulationLP` construction,
+at `SystemLP` construction, or in `*LP` element ctors. The cache is
+**populated lazily on the first label render that needs it**, which
+happens inside `LabelMaker` only when `write_lp` (or another labelled
+consumer) is actually invoked.
 
 ### 6.1 Why a cache
 
-`asciify` is O(n) in the element name's byte length. Element names
-are short (typical 8–40 bytes), so `asciify` runs in a couple hundred
-nanoseconds — but it would be called **once per `SparseCol::context`
-visit by `LabelMaker`**, i.e. potentially once per col and once per
-row across the LP. For a 100K-col / 80K-row LP that's 180K
-`asciify` calls per label-emit pass, each one allocating a new
-`std::string`. The aggregate is small (~50 ms) but completely
-avoidable: every element has a constant `name`, and the asciified
-form depends only on the name, not on the call site.
+When `write_lp` IS called, `LabelMaker` would otherwise re-`asciify`
+the same element name once per col and once per row — 180K
+`asciify` calls per emit on a 100K-col / 80K-row LP. Each call
+allocates a fresh `std::string`. Aggregate ~50 ms of redundant work.
 
-### 6.2 Where the cache lives
+The cache materialises the asciified form ONCE per element, on the
+first label probe, then serves every subsequent lookup as a
+constant-time read into a contiguous arena. The cost amortises across
+the entire emit pass.
 
-A **per-`SimulationLP`** cache (hoisted from `SystemLP` per §6.8.4 so
-all (scene, phase) cells share one copy) with two-level structure:
-arena of asciified bytes + per-class views indexed by element index.
+If the user does not call `write_lp`, the cache is never built and
+the entire chapter is dead code — no `asciify`, no allocation, no
+memory footprint.
+
+### 6.2 Where the cache lives — and when it gets populated
+
+A **per-`SimulationLP`** cache (shared across all (scene, phase) cells
+in cascade / SDDP — see §6.8.4 rationale).
+
+Storage is a single contiguous arena (string bytes) + per-class flat
+maps from `Uid` to view into the arena. **The struct is created empty
+at `SimulationLP` construction**; population is deferred to the first
+`lookup` call.
 
 ```cpp
-// include/gtopt/simulation_lp.hpp  (new field)
+// include/gtopt/ascii_name_cache.hpp  (new)
+class AsciiNameCache {
+public:
+  /// Bind the cache to a simulation.  Stores a reference only; no
+  /// population happens here.
+  explicit AsciiNameCache(const SimulationLP& sim) noexcept;
+
+  /// Constant-time lookup.  First call triggers population (single-
+  /// shot, guarded by `std::call_once`).  Returns an empty view when
+  /// (class_name, uid) is not registered or when the element name is
+  /// empty.
+  [[nodiscard]] std::string_view lookup(
+      std::string_view class_name, Uid uid) const;
+
+  /// True once `lookup` has been called at least once and the cache
+  /// is populated.  Useful for diagnostics; not on the hot path.
+  [[nodiscard]] bool is_populated() const noexcept;
+
+private:
+  void populate_() const;  // mutable population guarded by call_once
+
+  const SimulationLP& m_sim_;
+  mutable std::once_flag m_once_;
+  mutable std::string m_arena_;
+  mutable flat_map<std::string_view /*class_snake*/,
+                   flat_map<Uid, std::string_view>> m_by_class_;
+};
+
+// include/gtopt/simulation_lp.hpp  (new member)
 class SimulationLP {
   // ...
-  struct AsciiNameCache {
-    std::string arena;                                      // §6.8.2
-    flat_map<std::string_view /*class_snake*/,
-             std::vector<std::string_view>> by_class;       // §6.8.1
-  };
-  AsciiNameCache m_ascii_cache_;
+  mutable AsciiNameCache m_ascii_cache_ {*this};   // empty until first lookup
 };
 ```
 
-The refined cache, lookup, and population implementations are spelled
-out in §6.8.1, §6.8.2, and §6.8.3. The pseudocode below is the
-**baseline only**, kept as a reference for the rejected naïve form:
+The `AsciiNameCache` object lives on `SimulationLP` but allocates
+exactly **zero bytes of heap memory** until `lookup` fires the first
+time. Both `m_arena_` and `m_by_class_` default-construct as empty
+containers — no allocation. Even the `std::once_flag` is just a small
+atomic word.
+
+`populate_()` performs a two-pass walk of `SimulationLP`'s element
+collections:
 
 ```cpp
-// REJECTED — naïve form for comparison only.  See §6.8 for the design.
-using AsciiNameCache = flat_map<std::pair<std::string_view, Uid>,
-                                std::string>;
-```
+void AsciiNameCache::populate_() const {
+  // Pass 1: total byte budget — sum of ASCIIfied name lengths.
+  std::size_t total_bytes = 0;
+  m_sim_.for_each_lp_element(
+      [&](LPClassName, Uid, std::string_view name) {
+        total_bytes += name.size();  // ASCIIfication never enlarges
+      });
+  m_arena_.reserve(total_bytes);
 
-That form was the obvious first cut; §6.8 explains why each cell of
-its cost profile is improvable.
-
-### 6.3 Threading the cached view into `SparseCol::element_name`
-
-The producer call sites become:
-
-```cpp
-SparseCol {
-  .class_name    = cname,
-  .variable_name = StatusName,
-  .variable_uid  = cuid,
-  .element_name  = sc.ascii_name(Element::class_name, cuid),  // NEW
-  .context       = ctx,
+  // Pass 2: ASCIIfy each name in place; record the view.
+  m_sim_.for_each_lp_element(
+      [&](LPClassName cn, Uid uid, std::string_view name) {
+        if (name.empty()) return;
+        const auto off = m_arena_.size();
+        asciify_into(m_arena_, name);                        // §6.8.4
+        const auto view = std::string_view{m_arena_.data() + off,
+                                           m_arena_.size() - off};
+        m_by_class_[cn.snake_case()].emplace(uid, view);
+      });
 }
 ```
 
-`sc.ascii_name(...)` is a hash-map lookup returning a
-`std::string_view` into the cache's owned `std::string`. **Zero per-row
-allocation in the LP-build hot path.**
+Pass 1 secures the exact arena capacity, so pass 2's writes never
+reallocate. Every recorded view stays valid for the lifetime of the
+`SimulationLP`.
 
-The cache outlives every `SparseCol::element_name` view because the
-cache is owned by the `SystemLP` that owns the `LinearProblem`. Same
-lifetime contract that already holds for `class_name` (program-lifetime
-`LPClassName::snake_case` buffers).
+The legacy "naïve" form (rejected at design time):
+
+```cpp
+// REJECTED — eager build at SimulationLP ctor, plus per-call-site
+// element_name field threading.  Pays cost even when write_lp is
+// never invoked.  See §6.7 alternatives for the full rationale.
+```
+
+### 6.3 No producer-side threading; render-time lookup only
+
+Compared to the previous draft of this doc, **producers do not change
+at all**. There is no `.element_name = ...` line at any of the ~120
+`SparseCol { … }` / `SparseRow { … }` call sites across `*_lp.cpp`.
+
+The label-rendering path (only fired by `write_lp` and other label
+consumers) calls into `LabelMaker::format_label`, which in turn calls
+`cache->lookup(class_name, uid)`. The first such call across the
+program's lifetime triggers `populate_()`; subsequent calls are O(1).
+
+Sequence under `write_lp`:
+
+```
+write_lp()                                 // user opts in to label emit
+  ├── construct LabelMaker(level, style, &sim.ascii_cache_)
+  └── for each label row:
+        make_col_label_into(out, label)
+          └── format_label(style, cache, class, var, uid, ctx)
+                ├── cache->lookup(class, uid)
+                │     └── std::call_once { populate_() }   // FIRST CALL ONLY
+                │     └── return view into arena
+                └── as_label_into(out, ...)                // §6.8.5
+```
+
+When `write_lp` is never invoked the entire branch beneath
+`LabelMaker` stays cold and the cache stays empty — `m_arena_.size()`
+is `0`, `m_by_class_` is an empty `flat_map`. The only resident cost
+is the `AsciiNameCache` member's empty-container footprint (~64 bytes
+across two empty containers plus the `once_flag`).
 
 ### 6.4 Memory cost of the cache
 
@@ -342,233 +433,120 @@ For a typical CEN PCP case:
 
 ≪ 1 MB. Negligible.
 
-### 6.5 What about under `LpNamesLevel::none`?
+### 6.5 What if `write_lp` is never called?
 
-The default `lp_names_level: none` builds zero labels, so the cache is
-**only populated when** `m_level_ != LpNamesLevel::none` AT THE
-`SystemLP` CONSTRUCTION TIME the matrix-options flag indicates names
-will be needed. Skipping cache population in the no-names case saves
-the 96 KB and the asciify pass entirely.
+**Zero cost.** Because population is lazy and gated by
+`AsciiNameCache::lookup`, the cache stays at construction-default
+state (empty containers, unset `once_flag`) for the lifetime of any
+run that doesn't emit labelled output.
 
-Guard:
+This covers the dominant use case: the SDDP / cascade solver loop
+that reads and writes Parquet solution / dual streams via
+`add_to_output`, never touches `write_lp`. Such runs pay the
+construction-default cost of `AsciiNameCache` (~64 bytes per
+`SimulationLP`, one-time) and nothing else from this design.
 
-```cpp
-if (options.lp_matrix_options.col_with_names ||
-    options.lp_matrix_options.row_with_names ||
-    options.lp_matrix_options.col_with_name_map ||
-    options.lp_matrix_options.row_with_name_map) {
-  populate_ascii_name_cache_();
-}
-```
+It also covers `LpNamesLevel::none` (the default), which short-circuits
+even further: `LabelMaker::make_*_label` early-returns an empty string
+on `m_level_ == none` without consulting the cache at all, so
+`lookup` is never called and `populate_()` never runs.
+
+Conditions under which `populate_()` DOES run (and the cache pays its
+~96 KB resident cost):
+
+- `LpNamesLevel::all` AND `LpLabelStyle::extended` AND at least one
+  consumer invokes `LabelMaker::make_*_label` — typically
+  `write_lp`, but also `lp_debug` printing and a few solver-diagnostic
+  paths in `linear_problem.cpp`.
+
+The `LpLabelStyle::compact` path never consults the cache regardless
+of `lp_names_level`; `LabelMaker::m_cache_` is `nullptr` in that
+configuration.
 
 ### 6.6 Performance summary
 
-| Path | Per-LP cost | When |
+| Path | Per-`SimulationLP` cost | When |
 |---|---|---|
-| Cache build | O(N_elements × name_length) ≈ 1 ms | Once, only when names are enabled |
-| Per-col `element_name` lookup | 1 flat_map find ≈ 50 ns | Hot path, ONLY when names enabled |
-| `LabelMaker::format_label` | unchanged from today | Hot path |
-| Default no-names case | **Zero overhead** — cache not built, lookups never made | Hot path |
+| `AsciiNameCache` ctor | ~64 bytes resident, no allocation | Always, unconditional |
+| LP build (no `write_lp` call) | **0 — no asciification, no allocation** | Whenever labelled output is not requested |
+| First label render | O(N_elements × name_length) ≈ 1 ms + ~96 KB arena | Once per run, only when `write_lp` is invoked under extended style |
+| Subsequent label probes | 1 nested flat_map find ≈ 100 ns | Hot path inside `write_lp` |
+| `LabelMaker::make_*_label_into` reuses caller buffer | 0 heap traffic per label | Hot path inside `write_lp` |
 
-The cache flips the per-col cost from "asciify + allocate" to "flat_map
-find", a ~50× speedup in the labelled-build hot path while leaving the
-default no-names build untouched.
+The cache flips the per-label cost from "asciify + allocate" to
+"flat_map find into a reused buffer", while paying its full cost
+exactly once and only when the user has asked for labelled output.
 
 ### 6.7 Alternative caches considered (and rejected)
 
-- **Per-LinearProblem cache** — `LinearProblem` lives below `SystemLP`
-  in the layering and is rebuilt per (scene, phase) under SDDP. The
-  cache would rebuild N_scenes × N_phases times instead of once per
-  SystemLP. Rejected.
+- **Eager population at `SimulationLP` ctor** (the previous draft of
+  this doc) — populated the cache up-front so per-label lookup was
+  pure read. **Rejected** under the hard requirement: any user that
+  never calls `write_lp` would still pay the cache-build cost. The
+  lazy path is identical in steady state once `write_lp` runs, and
+  is zero before that.
+- **Per-LinearProblem cache** — `LinearProblem` lives below
+  `SystemLP` and is rebuilt per (scene, phase) under SDDP. The cache
+  would rebuild N_scenes × N_phases times instead of once per
+  `SimulationLP`. Rejected.
 - **Global thread-local cache** — needs synchronization across scenes
-  in cascade/SDDP and complicates lifetime. Element-name asciification
-  is deterministic and side-effect-free; no benefit to global sharing.
-  Rejected.
-- **Lazy cache (populate on first lookup)** — saves 1 ms in cases that
-  start labels mid-build. Adds a hot-path branch for "did we populate
-  yet?" The eager path is simpler and identical in steady state.
-  Rejected.
-- **Storing asciified names directly on each LP element** as a member
-  field — bloats every LP element by 1 `std::string` per element even
-  in the no-names case.  **Partially rescued** by §6.8 below: each
-  `*LP` element ctor reads the central cache ONCE and stores the
-  resulting `std::string_view` (16 bytes, points into the cache). The
-  16-byte overhead is paid only in named builds because the cache is
-  empty otherwise — the view is empty too, costing the same.
+  in cascade / SDDP and complicates lifetime. Element-name
+  asciification is deterministic and side-effect-free; no benefit to
+  global sharing. Rejected.
+- **`element_name` field on `SparseCol` / `SparseRow`** (also previous
+  draft) — added a 16-byte view per col/row populated by producers at
+  LP-build time. **Rejected**: violates the zero-build-time-cost
+  requirement. The lookup is moved into `LabelMaker::format_label`
+  instead (§5.4), keeping `SparseCol` byte-identical to today.
+- **Per-`*LP` cached view** (also previous draft) — each `*LP` ctor
+  did one cache probe and stored the result as a member. **Rejected**:
+  this performed asciification work at LP-build time even when
+  `write_lp` would never be called. The lazy render-time lookup is
+  the correct choice for the stated requirement.
+- **Storing asciified names directly on each LP element struct** as a
+  `std::string` member — bloats every LP element by 24-32 bytes per
+  element even in the no-names case. Rejected.
 
 ### 6.8 Performance refinements (concrete optimisations)
 
-§6.1–§6.7 establishes the cache contract; this subsection takes the
-naïve "per-`SystemLP` `flat_map<pair<sv,Uid>,string>`" baseline and
-optimises it along five dimensions. Each refinement is independent
-and can land separately.
+§6.1–§6.7 establishes the **lazy-cache contract**; this subsection
+specifies the implementation choices that minimise the work done
+once the first `lookup` fires. Each refinement is independent and
+can land separately.
 
-#### 6.8.1 Cache structure: vector-by-element-index, not flat_map
+#### 6.8.1 Cache structure: nested `flat_map`, not `flat_map<pair>`
 
-The naïve `flat_map<pair<sv, Uid>, std::string>` pays two costs per
-lookup:
+The cache is keyed by `(class_snake, uid)`. Two representations:
 
-1. `std::pair<string_view, Uid>` comparison / hash on every probe (the
-   `string_view` compare alone is O(class-name length) — usually 5-10
-   bytes but still real).
-2. `std::string` allocation per cache entry (24-32 byte SSO buffer or
-   a separate heap allocation).
+- `flat_map<std::pair<string_view, Uid>, std::string_view>` — pays a
+  pair-compare cost per probe (the `string_view` compare alone is
+  O(class-name length)).
+- `flat_map<string_view, flat_map<Uid, string_view>>` — two-level:
+  one class probe, then one `Uid` probe. The class probe dominates
+  for the first few cols, but the `flat_map<Uid, …>` reference is
+  small enough to keep in an LP-emit-local variable, amortising the
+  outer probe across every element in the same class.
 
-gtopt's `InputContext` already exposes an `element_index(SingleId)
--> Index` that maps every (class, uid) to a contiguous per-class
-index used throughout the codebase (`generator_lp.cpp` etc. cache
-`generator_index_` at ctor time). Reuse it:
+The nested form is the design's choice. It also matches how labels
+are emitted — `write_lp` typically streams cols then rows, with
+runs of same-class entries — so the outer probe can be hoisted
+trivially in user code.
 
-```cpp
-// include/gtopt/simulation_lp.hpp (cache stored here per §6.8.4)
-class SimulationLP {
-  // ... existing
-  struct AsciiNameCache {
-    /// One arena holds every asciified name back-to-back, NUL-terminated
-    /// is not needed because views carry their own length.  Single
-    /// allocation, hot in L2 for the entire label-emit pass.
-    std::string arena;
+#### 6.8.2 String arena: one buffer, not N small strings
 
-    /// Per-class vector of views into `arena`.  Empty entries (no
-    /// element registered at that index) carry empty views.
-    flat_map<std::string_view /*class_snake*/,
-             std::vector<std::string_view>> by_class;
-  };
-  AsciiNameCache m_ascii_cache_;
-};
-```
+`flat_map<Uid, string_view>` values point into a single `std::string`
+arena owned by the `AsciiNameCache`. The two-pass populate (§6.2)
+reserves the exact byte budget up-front, so no reallocation
+invalidates the views. Net win: 3,000 small allocations collapse to
+one reservation; the arena is contiguous and L2-hot for the entire
+emit pass.
 
-Lookup becomes:
+If the arena estimate were ever exceeded, every view would dangle —
+the two-pass approach is non-negotiable. Pass 1 sums name lengths;
+pass 2 reserves + writes. Both passes finish in sub-millisecond on
+typical CEN-scale element counts.
 
-```cpp
-[[nodiscard]] std::string_view SimulationLP::ascii_name(
-    LPClassName cn, Index element_idx) const noexcept {
-  const auto& tbl = m_ascii_cache_.by_class.at(cn.snake_case());
-  return (element_idx < tbl.size()) ? tbl[element_idx]
-                                     : std::string_view {};
-}
-```
-
-`flat_map<sv, vector>` is queried once per `*LP` ctor (~25 classes,
-6 cells in cascade → 150 finds total instead of 600K). After that the
-per-element lookup is `tbl[idx]` — a single vector indexing operation.
-
-**Net win**: pair-key hash eliminated, single arena allocation
-(typically 60-100 KB), per-row cost drops from "probe + dereference"
-to a single indexed load.
-
-#### 6.8.2 String arena: one big buffer, not N small strings
-
-The naïve version stores `std::string` values in the cache. With a
-typical 20-byte average name, libstdc++'s SSO threshold (15 bytes on
-x86-64) misses for most names, triggering a separate heap allocation
-per element. For 3,000 elements that's 3,000 small heap allocations
-fragmenting the address space at startup.
-
-The arena approach:
-
-```cpp
-void SimulationLP::populate_ascii_cache_() {
-  m_ascii_cache_.arena.reserve(64 * 1024);  // ≈ 3000 × 20-byte names
-
-  for_each_element([&](LPClassName cn, Index idx, std::string_view name) {
-    auto& views = m_ascii_cache_.by_class[cn.snake_case()];
-    if (idx >= views.size()) {
-      views.resize(idx + 1);  // gtopt indices are dense per class
-    }
-    const auto off = m_ascii_cache_.arena.size();
-    asciify_into(m_ascii_cache_.arena, name);          // appends in place
-    views[idx] = std::string_view{m_ascii_cache_.arena.data() + off,
-                                  m_ascii_cache_.arena.size() - off};
-  });
-}
-```
-
-One reservation, one growth pattern, every view points into the same
-buffer.
-
-**Lifetime invariant**: `m_ascii_cache_.arena` is reserved up-front
-and never reallocated after `populate_ascii_cache_` finishes (the
-reserved capacity holds the entire population). All views remain valid
-for the lifetime of the `SimulationLP`. The `reserve(64 KB)` is an
-upper-bound estimate; a final `shrink_to_fit` releases the unused tail
-once population completes.
-
-If the estimate is exceeded, the arena reallocates and invalidates
-every view. Mitigation: a two-pass population — pass 1 computes the
-exact total byte count, pass 2 reserves and writes. Two passes through
-~3000 elements remains sub-millisecond.
-
-**Net win**: 3,000 small allocations → 1 reservation. ~60-100 KB
-contiguous, cache-friendly under the label-emit pass.
-
-#### 6.8.3 Per-`*LP` cached view eliminates the cache-find hot path
-
-§6.3 has every `SparseCol { .element_name = sc.ascii_name(class, uid) }`
-call site do a `flat_map` find. With 100K-col LPs in a cascade build
-that's 100K hash probes per cell × 6 cells = 600K probes.
-
-Better: every `*LP` element looks up its name ONCE in its ctor and
-stores the view as a member.
-
-```cpp
-// include/gtopt/object.hpp — common ancestor of LP elements
-class LpObjectBase {
-protected:
-  std::string_view m_ascii_name_view_ {};
-};
-
-// e.g. include/gtopt/line_lp.hpp ctor body
-LineLP::LineLP(const Line& line, const InputContext& ic)
-    : Base(line, ic, Element::class_name)
-    , ...
-{
-  // Look up the asciified name ONCE.  Empty when naming is disabled
-  // (cache wasn't populated) — `format_label` then falls back to UID.
-  m_ascii_name_view_ = ic.simulation().ascii_name(
-      Element::class_name, element_index_);
-}
-```
-
-Producer sites then read a member:
-
-```cpp
-SparseCol {
-  .class_name    = cname,
-  .element_name  = ascii_name_view(),  // member accessor — zero indirection
-  .variable_name = LineLP::FlowpName,
-  .variable_uid  = uid(),
-  .context       = ctx,
-}
-```
-
-**Net win**: 600K hash probes → 25 hash probes (one per LP class
-ctor, six cells). The label-emit hot path becomes a 16-byte member
-read — free.
-
-#### 6.8.4 Hoist the cache to `SimulationLP`, not `SystemLP`
-
-The doc draft put the cache on `SystemLP`. Under cascade and SDDP,
-gtopt builds N_scenes × N_phases `SystemLP` instances (typically 6
-in the regression test, hundreds in real cases) — each would
-independently rebuild and store the same cache.
-
-The element-name → asciified-name mapping is **scenario-invariant and
-stage-invariant**: element names live on the `System` (one per
-`Simulation`). The cache belongs on the same lifetime, which is
-`SimulationLP`.
-
-**Net win**:
-
-| Cache home | 6-cell cascade | 100-cell real case |
-|---|---|---|
-| `SystemLP` (per cell) | 6 × 96 KB = 576 KB | 100 × 96 KB = 9.6 MB |
-| `SimulationLP` (shared) | 1 × 96 KB = 96 KB | 96 KB |
-
-Reads are lock-free (the cache is immutable after population);
-parallel cell builds in cascade/SDDP simply share the view.
-
-#### 6.8.5 Branchless LUT `asciify`
+#### 6.8.3 Branchless LUT `asciify`
 
 The naïve byte loop branches once per character. A 256-byte LUT is
 branchless and SIMD-friendly. Compiler usually vectorises the
@@ -611,7 +589,7 @@ runtime path is two memory loads + a store per char, no branches.
 Worth doing only because it composes cleanly with `asciify_into` for
 arena writes (§6.8.2).
 
-#### 6.8.6 `format_label_into(string& out, ...)` for buffer reuse
+#### 6.8.4 `format_label_into(string& out, ...)` for buffer reuse
 
 `as_label` already has an `as_label_into` partner that writes into a
 caller-owned buffer (search `include/gtopt/as_label.hpp:357-420`).
@@ -643,37 +621,45 @@ all labels reuse its capacity — zero per-label allocation.
 eliminated, ~10-20 ms walltime saved (back-of-envelope; actual win
 depends on libc allocator).
 
-#### 6.8.7 What §6.7 dismissed and shouldn't have
+#### 6.8.5 Why lazy is correct, not "simple" eager
 
-- **Storing the asciified-name view on each LP element** (§6.7 last
-  bullet, "Rejected"). The reasoning ("bloats Id by 1 std::string per
-  element") was wrong: the *view* is 16 bytes, not a full `std::string`,
-  and §6.8.3 demonstrates this is the correct design — it eliminates
-  the per-row cache-find hot path. Reinstated as the recommended
-  approach.
+The first draft of this doc rejected the lazy-cache form on the
+grounds that the "did we populate yet?" branch added hot-path cost.
+That was wrong on two counts:
 
-- **Lazy cache** was rejected for the "did we populate yet?" branch
-  cost. That branch is one byte-flag check per `*LP` ctor (25 ctors
-  per cell), not per row. Lazy population would let `LpNamesLevel`
-  flip ON mid-run (e.g. only for a single problematic phase) without
-  rebuilding the simulation. Minor benefit; still recommend eager
-  for simplicity, but the rejection rationale was off.
+1. The branch is checked once at `std::call_once` time per cache
+   instance, not per probe. After the first call, subsequent
+   `lookup`s are pure reads — `std::call_once` is implemented as a
+   single relaxed-atomic load on the fast path.
+2. The eager form pays cache-build cost even when no consumer ever
+   asks for labels. Real workloads do this routinely (SDDP solving
+   end-to-end, writing Parquet, never invoking `write_lp`).
 
-### 6.9 Performance summary (revised)
+The lazy form is the design's load-bearing choice: it makes the
+"zero cost when `write_lp` is not called" requirement structural
+rather than a configuration toggle.
 
-| Path | Per-LP cost (original §6) | Per-LP cost (refined §6.8) |
-|---|---|---|
-| Cache build | O(N × name_len) ≈ 1 ms | Same, one arena alloc |
-| Per-`*LP` ctor `ascii_name` find | not called per-ctor | 1 flat_map probe |
-| Per-`SparseCol` `element_name` lookup | 1 flat_map probe (~50 ns × 600K = 30 ms) | 1 member read (free) |
-| `format_label` per col | 1 `std::string` alloc per call | 1 capacity-borrowed write to reused buffer |
-| Cache memory in cascade | N_cells × 96 KB | 1 × 96 KB |
-| Default no-names case | zero overhead | zero overhead |
+### 6.9 Performance summary (combined)
 
-The refined design moves the hot-path cost from O(N_cols) hash probes
-+ N_cols allocations to O(N_classes) probes + N_emits buffer writes
-into a single arena. Wall-clock impact on a typical 100K-col LP-file
-emit: estimated 30-50 ms saved (≈ 5–10 % of write_lp time on master).
+| Path | Cost when applicable |
+|---|---|
+| `AsciiNameCache` ctor at every `SimulationLP` | ~64 bytes empty containers + `std::once_flag` |
+| LP-build hot path (every run, every cell) | **0 — no asciification, no allocation, no cache reference** |
+| `LabelMaker::make_*_label` under `LpNamesLevel::none` | Empty-string early return; cache untouched |
+| `LabelMaker::make_*_label` under `LpLabelStyle::compact` | Unchanged from today; cache pointer is nullptr |
+| First `lookup` under `extended` style | ~1 ms + ~96 KB arena (one-time across the entire run) |
+| Subsequent `lookup`s | One nested-flat_map probe ≈ 100 ns |
+| Per-label render under `extended` + `make_*_label_into` | One probe + arena-write into caller's reused buffer |
+| Cache memory under cascade / SDDP | 1 × 96 KB shared across all cells (§6.2) |
+
+**Bottom line.** A run that never calls `write_lp` pays exactly the
+`AsciiNameCache` member-default cost — two empty containers and one
+`std::once_flag` — and nothing else from this design. A run that does
+call `write_lp` pays asciification + arena population exactly once,
+then renders ~200K labels via constant-time probes into a reused
+buffer. Estimated 30-50 ms saved on a typical 100K-col `write_lp`
+emit relative to the per-label-asciify baseline (≈ 5–10 % of
+`write_lp` time on master).
 
 ---
 
@@ -718,53 +704,22 @@ Matches the existing precedence for `lp_names_level`.
 
 ---
 
-## 8. Producer threading — call-site work
+## 8. Producer call-site work — none
 
-Every `SparseCol { … }` and `SparseRow { … }` that today reads
-`.variable_uid = uid()` needs to also set
-`.element_name = sc.ascii_name(Element::class_name, uid())`.
+Producers do not change. The ~120 `SparseCol { … }` / `SparseRow { … }`
+construction sites across `source/*_lp.cpp` stay byte-identical to
+today. The label-extension work is entirely render-time, scoped to
+`LabelMaker` and the lazy `AsciiNameCache` on `SimulationLP`.
 
-### 8.1 Estimated touch-points
+This is the load-bearing consequence of the "zero build-time cost"
+requirement: any producer-side change would pay per-row work at LP
+construction regardless of whether `write_lp` is ever called. By
+moving the lookup into `LabelMaker::format_label` (§5.4) and the
+population behind `std::call_once` on `AsciiNameCache::lookup`
+(§6.2), build-time stays free.
 
-Rough grep:
-
-```bash
-$ grep -rE "\.variable_uid\s*=\s*(uid\(\)|cuid)" source/*_lp.cpp | wc -l
-~120
-```
-
-across ~25 producers. Each addition is one line. The work is
-mechanical and trivially reviewable — a small `tools/add_element_name.py`
-script could AST-transform them, but a careful hand-edit per file is
-fine too.
-
-### 8.2 The right shape for the producer-side helper
-
-To avoid threading `LPClassName` + `Uid` at every call site we add a
-helper on the producer base class (or on `SystemContext`):
-
-```cpp
-// SystemContext or each *LP base
-[[nodiscard]] std::string_view element_ascii_name() const {
-  return m_system_lp_->ascii_name(this->class_name(), this->uid());
-}
-```
-
-so the producer site reads:
-
-```cpp
-SparseCol {
-  .class_name    = cname,
-  .element_name  = element_ascii_name(),
-  .variable_name = StatusName,
-  .variable_uid  = cuid,
-  .context       = ctx,
-}
-```
-
-The helper is a one-time addition per *LP class hierarchy (~6 hierarchies);
-the call-site addition is then `.element_name = element_ascii_name()`,
-~120 lines total.
+The previous draft of this doc had a Phase 2 dedicated to migrating
+those ~120 sites. That phase is **dropped** under the lazy design.
 
 ---
 
@@ -791,13 +746,20 @@ the call-site addition is then `.element_name = element_ascii_name()`,
 
 - `lp_label_style` defaults to `compact` → all existing inputs produce
   bit-identical LP files.
-- The new `element_name` field on `SparseCol` / `SparseRow` defaults
-  to empty `std::string_view{}` → producers that haven't been migrated
-  yet keep compiling and render the compact form (fallback rule §4.4).
-- The migration of the ~120 call sites can land in one PR or be split
-  by file with no observable behaviour change in between.
+- `SparseCol` / `SparseRow` are unchanged — no field additions, no
+  ABI shift, no producer code changes anywhere in `source/*_lp.cpp`.
+- `LabelMaker`'s ctor gains an optional `AsciiNameCache*` parameter
+  with a `nullptr` default — every existing construction site keeps
+  compiling and renders the compact form (cache pointer unused).
 - Fingerprint tests stay green throughout — the rendered LP under
   `compact` is unchanged byte-for-byte.
+- `AsciiNameCache` is a new mutable member on `SimulationLP` —
+  ~64 bytes resident, zero heap allocation at ctor time.  This is
+  the only non-zero impact on no-label-runs and is unavoidable
+  unless we make the cache `std::unique_ptr<AsciiNameCache>`
+  (saves 56 bytes, costs a heap allocation on the first `lookup`).
+  Worth the trade-off for runs that don't touch labels — Phase 1
+  ships the unique_ptr variant.
 
 ---
 
@@ -818,27 +780,17 @@ Each phase is one PR. Phase N+1 depends only on Phase N landing.
 | Tests | `test/source/test_asciify.cpp`, `test_label_maker_styles.cpp` | T0, T1, T2, T3, T4, T5, T10. |
 | Risk | LOW | No producer changes; label output unchanged for default `compact`. |
 
-### Phase 1 — Add `element_name` field + cached view on every `*LP` element
+### Phase 1 — `LabelMaker` cache-aware render path
 
 | Item | File | Notes |
 |---|---|---|
-| `element_name` field on `SparseCol` / `SparseRow` / `SparseColLabel` / `SparseRowLabel` | `include/gtopt/sparse_col.hpp`, `sparse_row.hpp` | 16 LoC across the four structs. |
-| Flatten step copies `element_name` from `SparseCol` to `SparseColLabel` | `source/linear_problem.cpp:661-672` (existing copy of class_name / variable_name) | 6 LoC. |
-| `format_label` branch reads `element_name` | `source/label_maker.cpp` | 20 LoC modifying the branch. |
-| `m_ascii_name_view_` member on `LpObjectBase` (or per-LP-class base) + ctor population per §6.8.3 | `include/gtopt/object.hpp` or per-LP-class base | 10 LoC per hierarchy × 6 = 60 LoC. |
-| `ascii_name_view()` accessor | same | 5 LoC per hierarchy. |
+| `format_label` consults `AsciiNameCache::lookup` at render time under `extended` style | `source/label_maker.cpp` | 30 LoC for the cache-aware branch (§5.4). |
+| `LabelMaker` ctor accepts an optional `AsciiNameCache*` | `include/gtopt/label_maker.hpp` | 10 LoC. |
+| Wire the cache pointer at every label-consumer call site (`write_lp`, `lp_debug`, fingerprint debug) | `source/linear_problem.cpp`, `source/lp_debug.cpp` (or wherever `LabelMaker` is constructed today) | 3–4 sites × 1–2 LoC each. |
 | Tests | `test/source/test_label_maker_extended_with_name.cpp` | T5, T6, T11. |
-| Risk | LOW | Field is optional and defaults to empty; producers not yet migrated keep emitting compact. |
+| Risk | LOW | Cache pointer is nullptr under `compact`; existing behaviour byte-identical. Producers untouched. |
 
-### Phase 2 — Producer call-site migration
-
-| Item | Files | Notes |
-|---|---|---|
-| Add `.element_name = ascii_name_view()` at ~120 sites — a member read per §6.8.3, NOT a cache probe | `source/*_lp.cpp` | Mechanical. Can be done file-by-file as separate commits or one bulk commit. |
-| Fingerprint regression check | existing T7 fingerprint suite | Stays green under `compact`. |
-| Risk | LOW | Compile-time guarantee via the new field's presence at every required site (a sanity check macro could enforce); behaviour unchanged under default style. |
-
-### Phase 3 — Option + CLI + Python sync
+### Phase 2 — Option + CLI + Python sync
 
 | Item | File | Notes |
 |---|---|---|
@@ -849,7 +801,7 @@ Each phase is one PR. Phase N+1 depends only on Phase N landing.
 | Tests | `test_lp_label_style_option.cpp`, integration on `ieee_9b` | T8, T9. |
 | Risk | LOW | Default unchanged; opt-in. |
 
-### Phase 4 — Length safety + truncation policy (optional)
+### Phase 3 — Length safety + truncation policy (optional)
 
 | Item | File | Notes |
 |---|---|---|
@@ -865,12 +817,13 @@ Each phase is one PR. Phase N+1 depends only on Phase N landing.
 
 | Risk | Mitigation |
 |---|---|
-| Producer call-site threading is mechanical but easy to miss a site | Phase 2's empty-default fallback means missed sites silently fall back to compact for those labels — visible-on-inspection but not a runtime failure. Phase 3 ships a `gtopt_check_lp` warning when the option is `extended` but >5 % of labels miss `element_name`. |
 | LP file size grows under `extended` | Document the trade-off. CEN PCP case estimate: ~+15 % bytes on the LP file. Solvers tolerate this; LP parsing is dwarfed by solve time. |
-| Solver name-length caps (CPLEX 255 chars) | Phase 4 truncation + stable hash suffix. |
-| Asciified collisions across mistakenly-similar names | gtopt's input validator already enforces unique names per class. The hash suffix under Phase 4 truncation guarantees uniqueness even in adversarial cases. |
-| Fingerprint drift under `extended` | Two fingerprint streams: one for `compact` (the existing one), one for `extended` (new in Phase 3). Tests cover both; CI verifies bit-identity within each stream. |
-| Cache lifetime bug (string_view dangles) | Single ownership: cache lives on `SystemLP`, `SparseCol::element_name` views into the cache's owned strings, `LabelMaker` reads `SparseCol`. Same lifetime story as `class_name`. Tested by T11 + ASan in the existing CI test build. |
+| Solver name-length caps (CPLEX 255 chars) | Phase 3 truncation + stable hash suffix. |
+| Asciified collisions across mistakenly-similar names | gtopt's input validator already enforces unique names per class. The hash suffix under Phase 3 truncation guarantees uniqueness even in adversarial cases. |
+| Fingerprint drift under `extended` | Two fingerprint streams: one for `compact` (the existing one), one for `extended` (new in Phase 2). Tests cover both; CI verifies bit-identity within each stream. |
+| Cache lifetime bug (string_view dangles) | Single ownership: cache lives on `SimulationLP`, arena reserved up-front so views never relocate after `populate_()`. `LabelMaker::m_cache_` is a non-owning pointer into the SimulationLP's mutable member, lifetime is whatever owns the LabelMaker (typically a write_lp stack frame). Tested by ASan in the existing CI test build. |
+| Lazy-cache thread safety | `std::call_once` guards the population pass.  Subsequent `lookup` calls are pure reads of an immutable structure. Concurrent label emission across cells in cascade / SDDP is safe by construction. |
+| Lazy-cache failure mode if `populate_()` throws | `std::call_once` leaves the flag unset on exception, so a retry replays the population.  Doc the exception contract: `populate_()` is no-throw in steady state (only `std::bad_alloc` is theoretically possible).  Test T2 exercises the empty-cache path; T3 exercises the populated path. |
 
 ---
 
