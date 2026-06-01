@@ -402,6 +402,23 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         out.element_known = true;
       }
     }
+    if (out.emitted) {
+      return out;
+    }
+    // Fall through to the single-attribute path when NO leg emitted.
+    // Handles per-line direct overrides of a compound attribute — e.g.
+    // ``line.flow`` resolves to ``+flowp − flown`` by default, but the
+    // ``tangent_signed_flow`` line-loss mode registers a signed
+    // ``flow`` column directly on the line, which the single-attribute
+    // lookup below picks up.  When the single-attribute path also
+    // misses, fall back to ``out`` so ``element_known`` carries the
+    // class-level registration.
+    auto direct =
+        stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
+    if (direct.emitted) {
+      direct.element_known = direct.element_known || out.element_known;
+      return direct;
+    }
     return out;
   }
 

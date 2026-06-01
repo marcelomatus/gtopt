@@ -75,7 +75,8 @@ namespace gtopt::kirchhoff
     const BIndexHolder<ColIndex>& fpcols,
     const BIndexHolder<ColIndex>& fncols,
     const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-    const BIndexHolder<std::vector<ColIndex>>& fnsegcols);
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols,
+    const BIndexHolder<ColIndex>& fscols = {});
 
 }  // namespace gtopt::kirchhoff
 
@@ -113,6 +114,7 @@ struct LineKvlInputs
     const BIndexHolder<ColIndex>& fpcols,
     const BIndexHolder<ColIndex>& fncols,
     const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-    const BIndexHolder<std::vector<ColIndex>>& fnsegcols);
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols,
+    const BIndexHolder<ColIndex>& fscols = {});
 
 }  // namespace gtopt::kirchhoff::node_angle

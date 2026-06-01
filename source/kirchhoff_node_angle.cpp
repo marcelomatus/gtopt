@@ -23,7 +23,8 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     const BIndexHolder<ColIndex>& fpcols,
     const BIndexHolder<ColIndex>& fncols,
     const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-    const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols,
+    const BIndexHolder<ColIndex>& fscols)
 {
   // Skip Kirchhoff for lines without reactance (DC/HVDC lines).  A
   // zero-reactance line would create a degenerate constraint
@@ -89,7 +90,8 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     // zero-impedance short instead of an open circuit.  Skipping it keeps
     // the two bus angles decoupled (true open line).
     const bool has_flow = fpcols.contains(buid) || fncols.contains(buid)
-        || fpsegcols.contains(buid) || fnsegcols.contains(buid);
+        || fpsegcols.contains(buid) || fnsegcols.contains(buid)
+        || fscols.contains(buid);
     if (!has_flow) {
       continue;
     }
@@ -132,6 +134,14 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     } else if (auto fit = fncols.find(buid); fit != fncols.end()) {
       trow[fit->second] = -x_tau;
     }
+    // ``tangent_signed_flow`` mode: single signed flow column carries
+    // its own sign, so stamp a single ``+x_τ`` coefficient (no ``−x_τ``
+    // pair).  Mutually exclusive with the fp/fn aggregator + seg paths
+    // above — at most one of {fp, fn, segs, signed} is populated on
+    // any given block per line.
+    if (auto fit = fscols.find(buid); fit != fscols.end()) {
+      trow[fit->second] = +x_tau;
+    }
 
     trows[buid] = lp.add_row(std::move(trow));
   }
@@ -155,7 +165,8 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
     const BIndexHolder<ColIndex>& fpcols,
     const BIndexHolder<ColIndex>& fncols,
     const BIndexHolder<std::vector<ColIndex>>& fpsegcols,
-    const BIndexHolder<std::vector<ColIndex>>& fnsegcols)
+    const BIndexHolder<std::vector<ColIndex>>& fnsegcols,
+    const BIndexHolder<ColIndex>& fscols)
 {
   switch (sc.options().kirchhoff_mode()) {
     case KirchhoffMode::node_angle: {
@@ -182,7 +193,8 @@ BIndexHolder<RowIndex> add_line_kvl_rows(
                                            fpcols,
                                            fncols,
                                            fpsegcols,
-                                           fnsegcols);
+                                           fnsegcols,
+                                           fscols);
     }
     case KirchhoffMode::cycle_basis:
       // Loop-flow formulation: KVL rows are emitted at the system

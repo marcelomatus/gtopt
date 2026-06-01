@@ -234,6 +234,9 @@ void log_pre_solve_stats(
          mo.scale_loss_link.has_value()
              ? std::format("{:.6g}", *mo.scale_loss_link)
              : "auto (median R/V²)");
+  log_kv("loss_cost_eps",
+         mo.loss_cost_eps.has_value() ? std::format("{:.6g}", *mo.loss_cost_eps)
+                                      : "0 (default; no per-MWh loss cost)");
   log_kv(
       "equilibration",
       std::format("{}{}",

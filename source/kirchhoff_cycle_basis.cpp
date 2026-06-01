@@ -359,7 +359,8 @@ std::size_t add_kvl_rows(const SystemContext& sc,
             return edge_line->flowp_cols_at(scenario, stage).contains(buid)
                 || edge_line->flown_cols_at(scenario, stage).contains(buid)
                 || edge_line->flowp_seg_cols_at(scenario, stage).contains(buid)
-                || edge_line->flown_seg_cols_at(scenario, stage).contains(buid);
+                || edge_line->flown_seg_cols_at(scenario, stage).contains(buid)
+                || edge_line->flows_cols_at(scenario, stage).contains(buid);
           });
       if (!cycle_intact) {
         continue;
@@ -410,6 +411,14 @@ std::size_t add_kvl_rows(const SystemContext& sc,
           for (const auto& col : it->second) {
             row[col] -= coef_base;
           }
+        }
+        // ``tangent_signed_flow`` mode: single signed flow column carries
+        // its own sign, so use a single ``+`` stamp (the sign of the
+        // contribution to the cycle equation comes from ``ce.sign`` baked
+        // into ``coef_base``, exactly as for the aggregator path).
+        const auto& fsc = rl.line->flows_cols_at(scenario, stage);
+        if (auto it = fsc.find(buid); it != fsc.end()) {
+          row[it->second] += coef_base;
         }
       }
 
