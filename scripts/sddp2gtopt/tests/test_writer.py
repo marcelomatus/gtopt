@@ -38,16 +38,20 @@ def _study(num_stages: int = 1, num_blocks: int = 1) -> StudySpec:
 
 
 def test_options_carry_study_settings() -> None:
+    """2026-05-17 schema migration: model-shape knobs live under
+    ``opts['model_options']``; only I/O fields remain at the top level.
+    """
     opts = build_options(_study())
-    assert opts["demand_fail_cost"] == 500
-    assert opts["use_single_bus"] is True
-    assert opts["use_kirchhoff"] is False
-    assert opts["scale_objective"] == 1000
+    model_opts = opts["model_options"]
+    assert model_opts["demand_fail_cost"] == 500
+    assert model_opts["use_single_bus"] is True
+    assert model_opts["use_kirchhoff"] is False
+    assert model_opts["scale_objective"] == 1000
 
 
 def test_options_multi_bus_when_requested() -> None:
     opts = build_options(_study(), use_single_bus=False)
-    assert opts["use_single_bus"] is False
+    assert opts["model_options"]["use_single_bus"] is False
 
 
 # --- simulation --------------------------------------------------------
@@ -189,7 +193,7 @@ def test_build_planning_single_system_full_round_trip() -> None:
         ],
         name="case_min",
     )
-    assert plan["options"]["demand_fail_cost"] == 500
+    assert plan["options"]["model_options"]["demand_fail_cost"] == 500
     assert len(plan["simulation"]["stage_array"]) == 2
     assert plan["system"]["name"] == "case_min"
     assert plan["system"]["bus_array"][0]["name"] == "sys_1_bus"
@@ -242,7 +246,7 @@ def test_build_planning_multi_system_emits_multi_bus() -> None:
         ],
         name="multi",
     )
-    assert plan["options"]["use_single_bus"] is False
+    assert plan["options"]["model_options"]["use_single_bus"] is False
     bus_names = {b["name"] for b in plan["system"]["bus_array"]}
     assert bus_names == {"sys_1_bus", "sys_2_bus"}
     # Each generator routed to its system's bus.

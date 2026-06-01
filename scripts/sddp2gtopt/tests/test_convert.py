@@ -171,7 +171,9 @@ def test_convert_two_systems_accepted(
     assert rc == 0
 
     plan = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert plan["options"]["use_single_bus"] is False
+    # 2026-05-17 schema migration: ``use_single_bus`` is now nested
+    # under ``options.model_options.*``.
+    assert plan["options"]["model_options"]["use_single_bus"] is False
 
     buses = plan["system"]["bus_array"]
     assert len(buses) == 2

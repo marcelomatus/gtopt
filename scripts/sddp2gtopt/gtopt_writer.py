@@ -47,15 +47,26 @@ def _stage_hours(stage_type: int) -> float:
 
 
 def build_options(study: StudySpec, *, use_single_bus: bool = True) -> dict[str, Any]:
-    """Map :class:`StudySpec` onto gtopt's top-level ``options`` block."""
+    """Map :class:`StudySpec` onto gtopt's top-level ``options`` block.
+
+    The 11 legacy top-level mirror keys (``use_single_bus`` /
+    ``use_kirchhoff`` / ``demand_fail_cost`` / ``scale_objective`` / …)
+    were moved into ``options.model_options.*`` by the 2026-05-17
+    StrictParsePolicy migration; emitting them at top level now causes
+    a JSON parse error.  Keep ``annual_discount_rate`` / ``output_*``
+    at top level (those stayed) and nest the rest under
+    ``model_options``.
+    """
     return {
         "annual_discount_rate": study.discount_rate,
         "output_format": "csv",
         "output_compression": "uncompressed",
-        "use_single_bus": use_single_bus,
-        "demand_fail_cost": float(study.deficit_cost),
-        "scale_objective": 1000,
-        "use_kirchhoff": False,
+        "model_options": {
+            "use_single_bus": use_single_bus,
+            "use_kirchhoff": False,
+            "demand_fail_cost": float(study.deficit_cost),
+            "scale_objective": 1000,
+        },
     }
 
 

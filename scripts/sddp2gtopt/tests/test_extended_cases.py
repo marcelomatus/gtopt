@@ -104,7 +104,7 @@ def test_multi_system_cases_convert_to_multi_bus(
     rc = convert_sddp_case({"input_dir": case_dir, "output_dir": out_dir})
     assert rc == 0
     plan = json.loads(next(out_dir.glob("*.json")).read_text(encoding="utf-8"))
-    assert plan["options"]["use_single_bus"] is False
+    assert plan["options"]["model_options"]["use_single_bus"] is False
     # Both PSRSystems materialise as buses.
     assert len(plan["system"]["bus_array"]) >= 2
 

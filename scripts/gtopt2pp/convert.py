@@ -276,7 +276,30 @@ def _read_file_sched_value(
     if df is None:
         return None
 
-    # Find the element column (uid:<N>, name, or bare UID)
+    # ── Long-format detection ──────────────────────────────────────────
+    # gtopt's output writer was migrated to a long layout: every
+    # FieldSched Parquet/CSV now ships ``{scenario?, stage?, block?, uid, value}``
+    # rows instead of one column per uid.  Detect that shape first.
+    if "uid" in df.columns and "value" in df.columns and element_uid is not None:
+        filtered = df[df["uid"] == element_uid]
+        if scenario_uid is not None and "scenario" in filtered.columns:
+            filtered = filtered[filtered["scenario"] == scenario_uid]
+        if block_uid is not None and "block" in filtered.columns:
+            filtered = filtered[filtered["block"] == block_uid]
+        if not filtered.empty:
+            return float(filtered["value"].iloc[0])
+        # Fall back to the unfiltered (single-uid) row when scenario/block
+        # filtering eliminated everything — matches the wide-format
+        # behaviour below where missing scenario/block dims fall through
+        # to the first row.
+        uid_rows = df[df["uid"] == element_uid]
+        if not uid_rows.empty:
+            return float(uid_rows["value"].iloc[0])
+        return None
+
+    # ── Legacy wide-format ─────────────────────────────────────────────
+    # Older fixtures still ship `{scenario, block, uid:1, uid:2, …}` files;
+    # try those next (one column per element).
     col = None
     if element_uid is not None:
         uid_col = f"uid:{element_uid}"

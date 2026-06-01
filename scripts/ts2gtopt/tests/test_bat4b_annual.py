@@ -382,7 +382,10 @@ class TestHelpers:
         assert bat["bus"] == "b3"
         assert bat["pmax_charge"] == 60
         assert bat["pmax_discharge"] == 60
-        assert bat["gcost"] == 0
+        # ``gcost`` is not a Battery JSON field (charge/discharge prices
+        # live on the associated demand / generator, not the storage
+        # element) — removed from the unified definition.
+        assert "gcost" not in bat
         assert "converter_array" not in case["system"]
 
 
@@ -1027,14 +1030,16 @@ class TestGtoptEndToEnd:
         gen_df = pd.read_csv(gen_csvs[0])
         load_df = pd.read_csv(load_csvs[0])
 
-        uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
-        uid_load = [c for c in load_df.columns if c.startswith("uid:")]
-
-        total_gen = gen_df[uid_gen].sum(axis=1)
-        total_load = load_df[uid_load].sum(axis=1)
-
-        # Total generation ≥ total load in every row (with 1 MW tolerance for solver noise)
-        slack = (total_gen - total_load).min()
+        # Output is long-format (one row per (scenario, stage, block, uid)
+        # with a 'value' column).  Sum across uids per (stage, block) to
+        # get total dispatch / total load, then compare row-by-row.
+        gen_per_block = gen_df.groupby(["stage", "block"])["value"].sum()
+        load_per_block = load_df.groupby(["stage", "block"])["value"].sum()
+        joined = gen_per_block.to_frame("gen").join(
+            load_per_block.to_frame("load"), how="inner"
+        )
+        # Total generation ≥ total load in every block (with 1 MW tolerance for solver noise)
+        slack = (joined["gen"] - joined["load"]).min()
         assert slack >= -1.0, (
             f"Generation deficit of {-slack:.2f} MW detected in at least one block"
         )
@@ -1055,11 +1060,14 @@ class TestGtoptEndToEnd:
         )
 
         gen_df = pd.read_csv(gen_csvs[0])
-        uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
-        gen_df["total"] = gen_df[uid_gen].sum(axis=1)
+        # Output is long-format (one row per (scenario, stage, block, uid)
+        # with a 'value' column).  Sum across uids per (stage, block) to
+        # collapse the multi-generator dispatch into a single time series,
+        # then mean across blocks within each stage.
+        per_block = gen_df.groupby(["stage", "block"])["value"].sum()
         # Stage 1 = January (summer), Stage 7 = July (winter)
-        jan_mean = gen_df[gen_df["stage"] == 1]["total"].mean()
-        jul_mean = gen_df[gen_df["stage"] == 7]["total"].mean()
+        jan_mean = per_block.loc[1].mean()
+        jul_mean = per_block.loc[7].mean()
         assert jul_mean > jan_mean, (
             f"Expected winter (Jul) generation > summer (Jan), "
             f"got Jul={jul_mean:.1f} MW, Jan={jan_mean:.1f} MW"
