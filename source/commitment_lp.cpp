@@ -955,16 +955,22 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
       const auto bctx =
           make_block_context(scenario.uid(), stage.uid(), rep_buid);
+      // Start-up tier costs (hot/warm/cold) are once-per-EVENT costs
+      // ($/start), NOT per-hour power costs — exactly like the plain
+      // startup ``v`` above, they must NOT be multiplied by the block
+      // duration (Δt).  Use the no-duration ``cost_factor`` (probability ·
+      // discount).  When ``has_startup_tiers`` is set these tiers carry the
+      // ENTIRE startup cost (``v_cost`` is forced to 0), so a
+      // ``block_ecost`` here would re-introduce the exact Δt inflation the
+      // ``v``/``w`` fix removed — guarded by the
+      // "Startup TIERS are per-EVENT costs" regression test in
+      // ``test/source/test_commitment.cpp``.
+      const auto tier_factor = CostHelper::cost_factor(
+          scenario.probability_factor(), stage.discount_factor());
 
       // Tier-column scope / domain / blocks reuse the values computed
       // once for the u/v/w loop above (`period_scope`, `period_domain`,
       // `period_block_uids[p]`).
-      // Cost note: master-side ``CostHelper::block_ecost(...)`` handles
-      // the (probability × discount × Δt) folding for the tier costs;
-      // the legacy ``tier_factor`` (no-duration cost_factor) is no longer
-      // applied separately because ``block_ecost`` already discounts and
-      // probability-weights — and crucially does NOT multiply by Δt for
-      // the once-per-event hot/warm/cold start tiers.
       const auto tier_blocks_span =
           std::span<const BlockUid> {period_block_uids[p]};
 
@@ -972,9 +978,8 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
       // master-side ``IntegerVariable`` registry takes ownership of
       // integer-vs-LP-relax and per-period dispatch — feature branch's
       // legacy ``pin_scale`` workaround is subsumed by the registry's
-      // bookkeeping.
-      const auto h_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, hot_cost);
+      // bookkeeping.  Per-event cost stays no-Δt (see comment above).
+      const auto h_cost = hot_cost * tier_factor;
       auto hcol = sc.add_integer_col(lp,
                                      IntegerVariable::key(scenario,
                                                           stage,
@@ -998,8 +1003,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                                      tier_blocks_span);
       hcols[rep_buid] = hcol;
 
-      const auto wm_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, warm_cost);
+      const auto wm_cost = warm_cost * tier_factor;
       auto wmcol = sc.add_integer_col(lp,
                                       IntegerVariable::key(scenario,
                                                            stage,
@@ -1023,8 +1027,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                                       tier_blocks_span);
       wmcols[rep_buid] = wmcol;
 
-      const auto c_cost =
-          CostHelper::block_ecost(scenario, stage, rep_block, cold_cost);
+      const auto c_cost = cold_cost * tier_factor;
       auto ccol = sc.add_integer_col(lp,
                                      IntegerVariable::key(scenario,
                                                           stage,
