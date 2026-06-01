@@ -44,12 +44,15 @@ constexpr void populate_collection_ptrs(
 }
 }  // namespace
 
-SystemContext::SystemContext(SimulationLP& simulation, SystemLP& system)
+SystemContext::SystemContext(SimulationLP& simulation,
+                             SystemLP& system,
+                             SystemKind kind)
     : FlatHelper(simulation)
     , CostHelper(
           simulation.options(), simulation.scenarios(), simulation.stages())
     , m_simulation_(simulation)
     , m_system_(system)
+    , m_kind_(kind)
 {
   populate_collection_ptrs(m_collection_ptrs_, system.collections());
 }
@@ -256,10 +259,14 @@ void SystemContext::defer_state_link(StateVariable::Key prev_key,
     // Re-queuing on rebuild would append duplicate links.
     return;
   }
+  // Stamp the routing kind so the tightening pass resolves the producer
+  // in this context's registry (forward vs aperture).
+  prev_key.lp_key.kind = m_kind_;
   m_system_.get().defer_state_link(prev_key,
                                    LPKey {
                                        .scene_index = system().scene().index(),
                                        .phase_index = system().phase().index(),
+                                       .kind = m_kind_,
                                    },
                                    here_col);
 }

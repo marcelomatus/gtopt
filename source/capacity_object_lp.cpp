@@ -162,15 +162,35 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capacost_row[capacost_col] = +1;
 
   if (stage_maxexpcap > 0) {
-    const auto expmod_col = expmod_cols[stage.uid()] = lp.add_col({
-        .uppb = stage_expmod,
-        .is_integer = m_integer_expmod_
-            && !sc.simulation().phases()[stage.phase_index()].is_continuous(),
-        .class_name = m_class_name_,
-        .variable_name = ExpmodName,
-        .variable_uid = uid(),
-        .context = stg_ctx,
-    });
+    // Route the expmod col through the IntegerVariable choke-point.
+    // Phase scope: one col per (scenario, stage), no per-block fan-out
+    // (AMPL exposure stays as stage_col broadcast at the existing
+    // add_ampl_variable call below).  Domain is Integer when the user
+    // asked for integer expansion AND the phase is not continuous-
+    // relaxed; otherwise Relaxed.
+    const auto expmod_is_integer = m_integer_expmod_
+        && !sc.simulation().phases()[stage.phase_index()].is_continuous();
+    const auto expmod_domain =
+        expmod_is_integer ? IntegerDomain::Integer : IntegerDomain::Relaxed;
+    const auto expmod_col = expmod_cols[stage.uid()] =
+        sc.add_integer_col(lp,
+                           IntegerVariable::key(scenario,
+                                                stage,
+                                                m_class_name_,
+                                                uid(),
+                                                ExpmodName,
+                                                IntegerScope::Phase),
+                           SparseCol {
+                               .uppb = stage_expmod,
+                               .class_name = m_class_name_,
+                               .variable_name = ExpmodName,
+                               .variable_uid = uid(),
+                               .context = stg_ctx,
+                           },
+                           expmod_domain,
+                           IntegerScope::Phase,
+                           unknown_group,
+                           std::span<const BlockUid> {});
 
     capainst_row[expmod_col] = +stage_expcap;
     capacost_row[expmod_col] = -stage_expcap * stage_hour_capcost;

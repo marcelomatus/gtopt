@@ -66,6 +66,59 @@ template<typename Range>
 // translation-unit-private symbols.  See the header for the full
 // contract.
 
+/// Build the "hybrid" state-variable links for the aperture-system backward
+/// path.  Starts from the forward source-phase `outgoing_links` and replaces
+/// only each link's `dependent_col` with the matching column in the aperture
+/// system at the target phase — looked up via the aperture state-variable
+/// registry (same element uid / col_name, `kind = aperture`).  `source_col`,
+/// `state_var` (the forward trial), bounds and identity stay forward.  The
+/// result drives both `propagate_trial_values` (fixing the aperture LP's
+/// incoming state to the forward trial) and `build_benders_cut_physical`
+/// (reading reduced costs from the aperture clone while emitting the cut onto
+/// forward columns).  Links with no aperture counterpart are dropped — the
+/// reduced aperture model simply does not couple that state across phases.
+[[nodiscard]] std::vector<gtopt::StateVarLink> make_aperture_cut_links(
+    const gtopt::SimulationLP& sim,
+    std::span<const gtopt::StateVarLink> fwd_links,
+    gtopt::SceneIndex scene_index,
+    gtopt::PhaseIndex target_phase_index)
+{
+  using namespace gtopt;
+  std::vector<StateVarLink> out;
+  out.reserve(fwd_links.size());
+  for (const auto& link : fwd_links) {
+    const auto ap_prod = sim.state_variable(StateVariable::Key {
+        .scenario_uid = link.scenario_uid,
+        .stage_uid = link.stage_uid,
+        .uid = link.uid,
+        .col_name = link.col_name,
+        .class_name = link.class_name,
+        .lp_key = {.scene_index = scene_index,
+                   .phase_index = link.source_phase_index,
+                   .kind = SystemKind::aperture},
+    });
+    if (!ap_prod) {
+      continue;
+    }
+    ColIndex ap_dep_col {unknown_index};
+    for (const auto& dep : ap_prod->get().dependent_variables()) {
+      if (dep.scene_index() == scene_index
+          && dep.phase_index() == target_phase_index)
+      {
+        ap_dep_col = dep.col();
+        break;
+      }
+    }
+    if (ap_dep_col == ColIndex {unknown_index}) {
+      continue;
+    }
+    StateVarLink hybrid = link;  // copy forward source_col / state_var / ids
+    hybrid.dependent_col = ap_dep_col;  // remap to the aperture clone column
+    out.push_back(hybrid);
+  }
+  return out;
+}
+
 }  // namespace
 
 namespace gtopt
@@ -426,54 +479,48 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   const auto& plp = planning_lp().simulation().phases()[phase_index];
 
   auto& target_sys = planning_lp().system(scene_index, phase_index);
-  target_sys.ensure_lp_built();
 
-  // Populate the per-element XLP state (generation_cols, …) on the
-  // main thread BEFORE dispatching aperture tasks.  Under compress
-  // the backward-pass aperture update loop in sddp_aperture.cpp
-  // reads `sys.collections()` from every task concurrently — without
-  // a pre-populated state, each task would race on `m_collections_`
-  // via `rebuild_collections_if_needed()` and segfault.
-  // Single-threaded call here is safe; the subsequent aperture tasks
-  // only read collections.  No-op under `off` (collections always
-  // alive) and under `rebuild` (refreshed by rebuild_in_place).
-  target_sys.rebuild_collections_if_needed();
+  // Choose the clone source for the aperture solves: the backward-pass
+  // aperture system when one is configured for this cell, else the regular
+  // forward system.  All clone/decompress/update bookkeeping below operates
+  // on `clone_sys`; the cut still installs onto the forward source phase.
+  auto* const ap_sys = planning_lp().aperture_system(scene_index, phase_index);
+  auto& clone_sys = (ap_sys != nullptr) ? *ap_sys : target_sys;
+  clone_sys.ensure_lp_built();
 
-  // Re-apply volume-dependent LP coefficient updates on `target_sys`
-  // BEFORE aperture clones are created.  Under
-  // `LowMemoryMode::compress` / `rebuild`, `ensure_lp_built()` above
-  // reloads the construction-time matval/RHS from the snapshot — the
-  // forward / backward passes' `update_lp_for_phase` mutations
-  // (turbine production factor, seepage segment selection, discharge
-  // limit) are NOT in the snapshot; they live only on the live
-  // backend that was dropped at the previous `release_backend()`.
-  //
-  // Without this call the aperture clones inherit construction-time
-  // volume-dependent coefficients while their cuts are computed
-  // against the current iteration's physical_eini trial values —
-  // producing per-aperture LPs whose value-function geometry is
-  // inconsistent with the forward model.  Observed on juan/iplp
-  // (1 active scene + 14 feasible apertures, 5 iters):
-  //   * `all apertures infeasible at N phase(s)` warnings under
-  //     compress only — accumulating across iters (4→2→3→4→5 phases).
-  //   * `infeasible: 35 (primal)` total under compress vs 0 under off.
-  //   * UB exploding from 2.55 G to 3.35 × 10²⁹ T by iter 5 because
-  //     the Benders-fallback cuts derived from those infeasibilities
-  //     poison the SDDP recourse-cost estimator.
-  //
-  // Same root pattern as the main backward pass fix (commit
-  // `675422e7 fix(reservoir): always re-issue update_lp coefficients
-  // + efin-only DRL`) but on the aperture pass's source-LP
-  // refreshing path instead of the main `tgt_li.resolve` path
-  // (`sddp_method_iteration.cpp:463`).  Under `LowMemoryMode::off`
-  // `update_lp_for_phase` is idempotent (the always-re-issue change
-  // ensures both `set_coeff` and `set_rhs` fire even when memory
-  // state matches), so this is a no-op cost there.
-  update_lp_for_phase(scene_index, phase_index);
+  // Populate the per-element XLP state (generation_cols, …) on the main
+  // thread BEFORE dispatching aperture tasks: the per-aperture update loop
+  // in sddp_aperture.cpp reads `sys.collections()` from every task
+  // concurrently and would otherwise race on `m_collections_`.
+  clone_sys.rebuild_collections_if_needed();
+
+  // Hybrid cut links for the aperture path: `dependent_col` points into the
+  // aperture clone (so reduced costs read the right column) while
+  // `source_col` / `state_var` stay in the forward source phase (so the cut
+  // installs onto the forward LP and uses the forward trial value).  Empty
+  // for the forward path.
+  std::vector<StateVarLink> aperture_cut_links;
+  if (ap_sys != nullptr) {
+    aperture_cut_links = make_aperture_cut_links(planning_lp().simulation(),
+                                                 src_state.outgoing_links,
+                                                 scene_index,
+                                                 phase_index);
+    // Fix the aperture LP's incoming-state columns to the forward trial
+    // efin_{t-1} (lo==hi), exactly as the forward pass does on its own LP.
+    propagate_trial_values(aperture_cut_links, clone_sys.linear_interface());
+    // NOTE: volume-dependent coefficient refresh (seepage/production-factor)
+    // on the reduced aperture model is a documented follow-up; this
+    // milestone swaps the System network only.
+  } else {
+    // Forward path: re-apply volume-dependent coefficient updates on the
+    // forward target before clones are created (idempotent under `off`;
+    // essential under compress/rebuild — see commit 675422e7).
+    update_lp_for_phase(scene_index, phase_index);
+  }
 
   // Keep the flat LP decompressed while aperture tasks create clones.
   // The guard re-compresses on scope exit (level 2 only).
-  const DecompressionGuard dcomp_guard(target_sys.linear_interface());
+  const DecompressionGuard dcomp_guard(clone_sys.linear_interface());
 
   // NOTE: integer relaxation for Benders / SDDP subproblem validity is
   // performed PER aperture clone in `source/sddp_aperture.cpp` (one line
@@ -533,7 +580,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_defs,
       selected_phase_apertures,
       cut_offset,
-      target_sys,
+      clone_sys,
       plp,
       opts,
       m_label_maker_,
@@ -549,7 +596,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_lp_debug,
       m_options_.aperture_use_manual_clone,
       m_options_.aperture_chunk_size,
-      m_pool_);
+      m_pool_,
+      aperture_cut_links);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -591,7 +639,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // calls (`linear_interface.cpp:144` early-return on
   // `m_backend_released_`).
   if (m_options_.low_memory_mode != LowMemoryMode::off) {
-    target_sys.release_backend();
+    clone_sys.release_backend();
   }
 
   return cuts_added;
@@ -717,24 +765,34 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     const auto& target_state = phase_states[phase_index];
 
     auto& target_sys = planning_lp().system(scene_index, phase_index);
-    target_sys.ensure_lp_built();
+
+    // Clone source: the aperture system when configured for this cell, else
+    // the forward system (mirrors `backward_pass_aperture_phase_impl`).
+    auto* const ap_sys =
+        planning_lp().aperture_system(scene_index, phase_index);
+    auto& clone_sys = (ap_sys != nullptr) ? *ap_sys : target_sys;
+    clone_sys.ensure_lp_built();
     // Single-threaded XLP-state rebuild before aperture tasks are
     // dispatched (same rationale as in
     // `backward_pass_aperture_phase_impl`).
-    target_sys.rebuild_collections_if_needed();
+    clone_sys.rebuild_collections_if_needed();
 
-    // Re-apply volume-dependent LP coefficient updates on `target_sys`
-    // BEFORE aperture clones are created.  See the matching call in
-    // `backward_pass_aperture_phase_impl` above for full rationale —
-    // without this the aperture clones inherit construction-time
-    // matval/RHS under `LowMemoryMode::compress` / `rebuild` while
-    // their per-aperture cuts assume current-iteration trial values,
-    // producing the `all apertures infeasible at N phase(s)`
-    // cascade and the UB-explosion-to-10²⁹ symptom on juan/iplp.
-    update_lp_for_phase(scene_index, phase_index);
+    // Hybrid cut links + incoming-state fix for the aperture path; forward
+    // path re-applies volume-dependent coefficient updates (see the matching
+    // block in `backward_pass_aperture_phase_impl` for full rationale).
+    std::vector<StateVarLink> aperture_cut_links;
+    if (ap_sys != nullptr) {
+      aperture_cut_links = make_aperture_cut_links(planning_lp().simulation(),
+                                                   src_state.outgoing_links,
+                                                   scene_index,
+                                                   phase_index);
+      propagate_trial_values(aperture_cut_links, clone_sys.linear_interface());
+    } else {
+      update_lp_for_phase(scene_index, phase_index);
+    }
 
     // Keep the flat LP decompressed while aperture tasks create clones.
-    const DecompressionGuard dcomp_guard(target_sys.linear_interface());
+    const DecompressionGuard dcomp_guard(clone_sys.linear_interface());
 
     // Resolve α column for the source phase once per iteration.
     const auto* src_alpha_svar = find_alpha_state_var(
@@ -778,7 +836,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         effective_defs,
         selected_phase_apertures_async,
         total_cuts,
-        target_sys,
+        clone_sys,
         plp,
         opts,
         m_label_maker_,
@@ -794,7 +852,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         aperture_lp_debug,
         m_options_.aperture_use_manual_clone,
         m_options_.aperture_chunk_size,
-        m_pool_);
+        m_pool_,
+        aperture_cut_links);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));
@@ -818,7 +877,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     // installed on `src_li` (different cell), `target_sys` not
     // touched again in this scene's backward pass.
     if (m_options_.low_memory_mode != LowMemoryMode::off) {
-      target_sys.release_backend();
+      clone_sys.release_backend();
     }
   }
 

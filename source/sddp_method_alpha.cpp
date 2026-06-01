@@ -75,35 +75,18 @@ void register_alpha_variables(PlanningLP& planning_lp,
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
 
-  for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
-    if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
-      continue;  // already registered — idempotent
-    }
-    auto& li = planning_lp.system(scene_index, pi).linear_interface();
-    // α bootstrap: bidirectional pin `lowb = uppb =
-    // sddp_alpha_bootstrap_min (=0)` keeps α at 0 until an
-    // installed cut triggers `bound_alpha` to compute a floor.
-    //
-    // Rationale (supersedes the earlier `uppb=+∞` bootstrap): in
-    // iter-0 the forward LP has no cuts and α has cost
-    // `scale_alpha > 0`, so with `uppb=+∞` the minimiser drives α
-    // to its floor of 0 anyway — but *without* pinning, the Chinneck
-    // Phase-1 elastic filter (which zeros every objective coefficient
-    // including α's) has no cost signal on α, so simplex returns
-    // whatever basic value it picks.  That value gets captured into
-    // `state_var.col_sol`, contaminates downstream trial propagation
-    // and the bcut fallback's Z.  Pinning α bidirectionally removes
-    // the α column as a free variable from the Phase-1 LP and keeps
-    // the elastic clone's α = 0 regardless of objective zeroing.
-    //
-    // Phase 0's α IS released: the aperture backward pass iterates
-    // `phase_index` ∈ [T-1 .. 1] with `src_phase_index =
-    // previous(phase_index)` ∈ [T-2 .. 0], and
-    // `install_aperture_backward_cut` calls
-    // `bound_alpha(scene_index, src_phase_index)` on both the
-    // expected-cut path (`sddp_aperture_pass.cpp:160`) and the bcut
-    // fallback path (`sddp_aperture_pass.cpp:270`).  So phase 0 is
-    // bounded in the final step of every backward pass.
+  // Add an α column to `li` and register it as a state variable in the
+  // registry selected by `kind`.  Shared by the forward system and (when
+  // present) the parallel aperture system so both LPs carry α + its cuts.
+  const auto register_alpha_on = [&](LinearInterface& li,
+                                     PhaseIndex pi,
+                                     PhaseUid phase_uid,
+                                     SystemKind kind)
+  {
+    // α bootstrap: bidirectional pin `lowb = uppb = 0` keeps α at 0 until an
+    // installed cut triggers `bound_alpha` to compute a floor (see the long
+    // rationale below the loop).  `variable_uid` avoids a `-` in the column
+    // label that CoinLpIO would reject.
     const auto alpha_sparse = SparseCol {
         .lowb = 0.0,
         .uppb = 0.0,
@@ -113,37 +96,53 @@ void register_alpha_variables(PlanningLP& planning_lp,
         .scale = scale_alpha,
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_alpha_col_name,
-        // Without variable_uid the column label serialises to
-        // `sddp_alpha_-1_<scene>_<phase>` (unknown_uid = -1), whose
-        // embedded `-` char is rejected by CoinLpIO's name validator
-        // — CBC then strips every col/row label from the written LP.
-        // Mirrors master #426 (a8a0e452) which set this on cut rows.
-        // α is unique per (scene, phase), so `sddp_alpha_uid = 0`
-        // disambiguates trivially.
         .variable_uid = sddp_alpha_uid,
-        .context =
-            make_scene_phase_context(sim.uid_of(scene_index), phase.uid()),
+        .context = make_scene_phase_context(sim.uid_of(scene_index), phase_uid),
     };
-    // `LinearInterface::add_col(SparseCol)` auto-records into
-    // `m_dynamic_cols_` whenever the snapshot is populated and
-    // `low_memory != off`, so no explicit `record_dynamic_col`
-    // mirror is needed here for the post-snapshot replay path.
     const auto alpha_col = li.add_col(alpha_sparse);
-
-    // Register α as a regular state variable so all label-based
-    // machinery (state CSV I/O, cut CSV I/O, cross-level resolution)
-    // treats it uniformly with reservoir/storage state vars.
     std::ignore = sim.add_state_variable(
         StateVariable::Key {
             .uid = sddp_alpha_uid,
             .col_name = sddp_alpha_col_name,
             .class_name = sddp_alpha_lp_class,
-            .lp_key = {.scene_index = scene_index, .phase_index = pi},
+            .lp_key = {.scene_index = scene_index,
+                       .phase_index = pi,
+                       .kind = kind},
         },
         alpha_col,
         0.0,  // scost: no elastic penalty on alpha
         scale_alpha,  // var_scale: same as SparseCol.scale
         alpha_sparse.context);
+  };
+
+  for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
+    // Mirror α onto the aperture system (if any) so the backward-pass
+    // aperture clones carry α and the cuts installed on it.  Independent
+    // idempotency check against the aperture registry.
+    if (auto* ap_sys = planning_lp.aperture_system(scene_index, pi);
+        ap_sys != nullptr
+        && find_alpha_state_var(sim, scene_index, pi, SystemKind::aperture)
+            == nullptr)
+    {
+      register_alpha_on(
+          ap_sys->linear_interface(), pi, phase.uid(), SystemKind::aperture);
+    }
+
+    if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
+      continue;  // forward α already registered — idempotent
+    }
+    // Forward α.  Bootstrap pin `lowb = uppb = 0` keeps α at 0 until an
+    // installed cut triggers `bound_alpha` to compute a floor.  In iter-0
+    // the forward LP has no cuts and α has cost `scale_alpha > 0`, so the
+    // minimiser would drive α to its floor anyway — but without the pin the
+    // Chinneck Phase-1 elastic filter (which zeros every objective
+    // coefficient, α included) leaves α a free basic variable, contaminating
+    // captured trial values and the bcut fallback's Z.  Phase 0's α is later
+    // released by the backward pass's final `bound_alpha(scene, 0)` call.
+    register_alpha_on(planning_lp.system(scene_index, pi).linear_interface(),
+                      pi,
+                      phase.uid(),
+                      SystemKind::forward);
   }
 }
 
@@ -185,9 +184,10 @@ void SDDPMethod::bound_alpha(SceneIndex scene_index, PhaseIndex phase_index)
 // the first cut row arrives.
 void bound_alpha(PlanningLP& planning_lp,
                  SceneIndex scene_index,
-                 PhaseIndex phase_index)
+                 PhaseIndex phase_index,
+                 SystemKind kind)
 {
-  apply_alpha_floor(planning_lp, scene_index, phase_index);
+  apply_alpha_floor(planning_lp, scene_index, phase_index, kind);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -200,17 +200,18 @@ void bound_alpha(PlanningLP& planning_lp,
 void bound_alpha_for_cut(PlanningLP& planning_lp,
                          SceneIndex scene_index,
                          PhaseIndex phase_index,
-                         const SparseRow& cut)
+                         const SparseRow& cut,
+                         SystemKind kind)
 {
-  const auto* alpha_svar =
-      find_alpha_state_var(planning_lp.simulation(), scene_index, phase_index);
+  const auto* alpha_svar = find_alpha_state_var(
+      planning_lp.simulation(), scene_index, phase_index, kind);
   if (alpha_svar == nullptr) {
     return;  // α not registered on this cell — nothing to free.
   }
   if (!cut.cmap.contains(alpha_svar->col())) {
     return;  // cut does not reference α — leave the bootstrap pin.
   }
-  bound_alpha(planning_lp, scene_index, phase_index);
+  bound_alpha(planning_lp, scene_index, phase_index, kind);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -250,16 +251,26 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 // ``col_scale ≠ 1``.
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
-                       PhaseIndex phase_index)
+                       PhaseIndex phase_index,
+                       SystemKind kind)
 {
   const auto& sim = planning_lp.simulation();
-  const auto* alpha_svar = find_alpha_state_var(sim, scene_index, phase_index);
+  const auto* alpha_svar =
+      find_alpha_state_var(sim, scene_index, phase_index, kind);
   if (alpha_svar == nullptr) {
     return;
   }
   const auto alpha_col = alpha_svar->col();
 
-  auto& sys = planning_lp.system(scene_index, phase_index);
+  // Select the forward or aperture system for this cell.  When the aperture
+  // system is requested but absent, there is nothing to floor.
+  SystemLP* sys_ptr = (kind == SystemKind::aperture)
+      ? planning_lp.aperture_system(scene_index, phase_index)
+      : &planning_lp.system(scene_index, phase_index);
+  if (sys_ptr == nullptr) {
+    return;
+  }
+  auto& sys = *sys_ptr;
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
 
@@ -367,9 +378,80 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
   if (cut_type == CutType::Optimality) {
     bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
   }
-  return planning_lp.system(scene_index, phase_index)
-      .linear_interface()
-      .add_cut_row(cut, eps);
+  const auto row = planning_lp.system(scene_index, phase_index)
+                       .linear_interface()
+                       .add_cut_row(cut, eps);
+
+  // ── Dual install on the aperture system ───────────────────────────────
+  // When this cell has a backward-pass aperture system, the same cut must
+  // also be installed there so the next backward step (which clones the
+  // aperture LP) recurses with the updated value function.  The cut's
+  // columns are in the forward LP's space; remap each to the aperture LP's
+  // column via the uid-keyed state-variable registry (identity when the
+  // aperture layout matches forward).  If any referenced column has no
+  // aperture counterpart (reduced topology dropped a state var the cut
+  // needs), skip the dual install with a warning rather than install a
+  // malformed row.
+  if (auto* ap_sys = planning_lp.aperture_system(scene_index, phase_index)) {
+    const auto& sim = planning_lp.simulation();
+    // forward col → aperture col for every state variable on this cell
+    // (includes α, which is registered as a state var in both registries).
+    std::vector<std::pair<ColIndex, ColIndex>> fwd2ap;
+    for (const auto& [key, svar] :
+         sim.state_variables(scene_index, phase_index, SystemKind::forward))
+    {
+      auto ap = sim.state_variable(StateVariable::Key {
+          .scenario_uid = key.scenario_uid,
+          .stage_uid = key.stage_uid,
+          .uid = key.uid,
+          .col_name = key.col_name,
+          .class_name = key.class_name,
+          .lp_key = {.scene_index = scene_index,
+                     .phase_index = phase_index,
+                     .kind = SystemKind::aperture},
+      });
+      if (ap) {
+        fwd2ap.emplace_back(svar.col(), ap->get().col());
+      }
+    }
+
+    SparseRow ap_cut = cut;
+    ap_cut.cmap.clear();
+    bool remapped_ok = true;
+    ColIndex missing_col {unknown_index};
+    for (const auto& [col, coeff] : cut.cmap) {
+      const auto it =
+          std::ranges::find(fwd2ap, col, &std::pair<ColIndex, ColIndex>::first);
+      if (it == fwd2ap.end()) {
+        remapped_ok = false;
+        missing_col = col;
+        break;
+      }
+      ap_cut.cmap.emplace(it->second, coeff);
+    }
+
+    if (remapped_ok) {
+      if (cut_type == CutType::Optimality) {
+        bound_alpha_for_cut(planning_lp,
+                            scene_index,
+                            phase_index,
+                            ap_cut,
+                            SystemKind::aperture);
+      }
+      std::ignore = ap_sys->linear_interface().add_cut_row(ap_cut, eps);
+    } else {
+      SPDLOG_WARN(
+          "aperture dual cut-install skipped at (s{} p{}): cut references "
+          "col {} with no aperture counterpart (cut_cols={}, fwd2ap={})",
+          sim.uid_of(scene_index),
+          sim.uid_of(phase_index),
+          static_cast<int>(missing_col),
+          cut.cmap.size(),
+          fwd2ap.size());
+    }
+  }
+
+  return row;
 }
 
 void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
@@ -483,6 +565,8 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
             .class_name = key.class_name,
             .col_name = key.col_name,
             .uid = key.uid,
+            .scenario_uid = key.scenario_uid,
+            .stage_uid = key.stage_uid,
             .name = element_name,
         });
       }

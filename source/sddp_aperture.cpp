@@ -228,7 +228,8 @@ auto solve_apertures_for_phase(
     LpDebugWriter* lp_debug_writer,
     bool use_manual_clone,
     int chunk_size,
-    SDDPWorkPool* pool_for_slot_release) -> std::optional<SparseRow>
+    SDDPWorkPool* pool_for_slot_release,
+    std::span<const StateVarLink> cut_links) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -589,8 +590,15 @@ auto solve_apertures_for_phase(
               continue;
             }
 
+            // Aperture-system path passes hybrid `cut_links` whose
+            // `dependent_col` indexes this aperture `clone`; the regular
+            // path uses the forward source phase's outgoing links.
+            const std::span<const StateVarLink> links_for_cut =
+                cut_links.empty()
+                ? std::span<const StateVarLink>(src_state.outgoing_links)
+                : cut_links;
             auto cut = build_benders_cut_physical(src_alpha_col,
-                                                  src_state.outgoing_links,
+                                                  links_for_cut,
                                                   clone,
                                                   clone.get_obj_value(),
                                                   cut_coeff_eps);

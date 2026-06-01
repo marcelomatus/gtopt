@@ -69,6 +69,17 @@ struct Phase
   /// `truncate_apertures` (see `sddp_aperture_pass.cpp`).
   Array<Uid> apertures {};
 
+  /// Optional per-phase override of the SDDP backward-pass **aperture
+  /// system**: a path to a Planning JSON whose `.system` (and its
+  /// `.options.model_options`) replaces the regular forward system when
+  /// solving this phase's apertures in the backward pass.  Highest
+  /// priority in the resolution chain
+  /// (`Phase` → `CascadeLevel` → `sddp_options` → regular system).
+  /// The parent `simulation` is reused unchanged and the reduced system
+  /// must keep the same reservoir/storage/α inter-phase state elements
+  /// (matched by `uid`).  When unset, the global resolution applies.
+  OptName aperture_system_file {};
+
   /// Class name constant used for serialisation/deserialisation
   static constexpr std::string_view class_name = "phase";
 

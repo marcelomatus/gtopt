@@ -16,8 +16,12 @@
  *  8. Explicit aperture_array in SDDP planning
  */
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -1938,6 +1942,64 @@ TEST_CASE("Aperture clone LP feasibility diagnostics")  // NOLINT
       CHECK(clone_upp[col] == doctest::Approx(orig_upp[col]));
     }
   }
+}
+
+// ─── aperture_system equivalence gate ──────────────────────────────────────
+//
+// THE correctness gate for the aperture-system cut recursion: when the
+// aperture (backward-pass) system is structurally identical to the forward
+// system, the two-LP path must reproduce the single-LP baseline bit-for-bit.
+// Any divergence in LB/UB exposes a wiring bug in the hybrid-link
+// construction, the incoming-state propagation onto the aperture LP, or the
+// dual cut-install.
+TEST_CASE("aperture_system equivalence: aperture==forward reproduces baseline")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  namespace fs = std::filesystem;
+
+  const auto run = [](Planning planning, const OptName& ap_file)
+  {
+    planning.options.method = MethodType::sddp;  // enable aperture-system build
+    if (ap_file.has_value()) {
+      planning.options.sddp_options.aperture_system_file = ap_file;
+    }
+    PlanningLP plp(std::move(planning));
+    SDDPOptions sddp_opts;
+    sddp_opts.max_iterations = 15;
+    sddp_opts.convergence_tol = 1e-3;
+    sddp_opts.enable_api = false;
+    SDDPMethod sddp(plp, sddp_opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return results->back();
+  };
+
+  // Baseline: regular single-system SDDP (no aperture system).
+  const auto base = run(make_2phase_aperture_planning(), OptName {});
+
+  // Aperture system = the SAME system, serialised to a temp file.
+  const std::string planning_json =
+      daw::json::to_json(make_2phase_aperture_planning());
+  // Honour the project $TMPDIR convention (never hardcode /tmp).
+  const char* const td =
+      std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
+  const auto tmp =
+      (td != nullptr && *td != '\0' ? fs::path(td) : fs::temp_directory_path())
+      / "gtopt_aperture_equiv_test.json";
+  {
+    std::ofstream out(tmp);
+    out << planning_json;
+  }
+  const auto with_ap =
+      run(make_2phase_aperture_planning(), OptName {tmp.string()});
+  fs::remove(tmp);
+
+  // The aperture LP is structurally identical to the forward LP, so the
+  // backward recursion must yield identical bounds and convergence.
+  CHECK(with_ap.converged == base.converged);
+  CHECK(with_ap.lower_bound == doctest::Approx(base.lower_bound).epsilon(1e-6));
+  CHECK(with_ap.upper_bound == doctest::Approx(base.upper_bound).epsilon(1e-6));
 }
 
 // NOLINTEND(bugprone-use-after-move, google-global-names-in-headers,

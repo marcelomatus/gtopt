@@ -24,6 +24,7 @@
 
 #include <gtopt/ampl_variable.hpp>
 #include <gtopt/block_lp.hpp>
+#include <gtopt/integer_variable.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -243,6 +244,34 @@ public:
       StrongIndexVector<SceneIndex,
                         StrongIndexVector<PhaseIndex, state_variable_map_t>>;
 
+  // ── Integer-variable registry (commitment-layout choke-point) ────────────
+  // Parallel to the state-variable registry above.  Every integer LP
+  // column in gtopt is registered here via
+  // `SystemContext::add_integer_variable` so cut audits, integer-
+  // feasibility checks, and the future commitment-layout binding stack
+  // can iterate the set without grepping for `is_integer = true`.
+  // See `docs/design/commitment-layout.md §5`.
+  using integer_variable_key_t = IntegerVariable::Key;
+  using integer_variable_map_t =
+      flat_map<integer_variable_key_t, IntegerVariable>;
+  using global_integer_variable_map_t =
+      StrongIndexVector<SceneIndex,
+                        StrongIndexVector<PhaseIndex, integer_variable_map_t>>;
+
+  /// Select the forward or aperture state-variable registry.  The two maps
+  /// have identical `[scene][phase]` shape but hold the columns of two
+  /// physically distinct LPs (see `SystemKind`).  Routing by
+  /// `key.lp_key.kind` keeps every forward consumer on `m_global_variable_map_`
+  /// untouched while the aperture-system build/lookup uses the second map.
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto&& variable_map(this Self&& self, SystemKind kind) noexcept
+  {
+    return (kind == SystemKind::aperture)
+        ? std::forward<Self>(self).m_aperture_variable_map_
+        : std::forward<Self>(self).m_global_variable_map_;
+  }
+
   // Add method with deducing this and perfect forwarding
   template<typename Key = state_variable_key_t>
   [[nodiscard]]
@@ -252,8 +281,8 @@ public:
                                     double var_scale,
                                     LpContext context) -> const StateVariable&
   {
-    auto&& map =
-        m_global_variable_map_[key.lp_key.scene_index][key.lp_key.phase_index];
+    auto&& map = variable_map(
+        key.lp_key.kind)[key.lp_key.scene_index][key.lp_key.phase_index];
 
     const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
                                                 key.lp_key,
@@ -289,12 +318,104 @@ public:
 
   template<typename Self>
   [[nodiscard]]
-  constexpr auto&& state_variables(this Self&& self,
-                                   SceneIndex scene_index,
-                                   PhaseIndex phase_index) noexcept
+  constexpr auto&& state_variables(
+      this Self&& self,
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      SystemKind kind = SystemKind::forward) noexcept
   {
-    auto&& vec = std::forward<Self>(self).m_global_variable_map_;
+    auto&& vec = std::forward<Self>(self).variable_map(kind);
     return vec[scene_index][phase_index];
+  }
+
+  // ── Integer-variable registry access ────────────────────────────────────
+
+  /// Select the forward / aperture integer-variable registry, mirroring
+  /// `variable_map(SystemKind)` for state variables.
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto&& integer_variable_map(this Self&& self,
+                                        SystemKind kind) noexcept
+  {
+    return (kind == SystemKind::aperture)
+        ? std::forward<Self>(self).m_aperture_integer_map_
+        : std::forward<Self>(self).m_global_integer_map_;
+  }
+
+  /// Register one integer LP column.  Idempotent — re-registering the
+  /// same key with the same column index is a no-op; re-registering
+  /// with a different column index is a hard error (same contract as
+  /// `add_state_variable`).
+  template<typename Key = integer_variable_key_t>
+  [[nodiscard]]
+  constexpr auto add_integer_variable(Key&& key,
+                                      ColIndex col,
+                                      IntegerDomain domain,
+                                      IntegerScope scope,
+                                      GroupUid group_uid,
+                                      std::span<const BlockUid> blocks)
+      -> const IntegerVariable&
+  {
+    auto&& map = integer_variable_map(
+        key.lp_key.kind)[key.lp_key.scene_index][key.lp_key.phase_index];
+
+    auto block_vec = std::vector<BlockUid>(blocks.begin(), blocks.end());
+
+    const auto [it, inserted] = map.try_emplace(std::forward<Key>(key),
+                                                key.lp_key,
+                                                col,
+                                                domain,
+                                                scope,
+                                                group_uid,
+                                                std::move(block_vec));
+
+    if (!inserted) {
+      if (it->second.col() != col) {
+        const auto msg =
+            std::format("duplicated integer variable {}:{} in simulation map",
+                        key.class_name.full_name(),
+                        key.col_name);
+        SPDLOG_CRITICAL(msg);
+        throw std::runtime_error(msg);
+      }
+    }
+
+    return it->second;
+  }
+
+  [[nodiscard]]
+  constexpr const auto& integer_variables() noexcept
+  {
+    return m_global_integer_map_;
+  }
+
+  template<typename Self>
+  [[nodiscard]]
+  constexpr auto&& integer_variables(
+      this Self&& self,
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      SystemKind kind = SystemKind::forward) noexcept
+  {
+    auto&& vec = std::forward<Self>(self).integer_variable_map(kind);
+    return vec[scene_index][phase_index];
+  }
+
+  template<typename Self, typename Key = integer_variable_key_t>
+  [[nodiscard]]
+  constexpr auto integer_variable(this Self&& self, Key&& key) noexcept
+  {
+    using value_type =
+        std::conditional_t<std::is_const_v<std::remove_reference_t<Self>>,
+                           const IntegerVariable,
+                           IntegerVariable>;
+    using result_t = std::optional<std::reference_wrapper<value_type>>;
+
+    auto&& map = std::forward<Self>(self).integer_variables(
+        key.lp_key.scene_index, key.lp_key.phase_index, key.lp_key.kind);
+
+    const auto it = map.find(std::forward<Key>(key));
+    return (it != map.end()) ? result_t {it->second} : result_t {};
   }
 
   /**
@@ -315,7 +436,7 @@ public:
     using result_t = std::optional<std::reference_wrapper<value_type>>;
 
     auto&& map = std::forward<Self>(self).state_variables(
-        key.lp_key.scene_index, key.lp_key.phase_index);
+        key.lp_key.scene_index, key.lp_key.phase_index, key.lp_key.kind);
 
     const auto it = map.find(std::forward<Key>(key));
     return (it != map.end()) ? result_t {it->second} : result_t {};
@@ -1102,6 +1223,19 @@ private:
   std::vector<SceneLP> m_scene_array_;
 
   global_variable_map_t m_global_variable_map_;
+
+  /// Parallel state-variable registry for the SDDP backward-pass aperture
+  /// systems (`SystemKind::aperture`).  Same `[scene][phase]` shape as
+  /// `m_global_variable_map_`; stays entirely empty unless an
+  /// `aperture_system_file` is in effect.  Routed via `variable_map()`.
+  global_variable_map_t m_aperture_variable_map_;
+
+  /// Integer-variable registries — forward and aperture systems.  Same
+  /// `[scene][phase]` partitioning as the state-variable registries.
+  /// Populated by `add_integer_variable`; queried by the (future)
+  /// layout binding resolver and by integer-feasibility audits.
+  global_integer_variable_map_t m_global_integer_map_;
+  global_integer_variable_map_t m_aperture_integer_map_;
 
   // (scenario, stage) → (scene, phase) factored lookup tables.
   // Populated once in the constructor; read-only afterwards, so no

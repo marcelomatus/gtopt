@@ -424,9 +424,13 @@ TEST_CASE("SDDPMethod async - per-scene output writing")  // NOLINT
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
 
-  // Flush the deferred per-cell output (the SDDP simulation pass solves
-  // every phase with crossover but defers write_out to a final chunked
-  // pass so the pool can use all cores regardless of scene count).
+  // SDDP now defers per-cell writes to PlanningLP::write_out's chunked
+  // flush — matches production callers (see gtopt_lp_runner.cpp:676).
+  // Without this explicit call no files would land on disk, regardless
+  // of whether the solve itself succeeded.  The architecture change
+  // landed in commit 4b68e93f0 ("write_out parallel chunked dispatch
+  // + integer fixation duals refactor"); this test was authored before
+  // that refactor and was failing on master ever since.
   planning_lp.write_out();
 
   // Verify that output files were created in the temp directory.

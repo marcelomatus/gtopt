@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -37,10 +38,28 @@
 
 namespace gtopt
 {
+/// Which of a (scene, phase) cell's two LPs a state variable belongs to.
+///
+/// `forward` is the regular full-detail system used by the SDDP forward
+/// pass and the monolithic/cascade solves.  `aperture` is the optional,
+/// simplified *aperture system* solved per aperture in the SDDP backward
+/// pass (see `aperture_system_file`).  The two LPs have different column
+/// layouts, so their state variables are kept in physically separate
+/// registries and never collide — `LPKey::kind` selects which.
+enum class SystemKind : std::uint8_t
+{
+  forward = 0,
+  aperture = 1,
+};
+
 struct LPKey
 {
   SceneIndex scene_index {unknown_index};
   PhaseIndex phase_index {unknown_index};
+  /// Selects the forward vs aperture state-variable registry.  Defaults to
+  /// `forward` so every existing key, lookup, and serialisation path is
+  /// unchanged; only the aperture-system build stamps `aperture`.
+  SystemKind kind {SystemKind::forward};
 
   [[nodiscard]] constexpr auto operator<=>(const LPKey&) const noexcept =
       default;

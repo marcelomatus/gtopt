@@ -13,7 +13,9 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include <gtopt/error.hpp>
@@ -43,12 +45,28 @@ public:
   using phase_systems_t = StrongIndexVector<PhaseIndex, SystemLP>;
   using scene_phase_systems_t = StrongIndexVector<SceneIndex, phase_systems_t>;
 
+  /// Sparse store for the SDDP backward-pass aperture systems: a cell is
+  /// empty unless an `aperture_system_file` resolves for that phase.  Each
+  /// present cell is a `SystemLP` built with `SystemKind::aperture` from the
+  /// (path-cached) reduced system, sharing the same `SimulationLP`.
+  using phase_ap_systems_t =
+      StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
+  using scene_phase_ap_t = StrongIndexVector<SceneIndex, phase_ap_systems_t>;
+
 private:
   static auto create_systems(System& system,
                              SimulationLP& simulation,
                              const PlanningOptionsLP& options,
                              const LpMatrixOptions& flat_opts)
       -> scene_phase_systems_t;
+
+  /// Build the aperture systems (if any) into `m_aperture_systems_`, owning
+  /// the loaded reduced `System`s in `m_aperture_owned_systems_`.  Resolves
+  /// each phase's file via `resolve_aperture_system_file` (Phase override →
+  /// global `sddp_options`); no-op (leaves the store empty) when no file
+  /// resolves or the method is monolithic.  Called from the constructor
+  /// body, after `m_systems_` is built.
+  void build_aperture_systems(const LpMatrixOptions& flat_opts);
 
   /// Resolve the deferred state-variable links recorded by every phase
   /// in `phase_systems` during its `add_to_lp` pass.  Each
@@ -229,6 +247,12 @@ public:
             m_options_,
             enforce_names_for_method(flat_opts, m_options_, m_planning_)))
   {
+    // Build the optional SDDP backward-pass aperture systems after the
+    // forward systems exist (they share m_simulation_ and register into the
+    // parallel SystemKind::aperture registry).  No-op when no
+    // aperture_system_file resolves.
+    build_aperture_systems(
+        enforce_names_for_method(flat_opts, m_options_, m_planning_));
   }
 
   /**
@@ -456,6 +480,20 @@ public:
     return std::forward<Self>(self).m_systems_[scene_index][phase_index];
   }
 
+  /// The aperture (backward-pass) system for a cell, or `nullptr` when this
+  /// cell has no aperture system — in which case the backward pass falls
+  /// back to the regular forward `system(scene, phase)`.
+  [[nodiscard]] auto aperture_system(SceneIndex scene_index,
+                                     PhaseIndex phase_index) noexcept
+      -> SystemLP*
+  {
+    if (m_aperture_systems_.empty()) {
+      return nullptr;
+    }
+    auto& cell = m_aperture_systems_[scene_index][phase_index];
+    return cell.has_value() ? &*cell : nullptr;
+  }
+
 private:
   [[nodiscard]] std::expected<void, Error> resolve_scene_phases(
       SceneIndex scene_index,
@@ -469,6 +507,20 @@ private:
   SimulationLP m_simulation_;
 
   scene_phase_systems_t m_systems_;
+
+  /// Reduced `System`s loaded from `aperture_system_file`s, owned here so
+  /// they outlive the aperture `SystemLP`s in `m_aperture_systems_` (which
+  /// hold `const System&` references).  Keyed by resolved file path so a
+  /// file shared by several phases is loaded and preprocessed once.
+  /// Declared before `m_aperture_systems_` → destroyed after it.
+  std::unordered_map<std::string, System> m_aperture_owned_systems_;
+
+  /// Sparse aperture-system store (empty unless an aperture_system_file is
+  /// in effect).  Declared after `m_aperture_owned_systems_` so its
+  /// `SystemLP`s (which reference those Systems and `m_simulation_`) are
+  /// destroyed first.
+  scene_phase_ap_t m_aperture_systems_;
+
   SddpSummary m_sddp_summary_ {};
 
   /// Surrogate PlanningLP whose systems provide `write_out()` data

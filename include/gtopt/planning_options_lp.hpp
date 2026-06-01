@@ -1450,6 +1450,15 @@ public:
     return m_options_.sddp_options.aperture_directory.value_or(Name {});
   }
 
+  /// Global default aperture-system file (the simplified backward system
+  /// solved per aperture).  Empty = no global aperture system; the
+  /// per-phase / per-cascade-level overrides still apply.  See
+  /// `SddpOptions::aperture_system_file`.
+  [[nodiscard]] auto sddp_aperture_system_file() const -> Name
+  {
+    return m_options_.sddp_options.aperture_system_file.value_or(Name {});
+  }
+
   /// CSV file with boundary (future-cost) cuts for the last phase.
   /// Empty = no boundary cuts.
   [[nodiscard]] auto sddp_boundary_cuts_file() const -> Name

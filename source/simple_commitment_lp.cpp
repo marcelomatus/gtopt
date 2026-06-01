@@ -37,6 +37,10 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  // No `stage.is_chronological()` guard: SimpleCommitment has no
+  // C1 logic equation, so per-block u + two bound rows are correct
+  // on representative-block stages too.  (CommitmentLP's guard is
+  // there because of the cross-block logic equality.)
   auto&& generator_lp = sc.element(generator_index_);
   if (!generator_lp.is_active(stage)) {
     return true;
@@ -84,25 +88,34 @@ bool SimpleCommitmentLP::add_to_lp(SystemContext& sc,
     const auto dpmin = dispatch_pmin_.at(stage.uid(), buid).value_or(gen_pmin);
 
     // Create binary status variable u (cost = 0, no noload cost).
-    //
-    // ``pin_scale = true`` so the [0, 1] bound stays at [0, 1] even
-    // under LP-relax — without it the LinearProblem auto-scaler's only
-    // skip flag is ``is_integer``, and LP-relax sets that to false,
-    // leaving the column exposed to VariableScaleMap / Ruiz rescaling
-    // (observed bound expansion to [0, 38.58] on CEN PCP weekly,
-    // breaking the binary semantic and tripping PLEXOS RegRange UCs
-    // at presolve — see task #50).
-    auto ucol = lp.add_col({
-        .lowb = is_must_run ? 1.0 : 0.0,
-        .uppb = 1.0,
-        .cost = 0.0,
-        .is_integer = !is_relax,
-        .pin_scale = true,  // semantically binary even when LP-relaxed
-        .class_name = cname,
-        .variable_name = StatusName,
-        .variable_uid = cuid,
-        .context = ctx,
-    });
+    // Routed through the IntegerVariable choke-point (Phase 0 — Block
+    // scope, one col per block; group_uid = block uid).  The registry
+    // subsumes the legacy ``pin_scale`` workaround for keeping [0, 1]
+    // bounds intact under LP-relax (task #50).
+    const auto u_domain =
+        is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
+    const std::array<BlockUid, 1> u_blocks {buid};
+    auto ucol = sc.add_integer_col(lp,
+                                   IntegerVariable::key(scenario,
+                                                        stage,
+                                                        Element::class_name,
+                                                        cuid,
+                                                        StatusName,
+                                                        IntegerScope::Block,
+                                                        buid),
+                                   SparseCol {
+                                       .lowb = is_must_run ? 1.0 : 0.0,
+                                       .uppb = 1.0,
+                                       .cost = 0.0,
+                                       .class_name = cname,
+                                       .variable_name = StatusName,
+                                       .variable_uid = cuid,
+                                       .context = ctx,
+                                   },
+                                   u_domain,
+                                   IntegerScope::Block,
+                                   buid,
+                                   std::span<const BlockUid> {u_blocks});
     ucols[buid] = ucol;
 
     // Set generation column lower bound to 0 (pmin enforcement via constraint)

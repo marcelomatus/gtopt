@@ -67,7 +67,16 @@ class SystemContext
 {
 public:
   // Core Context Management
-  explicit SystemContext(SimulationLP& simulation, SystemLP& system);
+  explicit SystemContext(SimulationLP& simulation,
+                         SystemLP& system,
+                         SystemKind kind = SystemKind::forward);
+
+  /// Which LP registry (forward vs aperture) this context's state-variable
+  /// and link registrations are routed to.  Set once at construction.
+  [[nodiscard]] constexpr auto kind() const noexcept -> SystemKind
+  {
+    return m_kind_;
+  }
 
   /// Re-point the back-reference to a new SystemLP owner (used by
   /// `SystemLP`'s move-ctor/assign so the embedded SystemContext stays
@@ -345,8 +354,10 @@ public:
       // entirely — no lock, no map lookup, no idempotency branch.
       return;
     }
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // route to forward/aperture registry
     std::ignore = simulation().add_state_variable(
-        std::forward<Key>(key), col, scost, var_scale, std::move(context));
+        std::move(stamped), col, scost, var_scale, std::move(context));
   }
 
   /// Atomic helper: add a new state-variable column to the LP AND register
@@ -396,7 +407,87 @@ public:
   template<typename Key>
   [[nodiscard]] constexpr auto get_state_variable(Key&& key) const noexcept
   {
-    return simulation().state_variable(std::forward<Key>(key));
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // look up in this context's registry
+    return simulation().state_variable(std::move(stamped));
+  }
+
+  // ── Integer-variable choke-point ────────────────────────────────────────
+  //
+  // The "no integer column without `IntegerVariable`" invariant from
+  // `docs/design/commitment-layout.md §5` is enforced here: every
+  // producer of an integer LP column (`Commitment`, `SimpleCommitment`,
+  // `Converter`, `CapacityObject`, future `Battery` / `Pump` /
+  // `ReserveProvision`) routes through `add_integer_col` so cut
+  // audits, integer-feasibility checks, and the Phase-2 binding stack
+  // can iterate the set without grepping for `is_integer = true`.
+  //
+  // Phase 0 only adds the LP column and the registry entry — producers
+  // still call `add_ampl_variable` themselves.  Auto-AMPL is Phase 1.
+
+  /// Register one integer LP column in the simulation's integer-variable
+  /// map.  Mirrors `add_state_variable` (void wrapper around
+  /// `SimulationLP::add_integer_variable`).
+  ///
+  /// Honours the silent-flatten gate: under rebuild, the registry
+  /// already holds an equivalent entry, so this call is a no-op (same
+  /// rationale as the state-variable wrapper).
+  template<typename Key>
+  constexpr void add_integer_variable(Key&& key,
+                                      ColIndex col,
+                                      IntegerDomain domain,
+                                      IntegerScope scope,
+                                      GroupUid group_uid,
+                                      std::span<const BlockUid> blocks)
+  {
+    if (m_silent_flatten_pass_) {
+      return;
+    }
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;  // route to forward / aperture registry
+    std::ignore = simulation().add_integer_variable(
+        std::move(stamped), col, domain, scope, group_uid, blocks);
+  }
+
+  /// Atomic helper: add an integer LP column AND register it in the
+  /// integer-variable map.  The preferred API for every producer of an
+  /// integer column.
+  ///
+  /// `domain` selects {Binary, Integer, Relaxed}; `Relaxed` keeps the
+  /// column continuous (`is_integer = false`).  The producer is
+  /// responsible for the relax precedence: per-element `relax` flag
+  /// wins over the global option, which wins over the call-site
+  /// default — `Commitment.relax` and `SimpleCommitment.relax` are
+  /// already resolved before this call.
+  ///
+  /// `blocks` is the per-block fan-out for the registry's
+  /// `IntegerVariable::blocks()` accessor.  For `Block` scope it is
+  /// the single block uid; for `Group` scope it is every block in the
+  /// group; for `Stage` scope it is every block of the stage; for
+  /// `Phase` scope it should be empty (the registry returns
+  /// `std::nullopt` to callers regardless of what is passed).
+  template<typename Key, typename Col>
+  auto add_integer_col(LinearProblem& lp,
+                       Key&& key,
+                       Col&& col,
+                       IntegerDomain domain,
+                       IntegerScope scope,
+                       GroupUid group_uid,
+                       std::span<const BlockUid> blocks) -> ColIndex
+  {
+    col.is_integer = (domain != IntegerDomain::Relaxed);
+    const auto idx = lp.add_col(std::forward<Col>(col));
+    add_integer_variable(
+        std::forward<Key>(key), idx, domain, scope, group_uid, blocks);
+    return idx;
+  }
+
+  template<typename Key>
+  [[nodiscard]] constexpr auto get_integer_variable(Key&& key) const noexcept
+  {
+    auto stamped = std::forward<Key>(key);
+    stamped.lp_key.kind = m_kind_;
+    return simulation().integer_variable(std::move(stamped));
   }
 
   /// Queue a deferred dependent-variable link to be resolved later by
@@ -647,6 +738,11 @@ public:
 private:
   std::reference_wrapper<SimulationLP> m_simulation_;
   std::reference_wrapper<SystemLP> m_system_;
+
+  /// Forward (default) vs aperture registry routing.  Stamped into every
+  /// `StateVariable::Key` / `LPKey` this context registers or looks up, so
+  /// the aperture system's state variables land in the parallel registry.
+  SystemKind m_kind_ {SystemKind::forward};
 
   // One void* per LP element type; each points to the Collection<T> inside the
   // owning SystemLP.  Index for type T is lp_type_index_v<T>.

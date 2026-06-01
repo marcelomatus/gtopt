@@ -55,6 +55,7 @@ struct SddpOptionsConstructor
       OptInt num_apertures,
       OptName aperture_selection_mode,
       OptName aperture_directory,
+      OptName aperture_system_file,
       OptReal aperture_timeout,
       OptBool save_aperture_lp,
       OptName lp_debug_passes,
@@ -128,6 +129,7 @@ struct SddpOptionsConstructor
     opts.num_apertures = num_apertures;
     opts.aperture_selection_mode = std::move(aperture_selection_mode);
     opts.aperture_directory = std::move(aperture_directory);
+    opts.aperture_system_file = std::move(aperture_system_file);
     opts.aperture_timeout = aperture_timeout;
     opts.save_aperture_lp = save_aperture_lp;
     opts.lp_debug_passes = std::move(lp_debug_passes);
@@ -215,6 +217,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"num_apertures", OptInt>,
       json_string_null<"aperture_selection_mode", OptName>,
       json_string_null<"aperture_directory", OptName>,
+      json_string_null<"aperture_system_file", OptName>,
       json_number_null<"aperture_timeout", OptReal>,
       json_bool_null<"save_aperture_lp", OptBool>,
       json_string_null<"lp_debug_passes", OptName>,
@@ -275,6 +278,7 @@ struct json_data_contract<SddpOptions>
         opt.num_apertures,
         opt.aperture_selection_mode,
         opt.aperture_directory,
+        opt.aperture_system_file,
         opt.aperture_timeout,
         opt.save_aperture_lp,
         opt.lp_debug_passes,

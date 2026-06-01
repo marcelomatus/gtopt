@@ -85,6 +85,7 @@ struct json_data_contract<CascadeLevel>
                        json_bool_null<"active", OptBool>,
                        json_class_null<"model_options", ModelOptions>,
                        json_string_null<"system_file", OptName>,
+                       json_string_null<"aperture_system_file", OptName>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
                        json_class_null<"transition", CascadeTransition>>;
 
@@ -95,6 +96,7 @@ struct json_data_contract<CascadeLevel>
                                  opt.active,
                                  opt.model_options,
                                  opt.system_file,
+                                 opt.aperture_system_file,
                                  opt.sddp_options,
                                  opt.transition);
   }
