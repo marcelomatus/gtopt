@@ -26,12 +26,19 @@ namespace gtopt::names_registry_detail
 /// Lives at namespace scope (not anonymous) so the
 /// `daw::json::json_data_contract` specializations below can bind to
 /// it across translation units.
+///
+/// Fields beginning with `_` (currently only `_note`) are documentary
+/// annotations consumed by humans / `--list-dialects` and ignored at
+/// runtime.  They are declared in the contract so the StrictParsePolicy
+/// accepts the JSON; `_class_aliases_doc` at the file level follows the
+/// same pattern (see `NamesFile` below).
 struct NameAliasEntry
 {
   std::string klass;  // "class" field (renamed to avoid C++ keyword)
   std::string canonical;
   std::string alt;
   std::string dialect;
+  std::string note;  // "_note" field — informational, ignored at runtime
 };
 
 /// The whole file. We consume `aliases` (global) and `class_aliases`
@@ -59,12 +66,14 @@ struct json_data_contract<gtopt::names_registry_detail::NameAliasEntry>
   using type = json_member_list<json_string<"class", std::string>,
                                 json_string<"canonical", std::string>,
                                 json_string<"alt", std::string>,
-                                json_string_null<"dialect", std::string>>;
+                                json_string_null<"dialect", std::string>,
+                                json_string_null<"_note", std::string>>;
 
   constexpr static auto to_json_data(
       gtopt::names_registry_detail::NameAliasEntry const& e)
   {
-    return std::forward_as_tuple(e.klass, e.canonical, e.alt, e.dialect);
+    return std::forward_as_tuple(
+        e.klass, e.canonical, e.alt, e.dialect, e.note);
   }
 };
 
