@@ -69,7 +69,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="junction",
                     cluster="hydro",
                     tooltip=(
-                        f"Junction uid={uid} name={j.get('name')} drain={is_drain}"
+                        f"Junction {j.get('name')} (uid={uid}) — drain={is_drain}"
                     ),
                 )
             )
@@ -121,7 +121,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind=f"reservoir_{_reservoir_intensity(rel)}",
                     cluster="hydro",
-                    tooltip=f"Reservoir uid={r.get('uid')} emax={emax}",
+                    tooltip=(f"Reservoir {name} (uid={r.get('uid')}) — emax={emax}"),
                     size=node_size,
                 )
             )
@@ -162,7 +162,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind=kind,
                     cluster="hydro",
                     tooltip=(
-                        f"Turbine uid={t.get('uid')} cap={cap}"
+                        f"Turbine {name} (uid={t.get('uid')}) — cap={cap}"
                         + (" — terminal drain (run-to-sea)" if is_drain else "")
                     ),
                 )
@@ -289,7 +289,11 @@ class TopologyHydroMixin(TopologyIdsMixin):
                                 label=glbl,
                                 kind="gen_hydro",
                                 cluster="hydro",
-                                tooltip=f"Generator uid={gen.get('uid')} type={gtype} pmax={pmax}",
+                                tooltip=(
+                                    f"Generator {gname} "
+                                    f"(uid={gen.get('uid')}) "
+                                    f"— type={gtype}, pmax={pmax}"
+                                ),
                             )
                         )
                         # Connect generator to its bus (auto-create bus
@@ -363,7 +367,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="flow",
                     cluster="hydro",
-                    tooltip=f"Flow uid={f.get('uid')} discharge={disc}",
+                    tooltip=(f"Flow {name} (uid={f.get('uid')}) — discharge={disc}"),
                     size=12.0,
                 )
             )
@@ -392,7 +396,9 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="seepage",
                     cluster="hydro",
-                    tooltip=f"ReservoirSeepage uid={fi.get('uid')} name={fi.get('name')}",
+                    tooltip=(
+                        f"ReservoirSeepage {fi.get('name')} (uid={fi.get('uid')})"
+                    ),
                 )
             )
             wway = _resolve(self.sys.get("waterway_array", []), fi.get("waterway"))
@@ -455,7 +461,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="volume_right",
                     cluster="hydro",
                     tooltip=(
-                        f"VolumeRight uid={vr.get('uid')} name={vr.get('name')}"
+                        f"VolumeRight {vr.get('name')} (uid={vr.get('uid')})"
                         f" purpose={purpose}"
                     ),
                     size=18.0,
@@ -550,7 +556,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="flow_right",
                     cluster="hydro",
                     tooltip=(
-                        f"FlowRight uid={fr.get('uid')} name={fr.get('name')}"
+                        f"FlowRight {fr.get('name')} (uid={fr.get('uid')})"
                         f" purpose={purpose}"
                     ),
                     size=14.0,
@@ -648,7 +654,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="pump",
                     cluster="hydro",
-                    tooltip=f"Pump uid={p.get('uid')} capacity={cap}",
+                    tooltip=(f"Pump {name} (uid={p.get('uid')}) — capacity={cap}"),
                     size=22.0,
                 )
             )
@@ -735,7 +741,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="lng_terminal",
                     cluster="electrical",
                     tooltip=(
-                        f"LngTerminal uid={lt.get('uid')} name={lt.get('name')}"
+                        f"LngTerminal {lt.get('name')} (uid={lt.get('uid')})"
                         f" emax={emax}"
                     ),
                     size=26.0,
@@ -782,7 +788,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="reserve_zone",
                     cluster="electrical",
-                    tooltip=f"ReserveZone uid={rz.get('uid')} name={rz.get('name')}",
+                    tooltip=(f"ReserveZone {rz.get('name')} (uid={rz.get('uid')})"),
                 )
             )
 
@@ -855,7 +861,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="fuel",
                     cluster="electrical",
                     tooltip=(
-                        f"Fuel uid={fl.get('uid')} name={fl.get('name')} price={price}"
+                        f"Fuel {fl.get('name')} (uid={fl.get('uid')}) — price={price}"
                     ),
                     size=22.0,
                 )
@@ -893,7 +899,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="emission",
                     cluster="electrical",
-                    tooltip=(f"Emission uid={em.get('uid')} name={em.get('name')}"),
+                    tooltip=(f"Emission {em.get('name')} (uid={em.get('uid')})"),
                     size=14.0,
                 )
             )
@@ -921,7 +927,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="emission_zone",
                     cluster="electrical",
                     tooltip=(
-                        f"EmissionZone uid={ez.get('uid')} name={ez.get('name')} "
+                        f"EmissionZone {ez.get('name')} (uid={ez.get('uid')}) — "
                         f"cap={cap} price={price}"
                     ),
                     size=22.0,
@@ -977,7 +983,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="emission_source",
                     cluster="electrical",
                     tooltip=(
-                        f"EmissionSource uid={es.get('uid')} name={es.get('name')} "
+                        f"EmissionSource {es.get('name')} (uid={es.get('uid')}) — "
                         f"rate={rate}"
                     ),
                     size=14.0,
@@ -1049,7 +1055,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="carrier_converter",
                     cluster="electrical",
                     tooltip=(
-                        f"CarrierConverter uid={cc.get('uid')} name={cc.get('name')} "
+                        f"CarrierConverter {cc.get('name')} (uid={cc.get('uid')}) — "
                         f"from={cc.get('from_carrier')} to={cc.get('to_carrier')}"
                     ),
                     size=20.0,
@@ -1154,7 +1160,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="decision_variable",
                     cluster="electrical",
                     tooltip=(
-                        f"DecisionVariable uid={dv.get('uid')} name={dv.get('name')} "
+                        f"DecisionVariable {dv.get('name')} (uid={dv.get('uid')}) — "
                         f"cost_type={ctype}"
                     ),
                     size=16.0,
@@ -1190,7 +1196,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="user_constraint",
                     cluster="electrical",
                     tooltip=(
-                        f"UserConstraint uid={uc.get('uid')} name={uc.get('name')}: "
+                        f"UserConstraint {uc.get('name')} (uid={uc.get('uid')}) — "
                         f"{tooltip_expr}"
                     ),
                     size=18.0,
@@ -1211,7 +1217,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="commitment",
                     cluster="electrical",
-                    tooltip=(f"Commitment uid={cm.get('uid')} name={cm.get('name')}"),
+                    tooltip=(f"Commitment {cm.get('name')} (uid={cm.get('uid')})"),
                     size=14.0,
                 )
             )
@@ -1244,7 +1250,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                     kind="simple_commitment",
                     cluster="electrical",
                     tooltip=(
-                        f"SimpleCommitment uid={cm.get('uid')} name={cm.get('name')}"
+                        f"SimpleCommitment {cm.get('name')} (uid={cm.get('uid')})"
                     ),
                     size=14.0,
                 )

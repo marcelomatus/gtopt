@@ -183,8 +183,14 @@ class TestElemName:
         assert bus_nodes, "No bus node found"
         assert "ALTO:7" in bus_nodes[0].label
 
-    def test_generator_label_contains_uid(self):
-        """Generator node label must include uid in 'name:uid' format."""
+    def test_generator_label_contains_name(self):
+        """Generator node label must lead with the generator's name.
+
+        The ``:uid`` suffix was dropped from the visible label so a
+        singleton-rendered generator and an aggregated bus bubble
+        share the same line-1 = name shape.  The uid is still part of
+        the tooltip (``Generator <NAME> (uid=N) — type=…``).
+        """
         _IEEE9_JSON = {
             "options": {"use_kirchhoff": True, "scale_objective": 1000},
             "system": {
@@ -234,10 +240,11 @@ class TestElemName:
             n for n in model.nodes if n.kind in ("gen", "gen_hydro", "gen_solar")
         ]
         assert gen_nodes, "No generator nodes found"
-        # G1 has uid=1 → label should contain "G1:1"
+        # G1 visible label is "G1\n<cap> MW"; uid is in the tooltip.
         g1 = next((n for n in gen_nodes if "G1" in n.label), None)
         assert g1 is not None, "G1 generator node not found"
-        assert "G1:1" in g1.label
+        assert g1.label.startswith("G1")
+        assert "(uid=1)" in g1.tooltip
 
 
 # ---------------------------------------------------------------------------

@@ -82,7 +82,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=f"{name}{v}",
                     kind="bus",
                     cluster="electrical",
-                    tooltip=f"Bus uid={bus.get('uid')} name={bus.get('name')}{v}",
+                    tooltip=(
+                        f"Bus {bus.get('name')} (uid={bus.get('uid')})"
+                        + (f" — {bus['voltage']} kV" if "voltage" in bus else "")
+                    ),
                 )
             )
             self._bus_node_ids.add(nid)
@@ -160,7 +163,13 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             gt = _classify_gen(gen, self._turb_refs)
             kind = self._gen_kind(gen)
             name = _elem_name(gen)
-            lbl = f"{name}\n{cap} MW" if self.opts.compact else f"{name}\n{cap} MW"
+            # Visible label: drop the ``:uid`` suffix that ``_elem_name``
+            # tacks on (it clutters the canvas; uid lives in the
+            # tooltip).  Format matches the aggregated label so a
+            # singleton-rendered generator and a bus-aggregated bubble
+            # have the same line 1 = name / line 2 = capacity shape.
+            display_name = str(gen.get("name") or name)
+            lbl = display_name if self.opts.compact else f"{display_name}\n{cap} MW"
             nid = self._gid(gen)
             self.model.add_node(
                 Node(
@@ -168,7 +177,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind=kind,
                     cluster="electrical",
-                    tooltip=f"Generator uid={gen.get('uid')} type={gt} capacity={cap}",
+                    tooltip=(
+                        f"Generator {name} (uid={gen.get('uid')}) "
+                        f"— type={gt}, capacity={cap}"
+                    ),
                 )
             )
             bus_id = self._bus_node_id(gen.get("bus"))
@@ -209,7 +221,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             # Use the raw ``name`` field (no ``:uid`` suffix) so the
             # common-stem detection sees the shared prefix cleanly.
             stem = self._common_stem([str(g.get("name") or _elem_name(g)) for g in grp])
-            lbl = f"{stem} ({len(grp)} units)\n{total:.0f} MW"
+            # Same line 1 = stem / line 2 = stats shape as
+            # ``_gen_individual``, so the visual style is uniform
+            # whether the bus has one or many gens.
+            lbl = f"{stem}\n{len(grp)} units · {total:.0f} MW"
             self.model.add_node(
                 Node(
                     node_id=nid,
@@ -250,7 +265,11 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             # Use the raw ``name`` field (no ``:uid`` suffix) so the
             # common-stem detection sees the shared prefix cleanly.
             stem = self._common_stem([str(g.get("name") or _elem_name(g)) for g in grp])
-            lbl = f"{icon} {stem} ({len(grp)} units)\n{total:.0f} MW"
+            # Same line 1 / line 2 shape as the bus aggregation; the
+            # type-specific tint already discriminates solar / hydro /
+            # thermal / BESS via the per-kind colour, so the explicit
+            # ``{icon} {label}`` prefix would just add visual noise.
+            lbl = f"{stem}\n{len(grp)} units · {total:.0f} MW"
             self.model.add_node(
                 Node(
                     node_id=nid,
@@ -279,7 +298,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
             label, icon, palette_key = meta
             nid = f"agg_global_{gt}"
-            lbl = f"{icon} {label}\n{len(grp)} units · {total:.0f} MW total"
+            # Global aggregation only has a type label (no per-bus
+            # name stem); use it as line 1 and the unit count + total
+            # MW as line 2, matching the other aggregation shapes.
+            lbl = f"{label}\n{len(grp)} units · {total:.0f} MW"
             self.model.add_node(
                 Node(
                     node_id=nid,
@@ -308,7 +330,9 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="demand",
                     cluster="electrical",
-                    tooltip=f"Demand uid={dem.get('uid')} name={dem.get('name')} lmax={lmax}",
+                    tooltip=(
+                        f"Demand {dem.get('name')} (uid={dem.get('uid')}) — lmax={lmax}"
+                    ),
                 )
             )
             bus_id = self._bus_node_id(dem.get("bus"))
@@ -387,7 +411,7 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="battery",
                     cluster="electrical",
-                    tooltip=f"Battery uid={bat.get('uid')} emax={emax}",
+                    tooltip=(f"Battery {name} (uid={bat.get('uid')}) — emax={emax}"),
                 )
             )
             # Connect battery to bus: use converter if defined, otherwise
@@ -416,7 +440,7 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="converter",
                     cluster="electrical",
-                    tooltip=f"Converter uid={conv.get('uid')} cap={cap}",
+                    tooltip=(f"Converter {name} (uid={conv.get('uid')}) — cap={cap}"),
                 )
             )
             bat_id = self._find_node_id(
@@ -517,7 +541,10 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="gen_profile",
                     cluster="electrical",
-                    tooltip=f"GeneratorProfile uid={gp.get('uid')} profile={plbl}",
+                    tooltip=(
+                        f"GeneratorProfile {name} (uid={gp.get('uid')}) "
+                        f"— profile={plbl}"
+                    ),
                 )
             )
             gen_id = self._resolve_gen_node_id(gp.get("generator"))
@@ -546,7 +573,9 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                     label=lbl,
                     kind="dem_profile",
                     cluster="electrical",
-                    tooltip=f"DemandProfile uid={dp.get('uid')} profile={plbl}",
+                    tooltip=(
+                        f"DemandProfile {name} (uid={dp.get('uid')}) — profile={plbl}"
+                    ),
                 )
             )
             dem_id = self._find_node_id("demand_array", dp.get("demand"), self._did)
