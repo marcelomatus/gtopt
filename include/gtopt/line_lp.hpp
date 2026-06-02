@@ -31,9 +31,19 @@ class LineLP : public CapacityObjectLP<Line>
 {
 public:
   static constexpr std::string_view FlowName {
-      "flow"};  ///< compound: `flowp − flown`
-  static constexpr std::string_view FlowpName {"flowp"};
+      "flow"};  ///< compound signed primal: `flowp − flown`
+  /// Excluded-direction stems (extras gate): ``flown_sol`` is the raw
+  /// negative-direction primal (always ≥ 0; only when the LP has two
+  /// directional columns), and ``flowe_cost`` is the EXCLUDED reduced
+  /// cost — the rc that the sign-based ``flow_cost`` rule did NOT
+  /// pick.  ``flowe`` (not ``flown``) for the rc so the naming
+  /// signals "excluded", not "negative direction".
   static constexpr std::string_view FlownName {"flown"};
+  static constexpr std::string_view FloweName {"flowe"};
+  /// Internal-only LP variable names used during ``add_to_lp`` (not
+  /// emitted in default output stems; consumers read ``flow_sol`` /
+  /// ``flow_cost`` / ``flown_sol`` / ``flowe_cost`` instead).
+  static constexpr std::string_view FlowpName {"flowp"};
   /// Signed flow column emitted by `LineLossesMode::tangent_signed_flow`
   /// (Coffrin outer approximation; one column per (line, block) covering
   /// `[−tmax_ba, +tmax_ab]`).  Distinct from `FlowpName` / `FlownName`

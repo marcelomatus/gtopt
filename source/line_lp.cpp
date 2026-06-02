@@ -1,4 +1,7 @@
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <set>
 
 #include <gtopt/kirchhoff_node_angle.hpp>
 #include <gtopt/line_losses.hpp>
@@ -603,45 +606,216 @@ bool LineLP::add_to_output(OutputContext& out) const
   //     are recoverable from CapacityBase's `capainst` reduced cost
   //     when expansion is active.  Skipping them saves I/O.
   //
-  // Aggregator-mode emission (none / linear / piecewise / bidirectional).
-  // No-op for piecewise_direct, where the holders are empty.
-  out.add_col_sol(cname, FlowpName, pid, flowp_cols);
-  out.add_col_sol(cname, FlownName, pid, flown_cols);
+  // Unified line-flow emission — ONE signed primal + ONE signed rc.
+  //
+  // Output stems: ``Line/flow_sol.parquet`` and ``Line/flow_cost.parquet``.
+  // Convention (industry-aligned, PLEXOS / SDDP / GenX):
+  //   * primal: ``flow = primal(flowp) − primal(flown)`` for two-column
+  //     modes (bidirectional / linear / piecewise / piecewise_direct),
+  //     or ``flow = primal(flows)`` for ``tangent_signed_flow`` mode.
+  //     Signed scalar: positive ⇒ A→B direction, negative ⇒ B→A.
+  //   * reduced cost: sign-based pick of the active direction's rc:
+  //         flow > 0  ⇒ flow_cost = +rc[flowp]   (A→B active)
+  //         flow < 0  ⇒ flow_cost = −rc[flown]   (B→A active)
+  //         flow = 0  ⇒ flow_cost = 0            (line idle)
+  //     For the single-column ``tangent_signed_flow`` mode, the LP
+  //     rc on the signed flows column already encodes both bounds
+  //     in one signed scalar — pass through verbatim.
+  //
+  // Drops the previously-emitted per-direction
+  // ``flowp_sol`` / ``flown_sol`` stems (and their cost counterparts)
+  // in favour of one signed ``flow`` stem — matches PLEXOS' "Net Flow",
+  // SDDP's intercâmbio, and the convention every other gtopt
+  // consumer (gtopt_check_output, gtopt_results_summary,
+  // gtopt_marginal_units, plexos2gtopt/{compare_with_plexos,
+  // auto_lift_lines}) wants once they're updated to read the new
+  // shape: a single signed column instead of the two non-negative
+  // pieces the LP happens to use internally.
+  //
+  // ──  ``extras:Line`` opt-in side-stream ────────────────────────────
+  //
+  // When the writer opts into ``--write-out ...,extras:Line``, two
+  // additional stems are emitted alongside ``flow_*``:
+  //   * ``flown_sol``   = ``primal(flown)`` (always ≥ 0) — the raw
+  //     negative-direction primal; consumers that want the directional
+  //     split can recover ``flowp = flow + flown``.
+  //   * ``flown_cost``  = the reduced cost the SIGN-BASED rule did NOT
+  //     pick for ``flow_cost``.  When ``flow > 0`` we picked
+  //     ``rc[flowp]`` → ``flown_cost = rc[flown]``.  When ``flow < 0``
+  //     we picked ``−rc[flown]`` → ``flown_cost = rc[flowp]``.  When
+  //     ``flow = 0`` the LP is idle so both rcs are emitted as zero in
+  //     the main stream; ``flown_cost`` carries ``rc[flown]``.
+  STBIndexHolder<double> flow_signed_sol;
+  STBIndexHolder<double> flow_signed_cost;
+  STBIndexHolder<double> flown_extras_sol;
+  STBIndexHolder<double> flown_extras_cost;
 
-  // Direct-mode emission: under `piecewise_direct` the seg holders
-  // carry the K per-segment cols and the sum-of-cols overload writes
-  // Σ col_sol[seg_k] under the same `flowp:sol` / `flown:sol` field
-  // names.  Outer-level gate avoids paying the flat() walk on the
-  // empty per-block maps in non-direct modes (where the outer key
-  // exists but every inner BIndexHolder is empty).
-  if (!flowp_seg_cols.empty()) {
-    out.add_col_sol(cname, FlowpName, pid, flowp_seg_cols);
-  }
-  if (!flown_seg_cols.empty()) {
-    out.add_col_sol(cname, FlownName, pid, flown_seg_cols);
-  }
-
-  // ``tangent_signed_flow`` mode: emit the signed flow column under
-  // ``Line/flows_sol.parquet`` AND derived ``flowp_sol = max(0, f)`` /
-  // ``flown_sol = max(0, −f)`` for back-compat with consumers that read
-  // the directional shape (gtopt_check_lp, PLP-diff scripts, …).
-  if (!flows_cols.empty()) {
-    out.add_col_sol(cname, FlowsName, pid, flows_cols);
-
-    STBIndexHolder<double> flowp_derived;
-    STBIndexHolder<double> flown_derived;
-    for (const auto& [st_key, blocks] : flows_cols) {
-      auto& fp_blocks = flowp_derived[st_key];
-      auto& fn_blocks = flown_derived[st_key];
-      for (const auto& [buid, col] : blocks) {
-        const double f = out.primal(col);
-        fp_blocks[buid] = std::max(0.0, f);
-        fn_blocks[buid] = std::max(0.0, -f);
+  const auto fill_two_column = [&](const STBIndexHolder<ColIndex>& fp_holder,
+                                   const STBIndexHolder<ColIndex>& fn_holder)
+  {
+    for (const auto& [st_key, p_blocks] : fp_holder) {
+      auto& dst_p = flow_signed_sol[st_key];
+      auto& dst_c = flow_signed_cost[st_key];
+      const auto it_n = fn_holder.find(st_key);
+      const bool has_flown_st = (it_n != fn_holder.end());
+      const auto* n_blocks = has_flown_st ? &it_n->second : nullptr;
+      // Only allocate the flown extras buckets when there is an actual
+      // flown column at this (scenario, stage) — the LP doesn't always
+      // emit one (e.g. ``tangent_signed_flow`` skips two-column setup
+      // entirely; ``add_none`` has a single signed flowp).  Empty extras
+      // STBIndexHolders short-circuit the emit call at the bottom.
+      auto* dst_fn_p = has_flown_st ? &flown_extras_sol[st_key] : nullptr;
+      auto* dst_fn_c = has_flown_st ? &flown_extras_cost[st_key] : nullptr;
+      for (const auto& [buid, pcol] : p_blocks) {
+        const double fp = out.primal(pcol);
+        const double rcp = out.cost(pcol);
+        double fn = 0.0;
+        double rcn = 0.0;
+        bool has_flown_cell = false;
+        if (n_blocks != nullptr) {
+          const auto it_b = n_blocks->find(buid);
+          if (it_b != n_blocks->end()) {
+            fn = out.primal(it_b->second);
+            rcn = out.cost(it_b->second);
+            has_flown_cell = true;
+          }
+        }
+        const double signed_flow = fp - fn;
+        dst_p[buid] = signed_flow;
+        // Sign-based combined rc.  Equivalent to "rc of the active
+        // LP column"; the inactive direction contributes 0 because
+        // its primal is 0 and its rc tells us only about its OWN
+        // lower-bound dual (irrelevant for the saturation question
+        // on the SIGNED flow).
+        if (signed_flow > 0.0) {
+          dst_c[buid] = rcp;
+        } else if (signed_flow < 0.0) {
+          dst_c[buid] = -rcn;
+        } else {
+          dst_c[buid] = 0.0;
+        }
+        // Extras: only when this (line, cell) actually has a flown
+        // column.  ``flown_extras_cost`` carries the NOT-selected rc.
+        if (has_flown_cell && dst_fn_p != nullptr) {
+          (*dst_fn_p)[buid] = fn;
+          if (signed_flow > 0.0) {
+            (*dst_fn_c)[buid] = rcn;
+          } else if (signed_flow < 0.0) {
+            (*dst_fn_c)[buid] = rcp;
+          } else {
+            (*dst_fn_c)[buid] = rcn;
+          }
+        }
       }
     }
-    out.add_col_sol_values(cname, FlowpName, pid, flowp_derived);
-    out.add_col_sol_values(cname, FlownName, pid, flown_derived);
+  };
+
+  // Aggregator-mode (none / linear / piecewise / bidirectional):
+  // single column per direction in ``flowp_cols`` / ``flown_cols``.
+  fill_two_column(flowp_cols, flown_cols);
+
+  // ``tangent_signed_flow``: one signed LP column in ``flows_cols``
+  // (``lowb = -tmax_ba``, ``uppb = +tmax_ab``).  Primal and rc pass
+  // straight through; ``rc[flows] < 0`` ⇔ at the positive cap,
+  // ``rc[flows] > 0`` ⇔ at the negative cap.
+  for (const auto& [st_key, s_blocks] : flows_cols) {
+    auto& dst_p = flow_signed_sol[st_key];
+    auto& dst_c = flow_signed_cost[st_key];
+    for (const auto& [buid, scol] : s_blocks) {
+      dst_p[buid] = out.primal(scol);
+      dst_c[buid] = out.cost(scol);
+    }
   }
+
+  // ``piecewise_direct`` mode: K per-segment columns per direction,
+  // signed flow is ``Σ seg_p − Σ seg_n``.  The same sign-based combined
+  // rc rule applies — but reduced cost on a per-segment kink is the
+  // segment slope's gap and not a single scalar per (line, block);
+  // for the saturation signal we use the smallest |rc| across the
+  // segments in the active direction.
+  const auto fill_segments_signed_flow = [&]()
+  {
+    if (flowp_seg_cols.empty() && flown_seg_cols.empty()) {
+      return;
+    }
+    auto sum_segs = [&](const STBIndexHolder<std::vector<ColIndex>>& holder,
+                        std::tuple<ScenarioUid, StageUid> st_key,
+                        BlockUid buid) -> std::pair<double, double>
+    {
+      double f = 0.0;
+      double rc_min_abs = std::numeric_limits<double>::infinity();
+      const auto it = holder.find(st_key);
+      if (it == holder.end()) {
+        return {0.0, 0.0};
+      }
+      const auto& blocks = it->second;
+      const auto it_b = blocks.find(buid);
+      if (it_b == blocks.end()) {
+        return {0.0, 0.0};
+      }
+      for (const auto& col : it_b->second) {
+        f += out.primal(col);
+        rc_min_abs = std::min(rc_min_abs, std::abs(out.cost(col)));
+      }
+      if (!std::isfinite(rc_min_abs)) {
+        rc_min_abs = 0.0;
+      }
+      return {f, rc_min_abs};
+    };
+
+    std::set<std::tuple<ScenarioUid, StageUid>> st_keys;
+    for (const auto& [k, _] : flowp_seg_cols) {
+      st_keys.insert(k);
+    }
+    for (const auto& [k, _] : flown_seg_cols) {
+      st_keys.insert(k);
+    }
+    for (const auto& st_key : st_keys) {
+      std::set<BlockUid> buids;
+      if (auto it = flowp_seg_cols.find(st_key); it != flowp_seg_cols.end()) {
+        for (const auto& [b, _] : it->second) {
+          buids.insert(b);
+        }
+      }
+      if (auto it = flown_seg_cols.find(st_key); it != flown_seg_cols.end()) {
+        for (const auto& [b, _] : it->second) {
+          buids.insert(b);
+        }
+      }
+      auto& dst_p = flow_signed_sol[st_key];
+      auto& dst_c = flow_signed_cost[st_key];
+      for (const auto buid : buids) {
+        const auto [fp, rcp_abs] = sum_segs(flowp_seg_cols, st_key, buid);
+        const auto [fn, rcn_abs] = sum_segs(flown_seg_cols, st_key, buid);
+        const double signed_flow = fp - fn;
+        dst_p[buid] = signed_flow;
+        if (signed_flow > 0.0) {
+          dst_c[buid] = -rcp_abs;
+        } else if (signed_flow < 0.0) {
+          dst_c[buid] = +rcn_abs;
+        } else {
+          dst_c[buid] = 0.0;
+        }
+      }
+    }
+  };
+  fill_segments_signed_flow();
+
+  out.add_col_sol_values(cname, FlowName, pid, flow_signed_sol);
+  out.add_col_cost_values(cname, FlowName, pid, flow_signed_cost);
+  // Extras (opt-in via ``--write-out ...,extras:Line``).  Only emitted
+  // when the LP actually had a flown column for at least one (line,
+  // cell) — i.e. when the loss model produced two directional columns.
+  // ``tangent_signed_flow`` mode (one signed flows column) leaves
+  // these holders empty and the helpers are no-ops.
+  //   * ``flown_sol``  = raw flown primal (always ≥ 0); ``flowp = flow +
+  //   flown``
+  //   * ``flowe_cost`` = EXCLUDED reduced cost (the rc that the sign-based
+  //                      ``flow_cost`` rule did NOT pick).  Named ``flowe``
+  //                      not ``flown`` so the suffix reads as "excluded",
+  //                      not "negative direction".
+  out.add_col_sol_values_extras(cname, FlownName, pid, flown_extras_sol);
+  out.add_col_cost_values_extras(cname, FloweName, pid, flown_extras_cost);
 
   // Consolidated loss output: piecewise / bidirectional only.  none /
   // linear / piecewise_direct don't create loss vars so this is a no-op.

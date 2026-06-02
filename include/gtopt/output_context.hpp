@@ -105,6 +105,17 @@ public:
     return col_sol_span[col];
   }
 
+  /// Physical LP reduced cost (in `$/[unit]`) at the given LP column.
+  /// Counterpart to :func:`primal` that reads the already-cached
+  /// `col_cost_span`.  Used by `LineLP::add_to_output` (and any other
+  /// reconstruction site) that combines per-direction LP columns into
+  /// a single output stem and needs the rc of each piece to choose a
+  /// signed combined rc.
+  [[nodiscard]] constexpr double cost(ColIndex col) const noexcept
+  {
+    return col_cost_span[col];
+  }
+
   // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
   //
   // Counterpart to the index-emit overloads below.  These take a
@@ -179,6 +190,31 @@ public:
     // Callers that wish to emit values already on physical scale
     // (no further multiplication) should construct the holder so
     // each entry is `physical_value × block_ecost_factor[s,t,b]`.
+    add_field_values(cname,
+                     col_name,
+                     "cost",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
+  /// Extras-gated variant of `add_col_cost_values`.  Same on-disk
+  /// shape (`<col_name>_cost.parquet`) and same factor pipeline;
+  /// gated on `OutputFlags::extras` instead of `reduced_cost` so the
+  /// caller can keep the stream around for opt-in audits without
+  /// bloating the default footprint.  Used by `LineLP::add_to_output`
+  /// for the inactive-direction reduced cost ``flown_cost`` that
+  /// complements the default-emitted signed combined ``flow_cost``.
+  constexpr void add_col_cost_values_extras(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<double>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
     add_field_values(cname,
                      col_name,
                      "cost",
