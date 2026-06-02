@@ -114,8 +114,8 @@ def topology_from_planning(planning: dict) -> Topology:
                 uid=int(g["uid"]),
                 name=str(g.get("name", f"g{g['uid']}")),
                 bus_uid=_resolve_bus(g.get("bus")),
-                pmin=float(g.get("pmin", 0.0)),
-                pmax=float(g.get("pmax", g.get("capacity", 0.0))),
+                pmin=_scalar_or_max(g.get("pmin"), 0.0),
+                pmax=_scalar_or_max(g.get("pmax", g.get("capacity")), 0.0),
                 declared_MC=declared_mc,
                 kind=kind,
                 emission_rate=_opt_float(g.get("emission_rate")),
@@ -169,8 +169,8 @@ def topology_from_planning(planning: dict) -> Topology:
                 uid=int(ln["uid"]),
                 bus_a_uid=_resolve_bus(ln.get("bus_a")),
                 bus_b_uid=_resolve_bus(ln.get("bus_b")),
-                tmax_ab=float(ln.get("tmax_ab", ln.get("tmax", 0.0))),
-                tmax_ba=float(ln.get("tmax_ba", ln.get("tmax", 0.0))),
+                tmax_ab=_scalar_or_max(ln.get("tmax_ab", ln.get("tmax")), 0.0),
+                tmax_ba=_scalar_or_max(ln.get("tmax_ba", ln.get("tmax")), 0.0),
                 reactance=_opt_float(ln.get("reactance")),
                 active=bool(ln.get("active", True)),
             )
@@ -185,6 +185,35 @@ def _opt_float(v: object) -> float | None:
     if isinstance(v, (int, float)):
         return float(v)
     return None
+
+
+def _scalar_or_max(v: object, default: float = 0.0) -> float:
+    """Reduce a gtopt ``TBRealFieldSched`` variant to a representative
+    scalar suitable for Topology metadata.
+
+    Accepted shapes:
+      * ``int`` / ``float``         → cast to float
+      * ``list[float]``             → ``max(.)``
+      * ``list[list[float]]``       → ``max`` over the flattened matrix
+      * ``str`` (FileSched parquet) → ``default`` (we don't open the
+        parquet here; the LP solution carries the actual per-block
+        capacity used during dispatch, so the metadata pmax is only a
+        sanity bound).
+      * Anything else / ``None``    → ``default``
+    """
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, list):
+        flat: list[float] = []
+        for x in v:
+            if isinstance(x, (int, float)):
+                flat.append(float(x))
+            elif isinstance(x, list):
+                flat.extend(float(y) for y in x if isinstance(y, (int, float)))
+        return max(flat) if flat else default
+    return default
 
 
 # ---------------------------------------------------------------------------

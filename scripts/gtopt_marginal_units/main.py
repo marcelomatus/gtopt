@@ -449,7 +449,14 @@ def _process_cells(
 
         # Per-bus rows.
         for bus_uid in bus_uids:
-            zid = zone_of[bus_uid]
+            # In LP-duals mode the zone partition only covers buses with
+            # a balance_dual entry: an orphan bus (no demand AND no
+            # generation, common in PLEXOS imports where every node is
+            # materialised) has no LMP, so no zone, so no marginal-unit
+            # row to emit.  Skip silently.
+            zid = zone_of.get(bus_uid)
+            if zid is None:
+                continue
             zres = zone_results.get(zid)
             if zres is None:
                 continue
