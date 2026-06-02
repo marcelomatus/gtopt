@@ -548,6 +548,24 @@ void System::expand_fuel_emission_sources()
       continue;
     }
 
+    // Per-block fuel override (Issue #510 Phase 1): the synthetic
+    // EmissionSource carries a per-STAGE rate, so it cannot capture
+    // per-block fuel switching with full accuracy — blocks burning
+    // gas vs diesel would share a single combustion factor.  Skip
+    // auto-synthesis and require explicit per-block EmissionSource
+    // rows for accuracy.  This mirrors the non-scalar heat_rate
+    // policy below.
+    if (gen.fuel_per_block.has_value()) {
+      SPDLOG_WARN(
+          "Generator '{}' uid={}: fuel_per_block is set — fuel-derived "
+          "emission sources skipped.  Declare explicit per-block "
+          "EmissionSource entries (one per fuel) to retain emission "
+          "accuracy under fuel switching.",
+          gen.name,
+          gen.uid);
+      continue;
+    }
+
     const Fuel* fuel = find_fuel(fuel_array, *gen.fuel);
     if (fuel == nullptr || fuel->emission_factors.empty()) {
       continue;
