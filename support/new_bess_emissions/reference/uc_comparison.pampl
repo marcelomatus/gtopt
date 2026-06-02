@@ -1,0 +1,109 @@
+# ========================================================================
+# comparison user constraints (24) — emitted by plexos2gtopt
+#   hard:    24   soft:     0
+# Origin: PLEXOS Constraint objects (DBSEN_PRGDIARIO.xml)
+# Soft rows declare a named slack column via the AMPL-style
+# ``var slack_<ident>;`` syntax — the PAMPL parser binds each
+# declaration to the matching ``constraint <ident>`` by naming
+# convention (gtopt-side: ``UserConstraint::slack_name``), so
+# CPLEX logs and LP dumps reference the per-UC slack label
+# instead of the generic ``slack``.  The output parquet schema
+# is unchanged — per-row violations live in
+# ``UserConstraint/slack_sol.parquet`` keyed by uid.
+# ========================================================================
+
+# PLEXOS Constraint 'CAMPOS_DEL_SOL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint CAMPOS_DEL_SOL_Comparison:
+  -1 * generator("CAMPOS_DEL_SOL_FV").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'CEME_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint CEME_Comparison:
+  -1 * generator("CEME1_FV").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'GUANCHOI_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint GUANCHOI_Comparison:
+  -1 * generator("GUANCHOI_FV").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'HORIZONTE_NORTE_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint HORIZONTE_NORTE_Comparison:
+  -1 * generator("HORIZONTE_NORTE_EO").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'HORIZONTE_SUR_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint HORIZONTE_SUR_Comparison:
+  -1 * generator("HORIZONTE_SUR_EO").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'IEMEJILLONES_Comparison': Σ decision variable ≥ 29.01 — consolidated from 14 PLEXOS member(s); 12 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint IEMEJILLONES_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 29.01;
+
+# PLEXOS Constraint 'KALLPA_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint KALLPA_Comparison:
+  -1 * generator("KALLPA_EO").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'LAS_SALINAS_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint LAS_SALINAS_Comparison:
+  -1 * generator("LAS_SALINAS_FV").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'NEHUENCO_1_DIE_Comparison': Σ decision variable ≥ 8.56 — consolidated from 3 PLEXOS member(s); 1 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NEHUENCO_1_DIE_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 8.56;
+
+# PLEXOS Constraint 'NEHUENCO_1_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 8.4 — consolidated from 25 PLEXOS member(s); 20 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NEHUENCO_1_GNL_Comparison:
+  -1 * generator("NEHUENCO_1-TG+TV_GN_A").generation - 1 * generator("NEHUENCO_1-TG+TV_GN_B").generation - 1 * generator("NEHUENCO_1-TG+TV_GNL_C").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 8.4;
+
+# PLEXOS Constraint 'NEHUENCO_2_DIE_Comparison': Σ decision variable ≥ 7.965 — consolidated from 3 PLEXOS member(s); 1 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NEHUENCO_2_DIE_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.965;
+
+# PLEXOS Constraint 'NEHUENCO_2_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 5.674 — consolidated from 14 PLEXOS member(s); 9 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NEHUENCO_2_GNL_Comparison:
+  -1 * generator("NEHUENCO_2-TG+TV_GN_A").generation - 1 * generator("NEHUENCO_2-TG+TV_GN_B").generation - 1 * generator("NEHUENCO_2-TG+TV_GNL_C").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 5.674;
+
+# PLEXOS Constraint 'NUEVARENCA_DIE_Comparison': Σ generator dispatch [MW] + decision variable ≥ 11.75 — consolidated from 15 PLEXOS member(s); 10 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NUEVARENCA_DIE_Comparison:
+  -1 * generator("NUEVA_RENCA-FA_GN_A").generation - 1 * generator("NUEVA_RENCA-FA_GNL_A").generation - 1 * generator("NUEVA_RENCA-FA_GNL_C").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 11.75;
+
+# PLEXOS Constraint 'NUEVARENCA_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 10.71 — consolidated from 26 PLEXOS member(s); 18 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint NUEVARENCA_GNL_Comparison:
+  -1 * generator("NUEVA_RENCA-FA_GN_A").generation - 1 * generator("NUEVA_RENCA-FA_GNL_A").generation - 1 * generator("NUEVA_RENCA-FA_GNL_C").generation - 1 * generator("NUEVA_RENCA-TG+TV_GN_A").generation - 1 * generator("NUEVA_RENCA-TG+TV_GNL_A").generation - 1 * generator("NUEVA_RENCA-TG+TV_GNL_D").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 10.71;
+
+# PLEXOS Constraint 'RALCO_U1_Comparison': Σ generator dispatch [MW] + decision variable ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint RALCO_U1_Comparison:
+  -1 * generator("RALCO_U1").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'RALCO_U2_Comparison': Σ decision variable ≥ 0 — consolidated from 3 PLEXOS member(s); 1 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint RALCO_U2_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;
+
+# PLEXOS Constraint 'SANISIDRO_2_DIE_Comparison': Σ decision variable ≥ 7.837 — consolidated from 4 PLEXOS member(s); 2 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint SANISIDRO_2_DIE_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.837;
+
+# PLEXOS Constraint 'SANISIDRO_2_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 7.26 — consolidated from 26 PLEXOS member(s); 14 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint SANISIDRO_2_GNL_Comparison:
+  -1 * generator("SAN_ISIDRO_2-TG+TV_GN_A").generation - 1 * generator("SAN_ISIDRO_2-TG+TV_GN_B").generation - 1 * generator("SAN_ISIDRO_2-TG+TV_GN_C").generation - 1 * generator("SAN_ISIDRO_2-TG+TV_GN_D").generation - 1 * generator("SAN_ISIDRO_2-TG+TV_GNL_E").generation - 1 * generator("SAN_ISIDRO_2-TG+TV-FSTVU_GN_A").generation - 1 * generator("SAN_ISIDRO_2-TG+TV-FSTVU_GN_B").generation - 1 * generator("SAN_ISIDRO_2-TG+TV-FSTVU_GN_C").generation - 1 * generator("SAN_ISIDRO_2-TG+TV-FSTVU_GN_D").generation - 1 * generator("SAN_ISIDRO_2-TG+TV-FSTVU_GNL_E").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.26;
+
+# PLEXOS Constraint 'SANISIDRO_DIE_Comparison': Σ decision variable ≥ 7.837 — consolidated from 4 PLEXOS member(s); 2 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint SANISIDRO_DIE_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.837;
+
+# PLEXOS Constraint 'SANISIDRO_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 7.26 — consolidated from 38 PLEXOS member(s); 26 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint SANISIDRO_GNL_Comparison:
+  -1 * generator("SAN_ISIDRO-TG+TV_GN_A").generation - 1 * generator("SAN_ISIDRO-TG+TV_GN_B").generation - 1 * generator("SAN_ISIDRO-TG+TV_GN_C").generation - 1 * generator("SAN_ISIDRO-TG+TV_GN_D").generation - 1 * generator("SAN_ISIDRO-TG+TV_GNL_E").generation - 1 * generator("SAN_ISIDRO-TG+TV-FSTVD_GN_A").generation - 1 * generator("SAN_ISIDRO-TG+TV-FSTVD_GN_B").generation - 1 * generator("SAN_ISIDRO-TG+TV-FSTVD_GN_C").generation - 1 * generator("SAN_ISIDRO-TG+TV-FSTVD_GN_D").generation - 1 * generator("SAN_ISIDRO-TG+TV-FSTVD_GNL_E").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.26;
+
+# PLEXOS Constraint 'SANTAMARIA_Comparison': Σ generator dispatch [MW] + decision variable ≥ 29.47 (File: DBSEN_PRGDIARIO.xml)
+constraint SANTAMARIA_Comparison:
+  -1 * generator("SANTA_MARIA").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 29.47;
+
+# PLEXOS Constraint 'TOCOPILLA_U16_DIE_Comparison': Σ decision variable ≥ 11.858 — consolidated from 3 PLEXOS member(s); 1 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint TOCOPILLA_U16_DIE_Comparison:
+  -1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 11.858;
+
+# PLEXOS Constraint 'TOCOPILLA_U16_GNL_Comparison': Σ generator dispatch [MW] + decision variable ≥ 7.065 — consolidated from 12 PLEXOS member(s); 7 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) (File: DBSEN_PRGDIARIO.xml)
+constraint TOCOPILLA_U16_GNL_Comparison:
+  -1 * generator("TOCOPILLA_U16-TG+TV_GNL_A").generation - 1 * generator("TOCOPILLA_U16-TG+TV_GNL_B").generation - 1 * generator("TOCOPILLA_U16-TG+TV_GNL_C").generation - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 7.065;
+
+# PLEXOS Constraint 'TxJadresic_Comparison': Σ line flow [MW] + decision variable ≥ 0 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint TxJadresic_Comparison:
+  1 * line("Jadresic500->Jadresic220").flow - 1 * decision_variable("limited_generation_group").value + 1 * decision_variable("MaxInjection_SEN").value >= 0;

@@ -1,0 +1,1602 @@
+# ========================================================================
+# security user constraints (395) — emitted by plexos2gtopt
+#   hard:   393   soft:     2
+# Origin: PLEXOS Constraint objects (DBSEN_PRGDIARIO.xml)
+# Soft rows declare a named slack column via the AMPL-style
+# ``var slack_<ident>;`` syntax — the PAMPL parser binds each
+# declaration to the matching ``constraint <ident>`` by naming
+# convention (gtopt-side: ``UserConstraint::slack_name``), so
+# CPLEX logs and LP dumps reference the per-UC slack label
+# instead of the generic ``slack``.  The output parquet schema
+# is unchanged — per-row violations live in
+# ``UserConstraint/slack_sol.parquet`` keyed by uid.
+# ========================================================================
+
+# Penalty tiers — per-unit slack cost [$/unit]:
+param soft_floor_penalty = 10;
+
+# Visible slack columns — one per soft constraint.
+var slack_SD_2026047000_Gx_Vinales_Celco;
+var slack_SD_2026040847_GxTamaya_BESSTamaya;
+
+# PLEXOS Constraint '2024084134_PAzucar_Polpaico500_I': Σ line flow [MW] ≤ 1000 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2024084134_PAzucar_Polpaico500_I:
+  1 * line("NvaPAzucar500->Polpaico500_I").flow + 1 * line("PAzucar220->DonGoyo220").flow <= 1000;
+
+# PLEXOS Constraint '2024084134_PAzucar_Polpaico500_II': Σ line flow [MW] ≥ -1000 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2024084134_PAzucar_Polpaico500_II:
+  1 * line("NvaPAzucar500->Polpaico500_I").flow + 1 * line("PAzucar220->DonGoyo220").flow >= -1000;
+
+# PLEXOS Constraint '2024122225_Changos_Kimal_Mejillones_Chacaya': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2024122225_Changos_Kimal_Mejillones_Chacaya:
+  0 <= 0;
+
+# PLEXOS Constraint '2024122225_Kapatur_Laberinto_Mejillones_Chacaya': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2024122225_Kapatur_Laberinto_Mejillones_Chacaya:
+  0 <= 0;
+
+# PLEXOS Constraint '2025079778_PAzucar_Polpaico500_I_y_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2025079778_PAzucar_Polpaico500_I_y_II:
+  0 <= 0;
+
+# PLEXOS Constraint '2025079778_PAzucar_Polpaico500_I_y_II Neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2025079778_PAzucar_Polpaico500_I_y_II_Neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025126719_ASanta_Miraflores_SPedro_Quillota': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025126719_ASanta_Miraflores_SPedro_Quillota:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023001486_PEHUENCHE_Max': generator dispatch [MW] ≤ 1000 — consolidated from 2 PLEXOS member(s); 1 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023001486_PEHUENCHE_Max:
+  1 * generator("PEHUENCHE_U2").generation <= 1000;
+
+# PLEXOS Constraint 'SD_2023072373_Angamos_Kelar': Σ generator dispatch [MW] ≤ 400 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023072373_Angamos_Kelar:
+  1 * generator("ANGAMOS_1").generation + 1 * generator("ANGAMOS_2").generation + 1 * generator("KELAR_CC_TG1_DIE").generation + 1 * generator("KELAR_CC_TG1_GNL").generation + 1 * generator("KELAR_CC_TG2_DIE").generation + 1 * generator("KELAR_CC_TG2_GNL").generation + 1 * generator("KELAR_CC_TV").generation <= 400;
+
+# PLEXOS Constraint 'SD_2026005410_Laguna_Colla_Encuentro': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005410_Laguna_Colla_Encuentro:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023074854_Laguna_Colla_Tarapaca_Condor': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023074854_Laguna_Colla_Tarapaca_Condor:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026021506_COCHRANE_Max': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026021506_COCHRANE_Max:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025100269_Cumbres_SAndres_Cardones_I_II_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025100269_Cumbres_SAndres_Cardones_I_II_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026002879_D_Almagro_Illapa': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026002879_D_Almagro_Illapa:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023090469_ATRNPazucar_DonHec_PColor': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023090469_ATRNPazucar_DonHec_PColor:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023090469_ATRNPazucar_Maiten_DonHec': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023090469_ATRNPazucar_Maiten_DonHec:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo1_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo1__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo1_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo1__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo2_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo2__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo2_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo2__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo3_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo3__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRMaitencillo_PAzucar_tramo3_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRMaitencillo_PAzucar_tramo3__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo1_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo1__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo2_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo2__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo3_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo3__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo4_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo4__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo4_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo4__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo5_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo5__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo5_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo5__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo6_(hacia_220)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo6__hacia_220_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023095054_ATRPAzucar_Nogales_tramo6_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023095054_ATRPAzucar_Nogales_tramo6__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023099431_SEC_AGUIRRE_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023099431_SEC_AGUIRRE_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023099431_SEC_AGUIRRE_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023099431_SEC_AGUIRRE_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023099431_SEC_AGUIRRE_3': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023099431_SEC_AGUIRRE_3:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023100065_MAndes_Hornitos_Quilos_Blanco_Juncal_Chacabuquito_SAndes': Σ generator dispatch [MW] ≥ 0 — consolidated from 6 PLEXOS member(s); 2 subsumed by gtopt's element model (offline gens, shadow lines, always-on renewables, or fuel without consuming gens) — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023100065_MAndes_Hornitos_Quilos_Blanco_Juncal_Chacabuquito_SAndes:
+  1 * generator("CHACABUQUITO").generation + 1 * generator("JUNCAL").generation + 1 * generator("LOS_QUILOS").generation + 1 * generator("MESETA_DE_LOS_ANDES_FV").generation >= 0;
+
+# PLEXOS Constraint 'SD_2023103037_PAzucar_DonGoyo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023103037_PAzucar_DonGoyo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023104259_Alfalfal_Almendros': Σ line flow [MW] ≤ 1000 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023104259_Alfalfal_Almendros:
+  1 * line("Alfalfal220->Almendros220").flow - 1 * line("Florida110->Almendros110").flow <= 1000;
+
+# PLEXOS Constraint 'SD_2023109434_Quilos_Blanco_Juncal_Chacabuquito': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023109434_Quilos_Blanco_Juncal_Chacabuquito:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2023118799_SE_San_Luis_Isidro_2_Nehuenco_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023118799_SE_San_Luis_Isidro_2_Nehuenco_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023119681_Duqueco_LVarones_SClara_Charrua_LNotros_Trupan': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023119681_Duqueco_LVarones_SClara_Charrua_LNotros_Trupan:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2023119681_Temuco_LPeumos_SClara_Charrua_LNotros_Trupan': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2023119681_Temuco_LPeumos_SClara_Charrua_LNotros_Trupan:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025070379_Charrua_Conce_Hualqui_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025070379_Charrua_Conce_Hualqui_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025070379_Charrua_Conce_Hualqui_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025070379_Charrua_Conce_Hualqui_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025062073_Charrua_Hualqui_MAPA': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025062073_Charrua_Hualqui_MAPA:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024004210_Conce_SVicente_Charrua_Hualqui': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024004210_Conce_SVicente_Charrua_Hualqui:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024013181_ATRPAzucar_DonGoyo_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024013181_ATRPAzucar_DonGoyo__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024013181_ATRPAzucar_Polpaico_(hacia_500)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024013181_ATRPAzucar_Polpaico__hacia_500_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024013369_Charrua_SClara_Duqueco_LPeumos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024013369_Charrua_SClara_Duqueco_LPeumos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024013369_SClara_Charrua_Temuco': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024013369_SClara_Charrua_Temuco:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024013371_Charrua_SClara_LNotros_ERosal_Antuco': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024013371_Charrua_SClara_LNotros_ERosal_Antuco:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024026654_ATRLoAguirre_AJahuel': Σ line flow [MW] ≤ 1500 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024026654_ATRLoAguirre_AJahuel:
+  1 * line("LoAguirre500->AJahuel500").flow + 0.6 * line("LoAguirre500->LoAguirre220").flow <= 1500;
+
+# PLEXOS Constraint 'SD_2024033100_ATRNPazucar_PColo_PAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024033100_ATRNPazucar_PColo_PAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024036359_SanLuis_Quillota(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024036359_SanLuis_Quillota_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024036359_SanLuis_Quillota(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024036359_SanLuis_Quillota_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025134086_NvaMaiten_Maiten_Cardo_DHector': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025134086_NvaMaiten_Maiten_Cardo_DHector:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005112_NvaMaitenc_Maitenc(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005112_NvaMaitenc_Maitenc_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005112_NvaMaitenc_Maitenc(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005112_NvaMaitenc_Maitenc_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025138351_Cumbre_NvaCardones_restr1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025138351_Cumbre_NvaCardones_restr1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026002880_Cumbre_NvaCardones_restr1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026002880_Cumbre_NvaCardones_restr1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025109362_ATR_Cumbre_SAndres_Cardones': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025109362_ATR_Cumbre_SAndres_Cardones:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026002880_Cumbre_NvaCardones_restr2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026002880_Cumbre_NvaCardones_restr2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_NVaMaitenc_Maitenc_DHector_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_NVaMaitenc_Maitenc_DHector_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025109097_Charrua_Conce_Hualpen_Hualqui': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025109097_Charrua_Conce_Hualpen_Hualqui:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024049311_TRAJahuel_Tilcoco_PCortes_(neg)': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024049311_TRAJahuel_Tilcoco_PCortes__neg_:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2024049311_TRAJahuel_Tilcoco_PCortes_(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024049311_TRAJahuel_Tilcoco_PCortes__pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026003519_ATRPolpaico_ATRLoAguirre_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026003519_ATRPolpaico_ATRLoAguirre_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026041554_ATRPolpaico_ATRLoAguirre_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026041554_ATRPolpaico_ATRLoAguirre_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024050241_ATRLoAguirre_AJahuel': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024050241_ATRLoAguirre_AJahuel:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024051598_Angamos_Kapatur': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024051598_Angamos_Kapatur:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025134086_NvaCard_Card_NvaMaitenc_Maitenc': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025134086_NvaCard_Card_NvaMaitenc_Maitenc:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024060300_Charrua_Conce_Hualqui_154': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024060300_Charrua_Conce_Hualqui_154:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024060300_Charrua_Conce_Hualqui_220': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024060300_Charrua_Conce_Hualqui_220:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024060300_Conce_SVicente_Hualqui_154': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024060300_Conce_SVicente_Hualqui_154:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026001924_Nogales_Quillota': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026001924_Nogales_Quillota:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026001924_Nogales_Quillota_inv': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026001924_Nogales_Quillota_inv:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042060_Gx_Antuco_Charrua': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042060_Gx_Antuco_Charrua:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025124735_Cardones_NvaMaitenc_Algarrobal_Maitenc_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025124735_Cardones_NvaMaitenc_Algarrobal_Maitenc_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025124735_Cardones_NvaMaitenc_Algarrobal_Maitenc_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025124735_Cardones_NvaMaitenc_Algarrobal_Maitenc_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_DHecotr(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_DHecotr_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_DHector(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_DHector_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_Maitenc(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_Maitenc_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_Maitenc(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_Maitenc_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_Pcol_PAzucar (EAF)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_Pcol_PAzucar__EAF_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_PColorada(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_PColorada_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_NvaMaitenc_NvaPAzucar_PColorada(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_NvaMaitenc_NvaPAzucar_PColorada_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024071662_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar (EAF)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024071662_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar__EAF_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025113293_ATRNvaPAzucar_Polpaico_LCebada_PSierra_I_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025113293_ATRNvaPAzucar_Polpaico_LCebada_PSierra_I_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025113293_ATRNvaPAzucar_Polpaico_LCebada_PSierra_I_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025113293_ATRNvaPAzucar_Polpaico_LCebada_PSierra_I_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025099626_Gx_SanLuis220': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025099626_Gx_SanLuis220:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024076041_Kimal_Laberinto(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024076041_Kimal_Laberinto_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024076041_Kimal_Laberinto(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024076041_Kimal_Laberinto_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025084573_PteNegro_Colbun': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025084573_PteNegro_Colbun:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024084010_Malleco_Cautin_LPeumos_Temuco(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024084010_Malleco_Cautin_LPeumos_Temuco_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024084010_Malleco_Cautin_LPeumos_Temuco(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024084010_Malleco_Cautin_LPeumos_Temuco_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025130820_Malleco_Cautin_Temuco_Duqueco_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025130820_Malleco_Cautin_Temuco_Duqueco_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025114518_Malleco_Cautin_LVarones_Duqueco': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025114518_Malleco_Cautin_LVarones_Duqueco:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026039517_DHector_PColorada_Maitenc_PColorada': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026039517_DHector_PColorada_Maitenc_PColorada:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025142461_ATRNvaCard_Cardones_Algarrobal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025142461_ATRNvaCard_Cardones_Algarrobal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024087295_NvaCardones_500kV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024087295_NvaCardones_500kV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024087380_DHector_PColorada_I': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024087380_DHector_PColorada_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024087380_DHector_PColorada_II': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024087380_DHector_PColorada_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024091389_Charrua_Conce(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024091389_Charrua_Conce_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024091389_Charrua_Conce(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024091389_Charrua_Conce_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024093720_PFVGuanchoi_DiegoAlmagroSur': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024093720_PFVGuanchoi_DiegoAlmagroSur:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025093093_CNavia_Chena_LoAguirre_AJahuel': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025093093_CNavia_Chena_LoAguirre_AJahuel:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024095878_LoAguirre_AJahuel': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024095878_LoAguirre_AJahuel:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025099416_ATRNvaMaitencillo_Cardones (neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025099416_ATRNvaMaitencillo_Cardones__neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025099416_ATRNvaMaitencillo_Cardones (pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025099416_ATRNvaMaitencillo_Cardones__pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024097264_ATRNvaMaitenc_Maitenc_Algarrobal_l': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024097264_ATRNvaMaitenc_Maitenc_Algarrobal_l:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024097264_ATRNvaMaitenc_Maitenc_Algarrobal_ll': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024097264_ATRNvaMaitenc_Maitenc_Algarrobal_ll:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026033657_Quillota_SLuis_ASanta': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026033657_Quillota_SLuis_ASanta:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026038606_Charrua_SClara_LNotros_Trupan': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038606_Charrua_SClara_LNotros_Trupan:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025105671_Polpaico_LoAguirre': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025105671_Polpaico_LoAguirre:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024106751_Polpaico_Aguirre_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024106751_Polpaico_Aguirre_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024106751_Polpaico_Aguirre_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024106751_Polpaico_Aguirre_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024106751_Polpaico_Aguirre_3': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024106751_Polpaico_Aguirre_3:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2024106751_Polpaico_Aguirre_4': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024106751_Polpaico_Aguirre_4:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2024107305_ATRCumbre_Cardones_CPinto_p1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024107305_ATRCumbre_Cardones_CPinto_p1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024107305_ATRCumbre_Cardones_CPinto_p2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024107305_ATRCumbre_Cardones_CPinto_p2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024107305_ATRCumbre_Cardones_CPinto_p3': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024107305_ATRCumbre_Cardones_CPinto_p3:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026004170_PColorada_NvaPAzucar_PSierra': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026004170_PColorada_NvaPAzucar_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025100269_Cumbre_Cardones_CPinto_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025100269_Cumbre_Cardones_CPinto_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025100269_Cumbre_Cardones_CPinto_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025100269_Cumbre_Cardones_CPinto_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024109654_Cumbre_NvaCard_Card_CPinto_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024109654_Cumbre_NvaCard_Card_CPinto_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005693_Cumbre_NvaCard_Card_CPinto_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005693_Cumbre_NvaCard_Card_CPinto_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025112308_Maitenc_NvaMaitenc_DonHector': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025112308_Maitenc_NvaMaitenc_DonHector:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024109685_DHector_PColorada_Maitenc(pos)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024109685_DHector_PColorada_Maitenc_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025109005_DHector_PColorada(neg)': pure-line-flow constraint with RHS=-100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025109005_DHector_PColorada_neg_:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025109005_DHector_PColorada(pos)': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025109005_DHector_PColorada_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024109741_CEME_ValleSol_Max': Σ generator dispatch [MW] ≤ 1000 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024109741_CEME_ValleSol_Max:
+  1 * generator("CEME1_FV").generation + 1 * generator("VALLE_DEL_SOL_FV").generation <= 1000;
+
+# PLEXOS Constraint 'SD_2025142461_NvaCardones_Cardones_Algarrobal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025142461_NvaCardones_Cardones_Algarrobal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025094128_ATRNvaCardones_ATRNvaMaitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025094128_ATRNvaCardones_ATRNvaMaitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024113183_ATR_NVaCardones(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024113183_ATR_NVaCardones_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024113183_TRNvaCardones(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024113183_TRNvaCardones_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025134086_TRNvaCardones(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025134086_TRNvaCardones_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024113659_Cardones_Cpinto_I': all 2 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024113659_Cardones_Cpinto_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024113659_Cardones_Cpinto_II': all 2 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024113659_Cardones_Cpinto_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116103_NvaPAzucar_Polpaico_PSierra_LPalmas_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116103_NvaPAzucar_Polpaico_PSierra_LPalmas_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116103_NvaPAzucar_Polpaico_PSierra_LPalmas_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116103_NvaPAzucar_Polpaico_PSierra_LPalmas_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116488_ATRChangos_Norte_Sur': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116488_ATRChangos_Norte_Sur:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116488_ATRChangos_Sur_Norte': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116488_ATRChangos_Sur_Norte:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116930_NvaPAzucar_PSierra_LPalmas_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116930_NvaPAzucar_PSierra_LPalmas_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024116930_NvaPAzucar_PSierra_LPalmas_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024116930_NvaPAzucar_PSierra_LPalmas_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024117274_MaElena_Frontera_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024117274_MaElena_Frontera_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024117274_MaElena_Frontera_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024117274_MaElena_Frontera_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026016205_Nogales_Quillota_Polpaico_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026016205_Nogales_Quillota_Polpaico_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024119427_Cardones_NvaMaitenc_Algarrobal_Maitenc': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024119427_Cardones_NvaMaitenc_Algarrobal_Maitenc:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024120193_ATRNMaiten_Cardo_Maiten': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024120193_ATRNMaiten_Cardo_Maiten:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024120193_ATRNMaiten_Maiten_DonHec': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024120193_ATRNMaiten_Maiten_DonHec:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024120193_ATRNMaiten_Maiten_DonHec_PColor': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024120193_ATRNMaiten_Maiten_DonHec_PColor:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024120193_Gx_Guacolda_CLeonesII_Iberatacama_Sarco_RHuasco_Huasco_Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024120193_Gx_Guacolda_CLeonesII_Iberatacama_Sarco_RHuasco_Huasco_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025081522_Charrua_Ancoa_EntreRios_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025081522_Charrua_Ancoa_EntreRios_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025103034_Andes_Oeste': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025103034_Andes_Oeste:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024125391_Gx_Queltehues_Volcan': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024125391_Gx_Queltehues_Volcan:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025076226_PColorada_NvaPAzucar_PAzucar_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025076226_PColorada_NvaPAzucar_PAzucar_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025076226_PColorada_NvaPAzucar_PAzucar_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025076226_PColorada_NvaPAzucar_PAzucar_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024126733_ATRNMaiten_Cardo_Maiten_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024126733_ATRNMaiten_Cardo_Maiten_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024126733_ATRNMaiten_Cardo_Maiten_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024126733_ATRNMaiten_Cardo_Maiten_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024126733_ATRNMaiten_Cardo_Maiten_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024126733_ATRNMaiten_Cardo_Maiten_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024129628_MaElena_Frontera_IV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024129628_MaElena_Frontera_IV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024131550_Campiche_NuevaVentanas': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024131550_Campiche_NuevaVentanas:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025000072_Andes_NvaZaldivar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025000072_Andes_NvaZaldivar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025132352_PSierra_LPalmas_NvaPAzucar_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025132352_PSierra_LPalmas_NvaPAzucar_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005863_Gx_Taira_SDesierto_MElena': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005863_Gx_Taira_SDesierto_MElena:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025107892_PColorada_NvaPAzucar_PAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025107892_PColorada_NvaPAzucar_PAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026033583_Quillota_ASanta': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026033583_Quillota_ASanta:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026030344_Horizonte_Kallpa_Taltal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030344_Horizonte_Kallpa_Taltal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025051417_SD_Kallpa_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025051417_SD_Kallpa_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026030344_Kallpa_Taltal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030344_Kallpa_Taltal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025010985_UnidadEncendida_SanLuis220': Σ commitment status [0/1] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2025010985_UnidadEncendida_SanLuis220:
+  1 * commitment("uc_NEHUENCO_1-TG+TV_GN_A").status + 1 * commitment("uc_NEHUENCO_1-TG+TV_GN_B").status + 1 * commitment("uc_NEHUENCO_1-TG+TV_GN_C").status + 1 * commitment("uc_NEHUENCO_1-TG+TV_GN_D").status + 1 * commitment("uc_NEHUENCO_2-TG+TV_GN_A").status + 1 * commitment("uc_NEHUENCO_2-TG+TV_GN_B").status + 1 * commitment("uc_NEHUENCO_2-TG+TV_GN_C").status + 1 * commitment("uc_NEHUENCO_2-TG+TV_GN_D").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GN_A").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GN_B").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GN_C").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GN_D").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GNL_E").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_A").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_B").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_C").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_D").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GNL_E").status + 1 * commitment("uc_SAN_ISIDRO_2-TG+TV_GN_E").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_E").status >= 0;
+
+# PLEXOS Constraint 'SD_2025120054_SanLuis_Quillota(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025120054_SanLuis_Quillota_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025120054_SanLuis_Quillota(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025120054_SanLuis_Quillota_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025013228_Charrua_Conce2(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025013228_Charrua_Conce2_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025013392_NvaPAzcuar_PAzucar_PColorada': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025013392_NvaPAzcuar_PAzucar_PColorada:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025047979_NvaMaitencillo_Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025047979_NvaMaitencillo_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025079168_SNorte_LAndes_dDesierto_ASolar_SLila': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025079168_SNorte_LAndes_dDesierto_ASolar_SLila:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025048364_Polpaico_ESalto_CNavia_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025048364_Polpaico_ESalto_CNavia_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025024274_Charrua_Conce2(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025024274_Charrua_Conce2_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026036857_CNavia_Polpaico_LAguirre+': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036857_CNavia_Polpaico_LAguirre_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118578_Nogales_Quillota_Polpaico_C2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118578_Nogales_Quillota_Polpaico_C2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025026843_Nogales_Quillota_Polpaico_inv': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025026843_Nogales_Quillota_Polpaico_inv:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026025155_ATRChangos_Kimal_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026025155_ATRChangos_Kimal_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026025155_ATRChangos_Kimal_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026025155_ATRChangos_Kimal_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025028622_PAzucar_PSierra': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025028622_PAzucar_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042944_Gx_Tocopilla_Tamaya': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042944_Gx_Tocopilla_Tamaya:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025030630_Gx_SE_Andes': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025030630_Gx_SE_Andes:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025043616_Atacama_OHiggins_Kimal_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025043616_Atacama_OHiggins_Kimal_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025080799_Atacama_Miraje_Kimal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025080799_Atacama_Miraje_Kimal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026047609_Charrua_Hualpen_Hualqui': Σ line flow [MW] ≤ 259 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2026047609_Charrua_Hualpen_Hualqui rhs [10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 259, 259, 259, 259, 259, 259, 259, 259, 259, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000]:
+  1 * line("Charrua220->Hualpen220").flow + 1 * line("Charrua220->Lagunillas220").flow <= 259;
+
+# PLEXOS Constraint 'SD_2025033593_Kimal_MElena_Lagunas_AMaria': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025033593_Kimal_MElena_Lagunas_AMaria:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025143718_MaElena_Frontera_Lagunas_AMaria': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025143718_MaElena_Frontera_Lagunas_AMaria:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025142583_LCebada_PSierra_NvaPAzucar_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025142583_LCebada_PSierra_NvaPAzucar_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026034469_Gx_Guacolda': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026034469_Gx_Guacolda:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025055355_PSierra_Nogales_PAzucar_Polpaico_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025055355_PSierra_Nogales_PAzucar_Polpaico_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025055355_PSierra_Nogales_PAzucar_Polpaico_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025055355_PSierra_Nogales_PAzucar_Polpaico_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025035731_ATRNvaPAzucar_DGoyo_LCebada': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025035731_ATRNvaPAzucar_DGoyo_LCebada:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025035731_ATRNvaPAzucar_PAzucar_DGoyo': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025035731_ATRNvaPAzucar_PAzucar_DGoyo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025035731_ATRPNvaAzucar_LCebada_PSierra_II': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025035731_ATRPNvaAzucar_LCebada_PSierra_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118113_LVilos_Nogales_PSierra_NvaPAzucar_Polpaico_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118113_LVilos_Nogales_PSierra_NvaPAzucar_Polpaico_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025036106_Polpaico_NuevaLampa_II_1': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036106_Polpaico_NuevaLampa_II_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025036106_Polpaico_NuevaLampa_II_2': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036106_Polpaico_NuevaLampa_II_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025081164_Lagunas_Collahuasi_MElena_Kimal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025081164_Lagunas_Collahuasi_MElena_Kimal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025036275_MaElena_Frontera_AMaria_Lagunas': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036275_MaElena_Frontera_AMaria_Lagunas:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026003081_ATRNvaPAzucar_LCebada_PSierra': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026003081_ATRNvaPAzucar_LCebada_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118439_ATRNvaPAzucar_PSierra_Nogales': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118439_ATRNvaPAzucar_PSierra_Nogales:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128478_DHector_PColorada_II': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128478_DHector_PColorada_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar (iv)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar__iv_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026025248_Cumbre_NvbaCardones_Illapa_CPinto': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026025248_Cumbre_NvbaCardones_Illapa_CPinto:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025037316_Cumbre_NvbaCardones_SAndres_Cardones': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025037316_Cumbre_NvbaCardones_SAndres_Cardones:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025038636_TRCNavia_Chena': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025038636_TRCNavia_Chena:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025132352_PSierra_LPalmas_Centella': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025132352_PSierra_LPalmas_Centella:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_XXXX_Horcones_Coronel': Σ commitment status [0/1] ≥ 0 — active=False (excluded from PLEXOS ST schedule / contingency row) (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_XXXX_Horcones_Coronel:
+  1 * commitment("uc_CORONEL_DIE").status + 1 * commitment("uc_CORONEL_GN_A").status + 1 * commitment("uc_CORONEL_GNL_A").status + 1 * commitment("uc_CORONEL_GNL_B").status + 1 * commitment("uc_HORNITOS").status >= 0;
+
+# PLEXOS Constraint 'SD_2026027423_Commit_Guacolda': Σ commitment status [0/1] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2026027423_Commit_Guacolda:
+  1 * commitment("uc_GUACOLDA_1").status + 1 * commitment("uc_GUACOLDA_2").status + 1 * commitment("uc_GUACOLDA_3").status + 1 * commitment("uc_GUACOLDA_4").status + 1 * commitment("uc_GUACOLDA_5").status >= 0;
+
+# PLEXOS Constraint 'SD_2025036639_SLuis_ASanta': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036639_SLuis_ASanta:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025036639_Quillota_sanpedro': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036639_Quillota_sanpedro:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025054238_SLuis_ASanta_Quillota_SPedro': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025054238_SLuis_ASanta_Quillota_SPedro:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025036640_Quillota_SPedro_ASanta_SLuis': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025036640_Quillota_SPedro_ASanta_SLuis:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025042760_GXceme1_Valle': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025042760_GXceme1_Valle:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025134480_Encuentro_Miraje': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025134480_Encuentro_Miraje:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025042757_Encuentro_Miraje 2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025042757_Encuentro_Miraje_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025043616_Atacama_OHiggins_Kimal_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025043616_Atacama_OHiggins_Kimal_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025051417_Horizonte_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025051417_Horizonte_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_ATRNvaMaitencillo_Cardones_1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_ATRNvaMaitencillo_Cardones_1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025047483_ATRNvaMaitencillo_Cardones_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025047483_ATRNvaMaitencillo_Cardones_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118113_LVilos_Nogales_NvaPAzucar_Polpaico neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118113_LVilos_Nogales_NvaPAzucar_Polpaico_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025078453_PSierra_Nogales_PAzucar_Polpaico_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025078453_PSierra_Nogales_PAzucar_Polpaico_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025078453_PSierra_Nogales_PAzucar_Polpaico_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025078453_PSierra_Nogales_PAzucar_Polpaico_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025056008_ATR_Quillota(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025056008_ATR_Quillota_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025056008_ATR_Quillota(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025056008_ATR_Quillota_neg_:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025133489_NMaitenc_PColorada_DHector (pos)_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133489_NMaitenc_PColorada_DHector__pos__III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025133489_NMaitenc_PColorada_DHector (neg)_III_off': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133489_NMaitenc_PColorada_DHector__neg__III_off:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026021507_GX_Cochrane': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026021507_GX_Cochrane:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_AguaAmarga_Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_AguaAmarga_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026039517_DHector_PColorada_NvaMaitencillo_NvaPAzucar': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026039517_DHector_PColorada_NvaMaitencillo_NvaPAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026010423_PSierra_LPalmas_NvaPAzucar_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026010423_PSierra_LPalmas_NvaPAzucar_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025067112_Colmito_LVientos': Σ commitment status [0/1] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2025067112_Colmito_LVientos:
+  1 * commitment("uc_COLMITO_DIE").status + 1 * commitment("uc_COLMITO_GN_A").status + 1 * commitment("uc_COLMITO_GNL_A").status + 1 * commitment("uc_COLMITO_GNL_INF").status + 1 * commitment("uc_LOS_VIENTOS_CA").status >= 0;
+
+# PLEXOS Constraint 'SD_2025068338_SE_AES_ANDES': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025068338_SE_AES_ANDES:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005112_NvaMaitenc_Maitenc_PColo_DHector(pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005112_NvaMaitenc_Maitenc_PColo_DHector_pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025133489_NvaMaitenc_NPAzucar_PColo_DHector(pos)_IV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133489_NvaMaitenc_NPAzucar_PColo_DHector_pos__IV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_ATRNvaPazuc_Pazuc_DHector_Pcolorada (l)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_ATRNvaPazuc_Pazuc_DHector_Pcolorada__l_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025070379_Charrua_Conce_Hualqui_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025070379_Charrua_Conce_Hualqui_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025070379_Charrua_Conce_Hualqui_IV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025070379_Charrua_Conce_Hualqui_IV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042614_Quillota_SanLuis (pos)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042614_Quillota_SanLuis__pos_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042614_Quillota_SanLuis (neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042614_Quillota_SanLuis__neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025075235_Lo_Aguirre_1_norte_a_sur': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025075235_Lo_Aguirre_1_norte_a_sur:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025075235_Lo_Aguirre_2_sur_a_norte': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025075235_Lo_Aguirre_2_sur_a_norte:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025074056_Gx_CTM3_IEM': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025074056_Gx_CTM3_IEM:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025073415_Gx_S/E': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025073415_Gx_S_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025133489_NvaMaitenc_NvaPAzucar_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133489_NvaMaitenc_NvaPAzucar_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025106865_NvaMaitenc_NvaPAzucar_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025106865_NvaMaitenc_NvaPAzucar_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025106865_NvaMaitenc_NvaPAzucar_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025106865_NvaMaitenc_NvaPAzucar_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025078453_LPalmas_LVilo_PAzucar_Polpaico_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025078453_LPalmas_LVilo_PAzucar_Polpaico_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025081048_LPalmas_LVilo_ATRPAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025081048_LPalmas_LVilo_ATRPAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013917_NvaCardones_NvaMaitenc_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013917_NvaCardones_NvaMaitenc_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013917_NvaCardones_NvaMaitenc_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013917_NvaCardones_NvaMaitenc_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025081522_Charrua_Ancoa_EntreRios_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025081522_Charrua_Ancoa_EntreRios_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025080929_LAguirre_NLampa_CNavia': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025080929_LAguirre_NLampa_CNavia:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025080929_Polpaico_ESalto_NLampa_CNavia': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025080929_Polpaico_ESalto_NLampa_CNavia:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026047000_Gx_Vinales_Celco': Σ generator dispatch [MW] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+#   soft: slack column 'slack_SD_2026047000_Gx_Vinales_Celco' (per-block; see UserConstraint/slack_sol.parquet["SD_2026047000_Gx_Vinales_Celco"])
+constraint SD_2026047000_Gx_Vinales_Celco penalty soft_floor_penalty rhs [0, 0, 0, 0, 0, 0, 0, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]:
+  1 * generator("VINALES_BL2").generation + 1 * generator("VINALES_BL1").generation + 1 * generator("CELCO_BL1").generation + 1 * generator("CELCO_BL2").generation >= 0;
+
+# PLEXOS Constraint 'SD_2025079667_Gx_Pullinque_Lautaro': Σ generator dispatch [MW] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2025079667_Gx_Pullinque_Lautaro:
+  1 * generator("LAUTARO_2_BL1").generation + 1 * generator("LAUTARO_2_BL2").generation + 1 * generator("LAUTARO_1_BL1").generation + 1 * generator("LAUTARO_1_BL2").generation + 1 * generator("PULLINQUE").generation >= 0;
+
+# PLEXOS Constraint 'SD_2025131176_NvaMaiten_NvaPazuc_DHector_Pcolorada': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025131176_NvaMaiten_NvaPazuc_DHector_Pcolorada:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_ATRNvaPazuc_Pazuc_Pcolorada (lll)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_ATRNvaPazuc_Pazuc_Pcolorada__lll_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_NvaMaiten_NvaPazuc_Pazuc_Pcolorada (iv)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_NvaMaiten_NvaPazuc_Pazuc_Pcolorada__iv_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025085205_AguaAmarga_Maitencillo ii': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025085205_AguaAmarga_Maitencillo_ii:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025088623_Prropulli_Tineo': Σ line flow [MW] ≤ 2000 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2025088623_Prropulli_Tineo:
+  1 * line("Rahue220->Tineo220").flow + 1 * line("Prropulli220->Tineo220").flow <= 2000;
+
+# PLEXOS Constraint 'SD_2025089213_Kimal_Encuentro_Gx': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025089213_Kimal_Encuentro_Gx:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090339_SE_LosVilos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090339_SE_LosVilos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090339_SE_LosVilos 2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090339_SE_LosVilos_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025089603_NVA_Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025089603_NVA_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_Chena': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_Chena:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_Chena_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_Chena_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118115_Polpaico_CNavia': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118115_Polpaico_CNavia:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_SanIsi1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_SanIsi1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_SanIsi2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_SanIsi2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_Neh1': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_Neh1:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_Neh2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_Neh2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025090885_Polpaico_Neh9b': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025090885_Polpaico_Neh9b:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025096712_Horizonte_SUR': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025096712_Horizonte_SUR:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025100078_Kimal_Max_Tx': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025100078_Kimal_Max_Tx:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025100013_SecAguirre_CNavia': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025100013_SecAguirre_CNavia:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025087376_NvaPAzucar_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025087376_NvaPAzucar_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025105036_Gx_Arrayan_Cururos_MRedondo_PTalca_TOriente_TPoniente_PSierra': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025105036_Gx_Arrayan_Cururos_MRedondo_PTalca_TOriente_TPoniente_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025106865_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025106865_PColorada_PAzucar_NvaMaitencillo_NvaPAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025106865_Maitencillo_Aamarga_NvaMaitencillo_NvaPAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025106865_Maitencillo_Aamarga_NvaMaitencillo_NvaPAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026030813_NvaPAzucar_Polpaico500_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030813_NvaPAzucar_Polpaico500_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025104180_Pehuenche_Ancoa_Catillo_Condores': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025104180_Pehuenche_Ancoa_Catillo_Condores:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025127399_PColorada_PAzucar_NvaPAzucar I': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025127399_PColorada_PAzucar_NvaPAzucar_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025112318_ATRNvaCard_Cardones_Algarrobal_II (s-n)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025112318_ATRNvaCard_Cardones_Algarrobal_II__s_n_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025142461_ATRNvaMaiten_Cardones_Algarrobal': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025142461_ATRNvaMaiten_Cardones_Algarrobal:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025112834_ATRNvaMaiten_Cardones_Algarrobal_IV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025112834_ATRNvaMaiten_Cardones_Algarrobal_IV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024091389_Charrua_Conce(neg)2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024091389_Charrua_Conce_neg_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024091389_Charrua_Conce(pos)2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024091389_Charrua_Conce_pos_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025133489_DHector_PColorada_NvaMaitencillo_I': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133489_DHector_PColorada_NvaMaitencillo_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026036896_DesfCNavia_Polpaico_LAguirre_Polpaico_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036896_DesfCNavia_Polpaico_LAguirre_Polpaico_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025116867_NPAzucar220_Polpaico220 I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025116867_NPAzucar220_Polpaico220_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025116867_NPAzucar220_PAzucar220 II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025116867_NPAzucar220_PAzucar220_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025119567_SLo_Aguirre_Ajahuel_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025119567_SLo_Aguirre_Ajahuel_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025119567_SLo_Aguirre_Ajahuel_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025119567_SLo_Aguirre_Ajahuel_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025122104_SANTA_CLARA_Sur-Norte': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025122104_SANTA_CLARA_Sur_Norte:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025122104_SANTA_CLARA_Norte-Sur': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025122104_SANTA_CLARA_Norte_Sur:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025141088_Gx_LCabana_Renaico_LOlmos_Tolpan': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025141088_Gx_LCabana_Renaico_LOlmos_Tolpan:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118578_Nogales_Quillota_Polpaico_C1 inv': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118578_Nogales_Quillota_Polpaico_C1_inv:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118578_Nogales_Quillota_Polpaico_C2 inv': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118578_Nogales_Quillota_Polpaico_C2_inv:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025123358_Polpaico500_200_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025123358_Polpaico500_200_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025123358_Polpaico500_200_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025123358_Polpaico500_200_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025122714_Desconex_Trafo_Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025122714_Desconex_Trafo_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025122716_Maitencillo_NvaMaitencillo_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025122716_Maitencillo_NvaMaitencillo_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025122716_Maitencillo_NvaMaitencillo_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025122716_Maitencillo_NvaMaitencillo_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025112834_ATRNvaCard_Cardones_Algarrobal_II neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025112834_ATRNvaCard_Cardones_Algarrobal_II_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026038606_Charrua_SClara_LNotros_Trupan neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038606_Charrua_SClara_LNotros_Trupan_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2024087380_DHector_PColorada_I_P2': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2024087380_DHector_PColorada_I_P2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025116867_NPAzucar220_Polpaico220 I neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025116867_NPAzucar220_Polpaico220_I_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026025248_Cumbre_NvbaCardones_Illapa_CPinto Neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026025248_Cumbre_NvbaCardones_Illapa_CPinto_Neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025121298_D_Almagro_Illapa Neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025121298_D_Almagro_Illapa_Neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025126342_LoAguirre_Polpaico_Navia_Lampa': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025126342_LoAguirre_Polpaico_Navia_Lampa:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025127399_PColorada_PAzucar_NvaPAzucar II': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025127399_PColorada_PAzucar_NvaPAzucar_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025127399_PColorada_PAzucar_NvaPAzucar III': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025127399_PColorada_PAzucar_NvaPAzucar_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128478_DHector_PColorada_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128478_DHector_PColorada_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128478_DHector_PColorada_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128478_DHector_PColorada_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128478_DHector_PColorada_IV': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128478_DHector_PColorada_IV:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025132306_LCebada_PdeAzucar_PSierra': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025132306_LCebada_PdeAzucar_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025131176_NvaMaitenc_Maitenc_PColo_DHector_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025131176_NvaMaitenc_Maitenc_PColo_DHector_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025125596_Cumbres_NvaCardones500_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025125596_Cumbres_NvaCardones500_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025125596_Cumbres_NvaCardones500_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025125596_Cumbres_NvaCardones500_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025125596_Cumbres_NvaCardones500_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025125596_Cumbres_NvaCardones500_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025135457_NvaPAzucar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025135457_NvaPAzucar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128381_Quillota': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128381_Quillota:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128381_Campiche_o_NVentanas': Σ commitment status [0/1] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2025128381_Campiche_o_NVentanas:
+  1 * commitment("uc_CAMPICHE").status + 1 * commitment("uc_NUEVA_VENTANAS").status >= 0;
+
+# PLEXOS Constraint 'SD_2025118578_Nogales_Rio_Aconcagua_Quillota': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118578_Nogales_Rio_Aconcagua_Quillota:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025130820_Malleco_Cautin_Temuco_Duqueco_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025130820_Malleco_Cautin_Temuco_Duqueco_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025138777_Gx_EO_Mulchen': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025138777_Gx_EO_Mulchen:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128684_Guacolda-Maitencillo': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128684_Guacolda_Maitencillo:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025128684_Guacolda-Maitencillo_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025128684_Guacolda_Maitencillo_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025133339_CENTRAL_CARENA': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025133339_CENTRAL_CARENA:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026040626_LCebada_MRedondo_PSierra_NvaPazucar_Polpaico': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026040626_LCebada_MRedondo_PSierra_NvaPazucar_Polpaico:
+  0 <= 0;
+
+# PLEXOS Constraint '2025142490_PAzucar_Polpaico500_C1_C2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2025142490_PAzucar_Polpaico500_C1_C2:
+  0 <= 0;
+
+# PLEXOS Constraint '2025142490_PAzucar_Polpaico500_C1_C2 Neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2025142490_PAzucar_Polpaico500_C1_C2_Neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025118113_LVilos_Nogales_PSierra_NvaPAzucar_Polpaico_pos neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025118113_LVilos_Nogales_PSierra_NvaPAzucar_Polpaico_pos_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026004971_ATRPNvaAzucar_LCebada_PSierra': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026004971_ATRPNvaAzucar_LCebada_PSierra:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026005112_NvaMaitenc_Maitenc_PColo_DHector(neg)': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026005112_NvaMaitenc_Maitenc_PColo_DHector_neg_:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026030344_Jadresic_NvaZaldivar_MMina_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030344_Jadresic_NvaZaldivar_MMina_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026036896_DesfCNavia_Polpaico_LAguirre_Polpaico_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036896_DesfCNavia_Polpaico_LAguirre_Polpaico_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026030344_Jadresic_NvaZaldivar_MMina_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030344_Jadresic_NvaZaldivar_MMina_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026011726_1_NvaZaldivar_MMina_Jadresic_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026011726_1_NvaZaldivar_MMina_Jadresic_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026011726_1_NvaZaldivar_MMina_Jadresic_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026011726_1_NvaZaldivar_MMina_Jadresic_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026010164_Gx_Tocopilla_Frontera_MElena_Simon': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026010164_Gx_Tocopilla_Frontera_MElena_Simon:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026016205_Nogales_Quillota_Polpaico_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026016205_Nogales_Quillota_Polpaico_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_NVaMaitenc_Maitenc_DHector_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_NVaMaitenc_Maitenc_DHector_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_NVaMaitenc_Maitenc_DHector_I_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_NVaMaitenc_Maitenc_DHector_I_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_NVaMaitenc_Maitenc_DHector_II_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_NVaMaitenc_Maitenc_DHector_II_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_ATRNvaMaitencillo_Cardones_1_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_ATRNvaMaitencillo_Cardones_1_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_ATRNvaMaitencillo_Cardones_2': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_ATRNvaMaitencillo_Cardones_2:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026013393_ATRNvaMaitencillo_Cardones_2_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026013393_ATRNvaMaitencillo_Cardones_2_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026016826_Gx_LosAngeles': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026016826_Gx_LosAngeles:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026030344_Horizonte_Kallpa_Taltal_Lalalckama_Arena': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030344_Horizonte_Kallpa_Taltal_Lalalckama_Arena:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026039486_Gx_Horizonte': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026039486_Gx_Horizonte:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026018431_Bolero_BessBolero': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026018431_Bolero_BessBolero:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026021135_LVilos_Nogales': pure-line-flow constraint with RHS=100000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026021135_LVilos_Nogales:
+  0 <= 0;
+
+# PLEXOS Constraint '2026022675_Chuqui_Chuqui_Salar_Salar': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2026022675_Chuqui_Chuqui_Salar_Salar:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031763_Maitenc_PColorada_DHector': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031763_Maitenc_PColorada_DHector:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026028660_Kimal_Miraje': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026028660_Kimal_Miraje:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025070379_Charrua_Conce_Hualqui_I neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025070379_Charrua_Conce_Hualqui_I_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2025013228_Charrua_Conce2(nega)': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025013228_Charrua_Conce2_nega_:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2025013228_Charrua_Conce3': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2025013228_Charrua_Conce3:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031798_NvaZaldivar_MMina': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031798_NvaZaldivar_MMina:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026031798_Andes_Oeste_Laberinto_MMina': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031798_Andes_Oeste_Laberinto_MMina:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031798_solares': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031798_solares:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031962_Cumbre_NvaCardones_Cardones_CPinto': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031962_Cumbre_NvaCardones_Cardones_CPinto:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031962_Cumbre_illapa_Cardones_CPinto': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031962_Cumbre_illapa_Cardones_CPinto:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031896_Itahue_AJahuel_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031896_Itahue_AJahuel_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031896_Itahue_AJahuel_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031896_Itahue_AJahuel_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026031896_Itahue_Maule': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026031896_Itahue_Maule:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026029024_Changos_IEM_CTM3': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026029024_Changos_IEM_CTM3:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026040847_GxTamaya_BESSTamaya': Σ generator dispatch [MW] + battery charge/discharge [MW] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+#   soft: slack column 'slack_SD_2026040847_GxTamaya_BESSTamaya' (per-block; see UserConstraint/slack_sol.parquet["SD_2026040847_GxTamaya_BESSTamaya"])
+constraint SD_2026040847_GxTamaya_BESSTamaya penalty soft_floor_penalty:
+  1 * generator("TAMAYA_FV").generation - 1 * battery("BAT_TAMAYA_FV").charge >= 0;
+
+# PLEXOS Constraint 'SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_III': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026037383_NvaCardones_NvaMaitenc_Algarrobal_III:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026036857_CNavia_Polpaico_LAguirre-': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036857_CNavia_Polpaico_LAguirre__2:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026036896_LVilos_Nogales_PSierra_Mauro_NvaPAzucar_Polpaico_pos': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036896_LVilos_Nogales_PSierra_Mauro_NvaPAzucar_Polpaico_pos:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026036896_LVilos_Nogales_PSierra_Mauro_NvaPAzucar_Polpaico_neg': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026036896_LVilos_Nogales_PSierra_Mauro_NvaPAzucar_Polpaico_neg:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026030813_NvaPAzucar_Polpaico500_neg': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026030813_NvaPAzucar_Polpaico500_neg:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026038338_PSierra_Centella_LVilos_Nogales': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038338_PSierra_Centella_LVilos_Nogales:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026040821_Balance_Gx_Tamaya': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026040821_Balance_Gx_Tamaya:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026040847_GxSAETocopilla_SAEPFVTamaya': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026040847_GxSAETocopilla_SAEPFVTamaya:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026038455_Charrua_Mulchen_Duqueco_Temuco_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038455_Charrua_Mulchen_Duqueco_Temuco_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026038455_Charrua_Mulchen_Duqueco_Temuco_II': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038455_Charrua_Mulchen_Duqueco_Temuco_II:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026038337_LVilos_Nogales_PSierra_Mauro_DonaCarmen_Nogales': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026038337_LVilos_Nogales_PSierra_Mauro_DonaCarmen_Nogales:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026041904_Commit_San_Isidro_GN': Σ commitment status [0/1] ≥ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2026041904_Commit_San_Isidro_GN:
+  1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_A").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_B").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_C").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_D").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV_GN_E").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV-FSTVD_GN_A").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV-FSTVD_GN_B").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV-FSTVD_GN_C").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV-FSTVD_GN_D").status + 1 * commitment("uc_SAN_ISIDRO-TG+TV-FSTVD_GN_E").status >= 0;
+
+# PLEXOS Constraint '2026043708_PAzucar500_Polpaico500': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint uc_2026043708_PAzucar500_Polpaico500:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042614_Gx_SanLuis220+Quintero': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042614_Gx_SanLuis220_Quintero:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026047781_PFV_SAN_ANDRES_BESS_SAN_ANDRES_I_Y_II': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026047781_PFV_SAN_ANDRES_BESS_SAN_ANDRES_I_Y_II:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026045274_Changos_Kimal_II_Kapatur_Ohiggins': Σ line flow [MW] ≤ 457 (File: DBSEN_PRGDIARIO.xml)
+constraint SD_2026045274_Changos_Kimal_II_Kapatur_Ohiggins rhs [457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 457, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000, 10000]:
+  0.35 * line("LosChangos500->Kimal500_II").flow + 1 * line("Kapatur220->Ohiggins220").flow <= 457;
+
+# PLEXOS Constraint 'SD_2026042970_Changos_Kimal_II_ATRChangos_I': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042970_Changos_Kimal_II_ATRChangos_I:
+  0 <= 0;
+
+# PLEXOS Constraint 'SD_2026042970_Changos_Kimal_II_ATRChangos_II': pure-line-flow constraint with RHS=-10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026042970_Changos_Kimal_II_ATRChangos_II:
+  0 >= 0;
+
+# PLEXOS Constraint 'SD_2026046503_NvaPAzucar_Polpaico500': pure-line-flow constraint with RHS=10000 ≥ 10000 sentinel (contingency inactive at this run date).  Inactive stub keeps the LP well-conditioned while preserving the constraint name for audit / follow-up activation.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint SD_2026046503_NvaPAzucar_Polpaico500:
+  0 <= 0;

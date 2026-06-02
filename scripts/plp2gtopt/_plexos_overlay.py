@@ -126,6 +126,16 @@ class OverlayReport:
     fuels_added: tuple[str, ...] = ()
     fuels_reused: tuple[str, ...] = ()
     skipped_fields: dict[str, list[str]] = field(default_factory=dict)
+    #: Pollutant names (Emission rows) copied from the source's
+    #: ``emission_array`` into the plp planning.  Lets plp consume
+    #: per-fuel ``emission_factors`` rows the overlay just transferred
+    #: without needing a separate ``--emissions-file`` pass.
+    emissions_carried: tuple[str, ...] = ()
+    #: EmissionZone names (with cap / price / pollutant basket)
+    #: copied from the source's ``emission_zone_array`` into the plp
+    #: planning.  Required so gtopt's ``expand_fuel_emission_sources``
+    #: doesn't short-circuit on an empty zone array.
+    emission_zones_carried: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict view of the report."""
@@ -140,6 +150,8 @@ class OverlayReport:
                 "skipped_field_entries": sum(
                     len(v) for v in self.skipped_fields.values()
                 ),
+                "emissions_carried": len(self.emissions_carried),
+                "emission_zones_carried": len(self.emission_zones_carried),
             },
             "matched": list(self.matched),
             "unmatched_plp_only": list(self.unmatched_plp_only),
@@ -149,6 +161,8 @@ class OverlayReport:
             "skipped_fields": {
                 name: list(fields) for name, fields in self.skipped_fields.items()
             },
+            "emissions_carried": list(self.emissions_carried),
+            "emission_zones_carried": list(self.emission_zones_carried),
         }
 
 
@@ -396,7 +410,16 @@ class PlexosOverlay:
             existing_fuels_by_norm[need_norm] = new_entry
             fuels_added.append(plexos_fuel_name)
 
-        # 3) Bookkeeping for the report
+        # 3) Carry the emission-infrastructure arrays so the LP layer
+        # actually consumes the per-fuel emission_factors the overlay
+        # just transferred.  Without these, gtopt's
+        # ``expand_fuel_emission_sources`` silently drops every factor
+        # ("unresolved emission name" + "empty zone array short-circuit").
+        # Dedupe by lower-cased name so an existing plp-side row wins.
+        emissions_carried = self._merge_emission_array(system)
+        zones_carried = self._merge_emission_zone_array(system)
+
+        # 4) Bookkeeping for the report
         unmatched_plp_norms = sorted(set(plp_by_norm) - set(self._plexos_gens_by_name))
         unmatched_plexos_norms = sorted(
             set(self._plexos_gens_by_name) - set(plp_by_norm)
@@ -417,7 +440,86 @@ class PlexosOverlay:
             fuels_added=tuple(fuels_added),
             fuels_reused=tuple(fuels_reused),
             skipped_fields=skipped_fields,
+            emissions_carried=emissions_carried,
+            emission_zones_carried=zones_carried,
         )
+
+    def _merge_emission_array(self, system: dict[str, Any]) -> tuple[str, ...]:
+        """Carry the source's ``emission_array`` rows into ``system``.
+
+        Each Emission entry (pollutant definition: ``{uid, name}``) is
+        added when the plp side doesn't already have a row with the
+        same lower-cased name.  Returns the tuple of pollutant names
+        that were freshly added.
+        """
+        src_arr = (self.source.get("system", {}) or {}).get("emission_array", []) or []
+        if not isinstance(src_arr, list) or not src_arr:
+            return ()
+        plp_arr: list[dict[str, Any]] = system.setdefault("emission_array", [])
+        plp_names = {
+            str(row.get("name", "")).strip().lower()
+            for row in plp_arr
+            if isinstance(row, dict)
+        }
+        max_uid = max(
+            (int(r.get("uid", 0) or 0) for r in plp_arr if isinstance(r, dict)),
+            default=0,
+        )
+        added: list[str] = []
+        for src_row in src_arr:
+            if not isinstance(src_row, dict):
+                continue
+            name = str(src_row.get("name", "")).strip()
+            if not name or name.lower() in plp_names:
+                continue
+            max_uid += 1
+            # Copy uid from source if available, but rewrite if it
+            # collides with an existing plp uid (defensive — pollutant
+            # uids are local to the planning, not source-stable).
+            new_row = dict(src_row)
+            new_row["uid"] = max_uid
+            plp_arr.append(new_row)
+            plp_names.add(name.lower())
+            added.append(name)
+        return tuple(added)
+
+    def _merge_emission_zone_array(self, system: dict[str, Any]) -> tuple[str, ...]:
+        """Carry the source's ``emission_zone_array`` rows into ``system``.
+
+        Each EmissionZone entry (pollutant balance + optional cap /
+        price) is added when the plp side doesn't already have a row
+        with the same lower-cased name.  Returns the tuple of zone
+        names that were freshly added.
+        """
+        src_arr = (self.source.get("system", {}) or {}).get(
+            "emission_zone_array", []
+        ) or []
+        if not isinstance(src_arr, list) or not src_arr:
+            return ()
+        plp_arr: list[dict[str, Any]] = system.setdefault("emission_zone_array", [])
+        plp_names = {
+            str(row.get("name", "")).strip().lower()
+            for row in plp_arr
+            if isinstance(row, dict)
+        }
+        max_uid = max(
+            (int(r.get("uid", 0) or 0) for r in plp_arr if isinstance(r, dict)),
+            default=0,
+        )
+        added: list[str] = []
+        for src_row in src_arr:
+            if not isinstance(src_row, dict):
+                continue
+            name = str(src_row.get("name", "")).strip()
+            if not name or name.lower() in plp_names:
+                continue
+            max_uid += 1
+            new_row = json.loads(json.dumps(src_row))  # defensive deep copy
+            new_row["uid"] = max_uid
+            plp_arr.append(new_row)
+            plp_names.add(name.lower())
+            added.append(name)
+        return tuple(added)
 
     # ----- internal --------------------------------------------------------
 
@@ -530,11 +632,25 @@ def apply_plexos_overlay(
     source_path: Path,
     *,
     report_path: Path | None = None,
+    emissions_fallback_path: Path | None = None,
 ) -> OverlayReport:
     """Load + apply the PLEXOS overlay onto ``planning`` in place.
 
     Writes the report JSON to ``report_path`` when given.  Returns the
     in-memory :class:`OverlayReport` so callers can also log / inspect.
+
+    When ``emissions_fallback_path`` is set (typically
+    ``share/gtopt/emissions/cen_chile.json``), the emissions JSON's
+    optional ``generator_overrides`` section is consulted AFTER the
+    PLEXOS overlay merge: for each PLP-side generator whose name
+    appears in the overrides BUT whose post-overlay state still leaves
+    the LP under-specified (fuel set without heat_rate, or a non-
+    commercial energy source that PLEXOS itself recorded with HR=0),
+    the override drops the spurious fuel ref and stamps the canonical
+    ``Generator.type`` tag (``thermal:cogen`` /
+    ``renewable:geothermal``).  See
+    :class:`gtopt_shared.emissions.GeneratorOverride` for the data
+    contract.
     """
     overlay = load_plexos_overlay(source_path)
     report = overlay.apply(planning)
@@ -548,6 +664,54 @@ def apply_plexos_overlay(
         len(report.fuels_reused),
         report.source_path,
     )
+
+    # Emissions-file fallback for per-generator metadata the PLEXOS
+    # overlay couldn't (or shouldn't) supply.  Applied unconditionally
+    # when a path is given — the override is a no-op on every
+    # generator that doesn't appear in the file's
+    # ``generator_overrides`` section.
+    if emissions_fallback_path is not None:
+        from gtopt_shared.emissions import (  # noqa: PLC0415
+            load_emission_defaults,
+        )
+
+        defaults = load_emission_defaults(emissions_fallback_path)
+        if defaults.generator_overrides:
+            system = planning.setdefault("system", {})
+            gens = system.setdefault("generator_array", [])
+            applied: list[str] = []
+            for gen in gens:
+                if not isinstance(gen, dict):
+                    continue
+                name = str(gen.get("name", "")).strip()
+                ov = defaults.override_for_generator(name)
+                if ov is None:
+                    continue
+                current_fuel = gen.get("fuel")
+                current_fuel_name = (
+                    current_fuel.get("name")
+                    if isinstance(current_fuel, dict)
+                    else (str(current_fuel) if current_fuel else None)
+                )
+                if (
+                    ov.expected_fuel_match
+                    and current_fuel_name
+                    and current_fuel_name != ov.expected_fuel_match
+                ):
+                    continue
+                if current_fuel is not None:
+                    gen.pop("fuel", None)
+                if ov.type_tag:
+                    gen["type"] = ov.type_tag
+                applied.append(name)
+            if applied:
+                logger.info(
+                    "Emissions fallback: %d generator overrides applied "
+                    "(source: %s) — %s",
+                    len(applied),
+                    emissions_fallback_path,
+                    ", ".join(applied[:10]) + (" …" if len(applied) > 10 else ""),
+                )
     if report_path is not None:
         report_path.parent.mkdir(parents=True, exist_ok=True)
         with open(report_path, "w", encoding="utf-8") as f:

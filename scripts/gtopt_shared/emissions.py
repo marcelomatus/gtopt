@@ -173,6 +173,36 @@ class EmissionFactor:
 
 
 @dataclass(frozen=True)
+class GeneratorOverride:
+    """Per-Generator override carried alongside the per-Fuel emission table.
+
+    Populated from the optional top-level ``generator_overrides`` section
+    of the emissions JSON file (added in cen_chile.json).  Lets the
+    converters (plexos2gtopt + plp2gtopt's PLEXOS overlay) record that a
+    specific generator's PLEXOS-supplied ``fuel`` + ``HR = 0`` pair is
+    INTENTIONAL — the unit's primary energy is non-commercial (waste
+    heat, geothermal steam, pulp-mill black liquor, …) so the gtopt LP
+    should:
+
+    * drop the spurious ``fuel`` reference (the per-MWh fuel-cost path
+      would otherwise warn "fuel set but no heat_rate"); and
+    * stamp the canonical ``Generator.type`` field with the right
+      cogen / geothermal / waste-heat tag.
+
+    Empty ``expected_fuel_match`` means "no specific PLEXOS fuel name to
+    expect" — used for geothermal / concentrating-solar plants where the
+    PLEXOS bundle leaves the fuel-FK unset.
+    """
+
+    name: str
+    type_tag: str
+    kind: str
+    expected_fuel_match: str | None = None
+    rationale: str = ""
+    source: str = ""
+
+
+@dataclass(frozen=True)
 class EmissionDefaults:
     """Lookup table of per-fuel emission factors keyed by canonical name and aliases."""
 
@@ -180,9 +210,28 @@ class EmissionDefaults:
     description: str
     units: dict[str, str]
     fuels: tuple[EmissionFactor, ...]
+    #: Per-Generator overrides (cogen / geothermal / waste-heat tagging).
+    #: Empty tuple when the emissions file doesn't ship the optional
+    #: ``generator_overrides`` section.
+    generator_overrides: tuple[GeneratorOverride, ...] = ()
     #: Reverse lookup: normalized name / alias → EmissionFactor.  Built
     #: at construction time so :meth:`lookup` is O(1).
     _by_normalized: dict[str, EmissionFactor] = field(default_factory=dict, repr=False)
+    #: Reverse lookup: generator name → GeneratorOverride.  Built at
+    #: construction time so :meth:`override_for_generator` is O(1).
+    _override_by_name: dict[str, GeneratorOverride] = field(
+        default_factory=dict, repr=False
+    )
+
+    def override_for_generator(self, gen_name: str) -> GeneratorOverride | None:
+        """Return the override for ``gen_name`` or ``None``.
+
+        Case-sensitive match on the PLEXOS-canonical generator name
+        (e.g. ``"CMPC_BUCALEMU_2"``, ``"PAS_MEJILLONES"``).  No alias
+        machinery for now — these unit names are stable across the CEN
+        catalogue.
+        """
+        return self._override_by_name.get(gen_name)
 
     def lookup(
         self,
@@ -270,6 +319,12 @@ class EmissionReport:
     emission_array_already_present: bool = False
     emission_zone_created: bool = False
     emission_zone_already_present: bool = False
+    #: Generator names whose per-Generator override fired (cogen /
+    #: geothermal / waste-heat).  The override drops the spurious
+    #: ``fuel`` ref and stamps the canonical ``Generator.type`` tag.
+    #: Sourced from the optional ``generator_overrides`` top-level
+    #: section of the emissions JSON file.
+    generator_overrides_applied: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable dict view of the report."""
@@ -289,6 +344,7 @@ class EmissionReport:
             "fuels_factor_preserved": list(self.fuels_factor_preserved),
             "fuels_zero_emission": list(self.fuels_zero_emission),
             "fuels_unknown": list(self.fuels_unknown),
+            "generator_overrides_applied": list(self.generator_overrides_applied),
         }
 
 
@@ -366,12 +422,40 @@ def load_emission_defaults(path: Path | None = None) -> EmissionDefaults:
                     name,
                 )
             by_norm[norm] = factor
+    # Optional ``generator_overrides`` section — per-Generator metadata
+    # overrides for cogen / geothermal / waste-heat units (see
+    # GeneratorOverride docstring).  Top-level ``_comment`` key is
+    # ignored.  Older v1 emissions files (or any file without the
+    # section) round-trip with an empty overrides tuple.
+    raw_overrides = data.get("generator_overrides") or {}
+    overrides: list[GeneratorOverride] = []
+    overrides_by_name: dict[str, GeneratorOverride] = {}
+    if isinstance(raw_overrides, dict):
+        for key, val in raw_overrides.items():
+            if key.startswith("_") or not isinstance(val, dict):
+                continue
+            ov = GeneratorOverride(
+                name=str(key),
+                type_tag=str(val.get("type") or val.get("type_tag") or "").strip(),
+                kind=str(val.get("kind", "")).strip(),
+                expected_fuel_match=(
+                    None
+                    if val.get("expected_fuel_match") in (None, "", "None")
+                    else str(val.get("expected_fuel_match"))
+                ),
+                rationale=str(val.get("rationale", "")),
+                source=str(val.get("source", "")),
+            )
+            overrides.append(ov)
+            overrides_by_name[ov.name] = ov
     return EmissionDefaults(
         source_path=str(path),
         description=str(data.get("description", "")),
         units=dict(data.get("units", {}) or {}),
         fuels=tuple(parsed),
+        generator_overrides=tuple(overrides),
         _by_normalized=by_norm,
+        _override_by_name=overrides_by_name,
     )
 
 
@@ -681,6 +765,51 @@ def apply_emission_defaults(
         )
         emission_zone_created = True
 
+    # ── Generator overrides (cogen / geothermal / waste-heat) ─────────
+    #
+    # For each generator that matches an entry in
+    # ``defaults.generator_overrides``, drop the spurious ``fuel``
+    # reference (the unit's primary energy is non-commercial, so the
+    # per-MWh fuel-cost path would otherwise warn "fuel set but no
+    # heat_rate") and stamp the canonical ``Generator.type`` tag.
+    #
+    # The drop is conditional: when ``expected_fuel_match`` is set, the
+    # generator's current fuel name must match (case-sensitive) — this
+    # guards against accidentally stripping a real fuel ref if a
+    # generator is renamed or a different fuel is wired in.  When
+    # ``expected_fuel_match`` is None (geothermal / CSP), the fuel ref
+    # is dropped unconditionally.
+    overrides_applied: list[str] = []
+    if defaults.generator_overrides:
+        gens: list[dict[str, Any]] = system.setdefault("generator_array", [])
+        for gen in gens:
+            if not isinstance(gen, dict):
+                continue
+            name = str(gen.get("name", "")).strip()
+            if not name:
+                continue
+            ov = defaults.override_for_generator(name)
+            if ov is None:
+                continue
+            current_fuel = gen.get("fuel")
+            current_fuel_name = (
+                current_fuel.get("name")
+                if isinstance(current_fuel, dict)
+                else (str(current_fuel) if current_fuel else None)
+            )
+            if (
+                ov.expected_fuel_match
+                and current_fuel_name
+                and current_fuel_name != ov.expected_fuel_match
+            ):
+                # Mismatched fuel ref — skip; user has rewired this gen.
+                continue
+            if current_fuel is not None:
+                gen.pop("fuel", None)
+            if ov.type_tag:
+                gen["type"] = ov.type_tag
+            overrides_applied.append(name)
+
     report = EmissionReport(
         source_path=defaults.source_path,
         fuels_factor_added=tuple(added),
@@ -691,6 +820,7 @@ def apply_emission_defaults(
         emission_array_already_present=has_co2_pollutant,
         emission_zone_created=emission_zone_created,
         emission_zone_already_present=has_co2_zone,
+        generator_overrides_applied=tuple(overrides_applied),
     )
     logger.info(
         "Emission defaults: %d added, %d preserved, %d unknown "

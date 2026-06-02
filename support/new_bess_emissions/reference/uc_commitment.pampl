@@ -1,0 +1,25 @@
+# ========================================================================
+# commitment user constraints (3) — emitted by plexos2gtopt
+#   hard:     3   soft:     0
+# Origin: PLEXOS Constraint objects (DBSEN_PRGDIARIO.xml)
+# Soft rows declare a named slack column via the AMPL-style
+# ``var slack_<ident>;`` syntax — the PAMPL parser binds each
+# declaration to the matching ``constraint <ident>`` by naming
+# convention (gtopt-side: ``UserConstraint::slack_name``), so
+# CPLEX logs and LP dumps reference the per-UC slack label
+# instead of the generic ``slack``.  The output parquet schema
+# is unchanged — per-row violations live in
+# ``UserConstraint/slack_sol.parquet`` keyed by uid.
+# ========================================================================
+
+# PLEXOS Constraint 'Campiche_starting': commitment startup [0/1] ≤ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint Campiche_starting rhs [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]:
+  1 * commitment("uc_CAMPICHE").startup <= 0;
+
+# PLEXOS Constraint 'NorthSecurity': Σ commitment status [0/1] ≥ 1 (File: DBSEN_PRGDIARIO.xml)
+constraint NorthSecurity:
+  0.45 * commitment("uc_CAMPICHE").status + 1 * commitment("uc_GUACOLDA_1").status + 1 * commitment("uc_GUACOLDA_2").status + 1 * commitment("uc_GUACOLDA_3").status + 1 * commitment("uc_GUACOLDA_4").status + 1 * commitment("uc_GUACOLDA_5").status + 0.55 * commitment("uc_NEHUENCO_1_TG_DIE").status + 0.55 * commitment("uc_NEHUENCO_1_TG_GNL").status + 0.55 * commitment("uc_NEHUENCO_1_TV").status + 0.55 * commitment("uc_NEHUENCO_1-TG+TV_DIE").status + 0.55 * commitment("uc_NEHUENCO_2_TG_DIE").status + 0.55 * commitment("uc_NEHUENCO_2_TG_GNL").status + 0.55 * commitment("uc_NEHUENCO_2_TV").status + 0.55 * commitment("uc_NEHUENCO_2-TG+TV_DIE").status + 0.55 * commitment("uc_NUEVA_RENCA_CC_GNL").status + 0.45 * commitment("uc_NUEVA_VENTANAS").status + 0.55 * commitment("uc_SANISIDRO_2_CC_DIE").status + 0.55 * commitment("uc_SANISIDRO_2_CC_GNL").status + 0.55 * commitment("uc_SANISIDRO_CC_DIE").status + 0.55 * commitment("uc_SANISIDRO_CC_GNL").status >= 1;
+
+# PLEXOS Constraint 'NVentanas_starting': commitment startup [0/1] ≤ 0 (File: DBSEN_PRGDIARIO.xml)
+constraint NVentanas_starting rhs [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]:
+  1 * commitment("uc_NUEVA_VENTANAS").startup <= 0;

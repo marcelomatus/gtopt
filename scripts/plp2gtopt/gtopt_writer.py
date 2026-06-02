@@ -1364,10 +1364,19 @@ class GTOptWriter(
                 out_dir = options.get("output_dir") if options else None
                 if out_dir is not None:
                     report_path = Path(out_dir) / "plexos_overlay_report.json"
+            # When --emissions-file is also set, pass it as the fallback
+            # source for per-generator metadata the PLEXOS overlay
+            # couldn't supply (cogen / geothermal / waste-heat units).
+            # See _plexos_overlay.apply_plexos_overlay's
+            # `emissions_fallback_path` param + GeneratorOverride.
+            emissions_fallback = options.get("emissions_file") if options else None
             apply_plexos_overlay(
                 self.planning,
                 Path(plexos_overlay_src),
                 report_path=Path(report_path) if report_path is not None else None,
+                emissions_fallback_path=(
+                    Path(emissions_fallback) if emissions_fallback else None
+                ),
             )
 
         # IPCC emission-factor fill-in.  Runs AFTER the PLEXOS overlay so

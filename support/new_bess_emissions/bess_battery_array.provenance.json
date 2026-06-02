@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "source": "/home/marce/Consolidado_de_proyectos_BESS_Stand_Alone_.xlsx",
+    "plp_case": "/home/marce/git/gtopt/support/plp/2_years (245 buses)",
+    "plexos_case": "/home/marce/.cache/gtopt/cen2gtopt/pcp_archive/PCP/PLEXOS20260517.zip (251 buses)",
+    "cen_infotecnica": "api-infotecnica.coordinador.cl/v1/barras (3708 buses, 1220 lines, 1253 subestaciones)",
+    "count": 13,
+    "total_power_mw": 712.5,
+    "total_capacity_mwh": 3880.0,
+    "bus_resolutions": {
+      "direct": [
+        "Tatara",
+        "Limar",
+        "SP_Saria"
+      ],
+      "bfs": [
+        "Penablanca",
+        "SP_El_Destello"
+      ],
+      "regional": [
+        "Mariscal",
+        "Rocio",
+        "SP_Umbrella",
+        "SP_Paradis",
+        "SP_La_Odisea",
+        "Quelentaro",
+        "SP_Santa_Ema",
+        "SP_Las_Gunneras"
+      ]
+    },
+    "note": "PLP 2-year and PLEXOS-2026-05-17 cases both model the same SEN backbone (245 / 251 transmission buses) and neither contains the ~10 new distribution substations in the spreadsheet. Resolution used three tiers: (a) DIRECT match for the 3 subs already in the PLP/PLEXOS case (Maitencillo, Don Goyo, El Cobre); (b) BFS through the Infotecnica /v1/lineas graph for two cases where the connection chain resolves cleanly to a PLP bus (Peñablanca→Miraflores110, San Carlos→Parral154); (c) regional proxy for the remaining 8 (Mariscal, Nueva Panquehue, Graneros, Negrete, Campo Lindo, Chimbarongo, Loica). Each entry’s description carries the Infotecnica substation name + the resolution rationale."
+  }
+}

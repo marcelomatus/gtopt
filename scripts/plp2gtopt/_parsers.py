@@ -227,6 +227,46 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
 
     add_emissions_arguments(parser)
 
+    # PLEXOS overlay — adopt heat-rate / Fuel / per-generator metadata
+    # from a converter-side PLEXOS planning JSON (typically the output
+    # of ``plexos2gtopt`` on a recent CEN PCP bundle).  The overlay
+    # rewires matching PLP-side generators with the richer PLEXOS data
+    # so the LP can apply per-fuel cost + emission accounting.  When
+    # the overlay JSON doesn't carry the data for a specific generator
+    # (cogen / geothermal / waste-heat units PLEXOS leaves at
+    # ``HR = 0``), the converter falls back to the ``--emissions-file``
+    # (see :class:`gtopt_shared.emissions.GeneratorOverride`) to apply
+    # the canonical ``Generator.type`` tag and drop the spurious fuel
+    # ref.  Pass ``latest`` to auto-pick the most recent registered
+    # plexos2gtopt run (see ``plp2gtopt._plexos_overlay``).
+    parser.add_argument(
+        "--plexos-overlay",
+        dest="plexos_overlay",
+        metavar="PATH",
+        default=None,
+        help=(
+            "PLEXOS planning JSON (or a directory containing one) to "
+            "overlay on top of the PLP-derived planning.  Adopts "
+            "heat_rate / Fuel attachments / per-Fuel emission_factors "
+            "for generators matched by name.  Pass the literal "
+            "'latest' to auto-pick the most recent plexos2gtopt run "
+            "(see _plexos_overlay._PLEXOS_RUN_REGISTRY)."
+        ),
+    )
+    parser.add_argument(
+        "--plexos-overlay-report",
+        dest="plexos_overlay_report",
+        metavar="FILE",
+        type=Path,
+        default=None,
+        help=(
+            "Write a JSON audit of the PLEXOS overlay (matched / "
+            "unmatched generators, fuels added / reused) to FILE.  "
+            "Defaults to <output-dir>/plexos_overlay_report.json when "
+            "--plexos-overlay is set."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # 2. Stage / time selection arguments
