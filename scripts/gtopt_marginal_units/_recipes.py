@@ -44,9 +44,23 @@ class RecipeRow:
     formula_constant: float = 0.0
     formula_explanation: str = ""
     recomputed_value: float = 0.0  # λ_b for price recipe; ε_b for emission
+    # Emission recipe only: the "consequential MOER" — the emission rate
+    # of the gen that would absorb +1 MWh of demand if the marginal were
+    # forced to its bound (i.e. the next-up dispatchable thermal in the
+    # merit order).  For hydro / renewable marginals (``recomputed_value
+    # ≈ 0``), this carries the **carbon opportunity cost of water /
+    # storage** — what extra demand actually costs in CO2eq, vs the
+    # zero "direct attribution" of the marginal hydro itself.  Always
+    # 0 on price recipe rows.
+    consequential_co2eq: float = 0.0
+    # The gen uid that drives ``consequential_co2eq`` (the next-up
+    # thermal).  ``None`` when the marginal already has non-zero
+    # emission (direct == consequential), or when no headroom-bearing
+    # thermal is reachable in the cell (demand-fail / island).
+    consequential_gen_uid: Optional[int] = None
 
     def to_dict(self, value_col: str) -> dict[str, object]:
-        return {
+        base = {
             **_unpack_cell_key(self.cell_key),
             "bus_uid": self.bus_uid,
             "zone_id": self.zone_id,
@@ -64,6 +78,15 @@ class RecipeRow:
                 else "recomputed_emission_intensity"
             ): float(self.recomputed_value),
         }
+        if value_col != "lmp":
+            # Emission recipe carries the consequential MOER + its source.
+            base["consequential_co2eq_kg_per_mwh"] = float(self.consequential_co2eq)
+            base["consequential_gen_uid"] = (
+                int(self.consequential_gen_uid)
+                if self.consequential_gen_uid is not None
+                else -1
+            )
+        return base
 
 
 def _unpack_cell_key(cell_key: tuple) -> dict[str, object]:
@@ -77,6 +100,59 @@ def _unpack_cell_key(cell_key: tuple) -> dict[str, object]:
         "hour": hour,
         "data_source": data_source,
     }
+
+
+def _compute_consequential_moer(
+    gens_in_zone: list,
+    dispatch_by_uid: dict[int, float],
+    marginal_uids: set[int],
+    tol: Tolerances,
+) -> tuple[float, Optional[int]]:
+    """Find the per-zone "consequential MOER" — the emission rate of the
+    next-up dispatchable thermal that would absorb +1 MWh of demand if
+    the current marginal were forced to its bound.
+
+    Used by the emission recipe to assign a physically-meaningful
+    "marginal CO2eq" to bus-cells whose direct marginal is hydro /
+    renewable / battery (emission_rate ≈ 0).  By LP duality and the
+    multi-criteria SDDP framing (carbon opportunity cost of water /
+    storage), the true marginal emission of demand-shift in those
+    cells is the emission rate of the **next-up thermal** that would
+    backfill, NOT zero.
+
+    Algorithm — sort eligible gens in the zone by ascending
+    ``declared_MC`` (tie-break by uid), skip the actual marginal(s),
+    return the first gen that:
+      * has ``emission_rate > 0`` (excludes hydro / wind / solar /
+        batteries that themselves carry no direct emissions)
+      * has ``dispatch < pmax - eps`` (positive headroom up — could
+        actually absorb more demand)
+
+    Returns ``(0.0, None)`` when no such gen exists (e.g. the cell is
+    a thermal-only zone with everything already at pmax; demand-fail
+    sets λ_z in that branch and the marginal CO2 is properly 0
+    because the absorbing column is the slack, not a generator).
+    """
+    eligible = sorted(
+        (
+            g
+            for g in gens_in_zone
+            if (
+                g.declared_MC is not None
+                and g.emission_rate is not None
+                and float(g.emission_rate) > 0.0
+                and g.uid not in marginal_uids
+            )
+        ),
+        key=lambda g: (float(g.declared_MC), g.uid),
+    )
+    eps = max(tol.eps, 1e-6)
+    for g in eligible:
+        disp = float(dispatch_by_uid.get(g.uid, 0.0))
+        headroom_up = float(g.pmax) - disp
+        if headroom_up > eps:
+            return float(g.emission_rate), int(g.uid)
+    return 0.0, None
 
 
 def build_recipes_for_cell(
@@ -100,6 +176,29 @@ def build_recipes_for_cell(
     """
     # Index generators by uid for quick lookup.
     gen_by_uid = {g.uid: g for g in topology.generators}
+
+    # Precompute "next-up thermal" per zone (consequential MOER) so we
+    # can stamp it on every bus-cell row of the emission recipe.  The
+    # ladder walk inspects every gen in the zone once per cell, not
+    # once per (bus, cell), so this is O(zones × gens) not
+    # O(buses × gens).
+    dispatch_by_uid = dispatch_by_uid or {}
+    consequential_by_zone: dict[int, tuple[float, Optional[int]]] = {}
+    if zone_results:
+        gens_by_zone: dict[int, list] = {}
+        for g in topology.generators:
+            z = zone_of.get(g.bus_uid)
+            if z is None:
+                continue
+            gens_by_zone.setdefault(z, []).append(g)
+        for zid, zres in zone_results.items():
+            marginal_set = set(int(u) for u in zres.marginal_gen_uids)
+            consequential_by_zone[zid] = _compute_consequential_moer(
+                gens_by_zone.get(zid, []),
+                dispatch_by_uid,
+                marginal_set,
+                tol,
+            )
 
     price_rows: list[RecipeRow] = []
     emission_rows: list[RecipeRow] = []
@@ -210,6 +309,19 @@ def build_recipes_for_cell(
                 else 0.0,  # NaN→0 for parquet
             )
         )
+        # Consequential MOER for this zone (the next-up thermal that
+        # would absorb +1 MWh of demand if the current marginal moved
+        # to its bound).  When the direct marginal already has non-zero
+        # emission, the consequential rate IS the direct rate — no
+        # displacement-chain needed.  Otherwise stamp the next-up
+        # thermal's rate so consumers see the "carbon opportunity cost
+        # of water / storage" rather than a misleading zero.
+        cons_rate, cons_uid = consequential_by_zone.get(zid, (0.0, None))
+        direct_em = r_em if not _isnan(r_em) else 0.0
+        if direct_em > tol.eps:
+            # Direct marginal already emits — consequential = direct.
+            cons_rate = direct_em
+            cons_uid = marginal_uids[0] if marginal_uids else None
         emission_rows.append(
             RecipeRow(
                 cell_key=cell_key,
@@ -221,7 +333,9 @@ def build_recipes_for_cell(
                 marginal_data=ems,
                 formula_constant=constant_em,
                 formula_explanation=explanation_em,
-                recomputed_value=r_em if not _isnan(r_em) else 0.0,
+                recomputed_value=direct_em,
+                consequential_co2eq=cons_rate,
+                consequential_gen_uid=cons_uid,
             )
         )
 
