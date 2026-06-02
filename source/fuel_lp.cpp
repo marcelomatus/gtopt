@@ -82,18 +82,26 @@ collect_gen_coefficients(const SystemContext& sc,
   BIndexHolder<std::vector<std::pair<ColIndex, double>>> per_block;
   const auto stage_uid = stage.uid();
 
+  const auto this_fuel_uid = this_fuel.uid();
   for (const auto& gen : sc.elements<GeneratorLP>()) {
-    const auto& fuel_ref = gen.generator().fuel;
-    if (!fuel_ref.has_value()) {
-      continue;
-    }
-    const auto& gfuel = sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
-    if (gfuel.uid() != this_fuel.uid()) {
-      continue;
-    }
     if (!gen.is_active(stage)) {
       continue;
     }
+
+    // ── Static-fuel match (legacy path) ────────────────────────────
+    // ``static_matches`` is true when ``Generator.fuel`` resolves to
+    // ``this_fuel``.  Falls back to ``has_fuel_per_block`` for the
+    // Issue #510 per-block-override case where the static fuel may
+    // be unset or point to a DIFFERENT default.
+    const auto& fuel_ref = gen.generator().fuel;
+    const bool static_matches = fuel_ref.has_value()
+        && sc.element<FuelLP>(FuelLPSId {fuel_ref.value()}).uid()
+            == this_fuel_uid;
+    const bool has_pb = gen.has_fuel_per_block();
+    if (!static_matches && !has_pb) {
+      continue;
+    }
+
     // Tolerant accessor — see `lookup_generation_cols` in
     // GeneratorLP for why this is preferred over `generation_cols_at`.
     const auto& gcols = gen.lookup_generation_cols(scenario, stage);
@@ -107,6 +115,24 @@ collect_gen_coefficients(const SystemContext& sc,
       if (it == gcols.end()) {
         continue;
       }
+
+      // ── Per-block fuel-uid bucket (Issue #510 Phase 1) ──────────
+      // When the generator has a per-block fuel schedule, gate the
+      // contribution: this (gen, block) only counts toward ``this_fuel``
+      // when the resolved uid for that cell matches.  Cells whose
+      // resolved uid is the sentinel 0 fall back to ``static_matches``
+      // — the static-fuel branch above.
+      if (has_pb) {
+        const auto opt_uid = gen.param_fuel_per_block(stage_uid, buid);
+        const auto resolved = opt_uid.value_or(Uid {0});
+        const bool block_matches = (resolved != Uid {0})
+            ? (resolved == this_fuel_uid)
+            : static_matches;
+        if (!block_matches) {
+          continue;
+        }
+      }
+
       // coefficient = heat_rate × block_duration so the LHS
       // (sum of coef × gen_col) evaluates to fuel-units when gen is
       // in MW.  Matches the unit basis of `max_offtake`.
