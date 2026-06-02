@@ -15,6 +15,11 @@
  * - Output planning results for generation variables
  */
 
+#include <algorithm>
+#include <set>
+#include <utility>
+#include <vector>
+
 #include <gtopt/fuel_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -123,35 +128,105 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // (treated as a non-combustion variable adder).  When `fuel` is
   // unset, the fuel-derived cost is zero and the column carries
   // `gcost` alone (legacy behaviour).
-  const FuelLP* fuel_lp = nullptr;
+  //
+  // Per-(stage, block) override: when ``Generator.fuel_per_block`` is
+  // set (Issue #510 Phase 1), the per-block resolved Fuel supersedes
+  // the static ``Generator.fuel`` for that cell — its stage price
+  // drives the cost coefficient.  Cells whose resolved uid is the
+  // sentinel ``0`` (or absent from ``fuel_array``) fall back to the
+  // static fuel.  When ``fuel_per_block`` is unset, the per-block
+  // cache stays empty and the cost path is byte-for-byte legacy.
+  const FuelLP* static_fuel_lp = nullptr;
   if (const auto& fuel_ref = generator().fuel; fuel_ref.has_value()) {
-    fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
+    static_fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
   }
-  const double stage_fuel_price = (fuel_lp != nullptr)
-      ? fuel_lp->param_price(stage.uid()).value_or(0.0)
+  const double static_fuel_price = (static_fuel_lp != nullptr)
+      ? static_fuel_lp->param_price(stage.uid()).value_or(0.0)
       : 0.0;
+  const Uid static_fuel_uid =
+      (static_fuel_lp != nullptr) ? static_fuel_lp->uid() : Uid {0};
+
+  // Per-block fuel override cache.  Empty when ``fuel_per_block`` is
+  // unset; otherwise holds (uid, FuelLP*, stage_price) for every
+  // distinct uid that appears in the schedule at this stage.  Sized
+  // for small N (typically 2-3 fuels per generator).
+  struct PerBlockFuelEntry
+  {
+    Uid uid;
+    const FuelLP* fuel_lp;
+    double stage_price;
+  };
+  std::vector<PerBlockFuelEntry> per_block_fuels;
+  if (has_fuel_per_block()) {
+    std::set<Uid> seen_uids;
+    for (auto&& blk : stage.blocks()) {
+      const auto opt = param_fuel_per_block(stage.uid(), blk.uid());
+      if (!opt.has_value() || opt.value() == Uid {0}) {
+        continue;
+      }
+      if (!seen_uids.insert(opt.value()).second) {
+        continue;
+      }
+      const auto* flp = &sc.element<FuelLP>(FuelLPSId {SingleId {opt.value()}});
+      const double price = flp->param_price(stage.uid()).value_or(0.0);
+      per_block_fuels.push_back({
+          .uid = opt.value(),
+          .fuel_lp = flp,
+          .stage_price = price,
+      });
+    }
+  }
+
+  // Resolves the effective (FuelLP*, stage price) at a given block.
+  // Falls back to the static pair when no per-block override is set
+  // OR the override cell is the sentinel uid 0.  Hot-path: when
+  // ``per_block_fuels`` is empty the lambda short-circuits, so the
+  // legacy single-fuel cost is one well-predicted branch.
+  const auto resolve_block_fuel =
+      [&](BlockUid buid) -> std::pair<const FuelLP*, double>
+  {
+    if (per_block_fuels.empty()) {
+      return {static_fuel_lp, static_fuel_price};
+    }
+    const auto opt = param_fuel_per_block(stage.uid(), buid);
+    if (!opt.has_value() || opt.value() == Uid {0}) {
+      return {static_fuel_lp, static_fuel_price};
+    }
+    const auto it = std::ranges::find_if(per_block_fuels,
+                                         [u = opt.value()](const auto& f)
+                                         { return f.uid == u; });
+    if (it == per_block_fuels.end()) {
+      return {static_fuel_lp, static_fuel_price};
+    }
+    return {it->fuel_lp, it->stage_price};
+  };
+
   const auto& hr_segs = generator().heat_rate_segments;
   const auto& pmax_segs_arr = generator().pmax_segments;
   const bool has_pw = has_heat_rate_segments();
 
   // Per-MWh cost of segment k (cheapest first, k = 0), evaluated at a
-  // given (stage, block) gcost / heat_rate.  All three coefficients
-  // (`gcost`, `heat_rate`, `lossfactor`) are now per-(stage, block);
-  // fuel price remains per-stage.
-  const auto slope_cost_per_mwh = [&](double hr_slope, double block_gcost)
-  { return (stage_fuel_price * hr_slope) + block_gcost; };
+  // given (stage, block) gcost / heat_rate / fuel price.  All three
+  // coefficients (`gcost`, `heat_rate`, `lossfactor`) are
+  // per-(stage, block); fuel price varies per block when
+  // ``fuel_per_block`` is set, else per-stage.
+  const auto slope_cost_per_mwh =
+      [](double price, double hr_slope, double block_gcost)
+  { return (price * hr_slope) + block_gcost; };
 
   // Effective slope for the primary `generation` column at a given
   // block.  When piecewise: slope of the cheapest segment; otherwise
   // scalar heat rate (or 0 when no fuel/heat_rate is configured).
-  const auto primary_slope_cost_at =
-      [&](double block_gcost, double block_heat_rate)
+  const auto primary_slope_cost_at = [&](const FuelLP* block_fuel_lp,
+                                         double block_fuel_price,
+                                         double block_gcost,
+                                         double block_heat_rate)
   {
     if (has_pw) {
-      return slope_cost_per_mwh(hr_segs.front(), block_gcost);
+      return slope_cost_per_mwh(block_fuel_price, hr_segs.front(), block_gcost);
     }
-    if (fuel_lp != nullptr) {
-      return slope_cost_per_mwh(block_heat_rate, block_gcost);
+    if (block_fuel_lp != nullptr) {
+      return slope_cost_per_mwh(block_fuel_price, block_heat_rate, block_gcost);
     }
     return block_gcost;
   };
@@ -223,8 +298,25 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
           uid());
     }
 
-    const auto block_primary_slope_cost =
-        primary_slope_cost_at(block_gcost, block_heat_rate);
+    const auto [block_fuel_lp, block_fuel_price] = resolve_block_fuel(buid);
+    const auto block_primary_slope_cost = primary_slope_cost_at(
+        block_fuel_lp, block_fuel_price, block_gcost, block_heat_rate);
+
+    // ── Per-block resolved fuel uid (for `Generator/fuel_sol.parquet`) ──
+    // Only stashed when ``fuel_per_block`` is set — without it, the
+    // static ``Generator.fuel`` already carries the constant uid in
+    // the JSON (no per-block parquet needed).  Records the sentinel
+    // 0 ONLY when the per-block cell is unspecified AND the static
+    // fuel is unset — that combination should be rare since it means
+    // the gen has fuel_per_block declared but neither a static
+    // fallback nor a per-block override at this cell.
+    if (has_fuel_per_block()) {
+      const auto opt_uid = param_fuel_per_block(stage.uid(), buid);
+      const Uid resolved_uid = opt_uid.value_or(Uid {0});
+      const Uid effective_uid =
+          (resolved_uid != Uid {0}) ? resolved_uid : static_fuel_uid;
+      fuel_uid_values_[st_key][buid] = static_cast<double>(effective_uid);
+    }
 
     // Soft-`pmin`: when `pmin_fcost` is set (> 0) and there is a real
     // floor (`block_pmin > 0`), relax the hard lower bound to 0 and
@@ -341,7 +433,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
       }
       for (std::size_t k = 1; k < K; ++k) {
         const double marginal_slope = hr_segs[k] - hr_segs[k - 1];
-        const double slack_cost_per_mwh = stage_fuel_price * marginal_slope;
+        // Piecewise slack uses the per-block resolved fuel price so
+        // per-block fuel switching threads through every segment of
+        // the heat-rate curve (not just the cheapest / primary segment).
+        const double slack_cost_per_mwh = block_fuel_price * marginal_slope;
         // Disambiguate the per-segment slack/kink (same class+var+uid)
         // by stamping the segment index into the BlockExContext —
         // mirrors how commitment_lp.cpp segments its piecewise rows.
@@ -477,6 +572,18 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   out.add_col_sol_values(cname, "srmc", pid, srmc_values_);
   out.add_col_sol_values_extras(cname, "vom_cost", pid, vom_cost_values_);
   out.add_col_sol_values_extras(cname, "fuel_cost", pid, fuel_cost_values_);
+
+  // ── Per-block resolved fuel uid (Issue #510 Phase 1) ──────────────
+  // Emitted as `Generator/fuel_sol.parquet` ONLY when
+  // `has_fuel_per_block()` is true (i.e. ``fuel_uid_values_`` was
+  // populated during ``add_to_lp``).  Skipping the call when the
+  // stash is empty satisfies acceptance criterion #4 — for the legacy
+  // single-fuel case the static ``Generator.fuel`` uid is already in
+  // the input JSON, so a constant per-block parquet would be pure
+  // redundancy.
+  if (!fuel_uid_values_.empty()) {
+    out.add_col_sol_values(cname, "fuel", pid, fuel_uid_values_);
+  }
 
   return CapacityBase::add_to_output(out);
 }

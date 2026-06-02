@@ -265,6 +265,15 @@ private:
   STBIndexHolder<double> vom_cost_values_;
   STBIndexHolder<double> fuel_cost_values_;
   STBIndexHolder<double> srmc_values_;
+  /// Per-block resolved fuel uid (Issue #510 Phase 1) for emission of
+  /// `Generator/fuel_sol.parquet`.  Stored as `double` so it can ride
+  /// the existing per-block value-output infrastructure; the value is
+  /// always an integer Uid in [0, INT32_MAX] so the conversion is exact.
+  /// Populated by `add_to_lp` ONLY when `has_fuel_per_block()` — leaving
+  /// it empty for the legacy single-fuel case (the static `Generator.fuel`
+  /// uid is already in the input JSON, so a constant per-block parquet
+  /// would be pure redundancy — see Issue #510 acceptance criterion #4).
+  STBIndexHolder<double> fuel_uid_values_;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;
