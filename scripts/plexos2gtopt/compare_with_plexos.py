@@ -676,9 +676,15 @@ def _compute_line_losses_analytic_mwh(
     """
     import pyarrow.parquet as pq
 
+    # Unified signed flow under ``Line/flow_sol.parquet`` (preferred);
+    # fall back to the legacy directional pair ``flowp_sol`` /
+    # ``flown_sol`` for older gtopt outputs.  The loss formula uses
+    # ``|flow|²``, so signed and directional inputs collapse to the
+    # same result once we take the magnitude.
+    f_path = case_dir / "output" / "Line" / "flow_sol.parquet"
     fp_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
     fn_path = case_dir / "output" / "Line" / "flown_sol.parquet"
-    if not fp_path.exists() or not fn_path.exists():
+    if not f_path.exists() and (not fp_path.exists() or not fn_path.exists()):
         return 0.0
     # Per-line R/V² constants from the bundle.  Voltage defaults to 1.0
     # (gtopt convention: ``resistance`` is already p.u. normalised when
@@ -698,12 +704,16 @@ def _compute_line_losses_analytic_mwh(
         v_by_uid[uid] = float(v) if v else 1.0
     if not r_by_uid:
         return 0.0
-    fp = pq.read_table(fp_path, columns=["uid", "block", "value"]).to_pandas()
-    fn = pq.read_table(fn_path, columns=["uid", "block", "value"]).to_pandas()
-    flow = fp.merge(fn, on=["uid", "block"], how="outer", suffixes=("_p", "_n")).fillna(
-        0.0
-    )
-    flow["fabs"] = flow["value_p"] + flow["value_n"]
+    if f_path.exists():
+        flow = pq.read_table(f_path, columns=["uid", "block", "value"]).to_pandas()
+        flow["fabs"] = flow["value"].abs()
+    else:
+        fp = pq.read_table(fp_path, columns=["uid", "block", "value"]).to_pandas()
+        fn = pq.read_table(fn_path, columns=["uid", "block", "value"]).to_pandas()
+        flow = fp.merge(
+            fn, on=["uid", "block"], how="outer", suffixes=("_p", "_n")
+        ).fillna(0.0)
+        flow["fabs"] = flow["value_p"] + flow["value_n"]
     flow["uid"] = flow["uid"].astype(int)
     flow["dur"] = flow["block"].astype(int).map(durations).fillna(0.0)
     flow["R"] = flow["uid"].map(r_by_uid)
@@ -1766,7 +1776,12 @@ def compute_gtopt_per_line(
         except (TypeError, ValueError):
             enforce_by_name[ll["name"]] = 2.0
 
-    flow_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
+    # Unified signed flow under ``Line/flow_sol.parquet`` (preferred);
+    # fall back to the legacy ``flowp_sol`` for older gtopt outputs.
+    # ``|value|`` collapses both inputs to the same magnitude.
+    flow_path = case_dir / "output" / "Line" / "flow_sol.parquet"
+    if not flow_path.exists():
+        flow_path = case_dir / "output" / "Line" / "flowp_sol.parquet"
     energy_mwh: dict[str, float] = {}
     peak_mw: dict[str, float] = {}
     if flow_path.exists():

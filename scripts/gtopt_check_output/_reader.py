@@ -537,10 +537,19 @@ def streaming_sol_weighted_sum(
     dataset: pads.Dataset | None,
     block_durations: dict[int, float],
     coef_per_uid: dict[int, float] | None = None,
+    *,
+    abs_value: bool = False,
 ) -> float:
     """Σ over (s,t,b,uid) of  value(s,t,b,uid) × duration(b) ×
     coef(uid).  If ``coef_per_uid`` is None, the per-uid coefficient
     is taken to be 1 (i.e. result = Σ value × duration(b)).
+
+    When ``abs_value=True``, the per-row ``value`` is replaced by
+    ``|value|`` before the weighted sum — required when the input is a
+    SIGNED quantity (e.g. ``Line/flow_sol``) and the caller wants the
+    magnitude-weighted total (e.g. transmission ``tcost × |flow| ×
+    duration``).  Default ``False`` preserves the legacy
+    sign-preserving behaviour used by every other caller.
 
     Streaming: never materialises the full table.  Used by the cost
     breakdown so we get the right physical answer without paying the
@@ -572,7 +581,10 @@ def streaming_sol_weighted_sum(
                     ],
                     type=pa.float64(),
                 )
-            prod = pc.multiply(batch["value"].cast("float64"), dur_arr)
+            value_arr = batch["value"].cast("float64")
+            if abs_value:
+                value_arr = pc.abs(value_arr)
+            prod = pc.multiply(value_arr, dur_arr)
             weighted = pc.multiply(prod, coef_arr)
             s = pc.sum(weighted).as_py()
             if s is not None:
@@ -595,7 +607,10 @@ def streaming_sol_weighted_sum(
             coef = 1.0 if coef_per_uid is None else coef_per_uid.get(uid, 0.0)
             if coef == 0.0:
                 continue
-            weighted = pc.multiply(batch[col].cast("float64"), dur_arr)
+            value_arr = batch[col].cast("float64")
+            if abs_value:
+                value_arr = pc.abs(value_arr)
+            weighted = pc.multiply(value_arr, dur_arr)
             s = pc.sum(weighted).as_py()
             if s is not None:
                 total += float(s) * coef

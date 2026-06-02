@@ -28,7 +28,7 @@ _GEN_COST_PATH = "Generator/generation_cost"
 _LOAD_PATH = "Demand/load_sol"
 _FAIL_PATH = "Demand/fail_sol"
 _BAL_DUAL = "Bus/balance_dual"
-_FLOW_PATH = "Line/flowp_sol"
+_FLOW_PATH = "Line/flow_sol"
 _SOC_PATH = "Battery/vfin_sol"
 _SOLUTION = "solution"
 
@@ -237,8 +237,10 @@ def summarize_output_dict(
         # Number of buses = column count minus indexing columns
         summary["n_buses"] = len([c for c in df.columns if c not in skip_cols])
 
-    # Line count (from flowp_sol) if available
-    flow = _find_path(outputs, _FLOW_PATH)
+    # Line count (from flow_sol) if available.  Falls back to the legacy
+    # ``flowp_sol`` stem when the case was produced by a pre-unified-flow
+    # gtopt build.
+    flow = _find_path(outputs, _FLOW_PATH) or _find_path(outputs, "Line/flowp_sol")
     if flow is not None:
         df = _rows_to_df(flow)
         summary["n_lines"] = len([c for c in df.columns if c not in skip_cols])

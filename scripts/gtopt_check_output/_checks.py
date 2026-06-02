@@ -78,7 +78,7 @@ def check_expected_files(results_dir: Path) -> list[Finding]:
     expected = [
         ("Demand/fail_sol", "load shedding"),
         ("Demand/load_sol", "demand served"),
-        ("Line/flowp_sol", "line flows (A→B)"),
+        ("Line/flow_sol", "line flows (signed)"),
     ]
 
     # Cheap existence probe — DO NOT call `read_table` here.  On wide
@@ -306,13 +306,26 @@ def compute_congestion_ranking(
 ) -> list[Finding]:
     """Rank transmission lines by congestion (utilization of capacity).
     Streaming: per-uid max(|flow|) accumulated across record batches —
-    never materialises the wide Line/flowp_sol or flown_sol tables."""
-    findings: list[Finding] = []
-    flowp_ds = open_dataset(results_dir, "Line/flowp_sol")
-    flown_ds = open_dataset(results_dir, "Line/flown_sol")
+    never materialises the wide Line/flow_sol table.
 
-    if flowp_ds is None:
-        return findings
+    Prefers the unified ``Line/flow_sol`` signed primal; falls back to
+    the legacy directional pair ``Line/flowp_sol`` + ``Line/flown_sol``
+    when reading a pre-unified-flow gtopt output.
+    """
+    findings: list[Finding] = []
+    flow_ds = open_dataset(results_dir, "Line/flow_sol")
+    if flow_ds is not None:
+        fp_max = _streaming_uid_abs_max_per_col(flow_ds)
+        fn_max: dict[int, float] = {}
+    else:
+        flowp_ds = open_dataset(results_dir, "Line/flowp_sol")
+        if flowp_ds is None:
+            return findings
+        flown_ds = open_dataset(results_dir, "Line/flown_sol")
+        fp_max = _streaming_uid_abs_max_per_col(flowp_ds)
+        fn_max = (
+            _streaming_uid_abs_max_per_col(flown_ds) if flown_ds is not None else {}
+        )
 
     line_info = get_line_info(planning)
     if line_info.empty:
@@ -323,10 +336,6 @@ def compute_congestion_ranking(
     for _, row in line_info.iterrows():
         uid_tmax[int(row["uid"])] = float(row["tmax"]) if row["tmax"] > 0 else 1e9
         uid_name[int(row["uid"])] = row["name"]
-
-    # Per-uid absolute-max flow in each direction; streaming aggregates.
-    fp_max = _streaming_uid_abs_max_per_col(flowp_ds)
-    fn_max = _streaming_uid_abs_max_per_col(flown_ds)
 
     utilizations: list[tuple[str, float, float]] = []
     for uid, fp in fp_max.items():
@@ -501,16 +510,28 @@ def compute_cost_breakdown(results_dir: Path, planning: dict) -> list[Finding]:
         line_tcost[int(ln.get("uid", 0))] = _scalar_from_planning_field(
             ln.get("tcost"), fallback=0.0
         )
-    for stem, label in (
-        ("Line/flowp_sol", "transmission (A→B)"),
-        ("Line/flown_sol", "transmission (B→A)"),
-    ):
-        flow_ds = open_dataset(results_dir, stem)
-        if flow_ds is None:
-            continue
-        total = streaming_sol_weighted_sum(flow_ds, durations, line_tcost)
+    # Unified signed flow when available (one stem covers both directions
+    # — ``tcost × |flow|`` integrates the magnitude regardless of sign);
+    # fall back to the legacy ``flowp_sol`` / ``flown_sol`` directional
+    # pair for older gtopt outputs.
+    flow_ds_unified = open_dataset(results_dir, "Line/flow_sol")
+    if flow_ds_unified is not None:
+        total = streaming_sol_weighted_sum(
+            flow_ds_unified, durations, line_tcost, abs_value=True
+        )
         if abs(total) > 0.01:
-            components[label] = total
+            components["transmission"] = total
+    else:
+        for stem, label in (
+            ("Line/flowp_sol", "transmission (A→B)"),
+            ("Line/flown_sol", "transmission (B→A)"),
+        ):
+            flow_ds = open_dataset(results_dir, stem)
+            if flow_ds is None:
+                continue
+            total = streaming_sol_weighted_sum(flow_ds, durations, line_tcost)
+            if abs(total) > 0.01:
+                components[label] = total
 
     grand_total = sum(components.values())
     if grand_total > 0:

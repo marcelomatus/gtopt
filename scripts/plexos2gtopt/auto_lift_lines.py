@@ -323,8 +323,12 @@ def detect_overloaded_lines_via_gtopt(
                 }
         return {}
 
-    flowp = _sum_flow_at_block("Line/flowp_sol.parquet")
-    flown = _sum_flow_at_block("Line/flown_sol.parquet")
+    # ``Line/flow_sol`` is the unified signed primal (``|flow|`` is the
+    # magnitude).  When the case was produced by a pre-unified-flow
+    # gtopt build it does not exist; fall back to the directional pair.
+    flow_signed = _sum_flow_at_block("Line/flow_sol.parquet")
+    flowp = flow_signed if flow_signed else _sum_flow_at_block("Line/flowp_sol.parquet")
+    flown = {} if flow_signed else _sum_flow_at_block("Line/flown_sol.parquet")
 
     out: list[OverloadedLine] = []
     for uid, name in name_by_uid.items():

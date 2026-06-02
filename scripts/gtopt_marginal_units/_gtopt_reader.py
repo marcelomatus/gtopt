@@ -246,28 +246,30 @@ def cells_from_gtopt_output(
             "cannot run mode=simulated without dispatch data."
         )
     lmp_wide = read_table(output_dir, "Bus/balance_dual")
-    # ``Line/flowp_sol`` is the positive-direction primal; ``flown_sol`` is
-    # the negative-direction primal.  In the optimal LP one of them is zero
-    # for every (line, cell), so the line's signed net flow is
-    # ``flowp - flown`` and its absolute magnitude (used for saturation
-    # detection in main.py) is ``max(flowp, flown)``.  We merge both into
-    # the canonical ``flow`` frame as the SIGNED net flow ``flowp - flown``,
-    # PLUS a ``used_capacity = |flowp| + |flown| + loss`` column so the
-    # saturation test in main.py matches gtopt's actual cap row
-    # (``flowp + flown + Σ loss_seg ≤ tmax``) — a line at 99 % flow but
-    # +1 % losses is at the cap and should split the topology graph.
-    flow_pos_wide = read_table(output_dir, "Line/flowp_sol")
-    flow_neg_wide = read_table(output_dir, "Line/flown_sol")
-    flow_loss_wide = read_table(output_dir, "Line/loss_sol")
-    flow_dual_wide = read_table(output_dir, "Line/flowp_cost")
+    # gtopt emits ``Line/flow_sol`` as the signed net flow per the
+    # unified API (positive ⇒ A→B, negative ⇒ B→A) and
+    # ``Line/flow_cost`` as the sign-based active-direction reduced
+    # cost.  Older gtopt builds emit the directional pair
+    # ``Line/flowp_sol`` / ``Line/flown_sol``; when ``flow_sol`` is
+    # absent we fall back to the merge of those two.
+    flow_signed_wide = read_table(output_dir, "Line/flow_sol")
+    flow_cost_wide = read_table(output_dir, "Line/flow_cost")
+    if flow_signed_wide is None:
+        flow_pos_wide = read_table(output_dir, "Line/flowp_sol")
+        flow_neg_wide = read_table(output_dir, "Line/flown_sol")
+        flow_frame = _merge_signed_flow(flow_pos_wide, flow_neg_wide)
+        if flow_cost_wide is None:
+            flow_cost_wide = read_table(output_dir, "Line/flowp_cost")
+    else:
+        flow_frame = _wide_to_long(flow_signed_wide, COL_LINE_UID, COL_FLOW)
     load_wide = read_table(output_dir, "Demand/load_sol")
     ens_wide = read_table(output_dir, "Demand/fail_sol")
 
     return Cells(
         dispatch=_wide_to_long(dispatch_wide, COL_GEN_UID, COL_DISPATCH),
         lmp=_wide_to_long(lmp_wide, COL_BUS_UID, COL_LMP),
-        flow=_merge_signed_flow(flow_pos_wide, flow_neg_wide, flow_loss_wide),
-        flow_dual=_wide_to_long(flow_dual_wide, COL_LINE_UID, COL_FLOW_DUAL),
+        flow=flow_frame,
+        flow_dual=_wide_to_long(flow_cost_wide, COL_LINE_UID, COL_FLOW_DUAL),
         load=_wide_to_long(load_wide, COL_BUS_UID, COL_LOAD),
         ens=_wide_to_long(ens_wide, COL_BUS_UID, "ens"),
     )
@@ -276,26 +278,25 @@ def cells_from_gtopt_output(
 def _merge_signed_flow(
     flow_pos_wide: pd.DataFrame | None,
     flow_neg_wide: pd.DataFrame | None,
-    flow_loss_wide: pd.DataFrame | None = None,
 ) -> pd.DataFrame | None:
-    """Combine ``flowp_sol`` + ``flown_sol`` (+ optional ``loss_sol``) into
-    a long-form frame with two value columns:
+    """Combine ``flowp_sol`` and ``flown_sol`` into a single signed flow
+    frame (``flowp - flown``).
 
-    * ``flow`` — signed net flow ``flowp - flown`` (downstream consumers
-      that want the magnitude take ``|flow|``)
-    * ``used_capacity`` — ``|flowp| + |flown| + loss`` (matches the LP cap
-      row ``flowp + flown + Σ loss_seg ≤ tmax``).  When ``loss_sol`` is
-      missing, falls back to ``|flowp| + |flown|``.
-
-    When either ``flowp_sol`` / ``flown_sol`` is missing, the other is
-    returned with sign convention preserved (positive-only → returned
-    as-is; negative-only → negated and returned).  Both missing → ``None``.
+    Both inputs may be in long or wide layout; ``_wide_to_long`` handles
+    both.  When either side is missing, the other is returned with sign
+    convention preserved (positive-only → returned as-is; negative-only
+    → negated and returned).  Both missing → ``None``.
     """
     pos = _wide_to_long(flow_pos_wide, COL_LINE_UID, COL_FLOW)
     neg = _wide_to_long(flow_neg_wide, COL_LINE_UID, COL_FLOW)
-    loss = _wide_to_long(flow_loss_wide, COL_LINE_UID, COL_FLOW)
     if pos is None and neg is None:
         return None
+    if neg is None:
+        return pos
+    if pos is None:
+        neg = neg.copy()
+        neg[COL_FLOW] = -neg[COL_FLOW]
+        return neg
 
     key_cols = [
         COL_SCENARIO,
@@ -306,31 +307,9 @@ def _merge_signed_flow(
         COL_DATA_SOURCE,
         COL_LINE_UID,
     ]
-
-    if neg is None:
-        merged = pos.copy()
-        merged["used_capacity"] = merged[COL_FLOW].abs()
-    elif pos is None:
-        merged = neg.copy()
-        merged["used_capacity"] = merged[COL_FLOW].abs()
-        merged[COL_FLOW] = -merged[COL_FLOW]
-    else:
-        merged = pos.merge(
-            neg.rename(columns={COL_FLOW: "_neg"}), on=key_cols, how="outer"
-        )
-        pos_v = merged[COL_FLOW].fillna(0.0)
-        neg_v = merged["_neg"].fillna(0.0)
-        merged[COL_FLOW] = pos_v - neg_v
-        merged["used_capacity"] = pos_v.abs() + neg_v.abs()
-        merged = merged.drop(columns="_neg")
-
-    if loss is not None:
-        merged = merged.merge(
-            loss.rename(columns={COL_FLOW: "_loss"}), on=key_cols, how="left"
-        )
-        merged["used_capacity"] = merged["used_capacity"] + merged["_loss"].fillna(0.0)
-        merged = merged.drop(columns="_loss")
-
+    merged = pos.merge(neg.rename(columns={COL_FLOW: "_neg"}), on=key_cols, how="outer")
+    merged[COL_FLOW] = merged[COL_FLOW].fillna(0.0) - merged["_neg"].fillna(0.0)
+    merged = merged.drop(columns="_neg")
     return merged.reset_index(drop=True)
 
 
