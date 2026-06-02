@@ -16,7 +16,7 @@
     "test:install": "bash test/install_test.sh"
   },
   "dependencies": {
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "extract-zip": "^2.0.1",
     "next": "^16.2.4",
     "react": "^19.1.0",
