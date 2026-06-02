@@ -109,29 +109,42 @@ def _compute_consequential_moer(
     tol: Tolerances,
 ) -> tuple[float, Optional[int]]:
     """Find the per-zone "consequential MOER" — the emission rate of the
-    next-up dispatchable thermal that would absorb +1 MWh of demand if
-    the current marginal were forced to its bound.
+    next thermal in merit order, skipping every battery / reservoir /
+    renewable on the way up.
 
     Used by the emission recipe to assign a physically-meaningful
     "marginal CO2eq" to bus-cells whose direct marginal is hydro /
     renewable / battery (emission_rate ≈ 0).  By LP duality and the
     multi-criteria SDDP framing (carbon opportunity cost of water /
     storage), the true marginal emission of demand-shift in those
-    cells is the emission rate of the **next-up thermal** that would
-    backfill, NOT zero.
+    cells is the emission rate of the **next thermal** that would
+    backfill — not zero.
 
-    Algorithm — sort eligible gens in the zone by ascending
-    ``declared_MC`` (tie-break by uid), skip the actual marginal(s),
-    return the first gen that:
-      * has ``emission_rate > 0`` (excludes hydro / wind / solar /
-        batteries that themselves carry no direct emissions)
-      * has ``dispatch < pmax - eps`` (positive headroom up — could
-        actually absorb more demand)
+    Algorithm (matches the operator-side "walk up the island merit
+    order until you hit a thermal with headroom" recipe):
 
-    Returns ``(0.0, None)`` when no such gen exists (e.g. the cell is
-    a thermal-only zone with everything already at pmax; demand-fail
-    sets λ_z in that branch and the marginal CO2 is properly 0
-    because the absorbing column is the slack, not a generator).
+      1. Build the merit order for the zone — every gen with
+         ``declared_MC ≥ 0`` and ``pmax > 0``, sorted ascending by
+         ``declared_MC`` (tie-break by uid).  This is the
+         hypothetical-dispatch order if demand grew incrementally.
+      2. Walk up that list.  Skip:
+           * every gen that has zero ``emission_rate`` (batteries,
+             reservoirs, RoR hydros, solar, wind, geothermal-flagged-
+             renewable, etc. — anything not a combustion thermal)
+           * every gen in the actual marginal set
+           * every thermal already at ``pmax`` (``headroom_up ≤ eps``;
+             it's saturated, can't absorb +1 MWh of demand, KEEP walking)
+      3. Return the FIRST thermal hit with positive headroom — that's
+         the unit that would actually backfill an extra MWh of demand.
+         Notably this CAN be a thermal currently dispatching at 0 MW
+         (full pmax available) — the operator's "cold-start the next
+         peaker" answer is captured naturally.
+
+    Returns ``(0.0, None)`` when no headroom-bearing thermal exists in
+    the zone at all (truly thermal-saturated or all-renewable island).
+    Such cells genuinely have zero local backfill capacity — demand
+    extra would be served by imports (cross-zone) or demand_fail; the
+    per-zone heuristic correctly returns 0 there.
     """
     eligible = sorted(
         (
@@ -141,6 +154,7 @@ def _compute_consequential_moer(
                 g.declared_MC is not None
                 and g.emission_rate is not None
                 and float(g.emission_rate) > 0.0
+                and float(g.pmax) > tol.eps
                 and g.uid not in marginal_uids
             )
         ),

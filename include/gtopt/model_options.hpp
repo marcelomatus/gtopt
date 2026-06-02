@@ -181,6 +181,31 @@ struct ModelOptions
   /// `--set model_options.naming_dialect=<name>`.
   OptName naming_dialect {};
 
+  /// Objective formulation switch (issue #519).
+  ///
+  ///   * ``"cost"`` (default, or unset) — minimize the standard
+  ///     dispatch cost: Σ (generator gcost + fuel·heat_rate·gen +
+  ///     demand_fail·fail + line_overload·slack + … etc.).
+  ///   * ``"emissions"`` — minimize Σ (emission_rate × generation),
+  ///     with every other cost coefficient zeroed.  By LP duality,
+  ///     the resulting ``Reservoir/water_value_dual`` and
+  ///     ``Battery/energy_dual`` parquets then carry the carbon
+  ///     opportunity cost of stored water / energy (tCO2eq per
+  ///     MWh-equivalent) directly — the theoretically correct
+  ///     answer to the "storage marginal emission" question that
+  ///     ``gtopt_marginal_units`` currently approximates with a
+  ///     merit-ladder consequential-MOER heuristic.  Used as the
+  ///     second pass of the two-solve workflow orchestrated by
+  ///     ``scripts/gtopt_emission_dual/`` (see issue #519).
+  ///
+  /// LP shape is identical between modes; only objective
+  /// coefficients change.  See ``GeneratorLP::add_to_lp`` for the
+  /// per-mode coefficient swap.
+  ///
+  /// Settable via ``--objective-mode <name>`` or
+  /// ``--set model_options.objective_mode=<name>``.
+  OptName objective_mode {};
+
   /// Whether to enforce the per-stage `emin` floor as a HARD lower bound
   /// on the reservoir's stage-end volume (`efin =
   /// reservoir_energy_<last_block>`) and on the stage-start volume
@@ -224,6 +249,7 @@ struct ModelOptions
     merge_opt(demand_fail_rhs_shift, opts.demand_fail_rhs_shift);
     merge_opt(continuous_phases, opts.continuous_phases);
     merge_opt(naming_dialect, opts.naming_dialect);
+    merge_opt(objective_mode, opts.objective_mode);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
   }
 
@@ -240,7 +266,8 @@ struct ModelOptions
         || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
         || hydro_use_value.has_value() || state_violation_cost.has_value()
         || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
-        || naming_dialect.has_value() || strict_storage_emin.has_value();
+        || naming_dialect.has_value() || objective_mode.has_value()
+        || strict_storage_emin.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -272,6 +299,7 @@ struct ModelOptions
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(continuous_phases, other.continuous_phases)
         && covers_opt(naming_dialect, other.naming_dialect)
+        && covers_opt(objective_mode, other.objective_mode)
         && covers_opt(strict_storage_emin, other.strict_storage_emin);
   }
 };

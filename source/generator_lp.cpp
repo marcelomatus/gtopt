@@ -217,11 +217,28 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // Effective slope for the primary `generation` column at a given
   // block.  When piecewise: slope of the cheapest segment; otherwise
   // scalar heat rate (or 0 when no fuel/heat_rate is configured).
+  //
+  // Emissions-mode override (issue #519): when
+  // ``model_options.objective_mode = "emissions"``, the LP minimizes
+  // Σ (emission_rate × generation) instead of dispatch cost.  Zero
+  // out the dispatch-cost slope here; the per-MWh emission cost is
+  // injected via the existing ``EmissionSource``/``EmissionZone``
+  // coupling (emission_source adds ``-rate × weight`` to the zone
+  // balance row, and EmissionZone production carries the cost-per-
+  // tCO2eq, set to 1.0 in emissions mode — see
+  // ``EmissionZoneLP::add_to_lp``).  Net effect: the LP minimizes
+  // total CO2eq, and ``Reservoir/water_value_dual`` /
+  // ``Battery/energy_dual`` carry the carbon shadow price of stored
+  // water / energy directly.
+  const bool emissions_mode = sc.options().is_emissions_objective();
   const auto primary_slope_cost_at = [&](const FuelLP* block_fuel_lp,
                                          double block_fuel_price,
                                          double block_gcost,
                                          double block_heat_rate)
   {
+    if (emissions_mode) {
+      return 0.0;
+    }
     if (has_pw) {
       return slope_cost_per_mwh(block_fuel_price, hr_segs.front(), block_gcost);
     }

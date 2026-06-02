@@ -226,6 +226,19 @@ public:
     return m_options_.model_options.demand_fail_cost;
   }
 
+  /// @brief True when ``model_options.objective_mode = "emissions"`` —
+  /// the LP should minimize Σ (emission_rate × generation) instead of
+  /// dispatch cost.  See ``ModelOptions::objective_mode`` (issue #519).
+  [[nodiscard]] constexpr bool is_emissions_objective() const
+  {
+    const auto& m = m_options_.model_options.objective_mode;
+    if (!m.has_value()) {
+      return false;
+    }
+    const auto& s = *m;
+    return s == "emissions" || s == "emission";
+  }
+
   /// @brief Gets the hydro spill cost from model_options.
   /// Renamed from `hydro_fail_cost` per §11.10; legacy spelling
   /// still accepted as a JSON alias via the naming-dialects

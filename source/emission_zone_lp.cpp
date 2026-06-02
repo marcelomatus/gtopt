@@ -60,6 +60,19 @@ bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
   const auto stage_cap = param_cap(stage_uid);
   const auto stage_cap_cost = param_cap_cost(stage_uid);
 
+  // Emissions-objective mode (issue #519): force the production
+  // column cost to 1 tCO2eq⁻¹ (post block_ecost factor application)
+  // when ``model_options.objective_mode = "emissions"`` AND the user
+  // hasn't set their own carbon ``price`` on this zone.  This makes
+  // the LP minimize total CO2eq directly: Σ (production × 1 × dur)
+  // ≡ Σ emissions over the horizon.  Combined with the
+  // generator-side cost-zeroing (see ``GeneratorLP::add_to_lp``),
+  // the LP's objective becomes a pure emissions minimization, and
+  // ``Reservoir/water_value_dual`` / ``Battery/energy_dual`` then
+  // carry the carbon shadow price of stored water / energy directly
+  // (tCO2eq per MWh-stored).
+  const bool emissions_mode = sc.options().is_emissions_objective();
+
   BIndexHolder<ColIndex> prod_cols;
   BIndexHolder<RowIndex> balance_rows;
   map_reserve(prod_cols, blocks.size());
@@ -74,8 +87,10 @@ bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
     // Discount + scenario probability + scale_objective are applied by
     // CostHelper::block_ecost (matches every other thermal cost in
     // gtopt — keeps LP physics consistent across element types).
-    const double prod_cost = stage_price
-        ? CostHelper::block_ecost(scenario, stage, block, *stage_price)
+    const double effective_price =
+        stage_price ? *stage_price : (emissions_mode ? 1.0 : 0.0);
+    const double prod_cost = (stage_price || emissions_mode)
+        ? CostHelper::block_ecost(scenario, stage, block, effective_price)
         : 0.0;
 
     const auto pcol = lp.add_col(SparseCol {
