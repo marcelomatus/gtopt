@@ -5241,6 +5241,45 @@ def extract_commitments(
             fl0 = gen_spec.fixed_load_profile[0]
             if fl0 > 0.0:
                 initial_power = fl0
+        # PLEXOS effectively skips the ramp_down constraint on the
+        # initial-power → block-0 transition: a unit whose
+        # ``Gen_IniGeneration`` exceeds ``Gen_Rating[0] + Max Ramp Down``
+        # still lands feasibly at ``Gen_Rating[0]`` in PLEXOS's hour-1
+        # dispatch (verified on CEN-PCP 2026-05-17 GUACOLDA_1:
+        # initial=120.9118 MW, pmax[0]=63.9118 MW, ramp_down=45 MW/h
+        # → PLEXOS dispatches 63.9118 in hour 1, a 57 MW drop > 45).
+        # gtopt's CommitmentLP enforces
+        # ``initial_power − p[0] ≤ rd·u_init + sd·(1 − u_init)`` as
+        # HARD (source/commitment_lp.cpp:537-563); without alignment
+        # here, the LP goes infeasible by exactly
+        # ``initial_power − pmax[0] − ramp_down``.
+        #
+        # Mirror PLEXOS's behaviour by capping ``initial_power`` to the
+        # first-block pmax envelope whenever the gap exceeds what a
+        # single ramp_down hour can absorb.  Preserves the unit's
+        # initial commitment status (``u_init = 1``); only the carryover
+        # dispatch level is trimmed to the maximum value the unit can
+        # legitimately deliver at block 0.
+        if (
+            gen_spec
+            and initial_power > 0.0
+            and initial_status > 0.0
+            and ramp_down > 0.0
+        ):
+            prof = gen_spec.pmax_profile or ()
+            pmax0 = prof[0] if prof else (gen_spec.pmax or 0.0)
+            if pmax0 > 0.0 and initial_power > pmax0 + ramp_down:
+                logger.info(
+                    "extract_commitments: %s initial_power %.4f → %.4f "
+                    "(pmax[0]=%.4f, ramp_down=%.2f MW/h; PLEXOS-faithful "
+                    "first-block cap — declared ramp can't bridge the gap)",
+                    name,
+                    initial_power,
+                    pmax0,
+                    pmax0,
+                    ramp_down,
+                )
+                initial_power = pmax0
         any_param = (
             startup_cost
             or shutdown_cost
