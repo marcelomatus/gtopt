@@ -184,18 +184,31 @@ class EmissionDefaults:
     #: at construction time so :meth:`lookup` is O(1).
     _by_normalized: dict[str, EmissionFactor] = field(default_factory=dict, repr=False)
 
-    def lookup(self, fuel_name: str) -> EmissionFactor | None:
+    def lookup(
+        self,
+        fuel_name: str,
+        *,
+        subtype_hint: str | None = None,
+    ) -> EmissionFactor | None:
         """Find the factor entry for ``fuel_name`` by canonical name or alias.
 
         Returns ``None`` when no entry matches.
 
-        Two-step match:
+        Three-step match:
 
-        1. **Exact normalized match** on the full name (case-fold + strip
-           ``" "``/``"_"``/``"-"``).  This catches the canonical names
-           and aliases listed in the defaults file.
-        2. **Prefix fallback** on the first underscore-separated token of
-           the ORIGINAL name (before normalization).  This catches the
+        0. **Subtype hint** (if given AND resolves).  Used by callers
+           that already know the project-specific IPCC sub-grade —
+           e.g. ``plexos2gtopt`` sets ``Fuel.subtype = "natural_gas"``
+           on ``Gas_*_GN_*`` and ``"lng"`` on the rest of ``Gas_*``,
+           and the emissions engine reads that field before falling
+           back to name lookup.  Lets the same family name resolve to
+           DIFFERENT sub-grades for different fuels in the same
+           planning.
+        1. **Exact normalized match** on the full name (case-fold +
+           strip ``" "``/``"_"``/``"-"``).  This catches canonical
+           names and aliases listed in the defaults file.
+        2. **Prefix fallback** on the first underscore-separated token
+           of the ORIGINAL name (before normalization).  Catches the
            ``<family>_<plant>`` naming convention shipped by CEN-Chile
            PLEXOS bundles (``Carbon_Andina`` → ``Carbon`` →
            ``coal_bituminous``; ``Biomasa_Celco_B1`` → ``Biomasa`` →
@@ -207,6 +220,11 @@ class EmissionDefaults:
         ``Biogas_*``, ``Gas_*``, ``GLP_*``) all fall through as unknown
         — the IPCC factors land on nothing.
         """
+        # Step 0: subtype hint wins when it resolves.
+        if subtype_hint:
+            hit = self._by_normalized.get(_normalize(subtype_hint))
+            if hit is not None:
+                return hit
         # Step 1: full-name match.
         hit = self._by_normalized.get(_normalize(fuel_name))
         if hit is not None:
@@ -505,7 +523,13 @@ def apply_emission_defaults(
         # is already populated by the source data.  In multi-pollutant
         # mode that means: even if CO2 is present, the defaults can
         # still ADD a missing CH4 / N2O row.
-        factor = defaults.lookup(name)
+        # Honour the optional ``subtype`` hint on the Fuel JSON when
+        # present — set by ``plexos2gtopt`` for the natural-gas /
+        # LNG split so the same family name resolves to different
+        # IPCC sub-grades for different fuels.  When absent, lookup
+        # falls back to full-name + family-prefix matching.
+        subtype_hint = str(fuel.get("subtype", "") or "").strip() or None
+        factor = defaults.lookup(name, subtype_hint=subtype_hint)
         if factor is None or not factor.has_factor:
             if existing:
                 # Source data has factors the defaults don't know

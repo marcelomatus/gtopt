@@ -722,3 +722,134 @@ def test_emission_zone_report_in_to_dict() -> None:
     d = report.to_dict()
     assert d["summary"]["emission_zone_created"] is True
     assert d["summary"]["emission_zone_already_present"] is False
+
+
+# ---------------------------------------------------------------------------
+# Fuel.subtype hint — project-specific IPCC sub-grade routing
+# ---------------------------------------------------------------------------
+
+
+def test_subtype_hint_overrides_name_lookup() -> None:
+    """When a Fuel JSON carries a ``subtype`` field, the emissions
+    engine consults it FIRST — so two fuels in the same family name
+    can resolve to DIFFERENT IPCC sub-grades.
+
+    Concrete case: ``Gas_Colbun_GN_A`` (pipeline → natural_gas, no
+    upstream) vs ``Gas_GNLQuintero_A`` (LNG → lng with upstream).
+    Both share the ``Gas`` family prefix; the subtype hint
+    disambiguates.
+    """
+    ng = EmissionFactor(
+        name="natural_gas",
+        aliases=("gas natural",),
+        co2_combustion=0.0561,
+        co2_upstream=0.0,
+        heat_content=48.0,
+    )
+    lng = EmissionFactor(
+        name="lng",
+        aliases=("gnl",),
+        co2_combustion=0.0561,
+        co2_upstream=0.01,  # CEN-Chile LNG upstream chain
+        heat_content=48.0,
+    )
+    planning = _planning(
+        fuel_array=[
+            {"uid": 1, "name": "Gas_Colbun_GN_A", "subtype": "natural_gas"},
+            {"uid": 2, "name": "Gas_GNLQuintero_A", "subtype": "lng"},
+        ],
+    )
+    apply_emission_defaults(planning, _make_defaults([ng, lng]))
+
+    fuels = planning["system"]["fuel_array"]
+    by_name = {f["name"]: f for f in fuels}
+    pipeline = by_name["Gas_Colbun_GN_A"]
+    lng_fuel = by_name["Gas_GNLQuintero_A"]
+
+    # Both got CO2 (same combustion factor — IPCC says so).
+    pip_co2 = next(r for r in pipeline["emission_factors"] if r["emission"] == "co2")
+    lng_co2 = next(r for r in lng_fuel["emission_factors"] if r["emission"] == "co2")
+    assert pip_co2["combustion"] == pytest.approx(0.0561)
+    assert lng_co2["combustion"] == pytest.approx(0.0561)
+    # But LNG has a non-zero upstream rate (the project-specific
+    # CEN-Chile overlay) while pipeline does not.
+    assert "upstream" not in pip_co2
+    assert lng_co2["upstream"] == pytest.approx(0.01)
+
+
+def test_subtype_hint_unrecognized_falls_back_to_name_lookup() -> None:
+    """A subtype hint that doesn't resolve in the defaults falls
+    through to the regular name + prefix-fallback path.  Lets
+    upstream tools attach hints without breaking when the defaults
+    file doesn't know about a given sub-grade.
+    """
+    coal = EmissionFactor(
+        name="coal_bituminous",
+        aliases=("coal", "carbon"),
+        co2_combustion=0.0946,
+        co2_upstream=0.0,
+        heat_content=25.8,
+    )
+    planning = _planning(
+        fuel_array=[
+            {"uid": 1, "name": "Carbon_Andina", "subtype": "fancy_unknown_subtype"}
+        ],
+    )
+    apply_emission_defaults(planning, _make_defaults([coal]))
+
+    fuel = planning["system"]["fuel_array"][0]
+    rows = {r["emission"]: r for r in fuel["emission_factors"]}
+    # subtype didn't resolve → falls back to prefix-match on "Carbon"
+    # → resolves via the "carbon" alias → coal_bituminous.
+    assert rows["co2"]["combustion"] == pytest.approx(0.0946)
+
+
+def test_empty_subtype_ignored() -> None:
+    """``subtype: ""`` (the converter-side default) is the same as
+    omitting the field — no override path, just regular name lookup.
+    """
+    planning = _planning(
+        fuel_array=[{"uid": 1, "name": "diesel", "subtype": ""}],
+    )
+    apply_emission_defaults(planning, _make_defaults([_FIX_DIESEL]))
+    rows = {
+        r["emission"]: r
+        for r in planning["system"]["fuel_array"][0]["emission_factors"]
+    }
+    assert rows["co2"]["combustion"] == pytest.approx(0.0741)
+
+
+def test_cen_chile_override_file_loads_and_overrides_coal() -> None:
+    """The shipped ``share/gtopt/emissions/cen_chile.json`` override
+    file resolves the ``coal``/``carbon`` aliases to
+    ``coal_sub_bituminous`` (0.0961) — the Chilean-fleet reality —
+    instead of the IPCC default ``coal_bituminous`` (0.0946).
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    from gtopt_shared.emissions import load_emission_defaults  # noqa: PLC0415
+
+    # Repo-relative path (resolves from any cwd via __file__ anchor).
+    overlay = (
+        Path(__file__).resolve().parents[3]
+        / "share"
+        / "gtopt"
+        / "emissions"
+        / "cen_chile.json"
+    )
+    if not overlay.exists():
+        pytest.skip(f"CEN-Chile overlay not present at {overlay}")
+    d = load_emission_defaults(overlay)
+    # The "carbon" alias points at coal_sub_bituminous in this file.
+    coal_hit = d.lookup("Carbon_Andina")
+    assert coal_hit is not None
+    assert coal_hit.name == "coal_sub_bituminous"
+    assert coal_hit.co2_combustion == pytest.approx(0.0961)
+    # LNG entry carries a non-zero upstream factor (CEN override).
+    lng = d.lookup("lng")
+    assert lng is not None
+    assert lng.co2_upstream == pytest.approx(0.01)
+    # Pipeline NG keeps upstream = 0.
+    ng = d.lookup("natural_gas")
+    assert ng is not None
+    assert ng.co2_upstream == pytest.approx(0.0)

@@ -1,0 +1,73 @@
+{
+  "$schema": "gtopt-emission-defaults-v1",
+  "description": "CEN-Chile (Sistema Eléctrico Nacional) project-specific overrides on top of the bundled IPCC-2006 defaults. Honour Chilean fuel-sourcing facts that the generic IPCC defaults miss: ALL Chilean coal plants burn sub-bituminous (Andean + Colombian imports), and LNG carries a real ~10 kgCO2/GJ upstream chain (liquefaction + tanker + regas) that's not in the IPCC stationary-combustion default. Pair with `plp2gtopt --plexos-overlay … --emissions --emissions-file share/gtopt/emissions/cen_chile.json` OR `plexos2gtopt --emissions --emissions-file share/gtopt/emissions/cen_chile.json` for CEN bundles.",
+  "source": "Same IPCC 2006 Vol 2 base values as the bundled defaults file at `scripts/gtopt_shared/data/ipcc_emission_factors.json` — this file ONLY overrides the per-fuel sub-grade assignment for the Chilean fleet. The Gas-LNG-vs-pipeline split is handled automatically by `plexos2gtopt::extract_fuels` via the `_GN_` name-suffix detection (sets `FuelSpec.subtype`); this file backs that up for downstream tools that don't run the parser.",
+  "units": {
+    "co2_combustion":  "tCO2 / GJ",
+    "co2_upstream":    "tCO2 / GJ — LNG upstream is non-zero here (typical median 10 kgCO2/GJ = 0.01) reflecting liquefaction + tanker + regas; pipeline NG keeps the IPCC default 0.",
+    "ch4_combustion":  "tCH4 / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "n2o_combustion":  "tN2O / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "heat_content":    "GJ per fuel-unit (NCV / LHV)"
+  },
+  "notes": [
+    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports — NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than the IPCC `coal_bituminous` default (0.0946) — a ~1.5% upward correction.",
+    "LNG carries a project-specific upstream chain in Chile: GNL Quintero + GNL Mejillones both source from international LNG markets via tanker. The `co2_upstream` value 0.01 (= 10 kgCO2/GJ) is a market-median estimate; refine via per-cargo LCA when carbon accounting matters.",
+    "Pipeline natural gas (Gas_*_GN_*) keeps `co2_upstream = 0` per IPCC default — domestic Argentine + Chilean Magallanes pipelines have minimal upstream beyond extraction.",
+    "Diesel / FuelOil / Biomass / Biogas / GLP / Petcoke entries here just re-export the bundled defaults unchanged — same fuel families CEN uses, no Chile-specific override needed."
+  ],
+  "fuels": [
+    {
+      "name": "coal_sub_bituminous",
+      "aliases": [
+        "coal",
+        "carbon",
+        "carbon bituminoso",
+        "hard coal",
+        "other bituminous coal",
+        "bituminous coal"
+      ],
+      "co2_combustion": 0.0961,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06,
+      "heat_content": 18.9,
+      "ipcc_reference": "Table 1.4 — Sub-Bituminous Coal (96100 kg CO2/TJ); Table 2.2 — Sub-Bituminous Coal (1 kg CH4/TJ, 1.5 kg N2O/TJ); CEN override: ALL Chilean coal is sub-bituminous (Colombian imports + Andean coal) — overrides the IPCC default that maps `coal`/`carbon` aliases to coal_bituminous (0.0946) — ~1.5% upward correction in tCO2/GJ."
+    },
+    {
+      "name": "lng",
+      "aliases": [
+        "gnl",
+        "liquefied natural gas",
+        "regasified lng",
+        "regasified-lng",
+        "gnl regasificado",
+        "lng-regas"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.01,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 — Natural Gas at the burner tip (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ — market-median LNG-chain factor (liquefaction + tanker + regas), missing from the IPCC stationary-combustion default."
+    },
+    {
+      "name": "natural_gas",
+      "aliases": [
+        "natural gas",
+        "gas natural",
+        "gas-natural",
+        "gn",
+        "ng",
+        "gas",
+        "pipeline gas",
+        "gas tubería"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 — Natural Gas (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this entry, upstream = 0) from LNG (above, upstream = 0.01). Combustion factor identical at the burner tip."
+    }
+  ]
+}

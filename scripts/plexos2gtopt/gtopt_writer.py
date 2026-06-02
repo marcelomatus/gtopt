@@ -1612,6 +1612,16 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
         # default (``"other"``) keeps the field non-null even for
         # bundles outside the CEN PCP naming convention.
         entry["type"] = fuel.type_tag
+        # Project-specific sub-grade hint (e.g. "natural_gas" vs "lng"
+        # for the Gas_* split — same combustion factor at the burner
+        # tip but different upstream chain).  Consumed by
+        # ``gtopt_shared.emissions.EmissionDefaults.lookup`` to pick
+        # the right IPCC sub-grade entry when the family alone is
+        # ambiguous.  Empty string from parser-side means "no hint";
+        # skipped here to keep the JSON lean.  See
+        # ``parsers._fuel_subtype_from_name`` for the detection rules.
+        if fuel.subtype:
+            entry["subtype"] = fuel.subtype
         if fuel.co2_rate != 0.0 or fuel.co2_upstream_rate != 0.0:
             factor: dict[str, Any] = {"emission": "co2"}
             if fuel.co2_rate != 0.0:

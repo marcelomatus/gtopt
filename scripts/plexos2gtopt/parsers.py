@@ -1171,6 +1171,7 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         # observed in the 2025-10 → 2026-05 PCP cache, but the default
         # keeps the field non-null for hand-rolled / 118-Bus fuels).
         type_tag = fuel_family_of_fuel(fuel.name) or FUEL_FAMILY_OTHER
+        subtype = _fuel_subtype_from_name(fuel.name)
         out.append(
             FuelSpec(
                 object_id=fuel.object_id,
@@ -1182,9 +1183,54 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 min_offtake=min_off,
                 min_offtake_cost=min_off_cost,
                 type_tag=type_tag,
+                subtype=subtype,
             )
         )
     return tuple(out)
+
+
+def _fuel_subtype_from_name(name: str) -> str:
+    """Derive an IPCC sub-grade hint from a PLEXOS Fuel object name.
+
+    PLEXOS Fuel objects don't carry a structured sub-type property in
+    the CEN-Chile schema (verified on 2026-04-12 PCP bundle: 221 Fuels
+    × 76 distinct properties — none semantically a sub-type).  The
+    sub-grade signal lives only in the name itself for the cases
+    where IPCC families split into sub-grades that matter for CO2:
+
+    * ``Gas_*_GN_*`` — pipeline natural gas (low upstream factor).
+    * ``Gas_*`` (no ``_GN_``) — LNG (real upstream chain
+      6-15 kg CO2/GJ from liquefaction + tanker + regas).
+
+    The empty string means "no project-specific subtype detected" —
+    the emission lookup falls back to the family alias in the IPCC
+    defaults.  Coal is intentionally NOT subtyped here even though
+    Chile burns sub-bituminous: that choice belongs in a
+    project-specific overrides file (``share/gtopt/emissions/cen_chile.json``),
+    not in the generic plexos2gtopt parser — other PLEXOS markets
+    use the same ``Carbon_*`` naming convention with different coal
+    grades.
+
+    Returns the IPCC canonical sub-grade name (e.g. ``"natural_gas"``,
+    ``"lng"``).  Empty string for unrecognized / ambiguous cases.
+    """
+    if not name:
+        return ""
+    # Gas_*_GN_* — pipeline natural gas (distinct from LNG bands).
+    # The "_GN_" infix marker is the CEN convention for pipeline tier.
+    if name.startswith("Gas_") and "_GN_" in name:
+        return "natural_gas"
+    # Gas_* without _GN_ — defaults to LNG (CEN combined-cycle bands
+    # like Gas_GNLQuintero_A, Gas_EnelMejillones_B, etc.).
+    if name.startswith("Gas_"):
+        return "lng"
+    # All other families (Carbon_*, Diesel_*, FuelOil_*, Biomasa_*,
+    # Biogas_*, GLP_*, Petcoke_*, Otros_*) stay untyped — the
+    # emission lookup's family-prefix fallback gets them right
+    # (Carbon_* → coal_bituminous via "carbon" alias, etc.).
+    # Project-specific overrides (Andean coal = sub-bituminous, etc.)
+    # belong in share/gtopt/emissions/cen_chile.json.
+    return ""
 
 
 # ----------------------------------------------------------------------

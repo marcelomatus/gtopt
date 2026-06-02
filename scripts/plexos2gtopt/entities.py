@@ -111,6 +111,21 @@ class FuelSpec:
     #: orphan-recovery sibling search and the published fuel definition
     #: agree by construction.
     type_tag: str = "other"
+    #: Project-specific fuel SUB-TYPE that disambiguates within a
+    #: family.  Used to select the right IPCC sub-grade when the
+    #: family alone is ambiguous:
+    #:
+    #:   * coal sub-bituminous vs bituminous vs anthracite vs lignite
+    #:   * pipeline natural gas vs LNG (same combustion factor, but
+    #:     LNG carries a real upstream chain that IPCC default omits)
+    #:
+    #: Populated by :func:`extract_fuels` from name-pattern heuristics
+    #: where the upstream PLEXOS XML doesn't ship a sub-type property
+    #: (PLEXOS Fuel objects in CEN PCP carry only family-level
+    #: Heat Value / Price / Offtake — no sub-grade tag).  Empty string
+    #: means "no project-specific subtype detected; fall back to the
+    #: family alias in the IPCC defaults".
+    subtype: str = ""
     #: Weekly fuel offtake cap from ``Fuel_MaxOfftakeWeek.csv`` (one
     #: scalar per fuel, for the week containing the bundle's
     #: reference date).  Mirrors the PLEXOS ``FueMaxOffWeek_<fuel>``
