@@ -118,14 +118,16 @@ unresolved = []
 for i, b in enumerate(bess["battery_array"], 1):
     b["uid"] = max_uid + i
     bus_name = b.get("bus")
-    bus_uid = buses_by_name.get(bus_name)
-    if bus_uid is None:
+    # gtopt's ``Battery.bus`` is a SingleId = variant<Uid, Name>, so
+    # keep the human-readable name (e.g. ``"DonGoyo220"``) verbatim and
+    # let gtopt resolve it against ``bus_array`` at LP-build time.
+    # Validate that the name actually exists in the PLP base so we
+    # don't ship a dangling reference; warn but keep the entry
+    # otherwise (some BESS substations are regional proxies).
+    if bus_name not in buses_by_name:
         unresolved.append((b["name"], bus_name))
-    else:
-        # gtopt's Battery schema doesn't expose a `bus_name` field, so
-        # we can't keep the human-readable hint in-band.  The
-        # substation name is preserved in description / sidecar instead.
-        b["bus"] = bus_uid
+    # No further mutation needed — ``b["bus"]`` already carries the
+    # string name from bess_gtopt_battery_array_plp_buses.json.
 if unresolved:
     print(f"WARNING: unresolved bus names → {unresolved}", file=sys.stderr)
 
