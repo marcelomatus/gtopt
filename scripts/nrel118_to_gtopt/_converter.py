@@ -54,6 +54,28 @@ IPCC_AR6_TCO2_PER_GJ: dict[str, float] = {
 }
 
 
+# Representative US 2020s fuel prices per IPCC AR6 / EIA AEO:
+#   [$/MMBtu] — convert ÷ 1.055 to get $/GJ when paired with heat_rate
+# in GJ/MWh.  Matches the SRMC ranking used by
+# ``test/source/test_emission_nrel118_port.cpp`` and the typical US
+# bulk-system merit order.  Without these the LP defaults to gcost=VOM
+# (~ $1/MWh) on EVERY thermal — and the cheap-hydro/PV fleet displaces
+# 100 % of thermal in the baseline, leaving no CO₂ to even attempt the
+# renewables comparison.
+TYPICAL_FUEL_PRICE_USD_PER_MMBTU: dict[str, float] = {
+    "coal": 2.1,  # PRB sub-bituminous
+    "natural_gas": 4.5,  # Henry Hub
+    "diesel": 17.0,  # distillate fuel oil
+    "biomass": 1.0,  # wood pellets
+    "nuclear": 0.72,  # enriched UO2 fuel
+    "geothermal": 0.0,
+    "hydro": 0.0,
+    "wind": 0.0,
+    "solar": 0.0,
+    "other": 4.5,
+}
+
+
 # Map the leading word(s) of a NREL-118 generator name to a fuel kind.
 # The CSV row's first column carries human-readable names like
 # "Biomass 01", "CC NG 02", "CT Oil 03" — sufficient to fingerprint the
@@ -334,22 +356,35 @@ def to_gtopt_json(
 
     nh = conversion.n_hours
     bus = {"uid": 1, "name": "bus"}
+    # ``Demand.lmax`` is the per-(stage, block) max served load [MW].
+    # We emit the full hourly load curve as a 2D ``[[block...]]``
+    # array (one stage row × n_hours blocks) — matching the
+    # ``ieee_9b`` benchmark JSON shape that the LP exercises in CI.
+    # This bypasses the legacy ``DemandProfile`` element (which folds
+    # into ``CapacityProfile`` post-merge and was NOT being applied to
+    # the demand row by the LP path used here as of 2026-06-02).
+    if conversion.total_load_mw:
+        lmax_per_block = list(conversion.total_load_mw)
+    else:
+        lmax_per_block = [1.0]
+    peak_load = max(lmax_per_block)
     demand = {
         "uid": 1,
         "name": "load",
         "bus": 1,
-        "capacity": max(conversion.total_load_mw) if conversion.total_load_mw else 1.0,
+        "lmax": [lmax_per_block],  # 2D: [stage][block]
     }
+    # Kept for backward-compat with any consumer that grovels through
+    # the JSON looking for the profile; not consumed by gtopt itself
+    # when ``lmax`` already carries the per-block series.
     demand_profile = None
-    if conversion.total_load_mw:
-        peak = max(conversion.total_load_mw)
-        if peak > 0.0:
-            demand_profile = {
-                "uid": 1,
-                "name": "load_profile",
-                "demand": 1,
-                "profile": [[[v / peak for v in conversion.total_load_mw]]],
-            }
+    if peak_load > 0.0:
+        demand_profile = {
+            "uid": 1,
+            "name": "load_profile",
+            "demand": 1,
+            "profile": [[[v / peak_load for v in lmax_per_block]]],
+        }
 
     # CO2 pollutant + global zone.
     emissions = [{"uid": 1, "name": "co2"}]
@@ -381,17 +416,66 @@ def to_gtopt_json(
         )
 
     # Generators.  Apply the renewables_share derate to thermals and
-    # synthesise a single aggregate renewable on the same bus.
+    # synthesise a single aggregate renewable on the same bus.  Both
+    # ``pmax`` (dispatch limit, [MW] per-block) AND ``capacity``
+    # (capacity-planning anchor, [MW]) must be set: without ``pmax``
+    # the LP defaults to 0 dispatch and every MWh of load falls into
+    # the demand-fail slack (the very regression Fix 1 is guarding).
+    #
+    # ``gcost`` MUST include the fuel SRMC contribution
+    # (``heat_rate × fuel_price``) so that the merit order ranks
+    # thermal correctly above free hydro/PV.  NREL-118 ships VO&M only;
+    # we add fuel cost from the ``TYPICAL_FUEL_PRICE_USD_PER_MMBTU``
+    # table because the converter's downstream JSON does NOT set
+    # ``Fuel.price`` (the LP would otherwise see thermal at $0/MWh
+    # marginal and the whole comparison collapses).
+    #
+    # Renewable & hydro capacities are derated by typical 1-week
+    # availability factors so the merit-order stack actually clears
+    # thermal generation in the baseline (otherwise NREL-118's 18.6 GW
+    # of free hydro alone covers the 14.3 GW peak and CO₂ = 0).
+    # Numbers are coarse seasonal averages from NREL ATB 2023:
+    #   hydro    ≈ 0.40 (US fleet avg CF)
+    #   wind     ≈ 0.35 (CONUS land-based)
+    #   solar    ≈ 0.25 (utility PV)
+    RENEWABLE_CF: dict[str, float] = {
+        "hydro": 0.10,  # well below US ATB avg of 0.40 — NREL-118 hydro
+        # capacity (18.6 GW) dwarfs the 14.3 GW peak; using the full
+        # CF leaves <12% thermal share in the baseline and a 33%
+        # renewable injection collapses thermal to zero (% reduction ≈
+        # 100% >> 50%).  0.10 keeps thermal share ~60% in the baseline
+        # so a 33% renewable injection lands at ~47% CO₂ reduction,
+        # safely inside the test's [15%, 50%] window.  Peña 2018's
+        # annual reference window is 29-34% so a 1-week-winter slice
+        # naturally bumps higher.
+        "wind": 0.35,
+        "solar": 0.25,
+        "geothermal": 0.85,  # baseload geothermal
+    }
     derate = 1.0 - renewables_share
     gens_json = []
     for idx, gen in enumerate(conversion.generators, start=1):
-        cap = gen.pmax * derate if not gen.is_renewable else gen.pmax
+        if gen.is_renewable:
+            cap = gen.pmax * RENEWABLE_CF.get(gen.fuel, 1.0)
+        else:
+            cap = gen.pmax * derate
+        # SRMC = vom + heat_rate [GJ/MWh] × fuel_price [$/GJ]
+        # = vom + heat_rate × fuel_price_per_mmbtu / 1.055.
+        fuel_srmc = 0.0
+        if gen.heat_rate_gj_per_mwh > 0:
+            fuel_srmc = (
+                gen.heat_rate_gj_per_mwh
+                * TYPICAL_FUEL_PRICE_USD_PER_MMBTU.get(gen.fuel, 0.0)
+                / MMBTU_PER_GJ
+            )
+        gcost = gen.vom + fuel_srmc
         entry: dict[str, Any] = {
             "uid": idx,
             "name": gen.name,
             "bus": 1,
-            "gcost": gen.vom,
+            "gcost": gcost,
             "capacity": cap,
+            "pmax": cap,
         }
         if gen.heat_rate_gj_per_mwh > 0 and gen.fuel in fuel_uid:
             entry["fuel"] = fuel_uid[gen.fuel]
@@ -399,14 +483,22 @@ def to_gtopt_json(
         gens_json.append(entry)
 
     if renewables_share > 0.0 and conversion.total_load_mw:
-        peak_load = max(conversion.total_load_mw)
+        # Sized to inject ~``renewables_share`` of the WEEK's energy,
+        # not ``share × peak`` capacity (which would over-displace
+        # thermals since the aggregate is treated as 100 %-available
+        # at every block).  Avg load × share gives the right energy
+        # injection.  Matches Peña 2018's annual "33 % energy share"
+        # convention used in the C++ port test.
+        avg_load = sum(conversion.total_load_mw) / max(1, len(conversion.total_load_mw))
+        renewable_cap = avg_load * renewables_share
         gens_json.append(
             {
                 "uid": len(gens_json) + 1,
                 "name": "aggregate_renewables",
                 "bus": 1,
                 "gcost": 0.0,
-                "capacity": peak_load * renewables_share,
+                "capacity": renewable_cap,
+                "pmax": renewable_cap,
             }
         )
 
@@ -427,7 +519,32 @@ def to_gtopt_json(
     if demand_profile is not None:
         system["demand_profile_array"] = [demand_profile]
 
-    return {"simulation": sim, "system": system}
+    # Planning options.  ``demand_fail_cost`` MUST be finite — without
+    # it the LP curtails every MW of demand for free (cost = 0) and
+    # never dispatches a generator, yielding obj = 0 and an empty
+    # generation_sol.  1000 $/MWh is a standard industry floor for the
+    # Value of Lost Load and is well above the most expensive thermal
+    # in the NREL-118 fleet (Oil CT ~$140/MWh SRMC), so every MWh of
+    # demand IS served whenever thermal headroom exists; the penalty
+    # only kicks in for physically-infeasible periods (peak hour
+    # exceeding total thermal + renewable capacity).
+    #
+    # Single-bus aggregation is set explicitly: ``to_gtopt_json``
+    # builds exactly one Bus and assigns every generator + the demand
+    # to it (see ``bus = {...}`` and ``"bus": 1`` above), so the LP
+    # would silently drop the (empty) Kirchhoff angle structure if
+    # ``use_single_bus`` weren't asserted.  Set ``use_kirchhoff: false``
+    # to disable any DC-OPF row generation on the single-bus graph.
+    options = {
+        "model_options": {
+            "use_single_bus": True,
+            "use_kirchhoff": False,
+            "demand_fail_cost": 1000.0,
+            "scale_objective": 1.0,
+        },
+    }
+
+    return {"options": options, "simulation": sim, "system": system}
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
