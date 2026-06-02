@@ -387,6 +387,17 @@ def _process_cells(
     load_by_cell = (
         _group_by_cell(cells.load, "bus_uid", "load") if cells.load is not None else {}
     )
+    flow_by_cell = (
+        _group_by_cell(cells.flow, "line_uid", "flow") if cells.has_flow() else {}
+    )
+
+    # Per-line thermal limit ``max(tmax_ab, tmax_ba)`` used by the
+    # primal saturation test below.  Pre-built once outside the cell
+    # loop so each cell's saturation check is an O(nlines) hash lookup,
+    # not an O(nlines) topology rescan.
+    line_tmax: dict[int, float] = {
+        ln.uid: max(float(ln.tmax_ab), float(ln.tmax_ba)) for ln in topology.lines
+    }
 
     # Index LP-dual extras. Empty dict iff the parquet was not written
     # (legacy run or --no-require-reduced-cost path).
@@ -416,9 +427,25 @@ def _process_cells(
         if single_bus or not topology.lines:
             zone_of = {u: 0 for u in bus_uids}
         else:
-            zone_of = partition_zones(
-                topology
-            )  # v1: no saturation detection in main loop
+            # Primal saturation test: a line is "saturated" when
+            # ``|flow| ≥ (1 − eps) × max(tmax_ab, tmax_ba)``.  In gtopt's
+            # bidirectional LP one of (flowp, flown) is zero so the
+            # signed merged flow magnitude equals the active-direction
+            # flow.  Saturated lines are dropped from the topology
+            # graph in ``partition_zones`` so the BFS produces true
+            # congestion-induced islands rather than one giant
+            # connected component.
+            flow_by_uid = flow_by_cell.get(cell_key, {})
+            saturated_uids: set[int] = set()
+            if flow_by_uid and line_tmax:
+                eps_sat = max(tol.tol_flow, 1e-3)
+                for uid, fval in flow_by_uid.items():
+                    tmax = line_tmax.get(int(uid))
+                    if tmax is None or tmax <= 0.0:
+                        continue
+                    if abs(float(fval)) >= (1.0 - eps_sat) * tmax:
+                        saturated_uids.add(int(uid))
+            zone_of = partition_zones(topology, saturated_line_uids=saturated_uids)
 
         if lmp_by_bus:
             # LP duals are the source of truth for the bus price.
@@ -745,21 +772,61 @@ def _select_marginal_candidates(
     Returns ``(candidates, reason)`` where ``reason`` tags which
     branch was taken.  Sorted by uid for determinism.
     """
-    interior = [
+    # Candidate pool: dispatched, merit-eligible gens at this zone's
+    # buses.  We deliberately do NOT pre-filter on
+    # ``(pmin+eps, pmax-eps)`` against the topology nameplate ``pmax``
+    # — the LP's effective per-block upper bound is typically below
+    # nameplate (lossfactor-adjusted, profile-driven, fuel-cap, or
+    # heat-rate-segment binding), so a gen dispatching at e.g.
+    # ``131 MW`` against a nameplate ``152 MW`` may already be
+    # saturated at a per-block cap.  Trust the rc instead: if the
+    # column is basic in the LP, its reduced cost is ≈ 0.
+    candidates_pool = [
         g
         for g in topology.generators
         if g.bus_uid in zone_bus_uids
         and merit_eligible.get(g.uid, True)
-        and (g.pmin + tol.eps) < dispatch_by_uid.get(g.uid, 0.0) < (g.pmax - tol.eps)
+        and dispatch_by_uid.get(g.uid, 0.0) > tol.eps
     ]
+    # Backward-compatible alias used by the legacy declared-MC fallback
+    # below; that path is informational only (kept for runs with no rc).
+    interior = candidates_pool
 
-    if rc_by_uid:
-        rc_match = [
-            g for g in interior if abs(rc_by_uid.get(g.uid, 0.0)) <= tol.tol_price
-        ]
-        if rc_match:
-            rc_match.sort(key=lambda g: g.uid)
-            return rc_match, "interior_rc_zero_lp_dual"
+    if rc_by_uid and interior:
+        # LP-textbook marginal-unit test (inverted from the old absolute
+        # ``|rc| ≤ tol_price`` filter): pick the dispatched interior gens
+        # with the **smallest** ``|rc|`` in this zone.  By the LP basic-
+        # feasible-solution definition, a column is "basic" (the marginal
+        # unit setting the zone price) iff its reduced cost is ≈ 0; the
+        # ones with ``|rc| > 0`` are at their bounds (pmin/pmax) or on a
+        # non-primary piecewise segment.
+        #
+        # The previous absolute threshold (default ``0.01 $/MWh``) was too
+        # tight against actual LP basis noise (~``0.4 $/MWh`` on CEN-scale
+        # cases), so 88 % of cells fell into ``lp_dual_no_interior_match``.
+        # The relative band below — gens within ``tol_price``
+        # absolute + ``tol_price`` × max(1, |λ|) relative slack of the
+        # zone's min-|rc| — is robust to both extremes (tight on
+        # well-conditioned slack, generous when the basis is degenerate).
+        #
+        # ``rc_by_uid`` may not carry every dispatched gen (some
+        # parquet stems are sharded by (scene, phase) and the read
+        # may miss a class).  Exclude gens with missing rc rather than
+        # default to 0.0: a fake-zero rc would always win the min.
+        with_rc = [g for g in interior if g.uid in rc_by_uid]
+        if with_rc:
+
+            def _abs_rc(g):
+                return abs(rc_by_uid[g.uid])
+
+            min_abs_rc = min(_abs_rc(g) for g in with_rc)
+            band = max(tol.tol_price, tol.tol_price * abs(lam))
+            rc_match = sorted(
+                (g for g in with_rc if _abs_rc(g) <= min_abs_rc + band),
+                key=lambda g: g.uid,
+            )
+            if rc_match:
+                return rc_match, "interior_rc_zero_lp_dual"
 
     # Legacy / fallback: declared_MC match.
     mc_match = [

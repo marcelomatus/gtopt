@@ -246,7 +246,15 @@ def cells_from_gtopt_output(
             "cannot run mode=simulated without dispatch data."
         )
     lmp_wide = read_table(output_dir, "Bus/balance_dual")
-    flow_wide = read_table(output_dir, "Line/flowp_sol")
+    # ``Line/flowp_sol`` is the positive-direction primal; ``flown_sol`` is
+    # the negative-direction primal.  In the optimal LP one of them is zero
+    # for every (line, cell), so the line's signed net flow is
+    # ``flowp - flown`` and its absolute magnitude (used for saturation
+    # detection in main.py) is ``max(flowp, flown)``.  We merge both into
+    # the canonical ``flow`` frame as the SIGNED net flow ``flowp - flown``;
+    # downstream consumers that want the magnitude just take ``|flow|``.
+    flow_pos_wide = read_table(output_dir, "Line/flowp_sol")
+    flow_neg_wide = read_table(output_dir, "Line/flown_sol")
     flow_dual_wide = read_table(output_dir, "Line/flowp_cost")
     load_wide = read_table(output_dir, "Demand/load_sol")
     ens_wide = read_table(output_dir, "Demand/fail_sol")
@@ -254,11 +262,49 @@ def cells_from_gtopt_output(
     return Cells(
         dispatch=_wide_to_long(dispatch_wide, COL_GEN_UID, COL_DISPATCH),
         lmp=_wide_to_long(lmp_wide, COL_BUS_UID, COL_LMP),
-        flow=_wide_to_long(flow_wide, COL_LINE_UID, COL_FLOW),
+        flow=_merge_signed_flow(flow_pos_wide, flow_neg_wide),
         flow_dual=_wide_to_long(flow_dual_wide, COL_LINE_UID, COL_FLOW_DUAL),
         load=_wide_to_long(load_wide, COL_BUS_UID, COL_LOAD),
         ens=_wide_to_long(ens_wide, COL_BUS_UID, "ens"),
     )
+
+
+def _merge_signed_flow(
+    flow_pos_wide: pd.DataFrame | None,
+    flow_neg_wide: pd.DataFrame | None,
+) -> pd.DataFrame | None:
+    """Combine ``flowp_sol`` and ``flown_sol`` into a single signed flow
+    frame (``flowp - flown``).
+
+    Both inputs may be in long or wide layout; ``_wide_to_long`` handles
+    both.  When either side is missing, the other is returned with sign
+    convention preserved (positive-only → returned as-is; negative-only
+    → negated and returned).  Both missing → ``None``.
+    """
+    pos = _wide_to_long(flow_pos_wide, COL_LINE_UID, COL_FLOW)
+    neg = _wide_to_long(flow_neg_wide, COL_LINE_UID, COL_FLOW)
+    if pos is None and neg is None:
+        return None
+    if neg is None:
+        return pos
+    if pos is None:
+        neg = neg.copy()
+        neg[COL_FLOW] = -neg[COL_FLOW]
+        return neg
+
+    key_cols = [
+        COL_SCENARIO,
+        COL_STAGE,
+        COL_BLOCK,
+        COL_DATE_UTC,
+        COL_HOUR,
+        COL_DATA_SOURCE,
+        COL_LINE_UID,
+    ]
+    merged = pos.merge(neg.rename(columns={COL_FLOW: "_neg"}), on=key_cols, how="outer")
+    merged[COL_FLOW] = merged[COL_FLOW].fillna(0.0) - merged["_neg"].fillna(0.0)
+    merged = merged.drop(columns="_neg")
+    return merged.reset_index(drop=True)
 
 
 def _wide_to_long(

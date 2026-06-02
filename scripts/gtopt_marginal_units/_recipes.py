@@ -137,7 +137,19 @@ def build_recipes_for_cell(
             constant_lmp = 0.0
             constant_em = 0.0
         else:  # single_unit / tied_units / forced_pmin_marginal
-            r_lmp = sum(w * m for w, m in zip(weights, mcs)) if mcs else zres.lambda_z
+            # rc-based picks (``interior_rc_zero_lp_dual``) select the
+            # basic-in-LP column whose JSON ``declared_MC`` may be 0
+            # (hydro, renewables) or otherwise diverge from the LP's
+            # marginal price.  In that case the LP-derived
+            # ``zres.lambda_z`` IS the true LMP — use it directly.
+            # The declared_MC weighted sum is meaningful only for the
+            # legacy ``interior_match_lp_dual`` fallback path.
+            if zres.reason == "interior_rc_zero_lp_dual":
+                r_lmp = zres.lambda_z
+            else:
+                r_lmp = (
+                    sum(w * m for w, m in zip(weights, mcs)) if mcs else zres.lambda_z
+                )
             r_em = sum(w * e for w, e in zip(weights, ems)) if ems else 0.0
             constant_lmp = 0.0
             constant_em = 0.0
@@ -151,6 +163,17 @@ def build_recipes_for_cell(
         # scaling, a $0.04 absolute drift on a $48 LMP would
         # spuriously fire the invariant (real-mode LP-derived LMP vs
         # synthesised merit-order MC always carries some FP noise).
+        #
+        # Skip the round-trip when the picker used LP reduced costs
+        # (``interior_rc_zero_lp_dual``): rc-based attribution selects
+        # the basic-in-LP column, whose JSON ``declared_MC`` is a static
+        # snapshot that may differ from the LP's actual marginal price
+        # (hydro water-value, piecewise-segment slope, loss-adjusted
+        # SRMC, etc.).  ``lambda_z`` IS the true marginal price by
+        # construction; the recipe explanation still names the gens and
+        # the consumer can refine ``r_lmp`` later by joining the
+        # ``Reservoir/water_value_dual`` / ``Generator/srmc_sol``
+        # parquet streams gtopt emits.
         scaled_tol = max(tol.tol_price, tol.tol_price * abs(zres.lambda_z))
         if (
             kind_str
@@ -158,6 +181,7 @@ def build_recipes_for_cell(
                 FormulaKind.SINGLE_UNIT.value,
                 FormulaKind.TIED_UNITS.value,
             }
+            and zres.reason != "interior_rc_zero_lp_dual"
             and mcs
             and abs(r_lmp - zres.lambda_z) > scaled_tol + 1e-9
         ):

@@ -212,21 +212,36 @@ def _read_long(
         )
         sub[uid_col] = sub[uid_col].astype(int)
         sub[value_col] = sub[value_col].astype(float)
-        return sub.reset_index(drop=True)
+        out = sub.reset_index(drop=True)
+    else:
+        uid_cols = [c for c in df.columns if c.startswith("uid:")]
+        if not uid_cols:
+            return None
 
-    uid_cols = [c for c in df.columns if c.startswith("uid:")]
-    if not uid_cols:
-        return None
+        melted = df.melt(
+            id_vars=key_cols,
+            value_vars=uid_cols,
+            var_name=uid_col,
+            value_name=value_col,
+        )
+        melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
+        melted[value_col] = melted[value_col].astype(float)
+        out = melted.reset_index(drop=True)
 
-    melted = df.melt(
-        id_vars=key_cols,
-        value_vars=uid_cols,
-        var_name=uid_col,
-        value_name=value_col,
-    )
-    melted[uid_col] = melted[uid_col].str.split(":").str[1].astype(int)
-    melted[value_col] = melted[value_col].astype(float)
-    return melted.reset_index(drop=True)
+    # Pad the canonical cell-key columns (``date_utc``, ``hour``,
+    # ``data_source``) that ``_gtopt_reader._wide_to_long`` adds to the
+    # primal frames.  Without these, ``_group_by_cell`` builds the rc
+    # frames' cell-key as ``(scen, stage, block, None, None, None)``
+    # but the dispatch / lmp / flow frames'  cell-key is
+    # ``(scen, stage, block, NA, NA, "simulated")`` — a mismatch that
+    # silently skips the rc-branch of ``_select_marginal_candidates``.
+    if "date_utc" not in out.columns:
+        out["date_utc"] = pd.NA
+    if "hour" not in out.columns:
+        out["hour"] = pd.NA
+    if "data_source" not in out.columns:
+        out["data_source"] = "simulated"
+    return out
 
 
 __all__ = [
