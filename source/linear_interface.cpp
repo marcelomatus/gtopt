@@ -1171,6 +1171,20 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
     m_backend_->set_integer(i);
   }
 
+  // SOS2 sets (issue #504 L-secant chord).  Forward each set to the
+  // backend after the integer-column flips so that columns
+  // participating in SOS2 land in the backend with their final
+  // continuous/integer type before the SOS declaration references
+  // them.  Backends without SOS2 (CBC/OSI, default-throw) raise a
+  // structured error from SolverBackend::add_sos2 — see that
+  // method's docstring for the support matrix.
+  for (const auto& set : flat_lp.sos2_sets) {
+    if (set.size() < 2) {
+      continue;
+    }
+    m_backend_->add_sos2(std::span<const int> {set.data(), set.size()});
+  }
+
   // Build name maps — clear first so reconstruction doesn't accumulate
   // duplicates from a previous load_flat() call.
   auto build_name_map = []<typename IndexType>(const auto& names_vec,

@@ -966,6 +966,67 @@ bool CplexSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
+void CplexSolverBackend::add_sos2(std::span<const int> columns)
+{
+  // SOS2 declaration is a structural mutation — flush every per-call
+  // cache the way ``invalidate_problem_data()`` would.  The native
+  // ``CPXaddsos`` does not touch the LP matrix itself, but it does
+  // change the problem type to MIP if it was pure LP, which the
+  // bound/obj caches do depend on.
+  if (columns.size() < 2) {
+    return;
+  }
+  invalidate_problem_data();
+
+  // CPLEX expects one (sostype, beg, ind, wt) record per call.  We
+  // emit a single SOS2 here, so:
+  //   numsos = 1, numsosnz = columns.size(), sosbeg = {0}
+  //   sostype = "2"  (CPX_TYPE_SOS2)
+  //   sosind  = columns (caller-owned, contiguous)
+  //   soswt   = {1, 2, …, N}  geometric breakpoint order; gtopt
+  //                            does not expose custom weights since
+  //                            the LP-side segment widths already
+  //                            encode the breakpoint distances.
+  const int num_sos = 1;
+  const int num_nnz = static_cast<int>(columns.size());
+  const int sosbeg = 0;
+  const char sostype = CPX_TYPE_SOS2;
+
+  std::vector<double> wt;
+  wt.reserve(columns.size());
+  for (std::size_t i = 0; i < columns.size(); ++i) {
+    wt.push_back(static_cast<double>(i + 1));
+  }
+
+  // Promote to MIP if needed — CPXaddsos auto-promotes on most CPLEX
+  // versions but we mirror set_integer's defensive flip so the SOS2
+  // contract is symmetric with the integer-column contract.
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
+  if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
+    CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MILP);
+  }
+
+  const int rc = CPXaddsos(m_env_lp_.env(),
+                           m_env_lp_.lp(),
+                           num_sos,
+                           num_nnz,
+                           &sostype,
+                           &sosbeg,
+                           columns.data(),
+                           wt.data(),
+                           nullptr);
+  if (rc != 0) {
+    std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
+    CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
+    throw std::runtime_error(
+        std::format("CplexSolverBackend::add_sos2 CPXaddsos failed "
+                    "(rc={}, n={}): {}",
+                    rc,
+                    num_nnz,
+                    err_buf.data()));
+  }
+}
+
 int CplexSolverBackend::relax_all_integers()
 {
   // Single-call bulk relaxation: switch the problem type from
