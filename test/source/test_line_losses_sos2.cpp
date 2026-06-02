@@ -33,7 +33,9 @@
 #include <string>
 #include <string_view>
 
+#include <daw/json/daw_json_link.h>
 #include <doctest/doctest.h>
+#include <gtopt/json/json_line.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/line_losses.hpp>
 #include <gtopt/line_lp.hpp>
@@ -43,9 +45,6 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
-
-#include <daw/json/daw_json_link.h>
-#include <gtopt/json/json_line.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -160,7 +159,8 @@ private:
     return ln;
   }
 
-  PlanningOptionsLP make_options(int global_secant_segments, bool global_use_sos2)
+  PlanningOptionsLP make_options(int global_secant_segments,
+                                 bool global_use_sos2)
   {
     opts.model_options.use_single_bus = false;
     opts.model_options.use_kirchhoff = false;
