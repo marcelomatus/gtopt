@@ -116,6 +116,76 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return out;
 }
 
+// ── Kirchhoff fixture (line w/ reactance) ───────────────────────────
+//
+// 2-bus DC-OPF setup used by the kirchhoff_mode validation gate
+// tests.  Reactance > 0 so KVL rows are actually emitted; the test
+// JSON parameterises ``use_kirchhoff`` and ``kirchhoff_mode`` so a
+// single helper covers all four cells of the gate truth table.
+
+[[nodiscard]] std::string make_2bus_kirchhoff_gate_json(
+    bool with_line_commitment,
+    bool active_lc = true,
+    bool use_kirchhoff = true,
+    std::string_view kirchhoff_mode = "cycle_basis")
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": )";
+  out += (use_kirchhoff ? "true" : "false");
+  out += R"(,
+        "kirchhoff_mode": ")";
+  out += kirchhoff_mode;
+  out += R"(",
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [{ "uid": 1, "duration": 1 }],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 1,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_gate_2bus",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2", "lmax": [[100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+          "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200 }
+      ])";
+  if (with_line_commitment) {
+    out += R"(,
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true)";
+    if (!active_lc) {
+      out += R"(, "active": 0)";
+    }
+    out += R"( }
+      ])";
+  }
+  out += R"(
+    }
+  })";
+  return out;
+}
+
 [[nodiscard]] bool mip_available()
 {
   auto& reg = SolverRegistry::instance();
@@ -158,6 +228,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 }  // namespace test_line_commitment_ns
 
 using test_line_commitment_ns::make_2bus_json;
+using test_line_commitment_ns::make_2bus_kirchhoff_gate_json;
 using test_line_commitment_ns::mip_available;
 using test_line_commitment_ns::tlcom_count_cols_containing;
 using test_line_commitment_ns::tlcom_count_rows_containing;
@@ -289,6 +360,82 @@ TEST_CASE("LineCommitment validation — monolithic method accepted")
                                                      /*must_run=*/false,
                                                      /*method=*/"monolithic"));
   const auto result = validate_planning(planning);
+  CHECK(result.ok());
+}
+
+// ── (4b) Validation — Kirchhoff-mode gate (cycle_basis rejected) ────
+//
+// v0.5 KVL big-M disjunctive rewrite is node_angle-only.  cycle_basis
+// + active LineCommitment + use_kirchhoff must be rejected at
+// validation time — without the gate the open line is silently
+// reinjected into cycle KVL via its phase-shift / reactance terms.
+// Transport mode (use_kirchhoff = false) is exempt.
+
+TEST_CASE(
+    "LineCommitment validation — cycle_basis + active LC + Kirchhoff rejected")
+{
+  auto planning = parse_planning_json(
+      make_2bus_kirchhoff_gate_json(/*with_line_commitment=*/true,
+                                    /*active_lc=*/true,
+                                    /*use_kirchhoff=*/true,
+                                    /*kirchhoff_mode=*/"cycle_basis"));
+  const auto result = validate_planning(planning);
+  CHECK_FALSE(result.ok());
+  bool found = false;
+  for (const auto& err : result.errors) {
+    if (err.contains("Optimal Transmission Switching")
+        && err.contains("kirchhoff_mode") && err.contains("node_angle"))
+    {
+      found = true;
+      break;
+    }
+  }
+  CHECK(found);
+}
+
+TEST_CASE("LineCommitment validation — node_angle + active LC accepted")
+{
+  auto planning = parse_planning_json(
+      make_2bus_kirchhoff_gate_json(/*with_line_commitment=*/true,
+                                    /*active_lc=*/true,
+                                    /*use_kirchhoff=*/true,
+                                    /*kirchhoff_mode=*/"node_angle"));
+  const auto result = validate_planning(planning);
+  // Validation should pass — no Kirchhoff-mode error.
+  for (const auto& err : result.errors) {
+    CHECK_FALSE(err.contains("kirchhoff_mode"));
+  }
+  CHECK(result.ok());
+}
+
+TEST_CASE("LineCommitment validation — cycle_basis + transport mode accepted")
+{
+  // use_kirchhoff = false → transport mode; capacity gating alone
+  // is correct, cycle_basis flag is moot.
+  auto planning = parse_planning_json(
+      make_2bus_kirchhoff_gate_json(/*with_line_commitment=*/true,
+                                    /*active_lc=*/true,
+                                    /*use_kirchhoff=*/false,
+                                    /*kirchhoff_mode=*/"cycle_basis"));
+  const auto result = validate_planning(planning);
+  for (const auto& err : result.errors) {
+    CHECK_FALSE(err.contains("kirchhoff_mode"));
+  }
+  CHECK(result.ok());
+}
+
+TEST_CASE("LineCommitment validation — cycle_basis + inactive LC only accepted")
+{
+  // Only inactive LineCommitment rows → gate does not fire.
+  auto planning = parse_planning_json(
+      make_2bus_kirchhoff_gate_json(/*with_line_commitment=*/true,
+                                    /*active_lc=*/false,
+                                    /*use_kirchhoff=*/true,
+                                    /*kirchhoff_mode=*/"cycle_basis"));
+  const auto result = validate_planning(planning);
+  for (const auto& err : result.errors) {
+    CHECK_FALSE(err.contains("kirchhoff_mode"));
+  }
   CHECK(result.ok());
 }
 

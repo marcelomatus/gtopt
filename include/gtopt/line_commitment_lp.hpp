@@ -20,18 +20,25 @@
  *      transparent to whether the underlying flow column is signed —
  *      ``tangent_signed_flow`` — or split into ``fp`` / ``fn``).
  *
- * **v0 scope** (issue #509 §"Implementation roadmap"): capacity gating
- * only.  In Kirchhoff mode (``use_kirchhoff = true``) the existing
- * KVL equality ``f = b_eff · Δθ`` is still emitted by ``LineLP``,
- * which means ``u_l = 0`` pins ``Δθ = 0`` (the two buses stay coupled
- * angle-wise even though they're decoupled flow-wise) — this is a
- * **deliberate simplification for v0** documented as such, with the
- * big-M disjunctive KVL rewrite landing in v0.5.  Transport-mode OTS
- * (``use_kirchhoff = false``) is bit-for-bit correct in v0.
+ * **v0.5 scope** (issue #509 §"Implementation roadmap"):
+ *   - **Capacity gating** — always emitted (transport + Kirchhoff).
+ *   - **KVL big-M disjunction** — emitted only in
+ *     ``kirchhoff_mode = node_angle``.  The per-line KVL equality
+ *     row stamped by ``LineLP`` is rewritten in place as an upper-
+ *     side ``≤`` inequality and a new lower-side ``≥`` row is added,
+ *     so ``u_l = 0`` decouples ``θ_a`` from ``θ_b`` exactly like an
+ *     opened breaker.
  *
- * Method gate: ``validate_planning`` rejects LineCommitment rows on
- * ``method ∈ {sddp, cascade}``.  See issue #509 §"Why monolithic
- * only, not SDDP".
+ * **Mode gates** (enforced by ``validate_planning``):
+ *   - ``method ∈ {sddp, cascade}`` is rejected — Benders cuts on a
+ *     mixed-integer subproblem are unsound (Zou-Ahmed-Sun 2019).
+ *   - ``kirchhoff_mode = cycle_basis`` (the gtopt default) combined
+ *     with active LineCommitment + ``use_kirchhoff = true`` is
+ *     rejected — the v0.5 KVL big-M rewrite is node_angle-only.
+ *     Users must pick ``kirchhoff_mode = node_angle`` (for DC-OPF
+ *     OTS) or ``use_kirchhoff = false`` (transport-mode OTS, which
+ *     is bit-for-bit correct under capacity gating alone).  A
+ *     follow-up will land the cycle-form disjunctive rewrite.
  */
 
 #pragma once
