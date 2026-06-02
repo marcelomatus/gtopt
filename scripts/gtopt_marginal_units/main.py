@@ -390,20 +390,24 @@ def _process_cells(
     flow_by_cell = (
         _group_by_cell(cells.flow, "line_uid", "flow") if cells.has_flow() else {}
     )
-    # ``used_capacity = |flowp| + |flown| + loss`` per the LP cap row
-    # ``flowp + flown + Σ loss_seg ≤ tmax``.  Lines saturated via losses
-    # (high flow + non-trivial PWL loss segment, where ``|flow|`` alone is
-    # ~99 % but the cap is binding) split the topology graph correctly.
-    used_cap_by_cell = (
-        _group_by_cell(cells.flow, "line_uid", "used_capacity")
-        if cells.has_flow() and "used_capacity" in cells.flow.columns
+    # ``Line/flow_cost`` carries the LP-textbook saturation signal: the
+    # SIGNED reduced cost on the line's flow column (negative ⇔ at
+    # +tmax_ab, positive ⇔ at −tmax_ba, zero ⇔ interior basic).  When
+    # available, this is strictly cleaner than the primal-magnitude
+    # test ``|flow| ≥ (1−eps) × tmax`` (which produces false positives
+    # on lines whose flow lands at e.g. 99.79 % of tmax without the
+    # cap actually binding).
+    flow_cost_by_cell = (
+        _group_by_cell(cells.flow_dual, "line_uid", "flow_dual")
+        if cells.has_flow_dual()
         else {}
     )
 
-    # Per-line thermal limit ``max(tmax_ab, tmax_ba)`` used by the
-    # primal saturation test below.  Pre-built once outside the cell
-    # loop so each cell's saturation check is an O(nlines) hash lookup,
-    # not an O(nlines) topology rescan.
+    # Per-line thermal limit ``max(tmax_ab, tmax_ba)`` used as the
+    # primal-fallback saturation test (when ``flow_cost`` is absent —
+    # older gtopt outputs without the unified-flow stems).  Pre-built
+    # once outside the cell loop so each cell's saturation check is an
+    # O(nlines) hash lookup.
     line_tmax: dict[int, float] = {
         ln.uid: max(float(ln.tmax_ab), float(ln.tmax_ba)) for ln in topology.lines
     }
@@ -432,33 +436,43 @@ def _process_cells(
         gen_rc_by_uid = gen_rc_by_cell.get(cell_key, {})
         gen_srmc_by_uid = gen_srmc_by_cell.get(cell_key, {})
 
-        # Zone partition.
+        # Zone partition.  A line is "saturated" iff its cap row in
+        # the LP is binding — the LP-textbook test.  Two signals:
+        #
+        # Primary: ``Line/flow_cost`` (signed rc on the flow column).
+        # ``|rc| > eps`` ⇔ at upper or lower cap (basic-feasible-
+        # solution theory).  Strictly correct because it reads the LP
+        # basis, not a primal-magnitude heuristic.  Available since
+        # the unified line-flow output (``Line/flow_sol`` + ``flow_cost``).
+        #
+        # Fallback: primal magnitude ``|flow| ≥ (1−eps) × tmax`` for
+        # older gtopt outputs that don't emit ``flow_cost``.  Has known
+        # false positives — a line landing at e.g. 99.79 % of tmax
+        # with no congestion price gets flagged, splitting a network
+        # that's actually still connected and producing spurious
+        # "no-marginal-unit" islands (jan18 / Diego-de-Almagro pattern).
         if single_bus or not topology.lines:
             zone_of = {u: 0 for u in bus_uids}
         else:
-            # Primal saturation test: a line is "saturated" when
-            # ``used_capacity = |flowp| + |flown| + loss ≥
-            # (1 − eps) × max(tmax_ab, tmax_ba)``.  Matches gtopt's
-            # actual cap row ``flowp + flown + Σ loss_seg ≤ tmax``, so
-            # lines saturated *through losses* (high flow + small
-            # remaining headroom consumed by the PWL loss segments)
-            # split the topology graph correctly.  Falls back to the
-            # signed-flow magnitude test when ``used_capacity`` is
-            # absent (e.g. older parquet outputs without ``loss_sol``).
-            used_by_uid = used_cap_by_cell.get(cell_key, {})
-            flow_by_uid = flow_by_cell.get(cell_key, {})
-            cap_by_uid = used_by_uid or {
-                u: abs(float(f)) for u, f in flow_by_uid.items()
-            }
+            cost_by_uid = flow_cost_by_cell.get(cell_key, {})
             saturated_uids: set[int] = set()
-            if cap_by_uid and line_tmax:
-                eps_sat = max(tol.tol_flow, 1e-3)
-                for uid, fval in cap_by_uid.items():
-                    tmax = line_tmax.get(int(uid))
-                    if tmax is None or tmax <= 0.0:
-                        continue
-                    if abs(float(fval)) >= (1.0 - eps_sat) * tmax:
+            if cost_by_uid:
+                # LP rc test — independent of tmax, no false positives.
+                eps_rc = max(tol.tol_price, 1e-3)
+                for uid, rc in cost_by_uid.items():
+                    if abs(float(rc)) > eps_rc:
                         saturated_uids.add(int(uid))
+            else:
+                # Primal-fallback for legacy parquet outputs.
+                flow_by_uid = flow_by_cell.get(cell_key, {})
+                if flow_by_uid and line_tmax:
+                    eps_sat = max(tol.tol_flow, 1e-3)
+                    for uid, fval in flow_by_uid.items():
+                        tmax = line_tmax.get(int(uid))
+                        if tmax is None or tmax <= 0.0:
+                            continue
+                        if abs(float(fval)) >= (1.0 - eps_sat) * tmax:
+                            saturated_uids.add(int(uid))
             zone_of = partition_zones(topology, saturated_line_uids=saturated_uids)
 
         if lmp_by_bus:
