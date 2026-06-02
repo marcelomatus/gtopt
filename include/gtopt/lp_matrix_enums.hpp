@@ -41,6 +41,44 @@ enum class LpNamesLevel : int8_t
   all = 1,  ///< All column + row names + name maps; duplicates throw
 };
 
+// --- LpLabelStyle -----------------------------------------------------------
+
+/**
+ * @brief LP column/row label render style for `LabelMaker::format_label`.
+ *
+ * Selects between the compact (UID) and extended (human-readable element
+ * name) form when `LabelMaker` actually renders a label.  Has no effect
+ * when `LpNamesLevel::none` is set — no labels are produced regardless.
+ *
+ * - `compact`  : UID in the id segment, e.g. `line_overloadp_307_1_1_111`
+ *                (current behaviour, byte-identical to pre-#508 output).
+ * - `extended` : ASCIIfied element name in the id segment, e.g.
+ *                `line_overloadp_jadresic220_ii___montemina220_1_1_111`.
+ *
+ * Under `extended`, `LabelMaker` consults an optional `AsciiNameCache`
+ * on `SimulationLP` to translate `(class_name, uid)` to the asciified
+ * element name.  Falls back to the compact form per-label when the
+ * element name is unknown or empty.
+ *
+ * Tracked by issue #508.  Design: `docs/design/lp-extended-labels.md`.
+ */
+enum class LpLabelStyle : std::uint8_t
+{
+  compact = 0,  ///< UID in the id segment (default, byte-identical to today)
+  extended = 1,  ///< ASCIIfied element name in the id segment
+};
+
+inline constexpr auto lp_label_style_entries =
+    std::to_array<EnumEntry<LpLabelStyle>>({
+        {.name = "compact", .value = LpLabelStyle::compact},
+        {.name = "extended", .value = LpLabelStyle::extended},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LpLabelStyle /*tag*/) noexcept
+{
+  return std::span {lp_label_style_entries};
+}
+
 // --- LpEquilibrationMethod --------------------------------------------------
 
 /**

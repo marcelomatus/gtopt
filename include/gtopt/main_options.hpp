@@ -379,6 +379,16 @@ template<typename T>
        "(see naming_dialects.json for the authoritative list).  "
        "Shorthand for --set model_options.naming_dialect=<name>.")
       //
+      ("lp-label-style",
+       po::value<std::string>(),
+       "LP column/row label render style (issue #508): "
+       "'compact' (default, byte-identical to today — UID in id "
+       "segment) or 'extended' (ASCIIfied element name in id "
+       "segment).  Has no effect unless LP labels are actually "
+       "produced (e.g. via --lp-file / --lp-debug); the dominant "
+       "production-solve path is unaffected.  Shorthand for "
+       "--set model_options.lp_label_style=<value>.")
+      //
       ("mip-gap",
        po::value<double>(),
        "Target relative MIP optimality gap (e.g. 0.01 = 1 %); ignored on "
@@ -885,6 +895,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.model_options.naming_dialect = opts.naming_dialect;
   }
 
+  if (opts.lp_label_style.has_value()) {
+    // CLI > JSON > built-in default `compact` (issue #508).  The
+    // assignment is unconditional — if the user passed
+    // `--lp-label-style compact` they get the default behaviour
+    // regardless of what the JSON says, which is the documented
+    // precedence in `docs/design/lp-extended-labels.md` §7.4.
+    planning.options.model_options.lp_label_style = opts.lp_label_style;
+  }
+
   if (opts.mip_gap.has_value()) {
     // CLI shortcut wins over any prior JSON setting — `--set
     // solver_options.mip_gap=…` is still available for full control,
@@ -1128,6 +1147,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .no_scale = get_opt<bool>(vm, "no-scale"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
+      .lp_label_style = get_opt<std::string>(vm, "lp-label-style"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .time_limit = get_opt<double>(vm, "time-limit"),
       .set_options = vm.contains("set")
@@ -1421,6 +1441,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.no_scale, defaults.no_scale);
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
+  merge(opts.lp_label_style, defaults.lp_label_style);
   merge(opts.mip_gap, defaults.mip_gap);
   merge(opts.time_limit, defaults.time_limit);
   merge(opts.memory_limit, defaults.memory_limit);

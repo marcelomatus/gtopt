@@ -336,7 +336,19 @@ constexpr auto flatten_from_collections(auto& collections,
       (flat_opts.row_with_name_map || flat_opts.col_with_names)
       ? LpNamesLevel::all
       : LpNamesLevel::none;
-  const LabelMaker label_maker {eff_level};
+  // Wire the SimulationLP-owned `AsciiNameCache` into the LabelMaker so
+  // that downstream renders under `LpLabelStyle::extended` resolve
+  // element names without re-asciifying.  The cache pointer is read at
+  // render time only; under `compact` (default) it is ignored and the
+  // pre-#508 byte-identical render path is preserved.  See
+  // `docs/design/lp-extended-labels.md` §5.3 / §6.2.
+  const auto& sim = system_context.simulation();
+  const auto label_style = sim.options().lp_label_style();
+  const LabelMaker label_maker {
+      eff_level,
+      label_style,
+      &sim.ascii_name_cache(),
+  };
 
   LinearProblem lp(as_label("gtopt", scene.uid(), phase.uid()));
   lp.set_label_maker(label_maker);

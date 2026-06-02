@@ -22,6 +22,7 @@
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/line_enums.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/phase_range_set.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/variable_scale.hpp>
@@ -80,6 +81,16 @@ public:
    *  style relaxation (`lowb = 0`) when iter-0 of an SDDP cascade needs the
    *  floor relaxed to stay feasible. */
   static constexpr Bool default_strict_storage_emin = true;
+  /** @brief Default LP label style for `LabelMaker` renders (issue #508).
+   *
+   *  `compact` keeps every LP column/row label byte-identical to today
+   *  (UID in the id segment), so fingerprint streams stay green by
+   *  default.  Opt into `extended` per-run via
+   *  `--lp-label-style extended` or
+   *  `--set model_options.lp_label_style=extended` to substitute the
+   *  asciified element name for the UID in the id segment.  See
+   *  `docs/design/lp-extended-labels.md`. */
+  static constexpr LpLabelStyle default_lp_label_style = LpLabelStyle::compact;
   /** @brief Default threshold for Kirchhoff constraints */
   static constexpr Real default_kirchhoff_threshold = 0;
   /** @brief Default per-unit reactance floor for DC-line auto-promotion.
@@ -355,6 +366,24 @@ public:
   {
     return m_options_.model_options.strict_storage_emin.value_or(
         default_strict_storage_emin);
+  }
+
+  /// @brief LP label render style (issue #508).
+  ///
+  /// `compact` (default) preserves the pre-#508 behaviour: every LP
+  /// column / row name embeds the element UID in the id segment.
+  /// `extended` substitutes the asciified element name for the UID via
+  /// the lazy `AsciiNameCache` on `SimulationLP`.  Has no effect when
+  /// LP labels are not produced (`lp_names_level == none`, the default
+  /// for production solves).
+  [[nodiscard]] constexpr LpLabelStyle lp_label_style() const noexcept
+  {
+    if (m_options_.model_options.lp_label_style.has_value()) {
+      return enum_from_name<LpLabelStyle>(
+                 *m_options_.model_options.lp_label_style)
+          .value_or(default_lp_label_style);
+    }
+    return default_lp_label_style;
   }
 
   /// Demand-failure substitution with RHS shift (Option C — renamed

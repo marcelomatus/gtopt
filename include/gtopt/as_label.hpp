@@ -1042,6 +1042,83 @@ template<detail::string_like T>
   // hicpp-no-array-decay)
 }
 
+// ── ASCIIfication for LP labels (issue #508) ─────────────────────────────────
+
+namespace detail
+{
+
+/// Branchless 256-byte lookup table mapping every byte to the strictest
+/// LP-name-safe character set: bytes in `[A-Za-z0-9_]` are preserved
+/// verbatim; every other byte (including all UTF-8 continuations) is
+/// mapped to `_`.  Built at `consteval` time so the runtime path is two
+/// memory loads + a store per character, no branches.
+///
+/// See `docs/design/lp-extended-labels.md` §4.3 / §6.8.3.
+inline constexpr auto k_label_allowed_lut = []() consteval
+{
+  std::array<char, 256> t {};
+  for (int c = 0; c < 256; ++c) {
+    const bool keep = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z')
+        || (c >= 'a' && c <= 'z') || c == '_';
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+    t[static_cast<std::size_t>(c)] = keep ? static_cast<char>(c) : '_';
+  }
+  return t;
+}();
+
+}  // namespace detail
+
+/**
+ * @brief Append the asciified form of @p in to @p out.
+ *
+ * Every byte in @p in is appended to @p out either verbatim (when it
+ * matches `[A-Za-z0-9_]`) or replaced by `_`.  No runs of `_` are
+ * collapsed; multi-byte UTF-8 sequences therefore expand to a run of
+ * underscores (one per byte), preserving a bijective-ish mapping that
+ * keeps similar names from colliding after ASCIIfication.
+ *
+ * Used by `AsciiNameCache::populate_()` to write element-name views
+ * directly into a single contiguous arena — no per-name allocation.
+ *
+ * @code{.cpp}
+ * std::string arena;
+ * gtopt::asciify_into(arena, "Jadresic220_II→MonteMina220");
+ * // arena now appended with "Jadresic220_II___MonteMina220"
+ * @endcode
+ *
+ * @param out  Destination buffer; receives `in.size()` bytes appended.
+ * @param in   UTF-8 (or arbitrary byte) input.
+ */
+inline void asciify_into(std::string& out, std::string_view in)
+{
+  const auto pre = out.size();
+  out.resize(pre + in.size());
+  std::ranges::transform(in,
+                         out.begin() + static_cast<std::ptrdiff_t>(pre),
+                         [](unsigned char c) noexcept -> char
+                         {
+                           // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                           return detail::k_label_allowed_lut[c];
+                         });
+}
+
+/**
+ * @brief Return the asciified form of @p in as a fresh `std::string`.
+ *
+ * Convenience wrapper over `asciify_into`.  Allocates exactly once
+ * (reserves `in.size()` bytes); the output is the same length as the
+ * input.  Useful when the caller does not already own a destination
+ * buffer; arena-style consumers should prefer `asciify_into` to avoid
+ * per-call allocation.
+ */
+[[nodiscard]] inline std::string asciify(std::string_view in)
+{
+  std::string out;
+  out.reserve(in.size());
+  asciify_into(out, in);
+  return out;
+}
+
 }  // namespace gtopt
 
 // NOLINTEND(readability-trailing-comma)

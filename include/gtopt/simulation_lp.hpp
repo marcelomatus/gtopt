@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <gtopt/ampl_variable.hpp>
+#include <gtopt/ascii_name_cache.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/integer_variable.hpp>
 #include <gtopt/phase_lp.hpp>
@@ -884,6 +885,17 @@ public:
                                                : std::nullopt;
   }
 
+  /// Read-only access to the AMPL element-name registry.  Used by
+  /// `AsciiNameCache::populate_()` (issue #508) to walk the
+  /// `(class_snake, name) -> uid` index in two passes when first
+  /// probed under `LpLabelStyle::extended`.  Read-only after the
+  /// `register_ampl_element` `std::call_once` block in
+  /// `system_lp.cpp`, so safe to walk without synchronization.
+  [[nodiscard]] const AmplElementNameMap& ampl_element_names() const noexcept
+  {
+    return m_ampl_element_names_;
+  }
+
   /// Reverse lookup: element name by (LPClassName, uid).  Linear scan
   /// — only use on rare / diagnostic paths (e.g. SDDP fcut logging).
   /// The registry stores snake_case class_name keys; `class_name`
@@ -1282,7 +1294,31 @@ private:
   AmplParamMap m_ampl_params_;
   AmplIterMap m_ampl_iters_;
 
+  /// Lazy ASCII-name cache for LP extended labels (issue #508).
+  /// Populated on the first `lookup` call from `LabelMaker::format_label`
+  /// under `LpLabelStyle::extended`.  Stays at construction-default
+  /// (empty containers + unset `once_flag`) for any run that never
+  /// invokes `write_lp`.  See `docs/design/lp-extended-labels.md` §6.
+  ///
+  /// `mutable` because the cache is logically read-only — the
+  /// `populate_()` writes are guarded by `std::call_once`, and
+  /// `LabelMaker` queries the cache through `const SimulationLP&`
+  /// during render.
+  mutable AsciiNameCache m_ascii_cache_ {*this};
+
 public:
+  /// Read-only access to the lazy ASCII-name cache (issue #508).
+  /// `LabelMaker` consumers (`write_lp`, `lp_debug`, fingerprint debug)
+  /// pass the address of this cache into the `LabelMaker` they
+  /// construct so that extended-style renders can look up element
+  /// names.  Untouched under `compact` style — the
+  /// `LabelMaker::m_cache_` pointer stays `nullptr` and the cache
+  /// stays empty.
+  [[nodiscard]] const AsciiNameCache& ascii_name_cache() const noexcept
+  {
+    return m_ascii_cache_;
+  }
+
   /// Exposed so that `SystemLP`'s constructor can wrap the one-shot
   /// AMPL-registry population in `std::call_once`.  Not part of the
   /// public user API — `friend class SystemLP` would be purer but

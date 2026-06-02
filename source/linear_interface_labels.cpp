@@ -40,7 +40,16 @@ void LinearInterface::generate_labels_from_maps(
   // Forced-all LabelMaker: `m_label_maker_` is whatever flatten
   // captured (typically `none`).  Here we want real labels always,
   // synthesised on demand from metadata.
-  const LabelMaker writer_labels {LpNamesLevel::all};
+  //
+  // Issue #508: preserve the carried label-style + cache pointer so
+  // that `write_lp` under `--lp-label-style extended` resolves element
+  // names via the `AsciiNameCache` on `SimulationLP` wired into the
+  // flatten-time LabelMaker.  When the cache pointer is `nullptr`
+  // (compact mode, default) the render path is byte-identical to the
+  // pre-#508 implementation — no probe occurs.
+  const LabelMaker writer_labels {LpNamesLevel::all,
+                                  m_label_maker_.label_style(),
+                                  m_label_maker_.ascii_name_cache()};
 
   const auto ncols = static_cast<size_t>(m_backend_->get_num_cols());
   col_names.assign(ncols, std::string {});

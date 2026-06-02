@@ -200,6 +200,16 @@ struct ModelOptions
   /// over-constrains the forward pass when state vars cluster at the floor.
   OptBool strict_storage_emin {};
 
+  /// LP column/row label render style (issue #508).  String form of
+  /// `LpLabelStyle`: `"compact"` (default — UID in id segment) or
+  /// `"extended"` (asciified element name in id segment).  Settable
+  /// via JSON (`options.model_options.lp_label_style`) or CLI
+  /// (`--lp-label-style compact|extended`).  Inert unless LP labels
+  /// are actually produced (`lp_names_level != none`); the dominant
+  /// production-solve path is therefore unaffected.  See
+  /// `docs/design/lp-extended-labels.md`.
+  OptName lp_label_style {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -225,6 +235,7 @@ struct ModelOptions
     merge_opt(continuous_phases, opts.continuous_phases);
     merge_opt(naming_dialect, opts.naming_dialect);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
+    merge_opt(lp_label_style, opts.lp_label_style);
   }
 
   /// True if any field is set.
@@ -240,7 +251,8 @@ struct ModelOptions
         || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
         || hydro_use_value.has_value() || state_violation_cost.has_value()
         || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
-        || naming_dialect.has_value() || strict_storage_emin.has_value();
+        || naming_dialect.has_value() || strict_storage_emin.has_value()
+        || lp_label_style.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -272,7 +284,8 @@ struct ModelOptions
         && covers_opt(demand_fail_rhs_shift, other.demand_fail_rhs_shift)
         && covers_opt(continuous_phases, other.continuous_phases)
         && covers_opt(naming_dialect, other.naming_dialect)
-        && covers_opt(strict_storage_emin, other.strict_storage_emin);
+        && covers_opt(strict_storage_emin, other.strict_storage_emin)
+        && covers_opt(lp_label_style, other.lp_label_style);
   }
 };
 

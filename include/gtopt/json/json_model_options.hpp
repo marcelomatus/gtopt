@@ -43,7 +43,8 @@ struct json_data_contract<ModelOptions>
                        json_bool_null<"demand_fail_rhs_shift", OptBool>,
                        json_string_null<"continuous_phases", OptName>,
                        json_string_null<"naming_dialect", OptName>,
-                       json_bool_null<"strict_storage_emin", OptBool>>;
+                       json_bool_null<"strict_storage_emin", OptBool>,
+                       json_string_null<"lp_label_style", OptName>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -69,7 +70,8 @@ struct json_data_contract<ModelOptions>
                                  opt.demand_fail_rhs_shift,
                                  opt.continuous_phases,
                                  opt.naming_dialect,
-                                 opt.strict_storage_emin);
+                                 opt.strict_storage_emin,
+                                 opt.lp_label_style);
   }
 };
 

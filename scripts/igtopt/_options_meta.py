@@ -151,6 +151,7 @@ MODEL_OPTION_KEYS: frozenset[str] = frozenset(
         "hydro_use_value",
         "continuous_phases",
         "naming_dialect",
+        "lp_label_style",  # issue #508 — compact (default) | extended
     }
 )
 

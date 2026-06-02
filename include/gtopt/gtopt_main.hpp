@@ -327,6 +327,17 @@ struct MainOptions
    * full semantics (input warn + output JSON rename). */
   std::optional<std::string> naming_dialect {};
 
+  /** @brief LP column/row label render style (issue #508).
+   *
+   * Bound to the CLI flag `--lp-label-style <compact|extended>`.
+   * Forwards to `model_options.lp_label_style`.  When `extended`,
+   * `LabelMaker` substitutes the asciified element name for the UID
+   * in every LP label that gets produced.  Inert unless LP labels
+   * are actually emitted (e.g. via `--lp-file` / `--lp-debug`); the
+   * default `none` names level skips this work entirely.  See
+   * `docs/design/lp-extended-labels.md`. */
+  std::optional<std::string> lp_label_style {};
+
   /** @brief Target relative MIP optimality gap (CLI shortcut).
    *
    * Bound to the CLI flag `--mip-gap <value>`.  Forwards to

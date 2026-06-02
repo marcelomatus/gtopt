@@ -34,6 +34,7 @@ namespace gtopt
 
 struct SparseCol;
 struct SparseRow;
+class AsciiNameCache;
 
 class LabelMaker
 {
@@ -45,9 +46,41 @@ public:
   {
   }
 
+  /// Full ctor (issue #508): selects label render style and an optional
+  /// `AsciiNameCache` consulted under `LpLabelStyle::extended`.
+  ///
+  /// Under `compact` the cache pointer is ignored (and stays `nullptr`
+  /// by default) — the render path is byte-identical to today.  Under
+  /// `extended` a non-null cache produces the human-readable label
+  /// form; a null cache or an unknown `(class, uid)` falls back to
+  /// compact per-label (preserves anonymous synthetic columns).
+  constexpr LabelMaker(LpNamesLevel level,
+                       LpLabelStyle style,
+                       const AsciiNameCache* cache = nullptr) noexcept
+      : m_level_(level)
+      , m_style_(style)
+      , m_cache_(cache)
+  {
+  }
+
   [[nodiscard]] constexpr LpNamesLevel names_level() const noexcept
   {
     return m_level_;
+  }
+
+  /// Currently configured label render style (issue #508).
+  [[nodiscard]] constexpr LpLabelStyle label_style() const noexcept
+  {
+    return m_style_;
+  }
+
+  /// ASCII-name cache used by extended renders.  `nullptr` under
+  /// `compact` and at default construction; non-null only when a
+  /// label consumer (e.g. `write_lp`) wires the cache in.
+  [[nodiscard]] constexpr const AsciiNameCache* ascii_name_cache()
+      const noexcept
+  {
+    return m_cache_;
   }
 
   /// True iff dense column name vectors / name-maps should be generated.
@@ -86,6 +119,8 @@ public:
 
 private:
   LpNamesLevel m_level_ {LpNamesLevel::none};
+  LpLabelStyle m_style_ {LpLabelStyle::compact};
+  const AsciiNameCache* m_cache_ {nullptr};
 };
 
 }  // namespace gtopt
