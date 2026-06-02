@@ -237,6 +237,13 @@ private:
   STBIndexHolder<double> vom_cost_values_;
   STBIndexHolder<double> fuel_cost_values_;
   STBIndexHolder<double> srmc_values_;
+
+  /// Per-block fuel uid actually used at each (scenario, stage, block).
+  /// Populated by `add_to_lp` ONLY for the multi-fuel matrix branch
+  /// (Issue #510 Phase 1); the constant-fuel fast path leaves this
+  /// holder empty — `add_to_output` then skips the
+  /// `Generator/fuel_sol.parquet` emission (acceptance criterion #4).
+  STBIndexHolder<Uid> fuel_picked_values_;
 };
 
 using GeneratorLPId = ObjectId<GeneratorLP>;

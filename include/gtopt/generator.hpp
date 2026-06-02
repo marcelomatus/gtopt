@@ -35,6 +35,7 @@
 #include <gtopt/emission_capture.hpp>
 #include <gtopt/emission_source.hpp>
 #include <gtopt/lp_class_name.hpp>
+#include <gtopt/single_id_sched.hpp>
 
 namespace gtopt
 {
@@ -86,7 +87,18 @@ struct GeneratorAttrs
   /// Both `gcost` and `emission_rate` are kept as additive offsets
   /// (variable non-combustion O&M / process emissions respectively).
   /// Mirrors PLEXOS `Generator.Fuel` / SDDP `Combustível`.
-  OptSingleId fuel {};
+  ///
+  /// **Issue #510 / Phase 1**: promoted from a static `OptSingleId` to
+  /// a TB-schedulable identifier.  Accepts the same JSON shapes as
+  /// `heat_rate`:
+  ///   * scalar Uid (legacy)               — `"fuel": 7`
+  ///   * scalar Name (legacy)              — `"fuel": "gas"`
+  ///   * 2-D `[stage][block]` Uid matrix   —
+  ///       `"fuel": [[7, 7, 13], [13, 13, 13]]` (multi-fuel)
+  ///   * File-backed schedule (string)     — `"fuel": "fuel_schedule"`
+  ///
+  /// Scalar forms preserve the byte-identical legacy LP fast path.
+  OptTBSingleIdSched fuel {};
 
   /// Constant (or per-stage) heat rate slope `[<fuel_unit>/MWh]`.
   /// PLEXOS "Heat Rate" / "Heat Rate Incr" / SDDP "Consumo Específico".
@@ -180,8 +192,9 @@ struct Generator
   /// ``unserved`` slack.  See ``GeneratorAttrs::pmin_fcost``.
   OptTBRealFieldSched pmin_fcost {};
 
-  /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
-  OptSingleId fuel {};
+  /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel` for
+  /// the TB-schedulable JSON shapes (Issue #510 Phase 1).
+  OptTBSingleIdSched fuel {};
 
   /// Per-(stage, block) heat rate slope [`<fuel_unit>`/MWh].
   /// See `GeneratorAttrs::heat_rate`.

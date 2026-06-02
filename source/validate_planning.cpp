@@ -292,17 +292,36 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "Junction");
   }
 
-  // Generator.fuel -> Fuel (optional FK)
+  // Generator.fuel -> Fuel (optional FK).
+  //
+  // Issue #510 / Phase 1: `Generator.fuel` is now an
+  // `OptTBSingleIdSched` — scalar SingleId, 2-D Uid matrix, or
+  // FileSched.  For the scalar/legacy form we run the same FK check
+  // as before.  For the matrix form we check every Uid referenced by
+  // the schedule.  FileSched references are validated lazily at LP
+  // build time (no in-memory uid list to walk here).
   for (const auto& gen : sys.generator_array) {
-    if (gen.fuel.has_value()) {
-      check_ref(result,
-                gen.fuel.value(),
-                sys.fuel_array,
-                "Generator",
-                gen.name,
-                "fuel",
-                "Fuel");
+    if (!gen.fuel.has_value()) {
+      continue;
     }
+    if (const auto sid = constant_single_id(gen.fuel)) {
+      check_ref(
+          result, *sid, sys.fuel_array, "Generator", gen.name, "fuel", "Fuel");
+    } else if (const auto* mat = std::get_if<UidMatrix>(&*gen.fuel)) {
+      // Validate every distinct Uid referenced by the matrix.
+      for (const auto& row : *mat) {
+        for (const auto& u : row) {
+          check_ref(result,
+                    SingleId {u},
+                    sys.fuel_array,
+                    "Generator",
+                    gen.name,
+                    "fuel",
+                    "Fuel");
+        }
+      }
+    }
+    // FileSched form is checked lazily (parquet loader path).
   }
 
   // Commitment.fuel was removed on 2026-05-20.  Fuel FK validation
@@ -670,13 +689,21 @@ void check_heat_rate(ValidationResult& result, const System& sys)
     const bool has_heat_rate =
         gen.heat_rate.has_value() || !gen.heat_rate_segments.empty();
     if (has_fuel && !has_heat_rate) {
+      // For the warning message we render the scalar form when
+      // present, falling back to a generic "<schedule>" tag for the
+      // matrix / file forms (Issue #510 Phase 1 — error message
+      // semantics for multi-fuel are not load-bearing).
+      const auto fuel_repr =
+          constant_single_id(gen.fuel)
+              .transform([](const SingleId& s) { return format_single_id(s); })
+              .value_or("<schedule>");
       result.warnings.push_back(std::format(
           "Generator '{}': fuel='{}' set but no heat_rate or "
           "heat_rate_segments — fuel price will be ignored at the LP "
           "(per-MWh cost falls back to gcost only).  Set heat_rate or "
           "heat_rate_segments to consume the fuel price.",
           gen.name,
-          format_single_id(gen.fuel.value())));
+          fuel_repr));
     } else if (has_heat_rate && !has_fuel) {
       result.warnings.push_back(std::format(
           "Generator '{}': heat_rate set but no fuel — heat_rate will "

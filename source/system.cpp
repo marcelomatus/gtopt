@@ -548,7 +548,28 @@ void System::expand_fuel_emission_sources()
       continue;
     }
 
-    const Fuel* fuel = find_fuel(fuel_array, *gen.fuel);
+    // Phase 1 of Issue #510: when `Generator.fuel` is a TB schedule
+    // (matrix / file) the per-block fuel-CO2 product cannot be folded
+    // into a single per-stage `EmissionSource.rate` field — emit a
+    // warning and skip auto-expansion.  Authors using multi-fuel
+    // generators MUST declare explicit `EmissionSource` rows (or rely
+    // on the converter to emit them).  This preserves the
+    // byte-identical static-fuel auto-expansion behaviour while
+    // surfacing the limitation early.
+    const auto sid_opt = constant_single_id(gen.fuel);
+    if (!sid_opt.has_value()) {
+      SPDLOG_WARN(
+          "Generator '{}' uid={}: multi-fuel schedule — auto-expansion "
+          "of fuel-derived EmissionSource rows is not supported in "
+          "Phase 1 of Issue #510.  Declare explicit EmissionSource "
+          "entries (one per (gen, fuel-actually-used)) to retain "
+          "emission accuracy.",
+          gen.name,
+          gen.uid);
+      continue;
+    }
+
+    const Fuel* fuel = find_fuel(fuel_array, *sid_opt);
     if (fuel == nullptr || fuel->emission_factors.empty()) {
       continue;
     }

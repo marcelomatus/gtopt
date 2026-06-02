@@ -87,18 +87,63 @@ collect_gen_coefficients(const SystemContext& sc,
     if (!fuel_ref.has_value()) {
       continue;
     }
-    const auto& gfuel = sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
-    if (gfuel.uid() != this_fuel.uid()) {
-      continue;
-    }
     if (!gen.is_active(stage)) {
       continue;
     }
-    // Tolerant accessor — see `lookup_generation_cols` in
-    // GeneratorLP for why this is preferred over `generation_cols_at`.
+
+    // Phase 1 / Issue #510: `Generator.fuel` may now be either a
+    // scalar SingleId (legacy fast path — byte-identical to today) or
+    // a per-(stage, block) `UidMatrix`.  Compute, per block, whether
+    // the generator's active fuel matches `this_fuel`; the heat-rate
+    // coefficient is bucketed into the matching fuel's row only on
+    // those blocks (acceptance criterion #3).
+    const auto const_sid = constant_single_id(fuel_ref);
+    if (const_sid) {
+      // ── Constant-fuel fast path (byte-identical to legacy) ─────────
+      const auto& gfuel = sc.element<FuelLP>(FuelLPSId {*const_sid});
+      if (gfuel.uid() != this_fuel.uid()) {
+        continue;
+      }
+      const auto& gcols = gen.lookup_generation_cols(scenario, stage);
+      for (const auto& block : stage.blocks()) {
+        const auto buid = block.uid();
+        const auto hr = gen.param_heat_rate(stage_uid, buid).value_or(0.0);
+        if (hr <= 0.0) {
+          continue;
+        }
+        const auto it = gcols.find(buid);
+        if (it == gcols.end()) {
+          continue;
+        }
+        per_block[buid].emplace_back(it->second, hr * block.duration());
+      }
+      continue;
+    }
+
+    // ── Per-block fuel schedule ────────────────────────────────────
+    const auto* fuel_matrix = std::get_if<UidMatrix>(&*fuel_ref);
+    if (fuel_matrix == nullptr) {
+      // File-backed schedule — not wired in Phase 1.  Skip this gen
+      // entirely so the fuel cap row stays consistent with its sibling
+      // GeneratorLP gcost-only fallback in `generator_lp.cpp`.
+      continue;
+    }
+    const auto stage_idx = static_cast<std::size_t>(stage.index());
+    if (stage_idx >= fuel_matrix->size() || (*fuel_matrix)[stage_idx].empty()) {
+      continue;
+    }
+    const auto& row = (*fuel_matrix)[stage_idx];
     const auto& gcols = gen.lookup_generation_cols(scenario, stage);
+    std::size_t block_idx = 0;
     for (const auto& block : stage.blocks()) {
       const auto buid = block.uid();
+      const auto bi = block_idx < row.size() ? block_idx : row.size() - 1;
+      ++block_idx;
+      // Only credit this block's heat-rate coefficient to the matching
+      // fuel row.
+      if (row[bi] != this_fuel.uid()) {
+        continue;
+      }
       const auto hr = gen.param_heat_rate(stage_uid, buid).value_or(0.0);
       if (hr <= 0.0) {
         continue;
@@ -107,9 +152,6 @@ collect_gen_coefficients(const SystemContext& sc,
       if (it == gcols.end()) {
         continue;
       }
-      // coefficient = heat_rate × block_duration so the LHS
-      // (sum of coef × gen_col) evaluates to fuel-units when gen is
-      // in MW.  Matches the unit basis of `max_offtake`.
       per_block[buid].emplace_back(it->second, hr * block.duration());
     }
   }

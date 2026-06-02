@@ -121,13 +121,41 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // (treated as a non-combustion variable adder).  When `fuel` is
   // unset, the fuel-derived cost is zero and the column carries
   // `gcost` alone (legacy behaviour).
-  const FuelLP* fuel_lp = nullptr;
-  if (const auto& fuel_ref = generator().fuel; fuel_ref.has_value()) {
-    fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
+  //
+  // **Phase 1 of Issue #510 — multi-fuel Generator**: `Generator.fuel`
+  // is now `OptTBSingleIdSched`.  The scalar form keeps the legacy
+  // single-FuelLP fast path **byte-for-byte identical** to today
+  // (acceptance criterion #2).  The matrix / file forms enable
+  // per-(stage, block) fuel switching; the price is then resolved
+  // per block via the schedule + per-fuel lookup.
+  const auto& fuel_ref = generator().fuel;
+  const auto fuel_constant_sid = constant_single_id(fuel_ref);
+  const bool fuel_is_scheduled = fuel_ref.has_value() && !fuel_constant_sid;
+
+  const FuelLP* fuel_lp_const = nullptr;
+  if (fuel_constant_sid) {
+    fuel_lp_const = &sc.element<FuelLP>(FuelLPSId {*fuel_constant_sid});
   }
-  const double stage_fuel_price = (fuel_lp != nullptr)
-      ? fuel_lp->param_price(stage.uid()).value_or(0.0)
+  // Legacy: stage-resolved fuel price for the constant-fuel fast path.
+  const double stage_fuel_price = (fuel_lp_const != nullptr)
+      ? fuel_lp_const->param_price(stage.uid()).value_or(0.0)
       : 0.0;
+
+  // For the scheduled-fuel branch we cache per-block (FuelLP*, price)
+  // resolutions inside the block loop.  The matrix form is resolved
+  // by `[stage_index][block_index]` against the simulation layout.
+  // (Phase 1 supports only the inline-matrix shape; the file-backed
+  // alternative documented in Issue #510 is DEFERRED — see
+  // `single_id_sched.hpp` for the rationale.)
+  const auto* fuel_matrix =
+      fuel_is_scheduled ? std::get_if<UidMatrix>(&*fuel_ref) : nullptr;
+
+  // Resolve the stage index for the matrix outer dimension.  `stage`
+  // is a `StageLP` so its positional index is already available via
+  // `stage.index()` (mirrors the pattern used in emission_source_lp.cpp).
+  const auto stage_idx =
+      fuel_matrix != nullptr ? static_cast<std::size_t>(stage.index()) : 0;
+
   const auto& hr_segs = generator().heat_rate_segments;
   const auto& pmax_segs_arr = generator().pmax_segments;
   const bool has_pw = has_heat_rate_segments();
@@ -135,23 +163,62 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // Per-MWh cost of segment k (cheapest first, k = 0), evaluated at a
   // given (stage, block) gcost / heat_rate.  All three coefficients
   // (`gcost`, `heat_rate`, `lossfactor`) are now per-(stage, block);
-  // fuel price remains per-stage.
-  const auto slope_cost_per_mwh = [&](double hr_slope, double block_gcost)
-  { return (stage_fuel_price * hr_slope) + block_gcost; };
+  // for the legacy constant-fuel path the fuel price remains per-stage.
+  const auto slope_cost_per_mwh =
+      [&](double hr_slope, double block_gcost, double block_fuel_price)
+  { return (block_fuel_price * hr_slope) + block_gcost; };
 
   // Effective slope for the primary `generation` column at a given
   // block.  When piecewise: slope of the cheapest segment; otherwise
   // scalar heat rate (or 0 when no fuel/heat_rate is configured).
-  const auto primary_slope_cost_at =
-      [&](double block_gcost, double block_heat_rate)
+  // `block_fuel_price` is the per-(stage, block) price; for the
+  // constant-fuel fast path it equals `stage_fuel_price` and the math
+  // collapses to the legacy formula.
+  const auto primary_slope_cost_at = [&](double block_gcost,
+                                         double block_heat_rate,
+                                         double block_fuel_price,
+                                         bool has_active_fuel)
   {
     if (has_pw) {
-      return slope_cost_per_mwh(hr_segs.front(), block_gcost);
+      return slope_cost_per_mwh(hr_segs.front(), block_gcost, block_fuel_price);
     }
-    if (fuel_lp != nullptr) {
-      return slope_cost_per_mwh(block_heat_rate, block_gcost);
+    if (has_active_fuel) {
+      return slope_cost_per_mwh(block_heat_rate, block_gcost, block_fuel_price);
     }
     return block_gcost;
+  };
+
+  // Per-block fuel resolver: returns (FuelLP*, price) for the active
+  // fuel at (stage_uid, block_uid).  For the constant-fuel fast path
+  // the result is the cached `(fuel_lp_const, stage_fuel_price)` —
+  // byte-identical to the legacy single-fuel branch.
+  const auto resolve_block_fuel =
+      [&](BlockUid buid,
+          std::size_t block_idx) -> std::pair<const FuelLP*, double>
+  {
+    if (fuel_lp_const != nullptr) {
+      return {fuel_lp_const, stage_fuel_price};
+    }
+    if (fuel_matrix != nullptr && stage_idx < fuel_matrix->size()) {
+      const auto& row = (*fuel_matrix)[stage_idx];
+      if (!row.empty()) {
+        // Out-of-range block falls back to the last column — matches
+        // the broadcast semantics of the Real schedule machinery
+        // (last-cell fill on short rows).
+        const auto bi = block_idx < row.size() ? block_idx : row.size() - 1;
+        const auto fuel_uid = row[bi];
+        const auto* flp = &sc.element<FuelLP>(FuelLPSId {SingleId {fuel_uid}});
+        const double p = flp->param_price(stage.uid()).value_or(0.0);
+        // Stash the picked Uid in the per-block fuel record for the
+        // optional `fuel_sol.parquet` emission below.
+        fuel_picked_values_[std::tuple {scenario.uid(), stage.uid()}][buid] =
+            fuel_uid;
+        return {flp, p};
+      }
+    }
+    // Either: no fuel set, or scheduled but out-of-range / file form
+    // not yet supported → gcost-only.
+    return {nullptr, 0.0};
   };
 
   const auto& balance_rows = bus.balance_rows_at(scenario, stage);
@@ -174,8 +241,10 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   // slack stash AND by the post-loop AMPL registration / output
   // bookkeeping).
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+  std::size_t block_idx = 0;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
+    const auto current_block_idx = block_idx++;
 
     const auto [block_pmax, block_pmin] =
         sc.block_maxmin_at(stage, block, pmax, pmin, stage_capacity);
@@ -221,8 +290,14 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
           uid());
     }
 
-    const auto block_primary_slope_cost =
-        primary_slope_cost_at(block_gcost, block_heat_rate);
+    // Resolve the per-block fuel (constant fast path → cached
+    // `fuel_lp_const` + `stage_fuel_price`; scheduled → matrix lookup).
+    const auto [block_fuel_lp, block_fuel_price] =
+        resolve_block_fuel(buid, current_block_idx);
+    const bool has_active_fuel = (block_fuel_lp != nullptr);
+
+    const auto block_primary_slope_cost = primary_slope_cost_at(
+        block_gcost, block_heat_rate, block_fuel_price, has_active_fuel);
 
     // Soft-`pmin`: when `pmin_fcost` is set (> 0) and there is a real
     // floor (`block_pmin > 0`), relax the hard lower bound to 0 and
@@ -339,7 +414,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
       }
       for (std::size_t k = 1; k < K; ++k) {
         const double marginal_slope = hr_segs[k] - hr_segs[k - 1];
-        const double slack_cost_per_mwh = stage_fuel_price * marginal_slope;
+        // For the constant-fuel fast path `block_fuel_price ==
+        // stage_fuel_price` — byte-identical to the legacy formula.
+        const double slack_cost_per_mwh = block_fuel_price * marginal_slope;
         // Disambiguate the per-segment slack/kink (same class+var+uid)
         // by stamping the segment index into the BlockExContext —
         // mirrors how commitment_lp.cpp segments its piecewise rows.
@@ -475,6 +552,29 @@ bool GeneratorLP::add_to_output(OutputContext& out) const
   out.add_col_sol_values(cname, "srmc", pid, srmc_values_);
   out.add_col_sol_values_extras(cname, "vom_cost", pid, vom_cost_values_);
   out.add_col_sol_values_extras(cname, "fuel_cost", pid, fuel_cost_values_);
+
+  // ── Phase 1 of Issue #510: `Generator/fuel_sol.parquet` ────────────
+  //
+  // Emitted ONLY when the generator carries a per-block fuel schedule
+  // (the holder is populated by `add_to_lp` only on the matrix
+  // branch — the constant-fuel fast path leaves it empty).  This
+  // satisfies acceptance criterion #4 ("Omit when constant").
+  //
+  // The schema is `[scenario_uid, stage_uid, block_uid, uid:gen_uid]
+  // → fuel_uid`.  `add_col_sol_values` consumes doubles, so the Uids
+  // are projected through a `static_cast<double>` (lossless for the
+  // int32 Uid range).  Downstream consumers cast back to Uid via the
+  // standard parquet → int32 path.
+  if (!fuel_picked_values_.empty()) {
+    STBIndexHolder<double> fuel_holder;
+    for (const auto& [st, blocks] : fuel_picked_values_) {
+      auto& dst = fuel_holder[st];
+      for (const auto& [buid, fu] : blocks) {
+        dst[buid] = static_cast<double>(fu);
+      }
+    }
+    out.add_col_sol_values(cname, "fuel", pid, fuel_holder);
+  }
 
   return CapacityBase::add_to_output(out);
 }

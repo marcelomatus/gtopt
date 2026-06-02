@@ -14,6 +14,7 @@
 #include <gtopt/field_sched.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/input_traits.hpp>
+#include <gtopt/single_id_sched.hpp>
 
 namespace gtopt
 {
@@ -136,5 +137,71 @@ using OptTRealSched = OptSchedule<Real, StageUid>;
 using OptSTRealSched = OptSchedule<Real, ScenarioUid, StageUid>;
 using OptTBRealSched = OptSchedule<Real, StageUid, BlockUid>;
 using OptSTBRealSched = OptSchedule<Real, ScenarioUid, StageUid, BlockUid>;
+
+/// LP-side resolver for an `OptTBSingleIdSched` (Phase 1 of Issue #510).
+/// Wraps the JSON variant (`SingleId | UidMatrix | FileSched`) and
+/// resolves a per-(stage, block) Uid lookup.  Keeps the scalar fast
+/// path byte-for-byte identical to legacy single-fuel behaviour: when
+/// `is_constant()` returns true, callers should hit the legacy branch
+/// (single `sc.element<FuelLP>(...)` lookup).
+///
+/// Mapping of input forms to the resolver's state:
+///   * `SingleId`   → scalar; `is_constant() == true`; `constant()`
+///                    returns the SingleId.  `at(s, b)` resolves the
+///                    constant to a Uid (requires SystemContext-side
+///                    indexing if the constant is a Name).
+///   * `UidMatrix`  → inline `[stage_index][block_index]` matrix; we
+///                    look up `(stage_uid → stage_index)` and
+///                    `(block_uid → block_index)` via the
+///                    `SimulationLP` block layout.  Out-of-range
+///                    indices fall back to the (0, 0) cell — matches
+///                    the broadcast semantics of the Real schedule
+///                    machinery.
+///   * `FileSched`  → DEFERRED in Phase 1: the per-block fuel parquet
+///                    loader path is documented but not wired here.
+///                    Setting a file schedule today raises a runtime
+///                    error from the resolver (no silent fallback).
+class OptTBSingleIdSchedResolver
+{
+public:
+  OptTBSingleIdSchedResolver() = default;
+
+  explicit OptTBSingleIdSchedResolver(OptTBSingleIdSched sched) noexcept
+      : m_sched_(std::move(sched))
+  {
+  }
+
+  [[nodiscard]] constexpr bool has_value() const noexcept
+  {
+    return m_sched_.has_value();
+  }
+
+  constexpr explicit operator bool() const noexcept { return has_value(); }
+
+  /// True iff the schedule is unset OR scalar — the legacy fast path.
+  [[nodiscard]] constexpr bool is_constant() const noexcept
+  {
+    return is_constant_single_id(m_sched_);
+  }
+
+  /// Scalar SingleId form (legacy fast path).  Returns nullopt if the
+  /// schedule is unset OR not in scalar form.
+  [[nodiscard]] constexpr std::optional<SingleId> constant() const noexcept
+  {
+    return constant_single_id(m_sched_);
+  }
+
+  /// Underlying optional variant (read-only).  Exposed so the
+  /// LP-construction layer can dispatch on the active alternative
+  /// directly (e.g. when wiring the `at(stage_index, block_index)`
+  /// matrix lookup against the `SimulationLP` block layout).
+  [[nodiscard]] constexpr const OptTBSingleIdSched& sched() const noexcept
+  {
+    return m_sched_;
+  }
+
+private:
+  OptTBSingleIdSched m_sched_;
+};
 
 }  // namespace gtopt

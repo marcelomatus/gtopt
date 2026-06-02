@@ -6,6 +6,7 @@
 #include <gtopt/json/json_emission_source.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 #include <gtopt/json/json_single_id.hpp>
+#include <gtopt/json/json_single_id_sched.hpp>
 
 namespace daw::json
 {
@@ -25,7 +26,7 @@ struct json_data_contract<GeneratorAttrs>
       json_variant_null<"pmin_fcost",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
-      json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"fuel", OptTBSingleIdSched, jvtl_TBSingleIdSched>,
       json_variant_null<"heat_rate",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
@@ -90,7 +91,7 @@ struct json_data_contract<Generator>
       json_variant_null<"pmin_fcost",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
-      json_variant_null<"fuel", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"fuel", OptTBSingleIdSched, jvtl_TBSingleIdSched>,
       json_variant_null<"heat_rate",
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,

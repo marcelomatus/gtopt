@@ -262,7 +262,7 @@ TEST_CASE(
       .name = "ngcc",
       .bus = Uid {1},
       .gcost = 10.0,
-      .fuel = OptSingleId {SingleId {Uid {1}}},
+      .fuel = Uid {1},
       .heat_rate = OptTBRealFieldSched {7.0},  // 7 GJ/MWh
       .capacity = 100.0,
       .emission_rate = 0.42,  // direct, non-combustion

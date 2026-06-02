@@ -1040,7 +1040,7 @@ TEST_CASE(
           .name = "ngcc",
           .bus = Uid {1},
           .gcost = 10.0,
-          .fuel = SingleId {Uid {1}},
+          .fuel = Uid {1},
           .heat_rate = 8.0,  // GJ/MWh
           .capacity = 200.0,
       },
@@ -1090,7 +1090,7 @@ TEST_CASE(
           .uid = Uid {7},
           .name = "ngcc",
           .bus = Uid {1},
-          .fuel = SingleId {Uid {1}},
+          .fuel = Uid {1},
           .heat_rate = 8.0,
       },
   };
@@ -1117,7 +1117,7 @@ TEST_CASE(
   sys.generator_array = {{.uid = Uid {7},
                           .name = "ngcc",
                           .bus = Uid {1},
-                          .fuel = SingleId {Uid {1}},
+                          .fuel = Uid {1},
                           .heat_rate = OptTBRealFieldSched {
                               std::vector<std::vector<Real>> {{8.0}, {9.0}}}}};
 
@@ -1160,7 +1160,7 @@ TEST_CASE(
           .name = "ngcc",
           .bus = Uid {1},
           .gcost = 1.0,
-          .fuel = SingleId {Uid {1}},
+          .fuel = Uid {1},
           .heat_rate = 8.0,
           .capacity = 200.0,
       },
@@ -1219,12 +1219,11 @@ TEST_CASE(
                      .name = "gas",
                      .emission_factors = {{.emission = SingleId {Uid {1}},
                                            .combustion = 0.05}}}};
-  sys.generator_array = {
-      {.uid = Uid {7},
-       .name = "ngcc",
-       .bus = Uid {1},
-       .fuel = SingleId {Name {"gas"}},  // Name reference, not Uid
-       .heat_rate = 8.0}};
+  sys.generator_array = {{.uid = Uid {7},
+                          .name = "ngcc",
+                          .bus = Uid {1},
+                          .fuel = Name {"gas"},  // Name reference, not Uid
+                          .heat_rate = 8.0}};
 
   sys.expand_fuel_emission_sources();
 
@@ -1253,7 +1252,7 @@ TEST_CASE(
   sys.generator_array = {{.uid = Uid {7},
                           .name = "g1",
                           .bus = Uid {1},
-                          .fuel = SingleId {Uid {404}},  // dangling
+                          .fuel = Uid {404},  // dangling
                           .heat_rate = 8.0}};
 
   sys.expand_fuel_emission_sources();
@@ -1277,7 +1276,7 @@ TEST_CASE(
   sys.generator_array = {{.uid = Uid {7},
                           .name = "biomass_plant",
                           .bus = Uid {1},
-                          .fuel = SingleId {Uid {1}},
+                          .fuel = Uid {1},
                           .heat_rate = 12.0}};
 
   sys.expand_fuel_emission_sources();
@@ -1332,7 +1331,7 @@ TEST_CASE(
   sys.generator_array = {{.uid = Uid {7},
                           .name = "ngcc",
                           .bus = Uid {1},
-                          .fuel = SingleId {Uid {1}},
+                          .fuel = Uid {1},
                           .heat_rate = 8.0}};
 
   sys.expand_fuel_emission_sources();
@@ -1515,7 +1514,7 @@ TEST_CASE(
     sys.generator_array.push_back({.uid = b.plant_uid,
                                    .name = b.plant_name,
                                    .bus = Uid {1},
-                                   .fuel = SingleId {b.fuel_uid},
+                                   .fuel = b.fuel_uid,
                                    .heat_rate = b.heat_rate});
   }
 
@@ -1599,12 +1598,12 @@ TEST_CASE(
       {.uid = Uid {1},
        .name = "coal_pc",
        .bus = Uid {1},
-       .fuel = SingleId {Uid {1}},
+       .fuel = Uid {1},
        .heat_rate = hr_coal},
       {.uid = Uid {2},
        .name = "ngcc",
        .bus = Uid {1},
-       .fuel = SingleId {Uid {2}},
+       .fuel = Uid {2},
        .heat_rate = hr_gas},
   };
 
