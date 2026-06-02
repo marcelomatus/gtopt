@@ -19,6 +19,47 @@
 namespace gtopt::line_losses
 {
 
+// ─── Refactor TODO (issue #504 follow-up) ───────────────────────────
+//
+// This translation unit currently aggregates EVERY loss-mode
+// implementation (none / linear / piecewise / bidirectional /
+// piecewise_direct / tangent_signed_flow) plus the public geometry
+// helpers (loss_segment_geometry, loss_tangent_geometry,
+// compute_adaptive_loss_segments, compute_dynamic_loss_layout) plus
+// the dispatcher add_block.  At ~2700 LOC it's the largest TU in
+// gtopt and compiles in ~3.5 s — meaningful build-time tail and
+// awkward review surface when adding a new mode.
+//
+// Pending modular split (post-#504, separate non-functional PR):
+//
+//   include/gtopt/line_losses_detail.hpp
+//       — declares the per-mode `detail::add_*` API + shared helpers
+//         (apply_loss_allocation, add_capacity_row,
+//         kLossCoeffTolerance, kLossLpRowTolerance) in
+//         `gtopt::line_losses::detail` namespace.
+//   source/line_losses.cpp
+//       — keeps resolve_mode, make_config, the dispatcher add_block,
+//         and the public geometry helpers.  ~600 LOC.
+//   source/line_losses_helpers.cpp
+//       — shared `detail::` helpers (apply_*, add_capacity_row, the
+//         seg_geom / midpoint_debias_offset utilities, the tangent
+//         and segment stamping helpers).  ~500 LOC.
+//   source/line_losses_linear.cpp                 — add_none + add_linear
+//   source/line_losses_piecewise.cpp              — add_piecewise (incl.
+//                                                    add_piecewise_shared)
+//   source/line_losses_bidirectional.cpp          — add_bidirectional +
+//                                                    add_direction
+//   source/line_losses_piecewise_direct.cpp       — add_piecewise_direct
+//   source/line_losses_tangent_signed_flow.cpp    — add_tangent_signed_flow
+//                                                    (issue #504 home —
+//                                                    L-secant + SOS2)
+//
+// The split is non-functional (just moves code) so it warrants its
+// own focused commit with no schema or LP-row changes — easier to
+// review, easier to bisect.  See the conversation that landed
+// PR #511.
+// ────────────────────────────────────────────────────────────────────
+
 // ─── Mode resolution ────────────────────────────────────────────────
 
 namespace

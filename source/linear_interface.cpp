@@ -1177,12 +1177,17 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // continuous/integer type before the SOS declaration references
   // them.  Backends without SOS2 (CBC/OSI, default-throw) raise a
   // structured error from SolverBackend::add_sos2 — see that
-  // method's docstring for the support matrix.
+  // method's docstring for the support matrix.  Track the count
+  // unconditionally for ``sos2_set_count()`` so the issue #504
+  // tests can observe the schema → LP-build → backend forward path
+  // without invoking a solver-specific SOS2 query API.
+  m_sos2_set_count_ = 0;
   for (const auto& set : flat_lp.sos2_sets) {
     if (set.size() < 2) {
       continue;
     }
     m_backend_->add_sos2(std::span<const int> {set.data(), set.size()});
+    ++m_sos2_set_count_;
   }
 
   // Build name maps — clear first so reconstruction doesn't accumulate
