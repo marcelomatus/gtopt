@@ -865,6 +865,15 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // Propagate raw-scale obj constant so the clone's
   // `get_obj_value_raw()` matches the source after re-solve.
   cloned.m_obj_constant_raw_ = m_obj_constant_raw_;
+  // SOS2 set count (issue #504).  The cloned backend (CPXcloneprob)
+  // already carries the SOS2 declarations natively, but the LI-side
+  // counter must follow it explicitly — without this the
+  // ``sos2_set_count()`` accessor returns 0 on every native clone
+  // even though the cloned solver state is correct.  ``clone_from_flat``
+  // re-runs ``load_flat`` which repopulates the counter from
+  // ``FlatLinearProblem::sos2_sets`` and therefore does not need this
+  // line.
+  cloned.m_sos2_set_count_ = m_sos2_set_count_;
   cloned.m_equilibration_method_ = m_equilibration_method_;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;

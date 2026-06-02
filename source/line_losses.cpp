@@ -302,6 +302,32 @@ LossConfig make_config(LineLossesMode mode,
   const int nseg_secant_eff = std::max(1, nseg_secant);
   const bool use_sos2_eff = use_sos2 && nseg_secant_eff > 1;
 
+  // Foot-gun warning (issue #504 review P2-3): ``L > 1 && !use_sos2``
+  // is strictly WORSE than ``L = 1`` because the LP exploits the L
+  // segment cols to maximise the chord ceiling.  Empirical (issue
+  // #504 body): L=3 ε=0.01 → R/A=2.21× vs L=1 ε=0.01 → R/A=1.80×.
+  // One-shot warning so the misconfig surfaces during the first
+  // ``make_config`` call without flooding the log on every (line,
+  // stage) pass.  Only fires for the tangent_signed_flow mode (the
+  // only mode where these knobs are consulted).
+  if (mode == LineLossesMode::tangent_signed_flow && nseg_secant_eff > 1
+      && !use_sos2)
+  {
+    static bool warned_l_no_sos2 = false;
+    if (!warned_l_no_sos2) {
+      spdlog::warn(
+          "line_losses: tangent_signed_flow with "
+          "loss_secant_segments={} and loss_use_sos2=false is STRICTLY "
+          "WORSE than loss_secant_segments=1 — the LP exploits the {} "
+          "segment cols to maximise the chord ceiling.  Pair "
+          "loss_secant_segments > 1 with loss_use_sos2=true (issue "
+          "#504) or fall back to loss_secant_segments=1.",
+          nseg_secant_eff,
+          nseg_secant_eff);
+      warned_l_no_sos2 = true;
+    }
+  }
+
   return {
       .mode = mode,
       .allocation = allocation,
@@ -1828,11 +1854,12 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
 
   // SOS2 declaration on the L segment cols (issue #504).  Forces
   // fill-order ``v_1`` → ``v_2`` → … → ``v_L`` so the piecewise chord
-  // is tight at every breakpoint.  No-op when ``L < 2`` (size < 2 is
-  // a documented no-op contract in ``LinearProblem::add_sos2``).
-  // Backends without SOS2 (CBC/OSI default-throw) raise a structured
-  // error from ``SolverBackend::add_sos2`` at ``load_flat`` time.
-  if (config.use_sos2 && L >= 2) {
+  // is tight at every breakpoint.  ``make_config`` already sanitises
+  // ``use_sos2 && L<=1`` → false (vacuous), so the bare flag is the
+  // single source of truth here.  Backends without SOS2 (CBC/OSI
+  // default-throw) raise a structured error from
+  // ``SolverBackend::add_sos2`` at ``load_flat`` time.
+  if (config.use_sos2) {
     lp.add_sos2(std::span<const ColIndex> {v_cols.data(), v_cols.size()});
   }
 

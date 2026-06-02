@@ -632,7 +632,12 @@ public:
   }
 
   /// Convenience overload accepting an ``initializer_list`` of column
-  /// indices.  Forwards to the span-based ``add_sos2``.
+  /// indices.  Forwards to the span-based ``add_sos2``.  Reserved for
+  /// callers that build a small SOS2 inline (e.g. ``lp.add_sos2({c1,
+  /// c2, c3})`` in a unit test) and have no pre-allocated vector to
+  /// hand a span over.  Production callers in ``line_losses.cpp``
+  /// (issue #504) use the span form because they construct the
+  /// column list iteratively per (line, block).
   void add_sos2(std::initializer_list<ColIndex> columns)
   {
     add_sos2(std::span<const ColIndex> {columns.begin(), columns.size()});
