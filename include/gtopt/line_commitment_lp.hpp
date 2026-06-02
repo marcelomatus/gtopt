@@ -50,6 +50,11 @@ public:
   static constexpr std::string_view StatusName {"status"};
   static constexpr std::string_view CapacityPName {"capacity_p"};
   static constexpr std::string_view CapacityNName {"capacity_n"};
+  /// Lower-side KVL big-M row label (Kirchhoff node_angle mode only).
+  /// The upper-side ``≤`` half is the same row label the existing
+  /// LineLP KVL emission uses (``LineLP::ThetaName``) since we
+  /// MUTATE that row in place to become the upper half.
+  static constexpr std::string_view KvlMinusName {"kvl_minus"};
 
   using Base = ObjectLP<LineCommitment>;
 

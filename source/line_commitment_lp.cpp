@@ -12,9 +12,11 @@
  * formulation" §3 but deferred to v0.5 — see ``line_commitment_lp.hpp``.
  */
 
-#include <algorithm>
+#include <cmath>
+#include <numbers>
 
 #include <gtopt/line_commitment_lp.hpp>
+#include <gtopt/line_enums.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
@@ -259,6 +261,82 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       }
       row[ucol] = -block_tmax_ba;
       cnrows[buid] = lp.add_row(std::move(row));
+    }
+
+    // ── KVL big-M disjunction (Kirchhoff node_angle mode) ──────────
+    //
+    // The existing equality row stamped by ``LineLP::add_to_lp`` is
+    //
+    //     -θ_a + θ_b + x_τ · f = -φ_rad   (≡  f = b_eff · (θ_a − θ_b − φ))
+    //
+    // For OTS this must become a big-M disjunction so that ``u_l = 0``
+    // decouples ``θ_a`` from ``θ_b`` (opening the breaker physically):
+    //
+    //     -θ_a + θ_b + x_τ · f + M·u_l  ≤  M - φ_rad
+    //     -θ_a + θ_b + x_τ · f - M·u_l  ≥ -M - φ_rad
+    //
+    // At ``u_l = 1`` both inequalities collapse to the equality.  At
+    // ``u_l = 0`` both rows allow ``-θ_a + θ_b ∈ [-M-φ, M-φ]``, i.e.
+    // ``θ_a, θ_b`` decouple as long as ``M ≥ 2·θ_max + |φ|``.
+    //
+    // Default big-M = ``2·θ_max + |φ_rad|`` (Fisher 2008 baseline,
+    // refined for the φ shift).  Per-line ``LineCommitment.kvl_big_m``
+    // overrides — the v1 iterative-tightening pre-solve (Pineda 2024)
+    // writes back into that override field.
+    //
+    // Skips silently in: cycle_basis Kirchhoff mode (no per-line KVL
+    // row to rewrite — cycle_basis stamps cycle-aggregate rows
+    // post-LineLP); transport mode (no KVL row at all); blocks where
+    // LineLP omitted the row (``in_service = 0`` / no flow column).
+    if (sc.options().use_kirchhoff()
+        && sc.options().kirchhoff_mode() == KirchhoffMode::node_angle)
+    {
+      const auto& theta_rows = line_lp.theta_rows_at(scenario, stage);
+      if (const auto trow_it = theta_rows.find(buid);
+          trow_it != theta_rows.end())
+      {
+        const double phi_rad =
+            line_lp.param_phase_shift_deg(stage.uid()).value_or(0.0)
+            * std::numbers::pi / 180.0;
+        const double theta_max = sc.options().theta_max();
+        const auto big_m_override = lc.kvl_big_m.value_or(0.0);
+        const double big_m = (big_m_override > 0.0)
+            ? big_m_override
+            : (2.0 * theta_max + std::abs(phi_rad));
+
+        auto& original = lp.row_at(trow_it->second);
+        // Original is an equality: lowb == uppb == -φ_rad.  Capture
+        // its coefficient map and bounds before mutation so we can
+        // build the lower-side ``≥`` row off the same template.
+        const double rhs_eq = original.uppb;  // = -φ_rad
+        // Copy the coefficient map — flat_map is range-iterable.
+        SparseRow::cmap_t coeffs_copy = original.cmap;
+
+        // 1) Mutate the original equality into the ``≤`` half:
+        //
+        //    -θ_a + θ_b + x_τ · f + M·u_l  ≤  M + rhs_eq
+        //
+        // Stamp +M on u_l and widen the bounds to a one-sided
+        // inequality.
+        original[ucol] = +big_m;
+        original.uppb = big_m + rhs_eq;
+        original.lowb = -SparseRow::DblMax;
+
+        // 2) Add the lower-side ``≥`` row from the captured template:
+        //
+        //    -θ_a + θ_b + x_τ · f - M·u_l  ≥  -M + rhs_eq
+        SparseRow lower_row {
+            .lowb = -big_m + rhs_eq,
+            .uppb = SparseRow::DblMax,
+            .cmap = std::move(coeffs_copy),
+            .class_name = cname,
+            .constraint_name = KvlMinusName,
+            .variable_uid = cuid,
+            .context = ctx,
+        };
+        lower_row[ucol] = -big_m;
+        [[maybe_unused]] auto lower_idx = lp.add_row(std::move(lower_row));
+      }
     }
   }
 
