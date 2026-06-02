@@ -569,6 +569,33 @@ void System::expand_fuel_emission_sources()
     }
     const double hr = *hr_opt;
 
+    // Unit alignment between heat_rate and emission_factor.combustion:
+    //
+    //   * IPCC default factors are on an ENERGY basis: tCO2 / GJ.
+    //   * PLEXOS (notably the CEN-Chile convention) ships heat_rate
+    //     on a FUEL-MASS basis: tonnes_coal / MWh, m³_gas / MWh, etc.,
+    //     with ``Fuel.heat_content`` carrying the energy density
+    //     (GJ per fuel-unit).  Verified on CEN PCP 2026-04-12:
+    //     SANTA_MARIA has heat_rate=0.346 t/MWh + heat_content=25.8
+    //     GJ/t → real heat-rate ≈ 8.93 GJ/MWh (matches typical coal).
+    //
+    // The unit-correct product is therefore:
+    //   tCO2/MWh = heat_rate [unit/MWh] × heat_content [GJ/unit]
+    //              × combustion [tCO2/GJ]
+    //
+    // When ``Fuel.heat_content`` is 0 / unset (the gtopt default for
+    // fuels converted from sources that already ship heat_rate in
+    // GJ/MWh — sddp2gtopt, plp2gtopt synthetic Fuels, 118-Bus virtual
+    // fuel) the legacy formula stays correct.  Use 1.0 as the no-op
+    // multiplier so the byte-for-byte output is unchanged for those.
+    // ``heat_content`` is OptTRealFieldSched (per-stage schedulable);
+    // collapse to a scalar the same way the rest of this pass treats
+    // heat_rate (line 558).  Time-varying heat_content is rare in
+    // practice and silently uses the scalar fallback here — declare
+    // explicit EmissionSource rows for per-stage accuracy.
+    const double hc_raw = scalar_or(fuel->heat_content).value_or(0.0);
+    const double hc = hc_raw > 0.0 ? hc_raw : 1.0;
+
     for (const auto& fef : fuel->emission_factors) {
       const double combustion = scalar_or(fef.combustion).value_or(0.0);
       const double upstream = scalar_or(fef.upstream).value_or(0.0);
@@ -606,9 +633,9 @@ void System::expand_fuel_emission_sources()
             .generator = OptSingleId {SingleId {gen.uid}},
             .zone = SingleId {zone.uid},
             .emission = fef.emission,
-            .rate = OptTRealFieldSched {hr * combustion},
+            .rate = OptTRealFieldSched {hr * hc * combustion},
             .upstream_rate = upstream != 0.0
-                ? OptTRealFieldSched {hr * upstream}
+                ? OptTRealFieldSched {hr * hc * upstream}
                 : OptTRealFieldSched {},
         });
         src_uids.insert(emission_source_array.back().uid);

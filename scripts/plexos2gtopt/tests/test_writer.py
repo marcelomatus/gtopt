@@ -1904,3 +1904,84 @@ def test_write_boundary_cut_csv_returns_none_when_no_match(
     assert matched, (
         f"expected a WARN log, got: {[r.getMessage() for r in caplog.records]}"
     )
+
+
+@pytest.mark.parametrize("heat_rate", [0.0, 0.5, 9.0])
+def test_scalar_path_cost_decomposition_invariant(heat_rate: float) -> None:
+    """Emission-audit gap #1 widening: ANY ``primary_fuel`` takes the
+    scalar (FK-preserving) path, regardless of ``heat_rate``.
+
+    The semantic invariant this test pins is that the LP cost
+    coefficient on ``generation`` is identical to what the legacy
+    baked-gcost path would have emitted:
+
+    * Old baked path (``heat_rate == 0`` BEFORE gap-#1 widening):
+      ``entry["gcost"] = 0 × fuel.price + vom + fuel_transport``
+      ``→ vom + fuel_transport``;  Fuel FK was dropped, ``heat_rate``
+      not emitted.
+
+    * New scalar path (``primary_fuel is not None``):
+      ``entry["fuel"] = primary_fuel``; ``entry["gcost"] = vom +
+      fuel_transport``;  ``entry["heat_rate"]`` only when > 0.
+
+    gtopt's ``primary_slope_cost_at`` (generator_lp.cpp:151-154)
+    reconstitutes the full coefficient as
+    ``fuel.price × heat_rate + gcost`` — when ``heat_rate`` is unset
+    (heat_rate == 0 case) it collapses to just ``gcost``, matching the
+    legacy baked value byte-for-byte.  For ``heat_rate > 0`` the scalar
+    path emits the raw heat_rate so gtopt re-multiplies by fuel.price
+    at LP-build — same LP coefficient as a hypothetical baked path
+    would have produced.  No double-counting on any branch.
+
+    Parameterization spans zero (the gap-#1 trigger), small (0.5), and
+    large (9.0) heat rates — the last exercises the scalar path
+    properly emitting the heat_rate scalar.
+    """
+    vom_charge = 2.0
+    fuel_transport = 0.5
+
+    fuels = (
+        FuelSpec(
+            object_id=1,
+            name="TestFuel",
+            price=80.0,
+        ),
+    )
+    gens = (
+        GeneratorSpec(
+            object_id=100,
+            name="ThermalUnit",
+            bus_name="b1",
+            pmax=50.0,
+            heat_rate=heat_rate,
+            vom_charge=vom_charge,
+            fuel_transport=fuel_transport,
+            fuel_names=("TestFuel",),
+        ),
+    )
+    gen_out = build_generator_array(gens, fuels)
+    entry = gen_out[0]
+
+    # FK always preserved when primary_fuel is set — the whole point of
+    # gap #1 widening.  Pre-fix the heat_rate == 0 case dropped the FK.
+    assert entry["fuel"] == "TestFuel", (
+        f"Fuel FK must be preserved at heat_rate={heat_rate}"
+    )
+    # gcost is the non-fuel part only — NEVER pre-bakes ``heat_rate ×
+    # fuel.price`` regardless of the heat_rate value.  This is the
+    # decomposition invariant the test exists to lock down.
+    assert entry["gcost"] == pytest.approx(vom_charge + fuel_transport), (
+        f"gcost must be non-fuel only at heat_rate={heat_rate}; "
+        f"got {entry['gcost']}, expected {vom_charge + fuel_transport}"
+    )
+    # heat_rate emitted iff > 0 (zero is omitted as redundant noise).
+    if heat_rate > 0.0:
+        assert "heat_rate" in entry, (
+            f"heat_rate must be emitted when > 0 (heat_rate={heat_rate})"
+        )
+        # Raw value — NO pre-multiplication by anything.
+        assert entry["heat_rate"] == pytest.approx(heat_rate)
+    else:
+        assert "heat_rate" not in entry, (
+            "heat_rate must be omitted when == 0 (gap-#1 contract)"
+        )

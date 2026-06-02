@@ -156,7 +156,19 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   }
   const auto& balance_rows = brows_it->second;
 
-  const auto& gen_cols = gen.generation_cols_at(scenario, stage);
+  // Tolerant lookup: when every block of this (scenario, stage) was
+  // skipped by the P1 zero-pmax optimization (common for alternate-
+  // fuel-mode variants like ``<plant>_GNL_X`` / ``<plant>_DIE`` that
+  // are inactive for some PLEXOS weekly bundles), ``generation_cols``
+  // has no outer key.  Use ``lookup_generation_cols`` (returns an
+  // empty inner map) instead of the throwing ``generation_cols_at``
+  // — the per-block loop below then has nothing to do and we return
+  // cleanly without aborting LP build.  Symmetric to
+  // ``WaterwayLP::flow_cols_at`` / ``lookup_flow_cols``.
+  const auto& gen_cols = gen.lookup_generation_cols(scenario, stage);
+  if (gen_cols.empty()) {
+    return true;
+  }
 
   // Per block:
   //   balance_b ← balance_b − weight · (1 − capture_rate) · (rate + upstream)

@@ -77,6 +77,7 @@ cen2gtopt-pcp-inputs       = "cen2gtopt.pcp_inputs:main"
 cen2gtopt-pcp-validate     = "cen2gtopt.pcp_validate:main"
 cen2gtopt-pcp-solution     = "cen2gtopt.pcp_solution:main"
 gtopt-net                  = "gtopt_reduce_network.main:main"
+sienna_to_gtopt            = "sienna_to_gtopt.__main__:main"
 
 
 [project.optional-dependencies]
@@ -111,7 +112,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*", "sddp2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_reduce_network*", "gtopt2pbi*"]
+include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "nrel118_to_gtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "rts_gmlc_to_gtopt*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*", "sddp2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_reduce_network*", "gtopt2pbi*", "sienna_to_gtopt*"]
 
 [tool.setuptools.package-data]
 # Non-Python assets that must ship in wheels (pip install ./scripts).
@@ -119,6 +120,7 @@ include = ["gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extr
 # --ror-as-reservoirs; gtopt_expand bundles the PAMPL/TSON templates
 # used to generate Laja/Maule irrigation agreements and LNG expansions.
 "plp2gtopt.templates" = ["*.csv", "*.md"]
+"gtopt_shared.data" = ["*.json"]
 "gtopt_expand.templates" = ["*.tampl", "*.tson", "*.md"]
 
 
@@ -161,6 +163,7 @@ testpaths = [
     "cen2gtopt/tests",
     "gtopt_reduce_network/tests",
     "plexos_compress_case/tests",
+    "sienna_to_gtopt/tests",
 ]
 addopts = "-v --import-mode=importlib -n auto"
 pythonpath = ["."]

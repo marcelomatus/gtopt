@@ -1,0 +1,65 @@
+{
+  "_meta": {
+    "name": "NREL-118 headline emission-reduction targets",
+    "description": "Regression targets for the gtopt port of the NREL-118 test system (Pena/Martinez-Anido/Hodge 2018). Derived from the paper abstract and the single direct-quote snippet (source 10) we could recover without paywall access. Future-work: split into per-scenario rows (5, 10, ..., 30, 33 % wind+solar) once a paper PDF is available institutionally.",
+    "source_paper": {
+      "doi": "10.1109/TPWRS.2017.2695963",
+      "title": "An Extended IEEE 118-Bus Test System With High Renewable Penetration",
+      "authors": ["Ivonne Pena", "Carlo Brancucci Martinez-Anido", "Bri-Mathias Hodge"],
+      "venue": "IEEE Transactions on Power Systems",
+      "volume": 33,
+      "issue": 1,
+      "pages": "281-289",
+      "year": 2018,
+      "nrel_report_number": "NREL/JA-5D00-66675",
+      "osti_id": 1416258
+    },
+    "evidence_quote": "up to 33% wind and solar energy penetration in the United States' portion of the Western grid avoids 29%-34% carbon dioxide (CO2) emissions",
+    "evidence_quote_source": "Google-indexed snippet from a SciSpace listing of the paper (source 10 in PROVENANCE.md). The CO2 figure also appears in Hodge group public-talk slides and is widely cited.",
+    "scenario_definition": "33% wind+solar penetration vs the no-renewables baseline, full-year (8784 h) production-cost simulation",
+    "horizon_hours": 8784
+  },
+
+  "co2_reduction_pct_at_33pct_renewables": {
+    "value_min": 29.0,
+    "value_max": 34.0,
+    "units": "percent",
+    "scope": "annual",
+    "source": "paper abstract / Google-indexed snippet",
+    "regression_window_for_single_block_test": {
+      "low": 20.0,
+      "high": 45.0,
+      "rationale": "single-block deterministic LP is noisier than 8784-h UC; widen by ~10 pp on each side"
+    }
+  },
+
+  "nox_reduction_pct_at_33pct_renewables": {
+    "value_min": 16.0,
+    "value_max": 22.0,
+    "units": "percent",
+    "scope": "annual",
+    "source": "paper abstract (as cited by scripts/nrel118_to_gtopt/README.md)",
+    "regression_window_for_single_block_test": null,
+    "note": "Not enforced yet — gtopt fuel model does not emit per-pollutant NOx; reserved for the future multi-pollutant feature."
+  },
+
+  "so2_reduction_pct_at_33pct_renewables": {
+    "value_min": 14.0,
+    "value_max": 24.0,
+    "units": "percent",
+    "scope": "annual",
+    "source": "paper abstract (as cited by scripts/nrel118_to_gtopt/README.md)",
+    "regression_window_for_single_block_test": null,
+    "note": "Not enforced yet — gtopt fuel model does not emit per-pollutant SO2; reserved for the future multi-pollutant feature."
+  },
+
+  "ipcc_combustion_factors_used_by_converter": {
+    "_source": "IPCC AR6 WG3 Annex III Table A.III.2, mirrored in scripts/nrel118_to_gtopt/_converter.py and test/source/test_emission_nrel118_port.cpp",
+    "_units": "tCO2 per GJ of fuel energy",
+    "coal_subcritical_supercritical": 0.0946,
+    "natural_gas_cc_ct": 0.0561,
+    "oil_distillate": 0.0741,
+    "biomass": 0.0,
+    "nuclear_wind_solar_hydro": 0.0
+  }
+}

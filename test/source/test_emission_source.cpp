@@ -325,3 +325,199 @@ TEST_CASE(
   CHECK(std::get<Uid>(src.zone) == Uid {7});  // points at existing zone
   CHECK(std::get<Uid>(src.emission) == Uid {99});
 }
+
+// ── Commit XX — heat_content multiplication (CEN-Chile mass basis) ─────
+
+TEST_CASE(
+    "expand_fuel_emission_sources — mass-basis heat_rate × heat_content × "
+    "combustion (CEN-Chile convention)")  // NOLINT
+{
+  // PLEXOS / CEN-Chile ships ``Generator.heat_rate`` in fuel-MASS units
+  // per MWh (tonnes_coal/MWh, m³_gas/MWh, …) with ``Fuel.heat_content``
+  // carrying the energy density (GJ per fuel-unit).  The IPCC
+  // combustion factor is energy-basis (tCO2/GJ).  The unit-correct
+  // synthesized ``EmissionSource.rate`` is therefore
+  //   tCO2/MWh = heat_rate [unit/MWh] × heat_content [GJ/unit]
+  //                                   × combustion [tCO2/GJ]
+  // This test pins the heat_content multiplication on BOTH the
+  // combustion (rate) and upstream (upstream_rate) paths.  Reference
+  // values come from CEN PCP 2026-04-12 SANTA_MARIA (coal): heat_rate
+  // = 0.346 t_coal/MWh, heat_content = 25.8 GJ/t_coal, combustion =
+  // 0.0946 tCO2/GJ (IPCC default for sub-bituminous coal).
+  System sys;
+  sys.emission_array = {Emission {.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {EmissionZone {
+      .uid = Uid {1},
+      .name = "global_co2",
+      .emissions = {{.emission = SingleId {Uid {1}}, .weight = 1.0}},
+  }};
+  sys.fuel_array = {Fuel {
+      .uid = Uid {1},
+      .name = "coal",
+      .price = 60.0,
+      .heat_content = OptTRealFieldSched {25.8},  // coal NCV: GJ/t_coal
+      .emission_factors = {{.emission = SingleId {Uid {1}},
+                            .combustion = OptTRealFieldSched {0.0946},
+                            .upstream = OptTRealFieldSched {0.005}}},
+  }};
+  sys.generator_array = {Generator {
+      .uid = Uid {7},
+      .name = "santa_maria",
+      .bus = Uid {1},
+      .gcost = 10.0,
+      .fuel = OptSingleId {SingleId {Uid {1}}},
+      .heat_rate = OptTBRealFieldSched {0.346},  // t_coal/MWh (mass basis)
+      .capacity = 350.0,
+  }};
+
+  sys.expand_fuel_emission_sources();
+
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  REQUIRE(src.generator.has_value());
+  CHECK(std::get<Uid>(src.generator.value_or(SingleId {Uid {0}})) == Uid {7});
+
+  // combustion path: 0.346 × 25.8 × 0.0946 ≈ 0.8444 tCO2/MWh
+  REQUIRE(src.rate.has_value());
+  CHECK(std::get<Real>(src.rate.value_or(Real {0.0}))
+        == doctest::Approx(0.346 * 25.8 * 0.0946));
+  // upstream path: 0.346 × 25.8 × 0.005 ≈ 0.04464 tCO2/MWh
+  REQUIRE(src.upstream_rate.has_value());
+  CHECK(std::get<Real>(src.upstream_rate.value_or(Real {0.0}))
+        == doctest::Approx(0.346 * 25.8 * 0.005));
+}
+
+TEST_CASE(
+    "expand_fuel_emission_sources — heat_content==0 preserves legacy "
+    "hr × combustion formula")  // NOLINT
+{
+  // Mirror image of the mass-basis test: when ``Fuel.heat_content`` is
+  // unset (the gtopt default used by sddp2gtopt, plp2gtopt synthetic
+  // Fuels, 118-Bus virtual fuels — anything that already ships
+  // ``heat_rate`` in GJ/MWh), the formula must collapse to the legacy
+  // ``hr × combustion`` byte-for-byte.  The hc=1.0 fallback in
+  // ``expand_fuel_emission_sources`` is what guarantees this no-op
+  // semantics when ``scalar_or(fuel->heat_content)`` returns 0.
+  System sys;
+  sys.emission_array = {Emission {.uid = Uid {1}, .name = "co2"}};
+  sys.emission_zone_array = {EmissionZone {
+      .uid = Uid {1},
+      .name = "global_co2",
+      .emissions = {{.emission = SingleId {Uid {1}}, .weight = 1.0}},
+  }};
+  sys.fuel_array = {Fuel {
+      .uid = Uid {1},
+      .name = "gas_energy_basis",
+      .price = 5.0,
+      // heat_content deliberately UNSET → scalar_or returns 0 → hc
+      // falls back to 1.0 (no-op multiplier).
+      .emission_factors = {{.emission = SingleId {Uid {1}},
+                            .combustion = OptTRealFieldSched {0.18}}},
+  }};
+  sys.generator_array = {Generator {
+      .uid = Uid {7},
+      .name = "ngcc",
+      .bus = Uid {1},
+      .gcost = 10.0,
+      .fuel = OptSingleId {SingleId {Uid {1}}},
+      .heat_rate = OptTBRealFieldSched {7.0},  // already in GJ/MWh
+      .capacity = 100.0,
+  }};
+
+  sys.expand_fuel_emission_sources();
+
+  REQUIRE(sys.emission_source_array.size() == 1);
+  const auto& src = sys.emission_source_array.front();
+  REQUIRE(src.rate.has_value());
+  // Legacy formula: 7.0 × 0.18 = 1.26 tCO2/MWh — NO heat_content
+  // factor applied because hc collapsed to the 1.0 fallback.
+  CHECK(std::get<Real>(src.rate.value_or(Real {0.0}))
+        == doctest::Approx(7.0 * 0.18));
+  // No upstream factor declared → no upstream_rate emitted.
+  CHECK_FALSE(src.upstream_rate.has_value());
+}
+
+// ── Commit XX — tolerant lookup for zero-pmax skipped generator ────────
+
+TEST_CASE(
+    "EmissionSourceLP::add_to_lp — tolerant of zero-pmax skipped generator "
+    "(no flat_map::at throw)")  // NOLINT
+{
+  // End-to-end pin for the ``lookup_generation_cols`` migration in
+  // ``source/emission_source_lp.cpp``.  Pre-fix the per-block loop
+  // called ``gen.generation_cols_at(scenario, stage)`` which throws
+  // ``std::out_of_range`` when the (scenario, stage) outer key is
+  // absent — and the P1 zero-pmax optimization in GeneratorLP elides
+  // that outer key whenever every block of a (scenario, stage) hits
+  // bounds=[0,0].  Symptom in the wild: PLEXOS CEN bundles ship
+  // alternate-fuel-mode variants (``*_GNL_X``, ``*_DIE``) with
+  // capacity=0 for some weeks, and any EmissionSource pointing at one
+  // of those crashed LP build.  The fix swaps to the tolerant
+  // ``lookup_generation_cols`` (returns an empty inner map) plus an
+  // early ``return true`` when the map is empty.
+  const Simulation simulation = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 1.0},
+              {.uid = Uid {2}, .duration = 2.0},
+          },
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 2}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system = {
+      .name = "EmissionSourceZeroPmaxGen",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0}},
+      .generator_array =
+          {
+              // Zero-capacity unit — P1 skip elides every column.
+              {.uid = Uid {1},
+               .name = "g_zero_with_emission",
+               .bus = Uid {1},
+               .gcost = 50.0,
+               .capacity = 0.0},
+              // Backup so the LP is feasible without emissions.
+              {.uid = Uid {2},
+               .name = "g_backup",
+               .bus = Uid {1},
+               .gcost = 100.0,
+               .capacity = 1000.0},
+          },
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "global_co2",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
+      // EmissionSource attached to the zero-pmax generator — this is
+      // the exact configuration that pre-fix crashed at LP build.
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g_zero_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = 0.4}},
+  };
+
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 10000.0;
+  const PlanningOptionsLP options(popts);
+  SimulationLP simulation_lp(simulation, options);
+
+  // Construction must not throw despite the missing outer key on
+  // ``generation_cols`` for (scenario=0, stage=1).
+  REQUIRE_NOTHROW(SystemLP {system, simulation_lp});
+
+  SystemLP system_lp(system, simulation_lp);
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Sanity: the EmissionSource survived the System → SystemLP pipeline
+  // (no silent drop on the LP side either).
+  const auto& sources = system_lp.elements<EmissionSourceLP>();
+  REQUIRE(sources.size() == 1);
+  CHECK(sources.front().emission_source().name == "g_zero_co2");
+}

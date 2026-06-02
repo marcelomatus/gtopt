@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "name": "NREL-118 per-fuel input prices",
+    "description": "Fuel prices as embedded in the NREL-Sienna/PowerSystemsTestData 118-Bus Julia loader (the official Sienna ingestion script). Not present as a paper-table per se, but they ARE the canonical price assumption the PCM/PLEXOS model uses when reproducing the paper. The gtopt converter currently sets Fuel.price=0 (gcost is the only dispatch signal), so these are noted here as a future-faithfulness hook.",
+    "source_file": "https://raw.githubusercontent.com/Sienna-Platform/PowerSystemsTestData/master/118-Bus/data_118bus.jl",
+    "source_repo": "https://github.com/NREL-Sienna/PowerSystemsTestData",
+    "extracted_lines": [
+      "# Fuel Prices",
+      "ng_price = 5.4",
+      "coal_price = 1.8",
+      "oil_price = 21",
+      "bm_price = 2.4",
+      "geo_price = 0"
+    ],
+    "units": "USD per MMBTU (Sienna convention for ThermalStandard fuel_cost on a FuelCurve)"
+  },
+
+  "fuel_prices_usd_per_mmbtu": {
+    "natural_gas":      { "value": 5.4,  "applies_to": ["CC NG", "CT NG", "ICE NG", "ST NG"] },
+    "coal_subcritical": { "value": 1.8,  "applies_to": ["ST Coal 01"] },
+    "oil_distillate":   { "value": 21.0, "applies_to": ["CT Oil 01..05"] },
+    "biomass":          { "value": 2.4,  "applies_to": ["Biomass 01..62"] },
+    "geothermal":       { "value": 0.0,  "applies_to": ["Geo 01"] }
+  }
+}

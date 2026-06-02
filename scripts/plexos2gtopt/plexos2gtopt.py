@@ -31,6 +31,46 @@ from .plexos_loader import locate_bundle
 logger = logging.getLogger(__name__)
 
 
+# Cache registry of recent plexos2gtopt runs.  Each successful conversion
+# appends one JSONL line; ``plp2gtopt --plexos-overlay latest`` reads the
+# last line to resolve to the most recent run without the user having to
+# remember the path.  Kept under ``~/.cache/gtopt/`` per the project
+# convention for tool-local caches (see ``cen2gtopt`` for the pattern).
+PLEXOS_RUN_REGISTRY: Path = (
+    Path.home() / ".cache" / "gtopt" / "plexos2gtopt" / "runs.jsonl"
+)
+
+
+def _record_plexos_run(
+    *,
+    output_dir: Path,
+    output_file: Path,
+    input_path: Path,
+) -> None:
+    """Append one row to the plexos2gtopt run registry.
+
+    Idempotent in spirit (a duplicate appended entry is harmless — the
+    resolver reads the LAST line).  Best-effort: callers should catch
+    ``OSError`` and continue on failure, because a successful conversion
+    must never fail because of a cache hiccup.
+    """
+    import datetime  # noqa: PLC0415
+    import json  # noqa: PLC0415
+
+    PLEXOS_RUN_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    # ISO-8601 UTC stamp for human + tool consumption.
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = {
+        "timestamp": ts,
+        "output_dir": str(output_dir.resolve()),
+        "output_file": str(output_file.resolve()),
+        "input_path": str(input_path.resolve()),
+        "bundle_stem": output_file.stem,
+    }
+    with open(PLEXOS_RUN_REGISTRY, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
 def validate_plexos_bundle(options: dict[str, Any]) -> bool:
     """Validate a PLEXOS bundle.
 
@@ -486,6 +526,29 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                     sys_d["user_constraint_array"] = json_rem
                 else:
                     sys_d.pop("user_constraint_array", None)
+
+        # Optional emissions fill-in (master switch ``--emissions``).
+        # PLEXOS-XML-shipped CO2 factors always win; this step only
+        # fills gaps on Fuel elements that lack one and synthesizes the
+        # emission_array['co2'] pollutant row when missing.  Off by
+        # default — symmetric with plp2gtopt --emissions.
+        if options.get("emissions", False):
+            from gtopt_shared.emissions import (  # noqa: PLC0415
+                apply_emission_defaults_from_file,
+            )
+
+            emissions_src = options.get("emissions_file")
+            emissions_report = options.get("emissions_report")
+            if emissions_report is None:
+                emissions_report = output_dir / "plexos_emissions_report.json"
+            apply_emission_defaults_from_file(
+                planning,
+                Path(emissions_src) if emissions_src is not None else None,
+                report_path=(
+                    Path(emissions_report) if emissions_report is not None else None
+                ),
+            )
+
         write_planning(planning, output_file)
 
         # Conversion-provenance sidecar (F5): documents each gtopt
@@ -494,6 +557,27 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             build_provenance(planning, source_bundle=input_path.name),
             output_file.with_suffix(".provenance.json"),
         )
+
+        # Record this successful run in the cache registry so
+        # downstream tools (``plp2gtopt --plexos-overlay latest``,
+        # gtopt_compare, etc.) can find the most recent output
+        # without the user having to remember the path.  See
+        # ``_record_plexos_run`` in this module + the matching
+        # resolver in ``plp2gtopt._plexos_overlay``.
+        try:
+            _record_plexos_run(
+                output_dir=output_dir,
+                output_file=output_file,
+                input_path=input_path,
+            )
+        except OSError as e:
+            # The cache is best-effort: never fail a successful
+            # conversion because of a registry hiccup.
+            logger.warning(
+                "Could not update plexos2gtopt run registry "
+                "(--plexos-overlay latest may not see this run): %s",
+                e,
+            )
 
         # Cache was already dumped before ``extract_case`` (see
         # the pre-extract block) so the fuel-offtake-caps extractor

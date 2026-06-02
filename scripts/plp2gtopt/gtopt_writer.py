@@ -18,9 +18,15 @@ focused on orchestration:
 
 import json
 import logging
-import math
 from pathlib import Path
 from typing import Any, Dict
+
+# JSON post-processing helpers live in ``gtopt_shared.json_utils`` so
+# every converter shares a single implementation (issue #507 Phase 1).
+# The aliases preserve the legacy private names plp2gtopt's existing
+# tests + helpers already import.
+from gtopt_shared.json_utils import sanitize_inf as _sanitize_inf
+from gtopt_shared.json_utils import strip_internal_keys as _strip_internal_keys
 
 from ._writer_boundary import BoundaryMixin
 from ._writer_generation import GenerationMixin
@@ -31,118 +37,6 @@ from .line_parser import LineParser
 from .plp_parser import PLPParser
 
 _logger = logging.getLogger(__name__)
-
-
-def _strip_internal_keys(planning: Dict) -> Dict:
-    """Return a shallow copy of ``planning`` with internal-only keys removed.
-
-    The gtopt C++ parser uses ``StrictParsePolicy`` (daw::json
-    ``UseExactMappingsByDefault=yes``), so any field not declared in the
-    corresponding struct causes a parse error.  Python-side metadata
-    (pipeline annotations, Excel hints) is preserved on the writer
-    instance but excluded from the emitted JSON.
-    """
-    return {k: v for k, v in planning.items() if not k.startswith("_")}
-
-
-# Fallback sentinel for ``math.inf`` inside lists/arrays where the key
-# itself can't be omitted (omitting an element would shift the indices
-# of the surrounding list).
-#
-# Two acceptable JSON-safe forms:
-#
-#   • ``sys.float_info.max`` (= gtopt's C++ ``DblMax``) — the LP flatten
-#     code clamps any bound ``>= DblMax`` to the solver's true infinity,
-#     so the LP behaves exactly as if the bound were ``+inf``.  Works
-#     unconditionally with the existing daw-json-link bindings.
-#   • ``"Infinity"`` (quoted string) — daw-json-link parses this as
-#     ``+inf`` ONLY when the consuming field is annotated with
-#     ``gtopt::NumberOptsWithInf`` (``LiteralAsStringOpt::Maybe`` +
-#     ``JsonNumberErrors::AllowNanInf``).  See
-#     ``include/gtopt/json/json_parse_policy.hpp`` for the recipe.
-#
-# We use the quoted-string form so the JSON literally carries the
-# semantic ``Infinity`` (which round-trips back to ``math.inf`` in any
-# downstream consumer that supports the AllowNanInf option).  Fields
-# that have NOT been annotated with ``NumberOptsWithInf`` would reject
-# this — but our writer's PRIMARY path is to OMIT ``math.inf`` keys
-# entirely (see ``_sanitize_inf`` below); the fallback fires only for
-# inf values inside lists, which our schemas don't currently emit.
-_INF_JSON_SENTINEL = "Infinity"
-_NEG_INF_JSON_SENTINEL = "-Infinity"
-
-
-# Keys whose ``math.inf`` value should be OMITTED from the JSON
-# (instead of being serialised as ``"Infinity"``).  For these fields
-# the gtopt C++ struct already defaults to an empty optional that the
-# LP flatten code reads as ``±DblMax`` → solver ±infinity, so omitting
-# the key is the cleanest representation: smaller JSON, no parser-side
-# inf handling needed.
-#
-# Other numeric fields are serialised as ``"Infinity"`` / ``"-Infinity"``
-# (quoted strings) so daw-json-link's ``AllowNanInf`` parser accepts
-# them — the consuming field must be annotated with
-# ``gtopt::NumberOptsWithInf`` (see
-# ``include/gtopt/json/json_parse_policy.hpp``) to round-trip.
-_INF_OMIT_KEYS = frozenset(
-    {
-        "fmax",  # Waterway.fmax / FlowRight.fmax / VolumeRight.fmax
-        "fmin",  # Waterway.fmin / FlowRight.fmin / VolumeRight.fmin
-    }
-)
-
-
-def _sanitize_inf(obj: Any) -> Any:
-    """Recursively make ``math.inf`` / ``-math.inf`` JSON-safe.
-
-    Default rule: serialise as the quoted-string sentinels ``"Infinity"``
-    / ``"-Infinity"`` so daw-json-link's ``AllowNanInf`` can parse them
-    on the C++ side.
-
-    Exception (preferred for select keys — listed in ``_INF_OMIT_KEYS``):
-    omit the key entirely from its containing dict.  gtopt's struct
-    defaults treat absent optional numeric fields as unbounded after
-    the LP flatten clamp (e.g. ``Waterway.fmax`` defaults to an empty
-    optional, which the flatten code reads as ``DblMax`` → ``+inf``),
-    so omitting is the cleanest representation for those fields.
-
-    Walks dicts and lists in place; returns the (possibly mutated)
-    object so callers can chain with ``json.dump``.
-
-    Note: ``-math.inf`` is rare in practice (gtopt uses ``-DblMax``
-    sentinels for "no lower bound" elsewhere); both signs are handled
-    symmetrically here.
-    """
-    if isinstance(obj, dict):
-        # Two-pass.  Pass 1 identifies keys whose value is ``math.inf``
-        # AND the key is in the omit-set — those get dropped entirely.
-        # Other inf values fall through to the per-value sanitisation
-        # in pass 2 (which serialises them as the "Infinity" sentinel).
-        drops: list[Any] = []
-        for k, v in obj.items():
-            if (
-                k in _INF_OMIT_KEYS
-                and isinstance(v, float)
-                and (
-                    v == math.inf or v == -math.inf or abs(v) >= 1e20
-                )  # PLP sentinel (1e30)
-            ):
-                drops.append(k)
-        for k in drops:
-            del obj[k]
-        for k, v in obj.items():
-            obj[k] = _sanitize_inf(v)
-        return obj
-    if isinstance(obj, list):
-        for i, v in enumerate(obj):
-            obj[i] = _sanitize_inf(v)
-        return obj
-    if isinstance(obj, float):
-        if obj == math.inf:
-            return _INF_JSON_SENTINEL
-        if obj == -math.inf:
-            return _NEG_INF_JSON_SENTINEL
-    return obj
 
 
 def _try_scalar(value: Any) -> float | None:
@@ -1456,6 +1350,49 @@ class GTOptWriter(
         # ``<central>_ocean``) and per 1-ended diversion (``_sink``) while
         # keeping the flow VISIBLE on its waterway/turbine.
         _collapse_orphan_drain_outflows(self.planning["system"])
+
+        # Optional PLEXOS overlay: merge heat-rate / Fuel data from a
+        # plexos2gtopt-emitted gtopt JSON onto the PLP-derived planning.
+        # Only continuous fields are carried (no commitment / UC /
+        # integer primitives — see _plexos_overlay._FORBIDDEN_FIELDS).
+        plexos_overlay_src = options.get("plexos_overlay") if options else None
+        if plexos_overlay_src is not None:
+            from ._plexos_overlay import apply_plexos_overlay  # noqa: PLC0415
+
+            report_path = options.get("plexos_overlay_report") if options else None
+            if report_path is None:
+                out_dir = options.get("output_dir") if options else None
+                if out_dir is not None:
+                    report_path = Path(out_dir) / "plexos_overlay_report.json"
+            apply_plexos_overlay(
+                self.planning,
+                Path(plexos_overlay_src),
+                report_path=Path(report_path) if report_path is not None else None,
+            )
+
+        # IPCC emission-factor fill-in.  Runs AFTER the PLEXOS overlay so
+        # any CO2 factor PLEXOS shipped wins; this step only fills
+        # gaps on Fuel elements that still lack one and synthesizes the
+        # ``emission_array`` pollutant row when needed.  Enabled by the
+        # ``--emissions`` master switch (off by default).
+        if options and options.get("emissions", False):
+            from gtopt_shared.emissions import (  # noqa: PLC0415
+                apply_emission_defaults_from_file,
+            )
+
+            emissions_src = options.get("emissions_file")
+            emissions_report = options.get("emissions_report")
+            if emissions_report is None:
+                out_dir = options.get("output_dir")
+                if out_dir is not None:
+                    emissions_report = Path(out_dir) / "plexos_emissions_report.json"
+            apply_emission_defaults_from_file(
+                self.planning,
+                Path(emissions_src) if emissions_src is not None else None,
+                report_path=(
+                    Path(emissions_report) if emissions_report is not None else None
+                ),
+            )
 
         return self.planning
 

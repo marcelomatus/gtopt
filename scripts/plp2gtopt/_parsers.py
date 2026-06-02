@@ -217,8 +217,13 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
         default=None,
         help=(
             "overlay heat-rate / fuel data from a plexos2gtopt-emitted "
-            "gtopt case onto the plp2gtopt output.  PATH is either the "
-            "gtopt JSON file or the directory containing it.  Per the "
+            "gtopt case onto the plp2gtopt output.  PATH is either: "
+            "(a) the gtopt JSON file directly, (b) the directory "
+            "containing it (prefers <dir>/<dir.name>.json), or "
+            "(c) the literal string 'latest' to auto-resolve to the "
+            "most recent plexos2gtopt run from "
+            "~/.cache/gtopt/plexos2gtopt/runs.jsonl (no path-typing "
+            "needed when the latest run is what you want).  Per the "
             "SDDP no-integer rule, only continuous Generator fields are "
             "carried: heat_rate, heat_rate_segments+pmax_segments, fuel "
             "FK, lossfactor, plus the referenced Fuel elements (price, "
@@ -239,6 +244,13 @@ def add_io_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -> N
             "is set."
         ),
     )
+    # Emissions flags now live in gtopt_shared.cli_flags so plexos2gtopt
+    # picks up exactly the same surface (issue #507 Phase 2).
+    from gtopt_shared.cli_flags import (  # noqa: PLC0415
+        add_emissions_arguments,
+    )
+
+    add_emissions_arguments(parser)
 
 
 # ---------------------------------------------------------------------------
@@ -935,13 +947,20 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "computes from median line reactance by default."
         ),
     )
-    parser.add_argument(
-        "-b",
-        "--use-single-bus",
-        dest="use_single_bus",
-        action=argparse.BooleanOptionalAction,
+    # --use-single-bus is owned by gtopt_shared.cli_flags; plp2gtopt
+    # keeps its richer auto-detect semantic (default=None triggers the
+    # zero-line auto-detect path in build_options) via the registrar's
+    # keyword overrides.
+    from gtopt_shared.cli_flags import (  # noqa: PLC0415
+        add_use_single_bus_argument,
+    )
+
+    add_use_single_bus_argument(
+        parser,
+        short_flag="-b",
+        paired=True,
         default=None,
-        help=(
+        help_override=(
             "use single-bus (copper-plate) mode; pass --no-use-single-bus "
             "to force the multi-bus network "
             "(default: auto — single-bus when the parsed PLP case has 0 "

@@ -457,6 +457,13 @@ def build_options(args: argparse.Namespace) -> dict:
         # the PLP-derived planning.  Resolved by _plexos_overlay.
         "plexos_overlay": getattr(args, "plexos_overlay", None),
         "plexos_overlay_report": getattr(args, "plexos_overlay_report", None),
+        # IPCC defaults fill-in for missing CO2 emission factors on Fuel
+        # elements (after the PLEXOS overlay).  Master switch +
+        # optional file / report overrides.  Resolved by
+        # ``gtopt_shared.emissions``.
+        "emissions": getattr(args, "emissions", False),
+        "emissions_file": getattr(args, "emissions_file", None),
+        "emissions_report": getattr(args, "emissions_report", None),
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {

@@ -118,6 +118,13 @@ def make_parser() -> argparse.ArgumentParser:
             "validation (on by default, mirroring plp2gtopt)"
         ),
     )
+    # Emissions flags now live in gtopt_shared.cli_flags so plp2gtopt
+    # picks up exactly the same surface (issue #507 Phase 2).
+    from gtopt_shared.cli_flags import (  # noqa: PLC0415
+        add_emissions_arguments,
+    )
+
+    add_emissions_arguments(parser)
     parser.add_argument(
         "--lax-uc-refs",
         action="store_true",
@@ -189,11 +196,12 @@ def make_parser() -> argparse.ArgumentParser:
             "that diverge from the physics-correct default."
         ),
     )
-    parser.add_argument(
-        "--use-single-bus",
-        action="store_true",
-        help="collapse the multi-bus topology to a single bus (copperplate)",
+    # --use-single-bus is owned by gtopt_shared.cli_flags.
+    from gtopt_shared.cli_flags import (  # noqa: PLC0415
+        add_use_single_bus_argument,
     )
+
+    add_use_single_bus_argument(parser)
     parser.add_argument(
         "--default-uc-penalty",
         type=float,
@@ -965,6 +973,11 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_legacy": args.plexos_legacy,
         "plp_embalses": args.plp_embalses,
         "no_plp_embalses": args.no_plp_embalses,
+        # Emissions: master switch + optional custom IPCC file + report.
+        # See gtopt_shared.emissions for the fill-in semantics.
+        "emissions": args.emissions,
+        "emissions_file": args.emissions_file,
+        "emissions_report": args.emissions_report,
     }
 
     if args.compare_json:
