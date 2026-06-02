@@ -1,0 +1,473 @@
+# SPDX-License-Identifier: BSD-3-Clause
+"""Shared ``argparse`` flag registrars for gtopt converters.
+
+Single source of truth for the canonical CLI flags every gtopt
+converter (``plp2gtopt``, ``plexos2gtopt``, ``sddp2gtopt``,
+``pp2gtopt``) needs to expose — so the per-converter ``make_parser``
+code stays focused on converter-specific options and the flag
+defaults / help text / choice lists never drift between tools.
+
+Each ``add_*_argument(parser, *, default=…, dialect=…)`` helper
+adds a single ``argparse`` argument to the supplied *parser* and
+returns nothing.  ``default=`` accepts per-converter overrides;
+``dialect=`` selects between known semantic variants (e.g. the
+plp2gtopt ``--use-single-bus`` uses ``BooleanOptionalAction`` while
+the plexos2gtopt one uses ``store_true``).
+
+The grouped :func:`add_common_arguments` helper installs every
+canonical flag at once with per-flag default overrides — convenient
+when a new converter wants the entire baseline.
+"""
+
+from __future__ import annotations
+
+import argparse
+from typing import Final
+
+__all__ = [
+    "LINE_LOSSES_MODE_CHOICES",
+    "add_aperture_chunk_size_argument",
+    "add_common_arguments",
+    "add_demand_fail_cost_argument",
+    "add_lift_line_caps_argument",
+    "add_line_losses_mode_argument",
+    "add_loss_cost_eps_argument",
+    "add_scale_objective_argument",
+    "add_use_kirchhoff_argument",
+    "add_use_single_bus_argument",
+]
+
+
+# ---------------------------------------------------------------------------
+# Canonical line-losses-mode choices
+# ---------------------------------------------------------------------------
+#
+# Mirrors the C++ ``gtopt::LineLossesMode`` enum in
+# ``include/gtopt/line_enums.hpp``.  The 8 modes (in enum order) are:
+#
+#   0 none, 1 linear, 2 piecewise, 3 bidirectional, 4 adaptive,
+#   5 dynamic, 6 piecewise_direct, 7 tangent_signed_flow
+#
+# The list is exported as a constant so converters can introspect or
+# extend it (e.g. for `--help` group ordering) without duplicating
+# the string literals.
+LINE_LOSSES_MODE_CHOICES: Final[tuple[str, ...]] = (
+    "none",
+    "linear",
+    "piecewise",
+    "bidirectional",
+    "adaptive",
+    "dynamic",
+    "piecewise_direct",
+    "tangent_signed_flow",
+)
+
+
+# ---------------------------------------------------------------------------
+# Individual flag registrars
+# ---------------------------------------------------------------------------
+
+
+def add_scale_objective_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: float = 1000.0,
+) -> None:
+    """Register ``--scale-objective`` (objective scaling factor).
+
+    Emitted as ``options.model_options.scale_objective``.  The C++
+    default is 1000 in monolithic mode and 1.0 in cascade/sddp; pass
+    ``default=`` to reflect the converter's preferred baseline.
+    """
+    parser.add_argument(
+        "--scale-objective",
+        dest="scale_objective",
+        type=float,
+        metavar="FACTOR",
+        default=default,
+        help=("objective function scaling factor. (default: %(default)s)"),
+    )
+
+
+def add_demand_fail_cost_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: float | None = 1000.0,
+    help_text: str | None = None,
+) -> None:
+    """Register ``--demand-fail-cost`` (unserved-load penalty in $/MWh).
+
+    Emitted as ``options.model_options.demand_fail_cost``.  ``default``
+    of ``None`` signals "auto-derive from the case" — converters that
+    can extract a per-case penalty (e.g. plp2gtopt's FALLA centrals)
+    should pass ``default=None`` and substitute the derived value
+    after parsing.
+    """
+    parser.add_argument(
+        "--demand-fail-cost",
+        dest="demand_fail_cost",
+        type=float,
+        metavar="COST",
+        default=default,
+        help=(
+            help_text
+            if help_text is not None
+            else ("cost penalty for demand curtailment in $/MWh (default: %(default)s)")
+        ),
+    )
+
+
+def add_use_kirchhoff_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: bool = True,
+) -> None:
+    """Register ``--use-kirchhoff`` / ``--no-use-kirchhoff``.
+
+    Emitted as ``options.model_options.use_kirchhoff``.  ``True`` by
+    default — DC-OPF with voltage angles is the standard formulation.
+    """
+    parser.add_argument(
+        "-k",
+        "--use-kirchhoff",
+        dest="use_kirchhoff",
+        action=argparse.BooleanOptionalAction,
+        default=default,
+        help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
+    )
+
+
+def add_use_single_bus_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: bool | None = None,
+    dialect: str = "boolean_optional",
+) -> None:
+    """Register ``--use-single-bus`` (copper-plate collapse).
+
+    Two dialects to match the existing converters:
+
+    * ``"boolean_optional"`` (plp2gtopt): ``BooleanOptionalAction``
+      with ``-b`` short flag and tri-state ``default=None`` semantics
+      (the converter auto-picks single-bus when the case has zero
+      transmission lines, multi-bus otherwise).  ``--no-use-single-bus``
+      explicitly forces multi-bus.
+
+    * ``"store_true"`` (plexos2gtopt): plain boolean flag that toggles
+      single-bus mode on when present.  No short flag, no auto-detect.
+
+    Emitted as ``options.use_single_bus`` (or whatever the converter's
+    writer hands to gtopt).
+    """
+    if dialect == "boolean_optional":
+        parser.add_argument(
+            "-b",
+            "--use-single-bus",
+            dest="use_single_bus",
+            action=argparse.BooleanOptionalAction,
+            default=default,
+            help=(
+                "use single-bus (copper-plate) mode; pass --no-use-single-bus "
+                "to force the multi-bus network "
+                "(default: auto — single-bus when the parsed PLP case has 0 "
+                "transmission lines, multi-bus otherwise)"
+            ),
+        )
+    elif dialect == "store_true":
+        parser.add_argument(
+            "--use-single-bus",
+            action="store_true",
+            help="collapse the multi-bus topology to a single bus (copperplate)",
+        )
+    else:
+        raise ValueError(
+            f"add_use_single_bus_argument: unknown dialect {dialect!r}; "
+            "expected 'boolean_optional' or 'store_true'"
+        )
+
+
+def add_line_losses_mode_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+) -> None:
+    """Register ``--line-losses-mode`` (PWL/linear loss formulation).
+
+    Choice list mirrors the C++ ``LineLossesMode`` enum
+    (:data:`LINE_LOSSES_MODE_CHOICES`).  Emitted as
+    ``options.model_options.line_losses_mode``.  ``default=None``
+    leaves the field unset so gtopt picks ``adaptive``.
+    """
+    parser.add_argument(
+        "--line-losses-mode",
+        dest="line_losses_mode",
+        metavar="MODE",
+        default=default,
+        choices=list(LINE_LOSSES_MODE_CHOICES),
+        help=(
+            "transmission-line loss model emitted as "
+            "model_options.line_losses_mode. 'adaptive' (gtopt default) "
+            "picks the smallest-LP PWL model — `piecewise` for fixed-"
+            "capacity lines, `bidirectional` for expandable ones. "
+            "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
+            "bus stamps, no loss rows) at the cost of 2·K segment cols "
+            "per direction — use for PLP LP-diff parity. "
+            "'tangent_signed_flow' (Coffrin-Van Hentenryck 2014) uses a "
+            "single signed-flow column + K outer-approximation tangents "
+            "and a |f|-aux chord upper bound — strongest LP relaxation, "
+            "no bidirectional-flow degeneracy. "
+            "(default: not set — gtopt picks 'adaptive')"
+        ),
+    )
+
+
+def add_loss_cost_eps_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: float | None = None,
+    dialect: str = "plp",
+) -> None:
+    """Register ``--loss-cost-eps`` (per-direction loss column cost).
+
+    Two dialects:
+
+    * ``"plp"`` (plp2gtopt): ``default=None`` + ``metavar='EPS'`` —
+      stays unset so the C++ default (0.0) applies unless explicitly
+      requested.
+
+    * ``"plexos"`` (plexos2gtopt): ``default=0.0`` and no metavar —
+      always emitted in the planning JSON, even at the legacy 0.0.
+
+    Emitted as ``options.model_options.loss_cost_eps``.
+    """
+    if dialect == "plp":
+        parser.add_argument(
+            "--loss-cost-eps",
+            dest="loss_cost_eps",
+            type=float,
+            default=default,
+            metavar="EPS",
+            help=(
+                "Small positive cost ($/MWh) stamped on every per-direction "
+                "loss column (loss_p / loss_n) of PWL-loss lines. Strictly "
+                "breaks the pure LP-relax bidirectional-flow degeneracy: "
+                "the LP picks single-direction dispatch among primal-optimal "
+                "solutions sharing the same net flow. Recommended: 1e-6 — "
+                "essentially zero objective impact yet eliminates the "
+                "residual phantom bidirectional flow. Emitted as "
+                "options.model_options.loss_cost_eps. "
+                "(default: not set — gtopt picks 0.0, legacy behaviour)"
+            ),
+        )
+    elif dialect == "plexos":
+        eff_default = 0.0 if default is None else default
+        parser.add_argument(
+            "--loss-cost-eps",
+            type=float,
+            default=eff_default,
+            help=(
+                "Small positive cost ($/MWh) stamped on every per-direction "
+                "loss column (``loss_p`` / ``loss_n``) of PWL-loss lines.  "
+                "Strictly breaks the pure LP-relax bidirectional-flow "
+                "degeneracy: the LP picks single-direction dispatch among "
+                "primal-optimal solutions sharing the same net flow.  "
+                "Recommended: ``1e-6`` — essentially zero objective impact "
+                "(well below LP optimality tolerance) yet eliminates the "
+                "residual ~1-11%% phantom bidirectional flow that survives "
+                "the ``piecewise → bidirectional`` wrapping.  Default 0.0 "
+                "preserves legacy behaviour.  Emitted as the global "
+                "``options.model_options.loss_cost_eps`` field — every "
+                "PWL/bidirectional line inherits the same ε."
+            ),
+        )
+    else:
+        raise ValueError(
+            f"add_loss_cost_eps_argument: unknown dialect {dialect!r}; "
+            "expected 'plp' or 'plexos'"
+        )
+
+
+def add_lift_line_caps_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+    dialect: str = "plp",
+) -> None:
+    """Register ``--lift-line-caps`` (per-line cap-lift list).
+
+    Two dialects to match the existing converters:
+
+    * ``"plp"`` (plp2gtopt): a comma-separated list of line names
+      (optionally ``Name:Factor``) widening the ``loss_envelope`` for
+      named lines.  ``default=None`` — no lift unless requested.
+
+    * ``"plexos"`` (plexos2gtopt): a comma-separated list of line
+      names to demote from PLEXOS EL=1 (hard cap) down to EL=0 (no
+      cap).  ``default='Capricornio110->LaNegra110'`` ships a single
+      curated entry for the CEN PCP weekly bundle.
+
+    Emitted differently in each writer; see the respective converter
+    for the post-parse interpretation.
+    """
+    if dialect == "plp":
+        parser.add_argument(
+            "--lift-line-caps",
+            dest="lift_line_caps",
+            metavar="NAMES",
+            default=default,
+            help=(
+                "Comma-separated list of Line names whose loss_envelope is "
+                "widened beyond tmax_normal to cover the overload band the "
+                "LP can actually flow into under PWL-loss relaxation. "
+                "Format: 'L1:FACTOR,L2:FACTOR' (FACTOR multiplies tmax_ab); "
+                "or 'L1,L2' to use the converter's default factor (2.0). "
+                "Emitted as per-line Line.loss_envelope. Useful when the "
+                "default envelope [0, tmax_normal] under-approximates the "
+                "true loss curve in the overload band, producing inflated "
+                "secant losses or phantom flow."
+            ),
+        )
+    elif dialect == "plexos":
+        eff_default = "Capricornio110->LaNegra110" if default is None else default
+        parser.add_argument(
+            "--lift-line-caps",
+            type=str,
+            default=eff_default,
+            help=(
+                "Comma-separated list of Line names to demote from PLEXOS "
+                "EL=1 (enforce hard cap) down to EL=0 (no cap, but keep "
+                "tmax_ab for loss-segment discretization).  Used for "
+                "PLEXOS lines where the dispatched flow exceeds the "
+                "published rating because the line is radial and the LP "
+                "has no alternative path — enforcing the cap in gtopt "
+                "would otherwise create unserved demand.\n"
+                "\n"
+                "Default lifts ``Capricornio110->LaNegra110`` only — the "
+                "single canonical case on the CEN PCP weekly bundle (76 "
+                "MW Max Flow, 204 MW in PLEXOS dispatch, 269%% of cap; "
+                "the line is a 110 kV radial stepdown to the Antofagasta "
+                "region with no parallel path).  Pass an empty string "
+                "(``--lift-line-caps=''``) to activate the experimental "
+                "SOFT-EL=1 mode instead — every EL=1 line gets a parallel "
+                "slack at ``tcost = (min(demand.fcost) + max(generator."
+                "gcost)) / 2`` ($/MWh).  Soft mode lets the LP push past "
+                "the PLEXOS rating at a penalty, but on CEN PCP weekly "
+                "increased BESS-charging +77%% and losses +18%% vs the "
+                "Capricornio-only baseline — kept as an opt-in for new "
+                "bundles where the lift list isn't curated yet."
+            ),
+        )
+    else:
+        raise ValueError(
+            f"add_lift_line_caps_argument: unknown dialect {dialect!r}; "
+            "expected 'plp' or 'plexos'"
+        )
+
+
+def add_aperture_chunk_size_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: int | None = None,
+) -> None:
+    """Register ``--aperture-chunk-size`` (SDDP chunk granularity).
+
+    Emitted as ``options.sddp_options.aperture_chunk_size``.  Integer
+    or ``None`` (auto): 0/unset = auto, 1 = legacy 1-per-task,
+    > 1 = K-per-task, -1 = fully serial per scene.
+    """
+    parser.add_argument(
+        "--aperture-chunk-size",
+        dest="aperture_chunk_size",
+        type=int,
+        default=default,
+        metavar="K",
+        help=(
+            "SDDP chunked aperture pass: K apertures solved serially per "
+            "task on a shared LP clone (warm-start reuse). 0/unset = auto "
+            "(currently resolves to 1, empirically fastest under the "
+            "parallel-safe manual-clone path on juan/IPLP-scale workloads), "
+            "1 = legacy 1-task-per-aperture, > 1 = K per task, "
+            "-1 = fully serial per scene. Emitted as "
+            "options.sddp_options.aperture_chunk_size."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Grouped registrar
+# ---------------------------------------------------------------------------
+
+
+def add_common_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    defaults: dict[str, object] | None = None,
+    dialects: dict[str, str] | None = None,
+    skip: set[str] | None = None,
+) -> None:
+    """Install every canonical gtopt flag on *parser* in one call.
+
+    Parameters
+    ----------
+    parser
+        argparse parser to register the flags on.
+    defaults
+        Per-flag default overrides keyed by ``dest`` name
+        (``scale_objective``, ``demand_fail_cost``, ``use_kirchhoff``,
+        ``use_single_bus``, ``line_losses_mode``, ``loss_cost_eps``,
+        ``lift_line_caps``, ``aperture_chunk_size``).
+    dialects
+        Per-flag dialect overrides for the multi-dialect flags
+        (``use_single_bus``, ``loss_cost_eps``, ``lift_line_caps``).
+    skip
+        Set of ``dest`` names to omit (useful when the converter
+        already declares one of these via a converter-specific
+        registrar and only needs the rest).
+    """
+    defaults = defaults or {}
+    dialects = dialects or {}
+    skip = skip or set()
+
+    if "scale_objective" not in skip:
+        add_scale_objective_argument(
+            parser,
+            default=float(defaults.get("scale_objective", 1000.0)),  # type: ignore[arg-type]
+        )
+    if "demand_fail_cost" not in skip:
+        dfc = defaults.get("demand_fail_cost", 1000.0)
+        add_demand_fail_cost_argument(
+            parser,
+            default=None if dfc is None else float(dfc),  # type: ignore[arg-type]
+        )
+    if "use_kirchhoff" not in skip:
+        add_use_kirchhoff_argument(
+            parser, default=bool(defaults.get("use_kirchhoff", True))
+        )
+    if "use_single_bus" not in skip:
+        add_use_single_bus_argument(
+            parser,
+            default=defaults.get("use_single_bus"),  # type: ignore[arg-type]
+            dialect=dialects.get("use_single_bus", "boolean_optional"),
+        )
+    if "line_losses_mode" not in skip:
+        add_line_losses_mode_argument(
+            parser,
+            default=defaults.get("line_losses_mode"),  # type: ignore[arg-type]
+        )
+    if "loss_cost_eps" not in skip:
+        add_loss_cost_eps_argument(
+            parser,
+            default=defaults.get("loss_cost_eps"),  # type: ignore[arg-type]
+            dialect=dialects.get("loss_cost_eps", "plp"),
+        )
+    if "lift_line_caps" not in skip:
+        add_lift_line_caps_argument(
+            parser,
+            default=defaults.get("lift_line_caps"),  # type: ignore[arg-type]
+            dialect=dialects.get("lift_line_caps", "plp"),
+        )
+    if "aperture_chunk_size" not in skip:
+        add_aperture_chunk_size_argument(
+            parser,
+            default=defaults.get("aperture_chunk_size"),  # type: ignore[arg-type]
+        )

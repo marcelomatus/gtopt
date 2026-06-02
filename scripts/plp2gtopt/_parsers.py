@@ -18,6 +18,16 @@ from gtopt_config import (
     add_log_level_argument,
     add_version_argument,
 )
+from gtopt_shared.cli_flags import (
+    add_aperture_chunk_size_argument,
+    add_demand_fail_cost_argument,
+    add_lift_line_caps_argument,
+    add_line_losses_mode_argument,
+    add_loss_cost_eps_argument,
+    add_scale_objective_argument,
+    add_use_kirchhoff_argument,
+    add_use_single_bus_argument,
+)
 
 if TYPE_CHECKING:
     pass
@@ -355,22 +365,7 @@ def add_scenario_arguments(
             "If not set, defaults to <output-dir>/apertures when needed."
         ),
     )
-    parser.add_argument(
-        "--aperture-chunk-size",
-        dest="aperture_chunk_size",
-        type=int,
-        default=None,
-        metavar="K",
-        help=(
-            "SDDP chunked aperture pass: K apertures solved serially per "
-            "task on a shared LP clone (warm-start reuse). 0/unset = auto "
-            "(currently resolves to 1, empirically fastest under the "
-            "parallel-safe manual-clone path on juan/IPLP-scale workloads), "
-            "1 = legacy 1-task-per-aperture, > 1 = K per task, "
-            "-1 = fully serial per scene. Emitted as "
-            "options.sddp_options.aperture_chunk_size."
-        ),
-    )
+    add_aperture_chunk_size_argument(parser)
 
 
 # ---------------------------------------------------------------------------
@@ -743,13 +738,10 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # Explicit `--demand-fail-cost NNNN` or `demand_fail_cost = NNNN` in
     # the conf still overrides.
     _default_dfc = conf.get("demand_fail_cost")
-    parser.add_argument(
-        "--demand-fail-cost",
-        dest="demand_fail_cost",
-        type=float,
-        metavar="COST",
+    add_demand_fail_cost_argument(
+        parser,
         default=float(_default_dfc) if _default_dfc is not None else None,
-        help=(
+        help_text=(
             "cost penalty for demand curtailment in $/MWh "
             "(default: average first-tier FALLA gcost from plpcnfce.dat)"
         ),
@@ -885,13 +877,8 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=None,
         help="cost penalty for reserve shortfall in $/MWh (default: not set)",
     )
-    parser.add_argument(
-        "--scale-objective",
-        dest="scale_objective",
-        type=float,
-        metavar="FACTOR",
-        default=float(conf.get("scale_objective", "1.0")),
-        help=("objective function scaling factor. (default: %(default)s)"),
+    add_scale_objective_argument(
+        parser, default=float(conf.get("scale_objective", "1.0"))
     )
     parser.add_argument(
         "--scale-theta",
@@ -905,27 +892,8 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "computes from median line reactance by default."
         ),
     )
-    parser.add_argument(
-        "-b",
-        "--use-single-bus",
-        dest="use_single_bus",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "use single-bus (copper-plate) mode; pass --no-use-single-bus "
-            "to force the multi-bus network "
-            "(default: auto — single-bus when the parsed PLP case has 0 "
-            "transmission lines, multi-bus otherwise)"
-        ),
-    )
-    parser.add_argument(
-        "-k",
-        "--use-kirchhoff",
-        dest="use_kirchhoff",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="enable Kirchhoff voltage-law constraints (default: %(default)s)",
-    )
+    add_use_single_bus_argument(parser)
+    add_use_kirchhoff_argument(parser)
     parser.add_argument(
         "--kirchhoff-mode",
         dest="kirchhoff_mode",
@@ -951,71 +919,9 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "explicitly disable (omit to inherit the gtopt default: true)"
         ),
     )
-    parser.add_argument(
-        "--line-losses-mode",
-        dest="line_losses_mode",
-        metavar="MODE",
-        default=None,
-        choices=[
-            "none",
-            "linear",
-            "piecewise",
-            "bidirectional",
-            "adaptive",
-            "dynamic",
-            "piecewise_direct",
-            "tangent_signed_flow",
-        ],
-        help=(
-            "transmission-line loss model emitted as "
-            "model_options.line_losses_mode. 'adaptive' (gtopt default) "
-            "picks the smallest-LP PWL model — `piecewise` for fixed-"
-            "capacity lines, `bidirectional` for expandable ones. "
-            "'piecewise_direct' mirrors PLP `genpdlin.f` (per-segment "
-            "bus stamps, no loss rows) at the cost of 2·K segment cols "
-            "per direction — use for PLP LP-diff parity. "
-            "'tangent_signed_flow' (Coffrin-Van Hentenryck 2014) uses a "
-            "single signed-flow column + K outer-approximation tangents "
-            "and a |f|-aux chord upper bound — strongest LP relaxation, "
-            "no bidirectional-flow degeneracy. "
-            "(default: not set — gtopt picks 'adaptive')"
-        ),
-    )
-    parser.add_argument(
-        "--loss-cost-eps",
-        dest="loss_cost_eps",
-        type=float,
-        default=None,
-        metavar="EPS",
-        help=(
-            "Small positive cost ($/MWh) stamped on every per-direction "
-            "loss column (loss_p / loss_n) of PWL-loss lines. Strictly "
-            "breaks the pure LP-relax bidirectional-flow degeneracy: "
-            "the LP picks single-direction dispatch among primal-optimal "
-            "solutions sharing the same net flow. Recommended: 1e-6 — "
-            "essentially zero objective impact yet eliminates the "
-            "residual phantom bidirectional flow. Emitted as "
-            "options.model_options.loss_cost_eps. "
-            "(default: not set — gtopt picks 0.0, legacy behaviour)"
-        ),
-    )
-    parser.add_argument(
-        "--lift-line-caps",
-        dest="lift_line_caps",
-        metavar="NAMES",
-        default=None,
-        help=(
-            "Comma-separated list of Line names whose loss_envelope is "
-            "widened beyond tmax_normal to cover the overload band the "
-            "LP can actually flow into under PWL-loss relaxation. "
-            "Format: 'L1:FACTOR,L2:FACTOR' (FACTOR multiplies tmax_ab); "
-            "or 'L1,L2' to use the converter's default factor (2.0). "
-            "Emitted as per-line Line.loss_envelope. Useful when the "
-            "default envelope [0, tmax_normal] under-approximates the "
-            "true loss curve in the overload band, producing inflated "
-            "secant losses or phantom flow."
-        ),
-    )
+    add_line_losses_mode_argument(parser)
+    add_loss_cost_eps_argument(parser, dialect="plp")
+    add_lift_line_caps_argument(parser, dialect="plp")
     parser.add_argument(
         "--plp-legacy",
         dest="plp_legacy",
