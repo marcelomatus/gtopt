@@ -417,6 +417,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             soft_efin_reservoirs=soft_efin_set,
             soft_penalty_override=options.get("soft_penalty_cost"),
             loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
+            write_out=options.get("write_out"),
             **(
                 {"fcf_scale_alpha": float(fcf_scale_alpha)}
                 if fcf_scale_alpha is not None

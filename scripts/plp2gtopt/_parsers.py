@@ -27,6 +27,7 @@ from gtopt_shared.cli_flags import (
     add_scale_objective_argument,
     add_use_kirchhoff_argument,
     add_use_single_bus_argument,
+    add_write_out_argument,
 )
 
 if TYPE_CHECKING:
@@ -413,6 +414,15 @@ def add_scenario_arguments(
         ),
     )
     add_aperture_chunk_size_argument(parser)
+    # ``--write-out`` injects ``options.write_out`` into the planning
+    # JSON so the standalone ``gtopt`` binary writes the right output
+    # streams (Generator/generation_cost, Bus/balance_dual, etc.) for
+    # downstream tools (``gtopt_marginal_units``, loss-audit, the
+    # LMP-attribution pipeline).  Default is the canonical
+    # ``DEFAULT_WRITE_OUT`` (``sol,dual,rc:Generator,Line``); pass
+    # ``--write-out all`` for the full audit-grade dump or
+    # ``--write-out sol`` for primal-only.
+    add_write_out_argument(parser)
 
 
 # ---------------------------------------------------------------------------

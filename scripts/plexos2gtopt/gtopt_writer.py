@@ -22,6 +22,7 @@ from pathlib import Path
 from collections.abc import Iterable, Iterator
 from typing import Any
 
+from gtopt_shared.cli_flags import DEFAULT_WRITE_OUT as _DEFAULT_WRITE_OUT_FALLBACK
 from gtopt_shared.pampl_ident import (
     pampl_ident as _pampl_ident,
     penalty_param_name as _penalty_param_name,
@@ -114,6 +115,7 @@ def build_options(
     use_single_bus: bool = False,
     demand_fail_cost: float = 1000.0,
     loss_cost_eps: float = 0.0,
+    write_out: str | None = None,
 ) -> dict[str, Any]:
     """Map :class:`BundleSpec` onto gtopt's ``options`` block.
 
@@ -150,25 +152,18 @@ def build_options(
         "input_format": "parquet",
         "output_format": "parquet",
         "output_compression": "snappy",
-        # Emit the full output surface by default so downstream tools
-        # (``compare_with_plexos``, the loss-audit pipeline, anything
-        # that reads ``Line/loss_sol.parquet`` or
-        # ``Generator/heat_rate_slack_sol.parquet``) have what they
-        # need without re-running every solve.  Per
-        # ``include/gtopt/planning_enums.hpp:429``,
-        # ``OutputFlags::all`` is ``solution | dual | reduced_cost |
-        # extras`` — i.e. it *does* include the ``extras`` bit that
-        # gates ``loss_sol`` (see ``source/line_lp.cpp::add_to_output``
-        # at the ``add_col_sol_extras(LossName, ...)`` call) and
-        # ``heat_rate_slack`` (see
-        # ``source/generator_lp.cpp::add_to_output`` for the
-        # ``--write-out ...,extras:Generator`` opt-in).  Without this
-        # the converter-emitted JSON would inherit gtopt's empty
-        # default, which produces flowp/flown but no consolidated
-        # loss stream → forces the loss-audit path to re-derive every
-        # loss from ``R/V² · f² · dur`` and miss the LP's internal
-        # PWL secant value entirely.
-        "write_out": "all",
+        # ``options.write_out`` controls which output streams gtopt
+        # serialises.  Caller (CLI ``--write-out``) determines the
+        # selection; we just thread it through.  Default is the
+        # canonical ``DEFAULT_WRITE_OUT`` (``sol,dual,rc:Generator,Line``)
+        # — exactly what ``gtopt_marginal_units`` needs.  Pass
+        # ``--write-out all`` to additionally emit ``extras`` (per-bus
+        # loss residuals, heat-rate slack, etc.) for the broader
+        # loss-audit / ``compare_with_plexos`` pipelines; see
+        # ``include/gtopt/planning_enums.hpp::parse_output_selection``.
+        "write_out": (
+            write_out if write_out is not None else _DEFAULT_WRITE_OUT_FALLBACK
+        ),
         # NOTE: ``lp_matrix_options.equilibration_method`` intentionally
         # left UNSET — the default Ruiz scaling rescales binary
         # commitment column upper bounds (e.g. ``commitment_status_X``
@@ -2842,6 +2837,7 @@ def build_planning(
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
     loss_cost_eps: float = 0.0,
+    write_out: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -3088,6 +3084,7 @@ def build_planning(
             use_single_bus=use_single_bus,
             demand_fail_cost=case.bundle.demand_fail_cost,
             loss_cost_eps=loss_cost_eps,
+            write_out=write_out,
         ),
         "simulation": build_simulation(case.bundle),
         "system": system,

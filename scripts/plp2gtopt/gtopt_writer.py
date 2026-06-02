@@ -1243,6 +1243,14 @@ class GTOptWriter(
                 "equilibration_method": "ruiz",
             },
         }
+        # ``options.write_out`` controls which output streams gtopt
+        # serialises (sol / dual / rc / extras, optionally restricted to
+        # element classes).  When the CLI was given (or the conf file
+        # set a default), thread it through verbatim; otherwise leave
+        # the field unset so gtopt picks its own default.
+        write_out = options.get("write_out")
+        if write_out:
+            planning_opts["write_out"] = write_out
 
         if method == "cascade":
             # Per-level aperture budgets use ``num_apertures`` (resolved

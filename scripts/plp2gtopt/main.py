@@ -404,6 +404,11 @@ def build_options(args: argparse.Namespace) -> dict:
         "name": name,
         "sys_version": args.sys_version,
         "method": args.method,
+        # Forwarded to ``options.write_out`` (see
+        # ``gtopt_writer.write_planning_options``).  ``getattr`` with the
+        # canonical default keeps in-tree fixtures that build a minimal
+        # Namespace (test_main_coverage.py) working without rewiring.
+        "write_out": getattr(args, "write_out", None),
         # cascade-reduced runtime knobs.  ``getattr`` with defaults makes
         # this resilient to test fixtures that build a minimal Namespace
         # by hand (e.g. test_main_coverage.py) — the actual CLI parser

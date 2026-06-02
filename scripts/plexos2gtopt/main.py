@@ -128,9 +128,18 @@ def make_parser() -> argparse.ArgumentParser:
     # up exactly the same surface (issue #507 Phase 2).
     from gtopt_shared.cli_flags import (  # noqa: PLC0415
         add_emissions_arguments,
+        add_write_out_argument,
     )
 
     add_emissions_arguments(parser)
+    # ``--write-out`` injects ``options.write_out`` into the planning JSON
+    # so the standalone ``gtopt`` binary writes the right output streams
+    # (Generator/generation_cost, Bus/balance_dual, etc.) for downstream
+    # tools (``gtopt_marginal_units``, loss-audit, the LMP-attribution
+    # pipeline).  Default is the canonical ``DEFAULT_WRITE_OUT``
+    # (``sol,dual,rc:Generator,Line``); pass ``--write-out all`` for the
+    # full audit-grade dump or ``--write-out sol`` for primal-only.
+    add_write_out_argument(parser)
     parser.add_argument(
         "--lax-uc-refs",
         action="store_true",
@@ -904,6 +913,11 @@ def main(argv: list[str] | None = None) -> None:
         "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
         "loss_cost_eps": args.loss_cost_eps,
+        # Forwarded to ``options.write_out`` (see
+        # ``gtopt_writer.build_options``).  ``getattr`` with the canonical
+        # default keeps in-tree fixtures that build a minimal Namespace
+        # working without rewiring.
+        "write_out": getattr(args, "write_out", None),
         "hydro_min_mode": args.hydro_min_mode,
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,

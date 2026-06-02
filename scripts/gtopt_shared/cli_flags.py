@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Final
 
 __all__ = [
+    "DEFAULT_WRITE_OUT",
     "LINE_LOSSES_MODE_CHOICES",
     "add_aperture_chunk_size_argument",
     "add_common_arguments",
@@ -37,7 +38,35 @@ __all__ = [
     "add_scale_objective_argument",
     "add_use_kirchhoff_argument",
     "add_use_single_bus_argument",
+    "add_write_out_argument",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Canonical default for ``options.write_out``
+# ---------------------------------------------------------------------------
+#
+# Exactly the streams every downstream gtopt consumer needs by default —
+# the union of:
+#
+#   * ``sol``           — primal column values (generation, line flow,
+#                          load, fail, etc.)
+#   * ``dual``          — row duals (Bus/balance_dual, Junction/balance_dual,
+#                          Reservoir/water_value_dual, Battery/energy_dual,
+#                          Reservoir/efin_dual, etc.)
+#   * ``rc:Generator``  — Generator/generation_cost (reduced cost of the
+#                          primary generation column — required by
+#                          ``gtopt_marginal_units`` for the basic-vs-bound
+#                          test that identifies the marginal unit)
+#   * ``rc:Line``       — Line/overload{p,n}_cost / loss_cost — used by
+#                          the loss-audit + congestion-attribution paths
+#
+# Narrower than ``"all"`` (which also writes ``extras`` — every dispatch
+# variable for every element, plus per-element shadow prices) so the
+# on-disk solution footprint stays lean by default.  Override with
+# ``--write-out all`` for the full audit-grade output, or with
+# ``--write-out sol`` for a primal-only run.
+DEFAULT_WRITE_OUT: Final[str] = "sol,dual,rc:Generator,Line"
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +497,54 @@ def add_aperture_chunk_size_argument(
 
 
 # ---------------------------------------------------------------------------
+# Output selection (--write-out)
+# ---------------------------------------------------------------------------
+
+
+def add_write_out_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+) -> None:
+    """Register ``--write-out`` (output selection passed through to gtopt).
+
+    The CLI value is forwarded verbatim to the planning JSON's
+    ``options.write_out`` field; gtopt parses it via
+    ``parse_output_selection`` (see ``include/gtopt/planning_enums.hpp``).
+
+    Recognised tokens:
+
+    * ``sol`` / ``solution``  — primal column values
+    * ``dual``                — row duals
+    * ``rc`` / ``reduced_cost`` — column reduced costs
+    * ``extras``              — secondary slack / shadow / per-element
+                                 detail columns
+    * ``all``                  — alias for ``sol,dual,rc,extras``
+
+    Element-class restriction with ``rc:Generator,Line`` etc.:
+    space-free, comma-separated list of element class names appended
+    after a colon limits the bit to those classes (others stay off).
+    The default :data:`DEFAULT_WRITE_OUT` is exactly what
+    ``gtopt_marginal_units`` needs — lean enough not to blow up disk
+    on 2-year runs.
+    """
+    parser.add_argument(
+        "--write-out",
+        dest="write_out",
+        metavar="SPEC",
+        default=DEFAULT_WRITE_OUT if default is None else default,
+        help=(
+            "gtopt output selection (passed through to "
+            "``options.write_out``).  Comma-separated tokens: "
+            "``sol`` / ``dual`` / ``rc`` / ``extras`` / ``all``, optionally "
+            "restricted to a class list via ``rc:Generator,Line``.  "
+            "Default: %(default)r — exactly what gtopt_marginal_units, "
+            "loss-audit, and the LMP-attribution pipelines need."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Grouped registrar
 # ---------------------------------------------------------------------------
 
@@ -544,4 +621,9 @@ def add_common_arguments(
         add_aperture_chunk_size_argument(
             parser,
             default=defaults.get("aperture_chunk_size"),  # type: ignore[arg-type]
+        )
+    if "write_out" not in skip:
+        add_write_out_argument(
+            parser,
+            default=defaults.get("write_out"),  # type: ignore[arg-type]
         )
