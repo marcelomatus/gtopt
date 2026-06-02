@@ -88,6 +88,35 @@ def topology_from_planning(planning: dict) -> Topology:
                 return int(ref.split(":", 1)[1])
         raise InputValidationError(f"cannot resolve bus reference: {ref!r}")
 
+    # Aggregate per-generator CO2eq emission factor from the
+    # ``emission_source_array`` (one entry per (generator, emission,
+    # zone) triple, each carrying a per-MWh rate).  Weight each rate
+    # by the zone's emission weight so the final per-gen factor is
+    # CO2-equivalent in the same units the zone uses (typically
+    # kg CO2eq / MWh on the jan18 CEN bundle).  Falls back to the
+    # per-gen ``emission_rate`` JSON field when no sources exist
+    # (legacy plexos2gtopt / nrel118_to_gtopt converters that bake
+    # the factor into the generator directly).
+    zone_weights: dict[int, dict[str, float]] = {
+        int(z["uid"]): {
+            e["emission"]: float(e["weight"]) for e in z.get("emissions", [])
+        }
+        for z in system.get("emission_zone_array", [])
+    }
+    gen_emission_co2eq: dict[int, float] = {}
+    for src in system.get("emission_source_array", []):
+        try:
+            g_uid = int(src["generator"])
+            z_uid = int(src["zone"])
+            emission = str(src["emission"])
+            rate = float(src.get("rate", 0.0))
+        except (KeyError, TypeError, ValueError):
+            continue
+        weight = zone_weights.get(z_uid, {}).get(emission, 0.0)
+        if weight == 0.0 or rate == 0.0:
+            continue
+        gen_emission_co2eq[g_uid] = gen_emission_co2eq.get(g_uid, 0.0) + weight * rate
+
     # Generators.
     generators = []
     for g in system.get("generator_array", []):
@@ -109,16 +138,22 @@ def topology_from_planning(planning: dict) -> Topology:
         if kind not in ("thermal", "hydro", "battery", "profile"):
             kind = "thermal"
 
+        uid = int(g["uid"])
+        # Prefer the per-gen JSON ``emission_rate`` when set; otherwise
+        # fall back to the CO2eq factor derived from emission_source_array.
+        emit_jsn = _opt_float(g.get("emission_rate"))
+        emit_eff = emit_jsn if emit_jsn is not None else gen_emission_co2eq.get(uid)
+
         generators.append(
             Generator(
-                uid=int(g["uid"]),
+                uid=uid,
                 name=str(g.get("name", f"g{g['uid']}")),
                 bus_uid=_resolve_bus(g.get("bus")),
                 pmin=_scalar_or_max(g.get("pmin"), 0.0),
                 pmax=_scalar_or_max(g.get("pmax", g.get("capacity")), 0.0),
                 declared_MC=declared_mc,
                 kind=kind,
-                emission_rate=_opt_float(g.get("emission_rate")),
+                emission_rate=emit_eff,
             )
         )
 
