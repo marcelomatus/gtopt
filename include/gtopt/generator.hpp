@@ -88,6 +88,27 @@ struct GeneratorAttrs
   /// Mirrors PLEXOS `Generator.Fuel` / SDDP `Combustível`.
   OptSingleId fuel {};
 
+  /// Optional per-(stage, block) OVERRIDE of `fuel`.  When set, each
+  /// (stage, block) cell resolves to a Fuel by `Uid` and that Fuel
+  /// supersedes the static `fuel` field for that cell — the cost,
+  /// emission, and `Fuel.max_offtake` bookkeeping all switch to the
+  /// per-block fuel.  Cells with the sentinel value `0` (or any uid
+  /// not present in `fuel_array`) fall back to the static `fuel`
+  /// field, so the matrix only has to enumerate the cells that
+  /// actually deviate from the default.
+  ///
+  /// `Uid`-only (not `SingleId`) on purpose: `Name = std::string` and
+  /// `FileSched = std::string` are JSON-indistinguishable, so a
+  /// single TB-scheduled field couldn't accept both the inline-name
+  /// scalar form (`"Diesel_X"`) and the file-schedule form
+  /// (`"fuel_uids.parquet"`).  `Uid` is a numeric strong type — every
+  /// variant arm parses unambiguously.
+  ///
+  /// See Issue #510 Phase 1 for the design rationale.  Phase 2
+  /// (endogenous binary-y commitment-style fuel switching) is
+  /// deferred to a future `FuelSwitch` element.
+  OptTBUidSched fuel_per_block {};
+
   /// Constant (or per-stage) heat rate slope `[<fuel_unit>/MWh]`.
   /// PLEXOS "Heat Rate" / "Heat Rate Incr" / SDDP "Consumo Específico".
   /// MUTUALLY EXCLUSIVE with `heat_rate_segments` — setting both
@@ -183,6 +204,10 @@ struct Generator
   /// Optional FK to a `Fuel` element.  See `GeneratorAttrs::fuel`.
   OptSingleId fuel {};
 
+  /// Optional per-(stage, block) override of `fuel`.  See
+  /// `GeneratorAttrs::fuel_per_block`.
+  OptTBUidSched fuel_per_block {};
+
   /// Per-(stage, block) heat rate slope [`<fuel_unit>`/MWh].
   /// See `GeneratorAttrs::heat_rate`.
   OptTBRealFieldSched heat_rate {};
@@ -249,6 +274,7 @@ struct Generator
     self.gcost = std::exchange(attrs.gcost, {});
     self.pmin_fcost = std::exchange(attrs.pmin_fcost, {});
     self.fuel = std::exchange(attrs.fuel, {});
+    self.fuel_per_block = std::exchange(attrs.fuel_per_block, {});
     self.heat_rate = std::exchange(attrs.heat_rate, {});
     self.pmax_segments = std::exchange(attrs.pmax_segments, {});
     self.heat_rate_segments = std::exchange(attrs.heat_rate_segments, {});

@@ -137,4 +137,11 @@ using OptSTRealSched = OptSchedule<Real, ScenarioUid, StageUid>;
 using OptTBRealSched = OptSchedule<Real, StageUid, BlockUid>;
 using OptSTBRealSched = OptSchedule<Real, ScenarioUid, StageUid, BlockUid>;
 
+// Per-(stage, block) Uid schedule — Uid is a strong-type alias for
+// `int32_t`, so the OptSchedule infra reuses the int32 access path
+// (Schedule<int32_t, StageUid, BlockUid>).  Consumed by GeneratorLP to
+// resolve the per-block fuel-uid override.  See Generator.fuel_per_block.
+using TBUidSchedRT = Schedule<Uid, StageUid, BlockUid>;
+using OptTBUidSchedRT = OptSchedule<Uid, StageUid, BlockUid>;
+
 }  // namespace gtopt

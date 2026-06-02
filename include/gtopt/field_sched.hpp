@@ -72,6 +72,33 @@ using OptSTBRealFieldSched = OptRealFieldSched3;
 using TBIntBoolFieldSched = IntBoolFieldSched2;
 using OptTBIntBoolFieldSched = OptIntBoolFieldSched2;
 
+// ─── Uid-valued per-(stage, block) schedule ───────────────────────────────
+//
+// Companion to `OptTBRealFieldSched` for FK fields whose value is a Uid
+// (a strong-type alias for `int32_t`).  Used by `Generator.fuel_per_block`
+// to override the static `Generator.fuel` on a per-(stage, block) basis
+// without touching the `OptSingleId` variant (which carries both Uid AND
+// Name string forms — the Name string would be JSON-indistinguishable
+// from a `FileSched` string).  Uid-only sidesteps the ambiguity:
+//
+//   * scalar  -> JSON `123`                  (broadcast all stages/blocks)
+//   * matrix  -> JSON `[[uid_b0, uid_b1, ...], ...]`  (per-stage rows)
+//   * file    -> JSON `"fuel_uids.parquet"`  (Parquet/CSV schedule)
+//
+// See Generator.fuel_per_block (generator.hpp) for the consumer side and
+// Issue #510 Phase 1 for the design rationale.
+using UidFieldSched = FieldSched<Uid>;
+using OptUidFieldSched = std::optional<UidFieldSched>;
+
+using UidFieldSched2 = FieldSched2<Uid>;
+using OptUidFieldSched2 = std::optional<UidFieldSched2>;
+
+using TBUidFieldSched = UidFieldSched2;
+using OptTBUidFieldSched = OptUidFieldSched2;
+// Backwards-compatible short alias used by Generator.fuel_per_block.
+using TBUidSched = UidFieldSched2;
+using OptTBUidSched = OptUidFieldSched2;
+
 // ─── Diagnostics: in-memory footprint of a FieldSched ───────────────────────
 //
 // Walks the variant of an OptT*FieldSched and returns the dynamic bytes
