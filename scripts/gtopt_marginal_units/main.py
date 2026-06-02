@@ -390,6 +390,15 @@ def _process_cells(
     flow_by_cell = (
         _group_by_cell(cells.flow, "line_uid", "flow") if cells.has_flow() else {}
     )
+    # ``used_capacity = |flowp| + |flown| + loss`` per the LP cap row
+    # ``flowp + flown + Σ loss_seg ≤ tmax``.  Lines saturated via losses
+    # (high flow + non-trivial PWL loss segment, where ``|flow|`` alone is
+    # ~99 % but the cap is binding) split the topology graph correctly.
+    used_cap_by_cell = (
+        _group_by_cell(cells.flow, "line_uid", "used_capacity")
+        if cells.has_flow() and "used_capacity" in cells.flow.columns
+        else {}
+    )
 
     # Per-line thermal limit ``max(tmax_ab, tmax_ba)`` used by the
     # primal saturation test below.  Pre-built once outside the cell
@@ -428,18 +437,23 @@ def _process_cells(
             zone_of = {u: 0 for u in bus_uids}
         else:
             # Primal saturation test: a line is "saturated" when
-            # ``|flow| ≥ (1 − eps) × max(tmax_ab, tmax_ba)``.  In gtopt's
-            # bidirectional LP one of (flowp, flown) is zero so the
-            # signed merged flow magnitude equals the active-direction
-            # flow.  Saturated lines are dropped from the topology
-            # graph in ``partition_zones`` so the BFS produces true
-            # congestion-induced islands rather than one giant
-            # connected component.
+            # ``used_capacity = |flowp| + |flown| + loss ≥
+            # (1 − eps) × max(tmax_ab, tmax_ba)``.  Matches gtopt's
+            # actual cap row ``flowp + flown + Σ loss_seg ≤ tmax``, so
+            # lines saturated *through losses* (high flow + small
+            # remaining headroom consumed by the PWL loss segments)
+            # split the topology graph correctly.  Falls back to the
+            # signed-flow magnitude test when ``used_capacity`` is
+            # absent (e.g. older parquet outputs without ``loss_sol``).
+            used_by_uid = used_cap_by_cell.get(cell_key, {})
             flow_by_uid = flow_by_cell.get(cell_key, {})
+            cap_by_uid = used_by_uid or {
+                u: abs(float(f)) for u, f in flow_by_uid.items()
+            }
             saturated_uids: set[int] = set()
-            if flow_by_uid and line_tmax:
+            if cap_by_uid and line_tmax:
                 eps_sat = max(tol.tol_flow, 1e-3)
-                for uid, fval in flow_by_uid.items():
+                for uid, fval in cap_by_uid.items():
                     tmax = line_tmax.get(int(uid))
                     if tmax is None or tmax <= 0.0:
                         continue
@@ -449,9 +463,11 @@ def _process_cells(
 
         if lmp_by_bus:
             # LP duals are the source of truth for the bus price.
-            # Repartition by LMP-value buckets so each "zone" has a
-            # uniform λ, then build ZoneR3Result entries by finding
-            # the interior unit at that bus whose MC matches λ.
+            # Pass the topology-driven ``zone_of`` (connected components
+            # after dropping saturated lines) so the marginal-unit
+            # search uses **physical islands**, not LMP-value buckets:
+            # a bus with no local generator inherits its island's
+            # marginal unit via the un-saturated tie lines.
             zone_of, zone_results = _zone_results_from_lp_duals(
                 topology=topology,
                 lmp_by_bus=lmp_by_bus,
@@ -461,6 +477,7 @@ def _process_cells(
                 tol=tol,
                 merit_eligible=merit_eligible,
                 demand_fail_cost=demand_fail_cost,
+                topology_zone_of=zone_of,
             )
         else:
             # mode=real-reconstruct path: no LP duals, run §4.7 R3.
@@ -642,26 +659,33 @@ def _zone_results_from_lp_duals(
     tol: Tolerances,
     merit_eligible: dict[int, bool],
     demand_fail_cost: float,
+    topology_zone_of: Optional[dict[int, int]] = None,
 ) -> tuple[dict[int, int], dict[int, "ZoneR3Result"]]:
     """Build (zone_of, zone_results) directly from LP duals.
 
-    In simulated mode the LP has already solved the price; we just
-    need to (a) bucket buses by λ_b value and (b) find the marginal
-    unit(s) at each bucket so the recipe table is consistent.
+    Zone partition strategy:
+
+    * **Topology islands (preferred)** — when ``topology_zone_of`` is
+      supplied, use it as the partition.  Each island (connected
+      component of the topology graph after dropping saturated lines)
+      shares one marginal unit; per-bus ``λ_b`` within an island can
+      still vary (loss-driven micro-variation), but the marginal-unit
+      attribution is the same across the island.  This is the LP-
+      textbook correct view: a bus with no local generator inherits
+      its island's marginal unit via tie lines.
+
+    * **Bus-LMP bucketing (fallback)** — when ``topology_zone_of`` is
+      None, fall back to grouping buses whose ``λ_b`` are within
+      ``tol_lmp`` of each other.  This was the v1 default and creates
+      singleton zones for every bus with a slightly unique LMP — fine
+      for tiny test cases but produces ~80 % "no-local-gen"
+      unattributed cells on real PLEXOS imports.
 
     When ``gen_rc_by_uid`` is populated (gtopt was run with
-    ``--write-out ...,rc``), the primary basic-vs-bound test is
-    ``|rc| ≤ tol.tol_price`` on a generator with strictly interior
-    dispatch. The reduced-cost test is the LP-textbook definition of
-    "basic at its current value", and is strictly stronger than the
-    legacy ``|declared_MC - λ_z| ≤ tol`` fallback because the latter
-    misses (a) piecewise generators on a non-primary segment,
-    (b) hydro / battery units whose JSON ``gcost`` is zero but whose
-    true MC is the reservoir / battery shadow price.
-
-    When ``gen_srmc_by_uid`` is populated, we still record the
-    per-block SRMC for downstream price-recipe attribution, but the
-    rc-based test does not need it for the basic-vs-bound decision.
+    ``--write-out ...,rc``), the primary basic-vs-bound test is the
+    min-|rc| ranking on dispatched gens — the LP-textbook definition
+    of "basic at its current value".  See
+    :func:`_select_marginal_candidates`.
 
     Imports lazy to keep the main module's import surface small.
     """
@@ -670,25 +694,44 @@ def _zone_results_from_lp_duals(
     rc_by_uid: dict[int, float] = gen_rc_by_uid or {}
     srmc_by_uid: dict[int, float] = gen_srmc_by_uid or {}
 
-    # Bucket bus uids by LMP value (within tol_price).
-    sorted_buses = sorted(lmp_by_bus.keys())
-    rep_lmps: list[float] = []
-    bus_to_zone: dict[int, int] = {}
-    for b in sorted_buses:
-        lam = float(lmp_by_bus[b])
-        zid = -1
-        for i, r in enumerate(rep_lmps):
-            if abs(lam - r) <= max(tol.tol_lmp, tol.tol_lmp * abs(r)):
-                zid = i
-                break
-        if zid == -1:
-            rep_lmps.append(lam)
-            zid = len(rep_lmps) - 1
-        bus_to_zone[b] = zid
+    if topology_zone_of:
+        # Topology-driven islands.  Each zone's representative λ is
+        # the MEAN of its buses' LMPs — for non-congested islands all
+        # buses share λ exactly so the mean equals every per-bus value;
+        # for islands with loss-driven micro-variation the mean is a
+        # reasonable single number to record on the zone, while the
+        # per-bus output rows still carry the exact ``lmp_by_bus[b]``.
+        bus_to_zone = {
+            b: int(topology_zone_of[b]) for b in lmp_by_bus if b in topology_zone_of
+        }
+        zid_to_lams: dict[int, list[float]] = {}
+        for b, zid in bus_to_zone.items():
+            zid_to_lams.setdefault(zid, []).append(float(lmp_by_bus[b]))
+        rep_lmps = [sum(lams) / len(lams) for _, lams in sorted(zid_to_lams.items())]
+        # Remap to dense zid sequence for downstream iteration.
+        old_to_new = {
+            old: new for new, (old, _) in enumerate(sorted(zid_to_lams.items()))
+        }
+        bus_to_zone = {b: old_to_new[z] for b, z in bus_to_zone.items()}
+    else:
+        # Bucket bus uids by LMP value (within tol_price).
+        sorted_buses = sorted(lmp_by_bus.keys())
+        rep_lmps = []
+        bus_to_zone = {}
+        for b in sorted_buses:
+            lam = float(lmp_by_bus[b])
+            zid = -1
+            for i, r in enumerate(rep_lmps):
+                if abs(lam - r) <= max(tol.tol_lmp, tol.tol_lmp * abs(r)):
+                    zid = i
+                    break
+            if zid == -1:
+                rep_lmps.append(lam)
+                zid = len(rep_lmps) - 1
+            bus_to_zone[b] = zid
 
-    # For each zone, find candidate marginal units: interior gens
-    # at that zone's buses whose reduced cost ≈ 0 (preferred), or
-    # whose declared_MC matches λ_z (fallback when rc is missing).
+    # For each zone, find candidate marginal units via min-|rc|
+    # ranking (preferred) or declared_MC fallback.
     zone_results: dict[int, ZoneR3Result] = {}
     for zid, lam in enumerate(rep_lmps):
         zone_bus_uids = {b for b, z in bus_to_zone.items() if z == zid}
