@@ -161,6 +161,48 @@ def topology_from_planning(
             continue
         gen_emission_co2eq[g_uid] = gen_emission_co2eq.get(g_uid, 0.0) + weight * rate
 
+    # Build a lookup: Fuel uid OR Fuel name → derived ``kind`` ("thermal" /
+    # "hydro" / "profile") used as a fallback when ``Generator.type`` is
+    # missing / ambiguous.  ``Fuel.type`` carries the family tag from
+    # plexos2gtopt (``"diesel"``, ``"gas"``, ``"biomasa"``, …); the
+    # mapping mirrors the THERMAL_FAMILIES / RENEWABLE_FAMILIES split
+    # in ``plexos2gtopt.parsers``.
+    fuel_kind_by_ref: dict[object, str] = {}
+    for f in system.get("fuel_array", []):
+        ftype = str(f.get("type", "")).lower()
+        if not ftype:
+            continue
+        if ftype in ("hydro",):
+            fkind = "hydro"
+        elif ftype in ("solar", "wind", "eolic"):
+            fkind = "profile"
+        elif ftype in (
+            "diesel",
+            "fuel_oil",
+            "fuel-oil",
+            "gas",
+            "glp",
+            "biomasa",
+            "biomass",
+            "biogas",
+            "carbon",
+            "coal",
+            "otros",
+            "geothermal",
+        ):
+            # Anything dispatchable / combustible → thermal pool.
+            fkind = "thermal"
+        else:
+            continue
+        # Index by both uid (numeric) and name (string) — Generator's
+        # ``fuel`` field is OptSingleId which may carry either form.
+        try:
+            fuel_kind_by_ref[int(f["uid"])] = fkind
+        except (KeyError, TypeError, ValueError):
+            pass
+        if f.get("name"):
+            fuel_kind_by_ref[str(f["name"])] = fkind
+
     # Generators.
     generators = []
     for g in system.get("generator_array", []):
@@ -176,11 +218,7 @@ def topology_from_planning(
         if isinstance(gcost, (int, float)):
             declared_mc = float(gcost)
 
-        # Kind inference: explicit `type` field, else fall back by
-        # presence in profile_array / battery_array (handled below).
-        kind = str(g.get("type", "thermal")).lower()
-        if kind not in ("thermal", "hydro", "battery", "profile"):
-            kind = "thermal"
+        kind = _classify_kind(g, fuel_kind_by_ref)
 
         uid = int(g["uid"])
         # Prefer the per-gen JSON ``emission_rate`` when set; otherwise
@@ -218,22 +256,20 @@ def topology_from_planning(
             for g in generators
         ]
 
-    # Battery — kind=battery.
-    battery_uids = {int(b["uid"]) for b in system.get("battery_array", [])}
-    if battery_uids:
-        generators = [
-            Generator(
-                uid=g.uid,
-                name=g.name,
-                bus_uid=g.bus_uid,
-                pmin=g.pmin,
-                pmax=g.pmax,
-                declared_MC=g.declared_MC,
-                kind="battery" if g.uid in battery_uids else g.kind,
-                emission_rate=g.emission_rate,
-            )
-            for g in generators
-        ]
+    # NOTE: do NOT cross-reference ``battery_array`` uids here.
+    # ``Battery`` and ``Generator`` are SEPARATE element classes in the
+    # gtopt schema, each with its own uid namespace.  A coincidental
+    # collision (e.g. Generator uid=1 = ABANICO hydro AND Battery
+    # uid=1 = some BESS) previously caused ABANICO to be reclassified
+    # as ``kind=battery``.  Real batteries are tracked separately via
+    # the ``battery_array`` LP class and don't appear in
+    # ``generator_array`` at all — the only generators that LOOK
+    # battery-shaped are the BAT_*_gen synthetic wraps used by
+    # plexos2gtopt to expose a BESS's discharge column to the LP
+    # bidding stack.  Those are tagged ``thermal`` by the converter
+    # (heat_rate=0, no fuel), so the ``type``-based parser above sees
+    # ``kind=thermal`` — correct, as their direct emission is zero and
+    # the consequential MOER picker walks past them naturally.
 
     # Lines.
     lines = []
@@ -264,6 +300,77 @@ def _opt_float(v: object) -> float | None:
     if isinstance(v, (int, float)):
         return float(v)
     return None
+
+
+def _classify_kind(g: dict, fuel_kind_by_ref: dict[object, str]) -> str:
+    """Map a Generator's plexos2gtopt-style ``type`` tag (and, as a
+    fallback, its ``fuel`` reference) onto one of the 4 buckets the
+    marginal-unit classifier understands: ``"thermal"``, ``"hydro"``,
+    ``"battery"``, ``"profile"``.
+
+    plexos2gtopt emits hierarchical types (``"thermal:diesel"``,
+    ``"renewable:hydro"``, ``"renewable:solar"``, …) under the
+    THERMAL_FAMILIES / RENEWABLE_FAMILIES taxonomy in
+    ``scripts/plexos2gtopt/parsers.py``.  Mapping:
+
+      * ``thermal:*``           → "thermal"   (any combustion)
+      * ``renewable:hydro``     → "hydro"     (storage value)
+      * ``renewable:solar/wind``→ "profile"   (intermittent)
+      * ``renewable:biomass/biogas/geothermal`` → "thermal"
+          (dispatchable, emits via combustion / steam vents — for
+          attribution they behave like thermal even though the energy
+          source is "renewable")
+      * bare ``renewable``      → fallback to fuel.type lookup, then
+                                  "profile" (zero-emission default)
+      * bare ``thermal``        → fallback to fuel.type lookup, then
+                                  "thermal"
+      * ``battery``             → "battery"
+      * anything else / unset   → fallback to fuel.type lookup, then
+                                  "thermal" (safe LP default)
+
+    Fuel-type fallback: when the Generator's ``type`` field is missing
+    or carries only the family ("thermal" / "renewable") with no
+    sub-tag, look up the linked ``fuel`` element (uid OR name form,
+    OptSingleId variant) and use its ``Fuel.type`` field via the
+    pre-built ``fuel_kind_by_ref`` map.  Catches converters that emit
+    only a bare family on Generator but a rich sub-family on Fuel.
+    """
+    raw_type = str(g.get("type", "")).lower()
+    family, _, sub = raw_type.partition(":")
+
+    def _from_fuel() -> str | None:
+        ref = g.get("fuel")
+        if ref is None:
+            return None
+        # OptSingleId variant — Uid (int) or Name (str), possibly nested
+        # in a single-key dict like {"uid": 4} or {"name": "Diesel_X"}.
+        if isinstance(ref, dict):
+            for key in ("uid", "name"):
+                v = ref.get(key)
+                if v is not None and v in fuel_kind_by_ref:
+                    return fuel_kind_by_ref[v]
+            return None
+        if isinstance(ref, (int, str)) and ref in fuel_kind_by_ref:
+            return fuel_kind_by_ref[ref]
+        return None
+
+    if family == "thermal":
+        if sub:
+            return "thermal"
+        return _from_fuel() or "thermal"
+    if family == "renewable":
+        if sub == "hydro":
+            return "hydro"
+        if sub in ("solar", "wind", "eolic"):
+            return "profile"
+        if sub in ("biomass", "biomasa", "biogas", "geothermal"):
+            return "thermal"
+        # Unknown / bare renewable — try fuel, default profile.
+        return _from_fuel() or "profile"
+    if family in ("hydro", "battery", "profile"):
+        return family
+    # Unknown / missing type — try fuel, default thermal.
+    return _from_fuel() or "thermal"
 
 
 def _scalar_or_max(v: object, default: float = 0.0) -> float:

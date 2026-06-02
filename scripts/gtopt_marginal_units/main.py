@@ -837,22 +837,36 @@ def _select_marginal_candidates(
     Returns ``(candidates, reason)`` where ``reason`` tags which
     branch was taken.  Sorted by uid for determinism.
     """
-    # Candidate pool: dispatched, merit-eligible gens at this zone's
-    # buses.  We deliberately do NOT pre-filter on
-    # ``(pmin+eps, pmax-eps)`` against the topology nameplate ``pmax``
-    # — the LP's effective per-block upper bound is typically below
-    # nameplate (lossfactor-adjusted, profile-driven, fuel-cap, or
-    # heat-rate-segment binding), so a gen dispatching at e.g.
-    # ``131 MW`` against a nameplate ``152 MW`` may already be
-    # saturated at a per-block cap.  Trust the rc instead: if the
-    # column is basic in the LP, its reduced cost is ≈ 0.
-    candidates_pool = [
+    # Candidate pool: dispatched gens at this zone's buses.  We
+    # deliberately do NOT pre-filter on ``(pmin+eps, pmax-eps)``
+    # against the topology nameplate ``pmax`` — the LP's effective
+    # per-block upper bound is typically below nameplate
+    # (lossfactor-adjusted, profile-driven, fuel-cap, or heat-rate-
+    # segment binding), so a gen dispatching at e.g.  ``131 MW``
+    # against a nameplate ``152 MW`` may already be saturated at a
+    # per-block cap.  Trust the rc instead: if the column is basic in
+    # the LP, its reduced cost is ≈ 0.
+    #
+    # Profile-eligibility fallback: prefer non-profile (thermal /
+    # hydro / battery) candidates when present, but allow profiles
+    # as a last-resort marginal when no other dispatched gen exists
+    # in the zone.  Without this fallback, zones with ONLY FV / wind
+    # dispatching (small isolated pockets that import via saturated
+    # lines, e.g. CEN northern desert in daytime) fall through to
+    # ``unattributed`` even though there IS a basic-in-LP gen
+    # available — just one that the merit-eligible filter discards
+    # for "intermittents don't set the price" reasons.  The
+    # consequential-MOER picker downstream walks past the chosen
+    # profile gen automatically (its emission_rate = 0), so the
+    # consumer still gets the carbon-opportunity value from the
+    # next-up thermal in the zone or in the topology.
+    dispatched = [
         g
         for g in topology.generators
-        if g.bus_uid in zone_bus_uids
-        and merit_eligible.get(g.uid, True)
-        and dispatch_by_uid.get(g.uid, 0.0) > tol.eps
+        if g.bus_uid in zone_bus_uids and dispatch_by_uid.get(g.uid, 0.0) > tol.eps
     ]
+    nonprofile = [g for g in dispatched if merit_eligible.get(g.uid, True)]
+    candidates_pool = nonprofile if nonprofile else dispatched
     # Backward-compatible alias used by the legacy declared-MC fallback
     # below; that path is informational only (kept for runs with no rc).
     interior = candidates_pool
