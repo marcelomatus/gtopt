@@ -729,6 +729,73 @@ Kirchhoff constraints are added when **all** of:
 - The system has more than `kirchhoff_threshold` buses (default 0)
 - Line has a defined `reactance` value
 
+#### Optimal Transmission Switching (issue #509)
+
+When a `LineCommitment` row references a line, the line becomes a
+**switching candidate**: an additional binary
+$u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
+(1) the breaker dynamically at solve time
+[[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.926411).
+
+**Capacity gating** (always emitted, both Kirchhoff and transport
+modes; v0):
+
+$$
+-\overline{F}_l^{ba} \, u_{l,s,t,b}
+\;\leq\; f_{l,s,t,b} \;\leq\;
+\overline{F}_l^{ab} \, u_{l,s,t,b}
+\qquad \forall \; s, t, b
+$$
+
+so $u_{l,s,t,b} = 0$ forces $f_{l,s,t,b} = 0$ — the line carries
+no flow.
+
+**Kirchhoff KVL big-M disjunction** (v0.5; emitted only in
+`KirchhoffMode::node_angle`).  The existing equality KVL row
+$f = b^{\text{eff}}_l (\theta_a - \theta_b - \varphi_l)$ is
+rewritten in place as the upper-side inequality
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
+\;\leq\; M_l - \varphi_l
+$$
+
+and a new row is added for the lower-side:
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
+\;\geq\; -M_l - \varphi_l.
+$$
+
+At $u_{l,s,t,b} = 1$ both inequalities collapse to the original
+equality.  At $u_{l,s,t,b} = 0$ they simultaneously slack, freeing
+$\theta_a, \theta_b$ to take any values in
+$[-\theta_{\max}, +\theta_{\max}]$ — i.e. the two bus angles
+**decouple** exactly like the physics of an opened breaker.
+
+The big-M parameter $M_l$ defaults to
+
+$$
+M_l = 2 \, \theta_{\max} + |\varphi_l|
+$$
+
+(Fisher 2008 baseline refined for the phase-shift offset).  This
+is loose by design — `LineCommitment.kvl_big_m` overrides per line,
+serving as the write-back target for the v1 iterative-tightening
+pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
+
+**Method gate.**  OTS is **strictly** rejected when
+`method ∈ {sddp, cascade}` because Benders cuts on a mixed-integer
+subproblem are unsound (the cost-to-go function loses convexity)
+[[Zou2019]](https://doi.org/10.1007/s10107-018-1249-5).  A future
+SDDiP-style relaxation (Lagrangian cuts) would lift the
+restriction.
+
+**Chronological-stage gate.**  Like `Commitment` for generators,
+OTS is enforced only on chronological stages; on duration-weighted
+representative blocks the binary has no cross-block meaning and is
+silently skipped.
+
 ### 5.7 Battery / Energy Storage Constraints
 
 Batteries model energy storage with charge/discharge efficiencies and
