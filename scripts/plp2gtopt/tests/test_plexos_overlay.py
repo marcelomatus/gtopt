@@ -232,9 +232,8 @@ def test_resolve_latest_empty_registry(
 def test_resolve_latest_target_no_longer_exists(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When the most-recent registry entry points at a path that has been
-    deleted (scratch dir cleaned, output dir moved), the resolver raises
-    with a path-pointing message instead of returning a stale Path.
+    """When EVERY registry entry points at a deleted path, the resolver
+    raises with a path-pointing message instead of returning a stale Path.
     """
     _seed_registry(
         tmp_path,
@@ -251,6 +250,53 @@ def test_resolve_latest_target_no_longer_exists(
     )
     with pytest.raises(FileNotFoundError, match="no longer exists"):
         _resolve_overlay_path(Path("latest"))
+
+
+def test_resolve_latest_walks_back_past_stale_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The resolver walks newest→oldest and returns the first entry
+    whose ``output_file`` still exists on disk.  Stale entries
+    (pytest scratch dirs, manually-deleted outputs) are silently
+    skipped — the user wanted "latest", and the truly latest VALID
+    run is the right interpretation.
+    """
+    # One real dir + JSON that survives, then a "newer" stale entry
+    # appended on top.  The stale entry must be skipped, the older
+    # real entry returned.
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real_json = real_dir / "real.json"
+    real_json.write_text("{}")
+    _seed_registry(
+        tmp_path,
+        monkeypatch,
+        rows=[
+            {
+                "timestamp": "2026-06-01T00:00:00Z",
+                "output_dir": str(real_dir),
+                "output_file": str(real_json),
+                "input_path": "/dev/null",
+                "bundle_stem": "real",
+            },
+            {
+                "timestamp": "2026-06-02T00:00:00Z",
+                "output_dir": str(tmp_path / "stale"),
+                "output_file": str(tmp_path / "stale" / "stale.json"),
+                "input_path": "/dev/null",
+                "bundle_stem": "stale",
+            },
+            {
+                "timestamp": "2026-06-03T00:00:00Z",
+                "output_dir": str(tmp_path / "also_stale"),
+                "output_file": str(tmp_path / "also_stale" / "also.json"),
+                "input_path": "/dev/null",
+                "bundle_stem": "also_stale",
+            },
+        ],
+    )
+    # Walks back past the two stale tail entries, returns the real one.
+    assert _resolve_overlay_path(Path("latest")) == real_json
 
 
 def test_resolve_latest_skips_malformed_lines(

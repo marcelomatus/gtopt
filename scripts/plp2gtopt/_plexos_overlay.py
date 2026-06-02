@@ -219,38 +219,55 @@ def _resolve_latest_run() -> Path:
             f"{_PLEXOS_RUN_REGISTRY}.  Run plexos2gtopt at least once "
             "first, or pass an explicit path."
         )
-    last_row: dict[str, Any] | None = None
+    # Read every valid row; we walk back from the newest to find one
+    # whose output_file is still on disk.  Stale entries (pytest
+    # scratch dirs, manually-deleted outputs, moved trees) are
+    # silently skipped — the user wanted "latest", and the truly
+    # latest valid run is the right interpretation.  Mass-stale
+    # registries still produce a self-explanatory error at the end.
+    rows: list[dict[str, Any]] = []
     with open(_PLEXOS_RUN_REGISTRY, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                last_row = json.loads(line)
+                rows.append(json.loads(line))
             except json.JSONDecodeError:
                 # Skip malformed rows; the registry is append-only and
                 # a partially-written line at the tail (process killed
                 # mid-write) shouldn't poison the whole resolver.
                 continue
-    if last_row is None:
+    if not rows:
         raise FileNotFoundError(
             f"--plexos-overlay latest: registry {_PLEXOS_RUN_REGISTRY} "
             "exists but has no valid entries."
         )
-    out_file_str = last_row.get("output_file")
-    if not isinstance(out_file_str, str):
-        raise FileNotFoundError(
-            "--plexos-overlay latest: most recent registry entry is "
-            "missing the 'output_file' key."
-        )
-    out_file = Path(out_file_str)
-    if not out_file.exists():
-        raise FileNotFoundError(
-            f"--plexos-overlay latest: most recent registry entry points "
-            f"at {out_file}, which no longer exists.  Re-run plexos2gtopt "
-            "or pass an explicit path."
-        )
-    return out_file
+    # Walk newest → oldest; return the first whose output_file exists.
+    skipped: list[Path] = []
+    for row in reversed(rows):
+        out_file_str = row.get("output_file")
+        if not isinstance(out_file_str, str):
+            continue
+        out_file = Path(out_file_str)
+        if out_file.exists():
+            if skipped:
+                logger.info(
+                    "--plexos-overlay latest: skipped %d stale registry "
+                    "entr%s (output_file gone); resolved to %s",
+                    len(skipped),
+                    "y" if len(skipped) == 1 else "ies",
+                    out_file,
+                )
+            return out_file
+        skipped.append(out_file)
+    # Every registry entry has a dead output_file.
+    raise FileNotFoundError(
+        f"--plexos-overlay latest: every entry in {_PLEXOS_RUN_REGISTRY} "
+        f"({len(rows)} rows) points at a path that no longer exists.  "
+        f"Newest stale path: {skipped[0] if skipped else '?'}.  "
+        "Re-run plexos2gtopt or pass an explicit path."
+    )
 
 
 def _resolve_overlay_path(path: Path) -> Path:
