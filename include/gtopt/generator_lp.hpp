@@ -150,6 +150,27 @@ public:
   }
   /// @}
 
+  /// True iff this generator carries a per-(stage, block) fuel override
+  /// schedule (`Generator.fuel_per_block`).  When true, callers should
+  /// consult `param_fuel_per_block(stage, block)` to obtain the resolved
+  /// uid for each block and fall back to `Generator.fuel` only when the
+  /// per-block value is the sentinel uid 0 (or absent from `fuel_array`).
+  [[nodiscard]] bool has_fuel_per_block() const noexcept
+  {
+    return fuel_per_block_.has_value();
+  }
+
+  /// Resolved per-(stage, block) fuel-uid override.  Returns `nullopt`
+  /// only when `has_fuel_per_block()` is false; when the schedule is
+  /// set but the cell is unspecified, the OptSchedule layer returns
+  /// the schedule's default (`Uid {0}` by convention), which callers
+  /// interpret as "no override, use the static `Generator.fuel`".
+  [[nodiscard]] std::optional<Uid> param_fuel_per_block(StageUid s,
+                                                        BlockUid b) const
+  {
+    return fuel_per_block_.optval(s, b);
+  }
+
   /// True iff this generator has piecewise-linear heat-rate segments
   /// (both `pmax_segments` and `heat_rate_segments` non-empty + same
   /// length).  When true, `add_to_lp` installs K−1 slack columns +
@@ -205,6 +226,13 @@ private:
   OptTBRealSched pmin_fcost;
   OptTBRealSched heat_rate;
   OptTBRealSched emission_rate;
+  /// Resolved per-(stage, block) fuel-uid override; backs
+  /// `param_fuel_per_block` / `has_fuel_per_block`.  Mirrors
+  /// `Generator.fuel_per_block` after `InputContext` array-index
+  /// resolution.  When the parent `Generator.fuel_per_block` is
+  /// unset, this stays empty and the LP wiring falls back to the
+  /// static `Generator.fuel` exactly as before — byte-for-byte.
+  OptTBUidSchedRT fuel_per_block_;
 
   STBIndexHolder<ColIndex> generation_cols;
   /// `unserved` soft-`pmin` slack columns (see `lookup_unserved_cols`).

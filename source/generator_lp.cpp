@@ -43,6 +43,8 @@ GeneratorLP::GeneratorLP(const Generator& generator, const InputContext& ic)
     , heat_rate(ic, Element::class_name, id(), std::move(object().heat_rate))
     , emission_rate(
           ic, Element::class_name, id(), std::move(object().emission_rate))
+    , fuel_per_block_(
+          ic, Element::class_name, id(), std::move(object().fuel_per_block))
 {
   // Pre-size the per-segment slack-column vector so add_to_lp can
   // index into it by segment index `k = 1..K-1` (the cheapest
