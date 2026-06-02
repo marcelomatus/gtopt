@@ -1,0 +1,25 @@
+name = "SiennaGoldens"
+description = "Julia env spec for the Sienna PowerSimulations.jl oracle that produces the goldens in this directory."
+
+[deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+HiGHS = "87dc4568-4c63-4d18-b0c0-bb2238e4078b"
+HydroPowerSimulations = "67f4ca6f-baf9-4ed5-b709-c5b91c3bb1e7"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+PowerSimulations = "e690365d-45e2-57bb-ac84-44ba829e73c4"
+PowerSystemCaseBuilder = "f5a39f3b-44ff-4c1b-aedc-d56eea1afff2"
+PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
+StorageSystemsSimulations = "5a560754-308a-4e89-9527-2cf2fbc14b35"
+
+# How to recreate this env (mirrors the bootstrapping in
+# tools/sienna_solve_golden.jl's banner):
+#
+#   mkdir -p ~/.julia_envs/sienna_golden && cd ~/.julia_envs/sienna_golden
+#   julia --project=. -e 'using Pkg; Pkg.add(["PowerSystems", \
+#     "PowerSimulations", "PowerSystemCaseBuilder", \
+#     "HydroPowerSimulations", "StorageSystemsSimulations", \
+#     "DataFrames", "JSON", "HiGHS"])'
+#
+# Then to (re)build all goldens:
+#
+#   julia --project=. ${REPO}/tools/sienna_solve_golden.jl all

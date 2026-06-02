@@ -1,0 +1,49 @@
+{
+  "case": "batt_test_case_f_sys",
+  "gen_dispatch_mw": {
+    "WindBusC": [
+      108.0,
+      84.0,
+      96.0
+    ]
+  },
+  "highs_version": "1.23.0",
+  "horizon_hours": 3,
+  "hydro_storage": {},
+  "line_flow_mw": {},
+  "objective": -63.36,
+  "psc_version": "2.2.1",
+  "psi_version": "0.35.0",
+  "psy_version": "5.10.0",
+  "slug": "battery_degeneracy_f",
+  "status": "ok",
+  "storage_charge_mw": {
+    "Bat2": [
+      78.0,
+      24.0,
+      46.0
+    ]
+  },
+  "storage_discharge_mw": {
+    "Bat2": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "storage_soc": {
+    "Bat2": [
+      262.40000000000003,
+      281.6,
+      318.40000000000003
+    ]
+  },
+  "thermal_on": {},
+  "variable_keys": [
+    "ActivePowerInVariable__EnergyReservoirStorage",
+    "ActivePowerOutVariable__EnergyReservoirStorage",
+    "ActivePowerVariable__RenewableDispatch",
+    "EnergyVariable__EnergyReservoirStorage",
+    "ReservationVariable__EnergyReservoirStorage"
+  ]
+}
