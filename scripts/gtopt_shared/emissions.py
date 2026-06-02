@@ -529,6 +529,14 @@ def apply_emission_defaults(
         # IPCC sub-grades for different fuels.  When absent, lookup
         # falls back to full-name + family-prefix matching.
         subtype_hint = str(fuel.get("subtype", "") or "").strip() or None
+        # Strip the converter-side ``subtype`` hint after reading it.
+        # gtopt's C++ JSON parser uses StrictParsePolicy and would
+        # error on this unknown field (it's a converter-internal
+        # routing knob, not part of the gtopt Fuel schema).  Removed
+        # here so the final on-disk JSON stays gtopt-compatible
+        # regardless of which converter populated it.
+        if "subtype" in fuel:
+            del fuel["subtype"]
         factor = defaults.lookup(name, subtype_hint=subtype_hint)
         if factor is None or not factor.has_factor:
             if existing:

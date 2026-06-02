@@ -1,37 +1,80 @@
 {
   "$schema": "gtopt-emission-defaults-v1",
-  "description": "CEN-Chile (Sistema Eléctrico Nacional) project-specific overrides on top of the bundled IPCC-2006 defaults. Honour Chilean fuel-sourcing facts that the generic IPCC defaults miss: ALL Chilean coal plants burn sub-bituminous (Andean + Colombian imports), and LNG carries a real ~10 kgCO2/GJ upstream chain (liquefaction + tanker + regas) that's not in the IPCC stationary-combustion default. Pair with `plp2gtopt --plexos-overlay … --emissions --emissions-file share/gtopt/emissions/cen_chile.json` OR `plexos2gtopt --emissions --emissions-file share/gtopt/emissions/cen_chile.json` for CEN bundles.",
-  "source": "Same IPCC 2006 Vol 2 base values as the bundled defaults file at `scripts/gtopt_shared/data/ipcc_emission_factors.json` — this file ONLY overrides the per-fuel sub-grade assignment for the Chilean fleet. The Gas-LNG-vs-pipeline split is handled automatically by `plexos2gtopt::extract_fuels` via the `_GN_` name-suffix detection (sets `FuelSpec.subtype`); this file backs that up for downstream tools that don't run the parser.",
+  "description": "COMPLETE emissions file for CEN-Chile (Sistema El\u00e9ctrico Nacional) project-specific overrides on top of the bundled IPCC-2006 defaults. Carries the full IPCC 2006 defaults (15 fuels from the bundled file) PLUS Chile-specific overrides (sub-bituminous coal, LNG upstream chain, pipeline-NG split).  This is a STANDALONE file \u2014 pass it via --emissions-file and it provides EVERY pollutant default the engine needs.  Honour Chilean fuel-sourcing facts that the generic IPCC defaults miss: ALL Chilean coal plants burn sub-bituminous (Andean + Colombian imports), and LNG carries a real ~10 kgCO2/GJ upstream chain (liquefaction + tanker + regas) that's not in the IPCC stationary-combustion default. Pair with `plp2gtopt --plexos-overlay \u2026 --emissions --emissions-file share/gtopt/emissions/cen_chile.json` OR `plexos2gtopt --emissions --emissions-file share/gtopt/emissions/cen_chile.json` for CEN bundles.",
+  "source": "Same IPCC 2006 Vol 2 base values as the bundled defaults file at `scripts/gtopt_shared/data/ipcc_emission_factors.json` \u2014 this file ONLY overrides the per-fuel sub-grade assignment for the Chilean fleet. The Gas-LNG-vs-pipeline split is handled automatically by `plexos2gtopt::extract_fuels` via the `_GN_` name-suffix detection (sets `FuelSpec.subtype`); this file backs that up for downstream tools that don't run the parser.",
   "units": {
-    "co2_combustion":  "tCO2 / GJ",
-    "co2_upstream":    "tCO2 / GJ — LNG upstream is non-zero here (typical median 10 kgCO2/GJ = 0.01) reflecting liquefaction + tanker + regas; pipeline NG keeps the IPCC default 0.",
-    "ch4_combustion":  "tCH4 / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
-    "n2o_combustion":  "tN2O / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
-    "heat_content":    "GJ per fuel-unit (NCV / LHV)"
+    "co2_combustion": "tCO2 / GJ",
+    "co2_upstream": "tCO2 / GJ \u2014 LNG upstream is non-zero here (typical median 10 kgCO2/GJ = 0.01) reflecting liquefaction + tanker + regas; pipeline NG keeps the IPCC default 0.",
+    "ch4_combustion": "tCH4 / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "n2o_combustion": "tN2O / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "heat_content": "GJ per fuel-unit (NCV / LHV)"
   },
   "notes": [
-    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports — NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than the IPCC `coal_bituminous` default (0.0946) — a ~1.5% upward correction.",
+    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports \u2014 NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than the IPCC `coal_bituminous` default (0.0946) \u2014 a ~1.5% upward correction.",
     "LNG carries a project-specific upstream chain in Chile: GNL Quintero + GNL Mejillones both source from international LNG markets via tanker. The `co2_upstream` value 0.01 (= 10 kgCO2/GJ) is a market-median estimate; refine via per-cargo LCA when carbon accounting matters.",
-    "Pipeline natural gas (Gas_*_GN_*) keeps `co2_upstream = 0` per IPCC default — domestic Argentine + Chilean Magallanes pipelines have minimal upstream beyond extraction.",
-    "Diesel / FuelOil / Biomass / Biogas / GLP / Petcoke entries here just re-export the bundled defaults unchanged — same fuel families CEN uses, no Chile-specific override needed."
+    "Pipeline natural gas (Gas_*_GN_*) keeps `co2_upstream = 0` per IPCC default \u2014 domestic Argentine + Chilean Magallanes pipelines have minimal upstream beyond extraction.",
+    "Diesel / FuelOil / Biomass / Biogas / GLP / Petcoke entries here just re-export the bundled defaults unchanged \u2014 same fuel families CEN uses, no Chile-specific override needed.",
+    "heat_content for `coal_sub_bituminous` here is 25.8 GJ/t (Chilean operational NCV) NOT 18.9 (IPCC sub-bit textbook).  This matches Colombian-import coal procurement specs.  Using 18.9 with PLEXOS heat_rate (already calibrated against actual fuel) under-counts CO2 by ~25%."
   ],
   "fuels": [
     {
-      "name": "coal_sub_bituminous",
+      "name": "diesel",
       "aliases": [
-        "coal",
-        "carbon",
-        "carbon bituminoso",
-        "hard coal",
-        "other bituminous coal",
-        "bituminous coal"
+        "diesel oil",
+        "diesel-b",
+        "gas oil",
+        "gas/diesel oil",
+        "gasoil",
+        "petroleo diesel",
+        "petroleo_diesel",
+        "petrodiesel",
+        "die"
       ],
-      "co2_combustion": 0.0961,
+      "co2_combustion": 0.0741,
+      "co2_upstream": 0.0,
+      "heat_content": 43.0,
+      "ipcc_reference": "Table 1.4 \u2014 Gas/Diesel Oil (74100 kg CO2/TJ); Table 1.2 NCV 43.0 TJ/Gg; Table 2.2 \u2014 Gas/Diesel Oil (3 kg CH4/TJ, 0.6 kg N2O/TJ)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "fuel_oil",
+      "aliases": [
+        "fuel oil",
+        "residual fuel oil",
+        "heavy fuel oil",
+        "hfo",
+        "ifo",
+        "petroleo ifo",
+        "petroleo_ifo",
+        "bunker",
+        "bunker oil"
+      ],
+      "co2_combustion": 0.0774,
+      "co2_upstream": 0.0,
+      "heat_content": 40.4,
+      "ipcc_reference": "Table 1.4 \u2014 Residual Fuel Oil (77400 kg CO2/TJ); Table 1.2 NCV 40.4 TJ/Gg; Table 2.2 \u2014 Residual Fuel Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "natural_gas",
+      "aliases": [
+        "natural gas",
+        "gas natural",
+        "gas-natural",
+        "gn",
+        "ng",
+        "gas",
+        "pipeline gas",
+        "gas tuber\u00eda"
+      ],
+      "co2_combustion": 0.0561,
       "co2_upstream": 0.0,
       "ch4_combustion": 1e-06,
-      "n2o_combustion": 1.5e-06,
-      "heat_content": 18.9,
-      "ipcc_reference": "Table 1.4 — Sub-Bituminous Coal (96100 kg CO2/TJ); Table 2.2 — Sub-Bituminous Coal (1 kg CH4/TJ, 1.5 kg N2O/TJ); CEN override: ALL Chilean coal is sub-bituminous (Colombian imports + Andean coal) — overrides the IPCC default that maps `coal`/`carbon` aliases to coal_bituminous (0.0946) — ~1.5% upward correction in tCO2/GJ."
+      "n2o_combustion": 1e-07,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this entry, upstream = 0) from LNG (above, upstream = 0.01). Combustion factor identical at the burner tip."
     },
     {
       "name": "lng",
@@ -48,26 +91,215 @@
       "ch4_combustion": 1e-06,
       "n2o_combustion": 1e-07,
       "heat_content": 48.0,
-      "ipcc_reference": "Table 1.4 — Natural Gas at the burner tip (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ — market-median LNG-chain factor (liquefaction + tanker + regas), missing from the IPCC stationary-combustion default."
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas at the burner tip (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ \u2014 market-median LNG-chain factor (liquefaction + tanker + regas), missing from the IPCC stationary-combustion default."
     },
     {
-      "name": "natural_gas",
+      "name": "coal_bituminous",
       "aliases": [
-        "natural gas",
-        "gas natural",
-        "gas-natural",
-        "gn",
-        "ng",
-        "gas",
-        "pipeline gas",
-        "gas tubería"
+        "carbon",
+        "coal",
+        "bituminous coal",
+        "other bituminous coal",
+        "carbon bituminoso",
+        "hard coal"
       ],
-      "co2_combustion": 0.0561,
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 25.8,
+      "ipcc_reference": "Table 1.4 \u2014 Other Bituminous Coal (94600 kg CO2/TJ); Table 1.2 NCV 25.8 TJ/Gg; Table 2.2 \u2014 Other Bituminous Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_sub_bituminous",
+      "aliases": [
+        "coal",
+        "carbon",
+        "carbon bituminoso",
+        "hard coal",
+        "other bituminous coal",
+        "bituminous coal"
+      ],
+      "co2_combustion": 0.0961,
       "co2_upstream": 0.0,
       "ch4_combustion": 1e-06,
-      "n2o_combustion": 1e-07,
-      "heat_content": 48.0,
-      "ipcc_reference": "Table 1.4 — Natural Gas (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this entry, upstream = 0) from LNG (above, upstream = 0.01). Combustion factor identical at the burner tip."
+      "n2o_combustion": 1.5e-06,
+      "heat_content": 25.8,
+      "ipcc_reference": "Table 1.4 \u2014 Sub-Bituminous Coal combustion factor (96100 kg CO2/TJ); Table 2.2 \u2014 Sub-Bituminous Coal CH4 + N2O (1, 1.5).  CEN override: heat_content = 25.8 GJ/t (Chilean operational reality \u2014 Colombian imports + Andean coal procurement specs).  IPCC textbook for Sub-Bit is 18.9 GJ/t but Chilean coal procurement contracts run 24-26 GJ/t \u2014 using 18.9 with PLEXOS-side heat_rate (already calibrated against actual coal NCV) gives ~25% LOW per-MWh CO2."
+    },
+    {
+      "name": "coal_anthracite",
+      "aliases": [
+        "anthracite",
+        "carbon antracita",
+        "antracita"
+      ],
+      "co2_combustion": 0.0983,
+      "co2_upstream": 0.0,
+      "heat_content": 26.7,
+      "ipcc_reference": "Table 1.4 \u2014 Anthracite (98300 kg CO2/TJ); Table 1.2 NCV 26.7 TJ/Gg; Table 2.2 \u2014 Anthracite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_lignite",
+      "aliases": [
+        "lignite",
+        "lignito",
+        "carbon lignito",
+        "brown coal"
+      ],
+      "co2_combustion": 0.101,
+      "co2_upstream": 0.0,
+      "heat_content": 11.9,
+      "ipcc_reference": "Table 1.4 \u2014 Lignite (101000 kg CO2/TJ); Table 1.2 NCV 11.9 TJ/Gg; Table 2.2 \u2014 Lignite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coking_coal",
+      "aliases": [
+        "coking coal",
+        "carbon coquizable",
+        "coque metalurgico"
+      ],
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 28.2,
+      "ipcc_reference": "Table 1.4 \u2014 Coking Coal (94600 kg CO2/TJ); Table 1.2 NCV 28.2 TJ/Gg; Table 2.2 \u2014 Coking Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "petcoke",
+      "aliases": [
+        "petroleum coke",
+        "petroleum-coke",
+        "coque petroleo",
+        "coque de petroleo",
+        "coke",
+        "pet coke"
+      ],
+      "co2_combustion": 0.0975,
+      "co2_upstream": 0.0,
+      "heat_content": 32.5,
+      "ipcc_reference": "Table 1.4 \u2014 Petroleum Coke (97500 kg CO2/TJ); Table 1.2 NCV 32.5 TJ/Gg; Table 2.2 \u2014 Petroleum Coke (3, 0.6 \u2014 defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "lpg",
+      "aliases": [
+        "liquefied petroleum gas",
+        "liquefied petroleum gases",
+        "glp",
+        "gas licuado",
+        "gas licuado de petroleo",
+        "propane",
+        "butane",
+        "propano",
+        "butano"
+      ],
+      "co2_combustion": 0.0631,
+      "co2_upstream": 0.0,
+      "heat_content": 47.3,
+      "ipcc_reference": "Table 1.4 \u2014 Liquefied Petroleum Gases (63100 kg CO2/TJ); Table 1.2 NCV 47.3 TJ/Gg; Table 2.2 \u2014 LPG (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "kerosene",
+      "aliases": [
+        "other kerosene",
+        "queroseno",
+        "kerosene-type jet fuel",
+        "jet kerosene"
+      ],
+      "co2_combustion": 0.0719,
+      "co2_upstream": 0.0,
+      "heat_content": 43.8,
+      "ipcc_reference": "Table 1.4 \u2014 Other Kerosene (71900 kg CO2/TJ); Table 1.2 NCV 43.8 TJ/Gg; Table 2.2 \u2014 Other Kerosene (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "naphtha",
+      "aliases": [
+        "nafta"
+      ],
+      "co2_combustion": 0.0733,
+      "co2_upstream": 0.0,
+      "heat_content": 44.5,
+      "ipcc_reference": "Table 1.4 \u2014 Naphtha (73300 kg CO2/TJ); Table 1.2 NCV 44.5 TJ/Gg; Table 2.2 \u2014 Naphtha (3, 0.6 \u2014 defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "crude_oil",
+      "aliases": [
+        "crude oil",
+        "petroleo crudo",
+        "crudo"
+      ],
+      "co2_combustion": 0.0732,
+      "co2_upstream": 0.0,
+      "heat_content": 42.3,
+      "ipcc_reference": "Table 1.4 \u2014 Crude Oil (73300 kg CO2/TJ); Table 1.2 NCV 42.3 TJ/Gg; Table 2.2 \u2014 Crude Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "biomass",
+      "aliases": [
+        "biomasa",
+        "wood",
+        "wood waste",
+        "wood/wood waste",
+        "biofuel",
+        "solid biomass",
+        "biomass solid",
+        "residuos forestales",
+        "le\u00f1a",
+        "lena"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.112,
+      "co2_upstream": 0.0,
+      "heat_content": 15.6,
+      "ipcc_reference": "Table 1.4 \u2014 Wood/Wood Waste (112000 kg CO2/TJ gross); biogenic-zero default per AFOLU-sector accounting (combustion CO2 offset by sustainable uptake). Use co2_combustion_gross for a non-zero biomass scenario.; Table 2.2 \u2014 Wood/Wood Waste (30 kg CH4/TJ, 4 kg N2O/TJ \u2014 NOT biogenic-zero like CO2: combustion byproducts)",
+      "ch4_combustion": 3e-05,
+      "n2o_combustion": 4e-06
+    },
+    {
+      "name": "biogas",
+      "aliases": [
+        "biog\u00e1s",
+        "biogas",
+        "landfill gas",
+        "gas de relleno sanitario",
+        "sewage gas"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.0546,
+      "co2_upstream": 0.0,
+      "heat_content": 50.4,
+      "ipcc_reference": "Table 1.4 \u2014 Other Biogas (54600 kg CO2/TJ gross). Biogenic-zero default; use co2_combustion_gross when biogenic CO2 must be priced.; Table 2.2 \u2014 Other Biogas (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "geothermal",
+      "aliases": [
+        "geotermia",
+        "geothermal steam",
+        "geotermico"
+      ],
+      "co2_combustion": 0.0,
+      "co2_upstream": 0.0,
+      "heat_content": 0.0,
+      "ipcc_reference": "Geothermal is non-combustion. IPCC stationary-combustion default = 0. Non-condensable-gas releases at specific fields are site-specific and not part of an IPCC default.; Geothermal: non-combustion (0, 0)",
+      "ch4_combustion": 0.0,
+      "n2o_combustion": 0.0
     }
   ]
 }
