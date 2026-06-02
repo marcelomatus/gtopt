@@ -260,6 +260,12 @@ class EmissionReport:
     fuels_factor_added: tuple[str, ...] = ()
     fuels_factor_preserved: tuple[str, ...] = ()
     fuels_unknown: tuple[str, ...] = ()
+    #: Fuels that DID resolve to a defaults-file entry whose pollutant
+    #: rates are all zero (mineral-zero like Noracid sulfur cogen,
+    #: geothermal non-combustion).  Documents "the maintainer reviewed
+    #: this fuel and confirmed zero GHG", distinct from
+    #: ``fuels_unknown`` which means "no entry, please add one".
+    fuels_zero_emission: tuple[str, ...] = ()
     emission_array_created: bool = False
     emission_array_already_present: bool = False
     emission_zone_created: bool = False
@@ -272,6 +278,7 @@ class EmissionReport:
             "summary": {
                 "factor_added": len(self.fuels_factor_added),
                 "factor_preserved": len(self.fuels_factor_preserved),
+                "zero_emission": len(self.fuels_zero_emission),
                 "unknown_fuels": len(self.fuels_unknown),
                 "emission_array_created": self.emission_array_created,
                 "emission_array_already_present": self.emission_array_already_present,
@@ -280,6 +287,7 @@ class EmissionReport:
             },
             "fuels_factor_added": list(self.fuels_factor_added),
             "fuels_factor_preserved": list(self.fuels_factor_preserved),
+            "fuels_zero_emission": list(self.fuels_zero_emission),
             "fuels_unknown": list(self.fuels_unknown),
         }
 
@@ -506,6 +514,13 @@ def apply_emission_defaults(
     added: list[str] = []
     preserved: list[str] = []
     unknown: list[str] = []
+    # Fuels that resolved to a defaults-file entry whose pollutant
+    # rates are all zero (mineral-zero like Noracid sulfur cogen,
+    # geothermal, or biogenic-zero before the multi-pollutant
+    # extension landed CH4/N2O on biomass).  Separated from
+    # ``unknown`` so report consumers can tell intentional-zero
+    # apart from missing-data.
+    zero_emission: list[str] = []
 
     # All pollutants that ended up with rows on ANY fuel after the
     # apply pass — drives emission_array and EmissionZone synthesis.
@@ -538,15 +553,31 @@ def apply_emission_defaults(
         if "subtype" in fuel:
             del fuel["subtype"]
         factor = defaults.lookup(name, subtype_hint=subtype_hint)
-        if factor is None or not factor.has_factor:
+        if factor is None:
+            # No entry found in the defaults file at all.  Genuine
+            # unknown — neither family-prefix nor subtype hit.
             if existing:
-                # Source data has factors the defaults don't know
-                # about; leave it untouched and mark preserved.
                 preserved.append(name)
                 pollutants_in_use.update(existing)
                 any_factor_present = True
             else:
                 unknown.append(name)
+            continue
+        if not factor.has_factor:
+            # Entry FOUND but all pollutant rates are zero.  Mineral-
+            # zero (sulfur cogen at Noracid), biogenic-zero biomass
+            # before the multi-pollutant extension, geothermal — all
+            # legitimately have no GHG to inject.  Bucketed separately
+            # from "unknown" so report consumers can tell the
+            # difference: zero_emission means "the maintainer reviewed
+            # this fuel and confirmed zero GHG"; unknown means "no
+            # data, please add an entry".
+            if existing:
+                preserved.append(name)
+                pollutants_in_use.update(existing)
+                any_factor_present = True
+            else:
+                zero_emission.append(name)
             continue
         # Determine which pollutants on the factor are NEW (would be
         # injected) — if at least one is new, we touch the fuel.
@@ -655,6 +686,7 @@ def apply_emission_defaults(
         fuels_factor_added=tuple(added),
         fuels_factor_preserved=tuple(preserved),
         fuels_unknown=tuple(unknown),
+        fuels_zero_emission=tuple(zero_emission),
         emission_array_created=emission_array_created,
         emission_array_already_present=has_co2_pollutant,
         emission_zone_created=emission_zone_created,

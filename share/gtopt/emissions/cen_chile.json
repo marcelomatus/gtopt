@@ -1,20 +1,20 @@
 {
   "$schema": "gtopt-emission-defaults-v1",
-  "description": "COMPLETE emissions file for CEN-Chile (Sistema El\u00e9ctrico Nacional) project-specific overrides on top of the bundled IPCC-2006 defaults. Carries the full IPCC 2006 defaults (15 fuels from the bundled file) PLUS Chile-specific overrides (sub-bituminous coal, LNG upstream chain, pipeline-NG split).  This is a STANDALONE file \u2014 pass it via --emissions-file and it provides EVERY pollutant default the engine needs.  Honour Chilean fuel-sourcing facts that the generic IPCC defaults miss: ALL Chilean coal plants burn sub-bituminous (Andean + Colombian imports), and LNG carries a real ~10 kgCO2/GJ upstream chain (liquefaction + tanker + regas) that's not in the IPCC stationary-combustion default. Pair with `plp2gtopt --plexos-overlay \u2026 --emissions --emissions-file share/gtopt/emissions/cen_chile.json` OR `plexos2gtopt --emissions --emissions-file share/gtopt/emissions/cen_chile.json` for CEN bundles.",
-  "source": "Same IPCC 2006 Vol 2 base values as the bundled defaults file at `scripts/gtopt_shared/data/ipcc_emission_factors.json` \u2014 this file ONLY overrides the per-fuel sub-grade assignment for the Chilean fleet. The Gas-LNG-vs-pipeline split is handled automatically by `plexos2gtopt::extract_fuels` via the `_GN_` name-suffix detection (sets `FuelSpec.subtype`); this file backs that up for downstream tools that don't run the parser.",
+  "description": "COMPLETE emissions file for CEN-Chile (SEN). Carries the full IPCC 2006 defaults (15 fuels from the bundled file) PLUS Chile-specific overrides (sub-bituminous coal, LNG upstream chain, pipeline-NG split, Noracid sulfur cogen). Pass via --emissions-file for CEN bundles.",
+  "source": "Same IPCC 2006 Vol 2 base values as scripts/gtopt_shared/data/ipcc_emission_factors.json + CEN-Chile project-specific overrides. The Gas-LNG-vs-pipeline split is handled by plexos2gtopt::extract_fuels via the _GN_ name-suffix detection (sets FuelSpec.subtype).",
   "units": {
     "co2_combustion": "tCO2 / GJ",
-    "co2_upstream": "tCO2 / GJ \u2014 LNG upstream is non-zero here (typical median 10 kgCO2/GJ = 0.01) reflecting liquefaction + tanker + regas; pipeline NG keeps the IPCC default 0.",
+    "co2_upstream": "tCO2 / GJ \u2014 LNG upstream is non-zero (median 10 kgCO2/GJ = 0.01); pipeline NG keeps IPCC default 0.",
     "ch4_combustion": "tCH4 / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
     "n2o_combustion": "tN2O / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
     "heat_content": "GJ per fuel-unit (NCV / LHV)"
   },
   "notes": [
-    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports \u2014 NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than the IPCC `coal_bituminous` default (0.0946) \u2014 a ~1.5% upward correction.",
-    "LNG carries a project-specific upstream chain in Chile: GNL Quintero + GNL Mejillones both source from international LNG markets via tanker. The `co2_upstream` value 0.01 (= 10 kgCO2/GJ) is a market-median estimate; refine via per-cargo LCA when carbon accounting matters.",
-    "Pipeline natural gas (Gas_*_GN_*) keeps `co2_upstream = 0` per IPCC default \u2014 domestic Argentine + Chilean Magallanes pipelines have minimal upstream beyond extraction.",
-    "Diesel / FuelOil / Biomass / Biogas / GLP / Petcoke entries here just re-export the bundled defaults unchanged \u2014 same fuel families CEN uses, no Chile-specific override needed.",
-    "heat_content for `coal_sub_bituminous` here is 25.8 GJ/t (Chilean operational NCV) NOT 18.9 (IPCC sub-bit textbook).  This matches Colombian-import coal procurement specs.  Using 18.9 with PLEXOS heat_rate (already calibrated against actual fuel) under-counts CO2 by ~25%."
+    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports \u2014 NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than IPCC `coal_bituminous` default (0.0946) \u2014 ~1.5% upward correction.",
+    "LNG carries a CEN-specific upstream chain: GNL Quintero + GNL Mejillones both source from international LNG via tanker. co2_upstream = 0.01 (= 10 kgCO2/GJ) is a market-median estimate.",
+    "Pipeline natural gas (Gas_*_GN_*) keeps co2_upstream = 0 per IPCC default \u2014 domestic Argentine + Magallanes pipelines have minimal upstream beyond extraction.",
+    "coal_sub_bituminous.heat_content = 25.8 GJ/t (Chilean operational reality) NOT 18.9 (IPCC sub-bit textbook). Colombian-import coal procurement specs run 24-26 GJ/t.",
+    "Otros_Noracid -> sulfur_cogen (mineral-zero CO2): 26 MW cogen at Noracid's Mejillones sulfuric-acid plant, burning elemental sulfur (no carbon -> zero CO2 at burner tip). Other Otros_* fuels stay unmatched until each case is reviewed individually \u2014 the bare `otros` prefix is CEN's catch-all and would mis-route real CO2 emitters if blanket-aliased."
   ],
   "fuels": [
     {
@@ -74,7 +74,7 @@
       "ch4_combustion": 1e-06,
       "n2o_combustion": 1e-07,
       "heat_content": 48.0,
-      "ipcc_reference": "Table 1.4 \u2014 Natural Gas (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this entry, upstream = 0) from LNG (above, upstream = 0.01). Combustion factor identical at the burner tip."
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this, upstream=0) from LNG (above, upstream=0.01). Combustion identical at burner tip."
     },
     {
       "name": "lng",
@@ -91,7 +91,7 @@
       "ch4_combustion": 1e-06,
       "n2o_combustion": 1e-07,
       "heat_content": 48.0,
-      "ipcc_reference": "Table 1.4 \u2014 Natural Gas at the burner tip (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ \u2014 market-median LNG-chain factor (liquefaction + tanker + regas), missing from the IPCC stationary-combustion default."
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas at burner tip (56100 kg CO2/TJ); Table 2.2 \u2014 Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ \u2014 market-median LNG chain (liquefaction + tanker + regas)."
     },
     {
       "name": "coal_bituminous",
@@ -125,7 +125,7 @@
       "ch4_combustion": 1e-06,
       "n2o_combustion": 1.5e-06,
       "heat_content": 25.8,
-      "ipcc_reference": "Table 1.4 \u2014 Sub-Bituminous Coal combustion factor (96100 kg CO2/TJ); Table 2.2 \u2014 Sub-Bituminous Coal CH4 + N2O (1, 1.5).  CEN override: heat_content = 25.8 GJ/t (Chilean operational reality \u2014 Colombian imports + Andean coal procurement specs).  IPCC textbook for Sub-Bit is 18.9 GJ/t but Chilean coal procurement contracts run 24-26 GJ/t \u2014 using 18.9 with PLEXOS-side heat_rate (already calibrated against actual coal NCV) gives ~25% LOW per-MWh CO2."
+      "ipcc_reference": "Table 1.4 \u2014 Sub-Bituminous Coal combustion factor (96100 kg CO2/TJ); Table 2.2 \u2014 Sub-Bit CH4+N2O (1, 1.5). CEN override: heat_content = 25.8 GJ/t (Chilean op reality \u2014 Colombian + Andean imports). IPCC textbook for Sub-Bit is 18.9 but Chilean coal procurement runs 24-26 GJ/t \u2014 using 18.9 under-counts CO2 by ~25%."
     },
     {
       "name": "coal_anthracite",
@@ -286,6 +286,22 @@
       "ipcc_reference": "Table 1.4 \u2014 Other Biogas (54600 kg CO2/TJ gross). Biogenic-zero default; use co2_combustion_gross when biogenic CO2 must be priced.; Table 2.2 \u2014 Other Biogas (1, 0.1)",
       "ch4_combustion": 1e-06,
       "n2o_combustion": 1e-07
+    },
+    {
+      "name": "sulfur_cogen",
+      "aliases": [
+        "otros_noracid",
+        "noracid",
+        "elemental sulfur",
+        "sulfur combustion",
+        "waste heat recovery sulfur"
+      ],
+      "co2_combustion": 0.0,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 0.0,
+      "n2o_combustion": 0.0,
+      "heat_content": 9.3,
+      "ipcc_reference": "Elemental-sulfur combustion (Noracid SACI, Mejillones \u2014 720 kt/y H2SO4 plant + 26 MW cogen, online 2012; feedstock 240 kt/y elemental sulfur). CO2 = 0: no carbon in feedstock (mineral-zero, distinct from biomass biogenic-zero and geothermal non-combustion). NOT in IPCC AR6 stationary-combustion defaults (IPCC covers HYDROCARBON fuels only). Non-GHG SO2 (H2SO4 process) + NOx (high-temp combustion) defer to EPA AP-42 / EMEP-EEA Guidebook. heat_content = 9.3 GJ/t (elemental sulfur LHV, typical 8.9-9.4 GJ/t). CEN PCP fuel name: `Otros_Noracid`."
     },
     {
       "name": "geothermal",

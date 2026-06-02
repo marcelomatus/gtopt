@@ -289,16 +289,21 @@ def test_unknown_fuel_reported_not_modified() -> None:
 
 
 def test_biomass_default_zero_factor_does_not_create_co2_row() -> None:
-    """Biogenic-zero biomass (combustion=0, upstream=0) is NOT injected —
+    """Biogenic-zero biomass (all pollutant rates = 0) is NOT injected —
     a CO2 row with both values 0 is indistinguishable from absent and
-    would create a meaningless emission_array row.
+    would create a meaningless emission_array row.  Reported in the
+    ``fuels_zero_emission`` bucket (distinct from ``fuels_unknown``:
+    the defaults-file entry DID resolve, just to a zero-everywhere
+    factor — the maintainer reviewed and confirmed zero GHG).
     """
     planning = _planning(fuel_array=[{"uid": 1, "name": "biomass"}])
     report = apply_emission_defaults(planning, _make_defaults([_FIX_BIOMASS]))
 
     fuel = planning["system"]["fuel_array"][0]
     assert "emission_factors" not in fuel
-    assert report.fuels_unknown == ("biomass",)
+    # Resolved (entry exists, all-zero) → zero_emission bucket; NOT unknown.
+    assert report.fuels_zero_emission == ("biomass",)
+    assert not report.fuels_unknown
     # emission_array stays empty (no factor → no pollutant row)
     assert planning["system"].get("emission_array", []) == []
     assert report.emission_array_created is False
