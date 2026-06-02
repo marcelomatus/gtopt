@@ -121,6 +121,47 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
     CHECK(sys.fuel_array[0].name == "diesel");
     CHECK(sys.fuel_array[1].name == "coal");
   }
+
+  SUBCASE("JSON parses optional type + subtype taxonomy hint")
+  {
+    // The converter-side ``plexos2gtopt`` emits ``type`` (canonical
+    // fuel family — diesel / fuel_oil / gas / glp / biomasa / biogas /
+    // carbon / otros) and an optional ``subtype`` hint (lng /
+    // sub_bituminous / …) consumed by the IPCC emission-defaults
+    // overlay at share/gtopt/emissions/cen_chile.json.  gtopt itself
+    // doesn't wire either into the LP — they're metadata that must
+    // round-trip cleanly through the JSON parser.
+    const std::string_view json = R"({
+        "uid": 11,
+        "name": "Gas_Colbun_A",
+        "price": 8.5,
+        "type": "gas",
+        "subtype": "lng"
+      })";
+    const auto f = daw::json::from_json<Fuel>(json);
+    CHECK(f.uid == 11);
+    CHECK(f.name == "Gas_Colbun_A");
+    REQUIRE(f.type.has_value());
+    CHECK(*f.type == "gas");
+    REQUIRE(f.subtype.has_value());
+    CHECK(*f.subtype == "lng");
+  }
+
+  SUBCASE("JSON omits subtype when absent (back-compat)")
+  {
+    // Pre-9aff260f3 JSON (no subtype field) must still parse.
+    const std::string_view json = R"({
+        "uid": 12,
+        "name": "Diesel_Collahuasi",
+        "price": 770.0,
+        "type": "diesel"
+      })";
+    const auto f = daw::json::from_json<Fuel>(json);
+    CHECK(f.name == "Diesel_Collahuasi");
+    REQUIRE(f.type.has_value());
+    CHECK(*f.type == "diesel");
+    CHECK_FALSE(f.subtype.has_value());
+  }
 }
 
 // ── Generator + Fuel + heat_rate integration ─────────────────────────

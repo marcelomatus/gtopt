@@ -124,6 +124,17 @@ struct Fuel
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
   OptName type {};  ///< Optional element type/category tag
+  /// Optional fine-grained sub-classification of `type` — e.g.
+  /// `type="gas"` paired with `subtype="lng"`, `type="carbon"` with
+  /// `subtype="sub_bituminous"`.  Carries the converter-side
+  /// `Fuel.subtype` hint emitted by
+  /// `plexos2gtopt.parsers._fuel_subtype_from_name` and consumed by
+  /// the IPCC-emission-defaults overlay in
+  /// `share/gtopt/emissions/cen_chile.json` (CEN-Chile sub-bituminous
+  /// coal, LNG upstream chain).  Metadata only — not consumed by the
+  /// LP build; round-trips through the JSON for downstream reporting
+  /// and auditing.
+  OptName subtype {};
   OptName description {};  ///< Optional free-text description (e.g. conversion
                            ///< provenance)
 
