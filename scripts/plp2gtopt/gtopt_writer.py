@@ -607,19 +607,19 @@ class GTOptWriter(
             "min_iterations": 2,
             "stationary_window": 3,
             "convergence_tol": convergence_tol,
-            # Set to 0.005 % on 2026-05-15.  Paired with the
-            # doubled L0 iteration budget (2 × PDMaxIte) so the
-            # bootstrap can drive Δgap below the 0.005 % floor.
-            # L0 has ``num_apertures=1`` + ``aperture_selection_mode
-            # ="head"`` — a SINGLE deterministic realisation, no
-            # Monte-Carlo sampling — so the floor is dominated by
-            # the gtopt log's 4dp emit precision (0.0001 %) and LP
-            # solver tolerances.  0.005 % is the tightest knob that
-            # still admits convergence within the doubled iter
-            # budget; intentionally well above the log/solver floor
-            # so iters that DO drive Δgap below it carry signal,
-            # not numerical noise.
-            "stationary_tol": 0.00005,
+            # Set to 0.1 % on 2026-06-02 (was 0.005 % since
+            # 2026-05-15).  The previous ultra-tight 0.005 % floor
+            # was sized for the gtopt-log 4dp emit precision and
+            # made sense as the deterministic-realisation noise
+            # floor — but in practice the L0 warmup hits the floor
+            # only after burning the full iter budget, and the
+            # subsequent levels' looser tolerances (≥0.1 %) mean the
+            # extra L0 precision is wasted at the cascade level.
+            # Raising L0 to 0.1 % aligns it with L1 (the next
+            # stationary-window-3 level) and lets L0 exit when its
+            # Δgap is below the L1 sampling-noise floor — there's
+            # no policy improvement past that floor to chase.
+            "stationary_tol": 0.001,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
@@ -644,15 +644,17 @@ class GTOptWriter(
             "min_iterations": 2,
             "stationary_window": 3,
             "convergence_tol": convergence_tol,
-            # Set to 0.01 % on 2026-05-15.  L1 is single-bus with 4
-            # stride apertures — the Monte-Carlo noise floor from a
-            # 4-sample mean is roughly 2-3× L0's deterministic floor.
-            # 0.01 % preserves a 2× factor over L0's 0.005 % knob,
-            # matching the noise-floor ratio.  L0's doubled iter
-            # budget delivers an unusually stable L1 starting
-            # envelope, so genuine policy improvement remains to be
-            # had below 0.025 % before the sampling floor dominates.
-            "stationary_tol": 0.0001,
+            # Set to 0.1 % on 2026-06-02 (was 0.01 % since
+            # 2026-05-15).  L1's 4-stride-aperture Monte-Carlo noise
+            # floor is materially wider than the previous 0.01 %
+            # knob admitted in practice: realised Δgap on the
+            # juan/IPLP cascade levels off at ~0.05–0.1 % per iter
+            # once cuts saturate, so 0.01 % only ever fired
+            # opportunistically after the iter budget exhausted.
+            # 0.1 % matches the empirical floor and matches L0
+            # post-2026-06-02 — a flat-floor pair on the
+            # stationary-window-3 levels.
+            "stationary_tol": 0.001,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",

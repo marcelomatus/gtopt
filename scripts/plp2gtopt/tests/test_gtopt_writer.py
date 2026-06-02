@@ -202,35 +202,23 @@ class TestGTOptWriterProcessMethods:
         assert "level_array" in cascade
         levels = cascade["level_array"]
         assert len(levels) == 4
-        # Post-2026-05: ``stationary_tol`` (ΔUB stationarity) and
+        # ``stationary_tol`` (ΔUB stationarity) and
         # ``stationary_gap_ceiling`` (symmetric |gap| magnitude) are
         # AND'd by the C++ stationary check and measure different
-        # things, so they NO LONGER mirror each other.  Pin the new
-        # invariant: ceiling is flat 50 % across every level (gap
-        # quality is bounded; the binding signal is policy
-        # stationarity), and ``stationary_tol`` LOOSENS deeper into
-        # the cascade — 0.005 % / 0.01 % / 0.1 % / 0.5 % — calibrated
-        # to the empirical Δgap noise floor at each level:
-        #   * L0 single deterministic head aperture → no MC noise,
-        #     floor dominated by gtopt log emit precision (0.0001 %)
-        #     and LP solver tolerances → 0.005 %, paired with the
-        #     doubled L0 iter budget so the bootstrap can actually
-        #     reach this floor;
-        #   * L1 4-stride apertures → 2× L0's MC sampling floor
-        #     → 0.01 %;
-        #   * L2 multi-bus + 8 apertures (modelling + sampling
-        #     noise) → 0.1 %;
-        #   * L3 + Kirchhoff + full aperture list (widest sampling
-        #     noise) → 0.5 %.
-        # Earlier same-day attempts at the looser knob values
-        # (e.g. L2=1 % then 0.25 %) converged with real Δgap still
-        # well below the threshold, leaving genuine policy
-        # improvement on the table.  See ``gtopt_writer.py`` L0–L3
-        # sddp_options comments for the per-level rationale.
-        # 2026-05-27: L2/L3 relative ΔUB/UB tolerances loosened ×5 / ×10
-        # (0.0005→0.0025, 0.001→0.01); absolute |gap| ceiling raised
-        # 0.5 → 0.85 across all levels.
-        expected_stationary_tol = [0.00005, 0.0001, 0.0025, 0.01]
+        # things, so they don't mirror each other.  Ceiling is flat
+        # 85 % across every level; ``stationary_tol`` LOOSENS deeper
+        # into the cascade — **0.1 % / 0.1 % / 0.25 % / 1 %**
+        # (2026-06-02 setting):
+        #   * L0+L1 share a 0.1 % floor (the empirical Δgap noise
+        #     floor on the juan/IPLP cascade once cuts saturate;
+        #     earlier sub-0.1 % values only ever fired
+        #     opportunistically at the end of the iter budget).
+        #   * L2 = 0.25 %: multi-bus modelling-noise step ≈ 2.5× the
+        #     L1 MC-sampling floor.
+        #   * L3 = 1 %: + Kirchhoff + full per-phase aperture list
+        #     (widest sampling noise), the cascade's terminal
+        #     stationarity bar.
+        expected_stationary_tol = [0.001, 0.001, 0.0025, 0.01]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.85
@@ -240,13 +228,13 @@ class TestGTOptWriterProcessMethods:
         assert levels[0]["model_options"]["use_single_bus"] is True
         assert levels[0]["sddp_options"]["num_apertures"] == 1
         assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
-        assert levels[0]["sddp_options"]["stationary_tol"] == 0.00005  # 0.005 %
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
         # Level 1: uninodal (single-bus, 4 stride apertures).
         assert levels[1]["name"] == "uninodal"
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.0001  # 0.01 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.001  # 0.1 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -254,7 +242,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.0025  # 0.25 % (×5)
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.0025  # 0.25 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full
@@ -263,7 +251,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[3]["name"] == "full_network"
         assert "num_apertures" not in levels[3]["sddp_options"]
         assert "aperture_selection_mode" not in levels[3]["sddp_options"]
-        assert levels[3]["sddp_options"]["stationary_tol"] == 0.01  # 1 % (×10)
+        assert levels[3]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
 
     def test_process_options_cascade_iteration_split(self):
         """Level budgets: L0 = 2·PDMaxIte, L1 = L2 = L3 = PDMaxIte.
