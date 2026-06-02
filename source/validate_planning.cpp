@@ -431,6 +431,40 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               "Generator");
   }
 
+  // LineCommitment.line -> Line (required FK), plus per-row sanity
+  // checks introduced by issue #509 §"Validation".  The presence of a
+  // LineCommitment row makes the referenced Line a switching candidate,
+  // so an unresolved FK silently leaves the LP without OTS on that
+  // line — exactly the asymmetry we want to surface as a hard error.
+  for (const auto& lc : sys.line_commitment_array) {
+    check_ref(result,
+              lc.line,
+              sys.line_array,
+              "LineCommitment",
+              lc.name,
+              "line",
+              "Line");
+
+    if (lc.kvl_big_m.has_value() && lc.kvl_big_m.value() <= 0.0) {
+      result.errors.push_back(std::format(
+          "LineCommitment '{}': kvl_big_m must be > 0 when set (got {}); "
+          "a non-positive big-M makes the KVL disjunction unbounded "
+          "and the LP-relaxation trivially feasible (issue #509)",
+          lc.name,
+          lc.kvl_big_m.value()));
+    }
+
+    if (lc.initial_status.has_value()) {
+      const auto v = lc.initial_status.value();
+      if (v != 0.0 && v != 1.0) {
+        result.errors.push_back(std::format(
+            "LineCommitment '{}': initial_status must be 0 or 1 (got {})",
+            lc.name,
+            v));
+      }
+    }
+  }
+
   // ReservoirProductionFactor.turbine -> Turbine,
   //                         .reservoir -> Reservoir (both required).
   // The production-factor row drives the water-to-MW LP coefficient;
@@ -1728,6 +1762,46 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_aperture_references(result, planning);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
+
+  // Method gate for Optimal Transmission Switching (issue #509).  OTS
+  // introduces per-line binary u_l decisions that make Benders cuts
+  // unsound on SDDP / cascade subproblems (cost-to-go nonconvexity —
+  // see issue body §"Why monolithic only, not SDDP" + Zou-Ahmed-Sun
+  // 2019).  Reject upfront so the misconfiguration surfaces at JSON
+  // load time rather than failing mid-SDDP with an opaque error.  A
+  // future SDDiP-style relaxation (Lagrangian cuts) would lift this
+  // restriction.
+  const auto method = planning.options.method.value_or(MethodType::monolithic);
+  if (method != MethodType::monolithic
+      && !planning.system.line_commitment_array.empty())
+  {
+    int active_count = 0;
+    for (const auto& lc : planning.system.line_commitment_array) {
+      // Treat unset / non-zero active as "active".  The OptActive
+      // variant carries either a bool, a per-stage vector, or a name
+      // — for the gate purpose we only need to detect rows explicitly
+      // marked inactive at file scope.
+      const bool is_inactive = lc.active.has_value()
+          && std::holds_alternative<Int>(*lc.active)
+          && std::get<Int>(*lc.active) == 0;
+      if (!is_inactive) {
+        ++active_count;
+      }
+    }
+    if (active_count > 0) {
+      const std::string_view method_name = (method == MethodType::sddp)
+          ? std::string_view {"sddp"}
+          : std::string_view {"cascade"};
+      result.errors.push_back(std::format(
+          "Optimal Transmission Switching (OTS) is incompatible with the "
+          "'{}' planning method: {} active LineCommitment row(s) found, "
+          "but Benders cuts on a mixed-integer subproblem are unsound "
+          "(Zou-Ahmed-Sun 2019).  Switch to method='monolithic' or "
+          "deactivate the LineCommitment rows (issue #509).",
+          method_name,
+          active_count));
+    }
+  }
 
   // Log all findings
   for (const auto& warn : result.warnings) {

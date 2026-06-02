@@ -49,6 +49,7 @@
 #include <gtopt/inertia_zone.hpp>
 #include <gtopt/junction.hpp>
 #include <gtopt/line.hpp>
+#include <gtopt/line_commitment.hpp>
 #include <gtopt/lng_terminal.hpp>
 #include <gtopt/plant.hpp>
 #include <gtopt/pump.hpp>
@@ -183,6 +184,19 @@ struct System
       commitment_array {};  ///< Generator unit commitment parameters
   Array<SimpleCommitment>
       simple_commitment_array {};  ///< Simplified dispatch commitments
+
+  // ── Optimal transmission switching (OTS, issue #509) ───────────────────
+  /// Per-line OTS opt-in records.  Presence of a LineCommitment row
+  /// marks the referenced Line as a switching candidate (binary
+  /// ``u_l ∈ {0, 1}`` decided by the MIP); absence keeps the line as
+  /// pure-LP continuous flow.  See ``line_commitment.hpp`` for the
+  /// per-record field set and ``LineCommitmentLP`` for the LP
+  /// formulation (capacity gating + KVL big-M disjunction).
+  ///
+  /// Rejected on the SDDP / cascade methods at
+  /// ``validate_planning.cpp`` time per issue #509 §"Why monolithic
+  /// only, not SDDP".
+  Array<LineCommitment> line_commitment_array {};
 
   // ── Inertia modeling ───────────────────────────────────────────────────
   Array<InertiaZone>
