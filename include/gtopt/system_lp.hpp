@@ -42,6 +42,7 @@
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
+#include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
@@ -61,7 +62,6 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
-#include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>

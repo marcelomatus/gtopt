@@ -44,7 +44,7 @@ template auto InputContext::element_index(
     const ObjectSingleId<ReserveZoneLP>&) const -> ElementIndex<ReserveZoneLP>;
 template auto InputContext::element_index(
     const ObjectSingleId<InertiaZoneLP>&) const -> ElementIndex<InertiaZoneLP>;
-template auto InputContext::element_index(
-    const ObjectSingleId<LineLP>&) const -> ElementIndex<LineLP>;
+template auto InputContext::element_index(const ObjectSingleId<LineLP>&) const
+    -> ElementIndex<LineLP>;
 
 }  // namespace gtopt
