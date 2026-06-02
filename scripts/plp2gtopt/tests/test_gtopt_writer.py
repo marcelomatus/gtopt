@@ -202,17 +202,17 @@ class TestGTOptWriterProcessMethods:
         assert "level_array" in cascade
         levels = cascade["level_array"]
         assert len(levels) == 4
-        # 2026-06-02: cascade flat-ladder ladder.
-        # ``stationary_tol`` = [0.5 %, 0.5 %, 0.5 %, 1 %];
+        # 2026-06-02 (final): cascade FLAT 1 % ladder.
+        # ``stationary_tol`` = [1 %, 1 %, 1 %, 1 %] on L0..L3;
         # ``stationary_window`` = 2 on every level;
         # ``stationary_gap_ceiling`` = 85 % on every level.
-        # Rationale: the realised Δgap on juan/IPLP plateaus at
-        # 0.05–0.5 % once cuts saturate, so a flat 0.5 % floor
-        # exits every level at roughly the same noise regime
-        # instead of burning the iter budget chasing sub-noise
-        # tightening.  L3 keeps the 1 % terminal stationary bar
-        # (full per-phase aperture list, widest MC noise).
-        expected_stationary_tol = [0.005, 0.005, 0.005, 0.01]
+        # Rationale: the realised Δgap on juan/IPLP plateaus once
+        # cuts saturate, and heterogeneous-aperture transitions
+        # re-tighten the bound regardless of the within-level exit
+        # criterion — so any sub-1 % per-iter floor only burned
+        # iters on noise.  Flat 1 % across every level exits at the
+        # same noise regime as the terminal L3 stationarity bar.
+        expected_stationary_tol = [0.01, 0.01, 0.01, 0.01]
         for lvl, expected_tol in zip(levels, expected_stationary_tol):
             so = lvl["sddp_options"]
             assert so["stationary_gap_ceiling"] == 0.85
@@ -223,13 +223,13 @@ class TestGTOptWriterProcessMethods:
         assert levels[0]["model_options"]["use_single_bus"] is True
         assert levels[0]["sddp_options"]["num_apertures"] == 1
         assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
-        assert levels[0]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
         # Level 1: uninodal (single-bus, 4 stride apertures).
         assert levels[1]["name"] == "uninodal"
         assert levels[1]["model_options"]["use_single_bus"] is True
         assert levels[1]["sddp_options"]["num_apertures"] == 4
         assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[1]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
         # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
         assert levels[2]["name"] == "transport"
         assert levels[2]["model_options"]["use_single_bus"] is False
@@ -237,7 +237,7 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["model_options"]["use_line_losses"] is False
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
-        assert levels[2]["sddp_options"]["stationary_tol"] == 0.005  # 0.5 %
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full

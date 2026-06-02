@@ -613,17 +613,19 @@ class GTOptWriter(
             # level optimisation); flattening the rest matches.
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # 2026-06-02: stationary_tol = 0.5 % on L0/L1/L2 + 1 % on
-            # L3.  Empirically the realised Δgap on juan/IPLP plateaus
-            # in the 0.05–0.5 % band by the time the cuts saturate;
-            # the prior 0.005 % / 0.01 % / 0.25 % ladder forced the
-            # solver to burn the full iter budget chasing sub-noise
-            # tightening that didn't translate into policy change.
-            # A flat 0.5 % floor across L0/L1/L2 (and the legacy 1 %
-            # on L3) exits every level at roughly the same noise
-            # regime, slashing total cascade wall-clock by 3-5×
-            # without measurable policy degradation.
-            "stationary_tol": 0.005,
+            # 2026-06-02 (final): flat 1 % stationary_tol across every
+            # cascade level (L0..L3).  Earlier same-day ladder values
+            # (0.005 % → 0.5 % progression) all converged with
+            # realised Δgap well below the threshold, leaving genuine
+            # policy improvement on the table while burning iters on
+            # sub-noise tightening.  The new_bess_emissions PLP-2y
+            # case shows the LB-overshoot pathology under
+            # heterogeneous-aperture transitions where the next-level
+            # cuts re-tighten the bound regardless of the within-level
+            # exit criterion — so the only useful per-iter floor is
+            # the one that exits every level at the same noise regime
+            # as the final L3 stationarity bar.
+            "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
@@ -642,7 +644,7 @@ class GTOptWriter(
             "min_iterations": 2,
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.005,
+            "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
@@ -655,7 +657,7 @@ class GTOptWriter(
             "min_iterations": 2,
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            "stationary_tol": 0.005,
+            "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
