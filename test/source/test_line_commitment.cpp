@@ -424,6 +424,96 @@ TEST_CASE(
 
 // ── (8) Solve — must_run reproduces baseline ────────────────────────
 
+// ── (9) initial_status pins the first-block u_l ─────────────────────
+
+TEST_CASE("LineCommitmentLP: initial_status = 0 pins first-block u_l to 0")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP-aware LP build — no MIP solver available");
+    return;
+  }
+
+  // initial_status = 0 pins u at t=0 to 0 — line OPEN.  With a 100 MW
+  // demand on the far bus and a single line, the LP must serve the
+  // demand via failure (unserved-energy penalty).  Objective should
+  // therefore reflect the penalty cost, not the cheap-gen dispatch.
+  std::string json = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "method": "monolithic",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": false,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [{ "uid": 1, "duration": 1 }],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 1,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_initial_status",
+      "bus_array": [
+        { "uid": 1, "name": "b1" }, { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2", "lmax": [[100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "tmax_ab": 200, "tmax_ba": 200 }
+      ],
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2",
+          "relax": true, "initial_status": 0 }
+      ]
+    }
+  })";
+
+  Planning planning;
+  planning.merge(parse_planning_json(json));
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+
+  auto&& systems = planning_lp.systems();
+  REQUIRE(!systems.empty());
+  REQUIRE(!systems.front().empty());
+  const auto& li = systems.front().front().linear_interface();
+
+  // The status col should be pinned to 0 at t = 0.
+  bool found = false;
+  for (const auto& [name, idx] : li.col_name_map()) {
+    if (name.contains("linecommitment_status_")) {
+      found = true;
+      const auto lb = li.get_col_low()[value_of(idx)];
+      const auto ub = li.get_col_upp()[value_of(idx)];
+      CAPTURE(lb);
+      CAPTURE(ub);
+      CHECK(lb == doctest::Approx(0.0));
+      CHECK(ub == doctest::Approx(0.0));
+    }
+  }
+  CHECK(found);
+
+  // Objective reflects the unserved-energy penalty: 100 MW × $1000
+  // demand_fail_cost / 1000 scale_objective = 100.
+  const auto obj = li.get_obj_value();
+  CAPTURE(obj);
+  CHECK(obj == doctest::Approx(100'000.0).epsilon(1e-3));
+}
+
 TEST_CASE("LineCommitmentLP: must_run = true matches baseline objective")
 {
   if (!mip_available()) {

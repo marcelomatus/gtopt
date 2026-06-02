@@ -174,6 +174,19 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       u_lowb = 1.0;
     }
 
+    // First-block pin: ``LineCommitment.initial_status`` pins the
+    // breaker state at ``t = 0``.  Lower-precedence than ``fixed_status``
+    // / ``must_run`` (both of which set both bounds), higher-precedence
+    // than the default ``[0, 1]`` (we only narrow one of the bounds).
+    // Applied only to the FIRST block of the stage so that future
+    // blocks remain decided by the solver.  Self-review P2-4 follow-up.
+    if (!has_fixed && !is_must_run && buid == blocks.front().uid()
+        && lc.initial_status.has_value())
+    {
+      const double init = lc.initial_status.value();
+      u_lowb = u_uppb = (init >= 0.5) ? 1.0 : 0.0;
+    }
+
     // Create binary status variable u_l.  IntegerScope::Block matches
     // the per-block grouping used by SimpleCommitment.
     const auto u_domain =
@@ -283,6 +296,14 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // refined for the φ shift).  Per-line ``LineCommitment.kvl_big_m``
     // overrides — the v1 iterative-tightening pre-solve (Pineda 2024)
     // writes back into that override field.
+    //
+    // **Derivation note** (review P1-2): Issue #509 §"Big-M source"
+    // states ``M_l = |b_eff| · (θ_max − θ_min)`` for the canonical
+    // form ``f = b_eff · Δθ``.  Our row form ``-θ_a + θ_b + x_τ · f
+    // = -φ`` is the canonical form multiplied by ``x_τ``, so the
+    // canonical M ``|b_eff| · 2θ_max = 2θ_max/x_τ`` becomes ``x_τ ·
+    // 2θ_max/x_τ = 2θ_max`` in our row.  Adding ``|φ|`` covers the
+    // ``-θ_a + θ_b + φ_rad`` slack range under ``f = 0`` exactly.
     //
     // Skips silently in: cycle_basis Kirchhoff mode (no per-line KVL
     // row to rewrite — cycle_basis stamps cycle-aggregate rows
