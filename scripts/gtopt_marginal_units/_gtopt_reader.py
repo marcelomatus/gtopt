@@ -56,8 +56,22 @@ from gtopt_marginal_units.errors import (
 # ---------------------------------------------------------------------------
 
 
-def topology_from_planning(planning: dict) -> Topology:
+def topology_from_planning(
+    planning: dict,
+    output_dir: Path | None = None,
+) -> Topology:
     """Build a Topology from a gtopt planning JSON.
+
+    When ``output_dir`` is supplied AND it carries
+    ``EmissionSource/rate_sol.parquet``, the per-generator CO2eq factor
+    is computed from the LP's **emitted** per-(source, cell) rate
+    (averaged over (scenario, stage, block) because the rate is
+    constant per source on every jan18-style case I've inspected;
+    only varies with explicit per-block fuel switching).  This is the
+    LP-authoritative number — captures any per-block adjustment the
+    LP made vs the static JSON rate.  Falls back to the static
+    ``emission_source_array[*].rate`` field when the parquet is
+    absent.
 
     Raises ``ExpansionNotSupportedError`` if any generator or line
     has ``expansion=true`` (or an ``expansion`` block) — see master
@@ -103,15 +117,45 @@ def topology_from_planning(planning: dict) -> Topology:
         }
         for z in system.get("emission_zone_array", [])
     }
+    # Per-source LP-emitted rate from ``EmissionSource/rate_sol.parquet``.
+    # Prefer this over the static planning-JSON rate when available — it
+    # captures any per-block adjustment the LP applied (per-block fuel
+    # switching, scale_objective drift, etc.) and is the authoritative
+    # value the LP actually used.  Each source's rate is averaged across
+    # all (scenario, stage, block) cells; on every case I've inspected
+    # the rate is constant per source, so the mean equals every per-cell
+    # value.  When the parquet is absent, falls back to the static rate.
+    parq_rate: dict[int, float] = {}
+    if output_dir is not None:
+        parq_path = Path(output_dir) / "EmissionSource" / "rate_sol.parquet"
+        if parq_path.exists():
+            try:
+                # pyarrow is already a hard dep of gtopt_marginal_units; no
+                # extra import surface.
+                import pyarrow.parquet as pq  # noqa: PLC0415
+
+                rate_df = pq.read_table(parq_path).to_pandas()
+                # Mean rate per source uid — collapses the constant
+                # per-block dimension to a single representative value.
+                grouped = rate_df.groupby("uid")["value"].mean()
+                parq_rate = {int(u): float(v) for u, v in grouped.items()}
+            except Exception:  # noqa: BLE001
+                # Treat any parquet-read failure as "no override" — the
+                # static rate is a perfectly valid fallback.
+                parq_rate = {}
+
     gen_emission_co2eq: dict[int, float] = {}
     for src in system.get("emission_source_array", []):
         try:
             g_uid = int(src["generator"])
             z_uid = int(src["zone"])
             emission = str(src["emission"])
-            rate = float(src.get("rate", 0.0))
+            s_uid = int(src.get("uid", -1))
+            static_rate = float(src.get("rate", 0.0))
         except (KeyError, TypeError, ValueError):
             continue
+        # LP-emitted rate wins when present; static rate is the fallback.
+        rate = parq_rate.get(s_uid, static_rate)
         weight = zone_weights.get(z_uid, {}).get(emission, 0.0)
         if weight == 0.0 or rate == 0.0:
             continue
@@ -420,7 +464,7 @@ def read_gtopt(
     not here.
     """
     planning = load_planning(Path(planning_path))
-    topology = topology_from_planning(planning)
+    topology = topology_from_planning(planning, output_dir=Path(output_dir))
     cells = cells_from_gtopt_output(Path(output_dir))
     lp_duals = load_gtopt_lp_duals(Path(output_dir))
     return topology, cells, lp_duals
