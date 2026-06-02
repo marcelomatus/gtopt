@@ -11,11 +11,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 150.0,
-        "eini": 75.0,
         "pmax_charge": 30.0,
         "pmax_discharge": 30.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10010,
@@ -27,11 +27,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 150.0,
-        "eini": 75.0,
         "pmax_charge": 30.0,
         "pmax_discharge": 30.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10011,
@@ -43,11 +43,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 150.0,
-        "eini": 75.0,
         "pmax_charge": 30.0,
         "pmax_discharge": 30.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10012,
@@ -59,11 +59,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 120.0,
-        "eini": 60.0,
         "pmax_charge": 30.0,
         "pmax_discharge": 30.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10013,
@@ -75,11 +75,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 100.0,
-        "eini": 50.0,
         "pmax_charge": 20.0,
         "pmax_discharge": 20.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10014,
@@ -91,11 +91,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 200.0,
-        "eini": 100.0,
         "pmax_charge": 40.0,
         "pmax_discharge": 40.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10015,
@@ -107,11 +107,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 200.0,
-        "eini": 100.0,
         "pmax_charge": 40.0,
         "pmax_discharge": 40.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10016,
@@ -123,11 +123,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 600.0,
-        "eini": 300.0,
         "pmax_charge": 120.0,
         "pmax_discharge": 120.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10017,
@@ -139,11 +139,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 410.0,
-        "eini": 205.0,
         "pmax_charge": 102.5,
         "pmax_discharge": 102.5,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10018,
@@ -155,11 +155,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 1200.0,
-        "eini": 600.0,
         "pmax_charge": 150.0,
         "pmax_discharge": 150.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10019,
@@ -171,11 +171,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 300.0,
-        "eini": 150.0,
         "pmax_charge": 60.0,
         "pmax_discharge": 60.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10020,
@@ -187,11 +187,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 200.0,
-        "eini": 100.0,
         "pmax_charge": 40.0,
         "pmax_discharge": 40.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       },
       {
         "uid": 10021,
@@ -203,11 +203,11 @@
         "output_efficiency": 0.92,
         "emin": 0.0,
         "emax": 100.0,
-        "eini": 50.0,
         "pmax_charge": 20.0,
         "pmax_discharge": 20.0,
         "discharge_cost": 0.0,
-        "charge_cost": 0.0
+        "charge_cost": 0.0,
+        "annual_loss": 0.24
       }
     ]
   }

@@ -113,7 +113,15 @@ print(f"  PLP base: max uid across all arrays = {max_uid}")
 with open(bess_src, "r", encoding="utf-8") as f:
     bess = json.load(f)
 
-# Renumber BESS UIDs starting at max_uid + 1; resolve bus names to ints.
+# Self-discharge: 2 % per month → annual_loss = 12 × 0.02 = 0.24 [p.u./year]
+# gtopt's storage_lp.cpp converts this to a per-hour decay factor
+# (annual_loss / 8760), so the SoC drops by ~2 % across a 730-hour
+# month under no charge/discharge.  Mirrors the industry standard for
+# li-ion BESS (~2-3 %/month at 25 °C ambient).
+MONTHLY_LOSS_FRAC = 0.02
+ANNUAL_LOSS = 12 * MONTHLY_LOSS_FRAC
+
+# Renumber BESS UIDs starting at max_uid + 1; drop eini + add annual_loss.
 unresolved = []
 for i, b in enumerate(bess["battery_array"], 1):
     b["uid"] = max_uid + i
@@ -126,8 +134,13 @@ for i, b in enumerate(bess["battery_array"], 1):
     # otherwise (some BESS substations are regional proxies).
     if bus_name not in buses_by_name:
         unresolved.append((b["name"], bus_name))
-    # No further mutation needed — ``b["bus"]`` already carries the
-    # string name from bess_gtopt_battery_array_plp_buses.json.
+    # Drop ``eini`` — leaving the initial SoC unset lets the LP pick
+    # the optimal start-of-horizon level (subject to ``emin``).  The
+    # 50 %-of-emax default in the source JSON was an arbitrary guess
+    # that biases the daily-cycle optimum.
+    b.pop("eini", None)
+    # 2 %/month self-discharge.
+    b["annual_loss"] = ANNUAL_LOSS
 if unresolved:
     print(f"WARNING: unresolved bus names → {unresolved}", file=sys.stderr)
 
