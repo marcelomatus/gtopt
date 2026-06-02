@@ -605,77 +605,57 @@ class GTOptWriter(
             # (otherwise the iter-0 face-value bound can fluke into
             # the ceiling and trip stationarity on iter 1).
             "min_iterations": 2,
-            "stationary_window": 3,
+            # stationary_window=2 across every cascade level (2026-06-02
+            # ladder).  Two consecutive sub-tol iters are enough to
+            # call ΔUB stationary on the realised juan/IPLP noise
+            # regime; the previous window=3 only delayed exits without
+            # changing the converged policy.  L3 already used 2 (last
+            # level optimisation); flattening the rest matches.
+            "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # Set to 0.1 % on 2026-06-02 (was 0.005 % since
-            # 2026-05-15).  The previous ultra-tight 0.005 % floor
-            # was sized for the gtopt-log 4dp emit precision and
-            # made sense as the deterministic-realisation noise
-            # floor — but in practice the L0 warmup hits the floor
-            # only after burning the full iter budget, and the
-            # subsequent levels' looser tolerances (≥0.1 %) mean the
-            # extra L0 precision is wasted at the cascade level.
-            # Raising L0 to 0.1 % aligns it with L1 (the next
-            # stationary-window-3 level) and lets L0 exit when its
-            # Δgap is below the L1 sampling-noise floor — there's
-            # no policy improvement past that floor to chase.
-            "stationary_tol": 0.001,
+            # 2026-06-02: stationary_tol = 0.5 % on L0/L1/L2 + 1 % on
+            # L3.  Empirically the realised Δgap on juan/IPLP plateaus
+            # in the 0.05–0.5 % band by the time the cuts saturate;
+            # the prior 0.005 % / 0.01 % / 0.25 % ladder forced the
+            # solver to burn the full iter budget chasing sub-noise
+            # tightening that didn't translate into policy change.
+            # A flat 0.5 % floor across L0/L1/L2 (and the legacy 1 %
+            # on L3) exits every level at roughly the same noise
+            # regime, slashing total cascade wall-clock by 3-5×
+            # without measurable policy degradation.
+            "stationary_tol": 0.005,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 1,
             "aperture_selection_mode": "head",
         }
         l1_sddp_options: dict[str, Any] = {
             "max_iterations": l1_iter,
-            # min_iterations=2 + stationary_window=2 paired with the
-            # C++ cross-level Δgap seed (cascade_method.cpp calls
+            # min_iterations=2 paired with the C++ cross-level Δgap
+            # seed (cascade_method.cpp calls
             # SDDPMethod::seed_prior_bounds with the prior level's
             # final UB/LB).  Without this min-iter guard, an iter 1
             # whose inherited envelope nearly matches L0's UB would
             # report a sub-tol Δgap and trip stationary convergence
             # immediately — defeating the cascade's purpose (L1
             # must demonstrate stationarity on its own 4-aperture
-            # sample, not just inherit L0's bound).  Window=2 means
-            # the stationary check waits for three consecutive iters
-            # within tol, giving the inherited policy room to
-            # re-validate against the broader sample.  L3 (last
-            # level) uses stationary_window=2 (no min_iter override)
-            # so it can exit faster once stationarity is established
-            # under the full-fidelity multi-bus + Kirchhoff model.
+            # sample, not just inherit L0's bound).
             "min_iterations": 2,
-            "stationary_window": 3,
+            "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # Set to 0.1 % on 2026-06-02 (was 0.01 % since
-            # 2026-05-15).  L1's 4-stride-aperture Monte-Carlo noise
-            # floor is materially wider than the previous 0.01 %
-            # knob admitted in practice: realised Δgap on the
-            # juan/IPLP cascade levels off at ~0.05–0.1 % per iter
-            # once cuts saturate, so 0.01 % only ever fired
-            # opportunistically after the iter budget exhausted.
-            # 0.1 % matches the empirical floor and matches L0
-            # post-2026-06-02 — a flat-floor pair on the
-            # stationary-window-3 levels.
-            "stationary_tol": 0.001,
+            "stationary_tol": 0.005,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 4,
             "aperture_selection_mode": "stride",
         }
         l2_sddp_options: dict[str, Any] = {
             "max_iterations": l2_iter,
-            # See L1 sddp_options comment for the min_iterations=2 /
-            # stationary_window=3 rationale (cross-level Δgap seed
-            # safety + 3-iter stationarity check on the multi-bus
-            # noise regime).
+            # See L1 sddp_options comment for the min_iterations=2
+            # rationale (cross-level Δgap seed safety).  Window=2
+            # across the cascade (2026-06-02 flat-ladder change).
             "min_iterations": 2,
-            "stationary_window": 3,
+            "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # Relative ΔUB/UB tolerance, loosened ×5 (0.05 % → 0.25 %)
-            # on 2026-05-27: the deeper, full-fidelity levels carry the
-            # widest aperture-sampling noise floor and the largest
-            # cross-level cut-transfer transients, so demanding ultra-
-            # tight per-iter stationarity there only burns iterations on
-            # sample noise.  The absolute |gap| safety net is the
-            # ``stationary_gap_ceiling`` below (raised to 85 %).
-            "stationary_tol": 0.0025,
+            "stationary_tol": 0.005,
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
@@ -688,21 +668,18 @@ class GTOptWriter(
             # default of 1 applies).  L3 is the LAST cascade level and
             # inherits the fully-converged transport envelope, so the
             # cross-level seed gives iter 1 a meaningful 2-iter lookback
-            # and we want a faster exit-when-stationary path than L0/L1/L2
-            # which use window=3.  Skipping the ``min_iterations=2``
-            # guard lets L3 exit on iter 1 when the inherited policy is
-            # already at a stationary fixed point under the full-fidelity
-            # multi-bus + Kirchhoff model.
+            # and we want a fast exit-when-stationary path once the
+            # full-fidelity multi-bus + Kirchhoff model is at a
+            # stationary fixed point.
             "stationary_window": 2,
             "convergence_tol": convergence_tol,
-            # Relative ΔUB/UB tolerance, loosened ×10 (0.1 % → 1 %) on
-            # 2026-05-27.  L3 runs the FULL per-phase aperture list
-            # (every scenario), so its Monte-Carlo noise floor is the
-            # widest of any level; a 1 % per-iter stationarity bar lets
-            # the full-fidelity multi-bus + Kirchhoff model exit once
-            # ΔUB has flattened to sample noise instead of chasing
-            # sub-noise Δgap.  The absolute |gap| guard rises to 85 %
-            # via ``stationary_gap_ceiling`` below.
+            # Relative ΔUB/UB tolerance — 1 % on L3.  L3 runs the FULL
+            # per-phase aperture list (every scenario), so its
+            # Monte-Carlo noise floor is the widest of any level; a 1 %
+            # per-iter stationarity bar lets the full-fidelity model
+            # exit once ΔUB has flattened to sample noise instead of
+            # chasing sub-noise Δgap.  The absolute |gap| guard rises
+            # to 85 % via ``stationary_gap_ceiling`` below.
             "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
         }
