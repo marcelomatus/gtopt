@@ -604,17 +604,6 @@ public:
    */
   [[nodiscard]] FlatLinearProblem flatten(const LpMatrixOptions& opts = {});
 
-private:
-  /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
-  constexpr void normalize_bound(double& value) const noexcept
-  {
-    if (value >= DblMax) {
-      value = m_infinity_;
-    } else if (value <= -DblMax) {
-      value = -m_infinity_;
-    }
-  }
-
   /// Declare a Type-2 Special-Ordered-Set (SOS2) over the given column
   /// indices.  Stored on the LinearProblem until ``flatten()`` copies
   /// it into ``FlatLinearProblem::sos2_sets``; ``LinearInterface::
@@ -642,12 +631,22 @@ private:
     sos2_sets.push_back(std::move(idx));
   }
 
-  /// Convenience overload accepting a contiguous range (vector, span,
-  /// initializer_list) of column indices.  Forwards to the span-based
-  /// ``add_sos2`` after a single ``std::span`` construction.
+  /// Convenience overload accepting an ``initializer_list`` of column
+  /// indices.  Forwards to the span-based ``add_sos2``.
   void add_sos2(std::initializer_list<ColIndex> columns)
   {
     add_sos2(std::span<const ColIndex> {columns.begin(), columns.size()});
+  }
+
+private:
+  /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
+  constexpr void normalize_bound(double& value) const noexcept
+  {
+    if (value >= DblMax) {
+      value = m_infinity_;
+    } else if (value <= -DblMax) {
+      value = -m_infinity_;
+    }
   }
 
   std::string pname;  ///< Problem name
