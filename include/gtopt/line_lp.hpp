@@ -27,6 +27,13 @@
 namespace gtopt
 {
 
+class LineLP;
+
+/// SingleId-style FK alias for ``LineLP``.  Used by elements that
+/// reference a Line through ``ElementIndex`` (e.g. ``LineCommitmentLP``
+/// per issue #509).
+using LineLPSId = ObjectSingleId<LineLP>;
+
 class LineLP : public CapacityObjectLP<Line>
 {
 public:

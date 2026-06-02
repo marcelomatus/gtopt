@@ -61,6 +61,7 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/schedule.hpp>
+#include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/simple_commitment_lp.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/system.hpp>
@@ -306,6 +307,7 @@ public:
                                    Collection<EmissionSourceLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
+                                   Collection<LineCommitmentLP>,
                                    Collection<ConverterLP>,
                                    Collection<InertiaZoneLP>,
                                    Collection<InertiaProvisionLP>,

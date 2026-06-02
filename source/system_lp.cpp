@@ -560,6 +560,8 @@ void create_collections(const auto& system_context,
       make_collection<CommitmentLP>(ic, sys.commitment_array);
   std::get<Collection<SimpleCommitmentLP>>(colls) =
       make_collection<SimpleCommitmentLP>(ic, sys.simple_commitment_array);
+  std::get<Collection<LineCommitmentLP>>(colls) =
+      make_collection<LineCommitmentLP>(ic, sys.line_commitment_array);
   // ConverterLP runs after CommitmentLP/SimpleCommitmentLP so the
   // battery's synthesized u_commit columns (created by
   // `expand_batteries`) are already stamped on the LP and can be
@@ -684,6 +686,7 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<ReserveZoneLP>(sim, sys.reserve_zone_array);
   register_element_names<CommitmentLP>(sim, sys.commitment_array);
   register_element_names<SimpleCommitmentLP>(sim, sys.simple_commitment_array);
+  register_element_names<LineCommitmentLP>(sim, sys.line_commitment_array);
   register_element_names<InertiaZoneLP>(sim, sys.inertia_zone_array);
   register_element_names<InertiaProvisionLP>(sim, sys.inertia_provision_array);
   register_element_names<ReservoirLP>(sim, sys.reservoir_array);
