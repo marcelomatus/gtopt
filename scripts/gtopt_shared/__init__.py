@@ -8,7 +8,16 @@ duplicated implementations.
 """
 
 from gtopt_shared.cli_flags import (
+    LINE_LOSSES_MODE_CHOICES,
+    add_aperture_chunk_size_argument,
+    add_common_arguments,
+    add_demand_fail_cost_argument,
     add_emissions_arguments,
+    add_lift_line_caps_argument,
+    add_line_losses_mode_argument,
+    add_loss_cost_eps_argument,
+    add_scale_objective_argument,
+    add_use_kirchhoff_argument,
     add_use_single_bus_argument,
 )
 from gtopt_shared.emissions import (
@@ -35,11 +44,20 @@ from gtopt_shared.pampl_rhs import pampl_rhs_vector
 __all__ = [
     "DEFAULT_EMISSIONS_FILE",
     "DEFAULT_INF_OMIT_KEYS",
+    "LINE_LOSSES_MODE_CHOICES",
     "EmissionDefaults",
     "EmissionFactor",
     "EmissionReport",
     "PENALTY_TIER_NAMES",
+    "add_aperture_chunk_size_argument",
+    "add_common_arguments",
+    "add_demand_fail_cost_argument",
     "add_emissions_arguments",
+    "add_lift_line_caps_argument",
+    "add_line_losses_mode_argument",
+    "add_loss_cost_eps_argument",
+    "add_scale_objective_argument",
+    "add_use_kirchhoff_argument",
     "add_use_single_bus_argument",
     "apply_emission_defaults",
     "apply_emission_defaults_from_file",

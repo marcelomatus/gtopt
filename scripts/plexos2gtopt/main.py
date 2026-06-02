@@ -14,6 +14,12 @@ import signal
 import sys
 from pathlib import Path
 
+from gtopt_shared.cli_flags import (
+    add_lift_line_caps_argument,
+    add_loss_cost_eps_argument,
+    add_use_single_bus_argument,
+)
+
 from .auto_lift_lines import DEFAULT_THRESHOLD
 from .info_display import display_plexos_info
 from .parsers import UnresolvedConstraintReferenceError
@@ -118,8 +124,8 @@ def make_parser() -> argparse.ArgumentParser:
             "validation (on by default, mirroring plp2gtopt)"
         ),
     )
-    # Emissions flags now live in gtopt_shared.cli_flags so plp2gtopt
-    # picks up exactly the same surface (issue #507 Phase 2).
+    # Emissions flags live in gtopt_shared.cli_flags so plp2gtopt picks
+    # up exactly the same surface (issue #507 Phase 2).
     from gtopt_shared.cli_flags import (  # noqa: PLC0415
         add_emissions_arguments,
     )
@@ -196,12 +202,7 @@ def make_parser() -> argparse.ArgumentParser:
             "that diverge from the physics-correct default."
         ),
     )
-    # --use-single-bus is owned by gtopt_shared.cli_flags.
-    from gtopt_shared.cli_flags import (  # noqa: PLC0415
-        add_use_single_bus_argument,
-    )
-
-    add_use_single_bus_argument(parser)
+    add_use_single_bus_argument(parser, dialect="store_true")
     parser.add_argument(
         "--default-uc-penalty",
         type=float,
@@ -342,25 +343,7 @@ def make_parser() -> argparse.ArgumentParser:
             "line_losses.cpp seg_geom docstring)."
         ),
     )
-    parser.add_argument(
-        "--loss-cost-eps",
-        type=float,
-        default=0.0,
-        help=(
-            "Small positive cost ($/MWh) stamped on every per-direction "
-            "loss column (``loss_p`` / ``loss_n``) of PWL-loss lines.  "
-            "Strictly breaks the pure LP-relax bidirectional-flow "
-            "degeneracy: the LP picks single-direction dispatch among "
-            "primal-optimal solutions sharing the same net flow.  "
-            "Recommended: ``1e-6`` — essentially zero objective impact "
-            "(well below LP optimality tolerance) yet eliminates the "
-            "residual ~1-11%% phantom bidirectional flow that survives "
-            "the ``piecewise → bidirectional`` wrapping.  Default 0.0 "
-            "preserves legacy behaviour.  Emitted as the global "
-            "``options.model_options.loss_cost_eps`` field — every "
-            "PWL/bidirectional line inherits the same ε."
-        ),
-    )
+    add_loss_cost_eps_argument(parser, dialect="plexos")
     parser.add_argument(
         "--emin-eod-day1",
         dest="emin_eod_day1",
@@ -682,34 +665,7 @@ def make_parser() -> argparse.ArgumentParser:
             "observed values."
         ),
     )
-    parser.add_argument(
-        "--lift-line-caps",
-        type=str,
-        default="Capricornio110->LaNegra110",
-        help=(
-            "Comma-separated list of Line names to demote from PLEXOS "
-            "EL=1 (enforce hard cap) down to EL=0 (no cap, but keep "
-            "tmax_ab for loss-segment discretization).  Used for "
-            "PLEXOS lines where the dispatched flow exceeds the "
-            "published rating because the line is radial and the LP "
-            "has no alternative path — enforcing the cap in gtopt "
-            "would otherwise create unserved demand.\n"
-            "\n"
-            "Default lifts ``Capricornio110->LaNegra110`` only — the "
-            "single canonical case on the CEN PCP weekly bundle (76 "
-            "MW Max Flow, 204 MW in PLEXOS dispatch, 269%% of cap; "
-            "the line is a 110 kV radial stepdown to the Antofagasta "
-            "region with no parallel path).  Pass an empty string "
-            "(``--lift-line-caps=''``) to activate the experimental "
-            "SOFT-EL=1 mode instead — every EL=1 line gets a parallel "
-            "slack at ``tcost = (min(demand.fcost) + max(generator."
-            "gcost)) / 2`` ($/MWh).  Soft mode lets the LP push past "
-            "the PLEXOS rating at a penalty, but on CEN PCP weekly "
-            "increased BESS-charging +77%% and losses +18%% vs the "
-            "Capricornio-only baseline — kept as an opt-in for new "
-            "bundles where the lift list isn't curated yet."
-        ),
-    )
+    add_lift_line_caps_argument(parser, dialect="plexos")
     parser.add_argument(
         "--el0-lines",
         choices=("extended", "strict"),
@@ -973,11 +929,6 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_legacy": args.plexos_legacy,
         "plp_embalses": args.plp_embalses,
         "no_plp_embalses": args.no_plp_embalses,
-        # Emissions: master switch + optional custom IPCC file + report.
-        # See gtopt_shared.emissions for the fill-in semantics.
-        "emissions": args.emissions,
-        "emissions_file": args.emissions_file,
-        "emissions_report": args.emissions_report,
     }
 
     if args.compare_json:
