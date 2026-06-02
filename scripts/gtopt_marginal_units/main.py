@@ -454,10 +454,18 @@ def _process_cells(
         if single_bus or not topology.lines:
             zone_of = {u: 0 for u in bus_uids}
         else:
-            cost_by_uid = flow_cost_by_cell.get(cell_key, {})
             saturated_uids: set[int] = set()
-            if cost_by_uid:
-                # LP rc test — independent of tmax, no false positives.
+            if flow_cost_by_cell:
+                # rc test (preferred).  Note we gate on the GLOBAL
+                # presence of the ``flow_cost`` stream (``flow_cost_by_cell``),
+                # not on the per-cell dict ``flow_cost_by_cell.get(cell_key)``:
+                # gtopt's writer filters all-zero rc rows, so a cell with
+                # NO saturated lines produces ZERO rows — a perfectly
+                # valid "all rc = 0" answer that means "no saturation in
+                # this cell".  Falling back to the primal test in that
+                # case false-positives on lines landing at e.g. 99.79 %
+                # of tmax without the cap actually binding.
+                cost_by_uid = flow_cost_by_cell.get(cell_key, {})
                 eps_rc = max(tol.tol_price, 1e-3)
                 for uid, rc in cost_by_uid.items():
                     if abs(float(rc)) > eps_rc:
