@@ -16,9 +16,11 @@ from ._reader import (
     get_generator_profile_info,
     get_line_info,
     open_dataset,
+    streaming_abs_weighted_sum_per_uid,
     streaming_pairwise_weighted_sum,
     streaming_sol_weighted_sum,
     streaming_sol_weighted_sum_per_uid,
+    streaming_sqr_weighted_sum_per_uid,
     streaming_uid_stats,
     streaming_uid_sum,
 )
@@ -568,6 +570,234 @@ def check_battery_soc(results_dir: Path, planning: dict) -> list[Finding]:
     return findings
 
 
+def check_transmission_losses(
+    results_dir: Path, planning: dict
+) -> tuple[list[Finding], dict]:
+    """Estimate transmission losses two complementary ways and report
+    the gap (= battery / storage internal losses + numerical residue).
+
+    * **Balance method** (energy-conservation closure):
+
+        losses_balance = Σ_gen − Σ_load
+                       = Σ_gen + Σ_(bat_dis) − Σ_(load_real) − Σ_(bat_chg)
+
+      where ``Generator/generation_sol`` is exported by gtopt with one
+      phantom generator per battery (whose energy equals
+      ``Battery/fout_sol``) and ``Demand/load_sol`` is exported with
+      one phantom demand per battery (whose energy equals
+      ``Battery/finp_sol``).  The phantoms cancel on both sides so a
+      naive ``Σ_gen − Σ_load`` over the whole datasets gives the right
+      closure (line losses + battery round-trip losses + reservoir /
+      storage net change).
+
+    * **Analytical method** (DC-OPF quadratic loss approximation):
+
+        losses_analytical = Σ_lines (R / V²) · Σ_(s,t,b) flow²(s,t,b) · dur(b)
+
+      where R is line resistance [Ω], V is the line nominal voltage [kV],
+      and flow [MW] comes from ``Line/flow_sol``.  This captures
+      transmission losses only (no battery, no reservoir).
+
+    The difference ``balance − analytical`` is dominated by the battery
+    round-trip loss ``Σ_(bat_chg − bat_dis)`` plus any storage
+    net-change over the horizon.  A small residue after subtracting
+    those is expected (DC-OPF linearisation + line-loss segmentation).
+    """
+    findings: list[Finding] = []
+    indicators: dict = {}
+
+    gen_ds = open_dataset(results_dir, "Generator/generation_sol")
+    load_ds = open_dataset(results_dir, "Demand/load_sol")
+    if gen_ds is None or load_ds is None:
+        return findings, indicators
+
+    durations = get_block_durations(planning)
+
+    # --- Balance method (full datasets — phantoms cancel) -----------------
+    gen_energy = streaming_sol_weighted_sum(gen_ds, durations)
+    load_energy = streaming_sol_weighted_sum(load_ds, durations)
+    losses_balance = gen_energy - load_energy
+
+    # Battery round-trip loss (optional — appears as the bulk of the
+    # balance-vs-analytical gap when batteries cycle a lot).
+    bat_chg_ds = open_dataset(results_dir, "Battery/finp_sol")
+    bat_dis_ds = open_dataset(results_dir, "Battery/fout_sol")
+    bat_chg_e = streaming_sol_weighted_sum(bat_chg_ds, durations) if bat_chg_ds else 0.0
+    bat_dis_e = streaming_sol_weighted_sum(bat_dis_ds, durations) if bat_dis_ds else 0.0
+    battery_roundtrip_loss = bat_chg_e - bat_dis_e
+
+    # --- Analytical method ------------------------------------------------
+    flow_ds = open_dataset(results_dir, "Line/flow_sol")
+    line_info = get_line_info(planning)
+    losses_analytical: float | None = None
+    loss_per_line: dict[int, float] = {}
+    throughput_per_line: dict[int, float] = {}
+    if flow_ds is not None and not line_info.empty:
+        # Coefficient per line: R / V²  (MW per MW²).  Lines with
+        # zero R or zero V contribute zero (skip — no loss model).
+        coef_per_uid: dict[int, float] = {}
+        for _, row in line_info.iterrows():
+            R = float(row.get("resistance", 0.0))
+            V = float(row.get("voltage", 0.0))
+            if R > 0.0 and V > 0.0:
+                coef_per_uid[int(row["uid"])] = R / (V * V)
+        if coef_per_uid:
+            # Per-line analytical loss energy (used both for the total
+            # and for ranking + arbitrage detection).  The total is
+            # just `sum(loss_per_line.values())` — no need for the
+            # separate scalar streaming pass.
+            loss_per_line = streaming_sqr_weighted_sum_per_uid(
+                flow_ds, durations, coef_per_uid
+            )
+            losses_analytical = sum(loss_per_line.values())
+            # Per-line throughput (Σ |flow| × dur) — used as the
+            # denominator in loss / throughput ratio.  A line whose
+            # ratio is much higher than its sister lines (or higher
+            # than the loss-percentage you'd get from R · I_max² at
+            # nameplate flow) is a loss-arbitrage candidate.
+            throughput_per_line = streaming_abs_weighted_sum_per_uid(flow_ds, durations)
+
+    # --- Report -----------------------------------------------------------
+    findings.append(
+        Finding(
+            "losses",
+            "INFO",
+            f"transmission losses (balance method): {losses_balance:.1f} MWh "
+            f"(gen − load = {losses_balance / max(load_energy, 1.0) * 100:.2f}% "
+            f"of served demand)",
+        )
+    )
+    if losses_analytical is not None:
+        gap = losses_balance - losses_analytical
+        pct_demand = losses_analytical / max(load_energy, 1.0) * 100
+        findings.append(
+            Finding(
+                "losses",
+                "INFO",
+                f"transmission losses (analytical Σ R·P²/V²): "
+                f"{losses_analytical:.1f} MWh ({pct_demand:.2f}% of demand)",
+            )
+        )
+        # Most of the gap should be battery round-trip loss.
+        residue = gap - battery_roundtrip_loss
+        findings.append(
+            Finding(
+                "losses",
+                "INFO",
+                f"balance − analytical = {gap:.1f} MWh "
+                f"(battery roundtrip = {battery_roundtrip_loss:.1f}; "
+                f"residue = {residue:.1f})",
+            )
+        )
+        # Sanity flag: large positive residue after battery accounting
+        # suggests either DC-OPF linearisation error (large dur ≠ 1
+        # blocks under heavy flow) or that the gtopt LP secant
+        # over-estimates losses on the LP side.
+        if abs(residue) > 0.05 * load_energy:
+            findings.append(
+                Finding(
+                    "losses",
+                    "WARNING",
+                    f"large residue after battery roundtrip "
+                    f"({residue:.1f} MWh = "
+                    f"{abs(residue) / max(load_energy, 1.0) * 100:.1f}% of demand) — "
+                    f"check line-loss model or reservoir / storage net change",
+                )
+            )
+
+    # --- Per-line ranking + loss-arbitrage detection ------------------------
+    # Two complementary per-line views:
+    #   1. Top-10 lines by analytical loss energy — where physical losses
+    #      concentrate (long high-flow corridors).
+    #   2. Top-10 lines by loss / throughput ratio — where the LP may be
+    #      cycling flow back-and-forth across a lossy line ("loss
+    #      arbitrage"), inflating both directional flows beyond the net
+    #      transfer the line actually accomplishes.  Without the
+    #      per-direction `Line/loss_*_sol` streams in the output (this
+    #      run uses `write_out: sol,dual,rc:Generator,Line` which omits
+    #      them), the symptom shows up as a loss-fraction much larger
+    #      than the line's `(R · tmax) / V² ≈ I²R` baseline.
+    if loss_per_line:
+        line_name = dict(zip(line_info["uid"], line_info["name"], strict=False))
+        line_R = dict(zip(line_info["uid"], line_info["resistance"], strict=False))
+        line_V = dict(zip(line_info["uid"], line_info["voltage"], strict=False))
+        line_tmax = dict(zip(line_info["uid"], line_info["tmax"], strict=False))
+
+        top_loss = sorted(loss_per_line.items(), key=lambda kv: -kv[1])[:10]
+        findings.append(
+            Finding(
+                "losses",
+                "INFO",
+                "top 10 lines by analytical loss energy (per-line R·P²/V² · dur, MWh):",
+            )
+        )
+        for uid, e in top_loss:
+            findings.append(
+                Finding(
+                    "losses",
+                    "INFO",
+                    f"  {line_name.get(uid, f'uid:{uid}'):<35} {e:>12.1f} MWh  "
+                    f"(R={float(line_R.get(uid, 0.0)):.2f} Ω, "
+                    f"V={float(line_V.get(uid, 0.0)):.0f} kV)",
+                )
+            )
+
+        # Loss-arbitrage candidates.  Baseline upper bound on physical
+        # loss-fraction = (R · tmax) / V² ≈ I²R / P at nameplate flow.
+        # A line whose `loss / throughput` exceeds this by a large
+        # factor (heuristic: 3×) is suspicious — the LP is cycling
+        # flow beyond what's needed to transfer power.
+        candidates = []
+        for uid, loss_e in loss_per_line.items():
+            thr = throughput_per_line.get(uid, 0.0)
+            if thr <= 0.0 or loss_e <= 0.0:
+                continue
+            ratio = loss_e / thr
+            R = float(line_R.get(uid, 0.0))
+            V = float(line_V.get(uid, 0.0))
+            tmax = float(line_tmax.get(uid, 0.0))
+            baseline = (R * tmax) / (V * V) if (V > 0 and tmax > 0) else 0.0
+            # Skip tiny lines (avoid divide-by-near-zero noise).
+            if thr < 1.0:
+                continue
+            if baseline > 0 and ratio > 3.0 * baseline:
+                candidates.append((uid, loss_e, ratio, baseline, thr))
+        if candidates:
+            candidates.sort(key=lambda r: -r[2] / r[3] if r[3] > 0 else 0)
+            findings.append(
+                Finding(
+                    "losses",
+                    "WARNING",
+                    f"potential loss-arbitrage candidates: {len(candidates)} "
+                    f"line(s) with loss / throughput >> nameplate I²R baseline "
+                    f"(top 10 shown)",
+                )
+            )
+            for uid, loss_e, ratio, baseline, thr in candidates[:10]:
+                factor = ratio / baseline if baseline > 0 else float("inf")
+                findings.append(
+                    Finding(
+                        "losses",
+                        "WARNING",
+                        f"  {line_name.get(uid, f'uid:{uid}'):<35} "
+                        f"loss={loss_e:>10.1f} MWh, "
+                        f"flow_energy={thr:>10.1f} MWh, "
+                        f"loss_frac={ratio * 100:.3f}% vs baseline "
+                        f"{baseline * 100:.3f}% ({factor:.1f}×)",
+                    )
+                )
+
+    indicators["losses"] = {
+        "balance_method_MWh": losses_balance,
+        "analytical_method_MWh": losses_analytical,
+        "battery_roundtrip_MWh": battery_roundtrip_loss,
+        "demand_MWh": load_energy,
+        "loss_per_line_MWh": dict(loss_per_line),
+        "throughput_per_line_MWh": dict(throughput_per_line),
+    }
+    return findings, indicators
+
+
 def check_reservoir_levels(results_dir: Path, planning: dict) -> list[Finding]:
     """Check reservoir energy levels (streaming)."""
     findings: list[Finding] = []
@@ -746,5 +976,11 @@ def run_all_checks(results_dir: Path, planning: dict) -> OutputReport:
     report.findings.extend(compute_cost_breakdown(results_dir, planning))
     report.findings.extend(check_battery_soc(results_dir, planning))
     report.findings.extend(check_reservoir_levels(results_dir, planning))
+
+    losses_findings, losses_indicators = check_transmission_losses(
+        results_dir, planning
+    )
+    report.findings.extend(losses_findings)
+    report.indicators["losses"] = losses_indicators.get("losses", {})
 
     return report

@@ -191,9 +191,13 @@ TEST_CASE(  // NOLINT
 
   // Primary regression assertion: the consolidated stream IS emitted.
   CHECK(saw_loss_sol);
-  // Retired-by-consolidation streams MUST NOT be emitted.
+  // ``lossp_sol`` was retired by the consolidation — still must not be
+  // emitted (A→B leg is derivable as ``loss − lossn``).
   CHECK_FALSE(saw_lossp_sol);
-  CHECK_FALSE(saw_lossn_sol);
+  // ``lossn_sol`` IS emitted under the ``extras`` gate (default
+  // ``write_out`` is ``OutputFlags::all`` which includes ``extras``):
+  // it carries the B→A direction loss for loss-arbitrage diagnostics.
+  CHECK(saw_lossn_sol);
 
   // File must carry an actual data row, not just a header.  A broken
   // ``add_field_sum`` / ``flat()`` interaction with the
@@ -215,17 +219,19 @@ TEST_CASE(  // NOLINT
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// extras gate is honored: ``write_out = solution`` only (no ``extras``)
-// MUST NOT emit ``loss_sol``.  Guards the consolidated path from
-// silently leaking past the gate.
+// ``write_out = solution`` (no ``extras``) still emits the consolidated
+// ``Line/loss_sol`` shard — it now rides the ``sol`` gate, peer of
+// ``flow_sol``, so any default ``write_out`` that asks for Line
+// solutions also gets the loss stream.  The directional ``lossn_sol``
+// remains ``extras``-gated and must NOT appear here.
 // ─────────────────────────────────────────────────────────────────────
 TEST_CASE(  // NOLINT
-    "LineLP - solution-only (no extras) skips Line/loss_sol shard")
+    "LineLP - solution-only emits Line/loss_sol; lossn_sol stays extras-gated")
 {
   auto [system, simulation] = make_lossy_line_system();
 
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_line_loss_sol_extras_off";
+      std::filesystem::temp_directory_path() / "gtopt_line_loss_sol_solonly";
   std::filesystem::remove_all(tmpdir);
   std::filesystem::create_directories(tmpdir);
 
@@ -236,7 +242,8 @@ TEST_CASE(  // NOLINT
   opts.model_options.use_single_bus = false;
   opts.model_options.use_kirchhoff = false;
   opts.model_options.demand_fail_cost = 1000.0;
-  // No ``extras`` atom → ``Line/loss_sol`` must be gated out.
+  // No ``extras`` atom — ``loss_sol`` rides the ``sol`` gate and
+  // still appears; ``lossn_sol`` (extras-gated) must not.
   opts.write_out = OutputSelection {OutputFlags::solution};
 
   const PlanningOptionsLP options(opts);
@@ -250,14 +257,21 @@ TEST_CASE(  // NOLINT
   system_lp.write_out();
 
   const auto line_dir = tmpdir / "Line";
+  bool saw_loss_sol = false;
   if (std::filesystem::exists(line_dir)) {
     for (const auto& entry : std::filesystem::directory_iterator(line_dir)) {
       const auto name = entry.path().filename().string();
-      CHECK_FALSE(name.starts_with("loss_sol"));
+      if (name.starts_with("loss_sol")) {
+        saw_loss_sol = true;
+      }
+      // Retired-by-consolidation directional streams must remain off.
       CHECK_FALSE(name.starts_with("lossp_sol"));
+      // ``lossn_sol`` IS opt-in via extras; with ``sol``-only it must
+      // not be emitted.
       CHECK_FALSE(name.starts_with("lossn_sol"));
     }
   }
+  CHECK(saw_loss_sol);
 
   std::filesystem::remove_all(tmpdir);
 }

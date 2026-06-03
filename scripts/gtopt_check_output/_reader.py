@@ -625,6 +625,180 @@ def _np_array_from_list(values: list[float]):
     return np.asarray(values, dtype="float64")
 
 
+def streaming_sqr_weighted_sum(
+    dataset: pads.Dataset | None,
+    block_durations: dict[int, float],
+    coef_per_uid: dict[int, float],
+) -> float:
+    """Σ over (s,t,b,uid) of  value(s,t,b,uid)² × duration(b) × coef(uid).
+
+    Used by ``check_transmission_losses`` for the analytical loss
+    estimate ``Σ_lines (R / V²) · flow²(s,t,b) · dur(b)`` — flow comes
+    from ``Line/flow_sol``, the per-line coefficient is ``R / V²``.
+
+    Streaming: never materialises the full table (peak memory ≈ one
+    record batch, same shape as `streaming_sol_weighted_sum`).
+    """
+    if dataset is None:
+        return 0.0
+    if dataset_layout(dataset) == "long":
+        total = 0.0
+        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
+            block_arr = batch["block"].to_pylist()
+            dur = [
+                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
+            ]
+            dur_arr = pa.array(dur, type=pa.float64())
+            uid_arr = batch["uid"].to_pylist()
+            coef_arr = pa.array(
+                [
+                    coef_per_uid.get(int(u), 0.0) if u is not None else 0.0
+                    for u in uid_arr
+                ],
+                type=pa.float64(),
+            )
+            value_arr = batch["value"].cast("float64")
+            sqr = pc.multiply(value_arr, value_arr)
+            prod = pc.multiply(sqr, dur_arr)
+            weighted = pc.multiply(prod, coef_arr)
+            s = pc.sum(weighted).as_py()
+            if s is not None:
+                total += float(s)
+        return total
+    cols = dataset_uid_cols(dataset)
+    if not cols:
+        return 0.0
+    total = 0.0
+    for batch in _scan_batches(dataset, cols + ["block"]):
+        block_arr = batch["block"]
+        dur = [
+            block_durations.get(b if b is not None else 0, 1.0)
+            for b in block_arr.to_pylist()
+        ]
+        dur_arr = pa.array(dur, type=pa.float64())
+        for col in cols:
+            uid = int(col.split(":")[1])
+            coef = coef_per_uid.get(uid, 0.0)
+            if coef == 0.0:
+                continue
+            value_arr = batch[col].cast("float64")
+            sqr = pc.multiply(value_arr, value_arr)
+            weighted = pc.multiply(sqr, dur_arr)
+            s = pc.sum(weighted).as_py()
+            if s is not None:
+                total += float(s) * coef
+    return total
+
+
+def streaming_sqr_weighted_sum_per_uid(
+    dataset: pads.Dataset | None,
+    block_durations: dict[int, float],
+    coef_per_uid: dict[int, float],
+) -> dict[int, float]:
+    """Σ over (s,t,b) per uid of  value² × duration(b) × coef(uid).
+    Streaming variant of ``streaming_sqr_weighted_sum`` that keeps the
+    per-uid breakdown.  Used by ``check_transmission_losses`` to rank
+    lines by their analytical loss contribution and to flag potential
+    loss-arbitrage candidates (lines with much larger flow than the
+    net transfer they accomplish).
+    """
+    out: dict[int, float] = {}
+    if dataset is None:
+        return out
+    if dataset_layout(dataset) == "long":
+        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
+            block_arr = batch["block"].to_pylist()
+            dur = [
+                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
+            ]
+            dur_arr = pa.array(dur, type=pa.float64())
+            uid_arr = batch["uid"].to_pylist()
+            value_arr = batch["value"].cast("float64")
+            sqr = pc.multiply(value_arr, value_arr)
+            row_contribution = pc.multiply(sqr, dur_arr).to_pylist()
+            for u, v in zip(uid_arr, row_contribution, strict=False):
+                if u is None or v is None:
+                    continue
+                uid = int(u)
+                coef = coef_per_uid.get(uid, 0.0)
+                if coef == 0.0:
+                    continue
+                out[uid] = out.get(uid, 0.0) + float(v) * coef
+        return out
+    cols = dataset_uid_cols(dataset)
+    if not cols:
+        return out
+    for batch in _scan_batches(dataset, cols + ["block"]):
+        block_arr = batch["block"]
+        dur = [
+            block_durations.get(b if b is not None else 0, 1.0)
+            for b in block_arr.to_pylist()
+        ]
+        dur_arr = pa.array(dur, type=pa.float64())
+        for col in cols:
+            uid = int(col.split(":")[1])
+            coef = coef_per_uid.get(uid, 0.0)
+            if coef == 0.0:
+                continue
+            value_arr = batch[col].cast("float64")
+            sqr = pc.multiply(value_arr, value_arr)
+            weighted = pc.multiply(sqr, dur_arr)
+            s = pc.sum(weighted).as_py()
+            if s is not None:
+                out[uid] = out.get(uid, 0.0) + float(s) * coef
+    return out
+
+
+def streaming_abs_weighted_sum_per_uid(
+    dataset: pads.Dataset | None,
+    block_durations: dict[int, float],
+) -> dict[int, float]:
+    """Σ over (s,t,b) per uid of  |value| × duration(b).
+    Used by ``check_transmission_losses`` to compute per-line
+    throughput (sum of absolute flow energy).  Combined with the
+    per-line analytical loss energy this yields a loss / throughput
+    ratio that flags loss-arbitrage candidates.
+    """
+    out: dict[int, float] = {}
+    if dataset is None:
+        return out
+    if dataset_layout(dataset) == "long":
+        for batch in _scan_batches(dataset, ["block", "uid", "value"]):
+            block_arr = batch["block"].to_pylist()
+            dur = [
+                block_durations.get(b if b is not None else 0, 1.0) for b in block_arr
+            ]
+            dur_arr = pa.array(dur, type=pa.float64())
+            uid_arr = batch["uid"].to_pylist()
+            value_arr = batch["value"].cast("float64")
+            absv = pc.abs(value_arr)
+            row_contribution = pc.multiply(absv, dur_arr).to_pylist()
+            for u, v in zip(uid_arr, row_contribution, strict=False):
+                if u is None or v is None:
+                    continue
+                out[int(u)] = out.get(int(u), 0.0) + float(v)
+        return out
+    cols = dataset_uid_cols(dataset)
+    if not cols:
+        return out
+    for batch in _scan_batches(dataset, cols + ["block"]):
+        block_arr = batch["block"]
+        dur = [
+            block_durations.get(b if b is not None else 0, 1.0)
+            for b in block_arr.to_pylist()
+        ]
+        dur_arr = pa.array(dur, type=pa.float64())
+        for col in cols:
+            uid = int(col.split(":")[1])
+            value_arr = batch[col].cast("float64")
+            absv = pc.abs(value_arr)
+            weighted = pc.multiply(absv, dur_arr)
+            s = pc.sum(weighted).as_py()
+            if s is not None:
+                out[uid] = out.get(uid, 0.0) + float(s)
+    return out
+
+
 def load_planning(json_path: Path) -> dict:
     """Load a planning JSON file."""
     with open(json_path, encoding="utf-8") as f:
@@ -669,7 +843,10 @@ def get_generator_info(planning: dict) -> pd.DataFrame:
 
 
 def get_line_info(planning: dict) -> pd.DataFrame:
-    """Return a DataFrame with line uid, name, bus_a, bus_b, tmax."""
+    """Return a DataFrame with line uid, name, bus_a, bus_b, tmax,
+    resistance, voltage.  Resistance / voltage are used by
+    ``check_transmission_losses`` to compute the analytical
+    ``R · P² / V²`` loss estimate per line."""
     lines = planning.get("system", {}).get("line_array", [])
     rows = []
     for ln in lines:
@@ -682,6 +859,8 @@ def get_line_info(planning: dict) -> pd.DataFrame:
             tmax_val = float(tmax)
         else:
             tmax_val = 0.0
+        resistance = ln.get("resistance", 0.0)
+        voltage = ln.get("voltage", 0.0)
         rows.append(
             {
                 "uid": uid,
@@ -689,6 +868,12 @@ def get_line_info(planning: dict) -> pd.DataFrame:
                 "bus_a": bus_a,
                 "bus_b": bus_b,
                 "tmax": tmax_val,
+                "resistance": (
+                    float(resistance) if isinstance(resistance, (int, float)) else 0.0
+                ),
+                "voltage": (
+                    float(voltage) if isinstance(voltage, (int, float)) else 0.0
+                ),
             }
         )
     return pd.DataFrame(rows)

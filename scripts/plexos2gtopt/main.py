@@ -136,10 +136,15 @@ def make_parser() -> argparse.ArgumentParser:
     # so the standalone ``gtopt`` binary writes the right output streams
     # (Generator/generation_cost, Bus/balance_dual, etc.) for downstream
     # tools (``gtopt_marginal_units``, loss-audit, the LMP-attribution
-    # pipeline).  Default is the canonical ``DEFAULT_WRITE_OUT``
-    # (``sol,dual,rc:Generator,Line``); pass ``--write-out all`` for the
-    # full audit-grade dump or ``--write-out sol`` for primal-only.
-    add_write_out_argument(parser)
+    # pipeline).  plexos2gtopt overrides the shared
+    # ``DEFAULT_WRITE_OUT`` to ``"all"`` so converted cases ship the full
+    # audit-grade dump by default — extras (``Line/lossn_sol``, per-bus
+    # heat-rate slacks, capacity-row duals) are needed for the
+    # ``compare_with_plexos`` and loss-arbitrage workflows that PLEXOS
+    # imports tend to hit.  Pass ``--write-out sol`` / ``--write-out
+    # sol,dual,rc:Generator,Line`` to shrink the output footprint when
+    # only the marginal-units pipeline is consumed.
+    add_write_out_argument(parser, default="all")
     parser.add_argument(
         "--lax-uc-refs",
         action="store_true",

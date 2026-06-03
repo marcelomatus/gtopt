@@ -820,14 +820,22 @@ bool LineLP::add_to_output(OutputContext& out) const
   // Consolidated loss output: piecewise / bidirectional only.  none /
   // linear / piecewise_direct don't create loss vars so this is a no-op.
   // The LP holds losses in two per-direction column sets (``lossp_cols``
-  // for A→B, ``lossn_cols`` for B→A); on any given block at most one
-  // is populated.  Rather than emitting the paired
-  // ``Line/{lossp,lossn}_sol.parquet`` (which forced consumers to
-  // handle a missing-direction case when the LP routed all flow one
-  // way), merge them per cell and emit a single
-  // ``Line/loss_sol.parquet`` whose per-(line, block) value is
-  // ``LP(lossp) + LP(lossn)`` — total dissipated energy regardless of
-  // direction.  Opt in via ``--write-out ...,extras:Line``.
+  // for A→B, ``lossn_cols`` for B→A); on any given block at most one is
+  // populated under the arbitrage-free PWL modes (``adaptive`` /
+  // ``piecewise`` / ``bidirectional``).  Rather than emitting the paired
+  // ``Line/{lossp,lossn}_sol.parquet`` (which forced consumers to handle
+  // a missing-direction case when the LP routed all flow one way),
+  // merge them per cell and emit a single ``Line/loss_sol.parquet``
+  // whose per-(line, block) value is ``LP(lossp) + LP(lossn)`` — total
+  // dissipated energy regardless of direction.  Emitted under the same
+  // ``sol`` gate as ``flow_sol`` so any default ``write_out`` that
+  // requests Line solutions also gets the loss stream — required for
+  // post-solve loss-vs-flow audits in ``gtopt_check_output``.
+  //
+  // The directional split is available as an opt-in via
+  // ``Line/lossn_sol.parquet`` (``extras`` gated, see below) — useful
+  // when investigating phantom bidirectional flow / loss arbitrage.
+  // The A→B leg ``lossp`` is implicitly ``loss − lossn``.
   if (!lossp_cols.empty() || !lossn_cols.empty()) {
     STBIndexHolder<std::vector<ColIndex>> loss_combined;
     auto merge_in = [&loss_combined](const auto& src)
@@ -841,7 +849,17 @@ bool LineLP::add_to_output(OutputContext& out) const
     };
     merge_in(lossp_cols);
     merge_in(lossn_cols);
-    out.add_col_sol_extras(cname, LossName, pid, loss_combined);
+    out.add_col_sol(cname, LossName, pid, loss_combined);
+  }
+  // Optional per-direction loss (B→A leg).  Extras-gated so the
+  // default footprint is one stream (``loss_sol``); enable via
+  // ``--write-out all`` or ``--write-out ...,extras:Line`` when you
+  // need to attribute loss to the negative direction (loss-arbitrage
+  // diagnostics).  ``lossn_cols`` is empty for ``tangent_signed_flow``
+  // / ``none`` / ``linear`` / ``piecewise_direct`` modes; the helper
+  // is a no-op in those cases.
+  if (!lossn_cols.empty()) {
+    out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
   }
 
   // Overload-slack solutions and costs: only populated when the
