@@ -535,7 +535,7 @@ namespace test_line_losses_sos2_convergence_ns  // NOLINT(cert-dcl59-cpp,fuchsia
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
-constexpr double kEnvelope = 200.0;
+constexpr double kSos2Envelope = 200.0;
 constexpr double kR = 0.01;
 constexpr double kV2 = 100.0 * 100.0;
 constexpr double kCoeff = kR / kV2;  // c = R/V²
@@ -547,7 +547,7 @@ constexpr double kCoeff = kR / kV2;  // c = R/V²
 /// MW (= units of ℓ).
 [[nodiscard]] double sos2_chord_worst_gap(int L)
 {
-  const double w = kEnvelope / static_cast<double>(L);
+  const double w = kSos2Envelope / static_cast<double>(L);
   return kCoeff * (w / 2.0) * (w / 2.0);  // c · (w/2)²
 }
 
@@ -555,7 +555,7 @@ constexpr double kCoeff = kR / kV2;  // c = R/V²
 }  // namespace test_line_losses_sos2_convergence_ns
 
 using test_line_losses_sos2_convergence_ns::kCoeff;
-using test_line_losses_sos2_convergence_ns::kEnvelope;
+using test_line_losses_sos2_convergence_ns::kSos2Envelope;
 using test_line_losses_sos2_convergence_ns::sos2_chord_worst_gap;
 
 TEST_CASE("tangent_signed_flow L-secant: worst-gap shrinks O(1/L²) under SOS2")
@@ -585,7 +585,7 @@ TEST_CASE("tangent_signed_flow L-secant: worst-gap shrinks O(1/L²) under SOS2")
 
   SUBCASE("gap·L² is constant (envelope²·c/4) for every L")
   {
-    const double constant = kCoeff * kEnvelope * kEnvelope / 4.0;
+    const double constant = kCoeff * kSos2Envelope * kSos2Envelope / 4.0;
     CHECK((g1 * 1.0) == doctest::Approx(constant).epsilon(1e-12));
     CHECK((g2 * 4.0) == doctest::Approx(constant).epsilon(1e-12));
     CHECK((g4 * 16.0) == doctest::Approx(constant).epsilon(1e-12));
@@ -596,7 +596,7 @@ TEST_CASE("tangent_signed_flow L-secant: worst-gap shrinks O(1/L²) under SOS2")
   SUBCASE("absolute worst-gap matches c·(envelope/(2L))²")
   {
     for (const int L : {1, 2, 4, 8, 16, 32}) {
-      const double half_w = kEnvelope / (2.0 * static_cast<double>(L));
+      const double half_w = kSos2Envelope / (2.0 * static_cast<double>(L));
       const double predicted = kCoeff * half_w * half_w;
       CHECK(sos2_chord_worst_gap(L)
             == doctest::Approx(predicted).epsilon(1e-12));
@@ -611,7 +611,7 @@ TEST_CASE("tangent_signed_flow L-secant: worst-gap shrinks O(1/L²) under SOS2")
     // peak loss at fmax).  L=4 → gap/L_max = 1/64 ≈ 1.56%.  L=10 →
     // gap/L_max = 1/400 ≈ 0.25%.  Pin the analytic claim so any
     // regression in the chord-formula constants surfaces immediately.
-    const double L_max = kCoeff * kEnvelope * kEnvelope;
+    const double L_max = kCoeff * kSos2Envelope * kSos2Envelope;
     CHECK((sos2_chord_worst_gap(4) / L_max)
           == doctest::Approx(1.0 / 64.0).epsilon(1e-12));
     CHECK((sos2_chord_worst_gap(10) / L_max)
@@ -627,7 +627,7 @@ TEST_CASE(
   // the true quadratic exactly (verified directly from the chord-slope
   // formula).  Used to ground the worst-gap formula above.
   for (const int L : {2, 4, 8}) {
-    const double w = kEnvelope / static_cast<double>(L);
+    const double w = kSos2Envelope / static_cast<double>(L);
     for (int l = 1; l <= L; ++l) {
       // True quadratic at |f| = l·w.
       const double f_break = static_cast<double>(l) * w;

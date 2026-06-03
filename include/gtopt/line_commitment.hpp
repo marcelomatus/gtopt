@@ -57,6 +57,7 @@
 
 #pragma once
 
+#include <gtopt/commitment.hpp>  // for StartsScope / OptStartsScope
 #include <gtopt/enum_option.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
@@ -189,6 +190,85 @@ struct LineCommitment
   /// decomposition.  Both default to zero (no event cost ⇒ the
   /// simple ``u_l``-only form remains in use).
   OptReal shutdown_cost {};
+
+  /// Minimum up time [hours].  Mirrors ``Commitment::min_up_time``.
+  /// Once the breaker closes (``v_l[t] = 1``), the LP must keep
+  /// ``u_l = 1`` for at least ``min_up_time`` hours starting at
+  /// block ``t``.  Emitted as the row family
+  ///   Σ_{q=t}^{t + UT_blocks − 1} u_l[q] ≥ UT_blocks · v_l[t]
+  /// where ``UT_blocks`` is the smallest number of forward blocks
+  /// whose cumulative duration covers ``min_up_time``.  Trivially
+  /// satisfied (and skipped) when the window collapses to 1 block.
+  /// Requires u/v/w (``startup_cost`` or ``shutdown_cost`` set);
+  /// silently inert when u/v/w is off.
+  OptReal min_up_time {};
+
+  /// Minimum down time [hours].  Mirrors ``Commitment::min_down_time``.
+  /// Symmetric to ``min_up_time``: once the breaker opens
+  /// (``w_l[t] = 1``), the LP must keep ``u_l = 0`` for at least
+  /// ``min_down_time`` hours.  Emitted as
+  ///   Σ_{q=t}^{t + DT_blocks − 1} u_l[q] + DT_blocks · w_l[t]
+  ///       ≤ DT_blocks
+  /// where ``DT_blocks`` covers ``min_down_time`` hours starting at
+  /// block ``t``.  Same activation gate as ``min_up_time``.
+  OptReal min_down_time {};
+
+  /// Upper bound on the number of CLOSE events (``v_l = 1``) over a
+  /// rolling time window.  Mirrors ``Commitment::max_starts`` (PLEXOS
+  /// "Max Starts {Hour|Day|Week|Month|Year}").  Emitted as one row
+  /// per window:
+  ///   Σ_{t ∈ window} v_l[t] ≤ max_starts
+  /// Window length is resolved by the SHARED ``starts_scope`` —
+  /// see ``LineCommitment::starts_window_hours``.
+  OptInt max_starts {};
+
+  /// Lower bound on the number of CLOSE events (``v_l = 1``) over a
+  /// rolling time window.  Mirrors ``Commitment::min_starts``.  Both
+  /// bounds share the same window LHS:
+  ///   min_starts ≤ Σ_{t ∈ window} v_l[t] ≤ max_starts
+  /// Unset ⇒ no lower row emitted (effectively 0).
+  OptInt min_starts {};
+
+  /// Window-scope for ``max_starts`` / ``min_starts``.  Mirrors
+  /// ``Commitment::starts_scope`` — accepts either the named enum
+  /// (``"hour" | "day" | "week" | "horizon"``; aliases ``"month"``
+  /// and ``"year"`` collapse to horizon) or an integer hour count
+  /// (e.g. ``48`` for 2 days).  Resolved at LP-build time by
+  /// ``starts_window_hours()``.  Unset / unknown ⇒ horizon (one row
+  /// per stage).
+  OptStartsScope starts_scope {};
+
+  /// Resolve ``starts_scope`` to a window length in hours.  Mirrors
+  /// ``Commitment::starts_window_hours()``: integer values pass
+  /// through verbatim; named values map ``hour → 1``, ``day → 24``,
+  /// ``week → 168``, ``horizon → 0`` (sentinel "never flush until
+  /// stage end").  Unrecognised names / unset both return ``0``.
+  [[nodiscard]] constexpr double starts_window_hours() const noexcept
+  {
+    if (!starts_scope.has_value()) {
+      return 0.0;
+    }
+    if (std::holds_alternative<Int>(*starts_scope)) {
+      const auto h = std::get<Int>(*starts_scope);
+      return h > 0 ? static_cast<double>(h) : 0.0;
+    }
+    const auto& name = std::get<Name>(*starts_scope);
+    const auto resolved = enum_from_name<StartsScope>(name);
+    if (!resolved.has_value()) {
+      return 0.0;
+    }
+    switch (*resolved) {
+      case StartsScope::Hour:
+        return 1.0;
+      case StartsScope::Day:
+        return 24.0;
+      case StartsScope::Week:
+        return 7.0 * 24.0;
+      case StartsScope::Horizon:
+        return 0.0;
+    }
+    return 0.0;
+  }
 };
 
 }  // namespace gtopt

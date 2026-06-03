@@ -888,3 +888,250 @@ TEST_CASE("LineCommitment JSON round-trip — startup_cost + shutdown_cost")
   CHECK(lc2.startup_cost.value_or(-1.0) == doctest::Approx(250.5));
   CHECK(lc2.shutdown_cost.value_or(-1.0) == doctest::Approx(75.0));
 }
+
+// ── (10) v1.2: min_up_time / min_down_time / max_starts ─────────────
+//
+// Anti-flicker + rolling-window cap, mirroring CommitmentLP's C6/C7/C9.
+
+[[nodiscard]] std::string make_5block_uvw_extras_json(
+    double startup_cost,
+    double shutdown_cost,
+    double initial_status,
+    double min_up_time,
+    double min_down_time,
+    int max_starts,
+    const std::string& starts_scope_str)
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": false,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        { "uid": 1, "duration": 1 },
+        { "uid": 2, "duration": 1 },
+        { "uid": 3, "duration": 1 },
+        { "uid": 4, "duration": 1 },
+        { "uid": 5, "duration": 1 }
+      ],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 5,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_uvw_extras",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2",
+          "lmax": [[100.0, 100.0, 100.0, 100.0, 100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+          "tmax_ab": 100, "tmax_ba": 100 }
+      ],
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true,
+          "initial_status": )";
+  out += std::to_string(initial_status);
+  out += R"(, "startup_cost": )";
+  out += std::to_string(startup_cost);
+  out += R"(, "shutdown_cost": )";
+  out += std::to_string(shutdown_cost);
+  if (min_up_time > 0.0) {
+    out += R"(, "min_up_time": )";
+    out += std::to_string(min_up_time);
+  }
+  if (min_down_time > 0.0) {
+    out += R"(, "min_down_time": )";
+    out += std::to_string(min_down_time);
+  }
+  if (max_starts >= 0) {
+    out += R"(, "max_starts": )";
+    out += std::to_string(max_starts);
+    if (!starts_scope_str.empty()) {
+      out += R"(, "starts_scope": ")";
+      out += starts_scope_str;
+      out += R"(")";
+    }
+  }
+  out += R"( }
+      ]
+    }
+  })";
+  return out;
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.2: min_up_time emits row family per block (v1.2)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // min_up_time = 3 hours over 5 unit-duration blocks ⇒ UT ≥ 2 at
+  // every block except the last (only 1 block remains, UT = 1 ⇒ skip
+  // trivially-satisfied row).  Expected = 4 rows.
+  Planning planning;
+  planning.merge(parse_planning_json(make_5block_uvw_extras_json(
+      /*startup_cost=*/100.0,
+      /*shutdown_cost=*/50.0,
+      /*initial_status=*/0.0,
+      /*min_up_time=*/3.0,
+      /*min_down_time=*/0.0,
+      /*max_starts=*/-1,
+      /*starts_scope_str=*/"")));
+  LpMatrixOptions flat_opts;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_min_up_time") == 4);
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.2: min_down_time emits row family per block "
+    "symmetric to min_up_time (v1.2)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  Planning planning;
+  planning.merge(parse_planning_json(make_5block_uvw_extras_json(
+      /*startup_cost=*/100.0,
+      /*shutdown_cost=*/50.0,
+      /*initial_status=*/1.0,
+      /*min_up_time=*/0.0,
+      /*min_down_time=*/3.0,
+      /*max_starts=*/-1,
+      /*starts_scope_str=*/"")));
+  LpMatrixOptions flat_opts;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_min_down_time") == 4);
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.2: max_starts horizon scope emits one row per "
+    "stage (v1.2)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // starts_scope unset ⇒ horizon = 0 hours ⇒ one window per stage ⇒
+  // 1 max_starts row.
+  Planning planning;
+  planning.merge(parse_planning_json(make_5block_uvw_extras_json(
+      /*startup_cost=*/100.0,
+      /*shutdown_cost=*/50.0,
+      /*initial_status=*/0.0,
+      /*min_up_time=*/0.0,
+      /*min_down_time=*/0.0,
+      /*max_starts=*/2,
+      /*starts_scope_str=*/"")));
+  LpMatrixOptions flat_opts;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_max_starts") == 1);
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.2: max_starts hour scope emits one row per "
+    "block (v1.2)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // starts_scope = "hour" with 1-hour blocks ⇒ 5 windows ⇒ 5 rows.
+  Planning planning;
+  planning.merge(parse_planning_json(make_5block_uvw_extras_json(
+      /*startup_cost=*/100.0,
+      /*shutdown_cost=*/50.0,
+      /*initial_status=*/0.0,
+      /*min_up_time=*/0.0,
+      /*min_down_time=*/0.0,
+      /*max_starts=*/1,
+      /*starts_scope_str=*/"hour")));
+  LpMatrixOptions flat_opts;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_max_starts") == 5);
+}
+
+TEST_CASE("LineCommitment JSON round-trip — v1.2 time-based fields")
+{
+  std::string_view json_str = R"({
+    "uid": 7,
+    "name": "lc_v12",
+    "line": "L_18_19",
+    "startup_cost": 100,
+    "min_up_time": 4.5,
+    "min_down_time": 2,
+    "max_starts": 3,
+    "min_starts": 1,
+    "starts_scope": "day"
+  })";
+
+  const auto lc = daw::json::from_json<LineCommitment>(json_str);
+  CHECK(lc.min_up_time.value_or(-1.0) == doctest::Approx(4.5));
+  CHECK(lc.min_down_time.value_or(-1.0) == doctest::Approx(2.0));
+  CHECK(lc.max_starts.value_or(-1) == 3);
+  CHECK(lc.min_starts.value_or(-1) == 1);
+  REQUIRE(lc.starts_scope.has_value());
+  // ``day`` → 24 hours.
+  CHECK(lc.starts_window_hours() == doctest::Approx(24.0));
+
+  const auto out = daw::json::to_json(lc);
+  const auto lc2 = daw::json::from_json<LineCommitment>(out);
+  CHECK(lc2.min_up_time.value_or(-1.0) == doctest::Approx(4.5));
+  CHECK(lc2.max_starts.value_or(-1) == 3);
+  CHECK(lc2.starts_window_hours() == doctest::Approx(24.0));
+}
+
+TEST_CASE("LineCommitment starts_window_hours — direct value cases")
+{
+  LineCommitment lc;
+  lc.starts_scope = StartsScopeValue {Int {48}};
+  CHECK(lc.starts_window_hours() == doctest::Approx(48.0));
+
+  lc.starts_scope = StartsScopeValue {Name {"week"}};
+  CHECK(lc.starts_window_hours() == doctest::Approx(168.0));
+
+  lc.starts_scope = StartsScopeValue {Name {"horizon"}};
+  CHECK(lc.starts_window_hours() == doctest::Approx(0.0));
+
+  lc.starts_scope = std::nullopt;
+  CHECK(lc.starts_window_hours() == doctest::Approx(0.0));
+
+  // Unrecognised name ⇒ horizon (0).
+  lc.starts_scope = StartsScopeValue {Name {"fortnight"}};
+  CHECK(lc.starts_window_hours() == doctest::Approx(0.0));
+}

@@ -526,6 +526,178 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     if (!erows.empty()) {
       exclusion_rows_[st_key] = std::move(erows);
     }
+
+    // ── (v1.2) Min up time ──────────────────────────────────────────
+    // Σ_{q=t..t+UT-1} u[q] ≥ UT · v[t].
+    // UT (in blocks) is the smallest k s.t. Σ duration[t..t+k-1] ≥ min_up_time.
+    // Trivially satisfied when UT ≤ 1 (skip the row).  Mirrors
+    // ``CommitmentLP`` C6.
+    const double min_up_hours = lc.min_up_time.value_or(0.0);
+    const auto& v_holder = startup_cols_.find(st_key);
+    const bool have_v_cols =
+        (v_holder != startup_cols_.end()) && !v_holder->second.empty();
+    if (min_up_hours > 0.0 && have_v_cols) {
+      BIndexHolder<RowIndex> mut_rows;
+      map_reserve(mut_rows, blocks.size());
+      for (size_t t = 0; t < blocks.size(); ++t) {
+        const auto buid_t = blocks[t].uid();
+        const auto v_it = v_holder->second.find(buid_t);
+        if (v_it == v_holder->second.end()) {
+          continue;
+        }
+        // Forward-walk to find UT (in blocks) covering min_up_hours.
+        double acc = 0.0;
+        size_t ut = 0;
+        for (size_t q = t; q < blocks.size() && acc < min_up_hours; ++q) {
+          acc += blocks[q].duration();
+          ++ut;
+        }
+        if (ut <= 1) {
+          continue;
+        }
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = MinUpTimeName,
+            .variable_uid = cuid,
+            .context = make_block_context(scenario.uid(), stage.uid(), buid_t),
+        };
+        row.greater_equal(0.0);
+        for (size_t q = t; q < t + ut && q < blocks.size(); ++q) {
+          const auto u_it = ucols.find(blocks[q].uid());
+          if (u_it != ucols.end()) {
+            row[u_it->second] = 1.0;
+          }
+        }
+        row[v_it->second] = -static_cast<double>(ut);
+        mut_rows[buid_t] = lp.add_row(std::move(row));
+      }
+      if (!mut_rows.empty()) {
+        min_up_time_rows_[st_key] = std::move(mut_rows);
+      }
+    }
+
+    // ── (v1.2) Min down time ────────────────────────────────────────
+    // Σ_{q=t..t+DT-1} u[q] + DT · w[t] ≤ span.
+    // Derived from Σ (1 − u[q]) ≥ DT · w[t] over the DT-block window.
+    // Mirrors ``CommitmentLP`` C7.
+    const double min_down_hours = lc.min_down_time.value_or(0.0);
+    const auto& w_holder = shutdown_cols_.find(st_key);
+    const bool have_w_cols =
+        (w_holder != shutdown_cols_.end()) && !w_holder->second.empty();
+    if (min_down_hours > 0.0 && have_w_cols) {
+      BIndexHolder<RowIndex> mdt_rows;
+      map_reserve(mdt_rows, blocks.size());
+      for (size_t t = 0; t < blocks.size(); ++t) {
+        const auto buid_t = blocks[t].uid();
+        const auto w_it = w_holder->second.find(buid_t);
+        if (w_it == w_holder->second.end()) {
+          continue;
+        }
+        double acc = 0.0;
+        size_t dt = 0;
+        for (size_t q = t; q < blocks.size() && acc < min_down_hours; ++q) {
+          acc += blocks[q].duration();
+          ++dt;
+        }
+        if (dt <= 1) {
+          continue;
+        }
+        const auto span = std::min(t + dt, blocks.size()) - t;
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = MinDownTimeName,
+            .variable_uid = cuid,
+            .context = make_block_context(scenario.uid(), stage.uid(), buid_t),
+        };
+        row.less_equal(static_cast<double>(span));
+        for (size_t q = t; q < t + dt && q < blocks.size(); ++q) {
+          const auto u_it = ucols.find(blocks[q].uid());
+          if (u_it != ucols.end()) {
+            row[u_it->second] = 1.0;
+          }
+        }
+        row[w_it->second] = static_cast<double>(dt);
+        mdt_rows[buid_t] = lp.add_row(std::move(row));
+      }
+      if (!mdt_rows.empty()) {
+        min_down_time_rows_[st_key] = std::move(mdt_rows);
+      }
+    }
+
+    // ── (v1.2) max_starts / min_starts rolling-window cap ───────────
+    // Two-sided bound:
+    //   min_starts ≤ Σ_{t ∈ window} v[t] ≤ max_starts
+    // Window length resolved from ``starts_scope`` via
+    // ``starts_window_hours()``: 0 (or unset) ⇒ horizon (one row per
+    // stage); positive N ⇒ flush when accumulated block duration ≥ N.
+    // Mirrors ``CommitmentLP`` C9.
+    const bool has_max_starts = lc.max_starts.has_value();
+    const bool has_min_starts = lc.min_starts.has_value();
+    if ((has_max_starts || has_min_starts) && have_v_cols) {
+      const double window_hours = lc.starts_window_hours();
+      const auto max_starts_v =
+          has_max_starts ? static_cast<double>(*lc.max_starts) : 0.0;
+      const auto min_starts_v =
+          has_min_starts ? static_cast<double>(*lc.min_starts) : 0.0;
+
+      BIndexHolder<RowIndex> ms_rows;
+      auto fresh_row = [&]() -> SparseRow
+      {
+        SparseRow r;
+        r.class_name = cname;
+        r.constraint_name = MaxStartsName;
+        r.variable_uid = cuid;
+        return r;
+      };
+      SparseRow window_row = fresh_row();
+      bool row_open = false;
+      double acc_hours = 0.0;
+      BlockUid window_end_block {};
+
+      auto flush_window = [&]()
+      {
+        if (!row_open) {
+          return;
+        }
+        if (has_max_starts) {
+          SparseRow upper {window_row};
+          auto bound = std::move(upper).less_equal(max_starts_v);
+          const auto idx = lp.add_row(std::move(bound));
+          ms_rows[window_end_block] = idx;
+        }
+        if (has_min_starts) {
+          SparseRow lower {window_row};
+          auto bound = std::move(lower).greater_equal(min_starts_v);
+          [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(bound));
+        }
+        window_row = fresh_row();
+        row_open = false;
+        acc_hours = 0.0;
+      };
+
+      for (const auto& block : blocks) {
+        const auto buid_b = block.uid();
+        const auto v_it = v_holder->second.find(buid_b);
+        if (v_it == v_holder->second.end()) {
+          continue;
+        }
+        if (!row_open) {
+          window_row.context =
+              make_block_context(scenario.uid(), stage.uid(), buid_b);
+          row_open = true;
+        }
+        window_row[v_it->second] = 1.0;
+        acc_hours += block.duration();
+        window_end_block = buid_b;
+        if (window_hours > 0.0 && acc_hours >= window_hours) {
+          flush_window();
+        }
+      }
+      flush_window();
+      if (!ms_rows.empty()) {
+        max_starts_rows_[st_key] = std::move(ms_rows);
+      }
+    }
   }
 
   // Store index holders.
@@ -573,6 +745,12 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
   out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
   out.add_row_dual(cname, LogicName, pid, logic_rows_);
   out.add_row_dual(cname, ExclusionName, pid, exclusion_rows_);
+
+  // v1.2 time-based row duals (empty when the corresponding schema
+  // field is unset; ``add_row_dual`` no-ops on empty holders).
+  out.add_row_dual(cname, MinUpTimeName, pid, min_up_time_rows_);
+  out.add_row_dual(cname, MinDownTimeName, pid, min_down_time_rows_);
+  out.add_row_dual(cname, MaxStartsName, pid, max_starts_rows_);
 
   return true;
 }

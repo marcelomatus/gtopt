@@ -33,6 +33,16 @@
  *     replaced by two inequalities with per-cycle big-M
  *     ``M_C = 2·θ_max · |C| · row_scale + Σ |φ_e| · row_scale``.
  *
+ * **v1.2 scope additions** (mirroring ``CommitmentLP``):
+ *   - **min_up_time** [hours] — anti-flicker: Σ_{q ∈ window} u[q]
+ *     ≥ UT · v[t], where UT is the smallest block-window covering
+ *     ``min_up_time`` hours.  Trivially satisfied (skipped) when
+ *     UT ≤ 1.  Requires u/v/w (silently inert otherwise).
+ *   - **min_down_time** [hours] — symmetric down-time guard.
+ *   - **max_starts** / **min_starts** — two-sided rolling cap on
+ *     Σ_{t ∈ window} v[t].  Window length resolved from
+ *     ``starts_scope`` via ``starts_window_hours()``.
+ *
  * **Mode gates** (enforced by ``validate_planning``):
  *   - ``method ∈ {sddp, cascade}`` is rejected — Benders cuts on a
  *     mixed-integer subproblem are unsound (Zou-Ahmed-Sun 2019).
@@ -71,6 +81,10 @@ public:
   /// C3 exclusion row: ``v[t] + w[t] ≤ 1`` (mutual exclusion of the
   /// startup and shutdown indicators).
   static constexpr std::string_view ExclusionName {"exclusion"};
+  /// v1.2 time-based constraint labels (mirror ``CommitmentLP``).
+  static constexpr std::string_view MinUpTimeName {"min_up_time"};
+  static constexpr std::string_view MinDownTimeName {"min_down_time"};
+  static constexpr std::string_view MaxStartsName {"max_starts"};
 
   using Base = ObjectLP<LineCommitment>;
 
@@ -115,6 +129,11 @@ private:
   STBIndexHolder<ColIndex> shutdown_cols_;
   STBIndexHolder<RowIndex> logic_rows_;
   STBIndexHolder<RowIndex> exclusion_rows_;
+  /// v1.2 time-based row holders.  Only populated when the
+  /// corresponding schema field is set AND u/v/w is active.
+  STBIndexHolder<RowIndex> min_up_time_rows_;
+  STBIndexHolder<RowIndex> min_down_time_rows_;
+  STBIndexHolder<RowIndex> max_starts_rows_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the
