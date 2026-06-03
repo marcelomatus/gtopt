@@ -977,7 +977,13 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         ),
     )
     add_line_losses_mode_argument(parser)
-    add_loss_cost_eps_argument(parser, dialect="plp")
+    # ``loss_cost_eps`` defaults to 0.1 $/MWh for plp2gtopt — well below
+    # any thermal SRMC so dispatch is unchanged, but large enough (vs the
+    # historical 1e-6 LP-tolerance-level value) that the bidirectional-
+    # flow degeneracy is strictly broken even under aggressive presolve
+    # / Ruiz scaling, eliminating phantom A→B + B→A flow on every
+    # PWL/bidirectional line.  Pass ``--loss-cost-eps 0`` to disable.
+    add_loss_cost_eps_argument(parser, dialect="plp", default=0.1)
     add_lift_line_caps_argument(parser, dialect="plp")
     parser.add_argument(
         "--plp-legacy",

@@ -393,8 +393,10 @@ def add_loss_cost_eps_argument(
     Two dialects:
 
     * ``"plp"`` (plp2gtopt): ``default=None`` + ``metavar='EPS'`` —
-      stays unset so the C++ default (0.0) applies unless explicitly
-      requested.
+      caller decides the default.  ``plp2gtopt._parsers`` passes
+      ``default=0.1`` so PLP-derived runs ship with a strictly
+      degeneracy-breaking value out of the box; pass ``--loss-cost-eps
+      0`` to opt out.
 
     * ``"plexos"`` (plexos2gtopt): ``default=0.0`` and no metavar —
       always emitted in the planning JSON, even at the legacy 0.0.
