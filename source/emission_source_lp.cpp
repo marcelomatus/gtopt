@@ -1,21 +1,41 @@
 /**
  * @file      emission_source_lp.cpp
- * @brief     LP-active wiring for EmissionSource (per-source coefficient
- *            injection into its zone's balance row).
+ * @brief     Substitute-out wiring for `EmissionSource` — every per-MWh
+ *            emission contribution is stamped directly onto the
+ *            generator dispatch column.
  * @date      2026-05-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * For each (scenario, stage, block):
+ * For each (scenario, stage, block), the per-source contribution to
+ * its zone is the scalar
  *
- *   balance_{zone, b}:  − rate · dur_b · gen_{source.generator, b}
+ *   α_{s,b}  =  weight_z,p · (1 − capture_s,p) · (rate_s + upstream_s) · dur_b
+ *              [tCO₂-eq per MW of dispatch]
  *
- * The balance row was created by `EmissionZoneLP::add_to_lp` running
- * earlier in the same visitor pass; here we simply inject the
- * coefficient.  Mirrors `InertiaProvisionLP` injecting its provision
- * factor into `InertiaZoneLP::requirement_rows()`.
+ * which is wired in three places, each only when active:
+ *
+ *   * cap row (if `EmissionZone.cap` set):
+ *         cap_row[gen_col] += α_{s,b}
+ *   * carbon tax (if `EmissionZone.price` set OR
+ *     `objective_mode = "emissions"`):
+ *         gen_col.cost += block_ecost(price · α_rate)
+ *     (where `α_rate = α / dur` is the dur-free $/MWh form; block_ecost
+ *     adds the per-block duration · probability · discount factors.)
+ *   * allowance-pool drawdown (if `EmissionZone.allowance_pool` set):
+ *         pool.energy_row_{b}[gen_col] += α_{s,b}
+ *   * CCS opex (always, when `Generator.emission_captures[]` carries
+ *     a row for this pollutant with non-zero `cost`):
+ *         gen_col.cost += block_ecost(capture · effective_rate · capture_cost)
+ *
+ * Mirrors the existing CCS pattern (see the `lp.col_at(gcol).cost += ...`
+ * adder below).  When the zone is *pure reporting* (no cap, no price,
+ * no pool, not emissions-objective), nothing is wired into the LP and
+ * only the per-block factor cache is populated — the cache feeds the
+ * per-source output streams in `add_to_output`.
  */
 
+#include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_source_lp.hpp>
 #include <gtopt/emission_zone_lp.hpp>
@@ -80,9 +100,9 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  // Combustion (TTW) + optional upstream (WTT) rates.  Both are
-  // counted toward the zone's balance row; reporting can split them
-  // post-solve when needed.
+  // Combustion (TTW) + optional upstream (WTT) rates [t/MWh].  Both
+  // are counted toward the zone's α; reporting can split them post-
+  // solve when needed.
   const auto rate = param_rate(stage.uid()).value_or(0.0);
   const auto upstream = param_upstream_rate(stage.uid()).value_or(0.0);
   const auto effective_rate = rate + upstream;
@@ -107,8 +127,6 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   bool emission_in_zone = false;
   for (const auto& zef : zone_emissions) {
     if (zef.emission == src_emission) {
-      // OptReal is std::optional<double> — the .value_or fallback
-      // is 1.0 for single-pollutant / CO₂-equivalent reference.
       weight = zef.weight.value_or(1.0);
       emission_in_zone = true;
       break;
@@ -129,12 +147,10 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   }
 
   // ── CCS / abatement: per-(generator, pollutant) capture row ────────
-  //
   // If `Generator.emission_captures[]` contains a row for this
-  // pollutant, scale the source contribution to the balance by
-  // `(1 − capture_rate)` and add a per-MWh objective adder of
-  // `capture_rate · effective_rate · capture_cost` on the generator
-  // dispatch column.
+  // pollutant, scale the contribution by `(1 − capture_rate)` and add
+  // a per-MWh objective adder of `capture_rate · effective_rate ·
+  // capture_cost` on the generator dispatch column.
   double capture_rate = 0.0;
   double capture_cost = 0.0;
   const auto stage_index = static_cast<std::size_t>(stage.index());
@@ -146,39 +162,54 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
     }
   }
   const double net_factor = 1.0 - capture_rate;
+  // Per-MWh α rate [tCO₂-eq / MWh]: dur-free, lifted to a per-block
+  // tonnage in the per-block loop below.
+  const double alpha_rate = weight * net_factor * effective_rate;
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
 
-  const auto& brows_map = zone.balance_rows();
-  const auto brows_it = brows_map.find(st_key);
-  if (brows_it == brows_map.end()) {
-    return true;
-  }
-  const auto& balance_rows = brows_it->second;
-
   // Tolerant lookup: when every block of this (scenario, stage) was
-  // skipped by the P1 zero-pmax optimization (common for alternate-
-  // fuel-mode variants like ``<plant>_GNL_X`` / ``<plant>_DIE`` that
-  // are inactive for some PLEXOS weekly bundles), ``generation_cols``
-  // has no outer key.  Use ``lookup_generation_cols`` (returns an
-  // empty inner map) instead of the throwing ``generation_cols_at``
-  // — the per-block loop below then has nothing to do and we return
-  // cleanly without aborting LP build.  Symmetric to
+  // skipped by the P1 zero-pmax optimization, ``generation_cols`` has
+  // no outer key.  Use ``lookup_generation_cols`` (returns an empty
+  // inner map) instead of the throwing ``generation_cols_at`` — the
+  // per-block loop below then has nothing to do.  Symmetric to
   // ``WaterwayLP::flow_cols_at`` / ``lookup_flow_cols``.
   const auto& gen_cols = gen.lookup_generation_cols(scenario, stage);
   if (gen_cols.empty()) {
     return true;
   }
 
-  // Per block:
-  //   balance_b ← balance_b − weight · (1 − capture_rate) · (rate + upstream)
-  //                            · dur · gen
-  //   gen_b col cost  ← + capture_rate · (rate + upstream) · capture_cost · dur
-  //                      (scaled via CostHelper::block_ecost — the same
-  //                      probability × discount × scale chain every other
-  //                      thermal cost uses)
-  // Per-block output-reconstruction caches (populated below; consumed
-  // by add_to_output to compute the per-source emission streams).
+  // Wiring decisions for this (scenario, stage):
+  //   * cap_row exists       ⇒ stamp `+α` per block onto gen_col
+  //   * effective_price > 0  ⇒ add `block_ecost(price · α_rate)` to
+  //   gen_col.cost
+  //   * pool_fk set          ⇒ stamp `+α` per block onto pool.energy_row
+  const auto& cap_rows_map = zone.cap_rows();
+  const auto cap_it = cap_rows_map.find(st_key);
+  const RowIndex* cap_row_idx =
+      (cap_it != cap_rows_map.end()) ? &cap_it->second : nullptr;
+
+  const bool emissions_mode = sc.options().is_emissions_objective();
+  const auto stage_price = zone.param_price(stage.uid());
+  double effective_price = 0.0;
+  if (stage_price) {
+    effective_price = *stage_price;
+  } else if (emissions_mode) {
+    effective_price = 1.0;
+  }
+  const bool has_tax = (effective_price != 0.0);
+
+  const auto pool_fk = zone.emission_zone().allowance_pool;
+  const STBIndexHolder<RowIndex>::mapped_type* pool_energy_rows = nullptr;
+  if (pool_fk.has_value()) {
+    auto&& pool = sc.element<AllowancePoolLP>(AllowancePoolLPSId {*pool_fk});
+    pool_energy_rows = &pool.energy_rows_at(scenario, stage);
+  }
+
+  // Per-block output-reconstruction caches (populated below;
+  // consumed by add_to_output to compute the per-source emission
+  // streams).  Populated regardless of whether any LP wiring fires,
+  // so reporting-only zones still emit the full per-source streams.
   BIndexHolder<ColIndex> blk_gen_cols;
   BIndexHolder<double> blk_combustion_factor;
   BIndexHolder<double> blk_upstream_factor;
@@ -188,36 +219,59 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
 
   for (const auto& block : stage.blocks()) {
     const auto buid = block.uid();
-    const auto brow_it = balance_rows.find(buid);
-    if (brow_it == balance_rows.end()) {
-      continue;
-    }
     const auto gcol_it = gen_cols.find(buid);
     if (gcol_it == gen_cols.end()) {
       continue;
     }
     const auto dur = block.duration();
-    const auto coeff = -weight * net_factor * effective_rate * dur;
-    // Multiple sources may target the same (zone, generator) pair
-    // (e.g. two pollutants in a basket, or a fuel-derived plus a
-    // direct rate).  Read-modify-write to accumulate contributions
-    // rather than overwriting.
-    const auto existing = lp.get_coeff(brow_it->second, gcol_it->second);
-    lp.set_coeff(brow_it->second, gcol_it->second, existing + coeff);
+    const auto gcol = gcol_it->second;
+    // α [tCO₂-eq / MW] for this block — convert α_rate ($/MWh basis)
+    // to per-block tonnage by multiplying by duration.  Used by both
+    // the cap row coefficient and the pool drawdown.
+    const double alpha_block = alpha_rate * dur;
 
-    // CCS opex: charge capture_cost per ton captured.  The captured
-    // tonnage per MWh is `capture_rate · (rate + upstream)`, and we
-    // multiply by `capture_cost` to get $/MWh, then through
-    // `block_ecost` to put it on the same probability × discount ×
-    // scale chain the rest of the dispatch cost stack uses.
+    // ── Cap row coefficient (only when zone has a cap row at (s,t)) ──
+    // Multiple sources may target the same (zone, generator) pair
+    // (e.g. two pollutants in a basket).  Read-modify-write to
+    // accumulate contributions rather than overwriting.
+    if (cap_row_idx != nullptr) {
+      const auto existing = lp.get_coeff(*cap_row_idx, gcol);
+      lp.set_coeff(*cap_row_idx, gcol, existing + alpha_block);
+    }
+
+    // ── Carbon tax (price or emissions_mode) ────────────────────────
+    // Per-MWh adder = `effective_price · α_rate`; block_ecost adds the
+    // per-block dur · probability · discount factors.  Mirrors the CCS
+    // opex adder pattern already in this file (below).
+    if (has_tax) {
+      const auto tax_adder = CostHelper::block_ecost(
+          scenario, stage, block, effective_price * alpha_rate);
+      lp.col_at(gcol).cost += tax_adder;
+    }
+
+    // ── Allowance-pool drawdown ─────────────────────────────────────
+    if (pool_energy_rows != nullptr) {
+      const auto it = pool_energy_rows->find(buid);
+      if (it != pool_energy_rows->end()) {
+        const auto existing = lp.get_coeff(it->second, gcol);
+        lp.set_coeff(it->second, gcol, existing + alpha_block);
+      }
+    }
+
+    // ── CCS opex (per-block) ────────────────────────────────────────
+    // Charge `capture_cost` per ton captured.  The captured tonnage
+    // per MWh is `capture_rate · effective_rate`; multiplied by
+    // `capture_cost` gives $/MWh, then through block_ecost the same
+    // probability · discount · scale chain every other thermal cost
+    // uses.
     if (capture_rate > 0.0 && capture_cost > 0.0) {
       const auto adder = CostHelper::block_ecost(
           scenario, stage, block, capture_rate * effective_rate * capture_cost);
-      lp.col_at(gcol_it->second).cost += adder;
+      lp.col_at(gcol).cost += adder;
     }
 
-    // Stash factors for `add_to_output` per-source streams.
-    blk_gen_cols[buid] = gcol_it->second;
+    // ── Reporting cache (always populated) ──────────────────────────
+    blk_gen_cols[buid] = gcol;
     blk_combustion_factor[buid] = net_factor * rate * dur;
     blk_upstream_factor[buid] = net_factor * upstream * dur;
     blk_captured_factor[buid] = capture_rate * effective_rate * dur;

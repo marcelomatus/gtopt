@@ -5,40 +5,51 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * `EmissionZoneLP` owns the per-(scenario, stage, block)
- * `EmissionZone/production` column (the bridge variable, in tCO₂ /
- * block) plus the `EmissionZone/balance` row that pins
+ * `EmissionZoneLP` owns only the LP artefacts that are actually
+ * needed.  The per-block `production` column and the `balance` row
+ * have been **substituted out**: every emission contribution to a
+ * constraint or to the objective is wired directly on the
+ * **generator dispatch column** by `EmissionSourceLP`, using the
+ * per-block scalar
  *
- *   production_{z,b} − Σ_{s ∈ sources(z)} rate_s · gen_s,b · dur_b  =  0
+ *   α_{s,b}  =  weight_z,p · (1 − capture_s,p) · (rate_s + upstream_s) · dur_b
  *
- * Optionally, when `EmissionZone.cap` is set, a per-stage cap row
+ * (tonnes of CO₂-eq per MW of dispatch, for source `s`, pollutant
+ * `p`, in block `b`).
  *
- *   Σ_b production_{z,b}  ≤  cap_z,s
+ * What the zone DOES build, gated by which fields are set:
  *
- * is built (hard if `cap_cost` unset; soft with a slack column
- * penalised at `cap_cost` otherwise).
+ *   * `cap` set     → a per-stage cap row
+ *                     `Σ_b Σ_{s ∈ sources(z)} α_{s,b} · gen_{s,b} ≤ cap_z,s`
+ *                     (coefficients injected by `EmissionSourceLP`).
+ *   * `cap_cost`    → a slack column on the cap row, penalised at
+ *                     `cap_cost · prob · discount` (cap becomes soft).
+ *   * `price` set OR
+ *     `objective_mode = "emissions"`
+ *                   → an objective-coefficient adder on every
+ *                     generator dispatch column: `+ price · α_{s,b}`
+ *                     ($/MWh scaled through `block_ecost`, mirroring
+ *                     the CCS opex adder already on
+ *                     `EmissionSourceLP`).
+ *   * `allowance_pool` set
+ *                   → each generator dispatch column is injected with
+ *                     coefficient `+ α_{s,b}` (tCO₂) into the
+ *                     referenced `AllowancePoolLP`'s per-block energy-
+ *                     balance row.  The pool's banked SoC then becomes
+ *                     the binding multi-stage cap; the per-stage `cap`
+ *                     row is skipped on this zone.
  *
- * When `EmissionZone.price` is set, the production column carries an
- * objective coefficient `price · duration` so each tonne emitted in
- * block `b` costs `price · dur_b`.
+ * When **none** of `cap`, `price`, `allowance_pool`, or
+ * `objective_mode = "emissions"` applies, the zone is *pure
+ * reporting*: no LP column, no LP row.  The per-source emission
+ * streams (`EmissionSource/emissions_sol.parquet` etc.) are still
+ * produced post-solve from generator primals × `α` factors cached
+ * inside `EmissionSourceLP`, so the cost of "zone configured but no
+ * constraint set" is now zero LP variables and zero LP rows.
  *
- * `EmissionSourceLP::add_to_lp` runs after this and injects the
- * generator-side coefficient `-rate · dur_b` on its generator's
- * generation column into the corresponding balance row — analogous
- * to `InertiaProvisionLP` injecting its provision factor into
- * `InertiaZoneLP::requirement_rows()`.
- *
- * ## Allowance-pool coupling (cap-and-trade with banking)
- *
- * When `EmissionZone.allowance_pool` is set, each per-block
- * `production` column is injected (coefficient `+1`, tCO₂) as a
- * drawdown into the referenced `AllowancePoolLP`'s energy-balance
- * rows, and the per-stage `cap` row is SKIPPED.  The pool's banked
- * SoC (`emin` / `emax` / `efin` / `efin_cost`) then mediates a
- * multi-stage cap with banking, replacing the fixed per-stage cap.
  * `AllowancePoolLP` is visited before `EmissionZoneLP` (see
  * `system_lp.hpp` `collections_t` ordering) so its energy rows exist
- * when this injection runs.
+ * when sources inject their α-weighted coefficients.
  */
 
 #pragma once
@@ -64,9 +75,9 @@ class EmissionZoneLP : public ObjectLP<EmissionZone>
 public:
   using Base = ObjectLP<EmissionZone>;
 
-  /// Column / row name constants (snake_case for output filenames).
-  static constexpr std::string_view ProductionName {"production"};
-  static constexpr std::string_view BalanceName {"balance"};
+  /// Row / col name constants (snake_case for output filenames).
+  /// `production` / `balance` are no longer emitted — the column and
+  /// equality row have been substituted out (see file header).
   static constexpr std::string_view CapName {"cap"};
   static constexpr std::string_view CapSlackName {"cap_slack"};
 
@@ -94,17 +105,20 @@ public:
   [[nodiscard]] auto param_price(StageUid s) const { return price_.at(s); }
   /// @}
 
-  /// @name LP-row / col accessors — consumed by EmissionSourceLP at
-  /// add_to_lp time to inject the `-rate · dur` coefficient into the
-  /// matching balance row.
+  /// @name LP-row accessors — consumed by `EmissionSourceLP` at
+  /// `add_to_lp` time to inject the per-block α coefficient into the
+  /// matching cap row (when one exists for this `(scenario, stage)`).
+  /// Reporting-only zones have no entries here — sources then only
+  /// charge price / pool / CCS adders if those apply, and otherwise
+  /// just cache factors for the per-source output streams.
   /// @{
-  [[nodiscard]] constexpr const auto& production_cols() const noexcept
+  [[nodiscard]] constexpr const auto& cap_rows() const noexcept
   {
-    return production_cols_;
+    return cap_rows_;
   }
-  [[nodiscard]] constexpr const auto& balance_rows() const noexcept
+  [[nodiscard]] constexpr const auto& cap_slack_cols() const noexcept
   {
-    return balance_rows_;
+    return cap_slack_cols_;
   }
   /// @}
 
@@ -114,10 +128,8 @@ private:
   OptTRealSched cap_cost_;
   OptTRealSched price_;
 
-  // Per-(scenario, stage, block) indices populated by add_to_lp.
-  STBIndexHolder<ColIndex> production_cols_;
-  STBIndexHolder<RowIndex> balance_rows_;
-  // Per-(scenario, stage) cap row + optional slack column.
+  // Per-(scenario, stage) cap row + optional slack column.  Only
+  // populated when `EmissionZone.cap` is set for that stage.
   STIndexHolder<RowIndex> cap_rows_;
   STIndexHolder<ColIndex> cap_slack_cols_;
 };

@@ -163,12 +163,15 @@ TEST_CASE("System::merge concatenates emission_zone_array")  // NOLINT
 // ── Commit 3 — LP-active wiring tests ────────────────────────────────
 
 TEST_CASE(
-    "EmissionZoneLP balance identity — production == rate × gen × dur")  // NOLINT
+    "EmissionZoneLP reporting-only — no cap / price / pool builds no LP "
+    "rows or columns")  // NOLINT
 {
-  // Build a 1-stage 1-block fixture with known emission rate.  Verify
-  // post-solve that `EmissionZone/production_sol` equals
-  // `rate × generation × duration` exactly (the LP balance row is an
-  // equality constraint, so this must hold to FP tolerance).
+  // Build a 1-stage 1-block fixture with a zone that has NO cap, NO
+  // price, NO allowance pool — pure reporting.  After the
+  // substitute-out rewrite the LP must contain zero EmissionZone
+  // columns and zero EmissionZone rows (the per-source emission
+  // streams are still produced post-solve from the source's factor
+  // cache).
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -180,7 +183,7 @@ TEST_CASE(
   const double demand_capacity = 50.0;  // forces gen = 50
 
   const System system = {
-      .name = "EmissionZoneBalanceIdentity",
+      .name = "EmissionZoneReportingOnly",
       .bus_array = {{.uid = Uid {1}, .name = "b1"}},
       .demand_array = {{.uid = Uid {1},
                         .name = "d1",
@@ -214,32 +217,19 @@ TEST_CASE(
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 0);
 
+  // Zone is reporting-only: no LP-active piece, so no cap rows and
+  // no cap slack columns.  Production column + balance row have been
+  // substituted out entirely — they were never added to the LP.
   const auto& zones = system_lp.elements<EmissionZoneLP>();
   REQUIRE(zones.size() == 1);
   const auto& zone = zones.front();
-  const auto& prod_cols = zone.production_cols();
-  REQUIRE(!prod_cols.empty());
+  CHECK(zone.cap_rows().empty());
+  CHECK(zone.cap_slack_cols().empty());
 
-  // Look up the production column via the live LP indices.
-  const auto scen_uid = simulation_lp.scenarios().front().uid();
-  const auto stg = simulation_lp.stages().front();
-  const auto stg_uid = stg.uid();
-  const auto blk_uid = stg.blocks().front().uid();
-  const auto st_key = std::tuple {scen_uid, stg_uid};
-  const auto pcols_it = prod_cols.find(st_key);
-  REQUIRE(pcols_it != prod_cols.end());
-  REQUIRE(!pcols_it->second.empty());
-  const auto& block_to_col = pcols_it->second;
-  const auto pcol_it = block_to_col.find(blk_uid);
-  REQUIRE(pcol_it != block_to_col.end());
-  const auto prod_col = pcol_it->second;
-
-  const auto col_sol = lp.get_col_sol();
-  const auto production_sol = col_sol[prod_col];
-
-  // Identity: production = rate × gen × duration.  Gen will saturate
-  // at demand (50 MW) since gcost is small.
-  CHECK(production_sol == doctest::Approx(rate * 50.0 * 1.0).epsilon(1e-9));
+  // The LP solution itself is unchanged by the (now-no-op) zone: gen
+  // saturates at demand = 50 MW since gcost is small and the only
+  // cost surface is dispatch.
+  CHECK(lp.get_obj_value() == doctest::Approx(10.0 * 50.0).epsilon(1e-9));
 }
 
 TEST_CASE("EmissionZoneLP soft cap binds + slack penalises")  // NOLINT
@@ -297,27 +287,33 @@ TEST_CASE("EmissionZoneLP soft cap binds + slack penalises")  // NOLINT
   // unserved-demand penalty trade-off.  At gcost=10 the LP will run
   // the generator to meet demand (paying the cap slack) rather than
   // pay 10_000 $/MWh fcost.  So gen=50, emissions=20, slack=15.
+  //
+  // The production column is gone (substituted out); the binding
+  // signal is the cap-row slack column, which carries the per-stage
+  // overage tonnage.
   const auto& zones = system_lp.elements<EmissionZoneLP>();
   REQUIRE(zones.size() == 1);
   const auto& zone = zones.front();
-  const auto& prod_cols = zone.production_cols();
+  const auto& slack_cols = zone.cap_slack_cols();
   const auto scen_uid = simulation_lp.scenarios().front().uid();
   const auto stg = simulation_lp.stages().front();
   const auto stg_uid = stg.uid();
-  const auto blk_uid = stg.blocks().front().uid();
   const auto st_key = std::tuple {scen_uid, stg_uid};
-  const auto prod_col = prod_cols.at(st_key).at(blk_uid);
+  REQUIRE(slack_cols.find(st_key) != slack_cols.end());
+  const auto slack_col = slack_cols.at(st_key);
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[prod_col] == doctest::Approx(20.0).epsilon(1e-9));
+  CHECK(col_sol[slack_col] == doctest::Approx(15.0).epsilon(1e-9));
 }
 
 TEST_CASE(
     "EmissionZone multi-pollutant GHG basket — CO₂ + CH₄ weighted")  // NOLINT
 {
   // GHG basket: zone covers both CO₂ (weight 1.0) and CH₄ (GWP-100 = 27.9).
-  // Two sources on the same generator, one per pollutant.
-  // Expected: production_sol = 1.0 * (0.4 * 50 * 1) + 27.9 * (0.003 * 50 * 1)
-  //                          = 20.0 + 4.185 = 24.185 tCO₂-eq.
+  // Two sources on the same generator, one per pollutant.  Unconstrained
+  // weighted emissions = 1.0·(0.4·50·1) + 27.9·(0.003·50·1) = 24.185 tCO₂-eq.
+  // Set a tiny soft cap so the cap-slack column carries the full overage.
+  constexpr double kExpectedEmissions = 24.185;  // = 20.0 + 27.9·0.003·50
+  constexpr double kCap = 1.0;
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -343,7 +339,9 @@ TEST_CASE(
           {{.uid = Uid {1},
             .name = "ghg_basket",
             .emissions = {{.emission = Uid {1}, .weight = 1.0},
-                          {.emission = Uid {2}, .weight = 27.9}}}},
+                          {.emission = Uid {2}, .weight = 27.9}},
+            .cap = kCap,
+            .cap_cost = 1.0}},
       .emission_source_array =
           {
               {.uid = Uid {1},
@@ -361,34 +359,36 @@ TEST_CASE(
           },
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
   REQUIRE(lp.resolve().has_value());
 
-  const auto& zones = system_lp.elements<EmissionZoneLP>();
-  REQUIRE(zones.size() == 1);
-  const auto& zone = zones.front();
-  const auto& prod_cols = zone.production_cols();
+  // The soft cap is loose enough that the LP serves the full demand
+  // (cap_cost = 1 $/t ≪ gcost = 10 $/MWh + fcost = 1000 $/MWh).  Total
+  // weighted emissions are 24.185 t; slack absorbs `total − cap`.
+  const auto& zone = system_lp.elements<EmissionZoneLP>().front();
   const auto scen_uid = simulation_lp.scenarios().front().uid();
-  const auto stg = simulation_lp.stages().front();
-  const auto stg_uid = stg.uid();
-  const auto blk_uid = stg.blocks().front().uid();
-  const auto prod_col =
-      prod_cols.at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
-
+  const auto stg_uid = simulation_lp.stages().front().uid();
+  const auto st_key = std::tuple {scen_uid, stg_uid};
+  const auto slack_col = zone.cap_slack_cols().at(st_key);
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[prod_col]
-        == doctest::Approx(20.0 + 27.9 * 0.003 * 50.0).epsilon(1e-9));
+  CHECK(col_sol[slack_col]
+        == doctest::Approx(kExpectedEmissions - kCap).epsilon(1e-9));
 }
 
 TEST_CASE(
-    "EmissionZone — combustion + upstream (WTT) sum into balance")  // NOLINT
+    "EmissionZone — combustion + upstream (WTT) sum into cap row")  // NOLINT
 {
   // Single CO₂ zone, single source with BOTH combustion AND upstream
-  // rates set.  Verify production_sol = (rate + upstream_rate) × gen × dur.
+  // rates set.  Total emissions = (rate + upstream_rate) × gen × dur.
+  // Use a soft cap so the slack column captures the overage and we
+  // can observe it without inspecting the substituted-away production
+  // column.
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -398,6 +398,8 @@ TEST_CASE(
   const double comb_rate = 0.4;  // tank-to-stack
   const double upstream_rate = 0.05;  // well-to-tank
   const double gen_sol = 50.0;
+  const double total_emissions = (comb_rate + upstream_rate) * gen_sol * 1.0;
+  const double kCap = 1.0;
 
   const System system = {
       .name = "WttPlusTtw",
@@ -416,7 +418,9 @@ TEST_CASE(
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "lifecycle_co2",
                                .emissions = {{.emission = Uid {1},
-                                              .weight = 1.0}}}},
+                                              .weight = 1.0}},
+                               .cap = kCap,
+                               .cap_cost = 1.0}},
       .emission_source_array = {{.uid = Uid {1},
                                  .name = "g1_co2",
                                  .generator = OptSingleId {Uid {1}},
@@ -426,7 +430,9 @@ TEST_CASE(
                                  .upstream_rate = upstream_rate}},
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -435,24 +441,20 @@ TEST_CASE(
 
   const auto& zone = system_lp.elements<EmissionZoneLP>().front();
   const auto scen_uid = simulation_lp.scenarios().front().uid();
-  const auto stg = simulation_lp.stages().front();
-  const auto stg_uid = stg.uid();
-  const auto blk_uid = stg.blocks().front().uid();
-  const auto prod_col =
-      zone.production_cols().at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
-
+  const auto stg_uid = simulation_lp.stages().front().uid();
+  const auto st_key = std::tuple {scen_uid, stg_uid};
+  const auto slack_col = zone.cap_slack_cols().at(st_key);
   const auto col_sol = lp.get_col_sol();
-  CHECK(col_sol[prod_col]
-        == doctest::Approx((comb_rate + upstream_rate) * gen_sol * 1.0)
-               .epsilon(1e-9));
+  CHECK(col_sol[slack_col]
+        == doctest::Approx(total_emissions - kCap).epsilon(1e-9));
 }
 
 TEST_CASE(
-    "EmissionZone — CCS capture_rate scales the balance contribution")  // NOLINT
+    "EmissionZone — CCS capture_rate scales the cap-row contribution")  // NOLINT
 {
-  // Verify `(1 − capture_rate)` scaling on the balance row.
-  // rate=0.4, gen=50, dur=1, capture_rate=0.9 → production = 0.4·50·(1-0.9)
-  // = 2.0.
+  // Verify `(1 − capture_rate)` scaling on the substituted cap row.
+  // rate=0.4, gen=50, dur=1, capture_rate=0.9 → net emissions =
+  // 0.4·50·(1-0.9) = 2.0 t.  With a soft cap of 0.5, slack = 1.5.
   const Simulation simulation = {
       .block_array = {{.uid = Uid {1}, .duration = 1.0}},
       .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
@@ -461,6 +463,8 @@ TEST_CASE(
   const double rate = 0.4;
   const double gen_sol = 50.0;
   const double capture_rate = 0.9;
+  const double net_emissions = (1.0 - capture_rate) * rate * gen_sol * 1.0;
+  const double kCap = 0.5;
 
   const System system = {
       .name = "CcsCapture",
@@ -482,7 +486,9 @@ TEST_CASE(
       .emission_zone_array = {{.uid = Uid {1},
                                .name = "co2_zone",
                                .emissions = {{.emission = Uid {1},
-                                              .weight = 1.0}}}},
+                                              .weight = 1.0}},
+                               .cap = kCap,
+                               .cap_cost = 1.0}},
       .emission_source_array = {{.uid = Uid {1},
                                  .name = "g1_co2",
                                  .generator = OptSingleId {Uid {1}},
@@ -491,7 +497,9 @@ TEST_CASE(
                                  .rate = rate}},
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
 
@@ -500,15 +508,11 @@ TEST_CASE(
 
   const auto& zone = system_lp.elements<EmissionZoneLP>().front();
   const auto scen_uid = simulation_lp.scenarios().front().uid();
-  const auto stg = simulation_lp.stages().front();
-  const auto stg_uid = stg.uid();
-  const auto blk_uid = stg.blocks().front().uid();
-  const auto prod_col =
-      zone.production_cols().at(std::tuple {scen_uid, stg_uid}).at(blk_uid);
-
+  const auto stg_uid = simulation_lp.stages().front().uid();
+  const auto st_key = std::tuple {scen_uid, stg_uid};
+  const auto slack_col = zone.cap_slack_cols().at(st_key);
   const auto col_sol = lp.get_col_sol();
-  // Expected: production = (1 - 0.9) × 0.4 × 50 × 1 = 2.0 t.
-  CHECK(col_sol[prod_col]
-        == doctest::Approx((1.0 - capture_rate) * rate * gen_sol * 1.0)
-               .epsilon(1e-9));
+  // Expected: net emissions − cap = (1 - 0.9)·0.4·50 − 0.5 = 1.5 t.
+  CHECK(col_sol[slack_col]
+        == doctest::Approx(net_emissions - kCap).epsilon(1e-9));
 }

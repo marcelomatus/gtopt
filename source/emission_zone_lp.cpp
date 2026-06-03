@@ -1,25 +1,32 @@
 /**
  * @file      emission_zone_lp.cpp
- * @brief     LP-active wiring for EmissionZone (production col + balance row)
+ * @brief     LP-active wiring for EmissionZone — cap row only
  * @date      2026-05-18
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Per (scenario, stage) build:
+ * The per-block `production` column and `balance` row have been
+ * substituted out: every emission contribution is wired directly on
+ * the generator dispatch column by `EmissionSourceLP`, using the
+ * per-block scalar
  *
- *   for each block b:
- *     col[production_b]: lowb=0, cost = price · dur_b (when price set)
- *     row[balance_b]:    + production_b  = 0   (sources inject the
- *                                              `-rate · dur` coefficient
- *                                              on each generator
- *                                              dispatch column later)
+ *   α_{s,b}  =  weight_z,p · (1 − capture_s,p) · (rate_s + upstream_s) · dur_b
  *
- *   per stage, if cap set:
- *     row[cap]:  Σ_b production_b  ≤  cap  (+ slack with cap_cost
- *                                          penalty when cap_cost set)
+ * (see `emission_source_lp.cpp`).  This file therefore only owns the
+ * optional **cap row** (and its slack column for soft caps).
+ *
+ * Per (scenario, stage), if `cap` is set:
+ *
+ *   row[cap]:  Σ_b Σ_{s ∈ sources(z)} α_{s,b} · gen_{s,b}  ≤  cap
+ *              (+ slack with cap_cost penalty when cap_cost set)
+ *
+ * The cap row is created empty here — `EmissionSourceLP::add_to_lp`
+ * runs afterwards and stamps the per-block α coefficients on the
+ * matching generator dispatch columns.  Cap coverage when an
+ * allowance pool is configured is mediated by the pool's banked SoC
+ * instead, so the per-stage cap row is skipped on those zones.
  */
 
-#include <gtopt/allowance_pool_lp.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/emission_zone_lp.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -38,7 +45,7 @@ EmissionZoneLP::EmissionZoneLP(const EmissionZone& zone, const InputContext& ic)
 {
 }
 
-bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
+bool EmissionZoneLP::add_to_lp([[maybe_unused]] const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp)
@@ -56,140 +63,59 @@ bool EmissionZoneLP::add_to_lp(const SystemContext& sc,
 
   const auto stage_uid = stage.uid();
   const auto scen_uid = scenario.uid();
-  const auto stage_price = param_price(stage_uid);
   const auto stage_cap = param_cap(stage_uid);
   const auto stage_cap_cost = param_cap_cost(stage_uid);
-
-  // Emissions-objective mode (issue #519): force the production
-  // column cost to 1 tCO2eq⁻¹ (post block_ecost factor application)
-  // when ``model_options.objective_mode = "emissions"`` AND the user
-  // hasn't set their own carbon ``price`` on this zone.  This makes
-  // the LP minimize total CO2eq directly: Σ (production × 1 × dur)
-  // ≡ Σ emissions over the horizon.  Combined with the
-  // generator-side cost-zeroing (see ``GeneratorLP::add_to_lp``),
-  // the LP's objective becomes a pure emissions minimization, and
-  // ``Reservoir/water_value_dual`` / ``Battery/energy_dual`` then
-  // carry the carbon shadow price of stored water / energy directly
-  // (tCO2eq per MWh-stored).
-  const bool emissions_mode = sc.options().is_emissions_objective();
-
-  BIndexHolder<ColIndex> prod_cols;
-  BIndexHolder<RowIndex> balance_rows;
-  map_reserve(prod_cols, blocks.size());
-  map_reserve(balance_rows, blocks.size());
-
-  // ── Per-block production column + balance row ─────────────────────────
-  for (const auto& block : blocks) {
-    const auto buid = block.uid();
-    const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
-
-    // Production-column cost: per-ton tax × block duration when price set.
-    // Discount + scenario probability + scale_objective are applied by
-    // CostHelper::block_ecost (matches every other thermal cost in
-    // gtopt — keeps LP physics consistent across element types).
-    const double effective_price =
-        stage_price ? *stage_price : (emissions_mode ? 1.0 : 0.0);
-    const double prod_cost = (stage_price || emissions_mode)
-        ? CostHelper::block_ecost(scenario, stage, block, effective_price)
-        : 0.0;
-
-    const auto pcol = lp.add_col(SparseCol {
-        .lowb = 0.0,
-        .cost = prod_cost,
-        .class_name = cname,
-        .variable_name = ProductionName,
-        .variable_uid = uid(),
-        .context = block_ctx,
-    });
-    prod_cols[buid] = pcol;
-
-    SparseRow bal {
-        .class_name = cname,
-        .constraint_name = BalanceName,
-        .variable_uid = uid(),
-        .context = block_ctx,
-    };
-    bal[pcol] = 1.0;
-    balance_rows[buid] = lp.add_row(std::move(bal).equal(0.0));
-  }
-
-  // Stash for EmissionSourceLP::add_to_lp lookups + output emission.
-  const std::tuple st_key {scen_uid, stage_uid};
-  production_cols_[st_key] = std::move(prod_cols);
-  balance_rows_[st_key] = std::move(balance_rows);
-
-  // ── Optional allowance-pool coupling (cap-and-trade with banking) ────
-  // When this zone references an AllowancePool, inject each per-block
-  // production column as a drawdown (coefficient +1, in tCO₂) into the
-  // pool's energy-balance rows.  The pool's banked SoC then becomes the
-  // binding multi-stage cap, so the zone's own standalone per-stage cap
-  // row is skipped below.  AllowancePoolLP is visited before
-  // EmissionZoneLP (collections_t ordering in system_lp.hpp), so its
-  // energy rows already exist for this (scenario, stage).
-  //
-  // `production_b` is already a per-block tonnage (the source injects
-  // `-weight·rate·dur·gen`), so the energy-row coefficient is a bare
-  // +1 — NOT the `·dur` an inflow rate would carry.  The result is
-  //   bank_b = (1−loss)·bank_{b-1} + free_allocation·dur − Σ_z prod_{z,b}
   const auto pool_fk = emission_zone().allowance_pool;
-  if (pool_fk.has_value()) {
-    auto&& pool = sc.element<AllowancePoolLP>(AllowancePoolLPSId {*pool_fk});
-    const auto& energy_rows = pool.energy_rows_at(scenario, stage);
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
-      lp.set_coeff(energy_rows.at(buid), production_cols_[st_key][buid], 1.0);
-    }
+
+  // The cap row is only needed when ``cap`` is set AND the zone is
+  // not mediated by an allowance pool (in which case the pool's banked
+  // SoC plays the role of a multi-stage cap with banking — the source
+  // injects its α coefficient directly onto the pool's energy row).
+  // Pure reporting-only zones (no cap, no pool) build no LP rows at
+  // all.  The per-stage `price` and `emissions_mode` adders likewise
+  // require no row of their own — `EmissionSourceLP` adds them onto
+  // each generator dispatch column at the same per-block α scale,
+  // mirroring the existing CCS opex adder.
+  if (!stage_cap.has_value() || pool_fk.has_value()) {
+    return true;
   }
 
-  // ── Optional per-stage cap row ───────────────────────────────────────
-  // Skipped when an allowance pool mediates compliance — the pool's
-  // banked SoC / efin is the binding cap instead of a fixed per-stage
-  // figure.
-  if (stage_cap && !pool_fk.has_value()) {
-    SparseRow cap_row {
+  SparseRow cap_row {
+      .class_name = cname,
+      .constraint_name = CapName,
+      .variable_uid = uid(),
+      .context = make_stage_context(scen_uid, stage_uid),
+  };
+
+  // Soft cap: introduce a slack column with cap_cost penalty so the
+  // LP can violate the cap at a (per-ton) cost rather than infeas.
+  // The cap row sums an absolute per-block tonnage (Σ_b α_{s,b} ·
+  // gen_{s,b}), so the overage slack is itself an absolute tonnage
+  // [tons] and its penalty is the per-ton ``cap_cost`` scaled only by
+  // probability · discount — NO duration (cf. the `:cap_cost`
+  // comment in the legacy code).
+  const std::tuple st_key {scen_uid, stage_uid};
+  if (stage_cap_cost) {
+    const auto slack_cost = *stage_cap_cost
+        * CostHelper::cost_factor(scenario.probability_factor(),
+                                  stage.discount_factor());
+    const auto slack = lp.add_col(SparseCol {
+        .lowb = 0.0,
+        .cost = slack_cost,
         .class_name = cname,
-        .constraint_name = CapName,
+        .variable_name = CapSlackName,
         .variable_uid = uid(),
         .context = make_stage_context(scen_uid, stage_uid),
-    };
-
-    // Σ_b production_b ≤ cap   (each block's contribution carries its
-    // duration so the sum is a true tonnage figure, not MW·blocks).
-    for (const auto& block : blocks) {
-      const auto buid = block.uid();
-      const auto pcol = production_cols_[st_key][buid];
-      cap_row[pcol] = block.duration();
-    }
-
-    // Soft cap: introduce a slack column with cap_cost penalty so the
-    // LP can violate the cap at a (per-ton) cost rather than infeasing.
-    if (stage_cap_cost) {
-      // The cap row sums already-duration-weighted production
-      // (Σ_b prod_b·Δt, see the `block.duration()` coefficients above)
-      // against an absolute per-stage tonnage cap, so the overage
-      // ``slack`` is itself an absolute tonnage [tons].  Its penalty is
-      // therefore the per-ton ``cap_cost`` scaled only by probability ·
-      // discount — NO duration.  Using ``scenario_stage_ecost`` (which
-      // multiplies by ``stage.duration()``) would over-charge the overage
-      // by the stage length; the duration already lives on the matrix
-      // coefficients, not on this slack's objective cost.
-      const auto slack_cost = *stage_cap_cost
-          * CostHelper::cost_factor(scenario.probability_factor(),
-                                    stage.discount_factor());
-      const auto slack = lp.add_col(SparseCol {
-          .lowb = 0.0,
-          .cost = slack_cost,
-          .class_name = cname,
-          .variable_name = CapSlackName,
-          .variable_uid = uid(),
-          .context = make_stage_context(scen_uid, stage_uid),
-      });
-      cap_row[slack] = -1.0;
-      cap_slack_cols_[st_key] = slack;
-    }
-
-    cap_rows_[st_key] = lp.add_row(std::move(cap_row).less_equal(*stage_cap));
+    });
+    cap_row[slack] = -1.0;
+    cap_slack_cols_[st_key] = slack;
   }
+
+  // The cap row is created EMPTY here — its per-block α generator-
+  // column coefficients are stamped by `EmissionSourceLP::add_to_lp`
+  // afterwards (it runs later in the visitor order, see
+  // `lp_element_types_t`).
+  cap_rows_[st_key] = lp.add_row(std::move(cap_row).less_equal(*stage_cap));
 
   return true;
 }
@@ -199,12 +125,10 @@ bool EmissionZoneLP::add_to_output(OutputContext& out) const
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  // Per-(scenario, stage, block) streams.
-  out.add_col_sol(cname, ProductionName, pid, production_cols_);
-  out.add_col_cost(cname, ProductionName, pid, production_cols_);
-  out.add_row_dual(cname, BalanceName, pid, balance_rows_);
-
-  // Per-(scenario, stage) cap streams.
+  // Per-(scenario, stage) cap streams.  Production / balance streams
+  // are gone — the per-source `EmissionSource/*` streams remain the
+  // single source of truth for zone-aggregated emissions (post-
+  // processors aggregate by zone if needed).
   out.add_row_dual(cname, CapName, pid, cap_rows_);
   if (!cap_slack_cols_.empty()) {
     out.add_col_sol(cname, CapSlackName, pid, cap_slack_cols_);
