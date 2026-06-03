@@ -474,6 +474,10 @@ def build_options(args: argparse.Namespace) -> dict:
         # on the planning JSON so gtopt runs the pure-emissions LP.
         "only_emissions": getattr(args, "only_emissions", False),
         "carbon_price": getattr(args, "carbon_price", None),
+        # Synthetic emissions ray (#520) — used by gtopt_writer when
+        # --only-emissions is set to build the boundary_cuts.csv.
+        "emissions_discount_rate": getattr(args, "emissions_discount_rate", 0.05),
+        "emissions_horizon_years": getattr(args, "emissions_horizon_years", None),
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {

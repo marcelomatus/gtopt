@@ -1399,6 +1399,33 @@ class GTOptWriter(
                 carbon_price=options.get("carbon_price"),
             )
 
+            # Synthetic emissions ray (#520) — only in --only-emissions
+            # mode.  Computes EPF per reservoir from the cascade graph
+            # then writes a single-row boundary_cuts.csv that replaces
+            # the dollar-FCF the emissions overlay just dropped.  Each
+            # reservoir slope = EPF · gas_em · loss · 8760 · NPV(r,N).
+            if only_emissions:
+                out_dir = options.get("output_dir")
+                if out_dir is not None:
+                    from gtopt_shared.hydro_epf import (  # noqa: PLC0415
+                        epf_per_reservoir,
+                    )
+                    from plp2gtopt._emissions_ray import (  # noqa: PLC0415
+                        stamp_boundary_cuts_file_ref,
+                        write_emissions_ray_csv,
+                    )
+
+                    epfs = epf_per_reservoir(self.planning.get("system", {}))
+                    if epfs:
+                        cuts_path = Path(out_dir) / "boundary_cuts.csv"
+                        write_emissions_ray_csv(
+                            cuts_path,
+                            epfs,
+                            discount_rate=options.get("emissions_discount_rate", 0.05),
+                            horizon_years=options.get("emissions_horizon_years"),
+                        )
+                        stamp_boundary_cuts_file_ref(self.planning, "boundary_cuts.csv")
+
         return self.planning
 
     def write(self, options=None):

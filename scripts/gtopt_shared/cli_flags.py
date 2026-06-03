@@ -194,6 +194,34 @@ def add_emissions_arguments(
             "(Chile SCC).  Ignored without --only-emissions."
         ),
     )
+    parser.add_argument(
+        "--emissions-discount-rate",
+        dest="emissions_discount_rate",
+        type=float,
+        metavar="RATE",
+        default=d.get("emissions_discount_rate", 0.05),
+        help=(
+            "Annual discount rate used to build the synthetic emissions "
+            "ray (Benders cut equivalent) that replaces the cost-mode FCF "
+            "in --only-emissions mode.  Only consumed by plp2gtopt's "
+            "boundary-cut writer when --only-emissions is also set. "
+            "Default: 0.05 (5%% / yr, CNE reference for hydro least-cost "
+            "dispatch).  See issue #520."
+        ),
+    )
+    parser.add_argument(
+        "--emissions-horizon-years",
+        dest="emissions_horizon_years",
+        type=float,
+        metavar="YEARS",
+        default=d.get("emissions_horizon_years", None),
+        help=(
+            "Horizon (in years) over which the emissions-ray NPV factor "
+            "is computed.  Unset = perpetuity (NPV = 1 / discount_rate). "
+            "Only consumed by plp2gtopt's boundary-cut writer when "
+            "--only-emissions is also set.  See issue #520."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
