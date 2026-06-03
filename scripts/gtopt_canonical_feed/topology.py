@@ -54,6 +54,13 @@ class Generator:
     declared_MC: Optional[float] = None
     kind: str = "thermal"  # thermal | hydro | battery | profile
     emission_rate: Optional[float] = None  # kgCO2eq/MWh, §4.12
+    # True for self-dispatching cogeneration units (biomass / biogas /
+    # geothermal cogen, refinery / pulp-mill steam cycles, etc.).  These
+    # are flagged ``kind="thermal"`` because they consume fuel and emit,
+    # but in PLEXOS / CEN they're modeled as MustRun with ``declared_MC=0``
+    # and never appear as backfill marginal units — consumers walking the
+    # merit ladder must skip them.
+    is_cogen: bool = False
 
 
 @dataclass(slots=True, frozen=True)

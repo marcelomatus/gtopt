@@ -346,6 +346,67 @@ def soft_penalty_cost(
     return penalty
 
 
+# ----------------------------------------------------------------------
+# CEN cogen reference cache (best-effort load of the bundled CSV).
+# ----------------------------------------------------------------------
+_CEN_COGEN_NAMES: set[str] | None = None
+_CEN_COGEN_PREFIXES: tuple[str, ...] = ()
+
+
+def _load_cen_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
+    """Load (exact-names, prefix-tuple) from
+    ``share/gtopt/cogen/cen_chile_cogen.csv``.  Cached after first call.
+    Returns ``(set(), ())`` if the file is missing — caller treats every
+    generator as non-cogen (the explicit emissions-overlay fallback
+    still applies cogen flags through GeneratorOverride.type_tag).
+    """
+    global _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+    if _CEN_COGEN_NAMES is not None:
+        return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+    names: set[str] = set()
+    prefixes: list[str] = []
+    candidates = [
+        Path("/home/marce/git/gtopt/share/gtopt/cogen/cen_chile_cogen.csv"),
+        Path(__file__).resolve().parents[2]
+        / "share"
+        / "gtopt"
+        / "cogen"
+        / "cen_chile_cogen.csv",
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    name = str(row.get("name_upper", "")).strip().upper()
+                    if not name:
+                        continue
+                    source = str(row.get("source", "")).lower()
+                    if source.startswith("pattern_prefix:"):
+                        prefixes.append(name)
+                    else:
+                        names.add(name)
+            break
+        except OSError:
+            continue
+    _CEN_COGEN_NAMES = names
+    _CEN_COGEN_PREFIXES = tuple(prefixes)
+    return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+
+
+def _is_cen_cogen(gen_name: str) -> bool:
+    """True iff the generator name matches the CEN cogen reference list."""
+    name = str(gen_name).strip().upper()
+    if not name:
+        return False
+    names, prefixes = _load_cen_cogen_reference()
+    if name in names:
+        return True
+    return any(name.startswith(p) for p in prefixes)
+
+
 def build_generator_array(
     generators: tuple[GeneratorSpec, ...],
     fuels: tuple[FuelSpec, ...] = (),
@@ -696,6 +757,17 @@ def build_generator_array(
             entry["type"] = f"{FUEL_FAMILY_RENEWABLE}:{tag}"
         else:
             entry["type"] = tag  # bare ``thermal`` / ``renewable``
+        # Self-describing cogen flag — set at conversion time so
+        # downstream consumers (gtopt_marginal_units' merit-ladder
+        # walk-up, post-solve emission attribution, dispatch reports)
+        # don't need to re-derive cogen status from name patterns.  The
+        # bundled CEN cogen reference at
+        # ``share/gtopt/cogen/cen_chile_cogen.csv`` carries the full
+        # CEN cogen list (explicit ``Cogeneración - *`` SIP tags plus
+        # the pulp-mill / sulfur / refinery prefix patterns derived
+        # from CEN-SIP cross-reference + Informe-CEN docs).
+        if _is_cen_cogen(gen.name):
+            entry["is_cogen"] = True
         entry["description"] = (
             f"PLEXOS Generator '{gen.name}' at bus '{gen.bus_name}' → gtopt "
             f"Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate "

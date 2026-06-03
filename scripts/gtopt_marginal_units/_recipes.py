@@ -146,12 +146,26 @@ def _compute_consequential_moer(
     extra would be served by imports (cross-zone) or demand_fail; the
     per-zone heuristic correctly returns 0 there.
     """
+    # Filter to "real" combustion peakers.  Skip cogen units (biomass /
+    # biogas / geothermal cogen — CELCO, CMPC, ARAUCO, …): they are
+    # flagged ``thermal`` in plexos2gtopt but in CEN/PLEXOS are MustRun
+    # with ``declared_MC=0`` and a tiny leakage emission rate
+    # (~0.0002 tCO2eq/MWh), so they never act as backfill.  Including
+    # them would short-circuit the walk-up to a near-zero emission rate
+    # that misses the true carbon opportunity cost.  The ``is_cogen``
+    # flag (set by ``_gtopt_reader._is_cogen`` based on raw
+    # ``Generator.type`` sub-family ``biomasa`` / ``biogas`` /
+    # ``geothermal``) is the right discriminator — NOT ``declared_MC=0``,
+    # because CCGT block segments (``thermal:gas`` / ``thermal:diesel``)
+    # also carry MC=0 on the non-fuel-bearing segment but ARE
+    # dispatchable peakers.
     eligible = sorted(
         (
             g
             for g in gens_in_zone
             if (
-                g.declared_MC is not None
+                not g.is_cogen
+                and g.declared_MC is not None
                 and g.emission_rate is not None
                 and float(g.emission_rate) > 0.0
                 and float(g.pmax) > tol.eps
@@ -332,7 +346,18 @@ def build_recipes_for_cell(
         # of water / storage" rather than a misleading zero.
         cons_rate, cons_uid = consequential_by_zone.get(zid, (0.0, None))
         direct_em = r_em if not _isnan(r_em) else 0.0
-        if direct_em > tol.eps:
+        # Shortcut "direct = consequential" applies only when the
+        # marginal is a real combustion thermal (non-cogen).  When the
+        # LP-elected marginal is a cogen (biomass / sulfuric-acid plant
+        # with tiny leakage emission), we must walk UP the merit ladder
+        # for the real backfill emission — same as for hydro / BESS
+        # marginals — because cogen self-dispatches and never absorbs
+        # incremental demand.
+        marginal_all_cogen = bool(marginal_uids) and all(
+            (gen_by_uid.get(int(u)) is not None and gen_by_uid[int(u)].is_cogen)
+            for u in marginal_uids
+        )
+        if direct_em > tol.eps and not marginal_all_cogen:
             # Direct marginal already emits — consequential = direct.
             cons_rate = direct_em
             cons_uid = marginal_uids[0] if marginal_uids else None

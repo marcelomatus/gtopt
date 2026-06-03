@@ -219,6 +219,7 @@ def topology_from_planning(
             declared_mc = float(gcost)
 
         kind = _classify_kind(g, fuel_kind_by_ref)
+        is_cogen = _is_cogen(g)
 
         uid = int(g["uid"])
         # Prefer the per-gen JSON ``emission_rate`` when set; otherwise
@@ -236,6 +237,7 @@ def topology_from_planning(
                 declared_MC=declared_mc,
                 kind=kind,
                 emission_rate=emit_eff,
+                is_cogen=is_cogen,
             )
         )
 
@@ -252,6 +254,7 @@ def topology_from_planning(
                 declared_MC=g.declared_MC,
                 kind="profile" if g.uid in profile_uids else g.kind,
                 emission_rate=g.emission_rate,
+                is_cogen=g.is_cogen,
             )
             for g in generators
         ]
@@ -300,6 +303,147 @@ def _opt_float(v: object) -> float | None:
     if isinstance(v, (int, float)):
         return float(v)
     return None
+
+
+# ----------------------------------------------------------------------
+# CEN cogen reference list — loaded once and cached.
+# ----------------------------------------------------------------------
+#
+# The bundled CSV at ``share/gtopt/cogen/cen_chile_cogen.csv`` carries
+# explicit cogen identifications synthesised from three sources:
+#
+#   1. CEN-SIP ``unidades_generadoras`` (``nombre_tecnologia ==
+#      'Cogeneración - *'``) — the formal CEN registry.
+#   2. ``share/gtopt/emissions/cen_chile.json`` ``generator_overrides``
+#      where ``type`` starts with ``thermal:cogen``.
+#   3. Industrial-cogen central-name PREFIXES verified from CEN-SIP
+#      cross-reference + Informe CEN private docs (pulp-mill black-
+#      liquor cogen: CMPC, CELCO, ARAUCO, …; sulfur cogen: PAS_*; etc.).
+#
+# Loading is best-effort: if the CSV is missing or unreadable, ``_is_cogen``
+# falls back to the inline type/fuel/name heuristic.
+_COGEN_REFERENCE_NAMES: set[str] | None = None
+_COGEN_REFERENCE_PREFIXES: tuple[str, ...] = ()
+
+
+def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
+    """Load (exact-names, prefix-tuple) from the bundled CEN cogen CSV.
+
+    Cached after first call. Returns ``(set(), ())`` if the CSV is
+    missing / unreadable — caller falls back to the inline heuristic.
+    """
+    global _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
+    if _COGEN_REFERENCE_NAMES is not None:
+        return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
+    names: set[str] = set()
+    prefixes: list[str] = []
+    # Try the canonical bundled path first, then a couple of
+    # repo-root / pkg-relative fallbacks for source-tree runs.
+    from pathlib import Path  # noqa: PLC0415
+
+    candidates = [
+        Path("/home/marce/git/gtopt/share/gtopt/cogen/cen_chile_cogen.csv"),
+        Path(__file__).resolve().parents[3]
+        / "share"
+        / "gtopt"
+        / "cogen"
+        / "cen_chile_cogen.csv",
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            import csv  # noqa: PLC0415
+
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    name = str(row.get("name_upper", "")).strip().upper()
+                    if not name:
+                        continue
+                    source = str(row.get("source", "")).lower()
+                    if source.startswith("pattern_prefix:"):
+                        prefixes.append(name)
+                    else:
+                        names.add(name)
+            break
+        except OSError:
+            continue
+    _COGEN_REFERENCE_NAMES = names
+    _COGEN_REFERENCE_PREFIXES = tuple(prefixes)
+    return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
+
+
+def _is_cogen(g: dict) -> bool:
+    """Identify self-dispatching cogeneration units.
+
+    Cogen units in CEN are MustRun (``declared_MC=0``) with a small
+    leakage emission, and must NOT appear as backfill marginal units in
+    the merit-order walk-up.  Lookup is layered, most-explicit first:
+
+      1. **Explicit flag** — ``Generator.is_cogen == true`` on the
+         planning JSON (set by ``plexos2gtopt`` / ``plp2gtopt`` when
+         the converter has direct cogen info).
+      2. **Explicit type tag** — ``Generator.type`` starts with
+         ``thermal:cogen`` (the canonical convention used by
+         ``share/gtopt/emissions/cen_chile.json`` overrides; applied
+         by both converters when ``--emissions-file`` carries the
+         ``generator_overrides`` section).
+      3. **CEN reference list** — bundled
+         ``share/gtopt/cogen/cen_chile_cogen.csv`` (synthesised from
+         CEN-SIP ``unidades_generadoras`` + Informe-CEN industrial
+         patterns).  Match by exact upper-case name OR by central
+         name starting with one of the known cogen prefixes.
+      4. **Heuristic fallback** — biomass / biogas / geothermal raw
+         type, ``thermal:otros`` raw type, ``Otros_*`` / ``Noracid``
+         fuel name, ``PAS_*`` central-name prefix.
+
+    NOTE: ``thermal:gas`` / ``thermal:diesel`` segments of CCGT plants
+    (``ATA_CC1_TGA_GNL``, ``MEJILLONES_3_CA_GNL`` …) also carry
+    ``declared_MC=0`` (fuel cost attached to one segment of the block,
+    MC=0 on the rest) but they ARE dispatchable peakers — keep them
+    eligible.  The distinguishing feature is the fuel family / name,
+    not the MC.
+    """
+    # 1) Explicit flag set by the converter.
+    if bool(g.get("is_cogen", False)):
+        return True
+
+    raw_type = str(g.get("type", "")).lower()
+
+    # 2) Canonical ``thermal:cogen`` type tag (already applied by
+    # plp2gtopt's emissions overlay; future plexos2gtopt extension).
+    if raw_type.startswith("thermal:cogen"):
+        return True
+
+    # 3) CEN reference list — exact name OR prefix match.
+    name = str(g.get("name", "")).strip().upper()
+    if name:
+        ref_names, ref_prefixes = _load_cogen_reference()
+        if name in ref_names:
+            return True
+        for p in ref_prefixes:
+            if name.startswith(p):
+                return True
+
+    # 4) Heuristic fallback.
+    _family, _, sub = raw_type.partition(":")
+    if sub in ("biomasa", "biomass", "biogas", "geothermal"):
+        return True
+    if sub == "otros":
+        return True
+    fuel = g.get("fuel")
+    fuel_name = ""
+    if isinstance(fuel, str):
+        fuel_name = fuel
+    elif isinstance(fuel, dict):
+        fuel_name = str(fuel.get("name", ""))
+    fuel_name_lc = fuel_name.lower()
+    if fuel_name.startswith("Otros_") or "noracid" in fuel_name_lc:
+        return True
+    if name.startswith("PAS_"):
+        return True
+    return False
 
 
 def _classify_kind(g: dict, fuel_kind_by_ref: dict[object, str]) -> str:
