@@ -803,13 +803,19 @@ bool LineLP::add_to_output(OutputContext& out) const
 
   out.add_col_sol_values(cname, FlowName, pid, flow_signed_sol);
   out.add_col_cost_values(cname, FlowName, pid, flow_signed_cost);
-  // NOTE: the negative-direction `flown_sol` raw primal and the
-  // excluded reduced cost `flowe_cost` are intentionally NOT emitted.
-  // The unified `Line/flow_sol.parquet` (signed: positive = A→B,
-  // negative = B→A) carries the full direction information; the
-  // per-direction `flowp` / `flown` raw cols are an LP-internal
-  // implementation detail and downstream consumers should not depend
-  // on them.
+  // Extras (opt-in via ``--write-out extras`` or ``--write-out all``).
+  // The unified `Line/flow_sol.parquet` (signed: + = A→B, − = B→A)
+  // carries the full direction information; these directional raw
+  // streams are useful only for LP-debug / arbitrage diagnostics, so
+  // they ride the `extras` gate (off in the default `sol,dual,rc`).
+  //   * ``flown_sol``  = raw flown primal (always ≥ 0); ``flowp = flow +
+  //                       flown``
+  //   * ``flowe_cost`` = EXCLUDED reduced cost (the rc that the sign-based
+  //                      ``flow_cost`` rule did NOT pick).  Named ``flowe``
+  //                      not ``flown`` so the suffix reads as "excluded",
+  //                      not "negative direction".
+  out.add_col_sol_values_extras(cname, FlownName, pid, flown_extras_sol);
+  out.add_col_cost_values_extras(cname, FloweName, pid, flown_extras_cost);
 
   // Consolidated loss output: piecewise / bidirectional only.  none /
   // linear / piecewise_direct don't create loss vars so this is a no-op.
@@ -824,12 +830,11 @@ bool LineLP::add_to_output(OutputContext& out) const
   // gets the loss stream — required for post-solve loss-vs-flow audits
   // in ``gtopt_check_output``.
   //
-  // The directional split (``lossp_cols`` / ``lossn_cols``) is NOT
-  // emitted: same convention as ``flowp`` / ``flown`` — the consolidated
-  // stream is the contract surface, per-direction raw cols are an LP-
-  // internal implementation detail.  PAMPL UCs that want the per-block
-  // loss reference it as ``line.loss`` (class-level compound,
-  // ``+lossp + lossn``).
+  // The directional split is OPT-IN via the `extras` gate:
+  // `Line/lossn_sol.parquet` carries the B→A leg.  Useful for
+  // arbitrage diagnostics; the A→B leg is implicitly `loss − lossn`.
+  // PAMPL UCs that want the per-block total still reference the
+  // class-level compound `line.loss = +lossp + lossn`.
   if (!lossp_cols.empty() || !lossn_cols.empty()) {
     STBIndexHolder<std::vector<ColIndex>> loss_combined;
     auto merge_in = [&loss_combined](const auto& src)
@@ -844,6 +849,12 @@ bool LineLP::add_to_output(OutputContext& out) const
     merge_in(lossp_cols);
     merge_in(lossn_cols);
     out.add_col_sol(cname, LossName, pid, loss_combined);
+  }
+  // Extras-gated per-direction loss (B→A leg).  `lossn_cols` is empty
+  // for ``tangent_signed_flow`` / ``none`` / ``linear`` /
+  // ``piecewise_direct`` modes; the helper is a no-op in those cases.
+  if (!lossn_cols.empty()) {
+    out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
   }
 
   // Overload-slack solutions and costs: only populated when the
