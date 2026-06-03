@@ -759,7 +759,16 @@ TEST_CASE(
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
+  // Enable LP-row names so the row_name_map check below sees the
+  // class/constraint labels.  Default `LpMatrixOptions{}` has
+  // `row_with_name_map = false`, which leaves the label_maker at
+  // `LpNamesLevel::none` and skips the row-name string recording —
+  // that's the cause of the legacy `zone_req_rows == 0` regression
+  // (the underlying rows ARE there, just nameless).
+  LpMatrixOptions flat_opts {};
+  flat_opts.row_with_name_map = true;
+  flat_opts.col_with_names = true;
+  SystemLP system_lp(system, simulation_lp, flat_opts);
 
   auto&& lp = system_lp.linear_interface();
   auto result = lp.resolve();
@@ -777,7 +786,10 @@ TEST_CASE(
   // would build but the row count would tell us the difference.
   std::size_t zone_req_rows = 0;
   for (const auto& [name, _row] : lp.row_name_map()) {
-    if (name.find("InertiaZone") != std::string_view::npos
+    // Row names use the snake_case class label ("inertiazone") plus
+    // constraint name ("requirement"); the label-maker concatenates
+    // them as `<class>_<constraint>_<uid>_<scen>_<stage>_<block>`.
+    if (name.find("inertiazone") != std::string_view::npos
         && name.find("requirement") != std::string_view::npos)
     {
       ++zone_req_rows;

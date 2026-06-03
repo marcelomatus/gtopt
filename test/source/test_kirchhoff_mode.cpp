@@ -416,21 +416,25 @@ TEST_CASE(  // NOLINT
   // Walk the output directory and collect every entry whose path
   // contains "theta" (case-sensitive — the writer uses literal
   // class/field names).  None should be present under cycle_basis.
-  bool flowp_present = false;
+  // Search for the consolidated signed-flow stream (`Line/flow_sol`);
+  // `flowp` was retired when the signed-flow refactor folded both
+  // directions into a single sol stream.  The unsigned `flow_sol`
+  // file is what the operationally-important line-flow output is now.
+  bool flow_present = false;
   std::vector<std::string> theta_artefacts;
   for (auto const& dir_entry :
        std::filesystem::recursive_directory_iterator(tmpdir))
   {
     const auto p = dir_entry.path().string();
-    if (p.contains("flowp")) {
-      flowp_present = true;
+    if (p.contains("flow_sol")) {
+      flow_present = true;
     }
     if (p.contains("theta")) {
       theta_artefacts.push_back(p);
     }
   }
   // The line flow solution is the operationally important output.
-  CHECK(flowp_present);
+  CHECK(flow_present);
   // No theta col_sol / col_cost / row_dual leaks through.
   CHECK(theta_artefacts.empty());
 

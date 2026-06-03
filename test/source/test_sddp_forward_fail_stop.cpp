@@ -189,26 +189,29 @@ TEST_CASE(  // NOLINT
 // ─── Branch 4 — Option / JSON wiring ───────────────────────────────────────
 
 TEST_CASE(  // NOLINT
-    "SDDPOptions::sddp_forward_fail_stop default is true; can be flipped")
+    "SDDPOptions::sddp_forward_fail_stop default is false; can be flipped")
 {
-  // SDDPOptions struct default is `true`; the SddpOptions JSON wrapper
-  // is `OptBool` (nullopt by default) and resolves through
-  // `PlanningOptionsLP::sddp_forward_fail_stop()` to `true`.
+  // SDDPOptions struct default flipped from `true` → `false` (see
+  // `planning_options_lp.hpp::default_sddp_forward_fail_stop`): the
+  // PLP-style backtracking cascade is the more intuitive default
+  // (give up only when the scene is truly unrecoverable).  Production
+  // callers that want the per-iteration accumulation strategy must
+  // set `forward_fail_stop = true` explicitly.
   const SDDPOptions defaults {};
-  CHECK(defaults.forward_fail_stop == true);
+  CHECK(defaults.forward_fail_stop == false);
 
   SDDPOptions flipped;
-  flipped.forward_fail_stop = false;
-  CHECK(flipped.forward_fail_stop == false);
+  flipped.forward_fail_stop = true;
+  CHECK(flipped.forward_fail_stop == true);
 }
 
 TEST_CASE(  // NOLINT
-    "PlanningOptionsLP::sddp_forward_fail_stop default true; honours OptBool")
+    "PlanningOptionsLP::sddp_forward_fail_stop default false; honours OptBool")
 {
   // Default-constructed PlanningOptionsLP — no `forward_fail_stop` set
   // anywhere in the JSON-derived option bag.
   const PlanningOptionsLP defaults_lp;
-  CHECK(defaults_lp.sddp_forward_fail_stop() == true);
+  CHECK(defaults_lp.sddp_forward_fail_stop() == false);
 
   // Explicit override via `PlanningOptions::sddp_options` → wraps
   // through `value_or(default_sddp_forward_fail_stop)`.

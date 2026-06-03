@@ -339,7 +339,11 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   // "_s0_p0".
   res.generation =
       read_uid_values(out_dir / "Generator" / "generation_sol_s0_p0", 3);
-  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol_s0_p0", 9);
+  // `Line/flowp_sol` was retired by the signed-flow consolidation
+  // (`Line/flow_sol` is the unified positive-A→B / negative-B→A
+  // stream).  Read the consolidated stream — magnitude comparison
+  // across equilibration modes is invariant to the sign change.
+  res.flowp = read_uid_values(out_dir / "Line" / "flow_sol_s0_p0", 9);
   res.load = read_uid_values(out_dir / "Demand" / "load_sol_s0_p0", 3);
   res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual_s0_p0", 9);
 
@@ -480,7 +484,7 @@ TEST_CASE(  // NOLINT
       const auto d = tmp_base / mode;
       CHECK(std::filesystem::exists(d / "Generator"
                                     / "generation_sol_s0_p0.csv"));
-      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Line" / "flow_sol_s0_p0.csv"));
       CHECK(std::filesystem::exists(d / "Demand" / "load_sol_s0_p0.csv"));
       CHECK(std::filesystem::exists(d / "solution.csv"));
     }
