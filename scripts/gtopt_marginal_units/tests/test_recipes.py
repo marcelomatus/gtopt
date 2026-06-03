@@ -696,12 +696,24 @@ def test_43_empty_island_single_bus_decommissioned_gens():
 
     bus = Bus(uid=175, name="Ralco220")
     ralco = Generator(
-        uid=65, name="RALCO", bus_uid=175, pmin=0.0, pmax=0.0,
-        declared_MC=0.0, kind="thermal", emission_rate=None,
+        uid=65,
+        name="RALCO",
+        bus_uid=175,
+        pmin=0.0,
+        pmax=0.0,
+        declared_MC=0.0,
+        kind="thermal",
+        emission_rate=None,
     )
     palmucho = Generator(
-        uid=66, name="PALMUCHO", bus_uid=175, pmin=0.0, pmax=0.0,
-        declared_MC=0.0, kind="thermal", emission_rate=None,
+        uid=66,
+        name="PALMUCHO",
+        bus_uid=175,
+        pmin=0.0,
+        pmax=0.0,
+        declared_MC=0.0,
+        kind="thermal",
+        emission_rate=None,
     )
     topo = Topology(buses=[bus], generators=[ralco, palmucho], lines=[])
     _, zone_results = _zone_results_from_lp_duals(
@@ -756,8 +768,14 @@ def test_43_not_empty_when_gen_has_capacity_but_idle():
 
     bus = Bus(uid=44, name="X")
     gen = Generator(
-        uid=900, name="IDLE_THERMAL", bus_uid=44, pmin=0.0, pmax=100.0,
-        declared_MC=50.0, kind="thermal", emission_rate=0.5,
+        uid=900,
+        name="IDLE_THERMAL",
+        bus_uid=44,
+        pmin=0.0,
+        pmax=100.0,
+        declared_MC=50.0,
+        kind="thermal",
+        emission_rate=0.5,
     )
     topo = Topology(buses=[bus], generators=[gen], lines=[])
     _, zone_results = _zone_results_from_lp_duals(

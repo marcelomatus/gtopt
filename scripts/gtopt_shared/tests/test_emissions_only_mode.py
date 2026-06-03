@@ -732,9 +732,7 @@ class TestNREL118OnlyEmissionsInversion:
         # is exercised.
         if pl["system"]["demand_array"]:
             pl["system"]["demand_array"][0]["fcost"] = 1000.0
-            apply_emission_defaults_from_file(
-                pl, cen_chile_path, only_emissions=True
-            )
+            apply_emission_defaults_from_file(pl, cen_chile_path, only_emissions=True)
             assert pl["system"]["demand_array"][0]["fcost"] == pytest.approx(
                 150.0 / 35.0
             )
@@ -836,9 +834,9 @@ class TestMultiPollutantZones:
 
     def _planning_with_multi_pollutant_zones(self) -> dict:
         """Planning with three zones:
-          1. global_ghg ($35 SCC) basket = CO2 + CH4·GWP + N2O·GWP
-          2. nox_zone   ($5000) basket = NOx
-          3. so2_zone   ($12000) basket = SO2
+        1. global_ghg ($35 SCC) basket = CO2 + CH4·GWP + N2O·GWP
+        2. nox_zone   ($5000) basket = NOx
+        3. so2_zone   ($12000) basket = SO2
         """
         pl = _make_planning()
         # Replace single-zone with multi-pollutant config
@@ -899,9 +897,7 @@ class TestMultiPollutantZones:
         pl = self._planning_with_multi_pollutant_zones()
         apply_emission_overrides(pl)
         ghg = next(
-            z
-            for z in pl["system"]["emission_zone_array"]
-            if z["name"] == "global_ghg"
+            z for z in pl["system"]["emission_zone_array"] if z["name"] == "global_ghg"
         )
         weights = {e["emission"]: e["weight"] for e in ghg["emissions"]}
         assert weights["co2"] == pytest.approx(1.0)
@@ -918,9 +914,7 @@ class TestMultiPollutantZones:
         }
         apply_emission_overrides(pl)
         for f in pl["system"]["fuel_array"]:
-            for b, a in zip(
-                before_efs[f["name"]], f.get("emission_factors", [])
-            ):
+            for b, a in zip(before_efs[f["name"]], f.get("emission_factors", [])):
                 assert b["emission"] == a["emission"]
                 assert b["combustion"] == pytest.approx(a["combustion"])
 
@@ -1015,9 +1009,9 @@ class TestMultiPollutantThroughOverlay:
         assert pl["options"]["model_options"]["objective_mode"] == "emissions"
         # Slack values scaled by SCC (= 35, the GHG zone price) — bridge
         # factor doesn't change per-zone
-        assert pl["options"]["model_options"][
-            "demand_fail_cost"
-        ] == pytest.approx(150.0 / 35.0)
+        assert pl["options"]["model_options"]["demand_fail_cost"] == pytest.approx(
+            150.0 / 35.0
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1055,19 +1049,23 @@ class TestIssue521ReservoirTerminalReanchoring:
                 "decision_variable_array": [],
                 "emission_zone_array": [
                     {
-                        "uid": 1, "name": "global", "price": 35.0,
+                        "uid": 1,
+                        "name": "global",
+                        "price": 35.0,
                         "emissions": [{"emission": "co2", "weight": 1.0}],
                     }
                 ],
                 "reservoir_array": [
                     {
-                        "uid": 1, "name": "L_Maule",
-                        "water_value": 50.0,         # $/hm³ — cost mode
-                        "efin_cost": 100000.0,        # $/hm³ — cost mode
+                        "uid": 1,
+                        "name": "L_Maule",
+                        "water_value": 50.0,  # $/hm³ — cost mode
+                        "efin_cost": 100000.0,  # $/hm³ — cost mode
                         "water_emission_value": 4.4365,  # tCO2eq / (m³/s)·h
                     },
                     {
-                        "uid": 2, "name": "EmptyEPF",
+                        "uid": 2,
+                        "name": "EmptyEPF",
                         "water_value": 25.0,
                         # no water_emission_value (EPF=0) → leave alone
                     },
@@ -1104,13 +1102,27 @@ class TestIssue521GeneratorFuelPriceOverride:
         pl = {
             "options": {"model_options": {}},
             "system": {
-                "bus_array": [], "demand_array": [], "line_array": [],
-                "fuel_array": [], "commitment_array": [], "battery_array": [],
-                "waterway_array": [], "flow_array": [], "flow_right_array": [],
-                "junction_array": [], "user_constraint_array": [],
-                "decision_variable_array": [], "reservoir_array": [],
-                "emission_zone_array": [{"uid": 1, "name": "g", "price": 35.0,
-                                          "emissions": [{"emission": "co2", "weight": 1.0}]}],
+                "bus_array": [],
+                "demand_array": [],
+                "line_array": [],
+                "fuel_array": [],
+                "commitment_array": [],
+                "battery_array": [],
+                "waterway_array": [],
+                "flow_array": [],
+                "flow_right_array": [],
+                "junction_array": [],
+                "user_constraint_array": [],
+                "decision_variable_array": [],
+                "reservoir_array": [],
+                "emission_zone_array": [
+                    {
+                        "uid": 1,
+                        "name": "g",
+                        "price": 35.0,
+                        "emissions": [{"emission": "co2", "weight": 1.0}],
+                    }
+                ],
                 "generator_array": [
                     {"uid": 1, "name": "g1", "fuel_price_override": 25.0},
                     {"uid": 2, "name": "g2", "fuel_price_override": 0.0},
