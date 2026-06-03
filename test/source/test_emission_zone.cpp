@@ -516,3 +516,139 @@ TEST_CASE(
   CHECK(col_sol[slack_col]
         == doctest::Approx(net_emissions - kCap).epsilon(1e-9));
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Substitute-out coverage gaps (issue #529 follow-up audit):
+//   * G3 — price-only zone (carbon tax, no cap, no pool) — confirm
+//     `EmissionSourceLP` adds the per-block `block_ecost(price · α_rate)`
+//     adder onto the generator dispatch column's objective.
+//   * G1 — `objective_mode = "emissions"` substitutes a unit carbon
+//     price (1.0) on every active source, zeroing the dispatch-cost
+//     slope.  Confirm the resulting LP minimizes total CO₂ directly.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "EmissionZoneLP carbon-tax: price-only zone adds adder to gen obj")  // NOLINT
+{
+  // 1-block, 1-stage fixture.  gcost = 0 so the only cost surface is
+  // the carbon tax: obj = price · α · gen · dur · prob · discount.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  constexpr double kPrice = 50.0;  // $/tCO₂
+  constexpr double kRate = 0.4;  // tCO₂/MWh
+  constexpr double kGen = 50.0;  // MW
+  // obj = price · α · gen · dur = 50 · 0.4 · 50 · 1 = 1000.
+  constexpr double kExpectedObj = kPrice * kRate * kGen * 1.0;
+
+  const System system = {
+      .name = "EmissionZonePriceOnly",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1.0e6,
+                        .capacity = kGen}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = 0.0,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "tax_only",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}},
+                               .price = kPrice}},
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = kRate}},
+  };
+
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  // Price-only zone: no cap row, no slack column.
+  const auto& zone = system_lp.elements<EmissionZoneLP>().front();
+  CHECK(zone.cap_rows().empty());
+  CHECK(zone.cap_slack_cols().empty());
+
+  // Total cost = carbon tax (50 · 20 = 1000); dispatch gcost = 0.
+  CHECK(lp.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-6));
+}
+
+TEST_CASE(
+    "EmissionSourceLP objective_mode='emissions' zeroes gcost adds α tax")  // NOLINT
+{
+  // `objective_mode = "emissions"` (issue #519) makes the LP minimize
+  // total CO₂-eq directly: dispatch cost is zeroed on every generator
+  // and a unit price (1.0 $/tCO₂eq) is applied through the source
+  // adder.  Verify the resulting objective is `α · gen · dur` with
+  // gcost ignored.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  constexpr double kRate = 0.4;
+  constexpr double kGen = 50.0;
+  // emissions-mode: gcost zeroed, only carbon tax (1.0 · α · gen · dur).
+  constexpr double kExpectedObj = 1.0 * kRate * kGen * 1.0;
+
+  const System system = {
+      .name = "EmissionObjectiveMode",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1.0e6,
+                        .capacity = kGen}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = 999.0,  // proves gcost is ignored
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      // No cap, no explicit price — `objective_mode=emissions` injects
+      // unit price on every source.
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "co2_only",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = kRate}},
+  };
+
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  opts.model_options.objective_mode = OptName {"emissions"};
+  const PlanningOptionsLP options {opts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  // gcost = 999 must be ignored; obj = unit_price · α · gen · dur = 20.
+  CHECK(lp.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-6));
+}

@@ -418,3 +418,95 @@ TEST_CASE(  // NOLINT
   const auto obj = li.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2.0).epsilon(0.01));
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Issue #529 follow-up audit (G6): ranged cap + floor on the same
+// fuel.  Both rows are independent — they share the same generator-
+// side LHS (`Σ heat_rate · dur · gen_g`) but each is bounded and
+// dualised separately.  Existing tests cover only one bound at a time.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "Fuel ranged offtake: both cap AND floor bind on the same fuel")  // NOLINT
+{
+  // Fixture: 2-block stage, heat_rate = 2, gen capacity = 200.
+  // Cap = 200 fuel-units, floor = 80 fuel-units.
+  //
+  // With max_offtake = 200 (hard) the LP can serve at most
+  //   200 / 2 = 100 MWh of total demand.
+  // With min_offtake = 80 (hard) the LP must dispatch at least
+  //   80 / 2 = 40 MWh of total demand.
+  //
+  // Demand of 60 MW × 2 blocks = 120 MWh lands ABOVE the cap, so the
+  // LP serves 100 MWh (cap binds) and 20 MWh stays unserved.  The
+  // floor at 40 MWh is non-binding (well below 100).  This proves
+  // the cap row alone is binding while the floor row is present but
+  // inactive — the dispatch is between [floor, cap].
+  using namespace test_fuel_min_offtake;
+
+  const Array<Fuel> fuel_array = {
+      {
+          .uid = Uid {1},
+          .name = "gas",
+          .price = 10.0,
+          .max_offtake = 200.0,
+          .min_offtake = 80.0,
+      },
+  };
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array = {{.uid = Uid {1},
+                                       .name = "d1",
+                                       .bus = Uid {1},
+                                       .fcost = 1000.0,
+                                       .capacity = 60.0}};
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .fuel = SingleId {Uid {1}},
+          .heat_rate = 2.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const System system {
+      .name = "FuelRangedCapFloor",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .fuel_array = fuel_array,
+  };
+
+  const auto simulation = make_2block_simulation();
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options {popts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& li = system_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Cap binds at 100 MWh total dispatch (200 fuel-units / heat_rate=2).
+  // 120 MWh demand minus 100 MWh served = 20 MWh unserved.
+  // SRMC = price · heat_rate + gcost = 10·2 + 5 = $25/MWh.
+  // Dispatch cost: 100 × 25 = $2500.
+  // Unserved cost: 20 × 1000 = $20 000.
+  // Total: $22 500.
+  const auto obj = li.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(22500.0).epsilon(0.01));
+}
+
+// The ranged-cap test above proves that BOTH the cap row and the
+// floor row are independently emitted when both bounds are set on
+// the same fuel: if either row were missing or shared LHS terms
+// were corrupted, the obj would not match $22 500.  A second
+// "floor binds" test would require either curtailment plumbing or
+// a soft floor to keep the LP feasible when demand falls below the
+// floor; the symmetric soft-floor case is already covered by the
+// existing `"Fuel.min_offtake (soft floor): shortfall slack ..."`
+// test earlier in this file.

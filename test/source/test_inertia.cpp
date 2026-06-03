@@ -799,5 +799,86 @@ TEST_CASE(
   CHECK(zone_req_rows == 2);
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Substitute-out regression (issue #529 item 2 / follow-up audit G5):
+// mirror of the ReserveZone test in test_reserve_zone.cpp.  When no
+// `cost` is set on an InertiaZone, the legacy form built a fully-pinned
+// bookkeeping column (lowb = uppb = requirement, cost = 0); the new form
+// drops the column and stamps `requirement` on the row RHS instead.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "InertiaZoneLP substitute-out: hard req skips the pinned col")  // NOLINT
+{
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const Array<Bus> bus_array_local = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Demand> demand_array_local = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 100.0}};
+
+  const Array<Generator> generator_array_local = {{.uid = Uid {1},
+                                                   .name = "g1",
+                                                   .bus = Uid {1},
+                                                   .gcost = 10.0,
+                                                   .capacity = 200.0}};
+
+  const Array<InertiaZone> inertia_zone_array_local = {
+      {
+          .uid = Uid {1},
+          .name = "iz_hard",
+          .requirement = 50.0,
+          // NO `.cost` — exercises the hard substitute-out branch.
+      },
+  };
+
+  const Array<InertiaProvision> inertia_provision_array_local = {
+      {.uid = Uid {1},
+       .name = "ip1",
+       .generator = Uid {1},
+       .inertia_zones = {SingleId {Uid {1}}},
+       .provision_factor = 1.0},
+  };
+
+  const System system {
+      .name = "InertiaZoneHardReqSubstitute",
+      .bus_array = bus_array_local,
+      .demand_array = demand_array_local,
+      .generator_array = generator_array_local,
+      .inertia_zone_array = inertia_zone_array_local,
+      .inertia_provision_array = inertia_provision_array_local,
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto& iz_collection =
+      std::get<Collection<InertiaZoneLP>>(system_lp.collections());
+  REQUIRE(!iz_collection.elements().empty());
+  const auto& iz_lp = iz_collection.elements()[0];
+
+  const auto& scenario = simulation_lp.scenarios()[0];
+  const auto& stage = simulation_lp.stages()[0];
+  const auto buid = make_uid<Block>(1);
+
+  // No bookkeeping column on the hard branch.
+  const auto req_col = iz_lp.lookup_requirement_col(scenario, stage, buid);
+  CHECK_FALSE(req_col.has_value());
+
+  // Row still present with RHS = block_rreq.
+  const auto& rows = iz_lp.requirement_rows();
+  const auto rows_it = rows.find({scenario.uid(), stage.uid()});
+  REQUIRE(rows_it != rows.end());
+  REQUIRE(rows_it->second.find(buid) != rows_it->second.end());
+}
+
 // NOLINTEND(bugprone-throwing-static-initialization,
 // bugprone-unchecked-optional-access, cert-err58-cpp)

@@ -521,3 +521,81 @@ TEST_CASE(
   REQUIRE(sources.size() == 1);
   CHECK(sources.front().emission_source().name == "g_zero_co2");
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// PAMPL accessor `emission_source('X').emissions` (issue #529 follow-up
+// audit, gap G2).  After the EmissionZone.production substitute-out
+// the per-source emission expression `Σ_b α_b · gen_b` is exposed as
+// an AMPL weighted-sum-of-cols attribute — no aggregator LP column.
+// A user constraint `emission_source('X').emissions <= K` must
+// translate to direct coefficient stamps on the generator dispatch
+// columns at constraint-build time.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "PAMPL emission_source('X').emissions UC binds via weighted-sum")  // NOLINT
+{
+  // 1-block, 1-stage.  Zone is pure reporting (no cap / price / pool).
+  // The UC `emissions <= 10.0` constrains net per-block tonnage; with
+  // rate = 0.4 the gen is capped at 25 MW; 25 MWh of the 50 MW demand
+  // is unserved and pays the fail-cost.
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  constexpr double kRate = 0.4;
+  constexpr double kDemand = 50.0;
+  constexpr double kCap = 10.0;
+  constexpr double kFailCost = 1000.0;
+  // Gen capped at 25 MW (rate × gen ≤ 10) ⇒ 25 MWh unserved at $1000/MWh.
+  // Plus gcost on the 25 MW served.
+  constexpr double kGenAllowed = kCap / kRate;  // 25
+  constexpr double kUnserved = kDemand - kGenAllowed;  // 25
+  constexpr double kGcost = 10.0;
+  constexpr double kExpectedObj = kGenAllowed * kGcost + kUnserved * kFailCost;
+
+  const System system = {
+      .name = "EmissionSourcePamplUC",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = kFailCost,
+                        .capacity = kDemand}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = kGcost,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"}},
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "report_only",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}}}},
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_co2",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {1},
+                                 .rate = kRate}},
+      .user_constraint_array = {{.uid = Uid {1},
+                                 .name = "uc_emissions_cap",
+                                 .expression =
+                                     "emission_source('g1_co2').emissions "
+                                     "<= 10.0"}},
+  };
+
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {popts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  CHECK(lp.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-6));
+}
