@@ -61,6 +61,16 @@ public:
   /// LineLP KVL emission uses (``LineLP::ThetaName``) since we
   /// MUTATE that row in place to become the upper half.
   static constexpr std::string_view KvlMinusName {"kvl_minus"};
+  /// Knueven–Ostrowski–Watson 2020 three-binary decomposition labels.
+  /// Active only when ``LineCommitment.startup_cost`` or
+  /// ``shutdown_cost`` is set (see header docstring §"u/v/w (v1.1)").
+  static constexpr std::string_view StartupName {"startup"};
+  static constexpr std::string_view ShutdownName {"shutdown"};
+  /// C1 logic transition row: ``u[t] − u[t−1] − v[t] + w[t] = 0``.
+  static constexpr std::string_view LogicName {"logic"};
+  /// C3 exclusion row: ``v[t] + w[t] ≤ 1`` (mutual exclusion of the
+  /// startup and shutdown indicators).
+  static constexpr std::string_view ExclusionName {"exclusion"};
 
   using Base = ObjectLP<LineCommitment>;
 
@@ -99,6 +109,12 @@ private:
   STBIndexHolder<ColIndex> status_cols_;
   STBIndexHolder<RowIndex> capacity_p_rows_;
   STBIndexHolder<RowIndex> capacity_n_rows_;
+  /// u/v/w decomposition (v1.1): only populated when
+  /// ``startup_cost`` or ``shutdown_cost`` is set on the schema.
+  STBIndexHolder<ColIndex> startup_cols_;
+  STBIndexHolder<ColIndex> shutdown_cols_;
+  STBIndexHolder<RowIndex> logic_rows_;
+  STBIndexHolder<RowIndex> exclusion_rows_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

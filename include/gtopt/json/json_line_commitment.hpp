@@ -32,7 +32,9 @@ struct json_data_contract<LineCommitment>
                                          OptTBRealFieldSched,
                                          jvtl_TBRealFieldSched>,
                        json_bool_null<"relax", OptBool>,
-                       json_number_null<"kvl_big_m", OptReal>>;
+                       json_number_null<"kvl_big_m", OptReal>,
+                       json_number_null<"startup_cost", OptReal>,
+                       json_number_null<"shutdown_cost", OptReal>>;
 
   constexpr static auto to_json_data(LineCommitment const& obj)
   {
@@ -46,7 +48,9 @@ struct json_data_contract<LineCommitment>
                                  obj.must_run,
                                  obj.fixed_status,
                                  obj.relax,
-                                 obj.kvl_big_m);
+                                 obj.kvl_big_m,
+                                 obj.startup_cost,
+                                 obj.shutdown_cost);
   }
 };
 

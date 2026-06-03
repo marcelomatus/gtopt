@@ -168,6 +168,27 @@ struct LineCommitment
   /// build emits no KVL row in that mode and the big-M is never
   /// consumed.
   OptReal kvl_big_m {};
+
+  /// Per-event line-CLOSING (startup) cost ($).  When set together
+  /// with ``shutdown_cost`` (or alone), ``LineCommitmentLP`` switches
+  /// from the simple ``u_l ∈ {0,1}`` form to the Knueven–Ostrowski–
+  /// Watson 2020 / Morales-España et al. 2013 three-binary
+  /// decomposition: ``u_l`` (status) is the only declared integer,
+  /// ``v_l ∈ [0,1]`` (closing event) and ``w_l ∈ [0,1]`` (opening
+  /// event) are continuous-but-implied-binary auxiliaries, joined by
+  ///   C1:  u_l[t] − u_l[t−1] − v_l[t] + w_l[t] = 0
+  ///   C3:  v_l[t] + w_l[t] ≤ 1
+  /// The objective gains ``startup_cost · Σ v_l`` and
+  /// ``shutdown_cost · Σ w_l``.  Inert on non-chronological stages
+  /// (the v/w decomposition is meaningless without block ordering;
+  /// mirrors ``CommitmentLP``).
+  OptReal startup_cost {};
+
+  /// Per-event line-OPENING (shutdown) cost ($).  Symmetric to
+  /// ``startup_cost``; setting either field activates the u/v/w
+  /// decomposition.  Both default to zero (no event cost ⇒ the
+  /// simple ``u_l``-only form remains in use).
+  OptReal shutdown_cost {};
 };
 
 }  // namespace gtopt

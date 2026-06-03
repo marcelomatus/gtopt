@@ -15,6 +15,7 @@
 #include <cmath>
 #include <numbers>
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/line_enums.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -180,8 +181,20 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // than the default ``[0, 1]`` (we only narrow one of the bounds).
     // Applied only to the FIRST block of the stage so that future
     // blocks remain decided by the solver.  Self-review P2-4 follow-up.
-    if (!has_fixed && !is_must_run && buid == blocks.front().uid()
-        && lc.initial_status.has_value())
+    //
+    // (v1.1) When the u/v/w decomposition is active
+    // (``startup_cost > 0 || shutdown_cost > 0``), ``initial_status``
+    // has a DIFFERENT meaning: it is the breaker state at ``t = −1``
+    // (pre-stage) used as the RHS of C1₀ to count a startup event at
+    // ``t = 0`` when transitioning from open to closed.  Pinning
+    // ``u[0]`` in that mode would over-constrain the LP (force the
+    // breaker open at ``t = 0`` even when serving demand requires it
+    // closed), so the pin is suppressed and the C1₀ row carries the
+    // semantics instead.
+    const bool uvw_active = lc.startup_cost.value_or(0.0) != 0.0
+        || lc.shutdown_cost.value_or(0.0) != 0.0;
+    if (!has_fixed && !is_must_run && !uvw_active
+        && buid == blocks.front().uid() && lc.initial_status.has_value())
     {
       const double init = lc.initial_status.value();
       u_lowb = u_uppb = (init >= 0.5) ? 1.0 : 0.0;
@@ -361,6 +374,150 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     }
   }
 
+  // ── (v1.1) u/v/w decomposition for line startup / shutdown costs ──
+  //
+  // Active iff ``LineCommitment.startup_cost`` or ``.shutdown_cost`` is
+  // set.  Mirrors the CommitmentLP three-binary formulation (Knueven,
+  // Ostrowski & Watson 2020 / Morales-España et al. 2013):
+  //
+  //   v_l[t]  startup indicator  (continuous-in-[0,1], implied binary)
+  //   w_l[t]  shutdown indicator (continuous-in-[0,1], implied binary)
+  //   C1:     u_l[t] − u_l[t−1] − v_l[t] + w_l[t] = 0       (t > 0)
+  //   C1₀:    u_l[0] − v_l[0]            + w_l[0] = initial_status
+  //   C3:     v_l[t] + w_l[t] ≤ 1
+  //
+  // Declaring only u_l integer (not v_l, w_l) is correct: the C1 logic
+  // equality plus the C3 exclusion plus the non-negative startup /
+  // shutdown costs force v_l, w_l to the integer up/down transition of
+  // an integer u_l at every optimal vertex.  Cuts branching variables
+  // by ~2/3 with the same feasible set.
+  const auto startup_cost = lc.startup_cost.value_or(0.0);
+  const auto shutdown_cost = lc.shutdown_cost.value_or(0.0);
+  if (!ucols.empty() && (startup_cost != 0.0 || shutdown_cost != 0.0)) {
+    BIndexHolder<ColIndex> vcols;
+    BIndexHolder<ColIndex> wcols;
+    BIndexHolder<RowIndex> lrows;
+    BIndexHolder<RowIndex> erows;
+    map_reserve(vcols, blocks.size());
+    map_reserve(wcols, blocks.size());
+    map_reserve(lrows, blocks.size());
+    map_reserve(erows, blocks.size());
+
+    // C1's first-block RHS: ``initial_status`` (0 or 1) if the user
+    // pinned the breaker's pre-stage state; default to 0 (assume open
+    // before the stage starts — matches CommitmentLP convention).
+    double initial_u = 0.0;
+    if (lc.initial_status.has_value()) {
+      initial_u = (lc.initial_status.value() >= 0.5) ? 1.0 : 0.0;
+    }
+
+    ColIndex prev_ucol {};
+    bool first_block = true;
+
+    for (const auto& block : blocks) {
+      const auto buid = block.uid();
+      const auto u_it = ucols.find(buid);
+      if (u_it == ucols.end()) {
+        // No u_col for this block (LineLP elided it — outage).  Skip
+        // the v/w/C1/C3 emission too: an open-circuit block has no
+        // switching event.
+        continue;
+      }
+      const auto ucol = u_it->second;
+      const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
+
+      // Per-event costs are FACE-VALUE (not multiplied by block
+      // duration): startup is a one-time cost when the breaker
+      // closes, not a per-hour cost.  Apply scenario probability +
+      // stage discount via ``cost_factor`` only.  Mirrors
+      // ``CommitmentLP::add_to_lp`` v/w cost wiring.
+      const auto v_cost = startup_cost
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor());
+      const auto w_cost = shutdown_cost
+          * CostHelper::cost_factor(scenario.probability_factor(),
+                                    stage.discount_factor());
+
+      // Continuous-in-[0,1] v_l with ``pin_scale = true`` (the C1
+      // equality references its coefficient literally; we don't want
+      // VariableScaleMap to silently rescale it).
+      const auto vcol = lp.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = v_cost,
+          .is_integer = false,
+          .pin_scale = true,
+          .class_name = cname,
+          .variable_name = StartupName,
+          .variable_uid = cuid,
+          .context = ctx,
+      });
+      vcols[buid] = vcol;
+
+      const auto wcol = lp.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 1.0,
+          .cost = w_cost,
+          .is_integer = false,
+          .pin_scale = true,
+          .class_name = cname,
+          .variable_name = ShutdownName,
+          .variable_uid = cuid,
+          .context = ctx,
+      });
+      wcols[buid] = wcol;
+
+      // C1: u[t] − u[t−1] − v[t] + w[t] = 0
+      //   t = 0:  u[0] − v[0] + w[0] = initial_u
+      {
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = LogicName,
+            .variable_uid = cuid,
+            .context = ctx,
+        };
+        row.equal(first_block ? initial_u : 0.0);
+        row[ucol] = 1.0;
+        if (!first_block) {
+          row[prev_ucol] = -1.0;
+        }
+        row[vcol] = -1.0;
+        row[wcol] = 1.0;
+        lrows[buid] = lp.add_row(std::move(row));
+      }
+
+      // C3: v[t] + w[t] ≤ 1
+      {
+        SparseRow row {
+            .class_name = cname,
+            .constraint_name = ExclusionName,
+            .variable_uid = cuid,
+            .context = ctx,
+        };
+        row.less_equal(1.0);
+        row[vcol] = 1.0;
+        row[wcol] = 1.0;
+        erows[buid] = lp.add_row(std::move(row));
+      }
+
+      prev_ucol = ucol;
+      first_block = false;
+    }
+
+    if (!vcols.empty()) {
+      startup_cols_[st_key] = std::move(vcols);
+    }
+    if (!wcols.empty()) {
+      shutdown_cols_[st_key] = std::move(wcols);
+    }
+    if (!lrows.empty()) {
+      logic_rows_[st_key] = std::move(lrows);
+    }
+    if (!erows.empty()) {
+      exclusion_rows_[st_key] = std::move(erows);
+    }
+  }
+
   // Store index holders.
   if (!ucols.empty()) {
     status_cols_[st_key] = std::move(ucols);
@@ -396,6 +553,16 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
 
   out.add_row_dual(cname, CapacityPName, pid, capacity_p_rows_);
   out.add_row_dual(cname, CapacityNName, pid, capacity_n_rows_);
+
+  // u/v/w decomposition outputs (v1.1).  All empty when startup_cost
+  // and shutdown_cost are both zero — ``add_col_sol_*`` / ``add_row_dual``
+  // are no-ops on empty STBIndexHolders.
+  out.add_col_sol_integer(cname, StartupName, pid, startup_cols_);
+  out.add_col_cost(cname, StartupName, pid, startup_cols_);
+  out.add_col_sol_integer(cname, ShutdownName, pid, shutdown_cols_);
+  out.add_col_cost(cname, ShutdownName, pid, shutdown_cols_);
+  out.add_row_dual(cname, LogicName, pid, logic_rows_);
+  out.add_row_dual(cname, ExclusionName, pid, exclusion_rows_);
 
   return true;
 }

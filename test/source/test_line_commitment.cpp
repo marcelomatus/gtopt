@@ -687,3 +687,204 @@ TEST_CASE("LineCommitmentLP: must_run = true matches baseline objective")
 
   CHECK(obj_ots == doctest::Approx(obj_baseline).epsilon(1e-6));
 }
+
+// ── (9) u/v/w decomposition (v1.1) ──────────────────────────────────
+//
+// When ``LineCommitment.startup_cost`` or ``shutdown_cost`` is set,
+// LineCommitmentLP emits the Knueven-Ostrowski-Watson 2020 three-
+// binary decomposition:
+//   v_l[t]  startup indicator,  continuous-in-[0,1], implied integer
+//   w_l[t]  shutdown indicator, continuous-in-[0,1], implied integer
+//   C1:  u[t] − u[t−1] − v[t] + w[t] = 0  (= initial_status for t=0)
+//   C3:  v[t] + w[t] ≤ 1
+
+[[nodiscard]] std::string make_3block_uvw_json(double startup_cost,
+                                               double shutdown_cost,
+                                               double initial_status = 0.0)
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": false,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        { "uid": 1, "duration": 1 },
+        { "uid": 2, "duration": 1 },
+        { "uid": 3, "duration": 1 }
+      ],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 3,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_uvw_3block",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2",
+          "lmax": [[100.0, 100.0, 100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+          "tmax_ab": 100, "tmax_ba": 100 }
+      ],
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true,
+          "initial_status": )";
+  out += std::to_string(initial_status);
+  out += R"(, "startup_cost": )";
+  out += std::to_string(startup_cost);
+  out += R"(, "shutdown_cost": )";
+  out += std::to_string(shutdown_cost);
+  out += R"( }
+      ]
+    }
+  })";
+  return out;
+}
+
+TEST_CASE(
+    "LineCommitmentLP u/v/w: no startup/shutdown cost ⇒ no v/w columns "
+    "(v1 back-compat)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  Planning planning;
+  planning.merge(parse_planning_json(
+      make_3block_uvw_json(/*startup_cost=*/0.0, /*shutdown_cost=*/0.0)));
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+
+  auto&& systems = planning_lp.systems();
+  const auto& li = systems.front().front().linear_interface();
+  // Zero costs ⇒ u/v/w gate inactive; no startup/shutdown cols or
+  // logic/exclusion rows emitted.  Pre-v1.1 behavior preserved.
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_startup") == 0);
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_shutdown") == 0);
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_logic") == 0);
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_exclusion") == 0);
+  // 3 status cols (one per block) remain.
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_status") == 3);
+}
+
+TEST_CASE(
+    "LineCommitmentLP u/v/w: positive startup_cost emits v/w cols + "
+    "C1/C3 rows per block (v1.1)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  Planning planning;
+  planning.merge(parse_planning_json(
+      make_3block_uvw_json(/*startup_cost=*/100.0, /*shutdown_cost=*/50.0)));
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+
+  auto&& systems = planning_lp.systems();
+  const auto& li = systems.front().front().linear_interface();
+  // 1 v + 1 w column per block × 3 blocks = 3 each.
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_startup") == 3);
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_shutdown") == 3);
+  // 1 logic row + 1 exclusion row per block × 3 blocks = 3 each.
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_logic") == 3);
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_exclusion") == 3);
+}
+
+TEST_CASE(
+    "LineCommitmentLP u/v/w: high startup_cost + initial_status=0 ⇒ pay "
+    "startup once at t=0, then stay closed (v1.1)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  Planning planning;
+  planning.merge(parse_planning_json(make_3block_uvw_json(
+      /*startup_cost=*/100.0, /*shutdown_cost=*/50.0, /*initial_status=*/0.0)));
+  PlanningLP planning_lp(std::move(planning));
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto obj =
+      planning_lp.systems().front().front().linear_interface().get_obj_value();
+
+  // tmax_ab is sized exactly at demand (100 MW = 100 MW) so the LP
+  // relaxation cannot exploit fractional u_l < 1: the capacity gate
+  // ``f ≤ tmax · u`` forces ``u ≥ 1`` for any block where the line
+  // carries 100 MW.  With u[0]=u[1]=u[2]=1 and initial_status=0,
+  // C1₀ gives v[0] = 1 (one startup event), then v[1]=v[2]=0 since
+  // u stays at 1.  Dispatch = 3 × 100 × $10 = $3000; startup = $100;
+  // total = $3100.
+  CHECK(obj == doctest::Approx(3100.0).epsilon(1e-3));
+}
+
+TEST_CASE(
+    "LineCommitmentLP u/v/w: initial_status=1 ⇒ no startup event needed "
+    "at t=0 (v1.1)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  Planning planning;
+  planning.merge(parse_planning_json(make_3block_uvw_json(
+      /*startup_cost=*/100.0, /*shutdown_cost=*/50.0, /*initial_status=*/1.0)));
+  PlanningLP planning_lp(std::move(planning));
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto obj =
+      planning_lp.systems().front().front().linear_interface().get_obj_value();
+
+  // Breaker already closed at t=−1 (initial_status=1), so v[0] = 0
+  // (no startup event needed).  Pure dispatch: 3 × 100 × 10 = $3000.
+  CHECK(obj == doctest::Approx(3000.0).epsilon(1e-3));
+}
+
+TEST_CASE("LineCommitment JSON round-trip — startup_cost + shutdown_cost")
+{
+  std::string_view json_str = R"({
+    "uid": 42,
+    "name": "L_18_19_ots",
+    "line": "L_18_19",
+    "startup_cost": 250.5,
+    "shutdown_cost": 75.0
+  })";
+
+  const auto lc = daw::json::from_json<LineCommitment>(json_str);
+  CHECK(lc.startup_cost.value_or(-1.0) == doctest::Approx(250.5));
+  CHECK(lc.shutdown_cost.value_or(-1.0) == doctest::Approx(75.0));
+
+  const auto json_out = daw::json::to_json(lc);
+  const auto lc2 = daw::json::from_json<LineCommitment>(json_out);
+  CHECK(lc2.startup_cost.value_or(-1.0) == doctest::Approx(250.5));
+  CHECK(lc2.shutdown_cost.value_or(-1.0) == doctest::Approx(75.0));
+}
