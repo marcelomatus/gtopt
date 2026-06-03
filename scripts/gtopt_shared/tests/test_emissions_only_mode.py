@@ -1018,3 +1018,107 @@ class TestMultiPollutantThroughOverlay:
         assert pl["options"]["model_options"][
             "demand_fail_cost"
         ] == pytest.approx(150.0 / 35.0)
+
+
+# ---------------------------------------------------------------------------
+# Issue #521 — PLEXOS-input cost re-anchoring (Reservoir.water_value /
+# efin_cost replaced by EPF-based terminal value; fuel_price_override zeroed)
+# ---------------------------------------------------------------------------
+
+
+class TestIssue521ReservoirTerminalReanchoring:
+    """When ``--only-emissions`` is set AND Reservoir already carries
+    a ``water_emission_value`` (stamped by commit 7b36f3728), the
+    overlay must replace the cost-mode ``water_value`` / ``efin_cost``
+    ($/hm³) with the emission-equivalent (tCO2eq/hm³) = EPF · gas_em ·
+    loss · 277.78."""
+
+    def _make_reservoir_planning(self) -> dict:
+        # Minimal planning carrying both stamping (water_emission_value
+        # set as if by 7b36f3728) and a pre-existing $/hm³ water_value
+        # / efin_cost (as plexos2gtopt / plp2gtopt would have shipped).
+        return {
+            "options": {"model_options": {}},
+            "system": {
+                "bus_array": [{"uid": 1, "name": "b1"}],
+                "demand_array": [],
+                "generator_array": [],
+                "line_array": [],
+                "fuel_array": [],
+                "commitment_array": [],
+                "battery_array": [],
+                "waterway_array": [],
+                "flow_array": [],
+                "flow_right_array": [],
+                "junction_array": [],
+                "user_constraint_array": [],
+                "decision_variable_array": [],
+                "emission_zone_array": [
+                    {
+                        "uid": 1, "name": "global", "price": 35.0,
+                        "emissions": [{"emission": "co2", "weight": 1.0}],
+                    }
+                ],
+                "reservoir_array": [
+                    {
+                        "uid": 1, "name": "L_Maule",
+                        "water_value": 50.0,         # $/hm³ — cost mode
+                        "efin_cost": 100000.0,        # $/hm³ — cost mode
+                        "water_emission_value": 4.4365,  # tCO2eq / (m³/s)·h
+                    },
+                    {
+                        "uid": 2, "name": "EmptyEPF",
+                        "water_value": 25.0,
+                        # no water_emission_value (EPF=0) → leave alone
+                    },
+                ],
+            },
+        }
+
+    def test_reservoir_water_value_replaced_when_wev_present(self) -> None:
+        pl = self._make_reservoir_planning()
+        apply_emission_overrides(pl)
+        l_maule = pl["system"]["reservoir_array"][0]
+        # 4.4365 × 277.78 ≈ 1232.4 tCO2eq/hm³
+        expected = 4.4365 * 277.78
+        assert l_maule["water_value"] == pytest.approx(expected, rel=1e-4)
+        assert l_maule["efin_cost"] == pytest.approx(expected, rel=1e-4)
+
+    def test_reservoir_water_value_untouched_when_no_wev(self) -> None:
+        """Reservoirs without water_emission_value (e.g. terminal hydro
+        whose cascade had no turbines) keep their cost-mode value —
+        the overlay can't compute the carbon equivalent."""
+        pl = self._make_reservoir_planning()
+        apply_emission_overrides(pl)
+        empty = pl["system"]["reservoir_array"][1]
+        assert empty["water_value"] == pytest.approx(25.0)
+
+
+class TestIssue521GeneratorFuelPriceOverride:
+    """118-bus / GenX schemas carry ``Generator.fuel_price_override``
+    ($/MWh-equivalent of fuel cost).  In emissions mode this leaks
+    through to gcost-style reporting even though GeneratorLP zeros
+    the cost slope.  The overlay zeros it explicitly."""
+
+    def test_fuel_price_override_zeroed(self) -> None:
+        pl = {
+            "options": {"model_options": {}},
+            "system": {
+                "bus_array": [], "demand_array": [], "line_array": [],
+                "fuel_array": [], "commitment_array": [], "battery_array": [],
+                "waterway_array": [], "flow_array": [], "flow_right_array": [],
+                "junction_array": [], "user_constraint_array": [],
+                "decision_variable_array": [], "reservoir_array": [],
+                "emission_zone_array": [{"uid": 1, "name": "g", "price": 35.0,
+                                          "emissions": [{"emission": "co2", "weight": 1.0}]}],
+                "generator_array": [
+                    {"uid": 1, "name": "g1", "fuel_price_override": 25.0},
+                    {"uid": 2, "name": "g2", "fuel_price_override": 0.0},
+                    {"uid": 3, "name": "g3"},  # no override
+                ],
+            },
+        }
+        apply_emission_overrides(pl)
+        assert pl["system"]["generator_array"][0]["fuel_price_override"] == 0.0
+        assert pl["system"]["generator_array"][1]["fuel_price_override"] == 0.0
+        assert "fuel_price_override" not in pl["system"]["generator_array"][2]

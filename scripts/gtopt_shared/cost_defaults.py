@@ -443,6 +443,61 @@ def apply_emission_overrides(
     if n_dv:
         applied["decision_variable_array.cost"] = f"{n_dv} scaled by 1/SCC"
 
+    # 12. PLEXOS-input-derived per-reservoir terminal water value (#521).
+    #
+    # The cost-mode ``Reservoir.water_value`` and ``Reservoir.efin_cost``
+    # are $-per-hm³ values shipped by plexos2gtopt / plp2gtopt from
+    # ``Hydro_StoWaterValues.csv`` / PLP ``efin_cost``.  In emissions
+    # mode they need to be replaced by the per-reservoir EPF-based
+    # terminal carbon value already stamped as ``water_emission_value``
+    # (tCO2eq per (m³/s)·h) by commit 7b36f3728.
+    #
+    # Unit conversion: 1 hm³ released over 1 hour = 277.78 m³/s for
+    # 1 h, so the per-hm³ figure is ``water_emission_value × 277.78``
+    # (tCO2eq per hm³).  Unlike the slack costs above, the LP applies
+    # SCC at the EmissionZone — so NO multiplication by SCC here.
+    _HM3_PER_CUMEC_HOUR = 277.78
+    n_wv = n_efc = 0
+    for r in sys_.get("reservoir_array", []) or []:
+        wev = r.get("water_emission_value")
+        if not isinstance(wev, (int, float)) or wev <= 0:
+            continue
+        # Replace dollar-denominated water_value / efin_cost with the
+        # emission-equivalent per-hm³ terminal value.
+        new_terminal = float(wev) * _HM3_PER_CUMEC_HOUR
+        if "water_value" in r and isinstance(r["water_value"], (int, float)):
+            r["water_value"] = new_terminal
+            n_wv += 1
+        if "efin_cost" in r and isinstance(r["efin_cost"], (int, float)):
+            r["efin_cost"] = new_terminal
+            n_efc += 1
+    if n_wv:
+        applied["reservoir_array.water_value"] = (
+            f"{n_wv} replaced with EPF·gas·loss×{_HM3_PER_CUMEC_HOUR} tCO2eq/hm³"
+        )
+    if n_efc:
+        applied["reservoir_array.efin_cost"] = (
+            f"{n_efc} replaced with EPF·gas·loss×{_HM3_PER_CUMEC_HOUR} tCO2eq/hm³"
+        )
+
+    # 13. Generator.fuel_price_override (#521).
+    #
+    # 118-bus / GenX-style schemas ship a per-Generator scalar
+    # ``fuel_price_override`` ($/MWh-equivalent of fuel cost) that
+    # plexos2gtopt passes through to ``gcost``.  In emissions mode
+    # the LP's GeneratorLP zeros the gcost slope (commit d230082ba),
+    # but the override field is still present in the JSON and could
+    # leak into reporting tools.  Zero it explicitly to match the
+    # LP-side zeroing — keeps the JSON self-consistent.
+    n_fpo = 0
+    for g in sys_.get("generator_array", []) or []:
+        v = g.get("fuel_price_override")
+        if isinstance(v, (int, float)) and v > 0:
+            g["fuel_price_override"] = 0.0
+            n_fpo += 1
+    if n_fpo:
+        applied["generator_array.fuel_price_override"] = f"{n_fpo} zeroed"
+
     return applied
 
 
