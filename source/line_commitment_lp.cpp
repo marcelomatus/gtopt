@@ -411,6 +411,19 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       initial_u = (lc.initial_status.value() >= 0.5) ? 1.0 : 0.0;
     }
 
+    // Per-event costs are FACE-VALUE (not multiplied by block
+    // duration): startup is a one-time cost when the breaker
+    // closes, not a per-hour cost.  Apply scenario probability +
+    // stage discount via ``cost_factor`` only.  Mirrors
+    // ``CommitmentLP::add_to_lp`` v/w cost wiring.  Hoisted out of
+    // the block loop — both factors are (scenario, stage)-invariant.
+    const auto v_cost = startup_cost
+        * CostHelper::cost_factor(scenario.probability_factor(),
+                                  stage.discount_factor());
+    const auto w_cost = shutdown_cost
+        * CostHelper::cost_factor(scenario.probability_factor(),
+                                  stage.discount_factor());
+
     ColIndex prev_ucol {};
     bool first_block = true;
 
@@ -421,22 +434,19 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         // No u_col for this block (LineLP elided it — outage).  Skip
         // the v/w/C1/C3 emission too: an open-circuit block has no
         // switching event.
+        //
+        // BEHAVIOR ON INTRA-STAGE OUTAGE GAPS: if blocks
+        // [t_0, t_a, …, t_b, t_c] skip [t_a..t_b] (outage), the next
+        // emitted C1 row links ``u[t_c] − u[t_0]``, treating the gap
+        // as if it didn't happen.  This is intentional: the breaker
+        // state survives the outage from the LP's perspective — the
+        // outage just removes the flow capability, not the commitment.
+        // An alternative semantics (reset to initial_status at t_c)
+        // would require an outage flag on the schedule; deferred.
         continue;
       }
       const auto ucol = u_it->second;
       const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
-
-      // Per-event costs are FACE-VALUE (not multiplied by block
-      // duration): startup is a one-time cost when the breaker
-      // closes, not a per-hour cost.  Apply scenario probability +
-      // stage discount via ``cost_factor`` only.  Mirrors
-      // ``CommitmentLP::add_to_lp`` v/w cost wiring.
-      const auto v_cost = startup_cost
-          * CostHelper::cost_factor(scenario.probability_factor(),
-                                    stage.discount_factor());
-      const auto w_cost = shutdown_cost
-          * CostHelper::cost_factor(scenario.probability_factor(),
-                                    stage.discount_factor());
 
       // Continuous-in-[0,1] v_l with ``pin_scale = true`` (the C1
       // equality references its coefficient literally; we don't want
