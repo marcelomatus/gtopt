@@ -667,6 +667,10 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         }
         if (has_min_starts) {
           SparseRow lower {window_row};
+          // Distinct constraint_name so the row metadata dedup in
+          // LinearProblem::add_row doesn't collide with the upper
+          // row (both share the same context).
+          lower.constraint_name = MinStartsName;
           auto bound = std::move(lower).greater_equal(min_starts_v);
           [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(bound));
         }

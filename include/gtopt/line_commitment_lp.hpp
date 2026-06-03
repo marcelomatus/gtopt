@@ -85,6 +85,13 @@ public:
   static constexpr std::string_view MinUpTimeName {"min_up_time"};
   static constexpr std::string_view MinDownTimeName {"min_down_time"};
   static constexpr std::string_view MaxStartsName {"max_starts"};
+  /// Lower-side of the max_starts pair (``min_starts ≤ Σ v``).  Uses
+  /// a distinct label so the row metadata dedup in
+  /// ``LinearProblem::add_row`` doesn't collide with the upper-side
+  /// row when both bounds are set on the same window.  ``CommitmentLP``
+  /// has the same latent bug but no current test exercises the
+  /// upper+lower combination at LP-build time.
+  static constexpr std::string_view MinStartsName {"min_starts"};
 
   using Base = ObjectLP<LineCommitment>;
 

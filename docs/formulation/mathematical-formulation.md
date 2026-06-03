@@ -939,8 +939,51 @@ branching variables by ≈⅔ relative to a 3-integer formulation
 The v0 `initial_status`-as-first-block-pin semantics is suppressed
 when u/v/w is active; pinning $u_{l,0}$ would over-constrain the LP
 (force the breaker open at $t = 0$ even when serving demand requires
-it closed).  Deferred to v1.2: `min_up_time` / `min_down_time` /
-`max_starts` (rolling-window constraints over the $v$ / $w$ series).
+it closed).
+
+**Min up / min down time (v1.2).**  When `LineCommitment.min_up_time`
+[hours] is set together with u/v/w, an anti-flicker family of rows
+is emitted (mirroring `CommitmentLP` C6):
+
+$$
+\sum_{q=t}^{t + \mathrm{UT}_t - 1} u_{l,q}
+\;\geq\; \mathrm{UT}_t \cdot v_{l,t},
+$$
+
+where $\mathrm{UT}_t$ is the smallest block-count whose cumulative
+duration covers `min_up_time` hours starting at block $t$.  When
+$v_{l,t} = 1$ (line closes at $t$) the right-hand side forces every
+$u_{l,q}$ in the window to 1.  Rows are skipped at the end of the
+stage where $\mathrm{UT}_t \le 1$ (trivially satisfied).  The
+symmetric `min_down_time` row family uses the dual form
+
+$$
+\sum_{q=t}^{t + \mathrm{DT}_t - 1} u_{l,q}
+\;+\; \mathrm{DT}_t \cdot w_{l,t}
+\;\leq\; \mathrm{span}_t,
+$$
+
+with $\mathrm{span}_t = \min(\mathrm{DT}_t, N - t)$.
+
+**Max starts / min starts (v1.2).**  Two-sided rolling-window cap on
+the closing-event count (mirrors `CommitmentLP` C9):
+
+$$
+\mathrm{min\_starts} \;\leq\;
+\sum_{t \in W} v_{l,t}
+\;\leq\; \mathrm{max\_starts}
+\qquad \forall \, W,
+$$
+
+where $W$ is a window defined by `starts_scope`:
+`"hour"` ⇒ 1 row per block, `"day"` ⇒ 24-hour cumulative-duration
+window, `"week"` ⇒ 168-hour window, `"horizon"` (default) ⇒ one row
+per stage, or an explicit integer hour count.  Aliases `"month"` and
+`"year"` collapse to `"horizon"` since a typical gtopt stage is
+shorter than a calendar month.  Both bounds share the same window
+LHS; either side is omitted when its bound is unset.  Mirrors
+PLEXOS's `Max Starts {Hour|Day|Week|...}` properties on the
+`Generator` class.
 
 ### 5.7 Battery / Energy Storage Constraints
 
