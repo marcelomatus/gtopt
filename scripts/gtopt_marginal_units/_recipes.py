@@ -190,6 +190,8 @@ def build_recipes_for_cell(
     zone_of: dict[int, int],
     zone_results: dict[int, ZoneR3Result],
     dispatch_by_uid: Optional[dict[int, float]] = None,
+    lmp_by_bus: Optional[dict[int, float]] = None,
+    srmc_by_uid: Optional[dict[int, float]] = None,
     demand_fail_cost: float = 1000.0,
     tol: Tolerances = Tolerances.default(),
 ) -> tuple[list[RecipeRow], list[RecipeRow]]:
@@ -201,6 +203,22 @@ def build_recipes_for_cell(
 
     Raises ``AttributionError`` when the writer-side invariant
     fails: |recomputed_lmp − zone_lmp| > tol_price.
+
+    Per-bus loss-correction (#523).  When ``lmp_by_bus`` and
+    ``srmc_by_uid`` are both populated AND the LP-elected marginal is
+    a thermal generator with positive SRMC, the emission attributed
+    to bus ``i`` is scaled by ``bus_LMP[i] / Generator.srmc_sol[g]``
+    to account for:
+        * lossfactor at the marginal's own bus (bus_LMP[g.bus] ≠ SRMC[g]
+          when g.lossfactor > 0)
+        * distribution losses to other buses in the island
+          (bus_LMP[i] / bus_LMP[g.bus] > 1 when i is downstream of
+          lossy lines)
+    The scaling is capped at 1.5× to defend against rare cases where
+    a non-island-classifier line slips a congested bus into the same
+    zone (the LMP jump would otherwise be 10x+).  Storage marginals
+    (kind=hydro/battery) keep scaling ≡ 1 by LP complementary
+    slackness; profile marginals emit em=0 regardless.
     """
     # Index generators by uid for quick lookup.
     gen_by_uid = {g.uid: g for g in topology.generators}
@@ -361,6 +379,39 @@ def build_recipes_for_cell(
             # Direct marginal already emits — consequential = direct.
             cons_rate = direct_em
             cons_uid = marginal_uids[0] if marginal_uids else None
+
+        # Per-bus loss-correction scaling (#523).  Applied to both
+        # direct and consequential emission for this bus when:
+        #   1. The LP marginal is a real thermal generator (not
+        #      storage — storage is self-correcting via LP duality).
+        #   2. Generator/srmc_sol is available for the marginal in
+        #      this cell.
+        #   3. Per-bus LMP is available.
+        # Scaling = bus_LMP[i] / SRMC[g], capped at 1.5× to defend
+        # against congestion-leak misclassifications.
+        scale = 1.0
+        if (
+            lmp_by_bus
+            and srmc_by_uid
+            and marginal_uids
+            and kind_str
+            in (FormulaKind.SINGLE_UNIT.value, FormulaKind.TIED_UNITS.value)
+        ):
+            g0 = gen_by_uid.get(int(marginal_uids[0]))
+            if g0 is not None and g0.kind == "thermal":
+                bus_lmp = lmp_by_bus.get(bus_uid)
+                srmc_g = srmc_by_uid.get(int(marginal_uids[0]))
+                if (
+                    bus_lmp is not None
+                    and srmc_g is not None
+                    and float(srmc_g) > tol.eps
+                ):
+                    raw = float(bus_lmp) / float(srmc_g)
+                    scale = min(max(raw, 0.0), 1.5)
+        if scale != 1.0:
+            direct_em = direct_em * scale
+            cons_rate = cons_rate * scale
+
         emission_rows.append(
             RecipeRow(
                 cell_key=cell_key,

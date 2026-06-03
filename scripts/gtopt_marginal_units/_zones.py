@@ -90,6 +90,62 @@ def zones_to_components(zone_of: dict[int, int]) -> list[list[int]]:
 
 
 # ---------------------------------------------------------------------------
+# Phantom-bus detection (#525)
+# ---------------------------------------------------------------------------
+#
+# PLEXOS BESS use the **source_generator pattern** — each battery has a
+# synthetic internal bus (``BAT_<NAME>_int_bus``) with a single fake
+# generator (``BAT_<NAME>_LOAD`` or ``BAT_<NAME>_gen``) and 0 incident
+# lines.  The battery's energy balance is enforced by separate
+# ``Battery`` LP constraints, not by line flow.
+#
+# These phantom buses fool the merit-unit classifier: 0 lines → bus is
+# its own island; only synthetic gens → no merit-eligible candidate →
+# ``formula_kind = "unattributed"``.  But the LP itself gives perfectly
+# good non-zero LMP at these buses (derived from the battery's energy-
+# balance dual).  The right classification is ``hydro_marginal``
+# (storage marginal) — em=0 by physics, recomputed_lmp = LP LMP.
+
+
+_PHANTOM_BUS_NAME_PATTERNS: tuple[str, ...] = (
+    "_int_bus",  # PLEXOS source_generator phantom bus
+    "_INT_BUS",
+)
+_PHANTOM_GEN_NAME_FRAGMENTS: tuple[str, ...] = (
+    "_LOAD",
+    "_load",
+)
+_PHANTOM_GEN_PREFIX: str = "BAT_"
+
+
+def is_phantom_bus(bus_name: str, gens_on_bus: list) -> bool:
+    """True when ``bus_name`` matches a phantom-bus pattern OR the only
+    generators on it are synthetic battery-source units.
+
+    Phantom-bus signal:
+      * bus name ends with ``_int_bus`` / ``_INT_BUS`` (PLEXOS
+        source_generator internal bus convention), OR
+      * every generator on the bus matches ``BAT_*_LOAD`` /
+        ``BAT_*_gen`` (synthetic charge-demand / discharge-output
+        wrappers from the PLEXOS BESS pattern).
+
+    Used by ``_zone_results_from_lp_duals`` to classify the bus's
+    zone as a storage marginal (``hydro_marginal``) rather than
+    ``unattributed`` when no merit-eligible candidate exists.
+    """
+    if any(bus_name.endswith(p) for p in _PHANTOM_BUS_NAME_PATTERNS):
+        return True
+    if not gens_on_bus:
+        return False
+    # All generators on the bus are synthetic battery-source wrappers
+    return all(
+        str(g.name).startswith(_PHANTOM_GEN_PREFIX)
+        and any(frag in str(g.name) for frag in _PHANTOM_GEN_NAME_FRAGMENTS + ("_gen",))
+        for g in gens_on_bus
+    )
+
+
+# ---------------------------------------------------------------------------
 # PTDF builder (lp-numerics P0.3 fix — per-component).
 # ---------------------------------------------------------------------------
 

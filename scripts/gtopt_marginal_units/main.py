@@ -622,6 +622,8 @@ def _process_cells(
             zone_of=zone_of,
             zone_results=zone_results,
             dispatch_by_uid=dispatch_by_uid,
+            lmp_by_bus=lmp_by_bus,
+            srmc_by_uid=gen_srmc_by_uid,
             demand_fail_cost=demand_fail_cost,
             tol=tol,
         )
@@ -768,7 +770,20 @@ def _zone_results_from_lp_duals(
             merit_eligible=merit_eligible,
         )
         if candidates:
-            kind = "single_unit" if len(candidates) == 1 else "tied_units"
+            # Renewable-curtailment detection (#526): when LMP ≈ 0 AND
+            # every candidate is a profile (solar / wind) generator,
+            # the marginal is "free renewable on the margin" — classify
+            # as renewable_curtailment so consumers can distinguish
+            # this case from a thermal-marginal "tied_units at $0" and
+            # report dispatch / emissions accordingly.
+            profile_kinds = {"profile", "solar", "wind"}
+            all_profile = all(g.kind in profile_kinds for g in candidates)
+            if abs(lam) <= tol.tol_price and all_profile:
+                kind = "renewable_curtailment"
+                reason_tag = (reason or "") + ";renewable_at_zero_lmp"
+            else:
+                kind = "single_unit" if len(candidates) == 1 else "tied_units"
+                reason_tag = reason
             zone_results[zid] = ZoneR3Result(
                 zone_id=zid,
                 lambda_z=lam,
@@ -776,7 +791,7 @@ def _zone_results_from_lp_duals(
                 marginal_gen_uids=[g.uid for g in candidates],
                 confidence=Confidence.LP_DUAL,
                 degenerate=False,
-                reason=reason,
+                reason=reason_tag,
                 clamped=False,
             )
         elif abs(lam - demand_fail_cost) <= tol.tol_price:
@@ -791,6 +806,49 @@ def _zone_results_from_lp_duals(
                 clamped=False,
             )
         else:
+            # No interior merit candidate found.  Before falling through
+            # to ``unattributed``, check for the PLEXOS BESS phantom-
+            # bus pattern (#525): a zone whose buses are all
+            # ``*_int_bus`` AND/OR whose only generators are synthetic
+            # ``BAT_*_LOAD`` / ``BAT_*_gen`` wrappers.  The LP itself
+            # gives a perfectly good non-zero LMP at these buses
+            # (derived from the battery's energy-balance dual), so the
+            # right classification is ``hydro_marginal`` (storage
+            # marginal — em=0 by physics, recomputed_lmp = LP LMP).
+            from gtopt_marginal_units._zones import is_phantom_bus  # noqa: PLC0415
+
+            bus_by_uid = {b.uid: b for b in topology.buses}
+            gens_by_bus: dict[int, list] = {}
+            for g in topology.generators:
+                gens_by_bus.setdefault(g.bus_uid, []).append(g)
+            all_phantom = bool(zone_bus_uids) and all(
+                is_phantom_bus(
+                    str(bus_by_uid.get(b).name if bus_by_uid.get(b) else ""),
+                    gens_by_bus.get(b, []),
+                )
+                for b in zone_bus_uids
+            )
+            if all_phantom:
+                # Pick a representative synthetic gen as marginal_gen_uid
+                # — informational only; the consumer keys on
+                # formula_kind="hydro_marginal" to know the bus is a
+                # storage internal.  em = 0 by physics for these.
+                synth_gens = sorted(
+                    (g for b in zone_bus_uids for g in gens_by_bus.get(b, [])),
+                    key=lambda g: g.uid,
+                )
+                zone_results[zid] = ZoneR3Result(
+                    zone_id=zid,
+                    lambda_z=lam,
+                    formula_kind="hydro_marginal",
+                    marginal_gen_uids=[synth_gens[0].uid] if synth_gens else [],
+                    confidence=Confidence.LP_DUAL,
+                    degenerate=False,
+                    reason="phantom_bus_storage_marginal",
+                    clamped=False,
+                )
+                continue
+
             # Congested or degenerate — λ matches no interior MC.
             # Emit unattributed; recipe will mark it explicitly.
             zone_results[zid] = ZoneR3Result(
