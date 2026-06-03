@@ -572,6 +572,38 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--loss-sos2-lines",
+        type=str,
+        default=None,
+        metavar="NAME[,NAME...]",
+        help=(
+            "Comma-separated line names that get the L-secant chord "
+            "(``loss_secant_segments = loss_segments``) + SOS2 "
+            "fill-order enforcement (``loss_use_sos2 = true``).  Only "
+            "meaningful when the line ends up in ``line_losses_mode = "
+            "tangent_signed_flow`` at LP-build time.  Composes with "
+            "``--loss-sos2-auto``: the final set is the UNION of both "
+            "selectors (this manual list always wins over an ``off`` "
+            "auto-rule).  Issue #504 task #5."
+        ),
+    )
+    parser.add_argument(
+        "--loss-sos2-auto",
+        type=str,
+        default=None,
+        choices=("off", "heavy", "all-lossy"),
+        help=(
+            "Auto-rule that picks the offender lines for SOS2 fill-order "
+            "enforcement.  ``off`` (default when unset) ⇒ no auto pick "
+            "(``--loss-sos2-lines`` is the only source).  ``heavy`` ⇒ "
+            "lines in the TOP QUARTILE by peak loss ``R·envelope²`` get "
+            "stamped.  ``all-lossy`` ⇒ every line with ``R > 0`` and "
+            "non-zero peak loss gets stamped — aggressive, MIP-heavy.  "
+            "Composes with ``--loss-sos2-lines`` (union).  Issue #504 "
+            "task #5."
+        ),
+    )
+    parser.add_argument(
         "--auto-lift-lines",
         nargs="?",
         type=float,
@@ -944,6 +976,8 @@ def main(argv: list[str] | None = None) -> None:
         "loss_tangent_lines": args.loss_tangent_lines,
         "nseg_tangent": args.nseg_tangent,
         "nseg_uniform": args.nseg_uniform,
+        "loss_sos2_lines": args.loss_sos2_lines,
+        "loss_sos2_auto": args.loss_sos2_auto,
         "emin_eod_day1": args.emin_eod_day1,
         "battery_efin_pin": args.battery_efin_pin,
         "soft_efin_reservoirs": tuple(
