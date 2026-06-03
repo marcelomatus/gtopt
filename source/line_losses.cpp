@@ -1693,64 +1693,60 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   apply_loss_allocation(brow_a, brow_b, loss_col, LossAllocationMode::split);
 
   // ── |f|-envelope columns + chord upper bound ───────────────────────
-  // L = 1 (default):
-  //   Single auxiliary column ``v ∈ [0, fmax]`` with ``v ≥ |f|`` (via
-  //   two abs rows below).  Chord row ``ℓ ≤ (R·fmax/V²) · v`` bounds
-  //   the loss column ℓ by the secant from origin to ``(fmax,
-  //   R·fmax²/V²)`` — IF the LP can be made to bind ``v = |f|``.
-  //   Otherwise the LP saturates ``v = fmax`` and the chord collapses
-  //   to the loose constant ceiling ``R·fmax²/V²``.
+  // L = 1 (default): single aux col ``v ∈ [0, fmax]`` with ``v ≥ |f|``
+  // (via two abs rows) and chord row ``ℓ ≤ (R·fmax/V²)·v`` bounding ℓ
+  // by the origin-to-(fmax, R·fmax²/V²) secant.
   //
-  // L > 1 (issue #504 L-secant chord):
-  //   ``L`` segment columns ``v_l ∈ [0, w]`` with ``w = fmax/L``,
-  //   tied to ``|f|`` by ``Σ v_l ≥ |f|`` (via two abs rows summing
-  //   all L cols on the LHS).  Chord upper bound becomes the
-  //   piecewise ``ℓ ≤ Σ chord_slope_l · v_l`` with
-  //   ``chord_slope_l = (R/V²) · w · (2l − 1)`` (the chord slope of
-  //   the convex quadratic on segment ``[(l−1)w, l·w]``).  Combined
-  //   with SOS2 (``use_sos2 = true``) the LP fills ``v_1`` to
-  //   saturation before ``v_2`` starts and the chord is piecewise
-  //   tight at every breakpoint ``b_l = l·w``.  Worst-case
-  //   overstatement drops from ``c·fmax²/4`` (L=1 single secant) to
-  //   ``c·fmax²/(4·L²)``.  See issue #504 for the geometric
-  //   derivation and the v0407 empirical headline (R/A 1.23× → ~1.05×
-  //   under SOS2 on offender lines).
+  // L > 1 (issue #504 L-secant): ``L`` segment cols ``v_l ∈ [0, w]``
+  // with ``w = fmax/L``, tied to ``|f|`` via the same two abs rows
+  // (summing all L cols on the LHS).  Chord becomes the piecewise
+  // ``ℓ ≤ Σ chord_slope_l · v_l`` with
+  // ``chord_slope_l = (R/V²)·w·(2l−1)``.  Paired with ``use_sos2 =
+  // true`` the LP fills ``v_1`` to saturation before ``v_2`` starts,
+  // so the chord is tight at every breakpoint ``b_l = l·w``.  Worst-
+  // case overstatement drops from ``c·fmax²/4`` (L=1) to
+  // ``c·fmax²/(4·L²)``.  See issue #504 (R/A 1.23× → ~1.05× under
+  // SOS2 on v0407 offender lines).
   //
-  // STRUCTURAL CAVEAT (verified 2026-06-01) for L = 1: ``v ≥ |f|`` is
-  // LP-equivalent to ``fp + fn ≥ |fp − fn|`` from the bidirectional
-  // mode — i.e. ``v − |f| = 2·phantom_flow``.  The aux variable
-  // therefore re-introduces the same LP-relaxation degeneracy that
-  // signed-flow was designed to escape: WITHOUT ε > 0 on ``v``, the
-  // LP inflates ``v`` to fmax and the chord no longer tightens.  WITH
-  // ε ≥ arb_per_v (≈ ``c·fmax × max|negative_LMP|``, typically ~$0.1
-  // for CEN lines), the LP picks ``v = |f|`` and the chord becomes
-  // the proper origin-to-fmax secant.  Empirically (v0407): ε=0.1
-  // closes the LP-relaxation R/A from ~3.0× to ~1.2×.
-  //
-  // For L > 1 with SOS2 the degeneracy is killed structurally: SOS2
-  // forces ``v_1`` to saturate before ``v_2`` is permitted to leave 0,
-  // so the LP cannot inflate the segment cols past ``Σ v_l = |f|``.
-  // For L > 1 without SOS2, the same arbitrage exists across the
-  // segment cols as the L = 1 single-col version — production
-  // configurations should therefore pair ``loss_secant_segments > 1``
-  // with ``loss_use_sos2 = true``.
+  // STRUCTURAL CAVEAT.  ``v ≥ |f|`` is LP-equivalent to
+  // ``fp + fn ≥ |fp − fn|`` (bidirectional mode), so without ε > 0
+  // on ``v`` the LP inflates ``v`` to ``fmax`` and the chord collapses
+  // to a loose constant ceiling.  Mitigations:
+  //   * L = 1: set ``loss_cost_eps`` ≥ arb_per_v (≈ $0.1 on CEN);
+  //     empirically closes R/A from ~3.0× to ~1.2× (v0407).
+  //   * L > 1 + SOS2: degeneracy killed structurally — SOS2 forces
+  //     ``v_1`` to saturate before ``v_2 > 0``, so the LP cannot
+  //     inflate ``Σ v_l`` past ``|f|`` regardless of ε.  ε can be 0.
+  //   * L > 1 without SOS2: SAME arbitrage as L=1; the writer
+  //     (line_losses.cpp foot-gun warning above) flags this config.
   const int L = std::max(1, config.nseg_secant);
   const double seg_width = effective_fmax / static_cast<double>(L);
 
+  // ε is only structurally required when SOS2 is OFF (degeneracy
+  // mitigation — see caveat above).  Under SOS2 the LP cannot inflate
+  // Σ v_l, so the ε term is a no-op in objective and can be skipped.
+  // Kept conservative: if the user explicitly set loss_cost_eps > 0,
+  // honour it regardless — there's no harm and tests may pin it.
   const double v_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
 
+  // Helper: build the context for v_col[l].  L = 1 uses the legacy
+  // 3-tuple ``block_ctx`` so write_lp keeps emitting
+  // ``…flow_abs_<scen>_<stage>_<block>`` unchanged; L > 1 appends the
+  // 1-based segment index so cols distinguish as ``…flow_abs_l1`` /
+  // ``…flow_abs_l2`` / … (keeps SOS2 fill-order auditable in dumps).
+  auto v_ctx_for = [&](int l) -> LpContext
+  {
+    if (L == 1) {
+      return block_ctx;
+    }
+    return make_block_context(scenario.uid(), stage.uid(), block.uid(), l);
+  };
+
   std::vector<ColIndex> v_cols;
   v_cols.reserve(static_cast<std::size_t>(L));
-  // Per-segment column label.  When L = 1 use the legacy 3-tuple
-  // ``block_ctx`` so write_lp emits the historical
-  // ``…flow_abs_<scen>_<stage>_<block>`` label unchanged.  When L > 1
-  // append the 1-based segment index so the segments distinguish as
-  // ``…flow_abs_l1`` / ``…flow_abs_l2`` / …, keeping the SOS2
-  // fill-order auditable in LP dumps.  Two arms because the
-  // 3-tuple vs 4-tuple context types are structurally distinct.
-  if (L == 1) {
+  for (int l = 1; l <= L; ++l) {
     v_cols.push_back(lp.add_col({
         .lowb = 0.0,
         .uppb = seg_width,
@@ -1758,66 +1754,39 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
         .class_name = Line::class_name.full_name(),
         .variable_name = LineLP::FlowAbsName,
         .variable_uid = uid,
-        .context = block_ctx,
+        .context = v_ctx_for(l),
     }));
-  } else {
-    for (int l = 1; l <= L; ++l) {
-      const auto seg_ctx =
-          make_block_context(scenario.uid(), stage.uid(), block.uid(), l);
-      v_cols.push_back(lp.add_col({
-          .lowb = 0.0,
-          .uppb = seg_width,
-          .cost = v_cost,
-          .class_name = Line::class_name.full_name(),
-          .variable_name = LineLP::FlowAbsName,
-          .variable_uid = uid,
-          .context = seg_ctx,
-      }));
-    }
   }
-  // Track the FIRST segment col as the public ``f_abs_col`` for the
-  // BlockResult — preserves backward-compatibility for legacy unit
-  // tests that inspect ``f_abs_col`` on the L = 1 path and gives
-  // downstream code a hook to reach the segment family on L > 1.
+  // FIRST segment col is the public ``f_abs_col`` (back-compat with
+  // legacy L=1 tests; gives downstream code a hook to reach the
+  // segment family on L > 1).
   result.f_abs_col = v_cols.front();
 
-  // Row 1: Σ v_l − f ≥ 0  ⇔  Σ v_l ≥ +f.
+  // Helper: emit one abs row ``Σ v_l + flow_sign · f ≥ 0``.
+  //   flow_sign = -1  ⇒  Σ v_l ≥ +f  (seg tag 1)
+  //   flow_sign = +1  ⇒  Σ v_l ≥ −f  (seg tag 2)
+  // Replaces the two near-identical 18-line emission blocks the v1
+  // implementation carried.
+  auto emit_abs_row = [&](int seg_tag, double flow_sign)
   {
-    auto absp =
+    auto row =
         SparseRow {
             .class_name = Line::class_name.full_name(),
             .constraint_name = flow_abs_constraint_name,
             .variable_uid = uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid(), 1),
+            .context = make_block_context(
+                scenario.uid(), stage.uid(), block.uid(), seg_tag),
         }
             .greater_equal(0.0);
-    absp.reserve(static_cast<std::size_t>(L) + 1);
+    row.reserve(static_cast<std::size_t>(L) + 1);
     for (const auto vc : v_cols) {
-      absp[vc] = +1.0;
+      row[vc] = +1.0;
     }
-    absp[flow_col] = -1.0;
-    [[maybe_unused]] auto idx = lp.add_row(std::move(absp));
-  }
-
-  // Row 2: Σ v_l + f ≥ 0  ⇔  Σ v_l ≥ −f.
-  {
-    auto absn =
-        SparseRow {
-            .class_name = Line::class_name.full_name(),
-            .constraint_name = flow_abs_constraint_name,
-            .variable_uid = uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid(), 2),
-        }
-            .greater_equal(0.0);
-    absn.reserve(static_cast<std::size_t>(L) + 1);
-    for (const auto vc : v_cols) {
-      absn[vc] = +1.0;
-    }
-    absn[flow_col] = +1.0;
-    [[maybe_unused]] auto idx = lp.add_row(std::move(absn));
-  }
+    row[flow_col] = flow_sign;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(row));
+  };
+  emit_abs_row(1, -1.0);  // Σ v_l ≥ +f
+  emit_abs_row(2, +1.0);  // Σ v_l ≥ −f
 
   // Row 3: ℓ ≤ Σ chord_slope_l · v_l   ⇔   Σ chord_slope_l · v_l − ℓ ≥ 0.
   // L = 1 reduces to the legacy ``ℓ ≤ (R·fmax/V²) · v`` chord

@@ -137,9 +137,16 @@ constexpr std::string_view ieee4b_sos2_json = R"(
 /// through to the throw.  ``has_mip_solver()`` is too permissive on
 /// CI builds without CPLEX — CBC supports MIP but not SOS2, so the
 /// SOS2-emitting tests would throw at LP-build time.
+///
+/// Triggers ``load_all_plugins()`` before the lookup so the helper
+/// works in isolation (single-test filter runs).  ``has_solver``
+/// alone only inspects already-loaded plugins, which can be false
+/// negative when no other test has primed the registry yet.
 [[nodiscard]] bool ieee4b_sos2_available()
 {
-  return SolverRegistry::instance().has_solver("cplex");
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  return reg.has_solver("cplex");
 }
 
 }  // namespace

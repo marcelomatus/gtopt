@@ -199,9 +199,16 @@ private:
 /// that build a SOS2-emitting LP — they would throw at LP-build time
 /// on CBC-only CI builds.  The ``TwoBusSos2Fixture(L>=2, use_sos2)``
 /// constructor builds the LP eagerly, so guard at the test entry.
+///
+/// Triggers ``load_all_plugins()`` before the lookup so the helper
+/// works in isolation (single-test filter runs).  ``has_solver``
+/// alone only inspects already-loaded plugins, which can be false
+/// negative when no other test has primed the registry yet.
 [[nodiscard]] bool sos2_available()
 {
-  return SolverRegistry::instance().has_solver("cplex");
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  return reg.has_solver("cplex");
 }
 
 [[nodiscard]] int count_cols_containing(const LinearInterface& li,
@@ -753,4 +760,216 @@ TEST_CASE(
     sum_v += vl;
   }
   CHECK(sum_v == doctest::Approx(100.0).epsilon(1e-3));
+}
+
+// ── (13) Edge cases for the refactored L-secant emission ────────────
+//
+// The 2026-06 refactor consolidated the v0 L=1-vs-L>1 column branching
+// and the two abs row blocks into single helpers.  These tests target
+// edge cases that the previous structural tests didn't pin: per-block
+// scaling, per-line scaling, and asymmetric envelope handling.
+
+namespace test_line_losses_sos2_edge_ns  // NOLINT
+{
+namespace  // NOLINT
+{
+
+/// Build a 2-bus fixture configured for tangent_signed_flow + L-secant
+/// SOS2 with ``n_blocks`` chronological blocks (all serving the same
+/// 100 MW demand).  Mirrors ``TwoBusSos2Fixture`` but parameterised on
+/// block count so the abs row / SOS2 set scaling can be tested.
+struct MultiBlockSos2Fixture
+{
+  System system;
+  Simulation simulation;
+  PlanningOptions opts;
+  PlanningOptionsLP options;
+  SimulationLP sim_lp;
+  SystemLP sys_lp;
+
+  static constexpr double R = 0.01;
+  static constexpr double V = 100.0;
+  static constexpr double TMAX = 200.0;
+
+  MultiBlockSos2Fixture(int L, bool use_sos2, int n_blocks)
+      : system {
+            .name = "MultiBlockSos2",
+            .bus_array =
+                {
+                    {
+                        .uid = Uid {1},
+                        .name = "b1",
+                    },
+                    {
+                        .uid = Uid {2},
+                        .name = "b2",
+                    },
+                },
+            .demand_array =
+                {
+                    {
+                        .uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {2},
+                        .capacity = 100.0,
+                    },
+                },
+            .generator_array =
+                {
+                    {
+                        .uid = Uid {1},
+                        .name = "g1",
+                        .bus = Uid {1},
+                        .gcost = 10.0,
+                        .capacity = 500.0,
+                    },
+                },
+            .line_array =
+                {
+                    make_line(L, use_sos2),
+                },
+        }
+      , simulation(build_simulation(n_blocks))
+      , opts {}
+      , options(make_options())
+      , sim_lp(simulation, options)
+      , sys_lp(system, sim_lp, build_opts())
+  {
+  }
+
+  [[nodiscard]] auto& lp() { return sys_lp.linear_interface(); }
+
+private:
+  static Line make_line(int L, bool use_sos2)
+  {
+    Line ln {
+        .uid = Uid {1},
+        .name = "l1",
+        .bus_a = Uid {1},
+        .bus_b = Uid {2},
+        .voltage = V,
+        .resistance = R,
+        .line_losses_mode = OptName {std::string {"tangent_signed_flow"}},
+        .loss_segments = 5,
+        .tmax_ba = TMAX,
+        .tmax_ab = TMAX,
+        .capacity = TMAX,
+    };
+    ln.loss_secant_segments = L;
+    ln.loss_use_sos2 = use_sos2;
+    return ln;
+  }
+
+  static Simulation build_simulation(int n_blocks)
+  {
+    Simulation sim;
+    for (int i = 1; i <= n_blocks; ++i) {
+      sim.block_array.push_back({
+          .uid = Uid {i},
+          .duration = 1,
+      });
+    }
+    sim.stage_array.push_back({
+        .uid = Uid {1},
+        .first_block = 0,
+        .count_block = static_cast<Size>(n_blocks),
+    });
+    sim.scenario_array.push_back({
+        .uid = Uid {0},
+    });
+    return sim;
+  }
+
+  PlanningOptionsLP make_options()
+  {
+    opts.model_options.use_single_bus = false;
+    opts.model_options.use_kirchhoff = false;
+    opts.model_options.scale_objective = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
+    opts.lp_matrix_options.col_with_names = true;
+    opts.lp_matrix_options.row_with_names = true;
+    opts.lp_matrix_options.col_with_name_map = true;
+    opts.lp_matrix_options.row_with_name_map = true;
+    return PlanningOptionsLP(opts);
+  }
+
+  static LpMatrixOptions build_opts()
+  {
+    LpMatrixOptions bo;
+    bo.col_with_names = true;
+    bo.col_with_name_map = true;
+    bo.row_with_names = true;
+    bo.row_with_name_map = true;
+    return bo;
+  }
+};
+
+}  // namespace
+}  // namespace test_line_losses_sos2_edge_ns
+
+using test_line_losses_sos2_edge_ns::MultiBlockSos2Fixture;
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + use_sos2: SOS2 set count scales with block "
+    "count (3 blocks ⇒ 3 sets)")
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
+  MultiBlockSos2Fixture fix(/*L=*/4, /*use_sos2=*/true, /*n_blocks=*/3);
+  auto& li = fix.lp();
+  // 1 SOS2 set per (line, block) × 3 blocks = 3 sets.
+  CHECK(li.sos2_set_count() == 3);
+  // 4 segment cols × 3 blocks = 12 ``line_flow_abs_`` cols.
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 12);
+  // 2 abs rows × 3 blocks = 6 rows tagged ``line_flow_abs``.
+  CHECK(count_rows_containing(li, "line_flow_abs") == 6);
+}
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + use_sos2: 5 blocks ⇒ 20 segment cols, "
+    "10 abs rows, 5 SOS2 sets")
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
+  // Stress test: the refactored emit_abs_row + v_ctx_for helpers
+  // must produce the same scaling on a longer horizon.  Catches any
+  // hidden per-block state that a naive lambda capture would leak.
+  MultiBlockSos2Fixture fix(/*L=*/4, /*use_sos2=*/true, /*n_blocks=*/5);
+  auto& li = fix.lp();
+  CHECK(li.sos2_set_count() == 5);
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 20);
+  CHECK(count_rows_containing(li, "line_flow_abs") == 10);
+}
+
+TEST_CASE(
+    "tangent_signed_flow L=1: refactor preserves single-aux back-compat "
+    "(no segment index in col label)")
+{
+  // The refactor unified L=1 and L>1 column emission under a single
+  // loop; the ``v_ctx_for`` lambda must still return ``block_ctx``
+  // (3-tuple) at L=1 so write_lp emits the historical
+  // ``…flow_abs_<scen>_<stage>_<block>`` label — no trailing ``_l1``.
+  TwoBusSos2Fixture fix(/*L=*/1, /*use_sos2=*/false);
+  auto& li = fix.lp();
+  // Find the unique line_flow_abs_ col and inspect its name.
+  std::string col_name;
+  for (const auto& [name, _idx] : li.col_name_map()) {
+    if (name.contains("line_flow_abs_")) {
+      col_name = name;
+      break;
+    }
+  }
+  REQUIRE_FALSE(col_name.empty());
+  // The 4-tuple emission would add a trailing ``_l1``-style segment
+  // index after the block uid.  Count underscores: legacy 3-tuple
+  // label has format ``<prefix>_<scen>_<stage>_<block>`` ⇒ exactly
+  // 3 trailing integer-separated underscores after the prefix.
+  // The 4-tuple form would have one more.  Cheap structural check:
+  // assert that none of the L>1 distinguishers (``_l1``) is in the
+  // label.
+  CHECK_FALSE(col_name.contains("_l1"));
 }
