@@ -1314,3 +1314,214 @@ TEST_CASE(
       planning_lp.systems().front().front().linear_interface().get_obj_value();
   CHECK(obj == doctest::Approx(5100.0).epsilon(1e-3));
 }
+
+// ── (12) v1.3 startup tiers (hot/warm/cold) ──────────────────────────
+//
+// When all five tier fields are set together with u/v/w, the flat
+// startup_cost is replaced by per-tier costs.  Tests pin (a)
+// structural emission of the y_hot/y_warm/y_cold cols + tier_select /
+// hot_window / warm_window rows, (b) JSON round-trip, (c)
+// has_startup_tiers() gate, (d) behavioral cold-start at t=0 with
+// no prior offline-time data.
+
+[[nodiscard]] std::string make_3block_tier_json(double hot_cost,
+                                                double warm_cost,
+                                                double cold_cost,
+                                                double hot_time,
+                                                double cold_time,
+                                                double initial_hours)
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": false,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        { "uid": 1, "duration": 1 },
+        { "uid": 2, "duration": 1 },
+        { "uid": 3, "duration": 1 }
+      ],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 3,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_tier",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2",
+          "lmax": [[100.0, 100.0, 100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+          "tmax_ab": 100, "tmax_ba": 100 }
+      ],
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true,
+          "initial_status": 0,
+          "startup_cost": 100, "shutdown_cost": 50,
+          "hot_start_cost": )";
+  out += std::to_string(hot_cost);
+  out += R"(, "warm_start_cost": )";
+  out += std::to_string(warm_cost);
+  out += R"(, "cold_start_cost": )";
+  out += std::to_string(cold_cost);
+  out += R"(, "hot_start_time": )";
+  out += std::to_string(hot_time);
+  out += R"(, "cold_start_time": )";
+  out += std::to_string(cold_time);
+  out += R"(, "initial_hours": )";
+  out += std::to_string(initial_hours);
+  out += R"( }
+      ]
+    }
+  })";
+  return out;
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.3: startup tiers emit 3 cols + 3 rows per block "
+    "(v1.3)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  Planning planning;
+  planning.merge(parse_planning_json(make_3block_tier_json(
+      /*hot_cost=*/30.0,
+      /*warm_cost=*/60.0,
+      /*cold_cost=*/120.0,
+      /*hot_time=*/1.0,
+      /*cold_time=*/5.0,
+      /*initial_hours=*/100.0)));
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto& li = planning_lp.systems().front().front().linear_interface();
+  // 3 tier cols × 3 blocks = 9 each (= 3 hot + 3 warm + 3 cold).
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_hot_start") == 3);
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_warm_start") == 3);
+  CHECK(tlcom_count_cols_containing(li, "linecommitment_cold_start") == 3);
+  // 3 rows per type × 3 blocks (tier_select + hot_window + warm_window
+  // ⇒ 9 rows total).
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_tier_select") == 3);
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_hot_window") == 3);
+  CHECK(tlcom_count_rows_containing(li, "linecommitment_warm_window") == 3);
+}
+
+TEST_CASE("LineCommitment v1.3: has_startup_tiers gate")
+{
+  LineCommitment lc;
+  CHECK_FALSE(lc.has_startup_tiers());
+  lc.hot_start_cost = 30.0;
+  CHECK_FALSE(lc.has_startup_tiers());  // only 1 of 5 set
+  lc.warm_start_cost = 60.0;
+  lc.cold_start_cost = 120.0;
+  CHECK_FALSE(lc.has_startup_tiers());  // 3 of 5
+  lc.hot_start_time = 1.0;
+  CHECK_FALSE(lc.has_startup_tiers());  // 4 of 5
+  lc.cold_start_time = 5.0;
+  CHECK(lc.has_startup_tiers());  // all 5 set
+}
+
+TEST_CASE("LineCommitment JSON round-trip — v1.3 startup tiers")
+{
+  std::string_view json_str = R"({
+    "uid": 9,
+    "name": "lc_tiers",
+    "line": "L_18_19",
+    "startup_cost": 100,
+    "hot_start_cost": 30,
+    "warm_start_cost": 60,
+    "cold_start_cost": 120,
+    "hot_start_time": 1,
+    "cold_start_time": 5,
+    "initial_hours": 100
+  })";
+  const auto lc = daw::json::from_json<LineCommitment>(json_str);
+  CHECK(lc.has_startup_tiers());
+  CHECK(lc.hot_start_cost.value_or(-1.0) == doctest::Approx(30.0));
+  CHECK(lc.warm_start_cost.value_or(-1.0) == doctest::Approx(60.0));
+  CHECK(lc.cold_start_cost.value_or(-1.0) == doctest::Approx(120.0));
+  CHECK(lc.hot_start_time.value_or(-1.0) == doctest::Approx(1.0));
+  CHECK(lc.cold_start_time.value_or(-1.0) == doctest::Approx(5.0));
+  CHECK(lc.initial_hours.value_or(-1.0) == doctest::Approx(100.0));
+
+  // Round-trip.
+  const auto out = daw::json::to_json(lc);
+  const auto lc2 = daw::json::from_json<LineCommitment>(out);
+  CHECK(lc2.has_startup_tiers());
+  CHECK(lc2.cold_start_cost.value_or(-1.0) == doctest::Approx(120.0));
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.3: initial_hours=100 (long offline) ⇒ cold start "
+    "at t=0 ⇒ cold_cost in objective (v1.3)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // initial_hours = 100 > cold_start_time = 5 ⇒ neither hot nor warm
+  // windows allow y at t=0 ⇒ residual must be y_cold = 1 ⇒ pay
+  // cold_cost = 120.  Dispatch = 3 × 100 × $10 = $3000.  Total $3120.
+  Planning planning;
+  planning.merge(parse_planning_json(make_3block_tier_json(
+      /*hot_cost=*/30.0,
+      /*warm_cost=*/60.0,
+      /*cold_cost=*/120.0,
+      /*hot_time=*/1.0,
+      /*cold_time=*/5.0,
+      /*initial_hours=*/100.0)));
+  PlanningLP planning_lp(std::move(planning));
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto obj =
+      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  CHECK(obj == doctest::Approx(3120.0).epsilon(1e-3));
+}
+
+TEST_CASE(
+    "LineCommitmentLP v1.3: initial_hours=0.5 (recent offline) ⇒ hot "
+    "start at t=0 ⇒ hot_cost in objective (v1.3)")
+{
+  if (!mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // initial_hours = 0.5 ≤ hot_start_time = 1.0 ⇒ hot window allows
+  // y_hot[0] = 1 at the first close.  Cost = $30.  Total $3030.
+  Planning planning;
+  planning.merge(parse_planning_json(make_3block_tier_json(
+      /*hot_cost=*/30.0,
+      /*warm_cost=*/60.0,
+      /*cold_cost=*/120.0,
+      /*hot_time=*/1.0,
+      /*cold_time=*/5.0,
+      /*initial_hours=*/0.5)));
+  PlanningLP planning_lp(std::move(planning));
+  REQUIRE(planning_lp.resolve().has_value());
+  const auto obj =
+      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  CHECK(obj == doctest::Approx(3030.0).epsilon(1e-3));
+}

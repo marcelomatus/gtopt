@@ -43,6 +43,19 @@
  *     Σ_{t ∈ window} v[t].  Window length resolved from
  *     ``starts_scope`` via ``starts_window_hours()``.
  *
+ * **v1.3 scope additions** (also mirroring ``CommitmentLP``):
+ *   - **Startup tiers** (hot/warm/cold) — when all five tier fields
+ *     are set together with u/v/w, the flat ``startup_cost`` on
+ *     ``v[t]`` is zeroed and three tier indicators ``y^hot``,
+ *     ``y^warm``, ``y^cold`` ∈ [0, 1] are emitted per block, joined by
+ *       C8:   v[t] = y^hot[t] + y^warm[t] + y^cold[t]
+ *       C9:   y^hot[t]  ≤ Σ_{q ∈ hot window}  w[q]
+ *       C10:  y^warm[t] ≤ Σ_{q ∈ warm window} w[q]
+ *     where the windows look BACKWARDS by cumulative block duration:
+ *     ``hot`` ⇒ sum ≤ ``hot_start_time``; ``warm`` ⇒ sum ∈
+ *     (``hot_start_time``, ``cold_start_time``].  Cold is residual.
+ *     Pre-stage offline-time is supplied via ``initial_hours``.
+ *
  * **Mode gates** (enforced by ``validate_planning``):
  *   - ``method ∈ {sddp, cascade}`` is rejected — Benders cuts on a
  *     mixed-integer subproblem are unsound (Zou-Ahmed-Sun 2019).
@@ -92,6 +105,17 @@ public:
   /// has the same latent bug but no current test exercises the
   /// upper+lower combination at LP-build time.
   static constexpr std::string_view MinStartsName {"min_starts"};
+  /// v1.3 startup-tier labels (mirror ``CommitmentLP``).  Active only
+  /// when all five tier fields are set on the schema.
+  static constexpr std::string_view HotStartName {"hot_start"};
+  static constexpr std::string_view WarmStartName {"warm_start"};
+  static constexpr std::string_view ColdStartName {"cold_start"};
+  /// C8 selection row: ``v[t] = y_hot[t] + y_warm[t] + y_cold[t]``.
+  static constexpr std::string_view TierSelectName {"tier_select"};
+  /// C9 hot-window row: ``y_hot[t] ≤ Σ_{q ∈ hot window} w[q]``.
+  static constexpr std::string_view HotWindowName {"hot_window"};
+  /// C10 warm-window row: ``y_warm[t] ≤ Σ_{q ∈ warm window} w[q]``.
+  static constexpr std::string_view WarmWindowName {"warm_window"};
 
   using Base = ObjectLP<LineCommitment>;
 
@@ -141,6 +165,14 @@ private:
   STBIndexHolder<RowIndex> min_up_time_rows_;
   STBIndexHolder<RowIndex> min_down_time_rows_;
   STBIndexHolder<RowIndex> max_starts_rows_;
+  /// v1.3 startup tier holders.  Populated only when all five tier
+  /// fields are set (``has_startup_tiers()``).
+  STBIndexHolder<ColIndex> hot_start_cols_;
+  STBIndexHolder<ColIndex> warm_start_cols_;
+  STBIndexHolder<ColIndex> cold_start_cols_;
+  STBIndexHolder<RowIndex> tier_select_rows_;
+  STBIndexHolder<RowIndex> hot_window_rows_;
+  STBIndexHolder<RowIndex> warm_window_rows_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

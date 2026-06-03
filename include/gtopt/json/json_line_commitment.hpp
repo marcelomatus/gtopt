@@ -47,7 +47,13 @@ struct json_data_contract<LineCommitment>
       json_number_null<"min_down_time", OptReal>,
       json_number_null<"max_starts", OptInt>,
       json_number_null<"min_starts", OptInt>,
-      json_variant_null<"starts_scope", OptStartsScope, jvtl_LineStartsScope>>;
+      json_variant_null<"starts_scope", OptStartsScope, jvtl_LineStartsScope>,
+      json_number_null<"hot_start_cost", OptReal>,
+      json_number_null<"warm_start_cost", OptReal>,
+      json_number_null<"cold_start_cost", OptReal>,
+      json_number_null<"hot_start_time", OptReal>,
+      json_number_null<"cold_start_time", OptReal>,
+      json_number_null<"initial_hours", OptReal>>;
 
   constexpr static auto to_json_data(LineCommitment const& obj)
   {
@@ -68,7 +74,13 @@ struct json_data_contract<LineCommitment>
                                  obj.min_down_time,
                                  obj.max_starts,
                                  obj.min_starts,
-                                 obj.starts_scope);
+                                 obj.starts_scope,
+                                 obj.hot_start_cost,
+                                 obj.warm_start_cost,
+                                 obj.cold_start_cost,
+                                 obj.hot_start_time,
+                                 obj.cold_start_time,
+                                 obj.initial_hours);
   }
 };
 

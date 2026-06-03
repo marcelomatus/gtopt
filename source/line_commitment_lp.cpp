@@ -417,7 +417,14 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     // stage discount via ``cost_factor`` only.  Mirrors
     // ``CommitmentLP::add_to_lp`` v/w cost wiring.  Hoisted out of
     // the block loop — both factors are (scenario, stage)-invariant.
-    const auto v_cost = startup_cost
+    //
+    // (v1.3) Startup tiers: when ``has_startup_tiers()`` is true the
+    // tier columns y_hot / y_warm / y_cold carry the ENTIRE startup
+    // cost, so ``v_cost`` is FORCED to zero here (otherwise the LP
+    // would double-charge: v_cost on v[t] plus tier_cost on the
+    // selected tier).  Mirrors CommitmentLP exactly.
+    const bool tiers_active = lc.has_startup_tiers();
+    const auto v_cost = (tiers_active ? 0.0 : startup_cost)
         * CostHelper::cost_factor(scenario.probability_factor(),
                                   stage.discount_factor());
     const auto w_cost = shutdown_cost
@@ -702,6 +709,206 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         max_starts_rows_[st_key] = std::move(ms_rows);
       }
     }
+
+    // ── (v1.3) Startup-cost tiers (hot/warm/cold) ────────────────────
+    // Mirrors CommitmentLP C8/C9/C10.  Skipped if any tier field is
+    // missing or if cold_start_time < hot_start_time (defensive — also
+    // caught by validate_planning if/when added).
+    if (tiers_active && have_v_cols && have_w_cols) {
+      const auto hot_cost = *lc.hot_start_cost;
+      const auto warm_cost = *lc.warm_start_cost;
+      const auto cold_cost = *lc.cold_start_cost;
+      const auto hot_time = *lc.hot_start_time;
+      const auto cold_time = *lc.cold_start_time;
+      if (cold_time < hot_time) {
+        spdlog::warn(
+            "LineCommitment '{}': cold_start_time ({}) < hot_start_time "
+            "({}), skipping startup tiers",
+            lc.name,
+            cold_time,
+            hot_time);
+      } else {
+        // Pre-stage offline hours used to size t=0's hot/warm windows.
+        // Default 1e6 hours when unset ⇒ always cold-start at t=0.
+        const auto initial_offline =
+            (initial_u < 0.5) ? lc.initial_hours.value_or(1e6) : 0.0;
+
+        const auto tier_factor = CostHelper::cost_factor(
+            scenario.probability_factor(), stage.discount_factor());
+        const auto h_cost = hot_cost * tier_factor;
+        const auto wm_cost = warm_cost * tier_factor;
+        const auto c_cost = cold_cost * tier_factor;
+
+        BIndexHolder<ColIndex> hcols;
+        BIndexHolder<ColIndex> wmcols;
+        BIndexHolder<ColIndex> ccols;
+        BIndexHolder<RowIndex> st_rows;
+        BIndexHolder<RowIndex> hr_rows;
+        BIndexHolder<RowIndex> wr_rows;
+        map_reserve(hcols, blocks.size());
+        map_reserve(wmcols, blocks.size());
+        map_reserve(ccols, blocks.size());
+        map_reserve(st_rows, blocks.size());
+        map_reserve(hr_rows, blocks.size());
+        map_reserve(wr_rows, blocks.size());
+
+        for (size_t t = 0; t < blocks.size(); ++t) {
+          const auto buid_t = blocks[t].uid();
+          const auto v_it = v_holder->second.find(buid_t);
+          if (v_it == v_holder->second.end()) {
+            continue;
+          }
+          const auto vcol = v_it->second;
+          const auto ctx_t =
+              make_block_context(scenario.uid(), stage.uid(), buid_t);
+
+          // Tier indicator columns — continuous in [0, 1], implied
+          // binary at the optimum thanks to C8 + nonnegative costs.
+          const auto hcol = lp.add_col(SparseCol {
+              .lowb = 0.0,
+              .uppb = 1.0,
+              .cost = h_cost,
+              .is_integer = false,
+              .pin_scale = true,
+              .class_name = cname,
+              .variable_name = HotStartName,
+              .variable_uid = cuid,
+              .context = ctx_t,
+          });
+          hcols[buid_t] = hcol;
+          const auto wmcol = lp.add_col(SparseCol {
+              .lowb = 0.0,
+              .uppb = 1.0,
+              .cost = wm_cost,
+              .is_integer = false,
+              .pin_scale = true,
+              .class_name = cname,
+              .variable_name = WarmStartName,
+              .variable_uid = cuid,
+              .context = ctx_t,
+          });
+          wmcols[buid_t] = wmcol;
+          const auto ccol = lp.add_col(SparseCol {
+              .lowb = 0.0,
+              .uppb = 1.0,
+              .cost = c_cost,
+              .is_integer = false,
+              .pin_scale = true,
+              .class_name = cname,
+              .variable_name = ColdStartName,
+              .variable_uid = cuid,
+              .context = ctx_t,
+          });
+          ccols[buid_t] = ccol;
+
+          // C8: v[t] = y_hot[t] + y_warm[t] + y_cold[t]
+          {
+            SparseRow row {
+                .class_name = cname,
+                .constraint_name = TierSelectName,
+                .variable_uid = cuid,
+                .context = ctx_t,
+            };
+            row.equal(0.0);
+            row[vcol] = 1.0;
+            row[hcol] = -1.0;
+            row[wmcol] = -1.0;
+            row[ccol] = -1.0;
+            st_rows[buid_t] = lp.add_row(std::move(row));
+          }
+
+          // C9 / C10: pre-block offline-hour windows.  Walking
+          // BACKWARDS from t we accumulate block durations to identify
+          // which past blocks' ``w[q]`` count as in-window.
+          //
+          //   * hot window:  blocks whose duration sum (from q+1 to
+          //     t-1) is ≤ hot_time.
+          //   * warm window: blocks whose duration sum is in
+          //     (hot_time, cold_time].
+          //
+          // For ``t = 0``, the past offline duration is the user-
+          // supplied ``initial_offline``; the LP constant ``1`` slack
+          // on the RHS lets the LP pick the appropriate tier for the
+          // first startup.
+          SparseRow hot_row {
+              .class_name = cname,
+              .constraint_name = HotWindowName,
+              .variable_uid = cuid,
+              .context = ctx_t,
+          };
+          hot_row.less_equal(0.0);
+          hot_row[hcol] = 1.0;
+          SparseRow warm_row {
+              .class_name = cname,
+              .constraint_name = WarmWindowName,
+              .variable_uid = cuid,
+              .context = ctx_t,
+          };
+          warm_row.less_equal(0.0);
+          warm_row[wmcol] = 1.0;
+
+          // Accumulate prior-block durations (walking back).  Past
+          // ``w[q]`` for which the cumulative offline window covers
+          // [0, hot_time] feeds hot_row; the slice (hot_time,
+          // cold_time] feeds warm_row.
+          double back = 0.0;
+          for (size_t q = t; q > 0; --q) {
+            const auto buid_q = blocks[q - 1].uid();
+            const auto w_q_it = w_holder->second.find(buid_q);
+            if (w_q_it == w_holder->second.end()) {
+              continue;
+            }
+            const auto wcol_q = w_q_it->second;
+            back += blocks[q - 1].duration();
+            if (back <= hot_time) {
+              hot_row[wcol_q] = -1.0;
+            }
+            if (back <= cold_time) {
+              warm_row[wcol_q] = -1.0;
+            }
+            if (back > cold_time) {
+              break;  // further-back blocks are in cold window only
+            }
+          }
+          // First-block constant offset via initial_offline:
+          //   initial_offline ≤ hot_time   ⇒ hot allowed at t (RHS ≥ 1
+          //                                   for y_hot[0]).
+          //   initial_offline ≤ cold_time  ⇒ warm allowed at t.
+          // We encode this as a relaxation of the RHS only at t = 0
+          // — the C8 row plus the LP's preference for the cheapest
+          // tier ensures cold is the residual fallback otherwise.
+          if (t == 0) {
+            if (initial_offline <= hot_time) {
+              hot_row.less_equal(1.0);
+            }
+            if (initial_offline <= cold_time) {
+              warm_row.less_equal(1.0);
+            }
+          }
+          hr_rows[buid_t] = lp.add_row(std::move(hot_row));
+          wr_rows[buid_t] = lp.add_row(std::move(warm_row));
+        }
+
+        if (!hcols.empty()) {
+          hot_start_cols_[st_key] = std::move(hcols);
+        }
+        if (!wmcols.empty()) {
+          warm_start_cols_[st_key] = std::move(wmcols);
+        }
+        if (!ccols.empty()) {
+          cold_start_cols_[st_key] = std::move(ccols);
+        }
+        if (!st_rows.empty()) {
+          tier_select_rows_[st_key] = std::move(st_rows);
+        }
+        if (!hr_rows.empty()) {
+          hot_window_rows_[st_key] = std::move(hr_rows);
+        }
+        if (!wr_rows.empty()) {
+          warm_window_rows_[st_key] = std::move(wr_rows);
+        }
+      }
+    }
   }
 
   // Store index holders.
@@ -755,6 +962,18 @@ bool LineCommitmentLP::add_to_output(OutputContext& out) const
   out.add_row_dual(cname, MinUpTimeName, pid, min_up_time_rows_);
   out.add_row_dual(cname, MinDownTimeName, pid, min_down_time_rows_);
   out.add_row_dual(cname, MaxStartsName, pid, max_starts_rows_);
+
+  // v1.3 startup-tier outputs.  All empty when ``has_startup_tiers()``
+  // is false on the schema.
+  out.add_col_sol_integer(cname, HotStartName, pid, hot_start_cols_);
+  out.add_col_cost(cname, HotStartName, pid, hot_start_cols_);
+  out.add_col_sol_integer(cname, WarmStartName, pid, warm_start_cols_);
+  out.add_col_cost(cname, WarmStartName, pid, warm_start_cols_);
+  out.add_col_sol_integer(cname, ColdStartName, pid, cold_start_cols_);
+  out.add_col_cost(cname, ColdStartName, pid, cold_start_cols_);
+  out.add_row_dual(cname, TierSelectName, pid, tier_select_rows_);
+  out.add_row_dual(cname, HotWindowName, pid, hot_window_rows_);
+  out.add_row_dual(cname, WarmWindowName, pid, warm_window_rows_);
 
   return true;
 }
