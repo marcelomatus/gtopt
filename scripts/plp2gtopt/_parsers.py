@@ -1395,13 +1395,16 @@ def add_tech_arguments(parser: argparse.ArgumentParser, _conf: dict[str, str]) -
         "--tech-detect",
         dest="auto_detect_tech",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
             "auto-detect generator technology from central names. "
             "Refines PLP types (termica, pasada) into specific types "
             "(solar, wind, gas, coal, etc.) by scanning names for "
-            "keywords. Use --tech-detect to enable. "
-            "(default: %(default)s)"
+            "keywords (CEN suffix convention: ``_FV``→solar, "
+            "``_EO``→wind, etc.).  Without this, many PLP renewables "
+            "end up tagged ``type=thermal`` with HR=0 and no fuel, "
+            "which breaks downstream emission attribution (#524). "
+            "(default: %(default)s — enabled by default since 2026-06)"
         ),
     )
     parser.add_argument(

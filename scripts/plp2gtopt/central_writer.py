@@ -184,6 +184,27 @@ class CentralWriter(BaseWriter):
                 auto_detect=auto_detect_tech,
             )
 
+            # Last-resort fallback (#524): when auto-detect is on AND
+            # detect_technology still returned bare ``"thermal"`` AND
+            # the central has no fuel-cost signal (``gcost`` is the
+            # zero scalar), the central is almost certainly a small
+            # distributed renewable that PLP catch-all'd into the
+            # thermal bucket and that name-pattern detection couldn't
+            # refine (e.g. local plant names without the canonical
+            # ``_FV`` / ``_EO`` suffix).  Default to
+            # ``renewable:hydro`` — the most common case for CEN
+            # PLP-only thermals with HR=0 is small ROR / mini-hydros.
+            # Downstream consumers can refine via ``--tech-overrides``.
+            #
+            # Gated on ``auto_detect_tech=True`` so the legacy "suspected"
+            # description workflow (auto-detect off) is preserved.
+            if (
+                auto_detect_tech
+                and gen_type == "thermal"
+                and (not isinstance(gcost, (int, float)) or float(gcost or 0) == 0.0)
+            ):
+                gen_type = "renewable:hydro"
+
             generator: Dict[str, Any] = {
                 "uid": central_number,
                 "name": central_name,
