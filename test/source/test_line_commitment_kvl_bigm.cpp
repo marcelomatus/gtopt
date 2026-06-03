@@ -724,3 +724,54 @@ TEST_CASE(
   }
   CHECK(obj_cycle_ots == doctest::Approx(obj_cycle_baseline).epsilon(1e-3));
 }
+
+// ── (8) IEEE 9-bus + cycle_basis + must_run ─────────────────────────
+//
+// Mirror of test (4) (node_angle + must_run) for the cycle_basis path.
+// ``must_run = true`` pins ``u_l = 1`` via column bounds, which
+// reproduces the no-OTS objective exactly because the disjunctive
+// cycle row collapses to equality at ``u_l = 1`` (same physics as
+// pre-OTS).
+
+TEST_CASE(
+    "LineCommitmentLP cycle_basis: IEEE 9b + must_run matches baseline (v1)")
+{
+  if (!tkbm_mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  auto swap_mode = [](std::string s) -> std::string
+  {
+    constexpr std::string_view from {"\"kirchhoff_mode\": \"node_angle\""};
+    constexpr std::string_view to {"\"kirchhoff_mode\": \"cycle_basis\""};
+    const auto pos = s.find(from);
+    if (pos != std::string::npos) {
+      s.replace(pos, from.size(), to);
+    }
+    return s;
+  };
+
+  // cycle_basis baseline (no OTS).
+  Planning base;
+  base.merge(parse_planning_json(
+      swap_mode(make_ieee9b_with_ots_json(/*with_lc=*/false))));
+  PlanningLP planning_baseline(std::move(base));
+  REQUIRE(planning_baseline.resolve().has_value());
+  const auto obj_baseline = planning_baseline.systems()
+                                .front()
+                                .front()
+                                .linear_interface()
+                                .get_obj_value();
+
+  // cycle_basis + must_run OTS.
+  Planning ots;
+  ots.merge(parse_planning_json(swap_mode(
+      make_ieee9b_with_ots_json(/*with_lc=*/true, /*must_run=*/true))));
+  PlanningLP planning_ots(std::move(ots));
+  REQUIRE(planning_ots.resolve().has_value());
+  const auto obj_ots =
+      planning_ots.systems().front().front().linear_interface().get_obj_value();
+
+  CHECK(obj_ots == doctest::Approx(obj_baseline).epsilon(1e-3));
+}
