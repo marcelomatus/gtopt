@@ -726,6 +726,26 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
                                   .source_attribute = LineLP::FlownName,
                               },
                           });
+
+    // Class-level compound: `line.loss = +lossp + lossn`.  Mirrors
+    // the unified `Line/loss_sol.parquet` output stream (which is
+    // `LP(lossp) + LP(lossn)` per cell — total dissipated energy
+    // regardless of direction).  Under the arbitrage-free PWL modes
+    // at most one of the two legs is populated per block; the compound
+    // resolves correctly either way because the leg whose attribute
+    // isn't registered on this (uid, block) silently contributes 0.
+    sim.add_ampl_compound(line_class,
+                          LineLP::LossName,
+                          {
+                              AmplCompoundLeg {
+                                  .coefficient = +1.0,
+                                  .source_attribute = LineLP::LosspName,
+                              },
+                              AmplCompoundLeg {
+                                  .coefficient = +1.0,
+                                  .source_attribute = LineLP::LossnName,
+                              },
+                          });
   }
 
   // Class-level compound: `converter.flow = +discharge − charge`.

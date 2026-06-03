@@ -282,6 +282,25 @@ bool EmissionSourceLP::add_to_lp(const SystemContext& sc,
   }
 
   if (!blk_gen_cols.empty()) {
+    // ── PAMPL `emission_source("X").emissions` registration ────────
+    // Expose the per-block NET (post-capture) emission expression
+    // `(combustion + upstream)_b · gen_col_b` to user constraints via
+    // the AMPL `block_cols_weighted_sum` registry — one leg per
+    // (gen_col, factor_b) per block.  Mirror of the new `fuel.offtake`
+    // accessor: a weighted sum of an existing LP column, no aggregator
+    // variable.  UCs can express "emissions of source X over the
+    // stage" as `sum(b in blocks) emission_source("X").emissions` and
+    // it expands directly onto the generator dispatch col.
+    BIndexHolder<std::vector<std::pair<ColIndex, double>>> blk_weighted_emit;
+    for (const auto& [buid, gcol] : blk_gen_cols) {
+      const double net_factor_b =
+          blk_combustion_factor.at(buid) + blk_upstream_factor.at(buid);
+      blk_weighted_emit[buid] = {{gcol, net_factor_b}};
+    }
+    static constexpr auto ampl_name = Element::class_name.snake_case();
+    sc.add_ampl_variable(
+        ampl_name, uid(), "emissions", scenario, stage, blk_weighted_emit);
+
     gen_cols_[st_key] = std::move(blk_gen_cols);
     combustion_factor_[st_key] = std::move(blk_combustion_factor);
     upstream_factor_[st_key] = std::move(blk_upstream_factor);

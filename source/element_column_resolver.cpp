@@ -327,7 +327,24 @@ namespace
   };
 
   if (uid_opt) {
-    // Try multi-col (sum-of-cols) first.  When registered, the
+    // Try the WEIGHTED multi-col path first.  Used by `FuelLP` to
+    // expose ``fuel("X").offtake = Σ heat_rate_g · dur · gen_g`` as a
+    // weighted sum-of-cols (each leg carries its own coefficient).
+    // The unweighted ``block_cols_sum`` path below is the
+    // ``piecewise_direct`` line-loss case where every leg has weight 1.
+    const auto weighted_cols = sc.find_ampl_weighted_cols(ref.element_type,
+                                                          *uid_opt,
+                                                          ref.attribute,
+                                                          scenario.uid(),
+                                                          stage.uid(),
+                                                          block.uid());
+    if (!weighted_cols.empty()) {
+      for (const auto& [col, weight] : weighted_cols) {
+        row[col] += coef * weight;
+      }
+      return {.emitted = true, .offset_shift = 0.0, .element_known = true};
+    }
+    // Try multi-col (unweighted sum-of-cols).  When registered, the
     // aggregator is virtual and the attribute expands to a sum of LP
     // cols — stamp each with the leg coefficient.  Sum-of-cols
     // registrations never carry offsets in current code; if they ever

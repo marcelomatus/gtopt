@@ -124,6 +124,19 @@ struct AmplVariable
   /// time.  Empty in the common single-col case.
   BIndexHolder<std::vector<ColIndex>> block_cols_sum;
 
+  /// Per-block weighted sum-of-cols: same shape as `block_cols_sum`
+  /// but each entry carries its own coefficient.  Resolves to
+  /// `Σ_k w_k · col_k` at user-constraint resolution time — the
+  /// resolver stamps `row[col_k] += base_coef · w_k` per leg.  Used
+  /// by `FuelLP::add_to_lp` to expose
+  /// `fuel("X").offtake = Σ_g heat_rate_g · dur_b · generation_g[b]`
+  /// without creating an aggregator LP column or binding row (the
+  /// pre-substitution form held an LP `Y_f[b]` column plus an equality
+  /// row `Y_f[b] − Σ hr·dur·gen = 0`, both of which are now elided).
+  /// Empty in every other registration shape.
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>>
+      block_cols_weighted_sum;
+
   /// Optional per-block additive offset (Option C demand substitution
   /// and similar shifted-variable encodings).  When set, the AMPL
   /// resolver reports `physical_value = LP_value × scale + offset(b)`
@@ -184,6 +197,23 @@ struct AmplVariable
       return {};
     }
     return std::span<const ColIndex> {it->second};
+  }
+
+  /// Look up the per-block WEIGHTED sum-of-cols list for this block.
+  /// Returns an empty span when this registration carries no weighted
+  /// sum, or when the block has no list entry.  Resolver stamping
+  /// path: `row[col] += base_coef · weight` per (col, weight).
+  [[nodiscard]] std::span<const std::pair<ColIndex, double>> weighted_cols_at(
+      BlockUid block_uid) const noexcept
+  {
+    if (block_cols_weighted_sum.empty()) {
+      return {};
+    }
+    const auto it = block_cols_weighted_sum.find(block_uid);
+    if (it == block_cols_weighted_sum.end()) {
+      return {};
+    }
+    return std::span<const std::pair<ColIndex, double>> {it->second};
   }
 };
 

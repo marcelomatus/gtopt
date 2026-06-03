@@ -8,7 +8,9 @@
  * `FuelLP` resolves the time-schedulable fuel price + emission factors
  * that `GeneratorLP` consumes via `system_context.element<FuelLP>`.
  *
- * When `Fuel.max_offtake` is set the FuelLP also creates a per-(scenario,
+ * ## LP-active constraints (only when explicitly configured)
+ *
+ * When `Fuel.max_offtake` is set the FuelLP creates a per-(scenario,
  * stage) cap row enforcing
  *
  *   Σ_{g : Generator(g).fuel = this_fuel}
@@ -17,18 +19,28 @@
  *
  * with an optional slack column priced at `max_offtake_cost` when the
  * cap is soft.  Mirrors PLEXOS's `FueMaxOffWeek_<fuel>` /
- * `FueMaxOffDay_<fuel>` Constraint pattern.
+ * `FueMaxOffDay_<fuel>` Constraint pattern.  Symmetrically, when
+ * `Fuel.min_offtake` is set FuelLP creates a per-(scenario, stage)
+ * FLOOR row.
  *
- * Symmetrically, when `Fuel.min_offtake` is set FuelLP creates a
- * per-(scenario, stage) FLOOR row
+ * The cap/floor coefficients are stamped DIRECTLY on the consuming
+ * generators' dispatch columns: the LHS is the linear combination
+ * `Σ heat_rate · dur · generation_g` evaluated on the existing
+ * `Generator/generation` columns — no auxiliary LP column is created.
  *
- *   Σ_g (heat_rate · gen · dur)  ≥  min_offtake(s)
+ * ## PAMPL `fuel("X").offtake` accessor
  *
- * with an optional shortfall slack priced at `min_offtake_cost` when
- * the floor is soft.  Mirrors PLEXOS's `Fuel.Min Offtake {Hour, Day,
- * Week, Month, Year}` family (pids 595-600) used for take-or-pay
- * obligations.  When BOTH bounds are set the two rows share the
- * offtake DV LHS — same pattern as `Commitment::{min,max}_starts`.
+ * The user-constraint expression `fuel("X").offtake` resolves at
+ * constraint-build time to the same weighted sum
+ * `Σ_g heat_rate_g · dur_b · generation_g[b]`.  This is registered as
+ * an AMPL **weighted sum-of-cols** attribute (see
+ * `AmplVariable::block_cols_weighted_sum`); no aggregator LP column
+ * is created.  The previous design carried a per-(scenario, stage,
+ * block) `Y_f[b]` LP column plus an equality binding row
+ * `Y_f[b] − Σ hr·dur·gen = 0`; both have been substituted out (mirror
+ * of the `EmissionZone.production` removal).  Reporting is unaffected
+ * — gtopt never emitted a `Fuel/offtake_sol.parquet` stream; only
+ * cap/floor row duals + slack columns are written.
  */
 
 #pragma once
@@ -59,31 +71,19 @@ public:
   static constexpr std::string_view MaxOfftakeSlackName {"max_offtake_slack"};
   /// Symmetric min-side floor names — see ``Fuel::min_offtake``.  When
   /// both ``min_offtake`` and ``max_offtake`` are populated FuelLP
-  /// emits two separate rows sharing the offtake DV LHS (same
-  /// pattern as ``Commitment::{min,max}_starts``).  Each side gets
-  /// its own dual stream + slack column when softened by a positive
-  /// ``*_cost``.
+  /// emits two separate rows sharing the same weighted generator-side
+  /// LHS (`Σ heat_rate · dur · gen_g`).  Each side gets its own dual
+  /// stream + slack column when softened by a positive ``*_cost``.
   static constexpr std::string_view MinOfftakeName {"min_offtake"};
   static constexpr std::string_view MinOfftakeSlackName {"min_offtake_slack"};
-  /// Per-(scenario, stage, block) fuel offtake decision variable
-  /// ``Y_f[b] = Σ_g heat_rate_g · dur_b · generation_g[b]`` exposed to
-  /// PAMPL as ``fuel("X").offtake``.  Lets PLEXOS ``Offtake
-  /// Coefficient`` UCs (``Gas_MaxOpDay*``, ``FueMaxOff*``) translate
-  /// verbatim instead of via per-generator expansion.  See
-  /// ``add_to_lp`` for the binding equation.  Note: the DV is created
-  /// only when at least one generator consumes the fuel at the
-  /// (scenario, stage); fuels with no active consumers do not register
-  /// the AMPL attribute, so UC references to ``fuel(X).offtake`` for
-  /// such fuels currently trip the strict resolver — see the
-  /// ``GTOPT_USE_FUEL_OFFTAKE`` gate in plexos2gtopt/parsers.py and
-  /// the matching TODO at the top of FuelLP::add_to_lp.
+  /// PAMPL accessor for the fuel offtake expression.  Resolves to the
+  /// weighted sum ``Σ_g heat_rate_g · dur_b · generation_g[b]`` of
+  /// every active consumer's dispatch column — registered as an AMPL
+  /// `block_cols_weighted_sum` attribute, so no aggregator LP column
+  /// is created.  Lets PLEXOS `Offtake Coefficient` UCs
+  /// (`Gas_MaxOpDay*`, `FueMaxOff*`) translate as the single LHS
+  /// term `α × fuel("X").offtake`.
   static constexpr std::string_view OfftakeName {"offtake"};
-  /// LP row name for the offtake binding equation
-  /// ``Y_f[b] − Σ heat_rate_g · dur_b · gen_g[b] = 0``.  Hidden from
-  /// the dual / row-name index (it's just a definition row, not a
-  /// physical constraint), but emitted with this label for LP-debug
-  /// clarity.
-  static constexpr std::string_view OfftakeDefName {"offtake_def"};
 
   explicit FuelLP(const Fuel& fuel, const InputContext& ic);
 
@@ -174,13 +174,6 @@ private:
   /// by each block's share of total stage duration.
   STBIndexHolder<RowIndex> min_offtake_block_rows_;
   STBIndexHolder<ColIndex> min_offtake_block_slack_cols_;
-
-  /// Per-(scenario, stage, block) offtake decision variable
-  /// ``Y_f[b]``.  Populated only for cells where at least one
-  /// generator consuming this fuel is active at the block — exposed
-  /// to PAMPL as ``fuel("X").offtake`` so UCs can reference it
-  /// directly.
-  STBIndexHolder<ColIndex> offtake_cols_;
 };
 
 /// SingleId-style reference into `Collection<FuelLP>`.  Used by

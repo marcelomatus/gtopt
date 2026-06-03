@@ -803,39 +803,33 @@ bool LineLP::add_to_output(OutputContext& out) const
 
   out.add_col_sol_values(cname, FlowName, pid, flow_signed_sol);
   out.add_col_cost_values(cname, FlowName, pid, flow_signed_cost);
-  // Extras (opt-in via ``--write-out ...,extras:Line``).  Only emitted
-  // when the LP actually had a flown column for at least one (line,
-  // cell) — i.e. when the loss model produced two directional columns.
-  // ``tangent_signed_flow`` mode (one signed flows column) leaves
-  // these holders empty and the helpers are no-ops.
-  //   * ``flown_sol``  = raw flown primal (always ≥ 0); ``flowp = flow +
-  //   flown``
-  //   * ``flowe_cost`` = EXCLUDED reduced cost (the rc that the sign-based
-  //                      ``flow_cost`` rule did NOT pick).  Named ``flowe``
-  //                      not ``flown`` so the suffix reads as "excluded",
-  //                      not "negative direction".
-  out.add_col_sol_values_extras(cname, FlownName, pid, flown_extras_sol);
-  out.add_col_cost_values_extras(cname, FloweName, pid, flown_extras_cost);
+  // NOTE: the negative-direction `flown_sol` raw primal and the
+  // excluded reduced cost `flowe_cost` are intentionally NOT emitted.
+  // The unified `Line/flow_sol.parquet` (signed: positive = A→B,
+  // negative = B→A) carries the full direction information; the
+  // per-direction `flowp` / `flown` raw cols are an LP-internal
+  // implementation detail and downstream consumers should not depend
+  // on them.
 
   // Consolidated loss output: piecewise / bidirectional only.  none /
   // linear / piecewise_direct don't create loss vars so this is a no-op.
   // The LP holds losses in two per-direction column sets (``lossp_cols``
   // for A→B, ``lossn_cols`` for B→A); on any given block at most one is
   // populated under the arbitrage-free PWL modes (``adaptive`` /
-  // ``piecewise`` / ``bidirectional``).  Rather than emitting the paired
-  // ``Line/{lossp,lossn}_sol.parquet`` (which forced consumers to handle
-  // a missing-direction case when the LP routed all flow one way),
-  // merge them per cell and emit a single ``Line/loss_sol.parquet``
-  // whose per-(line, block) value is ``LP(lossp) + LP(lossn)`` — total
-  // dissipated energy regardless of direction.  Emitted under the same
-  // ``sol`` gate as ``flow_sol`` so any default ``write_out`` that
-  // requests Line solutions also gets the loss stream — required for
-  // post-solve loss-vs-flow audits in ``gtopt_check_output``.
+  // ``piecewise`` / ``bidirectional``).  Merge them per cell and emit
+  // a single ``Line/loss_sol.parquet`` whose per-(line, block) value
+  // is ``LP(lossp) + LP(lossn)`` — total dissipated energy regardless
+  // of direction.  Emitted under the same ``sol`` gate as ``flow_sol``
+  // so any default ``write_out`` that requests Line solutions also
+  // gets the loss stream — required for post-solve loss-vs-flow audits
+  // in ``gtopt_check_output``.
   //
-  // The directional split is available as an opt-in via
-  // ``Line/lossn_sol.parquet`` (``extras`` gated, see below) — useful
-  // when investigating phantom bidirectional flow / loss arbitrage.
-  // The A→B leg ``lossp`` is implicitly ``loss − lossn``.
+  // The directional split (``lossp_cols`` / ``lossn_cols``) is NOT
+  // emitted: same convention as ``flowp`` / ``flown`` — the consolidated
+  // stream is the contract surface, per-direction raw cols are an LP-
+  // internal implementation detail.  PAMPL UCs that want the per-block
+  // loss reference it as ``line.loss`` (class-level compound,
+  // ``+lossp + lossn``).
   if (!lossp_cols.empty() || !lossn_cols.empty()) {
     STBIndexHolder<std::vector<ColIndex>> loss_combined;
     auto merge_in = [&loss_combined](const auto& src)
@@ -850,16 +844,6 @@ bool LineLP::add_to_output(OutputContext& out) const
     merge_in(lossp_cols);
     merge_in(lossn_cols);
     out.add_col_sol(cname, LossName, pid, loss_combined);
-  }
-  // Optional per-direction loss (B→A leg).  Extras-gated so the
-  // default footprint is one stream (``loss_sol``); enable via
-  // ``--write-out all`` or ``--write-out ...,extras:Line`` when you
-  // need to attribute loss to the negative direction (loss-arbitrage
-  // diagnostics).  ``lossn_cols`` is empty for ``tangent_signed_flow``
-  // / ``none`` / ``linear`` / ``piecewise_direct`` modes; the helper
-  // is a no-op in those cases.
-  if (!lossn_cols.empty()) {
-    out.add_col_sol_extras(cname, LossnName, pid, lossn_cols);
   }
 
   // Overload-slack solutions and costs: only populated when the

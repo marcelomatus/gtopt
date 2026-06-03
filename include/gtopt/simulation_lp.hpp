@@ -587,6 +587,7 @@ public:
             .block_cols = block_cols,
             .stage_col = ColIndex {unknown_index},
             .block_cols_sum = {},
+            .block_cols_weighted_sum = {},
             .block_offsets = {},
         });
   }
@@ -622,6 +623,7 @@ public:
             .block_cols = block_cols,
             .stage_col = ColIndex {unknown_index},
             .block_cols_sum = {},
+            .block_cols_weighted_sum = {},
             .block_offsets = block_offsets,
         });
   }
@@ -652,6 +654,7 @@ public:
             .block_cols = {},
             .stage_col = stage_col,
             .block_cols_sum = {},
+            .block_cols_weighted_sum = {},
             .block_offsets = {},
         });
   }
@@ -693,6 +696,48 @@ public:
             .block_cols = {},
             .stage_col = ColIndex {unknown_index},
             .block_cols_sum = block_cols_sum,
+            .block_cols_weighted_sum = {},
+            .block_offsets = {},
+        });
+  }
+
+  /// Register a per-block **weighted sum of columns** for a virtual
+  /// aggregator attribute whose legs each carry a coefficient.  Used
+  /// by `FuelLP::add_to_lp` to expose
+  /// `fuel("X").offtake = Σ_g heat_rate_g · dur_b · generation_g[b]`
+  /// without creating an LP `Y_f[b]` column + equality binding row
+  /// (the legacy substitute-out anti-pattern, mirror of the
+  /// `EmissionZone.production` removal).  Resolver stamps
+  /// `row[col] += base_coef · weight` per leg.  No-op when
+  /// `need_ampl_variables()` is false.  Copied by value for the same
+  /// lifetime reasons as the other sum-of-cols overload.
+  void add_ampl_variable(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid,
+      const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
+          block_cols_weighted_sum)
+  {
+    if (!m_need_ampl_variables_) {
+      return;
+    }
+    m_ampl_lp_cells_[scene_index][phase_index].variables.insert_or_assign(
+        AmplVariableKey {
+            .class_name = class_name,
+            .element_uid = element_uid,
+            .attribute = attribute,
+            .scenario_uid = scenario_uid,
+            .stage_uid = stage_uid,
+        },
+        AmplVariable {
+            .block_cols = {},
+            .stage_col = ColIndex {unknown_index},
+            .block_cols_sum = {},
+            .block_cols_weighted_sum = block_cols_weighted_sum,
             .block_offsets = {},
         });
   }
@@ -781,6 +826,37 @@ public:
       return {};
     }
     return it->second.cols_at(block_uid);
+  }
+
+  /// Look up a registered **weighted sum-of-cols** attribute.  Returns
+  /// an empty span when the attribute is not registered with weighted
+  /// legs (callers fall through to single-col / unweighted-sum paths in
+  /// that case).  Used by the user-constraint resolver to stamp
+  /// `row[col] += base_coef · weight` for every leg of attributes like
+  /// `fuel("X").offtake` (registered by `FuelLP::add_to_lp` as
+  /// `Σ heat_rate_g · dur_b · generation_g[b]`).
+  [[nodiscard]] std::span<const std::pair<ColIndex, double>>
+  find_ampl_weighted_cols(SceneIndex scene_index,
+                          PhaseIndex phase_index,
+                          std::string_view class_name,
+                          Uid element_uid,
+                          std::string_view attribute,
+                          ScenarioUid scenario_uid,
+                          StageUid stage_uid,
+                          BlockUid block_uid) const
+  {
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.variables.find(AmplVariableKey {
+        .class_name = class_name,
+        .element_uid = element_uid,
+        .attribute = attribute,
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+    });
+    if (it == cell.variables.end()) {
+      return {};
+    }
+    return it->second.weighted_cols_at(block_uid);
   }
 
   /// Is the (class, element_uid, attribute) triple registered as an LP

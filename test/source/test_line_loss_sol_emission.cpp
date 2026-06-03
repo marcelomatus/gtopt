@@ -191,13 +191,13 @@ TEST_CASE(  // NOLINT
 
   // Primary regression assertion: the consolidated stream IS emitted.
   CHECK(saw_loss_sol);
-  // ``lossp_sol`` was retired by the consolidation — still must not be
-  // emitted (A→B leg is derivable as ``loss − lossn``).
+  // Per-direction raw cols are LP-internal — neither leg is exported,
+  // following the same convention as `flowp` / `flown`.  The unified
+  // `loss_sol` carries the contract; the directional split is reachable
+  // only via PAMPL UCs that reference the `lossp` / `lossn` attributes
+  // directly (registered for AMPL but not as output streams).
   CHECK_FALSE(saw_lossp_sol);
-  // ``lossn_sol`` IS emitted under the ``extras`` gate (default
-  // ``write_out`` is ``OutputFlags::all`` which includes ``extras``):
-  // it carries the B→A direction loss for loss-arbitrage diagnostics.
-  CHECK(saw_lossn_sol);
+  CHECK_FALSE(saw_lossn_sol);
 
   // File must carry an actual data row, not just a header.  A broken
   // ``add_field_sum`` / ``flat()`` interaction with the

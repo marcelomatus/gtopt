@@ -577,6 +577,23 @@ public:
       const StageLP& stage,
       const BIndexHolder<std::vector<ColIndex>>& block_cols_sum) const;
 
+  /// Register a per-block **weighted sum of LP cols** — every leg
+  /// carries its own coefficient.  Used by `FuelLP::add_to_lp` to
+  /// expose `fuel("X").offtake = Σ_g heat_rate_g · dur_b ·
+  /// generation_g[b]` without creating an aggregator LP column +
+  /// equality binding row (the substitute-out anti-pattern fix,
+  /// mirror of the `EmissionZone.production` removal).  Resolver
+  /// stamps `row[col] += base_coef · weight` per leg.  See
+  /// `AmplVariable::block_cols_weighted_sum` for the data layout.
+  void add_ampl_variable(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
+          block_cols_weighted_sum) const;
+
   /// Look up a registered variable column.  Returns nullopt if the
   /// (class, uid, attribute, scenario, stage, block) combination was
   /// never registered.  Reads from the current SystemLP's
@@ -610,6 +627,19 @@ public:
       ScenarioUid scenario_uid,
       StageUid stage_uid,
       BlockUid block_uid) const;
+
+  /// Look up a registered **weighted sum-of-cols** attribute.  Returns
+  /// an empty span when the attribute is not registered with weighted
+  /// legs (callers fall through to single-col / unweighted-sum paths
+  /// in that case).  Stamping rule: `row[col] += base_coef · weight`
+  /// per leg.
+  [[nodiscard]] std::span<const std::pair<ColIndex, double>>
+  find_ampl_weighted_cols(std::string_view class_name,
+                          Uid element_uid,
+                          std::string_view attribute,
+                          ScenarioUid scenario_uid,
+                          StageUid stage_uid,
+                          BlockUid block_uid) const;
 
   /// Resolve an element name to its Uid within a class.
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
