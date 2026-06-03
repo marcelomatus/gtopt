@@ -38,37 +38,30 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
   return std::string(reg.default_solver());
 }
 
-/// Run a `check_solvers` test against every available plugin (not just
-/// the default).  This is what `check_all_solvers` already does for the
-/// CLI, but the doctest layer historically ran only `default_solver()`
-/// per test.  Used by the new `add_rows` test to verify the bulk-add
-/// invariant on CPLEX / HiGHS / MindOpt / Gurobi / OSI in one go.
-void run_named_test_on_every_solver(const std::string& test_name)
+/// Run a single `check_solvers` test against ONE specific solver plugin.
+/// Skips with a MESSAGE when the plugin is not loaded — this lets the
+/// split-out per-solver add_rows / add_cols TEST_CASEs parallelise
+/// across solvers under `ctest -j20` (each TEST_CASE is its own
+/// ctest entry).
+void run_named_test_on_solver(const std::string& solver,
+                              const std::string& test_name)
 {
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
-  const auto avail = reg.available_solvers();
-  if (avail.empty()) {
-    MESSAGE("No solver plugins — skipping " << test_name);
+  if (!reg.has_solver(solver)) {
+    MESSAGE("solver '" << solver << "' not available — skipping " << test_name);
     return;
   }
-  for (const auto& solver : avail) {
-    CAPTURE(solver);
-    const auto report = run_solver_tests(solver, /*verbose=*/false);
-    bool found = false;
-    for (const auto& r : report.results) {
-      if (r.name == test_name) {
-        INFO("solver: " << solver << "  detail: " << r.detail);
-        CHECK(r.passed);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      FAIL("test '" << test_name << "' not found in report for solver "
-                    << solver);
+  CAPTURE(solver);
+  const auto report = run_solver_tests(solver, /*verbose=*/false);
+  for (const auto& r : report.results) {
+    if (r.name == test_name) {
+      INFO("solver: " << solver << "  detail: " << r.detail);
+      CHECK(r.passed);
+      return;
     }
   }
+  FAIL("test '" << test_name << "' not found in report for solver " << solver);
 }
 
 }  // namespace
@@ -199,32 +192,106 @@ TEST_CASE("check_solvers - add_row")  // NOLINT
 
   run_named_test("add_row");
 }
-TEST_CASE("check_solvers - add_rows")  // NOLINT
+// Bulk-row / bulk-column addition uses a different per-backend code
+// path than the single-row / single-column variants: CPLEX / HiGHS use
+// native CSR/CSC APIs, while OSI/CLP+CBC, MindOpt, and Gurobi route
+// through their own bulk APIs (added in the recent backend fix).
+// We exercise the full matrix of backends so any bulk-path regression
+// on any plugin shows up immediately.
+//
+// Splitting one TEST_CASE per (solver, test) means ctest -j20 can
+// dispatch the per-solver invocations in parallel — wall-time for the
+// combined add_rows + add_cols matrix drops from one 30s+ monolithic
+// case to ~N parallel ~5-9s cases.  Each gate uses has_solver() so an
+// installation that lacks a plugin emits MESSAGE and passes without
+// CHECK noise.
+//
+// One TEST_CASE per (solver, base_name) pair — explicit instead of
+// X-macro-expanded so each TEST_CASE sits on its own source line.
+// doctest derives anonymous registrar identifiers from `__LINE__`;
+// expanding multiple TEST_CASEs from a single macro invocation
+// produces DOCTEST_ANON_VAR_<line> redefinition errors.  The
+// `MESSAGE`-on-missing-plugin gating lives inside
+// `run_named_test_on_solver`; missing backends pass cleanly without
+// firing `CHECK`s.
+//
+// Mirrors the known set of backend plugins
+// (`libgtopt_solver_<name>.so`).  Add a new solver: append the
+// matching ``TEST_CASE("check_solvers - add_rows [solver=X]")`` and
+// ``... [solver=X]`` for ``add_cols`` below.
+//
+// NOLINTBEGIN(google-build-using-namespace)
+TEST_CASE("check_solvers - add_rows [solver=clp]")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Bulk-row addition uses a different per-backend code path than
-  // single-row `add_row`: CPLEX / HiGHS use native CSR APIs, while
-  // OSI/CLP+CBC, MindOpt, and Gurobi route through their own
-  // CSR-bulk APIs (added in the recent backend fix).  Exercise the
-  // full matrix of backends in one TEST_CASE so any bulk-path
-  // regression on any plugin shows up immediately.
-  run_named_test_on_every_solver("add_rows");
+  using namespace gtopt;
+  run_named_test_on_solver("clp", "add_rows");
 }
-TEST_CASE("check_solvers - add_cols")  // NOLINT
+TEST_CASE("check_solvers - add_rows [solver=cbc]")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Bulk-column addition mirrors `add_rows`: each plugin reaches a
-  // native CSC bulk API (CPXaddcols / GRBaddvars / Highs::addCols /
-  // OsiClp::addCols / MDOaddvars) instead of looping per-column.
-  // Run on every loaded plugin so a backend-specific bug shows up
-  // immediately.  The test itself is LP-semantic (compares solve
-  // outputs between per-column and bulk paths), so a regression that
-  // scales columns differently in the bulk path fails even when
-  // round-trip set/get-coeff is internally consistent.
-  run_named_test_on_every_solver("add_cols");
+  using namespace gtopt;
+  run_named_test_on_solver("cbc", "add_rows");
 }
+TEST_CASE("check_solvers - add_rows [solver=cplex]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("cplex", "add_rows");
+}
+TEST_CASE("check_solvers - add_rows [solver=highs]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("highs", "add_rows");
+}
+TEST_CASE("check_solvers - add_rows [solver=mindopt]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("mindopt", "add_rows");
+}
+TEST_CASE("check_solvers - add_rows [solver=gurobi]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("gurobi", "add_rows");
+}
+TEST_CASE("check_solvers - add_rows [solver=osi]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("osi", "add_rows");
+}
+TEST_CASE("check_solvers - add_cols [solver=clp]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("clp", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=cbc]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("cbc", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=cplex]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("cplex", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=highs]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("highs", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=mindopt]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("mindopt", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=gurobi]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("gurobi", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=osi]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("osi", "add_cols");
+}
+// NOLINTEND(google-build-using-namespace)
 TEST_CASE("check_solvers - obj_coeff")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)

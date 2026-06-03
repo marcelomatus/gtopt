@@ -32,6 +32,13 @@ include(FastLinker)
 # ---- Options ----
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
+# Cascade/SDDP test files are integration-style tests masquerading as unit
+# tests: each TEST_CASE runs a full multi-stage planning solve and takes
+# 2-26 s, totalling ~2 min wall in the unit-test binary.  Default ON to
+# preserve the current behaviour; turn OFF for a sub-minute ctest sweep
+# (the heavier suites still get exercised by the integration tests).
+option(GTOPT_BUILD_HEAVY_UNIT_TESTS
+       "Include cascade/SDDP integration-style unit tests" ON)
 
 set(CPPCHECK_ARGS
     "--check-level=exhaustive" "--suppress=returnDanglingLifetime" "--suppress=internalAstError"
@@ -75,6 +82,18 @@ file(GLOB sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp"
 )
 list(FILTER sources EXCLUDE REGEX "test_benchmark_")
+
+if(NOT GTOPT_BUILD_HEAVY_UNIT_TESTS)
+  # Exclude the cascade/SDDP families entirely.  They are uniformly heavy
+  # (every TEST_CASE runs a full planning solve), so file-level gating is
+  # the right granularity.  Note: shared helper headers
+  # (cascade_helpers.hpp, sddp_helpers.hpp, aperture_data_cache.hpp) are
+  # header-only and not in the glob, so dropping the .cpp files is safe.
+  list(FILTER sources EXCLUDE REGEX "test_cascade_")
+  list(FILTER sources EXCLUDE REGEX "test_sddp_")
+  message(STATUS
+          "GTOPT_BUILD_HEAVY_UNIT_TESTS=OFF: dropping cascade/SDDP tests")
+endif()
 
 # Move main.cpp to the front of the source list so that Ninja schedules
 # its compilation before the unity batches.  It defines
