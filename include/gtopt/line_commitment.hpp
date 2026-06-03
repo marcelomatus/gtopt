@@ -89,11 +89,20 @@ namespace gtopt
  *      baseline; iterative tightening per Pineda 2024 [3] is a v1
  *      follow-up that writes back to ``kvl_big_m``).
  *
- * v0 (this commit) ships ONLY the capacity gating + KVL big-M
- * disjunction.  The u/v/w 3-bin transition logic, min-up / min-down
- * times, max-starts windows, and the indicator-constraint alternative
- * (PowerModels.jl-style IND+) land in follow-up commits — see issue
- * #509 §"Implementation roadmap".
+ * Roadmap status (see issue #509):
+ *   * v0   — capacity gating.
+ *   * v0.5 — node_angle KVL big-M disjunction.
+ *   * v1   — cycle_basis KVL big-M disjunction (both Kirchhoff modes
+ *            now supported); per-line ``kvl_big_m`` override.
+ *   * v1.1 — u/v/w three-binary decomposition with
+ *            ``startup_cost`` / ``shutdown_cost``.
+ *   * v1.2 — ``min_up_time`` / ``min_down_time`` anti-flicker rows,
+ *            ``max_starts`` / ``min_starts`` / ``starts_scope``
+ *            rolling-window cap (mirroring ``Commitment``).
+ *
+ * Deferred for v1.3+: PowerModels.jl IND+ indicator-constraint
+ * alternative, iterative big-M tightening (Pineda 2024 [3] pre-solve
+ * that writes back to ``kvl_big_m``), startup tiers.
  *
  * ### References
  *
