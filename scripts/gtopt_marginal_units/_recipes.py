@@ -21,8 +21,189 @@ from typing import Optional
 
 from gtopt_canonical_feed import Topology
 from gtopt_marginal_units._reconstruct import ZoneR3Result
+from gtopt_marginal_units._zones import is_phantom_bus
 from gtopt_marginal_units.constants import FormulaKind, Tolerances
 from gtopt_marginal_units.errors import AttributionError
+
+
+def _resolve_loss_factor(
+    *,
+    bus_uid: int,
+    marginal_uid: int,
+    g0,  # Generator at marginal_uid (already looked up by caller)
+    bus_name: str,
+    gens_on_bus: list,
+    lmp_by_bus: Optional[dict[int, float]],
+    srmc_by_uid: Optional[dict[int, float]],
+    zone_of: dict[int, int],
+    radial_buses: frozenset[int],
+    tol: Tolerances,
+) -> tuple[float, float, str]:
+    """Compute the per-bus loss-factor (#523).
+
+    Returns ``(scale, loss_raw, loss_status)``.  ``scale`` is the
+    multiplier to apply to the emission factor; ``loss_raw`` is the
+    raw ``bus_LMP / ref`` ratio recorded for audit; ``loss_status``
+    is the bucket name (see the ``RecipeRow.loss_factor_status``
+    docstring for the full enumeration).
+
+    Pure function — extracted from ``build_recipes_for_cell`` to keep
+    the per-cell loop short and to enable unit-testing the decision
+    tree in isolation.
+    """
+    # Step 0 — phantom-bus check (synthetic BAT_*_int_bus, #525).
+    if is_phantom_bus(bus_name, gens_on_bus):
+        return 1.0, 1.0, "phantom_bus"
+
+    # Step 1 — island check (topology connected component).
+    zone_bus = zone_of.get(bus_uid)
+    zone_marg = zone_of.get(int(g0.bus_uid))
+    if zone_bus is None or zone_marg is None:
+        return 1.0, 1.0, "missing"
+    if zone_bus != zone_marg:
+        # Cross-island — raw is informative but not used to scale.
+        loss_raw = 1.0
+        bus_lmp = (lmp_by_bus or {}).get(bus_uid)
+        marg_lmp = (lmp_by_bus or {}).get(int(g0.bus_uid))
+        if (
+            bus_lmp is not None
+            and marg_lmp is not None
+            and abs(float(marg_lmp)) > tol.eps
+        ):
+            loss_raw = float(bus_lmp) / float(marg_lmp)
+        return 1.0, loss_raw, "cross_island"
+
+    # Step 2 — same island: compute the loss factor.
+    bus_lmp = (lmp_by_bus or {}).get(bus_uid)
+    ref: Optional[float] = None
+    if g0.kind == "thermal" and srmc_by_uid is not None:
+        # Guard B: a thermal marginal with no ``emission_rate`` (e.g.
+        # cogen biomass, EF=None) carries no carbon to attribute — the
+        # raw ratio is mathematically defined but emission-irrelevant,
+        # and recording an extreme value (e.g. ARAUCO at $35 SRMC vs
+        # bus_LMP=24500 → raw=700) misleads the warn-summary count.
+        # Skip scaling; status flags the cell so the operator can audit.
+        if g0.emission_rate is None or float(g0.emission_rate or 0.0) == 0.0:
+            return 1.0, 1.0, "no_emission_data"
+        s = srmc_by_uid.get(marginal_uid)
+        ref = float(s) if s is not None else None
+    elif g0.kind in ("battery", "hydro"):
+        r = (lmp_by_bus or {}).get(int(g0.bus_uid))
+        ref = float(r) if r is not None else None
+        # Guard A: a hydro/battery marginal at near-zero LMP cannot be
+        # the price-setter in any meaningful sense — water value /
+        # storage opportunity cost is essentially 0, so the ratio
+        # bus_LMP[i] / LMP[hydro_bus] explodes mechanically without
+        # reflecting a physical loss factor.  Common cause: LP elects
+        # one zero-MC hydro as basic-in-LP for a country-spanning
+        # connected component; the deep-south LMP is set by a thermal
+        # but our recipe sees the LP's tie-broken hydro as the
+        # marginal.  Skip scaling; mark for audit.
+        if ref is not None and abs(ref) <= tol.tol_lmp:
+            return 1.0, 1.0, "zero_srmc_hydro"
+    if bus_lmp is None or ref is None or abs(ref) <= tol.eps:
+        return 1.0, 1.0, "missing"
+
+    loss_raw = float(bus_lmp) / float(ref)
+    if loss_raw < 0.0:
+        return 1.0, loss_raw, "negative"
+
+    # Always apply raw scaling — differentiate via status only.
+    is_radial = bus_uid in radial_buses
+    if loss_raw > tol.loss_factor_error:
+        # Guard A (extended): a hydro/storage marginal that produces an
+        # explosive ratio is suffering the same LP-tie-break artefact
+        # the absolute-LMP guard above catches.  Raw > error on a
+        # zero-MC marginal is not a physical loss factor; reclassify
+        # to ``zero_srmc_hydro`` instead of ``critical_*`` so the
+        # operator's audit isn't polluted with bogus criticals.
+        if g0.kind in ("battery", "hydro"):
+            return 1.0, loss_raw, "zero_srmc_hydro"
+        status = "critical_radial" if is_radial else "critical_meshed"
+    elif loss_raw > tol.loss_factor_warn:
+        status = "warn_radial" if is_radial else "warn_meshed"
+    else:
+        status = "ok"
+    return loss_raw, loss_raw, status
+
+
+@dataclass(slots=True, frozen=True)
+class _TopologyAux:
+    """Topology-derived lookups precomputed once per Topology instance.
+
+    Cached via ``_topology_aux`` keyed on the Topology object's
+    identity so the per-cell loop pays the build cost exactly once
+    even when ``build_recipes_for_cell`` is called millions of times.
+    """
+
+    gen_by_uid: dict[int, object]
+    bus_name_by_uid: dict[int, str]
+    gens_by_bus_uid: dict[int, list]
+    radial_buses: frozenset[int]
+
+
+# Single-slot last-seen cache.  The previous form keyed on `id(topology)`
+# was BROKEN under pytest-xdist parallel workers: when a Topology
+# object is garbage-collected and a NEW Topology in a later test gets
+# the SAME id() (CPython reuses memory addresses freely), the cache
+# would silently return the stale aux for the wrong topology — leading
+# to flaky failures like `radial_buses == frozenset({10,20,30,40})`
+# mismatching against a cached `frozenset` from a prior fixture.
+#
+# Storing a STRONG reference to the Topology alongside its aux lets us
+# verify object identity before returning the cached aux.  Last-seen
+# semantics: most call sites only ever pass one Topology (the per-cell
+# loop), so a single-slot LRU is enough to absorb the build cost.  The
+# strong reference pins the Topology in memory while the cache entry
+# is live — fine because the Topology is referenced by the caller too.
+_TOPOLOGY_AUX_LAST: tuple[Topology, _TopologyAux] | None = None
+
+
+def _topology_aux(topology: Topology) -> _TopologyAux:
+    """Build (and cache) the per-Topology lookup struct."""
+    global _TOPOLOGY_AUX_LAST  # noqa: PLW0603
+    last = _TOPOLOGY_AUX_LAST
+    if last is not None and last[0] is topology:
+        return last[1]
+
+    gen_by_uid = {g.uid: g for g in topology.generators}
+    bus_name_by_uid = {b.uid: b.name for b in topology.buses}
+    gens_by_bus_uid: dict[int, list] = {}
+    for g in topology.generators:
+        gens_by_bus_uid.setdefault(int(g.bus_uid), []).append(g)
+
+    # Radial-bus set (bridge analysis).  A bus is "radial" when its
+    # 2-edge-connected component has size 1 — i.e. every incident edge
+    # is a bridge.  On such buses there's only one path to the rest of
+    # the topology, so R drives the loss factor and the LP-derived
+    # bus_LMP / SRMC ratio IS the legitimate loss correction (apply as-
+    # is).  Examples in the CEN 2-year cascade: Aysén, Chiloé, the long
+    # 110 kV radial chains.
+    import networkx as nx  # noqa: PLC0415
+
+    g_topo = nx.Graph()
+    g_topo.add_nodes_from(b.uid for b in topology.buses)
+    for ln in topology.lines:
+        if getattr(ln, "active", True):
+            g_topo.add_edge(int(ln.bus_a_uid), int(ln.bus_b_uid))
+    bridges = {frozenset(e) for e in nx.bridges(g_topo)}
+    g_meshed = nx.Graph()
+    g_meshed.add_nodes_from(g_topo.nodes())
+    for u, v in g_topo.edges():
+        if frozenset((u, v)) not in bridges:
+            g_meshed.add_edge(u, v)
+    radial_buses = frozenset(
+        b for cc in nx.connected_components(g_meshed) for b in cc if len(cc) == 1
+    )
+
+    aux = _TopologyAux(
+        gen_by_uid=gen_by_uid,
+        bus_name_by_uid=bus_name_by_uid,
+        gens_by_bus_uid=gens_by_bus_uid,
+        radial_buses=radial_buses,
+    )
+    _TOPOLOGY_AUX_LAST = (topology, aux)
+    return aux
 
 
 def _isnan(value: float) -> bool:
@@ -58,6 +239,42 @@ class RecipeRow:
     # emission (direct == consequential), or when no headroom-bearing
     # thermal is reachable in the cell (demand-fail / island).
     consequential_gen_uid: Optional[int] = None
+    # Loss-factor audit (#523 emission scaling).  ``raw`` is the
+    # unbounded ratio ``bus_LMP[i] / ref``; ``status`` is one of:
+    #   "ok"               — same island, raw within physical envelope
+    #   "warn_radial"      — radial path, raw ∈ (warn, error]
+    #   "warn_meshed"      — meshed path, raw ∈ (warn, error]
+    #   "critical_radial"  — radial path, raw > error
+    #   "critical_meshed"  — meshed path, raw > error
+    #   "cross_island"     — bus + marginal in DIFFERENT zones
+    #                        (topology test on zone_of); scale=1
+    #   "phantom_bus"      — synthetic BAT_*_int_bus topology (#525)
+    #   "zero_srmc_hydro"  — hydro/storage marginal at near-zero LMP
+    #                        (price-setter is elsewhere; ratio explodes
+    #                        mechanically); scale=1
+    #   "no_emission_data" — thermal marginal with emission_rate=None/0
+    #                        (e.g. cogen biomass); EF is 0 so no carbon
+    #                        to scale, raw would be misleading; scale=1
+    #   "negative"         — raw < 0 (oversupply / LMP inversion); scale=1
+    #   "missing"          — no ref / no LMP / bus not in any zone
+    #   "n/a"              — formula_kind ≠ SINGLE_UNIT/TIED_UNITS
+    loss_factor_raw: float = 1.0
+    loss_factor_status: str = "n/a"
+    # Per-cell negative-LMP audit (independent of loss_factor_*).
+    # When the zone's lambda_z went negative we always clamp the
+    # recipe row's r_lmp and r_em to 0; ``negative_lmp_kind`` records
+    # WHICH regime fired so the operator and downstream consumers can
+    # filter the two cases separately:
+    #   "no_marginal"     — negative lambda_z + non-storage / no marginal
+    #                       (reactance loop / energy constraint /
+    #                       spillover penalty bound).  formula_kind is
+    #                       also overridden to NO_MARGINAL_NEG_LMP.
+    #   "storage_clamped" — negative lambda_z + storage marginal
+    #                       (spillover penalty / regulation /
+    #                       energy-constraint binding on the storage
+    #                       itself).  formula_kind is preserved.
+    #   ""                — no negative-LMP override applied (default).
+    negative_lmp_kind: str = ""
 
     def to_dict(self, value_col: str) -> dict[str, object]:
         base = {
@@ -80,12 +297,17 @@ class RecipeRow:
         }
         if value_col != "lmp":
             # Emission recipe carries the consequential MOER + its source.
-            base["consequential_co2eq_kg_per_mwh"] = float(self.consequential_co2eq)
+            # Unit is tCO2eq / MWh — same as ``Generator.emission_rate``
+            # upstream (see ``_gtopt_reader.topology_from_planning``).
+            base["consequential_co2eq_t_per_mwh"] = float(self.consequential_co2eq)
             base["consequential_gen_uid"] = (
                 int(self.consequential_gen_uid)
                 if self.consequential_gen_uid is not None
                 else -1
             )
+            base["loss_factor_raw"] = float(self.loss_factor_raw)
+            base["loss_factor_status"] = str(self.loss_factor_status)
+            base["negative_lmp_kind"] = str(self.negative_lmp_kind)
         return base
 
 
@@ -174,7 +396,7 @@ def _compute_consequential_moer(
         ),
         key=lambda g: (float(g.declared_MC), g.uid),
     )
-    eps = max(tol.eps, 1e-6)
+    eps = max(tol.eps, tol.tol_headroom_mw)
     for g in eligible:
         disp = float(dispatch_by_uid.get(g.uid, 0.0))
         headroom_up = float(g.pmax) - disp
@@ -192,7 +414,7 @@ def build_recipes_for_cell(
     dispatch_by_uid: Optional[dict[int, float]] = None,
     lmp_by_bus: Optional[dict[int, float]] = None,
     srmc_by_uid: Optional[dict[int, float]] = None,
-    demand_fail_cost: float = 1000.0,
+    demand_fail_cost: float | dict[int, float] = 1000.0,
     tol: Tolerances = Tolerances.default(),
 ) -> tuple[list[RecipeRow], list[RecipeRow]]:
     """Build (price_recipe_rows, emission_recipe_rows) for one cell.
@@ -204,24 +426,34 @@ def build_recipes_for_cell(
     Raises ``AttributionError`` when the writer-side invariant
     fails: |recomputed_lmp − zone_lmp| > tol_price.
 
-    Per-bus loss-correction (#523).  When ``lmp_by_bus`` and
-    ``srmc_by_uid`` are both populated AND the LP-elected marginal is
-    a thermal generator with positive SRMC, the emission attributed
-    to bus ``i`` is scaled by ``bus_LMP[i] / Generator.srmc_sol[g]``
-    to account for:
-        * lossfactor at the marginal's own bus (bus_LMP[g.bus] ≠ SRMC[g]
-          when g.lossfactor > 0)
-        * distribution losses to other buses in the island
-          (bus_LMP[i] / bus_LMP[g.bus] > 1 when i is downstream of
-          lossy lines)
-    The scaling is capped at 1.5× to defend against rare cases where
-    a non-island-classifier line slips a congested bus into the same
-    zone (the LMP jump would otherwise be 10x+).  Storage marginals
-    (kind=hydro/battery) keep scaling ≡ 1 by LP complementary
-    slackness; profile marginals emit em=0 regardless.
+    Per-bus loss-correction (#523).  The emission attributed to bus
+    ``i`` is scaled by ``bus_LMP[i] / ref`` where ``ref`` is
+    SRMC[g] for a thermal marginal or LMP[bus_marginal] for a storage
+    marginal (battery / reservoir).  The raw ratio is ALWAYS applied;
+    differentiation lives in ``loss_factor_status`` so the operator
+    can filter the suspicious buckets downstream.
+
+    Status buckets (see ``RecipeRow.loss_factor_status``):
+      * ``ok``               raw ≤ tol.loss_factor_warn
+      * ``warn_radial``      raw ∈ (warn, error] on a radial path
+      * ``warn_meshed``      raw ∈ (warn, error] on a meshed path
+      * ``critical_radial``  raw > error on a radial path
+      * ``critical_meshed``  raw > error on a meshed path
+      * ``phantom_bus``      synthetic BAT_*_int_bus topology (#525)
+      * ``cross_island``     bus and marginal in different zones
+      * ``negative``         raw < 0 (oversupply / LMP inversion)
+      * ``missing``          no SRMC / no LMP / bus not in any zone
+      * ``n/a``              non-SINGLE_UNIT/TIED_UNITS formula kind
     """
-    # Index generators by uid for quick lookup.
-    gen_by_uid = {g.uid: g for g in topology.generators}
+    # Topology-derived lookups + radial-bus set.  These depend only on
+    # the Topology, not on the cell — caching them across the per-cell
+    # loop turns an O(cells × N_lines + N_buses) hot path into O(1) per
+    # cell.  Use module-level lru_cache keyed on the Topology identity.
+    aux = _topology_aux(topology)
+    gen_by_uid = aux.gen_by_uid
+    bus_name_by_uid = aux.bus_name_by_uid
+    gens_by_bus_uid = aux.gens_by_bus_uid
+    radial_buses = aux.radial_buses
 
     # Precompute "next-up thermal" per zone (consequential MOER) so we
     # can stamp it on every bus-cell row of the emission recipe.  The
@@ -259,11 +491,56 @@ def build_recipes_for_cell(
         marginal_uids = list(zres.marginal_gen_uids)
         weights, mcs, ems = _formula_data(kind_str, marginal_uids, gen_by_uid)
 
+        # Negative-LMP guard.  Negative zone lambda_z cannot reflect a
+        # real thermal marginal (thermal SRMC > 0 always).  Two regimes:
+        #
+        #   1. Storage marginal (battery / hydro) → the negative dual
+        #      is the LP signalling a spillover / regulation /
+        #      energy-constraint binding on the storage itself.  This
+        #      IS a real marginal: keep the formula_kind, clamp the
+        #      recipe's recorded LMP to 0 (``storage_neg_clamp``) so
+        #      energy + CO2 arbitrage continues normally.
+        #
+        #   2. Non-storage marginal OR no marginal at all → the
+        #      negative is a reactance-loop / energy-constraint
+        #      artefact, NOT a marginal generator.  Override
+        #      ``formula_kind`` to ``NO_MARGINAL_NEG_LMP`` so
+        #      downstream arbitrage / battery-balance scripts can
+        #      filter the cell out (no guaranteed payment /
+        #      attribution).
+        is_negative_lmp = zres.lambda_z < -tol.tol_price
+        storage_neg_clamp = False
+        negative_lmp_kind = ""
+        if is_negative_lmp:
+            g0_neg = gen_by_uid.get(int(marginal_uids[0])) if marginal_uids else None
+            storage_marginal = g0_neg is not None and g0_neg.kind in (
+                "battery",
+                "hydro",
+            )
+            if storage_marginal:
+                storage_neg_clamp = True
+                negative_lmp_kind = "storage_clamped"
+            else:
+                kind_str = FormulaKind.NO_MARGINAL_NEG_LMP.value
+                marginal_uids = []
+                weights = []
+                mcs = []
+                ems = []
+                negative_lmp_kind = "no_marginal"
+
+        # Resolve per-bus demand_fail_cost (B2): per-Demand ``fcost``
+        # wins, fall back to global.  When passed as a dict, look up by
+        # bus_uid; when a scalar, use globally (legacy / test path).
+        if isinstance(demand_fail_cost, dict):
+            dfc = float(demand_fail_cost.get(bus_uid, 0.0))
+        else:
+            dfc = float(demand_fail_cost)
+
         # Compute recomputed_lmp and recomputed_ε from the *captured* data.
         if kind_str == FormulaKind.DEMAND_FAIL.value:
-            r_lmp = demand_fail_cost
+            r_lmp = dfc
             r_em = 0.0
-            constant_lmp = demand_fail_cost
+            constant_lmp = dfc
             constant_em = 0.0
         elif kind_str == FormulaKind.RENEWABLE_CURTAILMENT.value:
             r_lmp = 0.0
@@ -284,6 +561,20 @@ def build_recipes_for_cell(
         elif kind_str == FormulaKind.UNATTRIBUTED.value:
             r_lmp = float("nan")
             r_em = float("nan")
+            constant_lmp = 0.0
+            constant_em = 0.0
+        elif kind_str == FormulaKind.NO_MARGINAL_NEG_LMP.value:
+            # Negative LMP without a storage marginal → no real
+            # marginal unit (reactance loop / energy constraint /
+            # spillover penalty).  Set both LMP and emission factor to
+            # ZERO: there is no economic signal to attribute to this
+            # cell.  Downstream arbitrage / battery-balance scripts
+            # should filter on formula_kind == 'no_marginal_neg_lmp'
+            # and skip these blocks entirely.  The original (negative)
+            # lambda_z is preserved in the per-zone output, not on the
+            # per-bus recipe row.
+            r_lmp = 0.0
+            r_em = 0.0
             constant_lmp = 0.0
             constant_em = 0.0
         elif kind_str == FormulaKind.HYDRO_MARGINAL.value:
@@ -310,6 +601,24 @@ def build_recipes_for_cell(
             constant_lmp = 0.0
             constant_em = 0.0
 
+        # Storage-marginal + negative lambda_z: clamp BOTH price and
+        # emission factor to 0 (per user instruction).  Rationale: a
+        # negative-LMP cell carries no real economic / carbon signal
+        # regardless of whether a storage marginal exists.  Downstream
+        # arbitrage / CO2 calculations should treat the cell as a
+        # zero-priced, zero-attribution block.  The original (negative)
+        # lambda_z is preserved in the per-zone output for audit.
+        # Skips the round-trip invariant below because the synthesised
+        # r_lmp would not match the negative lambda_z.
+        if storage_neg_clamp:
+            r_lmp = 0.0
+            r_em = 0.0
+            constant_lmp = 0.0
+            constant_em = 0.0
+            # Drop the consequential MOER too — no marginal attribution
+            # on a negative-LMP cell.  See NO_MARGINAL_NEG_LMP above for
+            # the symmetric non-storage branch.
+
         # Writer-side invariant — but only check for the unit-driven
         # formulas where mcs is non-empty (degenerate / clamped /
         # unattributed cells are exempt: their lambda_z came from a
@@ -330,6 +639,13 @@ def build_recipes_for_cell(
         # the consumer can refine ``r_lmp`` later by joining the
         # ``Reservoir/water_value_dual`` / ``Generator/srmc_sol``
         # parquet streams gtopt emits.
+        # Round-trip invariant: |r_lmp − lambda_z| ≤ scaled_tol, where
+        # scaled_tol = max(tol_price, tol_price · |lambda_z|).  No
+        # additive FP-noise pad — scaled_tol is already floored at
+        # tol_price (default 1e-3) which is 3 decades wider than the
+        # solver's 1e-6 noise floor.  An explicit override
+        # ``--tol-price 0`` is the only way to make this check
+        # bit-exact; that's the operator's choice and intent.
         scaled_tol = max(tol.tol_price, tol.tol_price * abs(zres.lambda_z))
         if (
             kind_str
@@ -338,8 +654,9 @@ def build_recipes_for_cell(
                 FormulaKind.TIED_UNITS.value,
             }
             and zres.reason != "interior_rc_zero_lp_dual"
+            and not storage_neg_clamp
             and mcs
-            and abs(r_lmp - zres.lambda_z) > scaled_tol + 1e-9
+            and abs(r_lmp - zres.lambda_z) > scaled_tol
         ):
             raise AttributionError(
                 f"recipe round-trip mismatch on bus {bus_uid} zone {zid}: "
@@ -391,37 +708,70 @@ def build_recipes_for_cell(
             cons_rate = direct_em
             cons_uid = marginal_uids[0] if marginal_uids else None
 
-        # Per-bus loss-correction scaling (#523).  Applied to both
-        # direct and consequential emission for this bus when:
-        #   1. The LP marginal is a real thermal generator (not
-        #      storage — storage is self-correcting via LP duality).
-        #   2. Generator/srmc_sol is available for the marginal in
-        #      this cell.
-        #   3. Per-bus LMP is available.
-        # Scaling = bus_LMP[i] / SRMC[g], capped at 1.5× to defend
-        # against congestion-leak misclassifications.
+        # Per-bus loss-correction scaling (#523) — see the
+        # ``_resolve_loss_factor`` docstring for the full decision tree
+        # and the ``RecipeRow.loss_factor_status`` docstring for the
+        # status enumeration.
         scale = 1.0
+        loss_raw = 1.0
+        loss_status = "n/a"
         if (
             lmp_by_bus
-            and srmc_by_uid
             and marginal_uids
             and kind_str
             in (FormulaKind.SINGLE_UNIT.value, FormulaKind.TIED_UNITS.value)
         ):
             g0 = gen_by_uid.get(int(marginal_uids[0]))
-            if g0 is not None and g0.kind == "thermal":
-                bus_lmp = lmp_by_bus.get(bus_uid)
-                srmc_g = srmc_by_uid.get(int(marginal_uids[0]))
-                if (
-                    bus_lmp is not None
-                    and srmc_g is not None
-                    and float(srmc_g) > tol.eps
-                ):
-                    raw = float(bus_lmp) / float(srmc_g)
-                    scale = min(max(raw, 0.0), 1.5)
+            if g0 is not None:
+                scale, loss_raw, loss_status = _resolve_loss_factor(
+                    bus_uid=bus_uid,
+                    marginal_uid=int(marginal_uids[0]),
+                    g0=g0,
+                    bus_name=bus_name_by_uid.get(bus_uid, ""),
+                    gens_on_bus=gens_by_bus_uid.get(bus_uid, []),
+                    lmp_by_bus=lmp_by_bus,
+                    srmc_by_uid=srmc_by_uid,
+                    zone_of=zone_of,
+                    radial_buses=radial_buses,
+                    tol=tol,
+                )
+        # The LP-derived ``scale`` is anchored at the LP-elected
+        # marginal's bus (its LMP or SRMC).  ``direct_em`` IS the
+        # contribution from that LP-elected unit, so ``direct_em ×
+        # scale`` is the correct per-bus carbon attribution.
         if scale != 1.0:
             direct_em = direct_em * scale
-            cons_rate = cons_rate * scale
+        # For the consequential MOER we walked UP the merit ladder.
+        # That walked-up thermal is NOT generating — comparing its
+        # SRMC to the bus dual is meaningless.  The only physically-
+        # defensible per-MWh correction is the gen's own static
+        # ``lossfactor`` (typically aux-use / station-service fraction;
+        # plexos2gtopt populates it from ``Generator.aux_use``).  When
+        # ``cons_uid == marginal_uids[0]`` (direct == consequential
+        # shortcut for a thermal marginal that already emits), keep
+        # the LP-derived ``scale`` since the LP signal IS available
+        # for the actually-dispatching gen.
+        if cons_rate > 0.0 and cons_uid is not None:
+            shortcut_to_direct = bool(marginal_uids) and int(cons_uid) == int(
+                marginal_uids[0]
+            )
+            if shortcut_to_direct:
+                # cons_rate was set to direct_em above; scale already
+                # applied via direct_em assignment.
+                cons_rate = direct_em
+            else:
+                g_cons = gen_by_uid.get(int(cons_uid))
+                lf = (
+                    float(g_cons.lossfactor)
+                    if g_cons is not None and g_cons.lossfactor is not None
+                    else 0.0
+                )
+                # 1 MWh of demand requires 1 / (1 − lf) MWh of generation
+                # to net out the station-service / aux loss.  For small lf
+                # this is ≈ 1 + lf.  Skip when lf ≥ 1 (would divide by 0
+                # or invert sign — implausible data, fall back to 1.0).
+                cons_scale = 1.0 / (1.0 - lf) if 0.0 <= lf < 1.0 else 1.0
+                cons_rate = cons_rate * cons_scale
 
         emission_rows.append(
             RecipeRow(
@@ -437,6 +787,9 @@ def build_recipes_for_cell(
                 recomputed_value=direct_em,
                 consequential_co2eq=cons_rate,
                 consequential_gen_uid=cons_uid,
+                loss_factor_raw=loss_raw,
+                loss_factor_status=loss_status,
+                negative_lmp_kind=negative_lmp_kind,
             )
         )
 
