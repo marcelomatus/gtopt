@@ -2318,3 +2318,81 @@ def test_sos2_policy_auto_off_string_treated_as_off() -> None:
     out = _apply_loss_sos2_policy(lines)
     assert out is lines  # identity → no-op fast path
     assert out[0].loss_use_sos2 is False
+
+
+def test_sos2_policy_auto_empty_string_normalised_to_off() -> None:
+    """Explicit ``GTOPT_LOSS_SOS2_AUTO=""`` is normalised to ``off`` by
+    the ``if auto_mode == "":`` branch.  Without a manual list this
+    must short-circuit through the no-op fast path."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = ""
+    lines = (_ls_k("a", 0.05, 1000.0, K=5),)
+    out = _apply_loss_sos2_policy(lines)
+    assert out is lines  # identity → no-op fast path
+    assert out[0].loss_use_sos2 is False
+
+
+def test_sos2_policy_extend_overload_soft_cap_lifted_4x_envelope() -> None:
+    """With ``GTOPT_LOSS_EXTEND_OVERLOAD=1`` the ``_peak_loss`` helper
+    inflates the envelope of ``soft_cap_lifted`` lines by 4× (mirrors
+    ``_apply_adaptive_loss_segments``).  Exercise the branch and pin
+    the peak-loss ordering it produces under the ``heavy`` auto-rule:
+    a lifted-cap line beats a regular line of the same nominal rating."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
+    # Both lines: R = 0.01, tmax = 100 → nominal peak loss = 100.
+    # Lifted line gets envelope × 4 → peak loss × 16 = 1600.
+    # With 2 lines and top-quartile (index 3·2//4 = 1) → only the
+    # max-L line is flagged: the lifted one.
+    lines = (
+        _ls_k("regular", 0.01, 100.0, K=4),
+        _ls_k("lifted", 0.01, 100.0, K=4, soft_cap_lifted=True),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["lifted"].loss_use_sos2 is True
+    assert by_name["regular"].loss_use_sos2 is False
+    # Clean up the extra env var we set (autouse fixture covers the SOS2 ones).
+    _os.environ.pop("GTOPT_LOSS_EXTEND_OVERLOAD", None)
+
+
+def test_sos2_policy_extend_overload_soft_cap_2x_envelope() -> None:
+    """Mirror of the previous test for the ``soft_cap`` (× 2 envelope)
+    branch.  Without the ``soft_cap_lifted`` flag the line gets the
+    regular soft-cap multiplier."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
+    # Lines: regular (nominal peak 100), soft_cap (4×), soft_cap_lifted (16×).
+    # Top quartile of 3 = index 3·3//4 = 2 → only the lifted line.
+    # To exercise the 2× branch as a "picked" line, keep just two: one
+    # regular and one soft_cap.  Soft-cap wins.
+    lines = (
+        _ls_k("regular", 0.01, 100.0, K=4),
+        _ls_k("soft", 0.01, 100.0, K=4, soft_cap=True),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["soft"].loss_use_sos2 is True
+    assert by_name["regular"].loss_use_sos2 is False
+    _os.environ.pop("GTOPT_LOSS_EXTEND_OVERLOAD", None)
+
+
+def test_sos2_policy_empty_stamp_set_returns_input() -> None:
+    """When the auto-rule is enabled but every line is lossless, the
+    stamp set is empty and the function returns the input unchanged.
+    Covers the `if not stamp_idx: return lines` branch after the auto
+    pass (vs the upfront no-op path)."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "all-lossy"
+    lines = (
+        _ls_k("zero_R_1", 0.0, 1000.0, K=0),
+        _ls_k("zero_R_2", 0.0, 500.0, K=0),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    # All lines are lossless → no stamps → input returned verbatim.
+    assert out is lines
+    for ln in out:
+        assert ln.loss_use_sos2 is False
+        assert ln.loss_secant_segments == 0
