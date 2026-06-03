@@ -131,32 +131,29 @@ constexpr std::string_view ieee4b_sos2_json = R"(
 )";
 // clang-format on
 
-[[nodiscard]] bool mip_available()
+/// True iff a loaded backend implements ``add_sos2``.  Currently only
+/// the CPLEX plugin overrides the ``SolverBackend::add_sos2`` default
+/// (which throws on ``size() >= 2``); HiGHS / CBC / CLP all fall
+/// through to the throw.  ``has_mip_solver()`` is too permissive on
+/// CI builds without CPLEX — CBC supports MIP but not SOS2, so the
+/// SOS2-emitting tests would throw at LP-build time.
+[[nodiscard]] bool ieee4b_sos2_available()
 {
-  auto& reg = SolverRegistry::instance();
-  if (!reg.has_mip_solver()) {
-    return false;
-  }
-  for (const auto& name : reg.available_solvers()) {
-    if (reg.supports_mip(name)) {
-      return true;
-    }
-  }
-  return false;
+  return SolverRegistry::instance().has_solver("cplex");
 }
 
 }  // namespace
 }  // namespace test_line_losses_sos2_ieee4b_ns
 
+using test_line_losses_sos2_ieee4b_ns::ieee4b_sos2_available;
 using test_line_losses_sos2_ieee4b_ns::ieee4b_sos2_json;
-using test_line_losses_sos2_ieee4b_ns::mip_available;
 
 // ── (1) Structural — 5 SOS2 sets emitted (one per line, 1 block) ────
 
 TEST_CASE("IEEE 4-bus + tangent_signed_flow L=4 SOS2: 5 SOS2 sets emitted")
 {
-  if (!mip_available()) {
-    MESSAGE("Skipping MIP test — no MIP solver available");
+  if (!ieee4b_sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
 
@@ -261,8 +258,8 @@ TEST_CASE(
     "IEEE 4-bus: per-line loss_use_sos2 overrides apply only to flagged "
     "lines")
 {
-  if (!mip_available()) {
-    MESSAGE("Skipping MIP test — no MIP solver available");
+  if (!ieee4b_sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
 
@@ -346,8 +343,8 @@ TEST_CASE(
     "IEEE 4-bus: SOS2 L=4 path objective is below L=1 single-secant "
     "objective")
 {
-  if (!mip_available()) {
-    MESSAGE("Skipping MIP test — no MIP solver available");
+  if (!ieee4b_sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
 

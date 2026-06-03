@@ -191,6 +191,19 @@ private:
   }
 };
 
+/// True iff a loaded backend implements ``add_sos2``.  Currently only
+/// the CPLEX plugin overrides the ``SolverBackend::add_sos2`` default
+/// (which throws on ``size() >= 2``); HiGHS / CBC / CLP all fall
+/// through to the throw.  CBC supports MIP but NOT SOS2, so the
+/// generic ``has_mip_solver()`` guard is too permissive for tests
+/// that build a SOS2-emitting LP — they would throw at LP-build time
+/// on CBC-only CI builds.  The ``TwoBusSos2Fixture(L>=2, use_sos2)``
+/// constructor builds the LP eagerly, so guard at the test entry.
+[[nodiscard]] bool sos2_available()
+{
+  return SolverRegistry::instance().has_solver("cplex");
+}
+
 [[nodiscard]] int count_cols_containing(const LinearInterface& li,
                                         std::string_view substr)
 {
@@ -220,6 +233,7 @@ private:
 
 using test_line_losses_sos2_ns::count_cols_containing;
 using test_line_losses_sos2_ns::count_rows_containing;
+using test_line_losses_sos2_ns::sos2_available;
 using test_line_losses_sos2_ns::TwoBusSos2Fixture;
 
 // ── (1) Schema round-trip ───────────────────────────────────────────
@@ -327,6 +341,10 @@ TEST_CASE(
 
 TEST_CASE("tangent_signed_flow L=4 + use_sos2: 1 SOS2 set per (line, block)")
 {
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
   TwoBusSos2Fixture fix(/*L=*/4, /*use_sos2=*/true);
   auto& li = fix.lp();
 
@@ -361,6 +379,10 @@ TEST_CASE(
     "tangent_signed_flow: per-line loss_use_sos2 beats global "
     "model_options default")
 {
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
   // Global default: use_sos2 = false, L = 1.  Per-line override:
   // L = 4 + use_sos2 = true.  The per-line override must win.
   TwoBusSos2Fixture fix(/*L=*/4,
@@ -377,6 +399,10 @@ TEST_CASE(
 TEST_CASE(
     "tangent_signed_flow: global model_options applies when per-line unset")
 {
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
   // No per-line override; global says L = 3 + SOS2 on.  Line should
   // inherit those values via the planning-options resolver.
   TwoBusSos2Fixture fix(/*L=*/0,
@@ -461,6 +487,10 @@ TEST_CASE(
     "tangent_signed_flow L=4 + use_sos2: clone() preserves "
     "sos2_set_count()")
 {
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
   TwoBusSos2Fixture fix(/*loss_secant_segments=*/4,
                         /*loss_use_sos2=*/true);
   auto& li = fix.lp();
@@ -630,11 +660,11 @@ TEST_CASE(
     "tangent_signed_flow L=4 + use_sos2: CPLEX solve respects "
     "at-most-two-adjacent-non-zero")
 {
-  auto& reg = SolverRegistry::instance();
-  if (!reg.has_mip_solver()) {
-    MESSAGE("Skipping MIP test — no MIP solver available");
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
+  auto& reg = SolverRegistry::instance();
   std::string mip_solver;
   for (const auto& name : reg.available_solvers()) {
     if (reg.supports_mip(name)) {
