@@ -42,7 +42,12 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 /// Skips with a MESSAGE when the plugin is not loaded — this lets the
 /// split-out per-solver add_rows / add_cols TEST_CASEs parallelise
 /// across solvers under `ctest -j20` (each TEST_CASE is its own
-/// ctest entry).
+/// ctest entry).  Uses `run_one_solver_test` (single-test dispatch) so
+/// each TEST_CASE invokes ONLY the named test — the prior form called
+/// `run_solver_tests` (full per-solver suite) and discarded all but one
+/// result, which on mindopt re-ran the full algorithm-fallback cycle
+/// for every `add_rows` / `add_cols` invocation and inflated wall time
+/// to ~34 s per case.
 void run_named_test_on_solver(const std::string& solver,
                               const std::string& test_name)
 {
@@ -53,15 +58,9 @@ void run_named_test_on_solver(const std::string& solver,
     return;
   }
   CAPTURE(solver);
-  const auto report = run_solver_tests(solver, /*verbose=*/false);
-  for (const auto& r : report.results) {
-    if (r.name == test_name) {
-      INFO("solver: " << solver << "  detail: " << r.detail);
-      CHECK(r.passed);
-      return;
-    }
-  }
-  FAIL("test '" << test_name << "' not found in report for solver " << solver);
+  const auto r = run_one_solver_test(solver, test_name);
+  INFO("solver: " << solver << "  detail: " << r.detail);
+  CHECK(r.passed);
 }
 
 }  // namespace

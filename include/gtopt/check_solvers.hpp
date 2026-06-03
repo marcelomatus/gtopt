@@ -116,6 +116,26 @@ struct SolverTestReport
                                                 bool verbose = false);
 
 /**
+ * @brief Run ONE named test against ONE solver.
+ *
+ * Looks up `test_name` in the internal test-function table and invokes
+ * the matching `SolverTestResult test_<name>(std::string_view)` shim.
+ * Catches any exception and reports it as a failure.  Used by the
+ * per-(solver, test) doctest split in `test_check_solvers.cpp` to
+ * avoid the full suite re-run that `run_solver_tests` does — a
+ * single-test call should take ~50 ms vs ~5 s for the full per-solver
+ * suite.
+ *
+ * @param solver_name   Solver identifier (e.g. "clp", "mindopt").
+ * @param test_name     Test entry name (e.g. "add_rows", "add_cols").
+ * @return Result for the named test, or a failure result with
+ *         `name == test_name` and a `"test '<name>' not found"`
+ *         detail when the name is not registered.
+ */
+[[nodiscard]] SolverTestResult run_one_solver_test(std::string_view solver_name,
+                                                   std::string_view test_name);
+
+/**
  * @brief Run the test suite against every solver known to SolverRegistry.
  *
  * Calls run_solver_tests() for each available solver in the order returned

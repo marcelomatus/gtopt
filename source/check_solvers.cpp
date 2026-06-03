@@ -1289,6 +1289,31 @@ struct TestEntry
 // Public API
 // ---------------------------------------------------------------------------
 
+SolverTestResult run_one_solver_test(std::string_view solver_name,
+                                     std::string_view test_name)
+{
+  for (const auto& entry : all_tests()) {
+    if (entry.name != test_name) {
+      continue;
+    }
+    try {
+      return entry.fn(solver_name);
+    } catch (const std::exception& ex) {
+      return make_result(std::string(test_name),
+                         /*test_passed=*/false,
+                         std::format("uncaught exception: {}", ex.what()));
+    } catch (...) {
+      return make_result(std::string(test_name),
+                         /*test_passed=*/false,
+                         "uncaught non-std exception");
+    }
+  }
+  return make_result(
+      std::string(test_name),
+      /*test_passed=*/false,
+      std::format("test '{}' not found in solver test registry", test_name));
+}
+
 SolverTestReport run_solver_tests(std::string_view solver_name, bool verbose)
 {
   SolverTestReport report;
