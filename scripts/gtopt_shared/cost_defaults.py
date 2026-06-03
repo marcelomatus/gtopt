@@ -3,35 +3,40 @@
 
 Both ``plp2gtopt`` and ``plexos2gtopt`` ship a handful of system-wide
 slack penalties (unserved demand, reserve shortage, state-constraint
-violation, water shortage, spill, soft pmin / overload).  Each carries
-a hard-coded cost-mode default in $/MWh.
+violation, water shortage, spill, soft pmin / overload, soft UC).
+Each carries a hard-coded cost-mode default in $/MWh.
 
-Switching the LP into ``--only-emissions`` mode (objective in tCO2eq-
-equivalent dollars via ``EmissionZone.price = $35/tCO2eq``) needs the
-same fields re-anchored against the carbon-shadow scale.  The two
-anchors agreed with Marcelo (2026-06-02):
+**Architecture** — all-tCO2 LP objective when ``--only-emissions``:
 
-* **Unserved demand = $150 / tCO2eq** — EU ETS reference price for the
-  social cost of UNS, replaces CEN's $467 / MWh and gtopt's $1000 / MWh
-  cost-mode default.
-* **Dirtiest coal = 1 tCO2eq / MWh** — the physical upper bound on
-  per-MWh emission rate.  Used as the "$/MWh ↔ $/tCO2eq bridge":
-  the conversion factor is unity, so other slack penalties keep their
-  numerical $/MWh value when relabeled $/tCO2eq.  This holds the
-  ordering "UNS > forced-pmin slack > dispatch cost" intact:
-  $150 > ~$300 forced-pmin > 1 × $35 = $35 dispatch ceiling.
+* ``EmissionZone.price = SCC`` (default 35.0 $/tCO2eq, Chile CNE) is
+  kept as the SINGLE point where carbon is priced in $.  Every other
+  cost field is stamped in **tCO2 / MWh** (or per natural unit) so
+  the LP objective is dimensionally homogeneous in tCO2.  The C++
+  side multiplies non-emission slacks by ``EmissionZone.price`` at
+  LP-build time when ``is_emissions_objective()`` to yield $.
 
-Adding a NEW cost knob:
-  1. Append an entry below with both modes' defaults.
-  2. Register its CLI flag in ``cli_flags.py`` with
-     ``default=COST_DEFAULTS[<name>].cost_mode`` so the energy-mode
-     behaviour is unchanged.
-  3. Call ``apply_emission_overrides`` from the emissions overlay so
-     ``--only-emissions`` automatically swaps in the emissions-mode
-     value when the user did not explicitly override.
+* The two physical anchors:
 
-That's the entire pattern — no per-converter forking, no scattered
-constants.
+  - **Unserved demand = $150 / tCO2eq** (EU ETS social-cost reference)
+    → in tCO2/MWh terms: ``150 / 35 ≈ 4.286 tCO2/MWh``.  Physical
+    interpretation: 1 MWh of UNS forces ~4.286 tCO2 of off-grid
+    backup-generator emissions — matches a "very bad house genset".
+
+  - **Dirtiest coal = 1 tCO2 / MWh** — physical upper bound on per-MWh
+    emission rate.  Used as the "$/MWh ↔ tCO2/MWh bridge" via SCC:
+    ``cost_emissions = cost_dollar / SCC`` (numerically `/35` for
+    Chile CNE default).
+
+* The conversion preserves the strict ordering required for sane LP:
+
+    UNS         (4.286 tCO2/MWh)     >  dispatch ceiling (dirtiest coal, 1)
+    soft UC     (~285 tCO2/MWh)      >  UNS                              <—  shed-before-violate
+    pmin slack  (~8.5 tCO2/MWh)      >  dispatch ceiling
+    spill       (~0.003 tCO2/MWh)    <  dispatch ceiling                <—  small nudge
+
+Adding a NEW cost knob: append an entry below with both modes'
+defaults.  Both converters pick it up automatically — no per-converter
+forking, no scattered hard-coded constants.
 """
 
 from __future__ import annotations
@@ -40,65 +45,80 @@ from dataclasses import dataclass
 from typing import Any
 
 
+# Default Chile CNE social cost of carbon (USD per tCO2eq).  Used as
+# the bridge factor for converting $/MWh slack values to tCO2/MWh.
+# Stamped on ``EmissionZone.price`` by the emissions overlay so the
+# LP applies the conversion once at the EmissionZone level.
+DEFAULT_SCC: float = 35.0
+
+
 @dataclass(frozen=True)
 class CostDefault:
     """One cost knob's per-mode defaults + descriptive metadata."""
 
-    cost_mode: float | None  # $/MWh
-    emissions_mode: float | None  # $/tCO2eq (bridge = 1 tCO2/MWh)
+    cost_mode: float | None  # $/MWh (or natural unit)
+    emissions_mode: float | None  # tCO2 / MWh (or natural unit / SCC)
     unit_cost: str
     unit_emissions: str
     help_text: str
+
+
+def _div_by_scc(x: float, scc: float = DEFAULT_SCC) -> float:
+    """Convenience: $/MWh → tCO2/MWh via the SCC bridge."""
+    return x / scc
 
 
 # Centralised cost-default registry.  Add knobs here, NOT in
 # per-converter parser modules.
 COST_DEFAULTS: dict[str, CostDefault] = {
     # ── System-wide slack penalties (model_options) ───────────────────
+    # All ``emissions_mode`` values are in tCO2 / MWh (the
+    # "$ / MWh ÷ SCC" image of the cost-mode value).  The LP multiplies
+    # by ``EmissionZone.price`` (default 35 $/tCO2eq) at build time to
+    # bring everything back to $-equivalent units.
     "demand_fail_cost": CostDefault(
         cost_mode=1000.0,
-        emissions_mode=150.0,
+        emissions_mode=150.0 / DEFAULT_SCC,  # ≈ 4.286 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
+        unit_emissions="tCO2eq/MWh",
         help_text=(
             "Penalty for unserved demand.  cost-mode: Chile VoLL "
-            "($1000/MWh default); emissions-mode: EU ETS reference "
-            "($150/tCO2eq) — strictly > dirtiest coal × SCC = $35, so "
-            "the LP serves load before shedding."
+            "($1000/MWh default); emissions-mode: $150 EU social cost / "
+            "$35 SCC = 4.286 tCO2eq/MWh — matches the emission rate of "
+            "an inefficient off-grid 'house' backup genset, so UNS is "
+            "strictly worse than dispatching the dirtiest utility coal "
+            "(1.07 tCO2eq/MWh)."
         ),
     ),
     "reserve_shortage_cost": CostDefault(
         cost_mode=500.0,
-        emissions_mode=500.0,
+        emissions_mode=_div_by_scc(500.0),  # ≈ 14.286 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
-        help_text=(
-            "Penalty for unmet reserve requirement.  Bridge = 1, so "
-            "numerical default is identical in both modes."
-        ),
+        unit_emissions="tCO2eq/MWh",
+        help_text="Penalty for unmet reserve requirement.",
     ),
     "state_violation_cost": CostDefault(
         cost_mode=500.0,
-        emissions_mode=500.0,
+        emissions_mode=_div_by_scc(500.0),  # ≈ 14.286 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
+        unit_emissions="tCO2eq/MWh",
         help_text=(
             "Penalty for state-constraint violation (commitment / "
-            "user-constraint slack).  Bridge = 1, same numeric in both modes."
+            "user-constraint slack)."
         ),
     ),
     "water_fail_cost": CostDefault(
         cost_mode=100.0,
-        emissions_mode=100.0,
+        emissions_mode=_div_by_scc(100.0),  # ≈ 2.857 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
-        help_text=("Penalty for failing a forced hydro pmin / irrigation right."),
+        unit_emissions="tCO2eq/MWh",
+        help_text="Penalty for failing a forced hydro pmin / irrigation right.",
     ),
     "hydro_spill_cost": CostDefault(
         cost_mode=0.1,
-        emissions_mode=0.1,
+        emissions_mode=_div_by_scc(0.1),  # ≈ 0.00286 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
+        unit_emissions="tCO2eq/MWh",
         help_text=(
             "Tiny per-MWh discouragement of spilling water — picks the "
             "thermodynamic-equivalent corner of the LP polytope when "
@@ -107,19 +127,26 @@ COST_DEFAULTS: dict[str, CostDefault] = {
     ),
     "soft_penalty_cost": CostDefault(
         cost_mode=None,  # auto = min(max(gcost)+1, min(VoLL)-1)
-        emissions_mode=300.0,
+        emissions_mode=_div_by_scc(300.0),  # ≈ 8.571 tCO2/MWh
         unit_cost="$/MWh",
-        unit_emissions="$/tCO2eq",
+        unit_emissions="tCO2eq/MWh",
         help_text=(
             "System-wide soft penalty for forced-pmin slacks + line "
-            "overload + EL=1 slacks.  cost-mode: auto-derived as "
-            "min(max(gcost)+1, min(VoLL)-1) so it sits between dispatch "
-            "and VoLL.  emissions-mode: fixed $300/tCO2eq so it sits "
-            "between dispatch ceiling ($35) and UNS ($150) — wait, "
-            "actually higher than UNS; the LP will shed before "
-            "violating a soft pmin, which is the right semantic when "
-            "the carbon ceiling matters more than physical operation "
-            "of forced units."
+            "overload + EL=1 slacks.  cost-mode: auto-derived; "
+            "emissions-mode: ~8.6 tCO2eq/MWh — strictly > UNS (4.3) so "
+            "LP sheds before violating a forced-pmin floor."
+        ),
+    ),
+    "default_uc_penalty": CostDefault(
+        cost_mode=10000.0,  # _SOFT_UC_DEFAULT_PENALTY (plexos2gtopt)
+        emissions_mode=_div_by_scc(10000.0),  # ≈ 285.7 tCO2/MWh
+        unit_cost="$/MWh",
+        unit_emissions="tCO2eq/MWh",
+        help_text=(
+            "Default per-row penalty stamped on every UC under "
+            "``--pampl-uc-mode soft`` when the PLEXOS UC carries no "
+            "explicit Penalty property.  Sized to keep load-serving "
+            "optimal vs UC violation (much > UNS)."
         ),
     ),
     # ── Replaced / dropped in emissions mode ─────────────────────────
@@ -139,20 +166,7 @@ COST_DEFAULTS: dict[str, CostDefault] = {
 
 
 def get_default(name: str, *, only_emissions: bool = False) -> float | None:
-    """Return the appropriate default for ``name`` given the mode.
-
-    Use in CLI flag registration:
-
-        parser.add_argument(
-            "--demand-fail-cost",
-            default=cost_defaults.get_default("demand_fail_cost"),
-            ...
-        )
-
-    The flag default ALWAYS stays cost-mode (so ``--only-emissions``
-    doesn't break script behaviour pre-emissions-overlay); the overlay
-    swaps in the emissions-mode value via :func:`apply_emission_overrides`.
-    """
+    """Return the appropriate default for ``name`` given the mode."""
     entry = COST_DEFAULTS.get(name)
     if entry is None:
         return None
@@ -162,44 +176,54 @@ def get_default(name: str, *, only_emissions: bool = False) -> float | None:
 def apply_emission_overrides(
     planning: dict[str, Any],
     *,
-    uns_price: float | None = None,
+    uns_price_dollar: float | None = None,
+    scc: float = DEFAULT_SCC,
 ) -> dict[str, float]:
     """Walk the planning dict and replace cost-mode defaults with
-    emissions-mode values where the user did not explicitly override.
+    emissions-mode values (in tCO2 / unit).
 
     Called from ``gtopt_shared.emissions.apply_emission_defaults``
     when ``only_emissions=True``.
 
-    Conservative: only replaces a value when it equals the cost-mode
-    default (i.e., the user took the default).  Explicit user values
-    win unconditionally.
+    ``uns_price_dollar`` overrides the EU UNS reference ($150).  ``scc``
+    is the bridge factor (= ``EmissionZone.price`` stamped by the
+    overlay; default 35 USD/tCO2eq Chile CNE).
 
-    Special-case demand_fail:
-      * ``Demand.fcost`` (per-demand UNS price) is overridden to
-        ``uns_price`` (or :data:`COST_DEFAULTS['demand_fail_cost'].emissions_mode`)
-        UNCONDITIONALLY — PLEXOS CEN ships $467 per demand which we
-        deliberately replace with the EU social reference.
-      * ``model_options.demand_fail_cost`` is replaced when it equals
-        the cost-mode default ($1000) or is missing.
+    Conservative: only replaces a value when it equals the cost-mode
+    default (i.e., the user took the default).  Special-cases:
+
+    * ``Demand.fcost`` — unconditional override to ``uns_price_dollar
+      / scc`` (PLEXOS CEN ships $467 per demand which we deliberately
+      replace with the EU social reference).
+    * ``model_options.demand_fail_cost`` — same unconditional override.
+    * ``Commitment.startup/shutdown_cost`` — converted via fuel chain
+      to tCO2 (NO SCC multiplier — the LP applies SCC at the
+      EmissionZone level).
+    * ``Reservoir.water_value`` / ``efin_cost`` — replaced with
+      ``EPF · 0.5 · 0.95 · 277.78`` (tCO2/hm³, no SCC).
 
     Returns ``{field_name: new_value}`` for reporting.
     """
     applied: dict[str, float] = {}
     sys_ = planning.setdefault("system", {})
     mo = planning.setdefault("options", {}).setdefault("model_options", {})
-    em_uns = COST_DEFAULTS["demand_fail_cost"].emissions_mode
-    if uns_price is not None:
-        em_uns = float(uns_price)
+    em_uns_dollar = uns_price_dollar
+    if em_uns_dollar is None:
+        # Recover from the registry's tCO2 value × SCC
+        em_uns_dollar = (
+            COST_DEFAULTS["demand_fail_cost"].emissions_mode or 4.286
+        ) * scc
+    em_uns_tco2 = em_uns_dollar / scc
 
     # 1. Per-demand fcost — unconditional override (EU UNS reference).
-    new_fcosts = 0
+    n_fcost = 0
     for d in sys_.get("demand_array", []) or []:
         if "fcost" not in d:
             continue
-        d["fcost"] = em_uns
-        new_fcosts += 1
-    if new_fcosts:
-        applied["demand_array.fcost"] = em_uns
+        d["fcost"] = em_uns_tco2
+        n_fcost += 1
+    if n_fcost:
+        applied["demand_array.fcost"] = em_uns_tco2
 
     # 2. System-wide cost knobs in model_options.
     for name, entry in COST_DEFAULTS.items():
@@ -211,46 +235,25 @@ def apply_emission_overrides(
             continue
         cur = mo.get(name)
         if cur is None:
-            # Field absent — stamp the emissions-mode default so
-            # downstream gtopt picks it up.
             mo[name] = entry.emissions_mode
             applied[f"model_options.{name}"] = entry.emissions_mode
             continue
-        # Replace if the current value matches the cost-mode default
-        # (i.e., user took the default).  Special-case demand_fail
-        # which is overridden unconditionally to the UNS price.
         if name == "demand_fail_cost":
-            mo[name] = em_uns
-            applied[f"model_options.{name}"] = em_uns
+            mo[name] = em_uns_tco2
+            applied[f"model_options.{name}"] = em_uns_tco2
         elif entry.cost_mode is not None and abs(float(cur) - entry.cost_mode) < 1e-9:
             mo[name] = entry.emissions_mode
             applied[f"model_options.{name}"] = entry.emissions_mode
 
-    # 3. PLEXOS-input-derived per-element costs.
+    # 3. Commitment startup/shutdown via fuel-chain → tCO2.
     #
-    # Commitment.startup_cost / shutdown_cost ($) represent the FUEL
-    # burned during the start / stop transient — encoded as a dollar
-    # figure via PLEXOS's ``Start Cost`` / ``Shutdown Cost`` which are
-    # essentially ``startup_fuel × fuel.price``.  In emissions mode we
-    # convert back to a tCO2eq amount and then to the $-equiv via SCC:
-    #
-    #   startup_fuel    = startup_cost_$  /  fuel.price [$ /fuel-unit]
-    #   startup_energy  = startup_fuel    ×  fuel.heat_content [GJ/fuel-unit]
-    #   startup_em      = startup_energy  ×  fuel.ef_combustion [tCO2/GJ]
-    #   startup_em_$    = startup_em      ×  SCC [$/tCO2eq]
-    #
-    # Collapsed:
-    #   factor = (heat_content × ef_combustion / fuel.price) × SCC
-    #          = tCO2eq per $ of fuel × $ per tCO2eq
-    #          = dimensionless dollar-to-dollar conversion factor
-    #   startup_cost_em_$ = startup_cost_$ × factor
-    #
-    # Typical gas: heat_content 47.1 GJ/t, ef 0.056 tCO2/GJ,
-    #              price ≈ $300/t  → factor = (47.1×0.056/300)×35 ≈ 0.31
-    # Typical coal: heat_content 29 GJ/t,  ef 0.096 tCO2/GJ,
-    #               price ≈ $80/t  → factor = (29×0.096/80)×35 ≈ 1.22
-    # When fuel data is missing (no fuel ref, no price, or no
-    # emission factor), zero the cost — we cannot attribute carbon.
+    # The $ cost encodes fuel burned during the transient:
+    #   startup_em_tCO2 = startup_$  ×  heat_content [GJ/fu]
+    #                     × ef_combustion [tCO2/GJ]
+    #                     / fuel.price [$/fu]
+    # NO SCC multiplier — the LP applies SCC at the EmissionZone level
+    # (single point of carbon pricing).  Falls back to zero when fuel
+    # data is missing (cannot attribute carbon).
     fuels_by_name = {
         str(f.get("name", "")): f for f in sys_.get("fuel_array", []) or []
     }
@@ -276,17 +279,10 @@ def apply_emission_overrides(
                 return float(ef.get("combustion", 0.0) or 0.0)
         return 0.0
 
-    def _scc() -> float:
-        for z in sys_.get("emission_zone_array", []) or []:
-            if isinstance(z, dict) and z.get("price") is not None:
-                return float(z["price"])
-        return COST_DEFAULTS["demand_fail_cost"].emissions_mode or 35.0  # fallback
-
     gens_by_name = {
         str(g.get("name", "")): g for g in sys_.get("generator_array", []) or []
     }
-    scc = _scc()
-    n_converted_su = n_zeroed_su = n_converted_sd = n_zeroed_sd = 0
+    n_su_conv = n_su_zero = n_sd_conv = n_sd_zero = 0
     for c in sys_.get("commitment_array", []) or []:
         gen_name = str(c.get("generator", ""))
         gen = gens_by_name.get(gen_name) or {}
@@ -294,43 +290,158 @@ def apply_emission_overrides(
         price = float((fuel or {}).get("price", 0.0) or 0.0)
         heat_content = float((fuel or {}).get("heat_content", 0.0) or 0.0)
         ef_gj = _co2_ef_per_gj(fuel or {})
-        # carbon-equivalent dollar conversion factor
+        # tCO2 per $ of fuel (no SCC — LP applies it at EmissionZone)
         if price > 0.0 and heat_content > 0.0 and ef_gj > 0.0:
-            factor = (heat_content * ef_gj / price) * scc
+            factor = heat_content * ef_gj / price
         else:
-            factor = 0.0  # zero out when we cannot attribute carbon
-        for field, ctr_done, ctr_zero in (
-            ("startup_cost", "n_converted_su", "n_zeroed_su"),
-            ("shutdown_cost", "n_converted_sd", "n_zeroed_sd"),
+            factor = 0.0
+        for field, conv_attr, zero_attr in (
+            ("startup_cost", "n_su_conv", "n_su_zero"),
+            ("shutdown_cost", "n_sd_conv", "n_sd_zero"),
         ):
             if field not in c:
                 continue
             orig = float(c[field] or 0.0)
-            new = orig * factor
-            c[field] = new
+            c[field] = orig * factor  # tCO2 per startup/shutdown
             if factor > 0.0:
-                if ctr_done == "n_converted_su":
-                    n_converted_su += 1
+                if conv_attr == "n_su_conv":
+                    n_su_conv += 1
                 else:
-                    n_converted_sd += 1
+                    n_sd_conv += 1
             else:
-                if ctr_zero == "n_zeroed_su":
-                    n_zeroed_su += 1
+                if zero_attr == "n_su_zero":
+                    n_su_zero += 1
                 else:
-                    n_zeroed_sd += 1
-    if n_converted_su or n_zeroed_su:
+                    n_sd_zero += 1
+    if n_su_conv or n_su_zero:
         applied["commitment_array.startup_cost"] = (
-            f"{n_converted_su} converted via fuel·ef·SCC, {n_zeroed_su} zeroed (no fuel/ef)"
+            f"{n_su_conv} converted to tCO2 via fuel·ef, {n_su_zero} zeroed (no fuel/ef)"
         )
-    if n_converted_sd or n_zeroed_sd:
+    if n_sd_conv or n_sd_zero:
         applied["commitment_array.shutdown_cost"] = (
-            f"{n_converted_sd} converted via fuel·ef·SCC, {n_zeroed_sd} zeroed (no fuel/ef)"
+            f"{n_sd_conv} converted to tCO2 via fuel·ef, {n_sd_zero} zeroed (no fuel/ef)"
         )
 
-    # 4. Waterway / FlowRight per-element fcost ($/(m³/s)/h) — bridge=1,
-    # numerical identity.  No action needed (the values already match
-    # the units of the emissions-mode objective via the SCC conversion).
-    # Documented as a no-op so the audit table reflects every field.
+    # 4. Per-element $/MWh slacks — divide by SCC to land in tCO2/MWh.
+    # Conservative: only touch fields whose value is plausibly a slack
+    # cost.  The actual LP-build-time multiplication by SCC is a C++-side
+    # follow-up (see Issue tracker) so today's LP would treat these as
+    # $/MWh values an order of magnitude smaller than intended.
+    def _scale_fcost(elem: dict) -> None:
+        v = elem.get("fcost")
+        if isinstance(v, (int, float)) and v > 0:
+            elem["fcost"] = float(v) / scc
+
+    n_ww = n_fl = n_fr = 0
+    for w in sys_.get("waterway_array", []) or []:
+        before = w.get("fcost")
+        _scale_fcost(w)
+        if w.get("fcost") != before:
+            n_ww += 1
+    for f in sys_.get("flow_array", []) or []:
+        before = f.get("fcost")
+        _scale_fcost(f)
+        if f.get("fcost") != before:
+            n_fl += 1
+    for fr in sys_.get("flow_right_array", []) or []:
+        v = fr.get("fcost")
+        # FlowRight.fcost may be a list-of-lists (TB schedule); skip unless scalar
+        if isinstance(v, (int, float)) and v > 0:
+            fr["fcost"] = float(v) / scc
+            n_fr += 1
+    if n_ww:
+        applied["waterway_array.fcost"] = f"{n_ww} scaled by 1/SCC"
+    if n_fl:
+        applied["flow_array.fcost"] = f"{n_fl} scaled by 1/SCC"
+    if n_fr:
+        applied["flow_right_array.fcost"] = f"{n_fr} scaled by 1/SCC"
+
+    # 5. Junction.drain_cost ($/(m³/s)/h) — divide by SCC.
+    n_drain = 0
+    for j in sys_.get("junction_array", []) or []:
+        v = j.get("drain_cost")
+        if isinstance(v, (int, float)) and v > 0:
+            j["drain_cost"] = float(v) / scc
+            n_drain += 1
+    if n_drain:
+        applied["junction_array.drain_cost"] = f"{n_drain} scaled by 1/SCC"
+
+    # 6. Per-UC penalty (PLEXOS soft UC) — divide by SCC.
+    n_uc = 0
+    for uc in sys_.get("user_constraint_array", []) or []:
+        v = uc.get("penalty")
+        if isinstance(v, (int, float)) and v > 0:
+            uc["penalty"] = float(v) / scc
+            n_uc += 1
+    if n_uc:
+        applied["user_constraint_array.penalty"] = f"{n_uc} scaled by 1/SCC"
+
+    # 7. Fuel.max_offtake_cost / min_offtake_cost — divide by SCC.
+    n_fmax = n_fmin = 0
+    for f in sys_.get("fuel_array", []) or []:
+        if (
+            isinstance(f.get("max_offtake_cost"), (int, float))
+            and f["max_offtake_cost"] > 0
+        ):
+            f["max_offtake_cost"] = float(f["max_offtake_cost"]) / scc
+            n_fmax += 1
+        if (
+            isinstance(f.get("min_offtake_cost"), (int, float))
+            and f["min_offtake_cost"] > 0
+        ):
+            f["min_offtake_cost"] = float(f["min_offtake_cost"]) / scc
+            n_fmin += 1
+    if n_fmax:
+        applied["fuel_array.max_offtake_cost"] = f"{n_fmax} scaled by 1/SCC"
+    if n_fmin:
+        applied["fuel_array.min_offtake_cost"] = f"{n_fmin} scaled by 1/SCC"
+
+    # 8. Per-Generator pmin_fcost ($/MWh) — divide by SCC.
+    n_pmin = 0
+    for g in sys_.get("generator_array", []) or []:
+        v = g.get("pmin_fcost")
+        if isinstance(v, (int, float)) and v > 0:
+            g["pmin_fcost"] = float(v) / scc
+            n_pmin += 1
+    if n_pmin:
+        applied["generator_array.pmin_fcost"] = f"{n_pmin} scaled by 1/SCC"
+
+    # 9. Per-Line overload_penalty ($/MWh) — divide by SCC.
+    n_ovr = 0
+    for ln in sys_.get("line_array", []) or []:
+        v = ln.get("overload_penalty")
+        if isinstance(v, (int, float)) and v > 0:
+            ln["overload_penalty"] = float(v) / scc
+            n_ovr += 1
+    if n_ovr:
+        applied["line_array.overload_penalty"] = f"{n_ovr} scaled by 1/SCC"
+
+    # 10. Battery.charge_cost / discharge_cost ($/MWh) — divide by SCC.
+    n_bch = n_bdis = 0
+    for b in sys_.get("battery_array", []) or []:
+        if isinstance(b.get("charge_cost"), (int, float)) and b["charge_cost"] > 0:
+            b["charge_cost"] = float(b["charge_cost"]) / scc
+            n_bch += 1
+        if (
+            isinstance(b.get("discharge_cost"), (int, float))
+            and b["discharge_cost"] > 0
+        ):
+            b["discharge_cost"] = float(b["discharge_cost"]) / scc
+            n_bdis += 1
+    if n_bch:
+        applied["battery_array.charge_cost"] = f"{n_bch} scaled by 1/SCC"
+    if n_bdis:
+        applied["battery_array.discharge_cost"] = f"{n_bdis} scaled by 1/SCC"
+
+    # 11. DecisionVariable.cost ($/unit) — divide by SCC.
+    n_dv = 0
+    for dv in sys_.get("decision_variable_array", []) or []:
+        v = dv.get("cost")
+        if isinstance(v, (int, float)) and v != 0:
+            dv["cost"] = float(v) / scc
+            n_dv += 1
+    if n_dv:
+        applied["decision_variable_array.cost"] = f"{n_dv} scaled by 1/SCC"
 
     return applied
 
@@ -338,6 +449,7 @@ def apply_emission_overrides(
 __all__ = [
     "CostDefault",
     "COST_DEFAULTS",
+    "DEFAULT_SCC",
     "get_default",
     "apply_emission_overrides",
 ]
