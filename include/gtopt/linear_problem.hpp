@@ -57,6 +57,15 @@ struct FlatLinearProblem
   std::vector<double> rowlb;  ///< Lower bounds for constraints
   std::vector<double> rowub;  ///< Upper bounds for constraints
   std::vector<index_t> colint;  ///< Indices of integer variables
+  /// Type-2 Special-Ordered-Sets (SOS2) collected during LP build via
+  /// ``LinearProblem::add_sos2``.  Each inner vector lists the column
+  /// indices participating in one SOS2 in geometric order; weights are
+  /// not stored explicitly (backends default to ``1, 2, …, N``).
+  /// Consumed by ``LinearInterface::load_flat`` which forwards each
+  /// inner vector to ``SolverBackend::add_sos2``.  Empty for the vast
+  /// majority of LPs; populated only by features that need SOS2
+  /// (issue #504 line-loss L-secant chord).
+  std::vector<std::vector<index_t>> sos2_sets;
   std::vector<double> col_scales;  ///< Per-column physical-to-LP scale factors
                                    ///< (physical = LP × scale; default 1.0)
   std::vector<double> row_scales;  ///< Per-row equilibration scale factors
@@ -595,6 +604,45 @@ public:
    */
   [[nodiscard]] FlatLinearProblem flatten(const LpMatrixOptions& opts = {});
 
+  /// Declare a Type-2 Special-Ordered-Set (SOS2) over the given column
+  /// indices.  Stored on the LinearProblem until ``flatten()`` copies
+  /// it into ``FlatLinearProblem::sos2_sets``; ``LinearInterface::
+  /// load_flat`` then forwards each set to
+  /// ``SolverBackend::add_sos2``.  See ``SolverBackend::add_sos2``
+  /// for the supported-backend matrix.  Indices MUST already be valid
+  /// column indices (call AFTER the relevant ``add_col`` calls).
+  ///
+  /// Vacuous sets (size < 2) are dropped silently — SOS2 over a
+  /// single column has no effect, and an empty span is most likely
+  /// an LP-build edge case that the caller would prefer not to see
+  /// surface as a structured error in ``SolverBackend::add_sos2``.
+  ///
+  /// @param columns Column indices in geometric breakpoint order.
+  void add_sos2(std::span<const ColIndex> columns)
+  {
+    if (columns.size() < 2) {
+      return;
+    }
+    std::vector<index_t> idx;
+    idx.reserve(columns.size());
+    for (const auto& c : columns) {
+      idx.push_back(static_cast<index_t>(c));
+    }
+    sos2_sets.push_back(std::move(idx));
+  }
+
+  /// Convenience overload accepting an ``initializer_list`` of column
+  /// indices.  Forwards to the span-based ``add_sos2``.  Reserved for
+  /// callers that build a small SOS2 inline (e.g. ``lp.add_sos2({c1,
+  /// c2, c3})`` in a unit test) and have no pre-allocated vector to
+  /// hand a span over.  Production callers in ``line_losses.cpp``
+  /// (issue #504) use the span form because they construct the
+  /// column list iteratively per (line, block).
+  void add_sos2(std::initializer_list<ColIndex> columns)
+  {
+    add_sos2(std::span<const ColIndex> {columns.begin(), columns.size()});
+  }
+
 private:
   /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
   constexpr void normalize_bound(double& value) const noexcept
@@ -611,6 +659,11 @@ private:
   rows_t rows;  ///< Constraints (rows)
   size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
+  /// SOS2 sets accumulated via ``add_sos2``.  Each inner vector is a
+  /// list of column indices in geometric breakpoint order; forwarded
+  /// to ``FlatLinearProblem::sos2_sets`` at ``flatten()`` and to
+  /// ``SolverBackend::add_sos2`` at ``load_flat``.
+  std::vector<std::vector<index_t>> sos2_sets;
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
   /// Physical-scale objective constant accumulated via
   /// `add_obj_constant`.  Forwarded into `FlatLinearProblem` by

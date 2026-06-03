@@ -300,6 +300,26 @@ class LineSpec:
     # ``"equal_error"``, ``"tangent"`` (mirrors gtopt's
     # ``LinePwlLayout`` enum at ``include/gtopt/line_enums.hpp:213``).
     loss_pwl_layout: str = ""
+    # L-secant chord segments for ``tangent_signed_flow`` line-loss mode
+    # (issue #504).  When > 0, the gtopt LP replaces the single ``|f|``
+    # auxiliary with ``L`` segment columns and a piecewise chord upper
+    # bound; combined with ``loss_use_sos2 = True`` this enforces SOS2
+    # fill-order so the segments saturate in geometric breakpoint order
+    # and the chord stays tight.  Stamped by ``_apply_loss_sos2_policy``
+    # (``--loss-sos2-lines`` explicit list and/or ``--loss-sos2-auto``
+    # heuristic).  Zero (default) ⇒ no L-secant — the LP keeps the
+    # single secant for this line.  Only meaningful when the line
+    # ultimately routes to ``line_losses_mode = "tangent_signed_flow"``.
+    loss_secant_segments: int = 0
+    # Companion to ``loss_secant_segments``: when ``True``, the gtopt LP
+    # additionally emits an SOS2 declaration over the L segment columns.
+    # Without SOS2 the chord remains valid but the LP can pick any
+    # convex combination of the L segments, drifting away from the
+    # geometric fill order — the SOS2 lock pins the at-most-two-adjacent
+    # invariant (Beale-Tomlin 1970) so the chord is tight everywhere.
+    # Requires a MIP backend with native SOS2 support (CPLEX today);
+    # falls through to the default-throw on CBC / CLP.
+    loss_use_sos2: bool = False
 
 
 @dataclass(frozen=True)

@@ -1137,6 +1137,13 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rowlb = std::move(rowlb),
       .rowub = std::move(rowub),
       .colint = std::move(colint),
+      // Copy (not move) the SOS2 sets: the source LinearProblem may be
+      // reused (e.g. tests calling flatten() twice on the same problem
+      // to compare LpMatrixOptions variants) and we must keep its
+      // sos2_sets intact.  Cheap in practice — empty for the vast
+      // majority of LPs, and bounded by the per-line K count for the
+      // tangent_signed_flow L-secant path (issue #504).
+      .sos2_sets = sos2_sets,
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
       .equilibration_method = eq_method,

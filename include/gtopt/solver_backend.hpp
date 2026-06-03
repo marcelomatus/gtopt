@@ -14,9 +14,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <format>
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,7 +36,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 8;
+inline constexpr int k_solver_abi_version = 9;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -282,6 +284,63 @@ public:
       }
     }
     return relaxed;
+  }
+
+  // ---- SOS (special-ordered set) constraints ----
+
+  /// Declare a Type-2 Special-Ordered-Set (SOS2) over the given column
+  /// indices.  SOS2 enforces that at most TWO of the listed columns
+  /// can be non-zero in any feasible MIP solution, and that the two
+  /// non-zero columns must be adjacent in the listed order.  This is
+  /// the canonical MIP encoding of piecewise-linear functions over a
+  /// convex partition (Beale & Tomlin 1970; Vielma 2015 §3).
+  ///
+  /// In gtopt this is consumed by the ``tangent_signed_flow``
+  /// L-secant upper bound (issue #504): with ``L > 1`` segment
+  /// columns ``v_l`` and ``Σ v_l ≥ |f|``, the SOS2 enforces
+  /// fill-order (v_1 saturates before v_2 starts) so the piecewise
+  /// chord becomes tight at every breakpoint.
+  ///
+  /// Index ordering in ``columns`` MUST match the geometric order of
+  /// the underlying breakpoints.  Weights default to ``1, 2, 3, …, N``
+  /// in the backend implementation — gtopt does NOT expose custom
+  /// SOS2 weights since the segment widths are already encoded in
+  /// the column upper bounds.
+  ///
+  /// Backend support matrix:
+  ///   * CPLEX    — overrides with ``CPXaddsos`` (sostype 2)
+  ///   * Gurobi   — overrides with ``GRBaddsos`` (GRB_SOS_TYPE2)
+  ///   * HiGHS    — overrides with ``Highs_addSos`` when linked
+  ///                against HiGHS ≥ 1.6 (older versions: default
+  ///                fallback fires)
+  ///   * CBC/OSI  — no SOS2 entry point on the OSI bridge gtopt
+  ///                uses; default fallback fires
+  ///   * MindOpt  — TBD; default fallback fires
+  ///
+  /// Default implementation throws ``std::runtime_error`` so a
+  /// misconfigured LP (``loss_use_sos2 = true`` against an
+  /// unsupporting plugin) surfaces at LP-build time rather than
+  /// silently dropping the SOS2 declaration.  Backends that DO
+  /// support SOS2 override this method.
+  ///
+  /// @param columns Column indices, ordered to match the geometric
+  ///                breakpoint sequence (`v_1, v_2, …, v_L`).
+  ///                Must be non-empty; size < 2 is a no-op
+  ///                (SOS2 over a single column is vacuous).
+  virtual void add_sos2(std::span<const int> columns)
+  {
+    if (columns.size() < 2) {
+      return;
+    }
+    throw std::runtime_error(
+        std::format("SolverBackend '{}': add_sos2 not implemented.  "
+                    "Issue gtopt#504 needs a MIP backend with native "
+                    "SOS2 (CPLEX / Gurobi / HiGHS ≥ 1.6); the current "
+                    "backend cannot enforce SOS2 over {} columns.  "
+                    "Either switch solver via --solver, or disable "
+                    "loss_use_sos2 on the affected line(s).",
+                    solver_name(),
+                    columns.size()));
   }
 
   // ---- solution access (raw pointers, caller wraps in std::span) ----

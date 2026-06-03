@@ -2099,6 +2099,18 @@ public:
   /// pay nothing.
   [[nodiscard]] bool has_integer_cols() const;
 
+  /// Number of SOS2 sets pushed to the backend during ``load_flat``.
+  /// Read directly from the source ``FlatLinearProblem::sos2_sets``
+  /// vector at load time; remains constant for the lifetime of this
+  /// LinearInterface (gtopt does not add dynamic SOS2 declarations
+  /// post-load).  Used by issue #504 unit tests to pin the
+  /// schema → LP-build → backend forward path without inventing a
+  /// solver-specific SOS2 query.  ``0`` for the vast majority of LPs.
+  [[nodiscard]] std::size_t sos2_set_count() const noexcept
+  {
+    return m_sos2_set_count_;
+  }
+
   /**
    * @brief Sets a time limit for the solver
    * @param time_limit Maximum solve time in seconds
@@ -2963,6 +2975,11 @@ private:
   /// values in *physical* units; the API divides by
   /// `m_scale_objective_` before accumulating here.
   double m_obj_constant_raw_ {0.0};
+  /// Number of SOS2 sets pushed to the backend during ``load_flat``.
+  /// Captured once at load time from ``FlatLinearProblem::sos2_sets``
+  /// and exposed read-only via ``sos2_set_count()`` for issue #504
+  /// unit tests.  ``0`` for the vast majority of LPs.
+  std::size_t m_sos2_set_count_ {0};
   /// Column / row scale vectors.  `shared_ptr` so shallow clones
   /// can share with the source — see `CloneKind`.  The scale vectors
   /// are populated in `load_flat` and only mutated post-flatten by

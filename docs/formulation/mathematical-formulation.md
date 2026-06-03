@@ -622,6 +622,82 @@ $$
 \text{cost}(f_{l,s,t,b}^{+}) = \text{cost}(f_{l,s,t,b}^{-}) = c_{l,t} \cdot \omega_{s,t,b}
 $$
 
+#### Quadratic Losses via `tangent_signed_flow` (Coffrin Outer Approximation)
+
+When `line_losses_mode = "tangent_signed_flow"`, the line uses a SIGNED
+flow column $f_l \in [-\overline{F}_l^{ba}, +\overline{F}_l^{ab}]$ (one
+column per line + block, sign carries direction) and approximates the
+convex quadratic loss curve
+
+$$ \ell(f) = c_l \cdot f^2, \qquad c_l = R_l / V_l^2 $$
+
+with $K$ TANGENT inequalities forming a piecewise-affine LOWER envelope:
+
+$$ \ell_{l,s,t,b} \;\geq\; 2 \, c_l \, f_l^{(k)} \, f_{l,s,t,b}
+   \;-\; c_l \, (f_l^{(k)})^2, \qquad k = 1, \dots, K $$
+
+at $K$ tangent points $f_l^{(k)} = \overline{F}_l \cdot (2k - K - 1) / K$
+spread on $(-\overline{F}_l, +\overline{F}_l)$.
+
+To bound $\ell$ from above (preventing the LP from inflating it in
+arbitrage scenarios with negative LMPs), an auxiliary
+$|f|$-envelope variable $v_l \geq |f_l|$ encodes the absolute value
+via two inequalities
+
+$$ v_{l,s,t,b} \;\geq\; +f_{l,s,t,b}, \qquad
+   v_{l,s,t,b} \;\geq\; -f_{l,s,t,b} $$
+
+and a single secant chord bounds the loss column
+
+$$ \ell_{l,s,t,b} \;\leq\; (c_l \, \overline{F}_l) \cdot v_{l,s,t,b}. $$
+
+#### L-Secant Chord with SOS2 Fill-Order (issue #504)
+
+When `loss_secant_segments = L > 1` AND `loss_use_sos2 = true` the
+single $v_l \in [0, \overline{F}_l]$ auxiliary is replaced by **$L$
+segment columns** $v_{l,\ell} \in [0, w_l]$ with $w_l = \overline{F}_l /
+L$, tied to $|f_l|$ by sum-of-segments rows
+
+$$ \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
+   \qquad
+   \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; -f_{l,s,t,b}. $$
+
+The upper bound on $\ell$ becomes piecewise:
+
+$$ \ell_{l,s,t,b} \;\leq\;
+   \sum_{\ell=1}^{L} \underbrace{c_l \, w_l \, (2\ell - 1)}_{\text{chord\_slope}_\ell}
+   \, v_{l,\ell,s,t,b}. $$
+
+Each chord slope matches the secant of the convex quadratic on
+$[(\ell-1) w_l, \ell w_l]$.  Without an ordering constraint the LP
+exploits the segment freedom to maximise the upper bound (loose by
+factor $L$); a **Type-2 Special-Ordered-Set** declaration
+
+$$ \text{SOS2}\big( v_{l,1}, \, v_{l,2}, \, \ldots, \, v_{l,L} \big) $$
+
+forces at most two consecutive $v_{l,\ell}$ to be non-zero, yielding
+the fill-order $v_{l,1} \to v_{l,2} \to \cdots \to v_{l,L}$.  Under
+SOS2 the piecewise chord is **tight at every breakpoint**
+$b_l = \ell \cdot w_l$ and overestimates by at most
+$c_l \cdot (w_l / 2)^2$ between breakpoints.  Worst-case overstatement
+therefore decays as
+
+$$ \mathrm{gap}_{\max}(L) \;=\; \frac{c_l \cdot \overline{F}_l^2}{4 L^2}
+   \;=\; \mathcal{O}(1/L^2). $$
+
+Doubling $L$ cuts the worst-case gap by 4.  This converts the line
+flow + loss assembly from a pure LP into a MILP for the lines flagged
+with `loss_use_sos2 = true`; the cost is paid only for the targeted
+"offender" lines whose envelope-to-peak-flow ratio is large (see
+issue #504 §"Targeted application").  Backend support: CPLEX (via
+`CPXaddsos` with `CPX_TYPE_SOS2`), Gurobi (`GRBaddsos`), HiGHS ≥ 1.6
+(`Highs_addSos`); CBC has no native SOS2 entry point and rejects the
+configuration at LP-build time.
+
+References: Beale & Tomlin 1970 (SOS2 piecewise-linear envelope);
+Coffrin & Van Hentenryck 2014 (signed-flow outer approximation);
+Aigner & Van Hentenryck 2022 arXiv:2112.10975.
+
 ### 5.6 Kirchhoff Voltage Law (DC OPF)
 
 When `use_kirchhoff = true` and `use_single_bus = false`, voltage angle

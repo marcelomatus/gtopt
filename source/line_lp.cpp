@@ -121,6 +121,17 @@ namespace
   // preserves legacy behaviour — no extra cost on loss columns.
   const double loss_cost_eps =
       raw_line.loss_cost_eps.value_or(sc.options().loss_cost_eps());
+
+  // L-secant chord controls (issue #504): per-line override wins,
+  // falling back to the global default.  ``loss_use_sos2 = true``
+  // with ``loss_secant_segments <= 1`` is sanitized inside
+  // ``make_config`` (collapses to single-secant, no SOS2) so we
+  // forward the raw inputs here.
+  const int nseg_secant = raw_line.loss_secant_segments.value_or(
+      sc.options().loss_secant_segments());
+  const bool use_sos2 =
+      raw_line.loss_use_sos2.value_or(sc.options().loss_use_sos2());
+
   return line_losses::make_config(loss_mode,
                                   raw_line,
                                   allocation,
@@ -131,7 +142,9 @@ namespace
                                   fmax,
                                   sc.options().scale_loss_link(),
                                   explicit_envelope,
-                                  loss_cost_eps);
+                                  loss_cost_eps,
+                                  nseg_secant,
+                                  use_sos2);
 }
 
 }  // namespace

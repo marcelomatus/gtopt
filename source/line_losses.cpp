@@ -19,6 +19,47 @@
 namespace gtopt::line_losses
 {
 
+// ─── Refactor TODO (issue #504 follow-up) ───────────────────────────
+//
+// This translation unit currently aggregates EVERY loss-mode
+// implementation (none / linear / piecewise / bidirectional /
+// piecewise_direct / tangent_signed_flow) plus the public geometry
+// helpers (loss_segment_geometry, loss_tangent_geometry,
+// compute_adaptive_loss_segments, compute_dynamic_loss_layout) plus
+// the dispatcher add_block.  At ~2700 LOC it's the largest TU in
+// gtopt and compiles in ~3.5 s — meaningful build-time tail and
+// awkward review surface when adding a new mode.
+//
+// Pending modular split (post-#504, separate non-functional PR):
+//
+//   include/gtopt/line_losses_detail.hpp
+//       — declares the per-mode `detail::add_*` API + shared helpers
+//         (apply_loss_allocation, add_capacity_row,
+//         kLossCoeffTolerance, kLossLpRowTolerance) in
+//         `gtopt::line_losses::detail` namespace.
+//   source/line_losses.cpp
+//       — keeps resolve_mode, make_config, the dispatcher add_block,
+//         and the public geometry helpers.  ~600 LOC.
+//   source/line_losses_helpers.cpp
+//       — shared `detail::` helpers (apply_*, add_capacity_row, the
+//         seg_geom / midpoint_debias_offset utilities, the tangent
+//         and segment stamping helpers).  ~500 LOC.
+//   source/line_losses_linear.cpp                 — add_none + add_linear
+//   source/line_losses_piecewise.cpp              — add_piecewise (incl.
+//                                                    add_piecewise_shared)
+//   source/line_losses_bidirectional.cpp          — add_bidirectional +
+//                                                    add_direction
+//   source/line_losses_piecewise_direct.cpp       — add_piecewise_direct
+//   source/line_losses_tangent_signed_flow.cpp    — add_tangent_signed_flow
+//                                                    (issue #504 home —
+//                                                    L-secant + SOS2)
+//
+// The split is non-functional (just moves code) so it warrants its
+// own focused commit with no schema or LP-row changes — easier to
+// review, easier to bisect.  See the conversation that landed
+// PR #511.
+// ────────────────────────────────────────────────────────────────────
+
 // ─── Mode resolution ────────────────────────────────────────────────
 
 namespace
@@ -129,7 +170,9 @@ LossConfig make_config(LineLossesMode mode,
                        double fmax,
                        double loss_row_scale,
                        double loss_envelope,
-                       double loss_cost_eps)
+                       double loss_cost_eps,
+                       int nseg_secant,
+                       bool use_sos2)
 {
   const double V2 = voltage * voltage;
   // Honour the caller's ``loss_segments`` verbatim (no ``max(1, …)``
@@ -250,6 +293,41 @@ LossConfig make_config(LineLossesMode mode,
     }
   }
 
+  // Sanitize the L-secant inputs: ``nseg_secant <= 0`` is treated as
+  // ``1`` (single-secant chord, current production behaviour).
+  // ``use_sos2 = true`` with ``nseg_secant <= 1`` would emit a vacuous
+  // SOS2 declaration over a single column; we collapse to off here
+  // rather than at the LP-build site so the per-line invariant is
+  // visible in one place.
+  const int nseg_secant_eff = std::max(1, nseg_secant);
+  const bool use_sos2_eff = use_sos2 && nseg_secant_eff > 1;
+
+  // Foot-gun warning (issue #504 review P2-3): ``L > 1 && !use_sos2``
+  // is strictly WORSE than ``L = 1`` because the LP exploits the L
+  // segment cols to maximise the chord ceiling.  Empirical (issue
+  // #504 body): L=3 ε=0.01 → R/A=2.21× vs L=1 ε=0.01 → R/A=1.80×.
+  // One-shot warning so the misconfig surfaces during the first
+  // ``make_config`` call without flooding the log on every (line,
+  // stage) pass.  Only fires for the tangent_signed_flow mode (the
+  // only mode where these knobs are consulted).
+  if (mode == LineLossesMode::tangent_signed_flow && nseg_secant_eff > 1
+      && !use_sos2)
+  {
+    static bool warned_l_no_sos2 = false;
+    if (!warned_l_no_sos2) {
+      spdlog::warn(
+          "line_losses: tangent_signed_flow with "
+          "loss_secant_segments={} and loss_use_sos2=false is STRICTLY "
+          "WORSE than loss_secant_segments=1 — the LP exploits the {} "
+          "segment cols to maximise the chord ceiling.  Pair "
+          "loss_secant_segments > 1 with loss_use_sos2=true (issue "
+          "#504) or fall back to loss_secant_segments=1.",
+          nseg_secant_eff,
+          nseg_secant_eff);
+      warned_l_no_sos2 = true;
+    }
+  }
+
   return {
       .mode = mode,
       .allocation = allocation,
@@ -261,6 +339,8 @@ LossConfig make_config(LineLossesMode mode,
       .pwl_layout = requested,
       .loss_envelope = (loss_envelope > 0.0) ? loss_envelope : 0.0,
       .loss_cost_eps = (loss_cost_eps > 0.0) ? loss_cost_eps : 0.0,
+      .nseg_secant = nseg_secant_eff,
+      .use_sos2 = use_sos2_eff,
   };
 }
 
@@ -1612,86 +1692,113 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   }
   apply_loss_allocation(brow_a, brow_b, loss_col, LossAllocationMode::split);
 
-  // ── |f|-envelope auxiliary column + chord upper bound ───────────────
-  // Column ``v ∈ [0, fmax]`` with ``v ≥ |f|`` (via two abs rows below).
-  // The chord row ``ℓ ≤ (R·fmax/V²) · v`` bounds the loss column ℓ
-  // by the secant from origin to ``(fmax, R·fmax²/V²)`` — IF the LP
-  // can be made to bind ``v = |f|``.  Otherwise the LP saturates
-  // ``v = fmax`` and the chord collapses to the loose constant
-  // ceiling ``R·fmax²/V²``.
+  // ── |f|-envelope columns + chord upper bound ───────────────────────
+  // L = 1 (default): single aux col ``v ∈ [0, fmax]`` with ``v ≥ |f|``
+  // (via two abs rows) and chord row ``ℓ ≤ (R·fmax/V²)·v`` bounding ℓ
+  // by the origin-to-(fmax, R·fmax²/V²) secant.
   //
-  // STRUCTURAL CAVEAT (verified 2026-06-01): ``v ≥ |f|`` is
-  // LP-equivalent to ``fp + fn ≥ |fp − fn|`` from the bidirectional
-  // mode — i.e. ``v − |f| = 2·phantom_flow``.  The aux variable
-  // therefore re-introduces the same LP-relaxation degeneracy that
-  // signed-flow was designed to escape: WITHOUT ε > 0 on ``v``, the
-  // LP inflates ``v`` to fmax and the chord no longer tightens.  WITH
-  // ε ≥ arb_per_v (≈ ``c·fmax × max|negative_LMP|``, typically ~$0.1
-  // for CEN lines), the LP picks ``v = |f|`` and the chord becomes
-  // the proper origin-to-fmax secant.  Empirically (v0407): ε=0.1
-  // closes the LP-relaxation R/A from ~3.0× to ~1.2×.
+  // L > 1 (issue #504 L-secant): ``L`` segment cols ``v_l ∈ [0, w]``
+  // with ``w = fmax/L``, tied to ``|f|`` via the same two abs rows
+  // (summing all L cols on the LHS).  Chord becomes the piecewise
+  // ``ℓ ≤ Σ chord_slope_l · v_l`` with
+  // ``chord_slope_l = (R/V²)·w·(2l−1)``.  Paired with ``use_sos2 =
+  // true`` the LP fills ``v_1`` to saturation before ``v_2`` starts,
+  // so the chord is tight at every breakpoint ``b_l = l·w``.  Worst-
+  // case overstatement drops from ``c·fmax²/4`` (L=1) to
+  // ``c·fmax²/(4·L²)``.  See issue #504 (R/A 1.23× → ~1.05× under
+  // SOS2 on v0407 offender lines).
   //
-  // The structural insight that ``tangent_signed_flow`` "makes phantom
-  // flow impossible by construction" is TRUE for the flow variable
-  // (single signed col cannot have fp · fn > 0) but only PARTIALLY
-  // true for the loss column: phantom losses (ℓ > c·f²) are still
-  // possible whenever the LP gets arbitrage benefit AND ε is too
-  // small.  See ``docs/analysis/tangent-signed-flow-k-secants-design.md``
-  // for the full derivation.
+  // STRUCTURAL CAVEAT.  ``v ≥ |f|`` is LP-equivalent to
+  // ``fp + fn ≥ |fp − fn|`` (bidirectional mode), so without ε > 0
+  // on ``v`` the LP inflates ``v`` to ``fmax`` and the chord collapses
+  // to a loose constant ceiling.  Mitigations:
+  //   * L = 1: set ``loss_cost_eps`` ≥ arb_per_v (≈ $0.1 on CEN);
+  //     empirically closes R/A from ~3.0× to ~1.2× (v0407).
+  //   * L > 1 + SOS2: degeneracy killed structurally — SOS2 forces
+  //     ``v_1`` to saturate before ``v_2 > 0``, so the LP cannot
+  //     inflate ``Σ v_l`` past ``|f|`` regardless of ε.  ε can be 0.
+  //   * L > 1 without SOS2: SAME arbitrage as L=1; the writer
+  //     (line_losses.cpp foot-gun warning above) flags this config.
+  const int L = std::max(1, config.nseg_secant);
+  const double seg_width = effective_fmax / static_cast<double>(L);
+
+  // ε is only structurally required when SOS2 is OFF (degeneracy
+  // mitigation — see caveat above).  Under SOS2 the LP cannot inflate
+  // Σ v_l, so the ε term is a no-op in objective and can be skipped.
+  // Kept conservative: if the user explicitly set loss_cost_eps > 0,
+  // honour it regardless — there's no harm and tests may pin it.
   const double v_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
-  const auto f_abs_col = lp.add_col({
-      .lowb = 0.0,
-      .uppb = effective_fmax,
-      .cost = v_cost,
-      .class_name = Line::class_name.full_name(),
-      .variable_name = LineLP::FlowAbsName,
-      .variable_uid = uid,
-      .context = block_ctx,
-  });
-  result.f_abs_col = f_abs_col;
 
-  // Row 1: v − f ≥ 0  ⇔  v ≥ +f.
+  // Helper: build the context for v_col[l].  L = 1 uses the legacy
+  // 3-tuple ``block_ctx`` so write_lp keeps emitting
+  // ``…flow_abs_<scen>_<stage>_<block>`` unchanged; L > 1 appends the
+  // 1-based segment index so cols distinguish as ``…flow_abs_l1`` /
+  // ``…flow_abs_l2`` / … (keeps SOS2 fill-order auditable in dumps).
+  auto v_ctx_for = [&](int l) -> LpContext
   {
-    auto absp =
+    if (L == 1) {
+      return block_ctx;
+    }
+    return make_block_context(scenario.uid(), stage.uid(), block.uid(), l);
+  };
+
+  std::vector<ColIndex> v_cols;
+  v_cols.reserve(static_cast<std::size_t>(L));
+  for (int l = 1; l <= L; ++l) {
+    v_cols.push_back(lp.add_col({
+        .lowb = 0.0,
+        .uppb = seg_width,
+        .cost = v_cost,
+        .class_name = Line::class_name.full_name(),
+        .variable_name = LineLP::FlowAbsName,
+        .variable_uid = uid,
+        .context = v_ctx_for(l),
+    }));
+  }
+  // FIRST segment col is the public ``f_abs_col`` (back-compat with
+  // legacy L=1 tests; gives downstream code a hook to reach the
+  // segment family on L > 1).
+  result.f_abs_col = v_cols.front();
+
+  // Helper: emit one abs row ``Σ v_l + flow_sign · f ≥ 0``.
+  //   flow_sign = -1  ⇒  Σ v_l ≥ +f  (seg tag 1)
+  //   flow_sign = +1  ⇒  Σ v_l ≥ −f  (seg tag 2)
+  // Replaces the two near-identical 18-line emission blocks the v1
+  // implementation carried.
+  auto emit_abs_row = [&](int seg_tag, double flow_sign)
+  {
+    auto row =
         SparseRow {
             .class_name = Line::class_name.full_name(),
             .constraint_name = flow_abs_constraint_name,
             .variable_uid = uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid(), 1),
+            .context = make_block_context(
+                scenario.uid(), stage.uid(), block.uid(), seg_tag),
         }
             .greater_equal(0.0);
-    absp.reserve(2);
-    absp[f_abs_col] = +1.0;
-    absp[flow_col] = -1.0;
-    [[maybe_unused]] auto idx = lp.add_row(std::move(absp));
-  }
+    row.reserve(static_cast<std::size_t>(L) + 1);
+    for (const auto vc : v_cols) {
+      row[vc] = +1.0;
+    }
+    row[flow_col] = flow_sign;
+    [[maybe_unused]] auto idx = lp.add_row(std::move(row));
+  };
+  emit_abs_row(1, -1.0);  // Σ v_l ≥ +f
+  emit_abs_row(2, +1.0);  // Σ v_l ≥ −f
 
-  // Row 2: v + f ≥ 0  ⇔  v ≥ −f.
+  // Row 3: ℓ ≤ Σ chord_slope_l · v_l   ⇔   Σ chord_slope_l · v_l − ℓ ≥ 0.
+  // L = 1 reduces to the legacy ``ℓ ≤ (R·fmax/V²) · v`` chord
+  // (chord_slope_1 = k_loss · fmax · 1 = k_loss · effective_fmax).
+  // L > 1 emits the per-segment chord slopes
+  //   chord_slope_l = k_loss · seg_width · (2l − 1)
+  // matching the secant of the convex quadratic on
+  // ``[(l−1)w, l·w]``.  Stored as ``≥`` so it shares the
+  // row-orientation convention of the K tangent rows below; row-
+  // scaled by ``loss_row_scale`` for the same numerical reason the
+  // tangent rows are scaled.
   {
-    auto absn =
-        SparseRow {
-            .class_name = Line::class_name.full_name(),
-            .constraint_name = flow_abs_constraint_name,
-            .variable_uid = uid,
-            .context =
-                make_block_context(scenario.uid(), stage.uid(), block.uid(), 2),
-        }
-            .greater_equal(0.0);
-    absn.reserve(2);
-    absn[f_abs_col] = +1.0;
-    absn[flow_col] = +1.0;
-    [[maybe_unused]] auto idx = lp.add_row(std::move(absn));
-  }
-
-  // Row 3: ℓ ≤ (R·fmax/V²) · v   ⇔   (R·fmax/V²) · v − ℓ ≥ 0.
-  // Stored as ``≥`` so it shares the row-orientation convention of the
-  // tangent rows below.  Row-scaled by ``loss_row_scale`` for the same
-  // numerical reason the tangent rows are scaled.
-  {
-    const double chord_slope = k_loss * effective_fmax;
     auto ubrow =
         SparseRow {
             .class_name = Line::class_name.full_name(),
@@ -1703,10 +1810,26 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
                 scenario.uid(), stage.uid(), block.uid(), nseg + 1),
         }
             .greater_equal(0.0);
-    ubrow.reserve(2);
-    ubrow[f_abs_col] = +chord_slope * config.loss_row_scale;
+    ubrow.reserve(static_cast<std::size_t>(L) + 1);
+    for (int l = 1; l <= L; ++l) {
+      const double chord_slope =
+          k_loss * seg_width * static_cast<double>((2 * l) - 1);
+      ubrow[v_cols[static_cast<std::size_t>(l - 1)]] =
+          +chord_slope * config.loss_row_scale;
+    }
     ubrow[loss_col] = -config.loss_row_scale;
     [[maybe_unused]] auto idx = lp.add_row(std::move(ubrow));
+  }
+
+  // SOS2 declaration on the L segment cols (issue #504).  Forces
+  // fill-order ``v_1`` → ``v_2`` → … → ``v_L`` so the piecewise chord
+  // is tight at every breakpoint.  ``make_config`` already sanitises
+  // ``use_sos2 && L<=1`` → false (vacuous), so the bare flag is the
+  // single source of truth here.  Backends without SOS2 (CBC/OSI
+  // default-throw) raise a structured error from
+  // ``SolverBackend::add_sos2`` at ``load_flat`` time.
+  if (config.use_sos2) {
+    lp.add_sos2(std::span<const ColIndex> {v_cols.data(), v_cols.size()});
   }
 
   // ── K tangent inequalities ──────────────────────────────────────────

@@ -865,6 +865,15 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // Propagate raw-scale obj constant so the clone's
   // `get_obj_value_raw()` matches the source after re-solve.
   cloned.m_obj_constant_raw_ = m_obj_constant_raw_;
+  // SOS2 set count (issue #504).  The cloned backend (CPXcloneprob)
+  // already carries the SOS2 declarations natively, but the LI-side
+  // counter must follow it explicitly — without this the
+  // ``sos2_set_count()`` accessor returns 0 on every native clone
+  // even though the cloned solver state is correct.  ``clone_from_flat``
+  // re-runs ``load_flat`` which repopulates the counter from
+  // ``FlatLinearProblem::sos2_sets`` and therefore does not need this
+  // line.
+  cloned.m_sos2_set_count_ = m_sos2_set_count_;
   cloned.m_equilibration_method_ = m_equilibration_method_;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
@@ -1169,6 +1178,25 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
 
   for (auto i : flat_lp.colint) {
     m_backend_->set_integer(i);
+  }
+
+  // SOS2 sets (issue #504 L-secant chord).  Forward each set to the
+  // backend after the integer-column flips so that columns
+  // participating in SOS2 land in the backend with their final
+  // continuous/integer type before the SOS declaration references
+  // them.  Backends without SOS2 (CBC/OSI, default-throw) raise a
+  // structured error from SolverBackend::add_sos2 — see that
+  // method's docstring for the support matrix.  Track the count
+  // unconditionally for ``sos2_set_count()`` so the issue #504
+  // tests can observe the schema → LP-build → backend forward path
+  // without invoking a solver-specific SOS2 query API.
+  m_sos2_set_count_ = 0;
+  for (const auto& set : flat_lp.sos2_sets) {
+    if (set.size() < 2) {
+      continue;
+    }
+    m_backend_->add_sos2(std::span<const int> {set.data(), set.size()});
+    ++m_sos2_set_count_;
   }
 
   // Build name maps — clear first so reconstruction doesn't accumulate

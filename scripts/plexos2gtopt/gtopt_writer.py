@@ -1124,7 +1124,22 @@ def build_line_array(
             # 2026-04-22 (the EL=2 set covers the most binding
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
-                entry["line_losses_mode"] = "piecewise"
+                # L-secant + SOS2 selector (issue #504 task #5).  When the
+                # converter's ``--loss-sos2-lines`` / ``--loss-sos2-auto``
+                # post-pass flagged this line, switch its losses mode to
+                # ``tangent_signed_flow`` so the L-secant chord + SOS2
+                # fill-order actually fire (they're gtopt no-ops in
+                # ``piecewise`` mode).  Unstamped lines keep the default
+                # ``piecewise`` path matched to PLEXOS losses ~-1.6 % on
+                # CEN PCP under midpoint+envelope.
+                use_sos2 = bool(getattr(line, "loss_use_sos2", False))
+                secant_L = int(getattr(line, "loss_secant_segments", 0) or 0)
+                if use_sos2 and secant_L > 1:
+                    entry["line_losses_mode"] = "tangent_signed_flow"
+                    entry["loss_secant_segments"] = secant_L
+                    entry["loss_use_sos2"] = True
+                else:
+                    entry["line_losses_mode"] = "piecewise"
                 # Per-line segment count + layout, resolved from the
                 # converter's loss env vars: the base layout
                 # (``--loss-pwl-layout``, default ``dynamic``) with
