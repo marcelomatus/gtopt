@@ -2126,4 +2126,71 @@ TEST_CASE(
         == doctest::Approx(40.0));
 }
 
+// Symmetric down-reserve coverage for the substitute-out (issue #529
+// item 1, follow-up audit gap G9): the up-reserve test above pinned
+// the new behaviour for the `ur` side; this case mirrors it on the
+// `dr` side so any future regression that breaks one direction
+// asymmetrically is caught.
+TEST_CASE(
+    "ReserveZoneLP substitute-out: hard down-reserve req skips pinned col")  // NOLINT
+{
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system {
+      .name = "ReserveZoneDnHardReq",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1000.0,
+                        .capacity = 100.0}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .pmax = 400.0,
+                           .gcost = 10.0}},
+      // Hard DOWN requirement (drreq=30), NO drcost.
+      .reserve_zone_array = {{.uid = Uid {1}, .name = "rz1", .drreq = 30.0}},
+      .reserve_provision_array = {{.uid = Uid {1},
+                                   .name = "rp1",
+                                   .generator = Uid {1},
+                                   .reserve_zones = {SingleId {Uid {1}}},
+                                   .drmax = 100.0,
+                                   .dr_provision_factor = 1.0}},
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto& rz_lp =
+      std::get<Collection<ReserveZoneLP>>(system_lp.collections())
+          .elements()[0];
+  const auto& scenario = simulation_lp.scenarios()[0];
+  const auto& stage = simulation_lp.stages()[0];
+  const auto buid = make_uid<Block>(1);
+
+  // Bookkeeping col absent on the hard-down branch.
+  CHECK_FALSE(rz_lp.lookup_drequirement_col(scenario, stage, buid).has_value());
+
+  // Down-provision dispatches at the 30 MW floor.
+  const auto& rp_lp =
+      std::get<Collection<ReserveProvisionLP>>(system_lp.collections())
+          .elements()[0];
+  const auto dn_col = rp_lp.lookup_dn_provision_col(scenario, stage, buid);
+  REQUIRE(dn_col.has_value());
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[static_cast<std::size_t>(dn_col.value())]
+        == doctest::Approx(30.0));
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)

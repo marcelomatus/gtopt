@@ -267,9 +267,19 @@ TEST_CASE(  // NOLINT
       }
       // Retired-by-consolidation directional streams must remain off.
       CHECK_FALSE(name.starts_with("lossp_sol"));
-      // ``lossn_sol`` IS opt-in via extras; with ``sol``-only it must
-      // not be emitted.
+      // The full directional / excluded-RC family is ``extras``-gated;
+      // with `write_out = solution` ONLY, NONE of these may appear:
+      //   * ``lossn_sol``  — B→A loss leg
+      //   * ``flown_sol``  — B→A raw flow primal
+      //   * ``flowe_cost`` — sign-excluded reduced cost on the flow col
+      // Audit gap G10 (issue #529): the `lossn_sol` extras-gate was
+      // already pinned by the test above; this widens the check to the
+      // sister-extras streams introduced by the signed-flow
+      // consolidation so any future regression that loosens the gate
+      // on one of them is caught.
       CHECK_FALSE(name.starts_with("lossn_sol"));
+      CHECK_FALSE(name.starts_with("flown_sol"));
+      CHECK_FALSE(name.starts_with("flowe_cost"));
     }
   }
   CHECK(saw_loss_sol);

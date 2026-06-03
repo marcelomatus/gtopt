@@ -599,3 +599,90 @@ TEST_CASE(
 
   CHECK(lp.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-6));
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Audit gap G7 (issue #529): when an `EmissionSource` references a
+// pollutant that the targeted zone does NOT list in its
+// `emissions[]` table, the LP must build cleanly (no cap row, no
+// pool drawdown, no tax adder) — the source contributes zero by
+// definition.  The current code logs a WARN and returns true; this
+// test pins the LP-side invariant (zone stays reporting-only) and
+// the objective stays at the baseline dispatch cost.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "EmissionSourceLP: pollutant not in zone.emissions skips cleanly")  // NOLINT
+{
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  constexpr double kGcost = 10.0;
+  constexpr double kGen = 50.0;
+  // Baseline obj = gcost · gen · dur = 10 · 50 · 1 = 500.  Any
+  // emission-side contamination (cap, price, pool drawdown) would
+  // shift this away from 500 — pinning it proves the silent-skip.
+  constexpr double kExpectedObj = kGcost * kGen * 1.0;
+
+  const System system = {
+      .name = "EmissionSourcePollutantMismatch",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1.0e6,
+                        .capacity = kGen}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .gcost = kGcost,
+                           .capacity = 200.0}},
+      .emission_array = {{.uid = Uid {1}, .name = "co2"},
+                         {.uid = Uid {2}, .name = "ch4"}},
+      // Zone covers ONLY CO₂; sets a cap so the path would normally
+      // build a cap row + slack — proves the source's mismatch
+      // doesn't accidentally trip those.
+      .emission_zone_array = {{.uid = Uid {1},
+                               .name = "co2_only",
+                               .emissions = {{.emission = Uid {1},
+                                              .weight = 1.0}},
+                               .cap = 1.0,
+                               .cap_cost = 1.0}},
+      // Source declares emission = ch4 (uid=2) — NOT in zone's emissions.
+      .emission_source_array = {{.uid = Uid {1},
+                                 .name = "g1_ch4",
+                                 .generator = OptSingleId {Uid {1}},
+                                 .zone = Uid {1},
+                                 .emission = Uid {2},
+                                 .rate = 0.1}},
+  };
+
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {popts};
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  // The cap row IS built (cap is set on the zone, gated independently
+  // from source contributions).  But the source contributes zero to
+  // it (pollutant mismatch), so the cap is trivially non-binding —
+  // slack stays at 0, obj = baseline dispatch cost.
+  CHECK(lp.get_obj_value() == doctest::Approx(kExpectedObj).epsilon(1e-6));
+
+  // Slack column exists (cap+cap_cost set) but is 0 (no emissions
+  // contributing).
+  const auto& zone = system_lp.elements<EmissionZoneLP>().front();
+  const auto& slack_cols = zone.cap_slack_cols();
+  const auto scen_uid = simulation_lp.scenarios().front().uid();
+  const auto stg_uid = simulation_lp.stages().front().uid();
+  REQUIRE(slack_cols.find({scen_uid, stg_uid}) != slack_cols.end());
+  const auto slack_col = slack_cols.at({scen_uid, stg_uid});
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[slack_col] == doctest::Approx(0.0).epsilon(1e-9));
+}
