@@ -245,6 +245,19 @@ class GeneratorSpec:
     # ``initial_hours``.  ``None`` ⇒ CSV not present / no entry for
     # this generator.
     initial_units: float | None = None
+    # Mode-variant inheritance signal (Phase 2 — issue #1 followup,
+    # 2026-06).  When a CSV-only thermal orphan inherits its bus + fuel
+    # from a longest-common-prefix XML sibling via
+    # :func:`plexos2gtopt.parsers._recover_csv_only_thermals`, this
+    # field carries that parent's name so the writer can stamp
+    # ``[gtopt-meta mode_variant=secondary inherits_emission_from=<parent>]``
+    # on the orphan's ``description``.  Downstream
+    # ``gtopt_marginal_units`` consults the meta to inherit
+    # ``emission_rate`` from the parent when the orphan ends up as the
+    # LP marginal at a cell (rare — orphans have ``pmax = 0`` so they
+    # almost never dispatch, but the LP basis can elect them at
+    # tie-break corners).  Empty string ⇒ not a recovered orphan.
+    inherits_emission_from: str = ""
 
 
 @dataclass(frozen=True)

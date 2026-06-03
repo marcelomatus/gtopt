@@ -1145,6 +1145,24 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
             if co2_up_direct != 0.0:
                 break
 
+        # PLEXOS ``Heat Content`` (Fuel property, GJ per fuel-unit).
+        # When present, this gives the converter the GJ/fuel-unit
+        # multiplier needed to derive Fuel.emission_factors from per-
+        # GJ combustion rates AND to convert startup-cost $ → tCO2eq
+        # under ``--only-emissions``.  Absent on most CEN PCP fuels
+        # (the IPCC fallback in ``apply_emission_defaults_from_file``
+        # fills it from the canonical family lookup); read here so
+        # source-supplied values pass through unchanged and downstream
+        # tools work even under ``--no-emissions``.
+        heat_content = db.static_property("Fuel", fuel.object_id, "Heat Content")
+        if heat_content is None or heat_content == 0.0:
+            # Some schemas spell it "Heat Rate" on Fuel (different from
+            # Generator.Heat Rate which is fuel-unit/MWh).  Try the
+            # synonym before falling back to the IPCC default downstream.
+            alt = db.static_property("Fuel", fuel.object_id, "Heat Rate")
+            if alt and float(alt) > 0.0:
+                heat_content = alt
+
         # Emission→Fuel membership path (preferred when present).
         co2_mem, co2_up_mem = membership_rates.get(fuel.object_id, (0.0, 0.0))
         co2_rate = co2_mem if co2_mem != 0.0 else co2_direct
@@ -1177,6 +1195,7 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 object_id=fuel.object_id,
                 name=fuel.name,
                 price=price,
+                heat_content=float(heat_content or 0.0),
                 co2_rate=co2_rate,
                 co2_upstream_rate=co2_upstream_rate,
                 max_offtake=cap_week,
@@ -1669,6 +1688,15 @@ def _recover_csv_only_thermals(
                 initial_generation=0.0,
                 initial_units=0.0,
                 aux_use=0.0,
+                # Record the inheritance parent so the writer can stamp
+                # ``[gtopt-meta mode_variant=secondary
+                # inherits_emission_from=<sib.name>]`` on the orphan's
+                # description.  Downstream gtopt_marginal_units uses the
+                # meta to inherit emission_rate from the parent if the
+                # orphan ever ends up as the LP marginal (rare —
+                # pmax=0 means it almost never dispatches, but the LP
+                # basis can elect it at tie-break corners).
+                inherits_emission_from=sib.name,
             )
         )
         next_oid += 1
@@ -1760,11 +1788,27 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
         else {}
     )
     # ``Gen_AuxUse.csv`` (PLEXOS ``Auxiliary Use``): per-generator scalar
-    # ``Name,Value`` fraction of gross generation consumed by station
-    # service.  The writer derates net capacity by ``(1 − aux)`` so
-    # gtopt's injected MW matches PLEXOS's net-of-auxiliary output.
+    # ``Name,Value`` station-service consumption EXPRESSED IN PERCENT
+    # (0-100), NOT per-unit fraction.  Empirically confirmed on the CEN
+    # PCP database: typical values are 0.07 (= 0.07%, modern CCGT) up
+    # to ~30 (= 30%, old diesel); the file ships values > 1 routinely
+    # (max 30.058) which would be impossible under a p.u. interpretation.
+    #
+    # Bug history: an earlier converter version filtered
+    # ``0 < val < 1`` and stored ``val`` directly as p.u. — silently
+    # dropping the high-percent gens AND treating mid-range values
+    # (NEHUENCO at 0.9995% percent → 0.9995 raw) as 99.95% loss,
+    # which the gtopt LP then injected as ``brow = 1 − 0.9995 =
+    # 0.0005`` — disabling the unit entirely.  See issue tracker.
+    #
+    # Fix: divide by 100 to get the p.u. fraction; clamp at a
+    # physically-reasonable upper bound (50%) and skip clearly-garbage
+    # rows (negative, NaN, or above the cap) with a per-row warning.
+    AUX_USE_MAX_PERCENT = 50.0  # physical aux-use upper bound
     aux_use_map: dict[str, float] = {}
     if bundle.has("Gen_AuxUse.csv"):
+        n_skipped_high = 0
+        sample_skipped: list[tuple[str, float]] = []
         with bundle.csv("Gen_AuxUse.csv").open(encoding="utf-8", newline="") as _aux_fh:
             for _row in csv.DictReader(_aux_fh):
                 _nm = (_row.get("Name") or "").strip()
@@ -1772,8 +1816,27 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
                     _val = float(_row.get("Value", "0") or "0")
                 except ValueError:
                     continue
-                if _nm and 0.0 < _val < 1.0:
-                    aux_use_map[_nm] = _val
+                if not _nm or _val <= 0.0:
+                    continue
+                if _val > AUX_USE_MAX_PERCENT:
+                    # Above the physical envelope — likely a data
+                    # corruption / unit confusion in the source CSV.
+                    # Skip and record for the warning summary.
+                    n_skipped_high += 1
+                    if len(sample_skipped) < 5:
+                        sample_skipped.append((_nm, _val))
+                    continue
+                # Convert percent → p.u. fraction.
+                aux_use_map[_nm] = _val / 100.0
+        if n_skipped_high:
+            logger.warning(
+                "Gen_AuxUse.csv: %d rows had Value > %g%% (physical "
+                "aux-use upper bound) and were dropped; sample: %s%s",
+                n_skipped_high,
+                AUX_USE_MAX_PERCENT,
+                ", ".join(f"{n}={v:.3f}" for n, v in sample_skipped),
+                "" if n_skipped_high <= 5 else ", ...",
+            )
     # ``Gen_Commit.csv`` is loaded and applied on the commitment
     # side (``extract_commitments`` skips gens with ALL values = -1).
     # Initial generation is per-generator scalar (PLEXOS ships only

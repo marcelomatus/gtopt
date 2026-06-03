@@ -336,6 +336,14 @@
       "heat_rate": 0,
       "rationale": "CMPC Bucalemu pulp-mill cogen unit 2 — burns black liquor + wood residue from the pulping process; no commercial-fuel HR by CEN convention."
     },
+    "CMPC_SANTA_FE": {
+      "type": "thermal:cogen",
+      "kind": "cogen_biomass_residue",
+      "source": "CEN-SIP /unidades-generadoras/v4: id_unidad=1534/1535/1536 'TER CMPC SANTA FE U1/U2/U3' (CMPC CELULOSA S.A., 0.86 + 2.07 + 2.07 MW = 5.0 MW total, 3 × Cogeneración - TV); curva_consumo points at private 'Informe CEN' doc (no public kJ/kWh).  PLEXOS consolidates the 3 CEN-SIP units into a single ``CMPC_SANTA_FE`` generator.",
+      "expected_fuel_match": "Biomasa_Laja2",
+      "heat_rate": 0,
+      "rationale": "CMPC Santa Fe (Nacimiento, Bío-Bío) pulp-mill steam-turbine cogen.  Three CEN-SIP-cataloged units (U1/U2/U3, 5 MW combined) consolidated by PLEXOS into a single generator; energy source is black liquor + wood residue, no commercial-fuel HR by CEN convention."
+    },
     "CERRO_DOMINADOR_CS": {
       "type": "renewable:solar",
       "kind": "concentrating_solar_with_thermal_storage",

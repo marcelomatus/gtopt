@@ -252,6 +252,69 @@ def test_extract_fuels_with_co2_membership(tmp_path: Path) -> None:
     assert fuels[0].co2_upstream_rate == 0.0
 
 
+def test_extract_fuels_heat_content_from_plexos(tmp_path: Path) -> None:
+    """PLEXOS ``Heat Content`` (System→Fuel property, GJ/fuel-unit) is
+    extracted into ``FuelSpec.heat_content`` (issue #5).  Synthetic
+    bundle ships one Fuel ``diesel`` with Heat Content = 35.8 GJ/ton
+    (typical for diesel).  The System collection has parent_class=1
+    (System) and child_class=4 (Fuel); the property carries collection_id
+    = the System→Fuel collection id, and the membership_id is the
+    auto-generated System-pseudo membership for that object."""
+    xml = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>4</class_id><name>Fuel</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>System</name>
+  </t_object>
+  <t_object>
+    <object_id>30</object_id><class_id>4</class_id><name>diesel</name>
+  </t_object>
+  <t_collection>
+    <collection_id>5</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>4</child_class_id>
+    <name>Fuels</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>5000</membership_id>
+    <collection_id>5</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>30</child_object_id>
+  </t_membership>
+  <t_property>
+    <property_id>500</property_id>
+    <collection_id>5</collection_id>
+    <name>Heat Content</name>
+  </t_property>
+  <t_data>
+    <data_id>1</data_id>
+    <membership_id>5000</membership_id>
+    <property_id>500</property_id>
+    <value>35.8</value>
+  </t_data>
+</MasterDataSet>
+"""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(xml)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert [f.name for f in fuels] == ["diesel"]
+    assert fuels[0].heat_content == pytest.approx(35.8, rel=1e-9)
+
+
+def test_extract_fuels_heat_content_default_zero(tmp_path: Path) -> None:
+    """When the PLEXOS bundle ships no Heat Content data,
+    ``FuelSpec.heat_content`` falls back to 0.0 — the downstream
+    IPCC-fallback in ``apply_emission_defaults_from_file`` then fills
+    it (unless the user runs ``--no-emissions``)."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    db = load_xml(xml_path)
+    fuels = extract_fuels(db, bundle)
+    assert fuels[0].heat_content == 0.0
+
+
 def test_extract_fuels_co2_upstream_membership(tmp_path: Path) -> None:
     """An Emission named ``CO2 (Upstream)`` routes to co2_upstream_rate.
 
@@ -715,6 +778,117 @@ def test_extract_generators(tmp_path: Path) -> None:
     # Profile peaks at hour 12 (idx 11).
     assert by_name["solar_b"].pmax == 80.0
     assert by_name["solar_b"].pmax_profile[11] == 80.0
+
+
+def test_extract_generators_aux_use_percent_to_pu(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``Gen_AuxUse.csv`` ships PLEXOS ``Auxiliary Use`` in PERCENT
+    (0-100), NOT p.u. fraction.  The parser must divide by 100 and
+    clamp to the physical aux-use envelope (≤ 50%).
+
+    Pin all four regimes from the empirical CEN data:
+      * 0.068  → 0.00068 p.u.  (tiny aux-use, ARICA_GM)
+      * 0.9995 → 0.009995 p.u. (CCGT, NEHUENCO_9B — was the
+                                catastrophic 99.95% loss case)
+      * 30.06  → 0.3006 p.u.   (high but valid, old diesel)
+      * 50.01  → DROPPED + warned (above physical envelope)
+      * -1.0   → DROPPED silently (invalid)
+    """
+    import csv as _csv
+    import logging
+
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_AuxUse.csv",
+        "Name,Value\n"
+        "thermal_a,0.9995\n"  # CCGT case
+        "solar_b,30.06\n",  # high but valid diesel
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,100\n"
+        "solar_b,2026,1,1,1,1,100\n",
+    )
+
+    # Quick sanity-check on the parser's per-row behaviour by
+    # exercising the inner CSV-loop semantics it relies on.
+    rows = []
+    with (tmp_path / "Gen_AuxUse.csv").open(encoding="utf-8", newline="") as f:
+        for r in _csv.DictReader(f):
+            rows.append((r["Name"], float(r["Value"])))
+    assert rows == [("thermal_a", 0.9995), ("solar_b", 30.06)]
+
+    # End-to-end: extract_generators must store the values as p.u.
+    # fractions divided by 100, never as the raw CSV values.
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    assert by_name["thermal_a"].aux_use == pytest.approx(0.009995, rel=1e-9)
+    assert by_name["solar_b"].aux_use == pytest.approx(0.3006, rel=1e-9)
+
+
+def test_extract_generators_aux_use_above_max_is_dropped(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Values above the 50% physical aux-use envelope are dropped and
+    surface as a WARNING (operator can audit)."""
+    import logging
+
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_AuxUse.csv",
+        "Name,Value\n"
+        "thermal_a,0.5\n"  # 0.5% — kept
+        "solar_b,50.01\n",  # 50.01% — dropped (just above cap)
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,100\n"
+        "solar_b,2026,1,1,1,1,100\n",
+    )
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="plexos2gtopt.parsers"):
+        db = load_xml(xml_path)
+        gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    assert by_name["thermal_a"].aux_use == pytest.approx(0.005, rel=1e-9)
+    assert by_name["solar_b"].aux_use == 0.0  # dropped
+    # Warning fired with the sample.
+    assert any(
+        "Gen_AuxUse.csv" in r.message and "solar_b" in r.message for r in caplog.records
+    ), f"Expected a Gen_AuxUse warning naming solar_b; got: {caplog.records}"
+
+
+def test_extract_generators_aux_use_negative_dropped_silently(
+    tmp_path: Path,
+) -> None:
+    """Non-positive aux-use is invalid data (no station service can
+    consume <0% of gross).  Drop silently — no warning needed."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_AuxUse.csv",
+        "Name,Value\nthermal_a,-1.0\nsolar_b,0\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "thermal_a,2026,1,1,1,1,100\n"
+        "solar_b,2026,1,1,1,1,100\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    by_name = {g.name: g for g in gens}
+    assert by_name["thermal_a"].aux_use == 0.0
+    assert by_name["solar_b"].aux_use == 0.0
 
 
 def test_extract_generators_recovers_csv_only_thermals(tmp_path: Path) -> None:

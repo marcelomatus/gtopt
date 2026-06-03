@@ -583,6 +583,20 @@ class PlexosOverlay:
                 # wins over a scalar overlay.
                 skipped.setdefault(name, []).append("gcost (plp profile preserved)")
 
+        # ``cogen_mode`` — first-class C++ field (Generator.cogen_mode in
+        # include/gtopt/generator.hpp; see generator_enums.hpp for the
+        # valid values "dispatched" | "must_run").  The plexos2gtopt
+        # converter stamps it on cogen units (and can be overridden via
+        # --cogen-must-run); plp2gtopt re-emits the same tag so the
+        # downstream cogen treatment stays consistent across both
+        # converters.  Plain pass-through — the PLEXOS overlay is the
+        # authoritative source for cogen classification.
+        if "cogen_mode" in plexos_gen:
+            cm = plexos_gen["cogen_mode"]
+            if isinstance(cm, str) and cm:
+                plp_gen["cogen_mode"] = cm
+                applied = True
+
         # Defensive guard: never let a commitment / UC attribute land on
         # a plp Generator — keeps the no-integer invariant.
         for forbidden in _FORBIDDEN_FIELDS:

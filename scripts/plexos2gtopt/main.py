@@ -56,6 +56,25 @@ def _signal_handler(sig: int, _frame: object) -> None:
     sys.exit(0)
 
 
+def _parse_cogen_must_run(raw: str | None) -> tuple[frozenset[str], bool]:
+    """Parse ``--cogen-must-run`` CLI argument.
+
+    Returns ``(names, force_all)``:
+      * ``names``  — explicit names to force to ``must_run`` (frozenset)
+      * ``force_all`` — True when the literal ``"all"`` / ``"ALL"`` was
+        passed; downstream upgrades EVERY detected cogen to ``must_run``.
+
+    Mixed forms (``"all,FOO"``) treat the entire spec as ``all`` — the
+    universal form dominates.  Empty / None ⇒ ``(frozenset(), False)``.
+    """
+    if not raw:
+        return frozenset(), False
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if any(t.lower() == "all" for t in tokens):
+        return frozenset(), True
+    return frozenset(tokens), False
+
+
 def make_parser() -> argparse.ArgumentParser:
     """Build the argparse parser for ``plexos2gtopt``."""
     parser = argparse.ArgumentParser(
@@ -217,6 +236,23 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     add_use_single_bus_argument(parser, dialect="store_true")
+    parser.add_argument(
+        "--cogen-must-run",
+        default=None,
+        metavar="NAME[,NAME...]",
+        help=(
+            "Force these generator names to ``cogen_mode = must_run`` "
+            "(LP-pinned pmin == pmax — the converter does NOT alter "
+            "pmin / pmax here; only the C++ tag is set, so downstream "
+            "audits read 'must-run cogen' and a follow-up pass can "
+            "wire the actual pin from PLEXOS Fixed Load / Min Stable "
+            "Level data).  Default: every CEN-cogen-detected unit gets "
+            "``cogen_mode = dispatched`` (LP-free); names listed here "
+            "are upgraded to ``must_run``.  Names not detected as "
+            "cogen by the heuristic are still tagged when listed — "
+            "the explicit override wins."
+        ),
+    )
     parser.add_argument(
         "--default-uc-penalty",
         type=float,
@@ -952,6 +988,12 @@ def main(argv: list[str] | None = None) -> None:
         # ``--only-emissions`` (issue #519) implies ``--emissions``
         # and triggers carbon price stamping in the synthesized zone.
         "emissions": getattr(args, "emissions", False),
+        "no_emissions": getattr(args, "no_emissions", False),
+        # Parse --cogen-must-run: comma-separated names OR the literal
+        # "all" / "ALL" (case-insensitive) to force every detected
+        # cogen to must_run.  Stored as a (names_set, force_all) tuple
+        # the writer can branch on cheaply.
+        "cogen_must_run": _parse_cogen_must_run(getattr(args, "cogen_must_run", None)),
         "emissions_file": getattr(args, "emissions_file", None),
         "emissions_report": getattr(args, "emissions_report", None),
         "only_emissions": getattr(args, "only_emissions", False),

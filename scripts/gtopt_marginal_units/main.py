@@ -37,7 +37,11 @@ from gtopt_marginal_units.constants import (
     EXIT_INPUT_ERROR,
     EXIT_OK,
     EXIT_UNATTRIBUTED,
+    PRICE_SETTER_KINDS,
     PROFILE_KINDS,
+    STORAGE_KINDS,
+    SYNTHETIC_GEN_NAME_SUFFIXES,
+    SYNTHETIC_GEN_PMAX_MW,
     Confidence,
     Status,
     Tolerances,
@@ -116,6 +120,28 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--eps", type=float, default=Tolerances.default().eps)
     p.add_argument(
+        "--loss-factor-warn",
+        type=float,
+        default=Tolerances.default().loss_factor_warn,
+        help=(
+            "Per-bus emission scaling: raw bus_LMP/ref ratio above this "
+            "value triggers a warning in the end-of-run summary "
+            "(scaling is still applied). Default 2.0; empirical CEN "
+            "2-year cascade peaks ~1.4."
+        ),
+    )
+    p.add_argument(
+        "--loss-factor-error",
+        type=float,
+        default=Tolerances.default().loss_factor_error,
+        help=(
+            "Per-bus emission scaling: raw bus_LMP/ref ratio above this "
+            "value aborts the run (AttributionError — marginal unit "
+            "likely lives in a different electrical island). "
+            "Default 5.0."
+        ),
+    )
+    p.add_argument(
         "--single-bus",
         action="store_true",
         help="Force copperplate (collapse zones to one).",
@@ -168,6 +194,28 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("--report", type=Path, help="Path to write a Markdown report.")
+    p.add_argument(
+        "--report-top-marginal",
+        type=int,
+        default=10,
+        help=(
+            "Truncate the 'top marginal units' table at N rows; "
+            "the report includes an explicit elided-count note when "
+            "the underlying data has > N rows. Default 10."
+        ),
+    )
+    p.add_argument(
+        "--report-top-lines",
+        type=int,
+        default=10,
+        help=("Truncate the 'saturated lines' table at N rows. Default 10."),
+    )
+    p.add_argument(
+        "--report-top-reasons",
+        type=int,
+        default=5,
+        help=("Truncate the 'unattributed reasons' table at N rows. Default 5."),
+    )
     p.add_argument(
         "--require-reduced-cost",
         action="store_true",
@@ -259,6 +307,15 @@ def _run(args: argparse.Namespace) -> int:
         drop_lmp = args.mode == "real-reconstruct"
         topology, cells = read_canonical_feed(args.feed, drop_lmp=drop_lmp)
 
+    if args.loss_factor_warn < 1.0:
+        raise InputValidationError(
+            f"--loss-factor-warn must be ≥ 1.0; got {args.loss_factor_warn}"
+        )
+    if args.loss_factor_error <= args.loss_factor_warn:
+        raise InputValidationError(
+            f"--loss-factor-error ({args.loss_factor_error}) must be "
+            f"> --loss-factor-warn ({args.loss_factor_warn})"
+        )
     tol = Tolerances(
         eps=args.eps,
         tol_price=args.tol_price,
@@ -266,11 +323,30 @@ def _run(args: argparse.Namespace) -> int:
         tol_mu=args.tol_mu,
         tol_lmp=Tolerances.default().tol_lmp,
         tol_load_mw=args.tol_load_mw,
+        loss_factor_warn=args.loss_factor_warn,
+        loss_factor_error=args.loss_factor_error,
     )
 
     if args.carbon_price < 0.0:
         raise InputValidationError(
             f"--carbon-price must be non-negative; got {args.carbon_price}"
+        )
+
+    # B2: build per-bus demand_fail_cost lookup when we have a
+    # planning JSON (gtopt-dir mode).  Resolution order matches the
+    # C++ LP: per-Demand ``fcost`` > model_options.demand_fail_cost >
+    # CLI ``--demand-fail-cost`` fallback.  Feed-parquet inputs lack
+    # the planning JSON so we fall back to the CLI scalar.
+    dfc_arg: float | dict[int, float] = float(args.demand_fail_cost)
+    if kind == "gtopt-dir":
+        from gtopt_check_output._reader import load_planning as _lp  # noqa: PLC0415
+
+        from gtopt_marginal_units._gtopt_reader import (  # noqa: PLC0415
+            demand_fail_cost_by_bus,
+        )
+
+        dfc_arg = demand_fail_cost_by_bus(
+            _lp(args.planning), float(args.demand_fail_cost)
         )
 
     # 4. Per-cell driver (single-bus collapse if asked).
@@ -282,7 +358,7 @@ def _run(args: argparse.Namespace) -> int:
         merit_ladder_depth=max(0, int(args.merit_ladder_depth)),
         single_bus=args.single_bus,
         zone_mode=args.zone_mode,
-        demand_fail_cost=float(args.demand_fail_cost),
+        demand_fail_cost=dfc_arg,
         out_root=args.out,
         carbon_price=float(args.carbon_price),
     )
@@ -300,6 +376,9 @@ def _run(args: argparse.Namespace) -> int:
             per_bus=per_bus,
             per_zone=per_zone,
             unattributed=unattributed,
+            top_n_marginal=int(args.report_top_marginal),
+            top_n_lines=int(args.report_top_lines),
+            top_n_reasons=int(args.report_top_reasons),
         )
         _LOG.info("report written: %s", args.report)
 
@@ -354,7 +433,7 @@ def _process_cells(
     merit_ladder_depth: int,
     single_bus: bool,
     zone_mode: str,
-    demand_fail_cost: float,
+    demand_fail_cost: float | dict[int, float],
     out_root: Path,
     carbon_price: float = 0.0,
 ):
@@ -466,7 +545,7 @@ def _process_cells(
                 # case false-positives on lines landing at e.g. 99.79 %
                 # of tmax without the cap actually binding.
                 cost_by_uid = flow_cost_by_cell.get(cell_key, {})
-                eps_rc = max(tol.tol_price, 1e-3)
+                eps_rc = max(tol.tol_price, tol.tol_rc_floor)
                 for uid, rc in cost_by_uid.items():
                     if abs(float(rc)) > eps_rc:
                         saturated_uids.add(int(uid))
@@ -474,7 +553,7 @@ def _process_cells(
                 # Primal-fallback for legacy parquet outputs.
                 flow_by_uid = flow_by_cell.get(cell_key, {})
                 if flow_by_uid and line_tmax:
-                    eps_sat = max(tol.tol_flow, 1e-3)
+                    eps_sat = max(tol.tol_flow, tol.tol_sat_floor)
                     for uid, fval in flow_by_uid.items():
                         tmax = line_tmax.get(int(uid))
                         if tmax is None or tmax <= 0.0:
@@ -503,12 +582,23 @@ def _process_cells(
             )
         else:
             # mode=real-reconstruct path: no LP duals, run §4.7 R3.
+            # ``reconstruct_all_zones`` uses ``demand_fail_cost`` as a
+            # zone-level rationing cap (the clamp ``λ_z ≤ DFC``); when
+            # we have per-Demand caps, the binding cap is the MAX
+            # across all per-bus values (above the highest, every
+            # demand is rationed at its own price).  Resolve to a
+            # scalar before calling.
+            dfc_scalar: float = (
+                max(demand_fail_cost.values())
+                if isinstance(demand_fail_cost, dict)
+                else float(demand_fail_cost)
+            )
             zone_results = reconstruct_all_zones(
                 topology=topology,
                 zone_of=zone_of,
                 dispatch_by_uid=dispatch_by_uid,
                 load_by_bus=load_by_bus,
-                demand_fail_cost=demand_fail_cost,
+                demand_fail_cost=dfc_scalar,
                 tol=tol,
                 merit_eligible_by_uid=merit_eligible,
             )
@@ -670,7 +760,201 @@ def _process_cells(
         summary.rows_merit_ladder,
         summary.rows_price_recipe,
     )
+
+    # End-of-run loss-factor scaling summary (#523).  Counts cells whose
+    # raw bus_LMP / ref ratio fell outside the physical envelope.  ``warn``
+    # cells were scaled but flagged; ``negative`` and ``missing`` cells
+    # had scale=1.0; ``error`` cells would have aborted the run earlier.
+    # ``negative_lmp_kind`` is tracked separately so the two regimes
+    # (no_marginal vs storage_clamped) get distinct warnings.
+    status_counts: dict[str, int] = {}
+    neg_lmp_counts: dict[str, int] = {}
+    raw_max = float("-inf")
+    raw_min = float("inf")
+    for r in emission_recipe:
+        status_counts[r.loss_factor_status] = (
+            status_counts.get(r.loss_factor_status, 0) + 1
+        )
+        if r.loss_factor_status in (
+            "ok",
+            "warn_radial",
+            "warn_meshed",
+            "critical_radial",
+            "critical_meshed",
+        ):
+            raw_max = max(raw_max, r.loss_factor_raw)
+            raw_min = min(raw_min, r.loss_factor_raw)
+        if r.negative_lmp_kind:
+            neg_lmp_counts[r.negative_lmp_kind] = (
+                neg_lmp_counts.get(r.negative_lmp_kind, 0) + 1
+            )
+    if status_counts:
+        n_ok = status_counts.get("ok", 0)
+        n_na = status_counts.get("n/a", 0)
+        n_wr = status_counts.get("warn_radial", 0)
+        n_wm = status_counts.get("warn_meshed", 0)
+        n_cr = status_counts.get("critical_radial", 0)
+        n_cm = status_counts.get("critical_meshed", 0)
+        n_ph = status_counts.get("phantom_bus", 0)
+        n_xi = status_counts.get("cross_island", 0)
+        n_zh = status_counts.get("zero_srmc_hydro", 0)
+        n_ne_data = status_counts.get("no_emission_data", 0)
+        n_neg = status_counts.get("negative", 0)
+        n_miss = status_counts.get("missing", 0)
+        _LOG.info(
+            "loss-factor scaling: ok=%d  n/a=%d  warn_radial=%d  "
+            "warn_meshed=%d  critical_radial=%d  critical_meshed=%d  "
+            "phantom_bus=%d  cross_island=%d  zero_srmc_hydro=%d  "
+            "no_emission_data=%d  negative=%d  missing=%d  "
+            "raw range [%s, %s]",
+            n_ok,
+            n_na,
+            n_wr,
+            n_wm,
+            n_cr,
+            n_cm,
+            n_ph,
+            n_xi,
+            n_zh,
+            n_ne_data,
+            n_neg,
+            n_miss,
+            f"{raw_min:.3f}" if raw_min != float("inf") else "n/a",
+            f"{raw_max:.3f}" if raw_max != float("-inf") else "n/a",
+        )
+        if n_zh:
+            _LOG.warning(
+                "loss-factor scaling: %d cells had a hydro/storage "
+                "marginal at near-zero LMP (tol_lmp=%g). Cannot derive "
+                "a meaningful loss factor — scale=1 applied. Common "
+                "cause: LP elects one zero-MC hydro as basic-in-LP for "
+                "a country-spanning connected component.",
+                n_zh,
+                tol.tol_lmp,
+            )
+        if n_ne_data:
+            _LOG.warning(
+                "loss-factor scaling: %d cells had a thermal marginal "
+                "with no emission_rate (e.g. cogen biomass). EF=0 means "
+                "no carbon to scale — scale=1 applied. Recipe row's "
+                "recomputed_emission_intensity stays 0 either way.",
+                n_ne_data,
+            )
+        if n_wr:
+            _LOG.warning(
+                "loss-factor scaling: %d cells on a RADIAL path had "
+                "raw bus_LMP / ref ∈ (%g, %g] — applied as-is (R "
+                "drives the loss on a single-path corridor).  Filter "
+                "on loss_factor_status == 'warn_radial'.",
+                n_wr,
+                tol.loss_factor_warn,
+                tol.loss_factor_error,
+            )
+        if n_wm:
+            _LOG.warning(
+                "loss-factor scaling: %d cells on a MESHED path had "
+                "raw bus_LMP / ref ∈ (%g, %g] — applied as-is but "
+                "review marginal-unit selection (high ratios on "
+                "meshed networks usually indicate congestion or a "
+                "wrong reference price).  Filter on loss_factor_status "
+                "== 'warn_meshed'.",
+                n_wm,
+                tol.loss_factor_warn,
+                tol.loss_factor_error,
+            )
+        if n_cr:
+            _LOG.warning(
+                "loss-factor scaling: %d cells on a RADIAL path had "
+                "raw > --loss-factor-error (%g) — applied as-is.  "
+                "Likely a very long / high-R radial corridor (Aysén / "
+                "Chiloé pattern); cross-check the line impedance "
+                "against the source PLEXOS XML.  Filter on "
+                "loss_factor_status == 'critical_radial'.",
+                n_cr,
+                tol.loss_factor_error,
+            )
+        if n_cm:
+            _LOG.warning(
+                "loss-factor scaling: %d cells on a MESHED path had "
+                "raw > --loss-factor-error (%g) — applied as-is.  "
+                "This is the most suspicious bucket: meshed + very "
+                "high ratio almost always indicates a wrong marginal-"
+                "unit selection or LP-stress artefact.  Filter on "
+                "loss_factor_status == 'critical_meshed' and review.",
+                n_cm,
+                tol.loss_factor_error,
+            )
+        if n_xi:
+            _LOG.warning(
+                "loss-factor scaling: %d cells had cross-island "
+                "marginal (bus and marginal-unit live in different "
+                "connected components after dropping saturated lines). "
+                "Scale=1.0 was applied; see loss_factor_status == "
+                "'cross_island' rows.",
+                n_xi,
+            )
+        if n_neg:
+            _LOG.warning(
+                "loss-factor scaling: %d cells had negative raw "
+                "(oversupply / negative LMP); scale=1.0 applied.",
+                n_neg,
+            )
+    # Negative-LMP regime summary (two distinct cases) — both clamped
+    # the recipe's r_lmp and r_em to 0, but for different physical
+    # reasons.  Downstream consumers (arbitrage / battery balance)
+    # should filter the cells out.
+    n_neg_no_marg = neg_lmp_counts.get("no_marginal", 0)
+    n_neg_storage = neg_lmp_counts.get("storage_clamped", 0)
+    if n_neg_no_marg:
+        _LOG.warning(
+            "negative-LMP: %d cells had zone lambda_z < 0 with NO "
+            "storage marginal (reactance loop, energy constraint, "
+            "spillover penalty — no real marginal unit). Recipe rows "
+            "carry formula_kind == 'no_marginal_neg_lmp' and "
+            "negative_lmp_kind == 'no_marginal'; both LMP and "
+            "emission factor are clamped to 0. Downstream arbitrage "
+            "MUST filter these cells (no guaranteed payment).",
+            n_neg_no_marg,
+        )
+    if n_neg_storage:
+        _LOG.warning(
+            "negative-LMP: %d cells had zone lambda_z < 0 with a "
+            "STORAGE marginal (spillover / regulation / energy-"
+            "constraint binding on the battery / reservoir itself). "
+            "Recipe rows keep their formula_kind but carry "
+            "negative_lmp_kind == 'storage_clamped'; both LMP and "
+            "emission factor are clamped to 0. The storage IS a real "
+            "marginal at zero price for this block.",
+            n_neg_storage,
+        )
     return summary
+
+
+def _matches_any_demand_fail_cost(
+    lam: float,
+    dfc: float | dict[int, float],
+    zid: int,
+    zone_of: dict[int, int],
+    tol_price: float,
+) -> bool:
+    """Match zone LMP against demand_fail_cost (per-Demand, B2).
+
+    A zone hits the rationing cap when ``lambda_z`` equals the fcost of
+    ANY demand in that zone — different buses in the same zone may
+    carry different per-Demand fcost.  The zone-level test must accept
+    any of them; we tolerance-match against the set of per-bus values
+    that belong to this zone.  Falls back to scalar match when called
+    with a float (legacy / test path).
+    """
+    if isinstance(dfc, dict):
+        for bus_uid, bz in zone_of.items():
+            if bz != zid:
+                continue
+            v = dfc.get(bus_uid)
+            if v is not None and abs(lam - v) <= tol_price:
+                return True
+        return False
+    return abs(lam - float(dfc)) <= tol_price
 
 
 def _zone_results_from_lp_duals(
@@ -682,7 +966,7 @@ def _zone_results_from_lp_duals(
     gen_srmc_by_uid: Optional[dict[int, float]] = None,
     tol: Tolerances,
     merit_eligible: dict[int, bool],
-    demand_fail_cost: float,
+    demand_fail_cost: float | dict[int, float],
     topology_zone_of: Optional[dict[int, int]] = None,
 ) -> tuple[dict[int, int], dict[int, "ZoneR3Result"]]:
     """Build (zone_of, zone_results) directly from LP duals.
@@ -794,7 +1078,9 @@ def _zone_results_from_lp_duals(
                 reason=reason_tag,
                 clamped=False,
             )
-        elif abs(lam - demand_fail_cost) <= tol.tol_price:
+        elif _matches_any_demand_fail_cost(
+            lam, demand_fail_cost, zid, bus_to_zone, tol.tol_price
+        ):
             zone_results[zid] = ZoneR3Result(
                 zone_id=zid,
                 lambda_z=lam,
@@ -904,6 +1190,36 @@ def _zone_results_from_lp_duals(
     return bus_to_zone, zone_results
 
 
+def _is_synthetic_gen(g) -> bool:
+    """Return True for PLEXOS / CEN-PCP placeholder generators that
+    cannot physically set the LMP at grid scale.
+
+    Two signatures match (both empirically derived from CEN-PCP bundles):
+
+    1. **``pmax < SYNTHETIC_GEN_PMAX_MW``** — CCGT alternative-dispatch
+       entries that PLEXOS ships with ``Gen_Rating = (missing)``;
+       plexos2gtopt clamps them at ``0.01 MW`` so they always carry a
+       defined ``pmax`` but never participate meaningfully in dispatch.
+       ~50 such gens in jan18 (``ATA_CC1_TGA_DIE``, ``KELAR-TG1_GNL_X``,
+       ``MEJILLONES_3-TG+TV_GNL_X``, …).
+    2. **Name ending in ``_INF`` / ``_GNL_INF`` / ``_NOGNL_INF``** —
+       PLEXOS infinity / inflexible-LNG placeholders used for gas-import
+       accounting (``TAMAKAYA_NOGNL_INF`` and similar).
+
+    These can never be the "real" marginal but the LP basis still
+    picks them at tie-break corners (``gcost = 0 → rc ≈ 0``).  Skipping
+    them here lets the cascade fall through to a real-capacity thermal
+    that genuinely sets the price.
+    """
+    try:
+        if float(g.pmax) < SYNTHETIC_GEN_PMAX_MW:
+            return True
+    except (TypeError, ValueError):
+        pass
+    name = getattr(g, "name", "") or ""
+    return any(name.endswith(suffix) for suffix in SYNTHETIC_GEN_NAME_SUFFIXES)
+
+
 def _select_marginal_candidates(
     *,
     topology,
@@ -963,8 +1279,68 @@ def _select_marginal_candidates(
         for g in topology.generators
         if g.bus_uid in zone_bus_uids and dispatch_by_uid.get(g.uid, 0.0) > tol.eps
     ]
-    nonprofile = [g for g in dispatched if merit_eligible.get(g.uid, True)]
-    candidates_pool = nonprofile if nonprofile else dispatched
+    # Pre-filter — drop *synthetic* placeholder gens (CEN-PCP CCGT mode-
+    # variants with ``pmax = 0.01 MW`` + ``gcost = 0`` + no Fuels link,
+    # and PLEXOS ``_INF`` infinity placeholders).  They can never
+    # physically set the LMP at grid scale but the LP's tie-break
+    # corners do elect them at the basis (``rc ≈ 0`` because they
+    # carry no cost coefficient), which then trips Guard B
+    # ``no_emission_data`` downstream when they're picked over a
+    # real-capacity thermal.  Filter them here with a graceful
+    # fallback: if every dispatched gen in this zone is synthetic, the
+    # cascade proceeds on the unfiltered set (the recipe still needs
+    # *something* to anchor the consequential walk-up).
+    real_capacity = [g for g in dispatched if not _is_synthetic_gen(g)]
+    candidate_input = real_capacity or dispatched
+    # Filter cascade — exclude price-takers from the LP-marginal pool,
+    # but never return empty (the recipe layer's consequential walk-up
+    # depends on getting *some* dispatched gen back).  The four kinds
+    # of price-takers we exclude:
+    #
+    #   1. **cogens** (``is_cogen=True``) — self-dispatching biomass /
+    #      refinery / paper-mill units; the LP sees them as fixed
+    #      injections, not market participants.
+    #   2. **batteries** (``kind == battery``) — bid on stored-energy
+    #      shadow price, not a thermodynamic MC.
+    #   3. **reservoir hydro** (``kind == hydro``) — bid on water value
+    #      (reservoir dual), not MC.
+    #   4. **profiles** (``kind == profile``, captured by
+    #      ``merit_eligible``) — FV / wind / RoR with zero MC.
+    #
+    # All four can be basic-in-LP (``|rc| ≈ 0``) at tie-break corners,
+    # which then poisons the downstream emission attribution.  The
+    # canonical example on jan18 is PAS_MEJILLONES (cogen) being
+    # elected as marginal at 41 cells → ``no_emission_data`` bucket.
+    # Excluding them here lets the recipe layer's
+    # ``_compute_consequential_moer`` walk the merit ladder up to the
+    # next-up thermal unit (the "real" marginal that responds to
+    # demand) for both the price and the CO2 attribution.
+    #
+    # The cascade is graceful: if a zone has *only* price-takers
+    # dispatching (small islanded BESS zone, hydro-only basin, cogen-
+    # only refinery node), we fall through to wider tiers so the LP
+    # selection still returns *something* and the consumer doesn't
+    # see ``unattributed`` purely due to local merit-pool emptiness.
+    #
+    # Cascade priority (each tier strictly inside the next):
+    #   1. real setters         — thermal ∧ ¬cogen           (the LP price-setter)
+    #   2. non-storage non-cogen — thermal ∨ profile, ¬cogen  (allow profile fallback)
+    #   3. non-cogen            — anything except cogens     (drop storage filter)
+    #   4. non-profile          — anything except profiles   (drop cogen filter)
+    #   5. dispatched           — last resort                (recipe walks up downstream)
+    setter_kinds = {k.value for k in PRICE_SETTER_KINDS}
+    storage_kinds = {k.value for k in STORAGE_KINDS}
+    real_setters = [
+        g for g in candidate_input if not g.is_cogen and g.kind in setter_kinds
+    ]
+    nc_nostorage = [
+        g for g in candidate_input if not g.is_cogen and g.kind not in storage_kinds
+    ]
+    nc = [g for g in candidate_input if not g.is_cogen]
+    nonprofile = [g for g in candidate_input if merit_eligible.get(g.uid, True)]
+    candidates_pool = (
+        real_setters or nc_nostorage or nc or nonprofile or candidate_input
+    )
     # Backward-compatible alias used by the legacy declared-MC fallback
     # below; that path is informational only (kept for runs with no rc).
     interior = candidates_pool

@@ -34,6 +34,7 @@
 #include <gtopt/capacity.hpp>
 #include <gtopt/emission_capture.hpp>
 #include <gtopt/emission_source.hpp>
+#include <gtopt/generator_enums.hpp>
 #include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
@@ -153,6 +154,16 @@ struct GeneratorAttrs
   /// faithfully; future multi-unit / aggregated-generator work can
   /// consume it directly.  Unset → no information published.
   OptReal uini {};
+
+  /// Cogeneration mode tag — see ``CogenMode`` in ``generator_enums.hpp``
+  /// for the full enumeration and semantics.  Stored as a string for
+  /// JSON portability; parse to the typed enum via
+  /// ``Generator::cogen_mode_enum()``.  Unset ⇒ not a cogen.
+  ///
+  /// Extensions belong in the description meta side-channel
+  /// (``[gtopt-meta key=val …]`` block in ``description``), not as
+  /// new cogen_mode values — keep this enum narrow and load-bearing.
+  OptName cogen_mode {};
 };
 
 /**
@@ -237,6 +248,22 @@ struct Generator
   /// ``Gen_IniUnits.csv`` by the plexos2gtopt converter.
   OptReal uini {};
 
+  /// Cogeneration mode tag.  See ``GeneratorAttrs::cogen_mode`` for
+  /// the authoritative semantics + value enumeration
+  /// (``"dispatched"`` | ``"must_run"`` | unset).
+  OptName cogen_mode {};
+
+  /// Parse ``cogen_mode`` string to typed enum (nullopt = not a cogen
+  /// OR unknown value).  Mirrors ``Line::line_losses_mode_enum()``.
+  [[nodiscard]] constexpr std::optional<CogenMode> cogen_mode_enum()
+      const noexcept
+  {
+    if (cogen_mode.has_value()) {
+      return enum_from_name<CogenMode>(*cogen_mode);
+    }
+    return std::nullopt;
+  }
+
   OptTBRealFieldSched emission_rate {};  ///< Direct CO₂ emission rate
                                          ///< [tCO₂/MWh] per-(stage, block).
                                          ///< Additive with fuel-derived
@@ -287,6 +314,7 @@ struct Generator
     self.annual_derating = std::exchange(attrs.annual_derating, {});
     self.integer_expmod = std::exchange(attrs.integer_expmod, {});
     self.uini = std::exchange(attrs.uini, {});
+    self.cogen_mode = std::exchange(attrs.cogen_mode, {});
 
     return self;
   }

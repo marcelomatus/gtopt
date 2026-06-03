@@ -13,6 +13,7 @@ row in the canonical Cells frame.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +50,8 @@ from gtopt_marginal_units.errors import (
     ExpansionNotSupportedError,
     InputValidationError,
 )
+
+_LOG = logging.getLogger("gtopt_marginal_units")
 
 
 # ---------------------------------------------------------------------------
@@ -139,27 +142,78 @@ def topology_from_planning(
                 # per-block dimension to a single representative value.
                 grouped = rate_df.groupby("uid")["value"].mean()
                 parq_rate = {int(u): float(v) for u, v in grouped.items()}
-            except Exception:  # noqa: BLE001
-                # Treat any parquet-read failure as "no override" — the
-                # static rate is a perfectly valid fallback.
+            except Exception as exc:  # noqa: BLE001
+                # Parquet read failed — fall back to static per-source
+                # ``rate`` field on emission_source_array.  Don't swallow
+                # silently: emission attribution will use a different
+                # (possibly outdated) number than the LP actually emitted.
+                _LOG.warning(
+                    "EmissionSource/rate_sol.parquet read failed (%s); "
+                    "falling back to static rates from "
+                    "emission_source_array. Per-block fuel switching / "
+                    "scale_objective drift will NOT be captured.",
+                    exc,
+                )
                 parq_rate = {}
 
     gen_emission_co2eq: dict[int, float] = {}
+    n_src_malformed = 0
+    n_src_weight_zero = 0
+    n_src_rate_zero = 0
+    n_src_total = 0
     for src in system.get("emission_source_array", []):
+        n_src_total += 1
         try:
             g_uid = int(src["generator"])
             z_uid = int(src["zone"])
             emission = str(src["emission"])
             s_uid = int(src.get("uid", -1))
             static_rate = float(src.get("rate", 0.0))
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError) as exc:
+            # A malformed EmissionSource row vanishes from CO2 attribution.
+            # Log first 3 to help diagnose schema mismatches; aggregate
+            # the rest into a final summary.
+            if n_src_malformed < 3:
+                _LOG.warning(
+                    "emission_source_array row malformed (%s): %r — "
+                    "row dropped from CO2 attribution.",
+                    exc,
+                    src,
+                )
+            n_src_malformed += 1
             continue
         # LP-emitted rate wins when present; static rate is the fallback.
         rate = parq_rate.get(s_uid, static_rate)
         weight = zone_weights.get(z_uid, {}).get(emission, 0.0)
-        if weight == 0.0 or rate == 0.0:
+        if weight == 0.0:
+            # Legitimate "don't track this pollutant in this zone" signal;
+            # count for visibility but don't warn (designed behaviour).
+            n_src_weight_zero += 1
+            continue
+        if rate == 0.0:
+            # A real EmissionSource with rate=0 either means the LP
+            # produced zero for this (g, e, z) cell or the static rate
+            # was never set.  Count for visibility.
+            n_src_rate_zero += 1
             continue
         gen_emission_co2eq[g_uid] = gen_emission_co2eq.get(g_uid, 0.0) + weight * rate
+    if n_src_total > 0:
+        _LOG.info(
+            "emission_source_array: %d rows total; %d aggregated, "
+            "%d malformed, %d weight=0 (zone untracked), %d rate=0",
+            n_src_total,
+            n_src_total - n_src_malformed - n_src_weight_zero - n_src_rate_zero,
+            n_src_malformed,
+            n_src_weight_zero,
+            n_src_rate_zero,
+        )
+    if n_src_malformed > 3:
+        _LOG.warning(
+            "emission_source_array: %d additional malformed rows not "
+            "logged individually; CO2 attribution incomplete. Review "
+            "the planning JSON schema.",
+            n_src_malformed - 3,
+        )
 
     # Build a lookup: Fuel uid OR Fuel name → derived ``kind`` ("thermal" /
     # "hydro" / "profile") used as a fallback when ``Generator.type`` is
@@ -198,13 +252,84 @@ def topology_from_planning(
         # ``fuel`` field is OptSingleId which may carry either form.
         try:
             fuel_kind_by_ref[int(f["uid"])] = fkind
-        except (KeyError, TypeError, ValueError):
-            pass
+        except (KeyError, TypeError, ValueError) as exc:
+            # A fuel with non-castable uid silently drops its uid-based
+            # lookup but keeps the name-based one.  Log so a downstream
+            # generator whose ``fuel`` field is the uid (not name) and
+            # falls back to ``"thermal"`` default kind is traceable.
+            _LOG.warning(
+                "fuel %r has non-castable uid (%s); only name-based "
+                "lookup will work for generators referencing it by uid.",
+                f.get("name") or "<unnamed>",
+                exc,
+            )
         if f.get("name"):
             fuel_kind_by_ref[str(f["name"])] = fkind
 
+    # Multi-pollutant CO2eq lookup from the factored data:
+    #
+    #   rate_g [tCO2eq / MWh] = heat_rate_g       [fuel-unit / MWh]
+    #                        × heat_content_f    [GJ / fuel-unit]
+    #                        × Σ_e ( combustion_{f,e} [tCO2 / GJ]
+    #                              × weight_{z,e}   [tCO2eq / tCO2] )
+    #
+    # This keeps the per-pollutant decomposition intact: changing the
+    # zone's GWP horizon (e.g. AR5 → AR6, GWP100 → GWP20) or adding a
+    # pollutant requires no edits to ``Fuel.emission_factors`` or per-gen
+    # JSON fields — the multiplication re-runs at read time.  Matches the
+    # C++ ``EmissionSourceLP`` α factor in #522, so a recipe value and the
+    # LP's per-block emission attribution agree by construction.
+    #
+    # Resolution order for a generator's effective CO2eq rate (per #522
+    # convention used by the LP-side reader):
+    #   1.  Sum of all ``emission_source_array`` rows × zone weight
+    #       (LP-emitted ``EmissionSource/rate_sol.parquet`` overrides
+    #       static rate per src — already populated above).
+    #   2.  Per-gen JSON override ``Generator.emission_rate`` (lossy
+    #       scalar; only honoured if explicitly set — kept for back-
+    #       compat with legacy converters that bake the rate in).
+    #   3.  Derived from ``heat_rate × heat_content × Σ combustion × weight``
+    #       (this block).  Path 3 is the default for plexos2gtopt and
+    #       plp2gtopt output that ships the factored multi-pollutant
+    #       data without per-gen aggregation.
+    zone_pollutant_weights: dict[str, float] = {}
+    for z in system.get("emission_zone_array", []):
+        for e in z.get("emissions", []) or []:
+            name = str(e.get("emission", ""))
+            if not name:
+                continue
+            zone_pollutant_weights[name] = zone_pollutant_weights.get(
+                name, 0.0
+            ) + float(e.get("weight", 0.0) or 0.0)
+
+    fuel_co2eq_per_unit: dict[object, float] = {}
+    if zone_pollutant_weights:
+        for f in system.get("fuel_array", []):
+            hc = float(f.get("heat_content", 0.0) or 0.0)
+            if hc <= 0.0:
+                continue
+            agg = 0.0
+            for ef in f.get("emission_factors", []) or []:
+                if not isinstance(ef, dict):
+                    continue
+                w = zone_pollutant_weights.get(str(ef.get("emission", "")), 0.0)
+                if w == 0.0:
+                    continue
+                agg += float(ef.get("combustion", 0.0) or 0.0) * w
+            if agg <= 0.0:
+                continue
+            co2eq_per_fuel_unit = agg * hc  # tCO2eq / fuel-unit
+            try:
+                fuel_co2eq_per_unit[int(f["uid"])] = co2eq_per_fuel_unit
+            except (KeyError, TypeError, ValueError):
+                pass
+            if f.get("name"):
+                fuel_co2eq_per_unit[str(f["name"])] = co2eq_per_fuel_unit
+
     # Generators.
     generators = []
+    n_thermal_no_emission_rate = 0
+    sample_thermal_no_emission: list[str] = []
     for g in system.get("generator_array", []):
         if g.get("expansion"):
             raise ExpansionNotSupportedError(
@@ -222,15 +347,46 @@ def topology_from_planning(
         is_cogen = _is_cogen(g)
 
         uid = int(g["uid"])
-        # Prefer the per-gen JSON ``emission_rate`` when set; otherwise
-        # fall back to the CO2eq factor derived from emission_source_array.
-        emit_jsn = _opt_float(g.get("emission_rate"))
-        emit_eff = emit_jsn if emit_jsn is not None else gen_emission_co2eq.get(uid)
+        # Resolve the per-gen CO2eq emission rate in #522 order:
+        #   1. ``emission_source_array`` aggregate × zone weight
+        #      (gen_emission_co2eq[uid] — already populated above).
+        #   2. JSON override ``Generator.emission_rate`` (lossy scalar
+        #      kept for back-compat with converters that bake the
+        #      aggregate in — e.g. ``--only-emissions``).
+        #   3. Derive from heat_rate × fuel.heat_content × Σ_e (combustion_e
+        #      × zone_weight_e).  Default path for plexos2gtopt /
+        #      plp2gtopt cost-mode JSONs (which carry the factored
+        #      multi-pollutant data but not the aggregate).
+        emit_eff = gen_emission_co2eq.get(uid)
+        if emit_eff is None:
+            emit_jsn = _opt_float(g.get("emission_rate"))
+            if emit_jsn is not None:
+                emit_eff = emit_jsn
+        if emit_eff is None and fuel_co2eq_per_unit:
+            hr = g.get("heat_rate")
+            if isinstance(hr, (int, float)) and float(hr) > 0.0:
+                fuel_ref = g.get("fuel")
+                co2eq_per_unit = None
+                if isinstance(fuel_ref, (int, float)):
+                    co2eq_per_unit = fuel_co2eq_per_unit.get(int(fuel_ref))
+                elif isinstance(fuel_ref, str):
+                    co2eq_per_unit = fuel_co2eq_per_unit.get(fuel_ref)
+                if co2eq_per_unit is not None and co2eq_per_unit > 0.0:
+                    emit_eff = float(co2eq_per_unit) * float(hr)
 
+        gen_name = str(g.get("name", f"g{g['uid']}"))
+        # A real thermal that fell through all three paths is a missing
+        # data point — not a silent zero-emission renewable.  Count it
+        # for the end-of-function summary so the operator knows N
+        # thermals are unattributed to CO2.
+        if kind == "thermal" and not is_cogen and (emit_eff is None or emit_eff == 0.0):
+            n_thermal_no_emission_rate += 1
+            if len(sample_thermal_no_emission) < 5:
+                sample_thermal_no_emission.append(gen_name)
         generators.append(
             Generator(
                 uid=uid,
-                name=str(g.get("name", f"g{g['uid']}")),
+                name=gen_name,
                 bus_uid=_resolve_bus(g.get("bus")),
                 pmin=_scalar_or_max(g.get("pmin"), 0.0),
                 pmax=_scalar_or_max(g.get("pmax", g.get("capacity")), 0.0),
@@ -238,7 +394,84 @@ def topology_from_planning(
                 kind=kind,
                 emission_rate=emit_eff,
                 is_cogen=is_cogen,
+                lossfactor=_opt_float(g.get("lossfactor")),
             )
+        )
+
+    # Phase 2 — mode-variant inheritance pass.  A CSV-only orphan
+    # recovered by plexos2gtopt's ``_recover_csv_only_thermals`` carries
+    # ``[gtopt-meta mode_variant=secondary inherits_emission_from=<parent>]``
+    # in its description.  When such an orphan ends up without an
+    # emission_rate after paths 1/2/3 (most of them have no fuel /
+    # heat_rate of their own), look up the parent in the just-built
+    # generator list and inherit.  Rare in practice (orphans have
+    # pmax=0 so they almost never dispatch) but lands the right value
+    # for the cells where the LP basis elects an orphan at a tie-break.
+    from gtopt_shared.description_meta import (  # noqa: PLC0415
+        parse_meta,
+    )
+
+    gen_by_name = {g.name: g for g in generators}
+    n_inherited = 0
+    for idx, g_struct in enumerate(generators):
+        if g_struct.emission_rate is not None and g_struct.emission_rate != 0.0:
+            continue
+        # Look up the original JSON entry to read description meta.
+        json_entry = next(
+            (
+                jg
+                for jg in system.get("generator_array", [])
+                if int(jg["uid"]) == g_struct.uid
+            ),
+            None,
+        )
+        if json_entry is None:
+            continue
+        meta = parse_meta(json_entry.get("description"))
+        parent_name = meta.get("inherits_emission_from")
+        if not parent_name or not isinstance(parent_name, str):
+            continue
+        parent = gen_by_name.get(parent_name)
+        if parent is None or parent.emission_rate is None:
+            continue
+        # Inherit the parent's emission_rate.  Mutate via re-construction
+        # because Generator is frozen.
+        generators[idx] = Generator(
+            uid=g_struct.uid,
+            name=g_struct.name,
+            bus_uid=g_struct.bus_uid,
+            pmin=g_struct.pmin,
+            pmax=g_struct.pmax,
+            declared_MC=g_struct.declared_MC,
+            kind=g_struct.kind,
+            emission_rate=parent.emission_rate,
+            is_cogen=g_struct.is_cogen,
+            lossfactor=g_struct.lossfactor,
+        )
+        n_inherited += 1
+        # Decrement the "no emission data" counter since this orphan
+        # now has an inherited value.
+        if g_struct.kind == "thermal" and not g_struct.is_cogen:
+            n_thermal_no_emission_rate = max(0, n_thermal_no_emission_rate - 1)
+
+    if n_inherited > 0:
+        _LOG.info(
+            "topology: %d thermal generators inherited emission_rate "
+            "from a longest-prefix sibling via description meta "
+            "(mode_variant=secondary).",
+            n_inherited,
+        )
+
+    if n_thermal_no_emission_rate > 0:
+        _LOG.warning(
+            "topology: %d thermal generators have no emission_rate "
+            "(none of emission_source_array, Generator.emission_rate, "
+            "or Fuel.emission_factors × heat_rate gave a value). "
+            "These will be treated as zero-emission in the recipe — "
+            "review fuel data. Sample: %s%s",
+            n_thermal_no_emission_rate,
+            ", ".join(sample_thermal_no_emission),
+            "" if n_thermal_no_emission_rate <= 5 else ", ...",
         )
 
     # Profile generators (renewables) — promote to kind=profile.
@@ -255,6 +488,7 @@ def topology_from_planning(
                 kind="profile" if g.uid in profile_uids else g.kind,
                 emission_rate=g.emission_rate,
                 is_cogen=g.is_cogen,
+                lossfactor=g.lossfactor,
             )
             for g in generators
         ]
@@ -295,6 +529,66 @@ def topology_from_planning(
         )
 
     return Topology(buses=buses, generators=generators, lines=lines)
+
+
+def demand_fail_cost_by_bus(
+    planning: dict,
+    global_fallback: float,
+) -> dict[int, float]:
+    """Build a per-bus demand_fail_cost lookup.
+
+    Matches the gtopt C++ resolution order
+    (``source/demand_lp.cpp``): per-Demand ``fcost`` wins; falls back
+    to ``model_options.demand_fail_cost``; falls back to the supplied
+    CLI ``global_fallback``.
+
+    When multiple Demand elements share a bus, the lowest ``fcost``
+    wins — that's the rationing-binding price the LP sees (cheapest
+    demand to ration first sets the marginal).
+
+    Non-scalar ``fcost`` (FileSched / per-block schedule) is treated
+    as ``None`` here: the recipe lookup needs a scalar.  In that case
+    the bus inherits the model-options / CLI fallback.  A per-block
+    fcost recipe would need a per-cell dict and a real scalar
+    resolution at recipe build time; the v1 simplification accepts
+    the lossier per-cell answer.
+    """
+    sys_ = planning.get("system", {}) or {}
+    bus_uid_by_name = {b["name"]: b["uid"] for b in sys_.get("bus_array", [])}
+
+    def _resolve(ref: object) -> int | None:
+        if isinstance(ref, (int, float)):
+            return int(ref)
+        if isinstance(ref, str) and ref in bus_uid_by_name:
+            return int(bus_uid_by_name[ref])
+        return None
+
+    # Global fallback: model_options.demand_fail_cost wins over CLI when
+    # set (the LP would use it too).
+    model_opts = (planning.get("options") or {}).get("model_options") or {}
+    options_dfc = model_opts.get("demand_fail_cost")
+    if isinstance(options_dfc, (int, float)):
+        global_fallback = float(options_dfc)
+
+    by_bus: dict[int, float] = {}
+    for d in sys_.get("demand_array", []) or []:
+        bus_uid = _resolve(d.get("bus"))
+        if bus_uid is None:
+            continue
+        fcost = d.get("fcost")
+        if not isinstance(fcost, (int, float)):
+            continue  # FileSched or missing — bus inherits global fallback
+        v = float(fcost)
+        cur = by_bus.get(bus_uid)
+        # Min across demands at the same bus — cheapest-to-ration wins.
+        by_bus[bus_uid] = v if cur is None else min(cur, v)
+
+    # Fill remaining buses with the global fallback so every bus has a
+    # value.  Callers can also use ``.get(bus, global_fallback)`` but
+    # the explicit fill makes the per-bus lookup O(1) without branching.
+    for b in sys_.get("bus_array", []):
+        by_bus.setdefault(int(b["uid"]), float(global_fallback))
+    return by_bus
 
 
 def _opt_float(v: object) -> float | None:
@@ -349,6 +643,8 @@ def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
         / "cogen"
         / "cen_chile_cogen.csv",
     ]
+    loaded_from: Path | None = None
+    last_err: Exception | None = None
     for path in candidates:
         if not path.is_file():
             continue
@@ -366,9 +662,29 @@ def _load_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
                         prefixes.append(name)
                     else:
                         names.add(name)
+            loaded_from = path
             break
-        except OSError:
+        except OSError as exc:
+            last_err = exc
             continue
+    if loaded_from is None:
+        _LOG.warning(
+            "cogen reference CSV not loaded (checked %d paths; last "
+            "error: %s).  Falling back to inline heuristic — units "
+            "whose Generator.type starts with 'thermal:cogen' will "
+            "be marked cogen; all other dispatchable units are "
+            "treated as non-cogen.  Some CEN biomass / sulfuric-acid "
+            "plants may be miscategorised in the consequential MOER.",
+            len(candidates),
+            last_err,
+        )
+    else:
+        _LOG.info(
+            "cogen reference CSV loaded from %s (%d exact names, %d pattern prefixes)",
+            loaded_from,
+            len(names),
+            len(prefixes),
+        )
     _COGEN_REFERENCE_NAMES = names
     _COGEN_REFERENCE_PREFIXES = tuple(prefixes)
     return _COGEN_REFERENCE_NAMES, _COGEN_REFERENCE_PREFIXES
@@ -405,7 +721,15 @@ def _is_cogen(g: dict) -> bool:
     eligible.  The distinguishing feature is the fuel family / name,
     not the MC.
     """
-    # 1) Explicit flag set by the converter.
+    # 1) First-class ``cogen_mode`` C++ field (any value ⇒ cogen).
+    # See include/gtopt/generator.hpp + generator_enums.hpp.  Replaces
+    # the legacy ``is_cogen`` JSON-only field starting 2026-06.
+    if g.get("cogen_mode"):
+        return True
+
+    # 1b) Legacy ``is_cogen`` flag — kept as back-compat for planning
+    # JSONs predating the C++ field.  Once every converter pass and
+    # bundled fixture has been re-generated, this branch can be dropped.
     if bool(g.get("is_cogen", False)):
         return True
 
@@ -507,7 +831,29 @@ def _classify_kind(g: dict, fuel_kind_by_ref: dict[object, str]) -> str:
             return "hydro"
         if sub in ("solar", "wind", "eolic"):
             return "profile"
-        if sub in ("biomass", "biomasa", "biogas", "geothermal"):
+        if sub == "geothermal":
+            # Geothermal is a price-TAKER for LMP attribution, not a
+            # price-setter: it has zero marginal cost (no commercial
+            # fuel — IPCC stationary-combustion default is 0 because
+            # the energy source is endogenous heat, not combustion),
+            # operates as fixed-inflow baseload like wind/solar, and
+            # in CEN runs always at its rated capacity.  Classifying
+            # as "profile" puts it in the merit-ineligible filter so
+            # ``_select_marginal_candidates`` skips it; the recipe
+            # layer's consequential walk-up then attributes both the
+            # LMP and the carbon to the next-up thermal merit gen
+            # actually setting the price.  Without this branch,
+            # CERRO_PABELLON_U1 (the only commercial geothermal in
+            # CEN) is elected as LP marginal in ~11 k jan18 cells
+            # purely on tie-break (``rc ≈ 0`` because ``gcost = 0``)
+            # and trips Guard B no_emission_data audit.
+            return "profile"
+        if sub in ("biomass", "biomasa", "biogas"):
+            # Biomass / biogas DO have commercial fuel (purchased
+            # residue, captured biogas) priced via the LP's
+            # ``Fuel.price`` element, so they're real merchant
+            # thermals even though the EF is biogenic-zero.  Keep
+            # as kind="thermal".
             return "thermal"
         # Unknown / bare renewable — try fuel, default profile.
         return _from_fuel() or "profile"

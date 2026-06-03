@@ -31,7 +31,7 @@ def active_segment(
     pmax: float,
     declared_MC: Optional[float],
     segments: Optional[list] = None,
-    eps: float = 1.0e-4,
+    eps: Optional[float] = None,
 ) -> ActiveSegment:
     """Return the active cost segment for ``dispatch``.
 
@@ -50,6 +50,13 @@ def active_segment(
     """
     if segments is None or not segments:
         return ActiveSegment(slope=declared_MC, seg_index=-1, ambiguous=False)
+
+    # Reuse the centralised default; lazy import keeps this module from
+    # taking a dependency cycle on ``constants`` at import time.
+    if eps is None:
+        from gtopt_marginal_units.constants import Tolerances  # noqa: PLC0415
+
+        eps = Tolerances.default().eps
 
     # Piecewise path — bisect into the segments by cumulative pmax.
     # segments is a list of (cum_pmax_upper_bound, slope) tuples.

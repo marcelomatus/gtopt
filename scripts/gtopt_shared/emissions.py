@@ -822,16 +822,17 @@ def apply_emission_defaults(
                 gen.pop("fuel", None)
             if ov.type_tag:
                 gen["type"] = ov.type_tag
-                # Stamp explicit ``is_cogen`` flag whenever the type
+                # Stamp ``cogen_mode = "dispatched"`` whenever the type
                 # tag advertises cogen, so downstream consumers (notably
                 # gtopt_marginal_units' merit-ladder walk-up) can detect
                 # cogen without re-parsing the type string or consulting
-                # the CEN reference list.  Same logic that
-                # ``gtopt_marginal_units._gtopt_reader._is_cogen``
-                # applies, kept here so the self-describing flag is
-                # written at conversion time.
+                # the CEN reference list.  Same logic as
+                # ``gtopt_marginal_units._gtopt_reader._is_cogen``,
+                # kept here so the self-describing tag is written at
+                # conversion time.  First-class C++ field; see
+                # ``include/gtopt/generator.hpp`` + ``generator_enums.hpp``.
                 if ov.type_tag.startswith("thermal:cogen"):
-                    gen["is_cogen"] = True
+                    gen["cogen_mode"] = "dispatched"
             overrides_applied.append(name)
 
     # ── Emissions objective mode (issue #519) ────────────────────────

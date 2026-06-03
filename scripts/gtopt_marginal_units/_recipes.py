@@ -299,7 +299,9 @@ class RecipeRow:
             # Emission recipe carries the consequential MOER + its source.
             # Unit is tCO2eq / MWh — same as ``Generator.emission_rate``
             # upstream (see ``_gtopt_reader.topology_from_planning``).
-            base["consequential_co2eq_t_per_mwh"] = float(self.consequential_co2eq)
+            cons = float(self.consequential_co2eq)
+            direct = float(self.recomputed_value)
+            base["consequential_co2eq_t_per_mwh"] = cons
             base["consequential_gen_uid"] = (
                 int(self.consequential_gen_uid)
                 if self.consequential_gen_uid is not None
@@ -308,6 +310,23 @@ class RecipeRow:
             base["loss_factor_raw"] = float(self.loss_factor_raw)
             base["loss_factor_status"] = str(self.loss_factor_status)
             base["negative_lmp_kind"] = str(self.negative_lmp_kind)
+            # Effective per-cell marginal emission rate — the column
+            # downstream tools (battery balance, arbitrage, dashboards)
+            # SHOULD use to attribute CO2 at this bus.  Defined as:
+            #   * direct    when the LP marginal already emits
+            #     (recomputed_emission_intensity > 0 ⇒ a real
+            #     dispatching thermal sets the price)
+            #   * consequential   otherwise (hydro/storage marginal with
+            #     zero direct emission; the walked-up next-up thermal
+            #     captures the "marginal carbon if demand grew by 1
+            #     MWh").  Issue #1 light fix: 3,093 zero_srmc_hydro
+            #     cells in jan18 have direct=0 but cons ≈ 0.6-1.2
+            #     tCO2/MWh — using cons here gives consumers the
+            #     economically-meaningful number without needing
+            #     a conditional join on loss_factor_status.
+            base["effective_emission_intensity_t_per_mwh"] = (
+                direct if direct > 0.0 else cons
+            )
         return base
 
 

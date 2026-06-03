@@ -61,6 +61,18 @@ class Generator:
     # and never appear as backfill marginal units — consumers walking the
     # merit ladder must skip them.
     is_cogen: bool = False
+    # Network loss factor [p.u.] — typically the auxiliary self-
+    # consumption / station-service fraction (``Generator.lossfactor``
+    # in the gtopt schema; plexos2gtopt populates it from
+    # ``Generator.aux_use``).  The LP withdraws ``(1 − lossfactor) ×
+    # generation`` from the bus, so the gen has to produce ``1 / (1 −
+    # lossfactor)`` MWh to deliver 1 MWh of net demand.  Used by
+    # ``gtopt_marginal_units`` to correct the consequential-MOER
+    # carbon attribution for a NON-dispatching backfill thermal: we
+    # have no bus_LMP signal for a hypothetical walked-up unit, so the
+    # only physically-meaningful per-MWh correction is its own static
+    # loss factor — see #523 commentary in ``_recipes._resolve_loss_factor``.
+    lossfactor: Optional[float] = None
 
 
 @dataclass(slots=True, frozen=True)

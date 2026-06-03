@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ._comparison import compare_plexos_bundle
+from ._defaults import resolve_default_emissions_file
 from .gtopt_writer import (
     build_planning,
     build_provenance,
@@ -409,6 +410,17 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             n.strip() for n in soft_efin_raw if isinstance(n, str) and n.strip()
         )
         fcf_scale_alpha = options.get("fcf_scale_alpha")
+        # ``cogen_must_run`` is a (names_set, force_all) tuple parsed in
+        # main._parse_cogen_must_run.  Unpack to the build_planning
+        # kwargs (defaults match the pre-option behaviour).
+        _cogen_must_run_opt = options.get("cogen_must_run") or (
+            frozenset(),
+            False,
+        )
+        if isinstance(_cogen_must_run_opt, tuple) and len(_cogen_must_run_opt) == 2:
+            _cogen_names, _cogen_all = _cogen_must_run_opt
+        else:
+            _cogen_names, _cogen_all = frozenset(), False
         planning = build_planning(
             case,
             name=planning_name,
@@ -418,6 +430,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             soft_penalty_override=options.get("soft_penalty_cost"),
             loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
             write_out=options.get("write_out"),
+            cogen_must_run=_cogen_names,
+            cogen_must_run_all=_cogen_all,
             **(
                 {"fcf_scale_alpha": float(fcf_scale_alpha)}
                 if fcf_scale_alpha is not None
@@ -542,8 +556,47 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # ``model_options.objective_mode = "emissions"`` so gtopt swaps
         # its LP objective from $-cost to tCO2eq.  In default cost-mode
         # runs neither is set, so dispatch is undistorted.
+        # ── Emission data: always populate ─────────────────────────────
+        # ``apply_emission_defaults_from_file`` does two things:
+        #   1. Always populates per-Fuel ``heat_content`` + ``emission_factors``
+        #      (from PLEXOS data with IPCC fallback) AND creates an
+        #      ``EmissionZone`` with weights — physical data the LP doesn't
+        #      use for dispatch in cost mode but downstream tools
+        #      (gtopt_marginal_units, gtopt_check, audit pipelines) need
+        #      to compute marginal-CO2 attribution.
+        #   2. When ``only_emissions=True``: also stamps
+        #      ``model_options.objective_mode = "emissions"`` and
+        #      reservoir terminal carbon values — this DOES change the
+        #      LP behavior (issue #519).
+        #
+        # We unconditionally call (1) so cost-mode planning JSONs are
+        # complete for downstream attribution; (2) only fires when the
+        # user explicitly asks via ``--only-emissions``.  The legacy
+        # ``--emissions`` flag is no longer gating: equivalent to having
+        # always been on.
         only_emissions = bool(options.get("only_emissions", False))
-        if options.get("emissions", False) or only_emissions:
+        no_emissions = bool(options.get("no_emissions", False))
+        if only_emissions and no_emissions:
+            raise ValueError(
+                "--only-emissions and --no-emissions are mutually "
+                "exclusive (one switches the LP objective to tCO2eq, "
+                "the other strips all emission data from the JSON)."
+            )
+        if no_emissions:
+            # Strip emission-only fields the converter would otherwise
+            # leave alongside the source data.  Fuel.heat_content is
+            # KEPT because it's also used by cost/heat-rate
+            # conversions (gcost = heat_rate × heat_content × fuel.price).
+            sys_ = planning.get("system", {})
+            sys_.pop("emission_zone_array", None)
+            sys_.pop("emission_source_array", None)
+            for f in sys_.get("fuel_array", []) or []:
+                f.pop("emission_factors", None)
+            for g in sys_.get("generator_array", []) or []:
+                g.pop("emission_rate", None)
+                g.pop("emission_captures", None)
+                g.pop("emissions", None)
+        else:
             from gtopt_shared.emissions import (  # noqa: PLC0415
                 apply_emission_defaults_from_file,
             )
@@ -552,6 +605,18 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             emissions_report = options.get("emissions_report")
             if emissions_report is None:
                 emissions_report = output_dir / "plexos_emissions_report.json"
+            # plexos2gtopt is CEN-Chile-shaped by construction (PLEXOS
+            # DBs in this codebase come from CEN's PCP archive).  When
+            # the user doesn't pass an explicit ``--emissions-file``,
+            # default to ``share/gtopt/emissions/cen_chile.json``
+            # instead of the bare IPCC defaults — that file is a
+            # superset (full IPCC + ``sulfur_cogen`` extra + 6 per-gen
+            # ``generator_overrides`` for CERRO_PABELLON_U1/U2/U3,
+            # CERRO_DOMINADOR_CS, CMPC_BUCALEMU_2, PAS_MEJILLONES).
+            # Falls back to the IPCC default when the CEN file is
+            # missing (sandboxed installs without ``share/``).
+            if emissions_src is None:
+                emissions_src = resolve_default_emissions_file()
             apply_emission_defaults_from_file(
                 planning,
                 Path(emissions_src) if emissions_src is not None else None,

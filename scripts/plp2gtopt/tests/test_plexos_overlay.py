@@ -679,3 +679,156 @@ def test_overlay_is_idempotent() -> None:
     fuels_second = json.dumps(planning["system"]["fuel_array"], sort_keys=True)
     assert gen_first == gen_second
     assert fuels_first == fuels_second
+
+
+# ---------------------------------------------------------------------------
+# emission_array + emission_zone_array carry-over (so plp doesn't need to
+# re-run --emissions when the source plexos2gtopt JSON already had it)
+# ---------------------------------------------------------------------------
+
+
+def _src_with_full_emissions() -> dict:
+    """Source planning that emulates a plexos2gtopt --emissions run:
+    Fuel with per-pollutant emission_factors + matching emission_array
+    pollutant rows + an EmissionZone covering them."""
+    return _plexos_source(
+        generators=[{"uid": 1, "name": "G", "fuel": "coal", "heat_rate": 9.5}],
+        fuels=[
+            {
+                "uid": 1,
+                "name": "coal",
+                "price": 4.0,
+                "heat_content": 25.8,
+                "emission_factors": [
+                    {"emission": "co2", "combustion": 0.0961},
+                    {"emission": "ch4", "combustion": 1e-06},
+                    {"emission": "n2o", "combustion": 1.5e-06},
+                ],
+            }
+        ],
+    ) | {
+        "system": _plexos_source(
+            generators=[{"uid": 1, "name": "G", "fuel": "coal", "heat_rate": 9.5}],
+            fuels=[
+                {
+                    "uid": 1,
+                    "name": "coal",
+                    "price": 4.0,
+                    "heat_content": 25.8,
+                    "emission_factors": [
+                        {"emission": "co2", "combustion": 0.0961},
+                        {"emission": "ch4", "combustion": 1e-06},
+                        {"emission": "n2o", "combustion": 1.5e-06},
+                    ],
+                }
+            ],
+        )["system"]
+        | {
+            "emission_array": [
+                {"uid": 1, "name": "co2"},
+                {"uid": 2, "name": "ch4"},
+                {"uid": 3, "name": "n2o"},
+            ],
+            "emission_zone_array": [
+                {
+                    "uid": 1,
+                    "name": "global_ghg",
+                    "emissions": [
+                        {"emission": "co2", "weight": 1.0},
+                        {"emission": "ch4", "weight": 28.0},
+                        {"emission": "n2o", "weight": 265.0},
+                    ],
+                },
+            ],
+        }
+    }
+
+
+def test_overlay_carries_emission_array_from_source() -> None:
+    """When the plexos2gtopt source already has emission_array (because
+    plexos2gtopt was run with --emissions), the overlay must carry
+    those pollutant rows over.  Otherwise gtopt's
+    expand_fuel_emission_sources drops the Fuel.emission_factors with
+    'unresolved emission name'.
+    """
+    planning = _plp_planning(generators=[{"uid": 1, "name": "G", "gcost": 0.0}])
+    src = _src_with_full_emissions()
+    report = PlexosOverlay(src, Path("p.json")).apply(planning)
+
+    # All three pollutants from the source landed in plp's emission_array.
+    pollutants = {p["name"] for p in planning["system"].get("emission_array", [])}
+    assert pollutants == {"co2", "ch4", "n2o"}
+    assert set(report.emissions_carried) == {"co2", "ch4", "n2o"}
+
+
+def test_overlay_carries_emission_zone_from_source() -> None:
+    """The EmissionZone (with cap / price / pollutant basket) must
+    also carry across — otherwise gtopt's
+    ``expand_fuel_emission_sources`` short-circuits on an empty
+    ``emission_zone_array`` and zero EmissionSource rows land.
+    """
+    planning = _plp_planning(generators=[{"uid": 1, "name": "G", "gcost": 0.0}])
+    src = _src_with_full_emissions()
+    report = PlexosOverlay(src, Path("p.json")).apply(planning)
+
+    zones = planning["system"].get("emission_zone_array", [])
+    assert len(zones) == 1
+    assert zones[0]["name"] == "global_ghg"
+    # GWP-100 weights preserved
+    weights = {ef["emission"]: ef.get("weight") for ef in zones[0]["emissions"]}
+    assert weights == {"co2": 1.0, "ch4": 28.0, "n2o": 265.0}
+    assert report.emission_zones_carried == ("global_ghg",)
+
+
+def test_overlay_emission_carry_dedupes_by_name() -> None:
+    """An existing plp-side emission/zone row with the same name MUST
+    survive the overlay (plp data wins on name collision).
+    """
+    planning = _plp_planning(
+        generators=[{"uid": 1, "name": "G", "gcost": 0.0}],
+    )
+    planning["system"]["emission_array"] = [
+        {"uid": 7, "name": "co2"},  # plp-side, uid=7 stays
+    ]
+    planning["system"]["emission_zone_array"] = [
+        {
+            "uid": 5,
+            "name": "my_zone",
+            "emissions": [{"emission": "co2", "weight": 1.0}],
+            "price": 25.0,  # user-supplied carbon price stays
+        }
+    ]
+    src = _src_with_full_emissions()
+    report = PlexosOverlay(src, Path("p.json")).apply(planning)
+
+    # co2 preserved at uid=7, ch4/n2o added with fresh uids
+    by_name = {p["name"]: p for p in planning["system"]["emission_array"]}
+    assert by_name["co2"]["uid"] == 7  # plp-side wins
+    assert "ch4" in by_name
+    assert "n2o" in by_name
+    # plp-side zone preserved with price intact; global_ghg added alongside
+    zones = planning["system"]["emission_zone_array"]
+    by_zone = {z["name"]: z for z in zones}
+    assert by_zone["my_zone"]["price"] == 25.0  # plp-side wins
+    assert "global_ghg" in by_zone
+    # Report shows only freshly added names
+    assert set(report.emissions_carried) == {"ch4", "n2o"}  # co2 already present
+    assert report.emission_zones_carried == ("global_ghg",)
+
+
+def test_overlay_no_emission_arrays_in_source_no_op() -> None:
+    """When the source has no emission infrastructure (e.g., plexos2gtopt
+    was run WITHOUT --emissions), the overlay still works and the
+    emission carry-over is a clean no-op (no empty arrays sprouted).
+    """
+    planning = _plp_planning(generators=[{"uid": 1, "name": "G", "gcost": 0.0}])
+    # _plexos_source helper doesn't add emission arrays
+    src = _plexos_source(
+        generators=[{"uid": 1, "name": "G", "fuel": "coal", "heat_rate": 9.5}],
+        fuels=[{"uid": 1, "name": "coal", "price": 4.0}],
+    )
+    report = PlexosOverlay(src, Path("p.json")).apply(planning)
+
+    # No emission infrastructure auto-sprouted; nothing was carried.
+    assert report.emissions_carried == ()
+    assert report.emission_zones_carried == ()

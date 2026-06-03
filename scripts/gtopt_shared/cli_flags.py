@@ -128,14 +128,28 @@ def add_emissions_arguments(
         action="store_true",
         default=d.get("emissions", False),
         help=(
-            "MASTER SWITCH for emission processing.  When set, the "
-            "converter loads per-fuel CO2 factors from --emissions-file "
-            "(default: bundled IPCC-2006 defaults), injects them onto "
-            "every Fuel element that lacks one, synthesizes the "
-            "emission_array['co2'] pollutant row, and writes the "
-            "emissions report.  Source-supplied factors (PLEXOS XML, "
-            "--plexos-overlay, project JSON merge) always win.  Off by "
-            "default."
+            "DEPRECATED: no-op since 2026-06.  Per-fuel CO2 factors and "
+            "the EmissionZone (CO2/CH4/N2O) are now ALWAYS populated by "
+            "the converter so cost-mode planning JSONs carry the data "
+            "downstream tools (gtopt_marginal_units, gtopt_check) need "
+            "for marginal-CO2 attribution.  Kept as a no-op flag for "
+            "back-compat — use --only-emissions to actually switch the "
+            "LP objective to tCO2eq, or --no-emissions to opt out."
+        ),
+    )
+    parser.add_argument(
+        "--no-emissions",
+        dest="no_emissions",
+        action="store_true",
+        default=d.get("no_emissions", False),
+        help=(
+            "Opt OUT of emission data emission.  When set, the converter "
+            "skips the IPCC fallback injection AND strips emission-only "
+            "fields (Fuel.emission_factors, EmissionZone, "
+            "EmissionSource, Generator.emission_rate) from the planning "
+            "JSON.  Fuel.heat_content is preserved (needed for "
+            "cost/heat-rate conversions).  Use for lean cost-only "
+            "planning JSONs.  Mutually exclusive with --only-emissions."
         ),
     )
     parser.add_argument(

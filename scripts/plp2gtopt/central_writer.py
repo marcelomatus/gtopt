@@ -226,7 +226,10 @@ class CentralWriter(BaseWriter):
             # overlay runs so the flag is present even without
             # ``--emissions``.
             if _is_cen_cogen(central_name):
-                generator["is_cogen"] = True
+                # First-class C++ field; see include/gtopt/generator.hpp +
+                # generator_enums.hpp.  L1 ("dispatched") means LP-free
+                # dispatch — downstream tools still skip in merit walk-up.
+                generator["cogen_mode"] = "dispatched"
             if not auto_detect_tech:
                 suspected = suspect_technology(plp_type, central_name)
                 if suspected:

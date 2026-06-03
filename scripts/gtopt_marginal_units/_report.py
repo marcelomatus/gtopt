@@ -26,8 +26,17 @@ def write_report(
     unattributed: Optional[pd.DataFrame] = None,
     title: str = "Marginal-unit attribution report",
     extras: Optional[dict] = None,
+    top_n_marginal: int = 10,
+    top_n_lines: int = 10,
+    top_n_reasons: int = 5,
 ) -> Path:
-    """Render a small Markdown digest to ``out_path``."""
+    """Render a small Markdown digest to ``out_path``.
+
+    ``top_n_*`` parameters control table truncation; defaults match
+    legacy behaviour.  When the underlying data has > N rows, the
+    report explicitly notes the truncation count so the reader knows
+    how many entries were elided instead of silently dropping them.
+    """
     sections: list[str] = [f"# {title}", ""]
 
     # Executive summary.
@@ -63,8 +72,17 @@ def write_report(
                 .size()
                 .reset_index(name="frequency")
             )
-            counts = counts.sort_values("frequency", ascending=False).head(10)
-            sections.append("## Top 10 marginal units (by cell-count)\n")
+            total_marg = len(counts)
+            counts = counts.sort_values("frequency", ascending=False).head(
+                top_n_marginal
+            )
+            sections.append(f"## Top {top_n_marginal} marginal units (by cell-count)\n")
+            if total_marg > top_n_marginal:
+                sections.append(
+                    f"_Showing {top_n_marginal} of {total_marg} distinct "
+                    f"marginal units; raise ``--report-top-marginal`` to "
+                    f"see more._\n"
+                )
             sections.append("| gen_uid | gen_name | cells |")
             sections.append("|---:|---|---:|")
             for _, r in counts.iterrows():
@@ -83,10 +101,16 @@ def write_report(
             .size()
             .reset_index(name="cells_saturated")
         )
+        total_sat = len(sat_summary)
         sat_summary = sat_summary.sort_values("cells_saturated", ascending=False).head(
-            10
+            top_n_lines
         )
-        sections.append("## Saturated lines (top 10)\n")
+        sections.append(f"## Saturated lines (top {top_n_lines})\n")
+        if total_sat > top_n_lines:
+            sections.append(
+                f"_Showing {top_n_lines} of {total_sat} saturated lines; "
+                f"raise ``--report-top-lines`` to see more._\n"
+            )
         sections.append("| line_uid | cells |")
         sections.append("|---:|---:|")
         for _, r in sat_summary.iterrows():
@@ -99,13 +123,19 @@ def write_report(
         sections.append(f"{len(unattributed)} cells could not be attributed. ")
         sections.append("Inspect ``audit/unattributed.parquet`` for full reasons.\n")
         if "reason" in unattributed.columns:
-            reasons = (
+            all_reasons = (
                 unattributed.groupby("reason")
                 .size()
                 .reset_index(name="cells")
                 .sort_values("cells", ascending=False)
-                .head(5)
             )
+            total_reasons = len(all_reasons)
+            reasons = all_reasons.head(top_n_reasons)
+            if total_reasons > top_n_reasons:
+                sections.append(
+                    f"_Showing {top_n_reasons} of {total_reasons} distinct "
+                    f"reasons; raise ``--report-top-reasons`` to see more._\n"
+                )
             sections.append("| reason | cells |")
             sections.append("|---|---:|")
             for _, r in reasons.iterrows():

@@ -33,6 +33,8 @@ from typing import Optional
 
 import pandas as pd
 
+from gtopt_marginal_units.constants import KG_PER_T
+
 
 _CELL_KEY_COLS = ("scenario", "stage", "block", "date_utc", "hour", "data_source")
 
@@ -73,12 +75,26 @@ class MarginalUnitDataset:
 
         Returns 0.0 when the field is absent (no carbon price was set
         at write time).  The unit is USD per metric ton CO2eq.
+
+        Raises ``ValueError`` when the field is present but not
+        coercible to a float — a corrupt manifest is a real error, not
+        an "absent" signal.  Silently falling to 0 would let a wrong
+        manifest read as "no carbon price" and quietly zero every
+        downstream carbon-adder calculation.
         """
         extras = self.manifest().get("extras") or {}
-        try:
-            return float(extras.get("carbon_price_usd_per_ton", 0.0) or 0.0)
-        except (TypeError, ValueError):
+        raw = extras.get("carbon_price_usd_per_ton", 0.0)
+        if raw is None:
             return 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"manifest.extras.carbon_price_usd_per_ton is not "
+                f"coercible to float: {raw!r} ({exc}). The manifest "
+                f"appears corrupt — re-run gtopt_marginal_units to "
+                f"regenerate, or fix the manifest by hand."
+            ) from exc
 
     def _resolve_carbon_price(self, override: float | None) -> float:
         if override is None:
@@ -117,7 +133,7 @@ class MarginalUnitDataset:
             em = self.bus_emission_intensity(stage=stage)
             if not em.empty:
                 em = em.copy()
-                em["carbon_adder_usd_per_mwh"] = (cp / 1000.0) * em[
+                em["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * em[
                     "emission_intensity_kg_per_mwh"
                 ].fillna(0.0)
                 join_cols = [
@@ -221,7 +237,9 @@ class MarginalUnitDataset:
             join_cols.append("bus_uid")
         em_slim = em_df[join_cols + [em_col]].copy()
         merged = out.merge(em_slim, on=join_cols, how="left")
-        merged["carbon_adder_usd_per_mwh"] = (cp / 1000.0) * merged[em_col].fillna(0.0)
+        merged["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * merged[em_col].fillna(
+            0.0
+        )
         merged["lmp_with_carbon"] = (
             merged["zone_lmp_recomputed"] + merged["carbon_adder_usd_per_mwh"]
         )
@@ -336,7 +354,7 @@ class MarginalUnitDataset:
         join_cols.append("bus_uid")
         out = lmp_df.merge(em_df, on=join_cols, how="inner").reset_index(drop=True)
         if cp > 0.0 and "emission_intensity_kg_per_mwh" in out.columns:
-            out["carbon_adder_usd_per_mwh"] = (cp / 1000.0) * out[
+            out["carbon_adder_usd_per_mwh"] = (cp / KG_PER_T) * out[
                 "emission_intensity_kg_per_mwh"
             ].fillna(0.0)
             out["lmp_with_carbon"] = out["zone_lmp"] + out["carbon_adder_usd_per_mwh"]

@@ -38,6 +38,12 @@ def test_ieee_14b_runs_to_completion(tmp_path):
             str(_OUTPUT_DIR),
             "--out",
             str(out),
+            # IEEE 14b is a deliberately-stressed congestion benchmark;
+            # bus_LMP / SRMC ratios reach ~25 on the saturated zones.
+            # Raise the loss-factor-error guard so the pipeline runs to
+            # completion (production CEN cases keep the default 5.0).
+            "--loss-factor-error",
+            "100.0",
         ]
     )
     assert code in (EXIT_OK, EXIT_UNATTRIBUTED)

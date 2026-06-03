@@ -415,6 +415,8 @@ def build_generator_array(
     block_layout: tuple[tuple[int, ...], ...] = (),
     demand_voll: float | None = None,
     soft_penalty_override: float | None = None,
+    cogen_must_run: frozenset[str] = frozenset(),
+    cogen_must_run_all: bool = False,
 ) -> list[dict[str, Any]]:
     """One generator entry per :class:`GeneratorSpec`.
 
@@ -590,7 +592,14 @@ def build_generator_array(
         # ``gcost``, but only the net reaches the grid.  Preferred over a
         # ``pmax`` derate, which would wrongly shrink the gross cap and
         # price fuel on net output.
-        if 0.0 < gen.aux_use < 1.0:
+        #
+        # Note: ``gen.aux_use`` is ALREADY in p.u. fraction here —
+        # ``parsers.extract_*`` divides the raw CSV value (PLEXOS ships
+        # it in PERCENT, 0-100) by 100 and clamps to ≤ 0.50, so any
+        # value reaching this writer is in the physical envelope
+        # (0, 0.50].  The 0 < val ≤ 0.50 guard is defence-in-depth in
+        # case an upstream skips the conversion.
+        if 0.0 < gen.aux_use <= 0.50:
             entry["lossfactor"] = gen.aux_use
 
         # PLEXOS ``Generator.Fixed Load`` (Gen_FixedLoad.csv): per-period
@@ -757,7 +766,7 @@ def build_generator_array(
             entry["type"] = f"{FUEL_FAMILY_RENEWABLE}:{tag}"
         else:
             entry["type"] = tag  # bare ``thermal`` / ``renewable``
-        # Self-describing cogen flag — set at conversion time so
+        # Self-describing cogen tag — set at conversion time so
         # downstream consumers (gtopt_marginal_units' merit-ladder
         # walk-up, post-solve emission attribution, dispatch reports)
         # don't need to re-derive cogen status from name patterns.  The
@@ -766,13 +775,48 @@ def build_generator_array(
         # CEN cogen list (explicit ``Cogeneración - *`` SIP tags plus
         # the pulp-mill / sulfur / refinery prefix patterns derived
         # from CEN-SIP cross-reference + Informe-CEN docs).
-        if _is_cen_cogen(gen.name):
-            entry["is_cogen"] = True
+        #
+        # ``cogen_mode`` is a first-class C++ field on Generator (see
+        # ``include/gtopt/generator.hpp`` + ``generator_enums.hpp``):
+        #   * ``"dispatched"`` — LP-free dispatch (this branch); the tag
+        #     signals "cogen but treated like a normal thermal".
+        #   * ``"must_run"`` — would set ``pmin = pmax`` (future work
+        #     when PLEXOS Fixed Load / Min Stable Level → cogen pin is
+        #     wired here; for now CEN's cogens are L1).
+        # Unset ⇒ not a cogen.
+        cogen_detected = _is_cen_cogen(gen.name)
+        if gen.name in cogen_must_run:
+            # Explicit per-name operator override (--cogen-must-run NAME on
+            # the CLI): tag as cogen with must_run regardless of heuristic.
+            entry["cogen_mode"] = "must_run"
+        elif cogen_must_run_all and cogen_detected:
+            # --cogen-must-run all: upgrade EVERY detected cogen to must_run.
+            entry["cogen_mode"] = "must_run"
+        elif cogen_detected:
+            entry["cogen_mode"] = "dispatched"
         entry["description"] = (
             f"PLEXOS Generator '{gen.name}' at bus '{gen.bus_name}' → gtopt "
             f"Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate "
             f"[fuel-unit/MWh]; (File: DBSEN_PRGDIARIO.xml + Gen_*.csv)"
         )
+        # Phase 2 — mode-variant inheritance meta.  When this generator
+        # is a CSV-only orphan recovered by
+        # ``_recover_csv_only_thermals``, stamp a side-channel meta
+        # block so ``gtopt_marginal_units`` can inherit emission_rate
+        # from the longest-prefix XML sibling (the orphan's pmax=0 so
+        # it almost never dispatches, but if the LP basis elects it at
+        # a tie-break corner the meta gives the downstream attribution
+        # something physical to anchor to).
+        if gen.inherits_emission_from:
+            from gtopt_shared.description_meta import (  # noqa: PLC0415
+                append_meta,
+            )
+
+            entry["description"] = append_meta(
+                entry["description"],
+                mode_variant="secondary",
+                inherits_emission_from=gen.inherits_emission_from,
+            )
 
         out.append(entry)
 
@@ -2910,6 +2954,8 @@ def build_planning(
     fcf_coeff_divisor: float = 1.0,
     loss_cost_eps: float = 0.0,
     write_out: str | None = None,
+    cogen_must_run: frozenset[str] = frozenset(),
+    cogen_must_run_all: bool = False,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -2945,6 +2991,8 @@ def build_planning(
         block_layout=case.bundle.block_layout,
         demand_voll=min(_demand_volls) if _demand_volls else None,
         soft_penalty_override=soft_penalty_override,
+        cogen_must_run=cogen_must_run,
+        cogen_must_run_all=cogen_must_run_all,
     )
     demand_array = build_demand_array(
         case.demands,
