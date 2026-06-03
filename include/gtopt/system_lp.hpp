@@ -42,6 +42,7 @@
 #include <gtopt/inertia_provision_lp.hpp>
 #include <gtopt/inertia_zone_lp.hpp>
 #include <gtopt/junction_lp.hpp>
+#include <gtopt/line_commitment_lp.hpp>
 #include <gtopt/line_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lng_terminal_lp.hpp>
@@ -306,6 +307,7 @@ public:
                                    Collection<EmissionSourceLP>,
                                    Collection<CommitmentLP>,
                                    Collection<SimpleCommitmentLP>,
+                                   Collection<LineCommitmentLP>,
                                    Collection<ConverterLP>,
                                    Collection<InertiaZoneLP>,
                                    Collection<InertiaProvisionLP>,

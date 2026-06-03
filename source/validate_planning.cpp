@@ -18,7 +18,9 @@
 #include <variant>
 #include <vector>
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/field_sched.hpp>
+#include <gtopt/line_enums.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/validate_planning.hpp>
 #include <spdlog/spdlog.h>
@@ -429,6 +431,40 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
               sc.name,
               "generator",
               "Generator");
+  }
+
+  // LineCommitment.line -> Line (required FK), plus per-row sanity
+  // checks introduced by issue #509 §"Validation".  The presence of a
+  // LineCommitment row makes the referenced Line a switching candidate,
+  // so an unresolved FK silently leaves the LP without OTS on that
+  // line — exactly the asymmetry we want to surface as a hard error.
+  for (const auto& lc : sys.line_commitment_array) {
+    check_ref(result,
+              lc.line,
+              sys.line_array,
+              "LineCommitment",
+              lc.name,
+              "line",
+              "Line");
+
+    if (lc.kvl_big_m.has_value() && lc.kvl_big_m.value() <= 0.0) {
+      result.errors.push_back(std::format(
+          "LineCommitment '{}': kvl_big_m must be > 0 when set (got {}); "
+          "a non-positive big-M makes the KVL disjunction unbounded "
+          "and the LP-relaxation trivially feasible (issue #509)",
+          lc.name,
+          lc.kvl_big_m.value()));
+    }
+
+    if (lc.initial_status.has_value()) {
+      const auto v = lc.initial_status.value();
+      if (v != 0.0 && v != 1.0) {
+        result.errors.push_back(std::format(
+            "LineCommitment '{}': initial_status must be 0 or 1 (got {})",
+            lc.name,
+            v));
+      }
+    }
   }
 
   // ReservoirProductionFactor.turbine -> Turbine,
@@ -1728,6 +1764,54 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
   check_aperture_references(result, planning);
   check_completeness(result, planning);
   check_scenario_probabilities(result, planning);
+
+  // Gates for Optimal Transmission Switching (issue #509).  Count the
+  // active LineCommitment rows once; both the method gate (rejects
+  // SDDP / cascade) and the Kirchhoff-mode gate (rejects cycle_basis)
+  // use it.
+  int active_lc_count = 0;
+  for (const auto& lc : planning.system.line_commitment_array) {
+    // Treat unset / non-zero active as "active".  The OptActive
+    // variant carries either a bool, a per-stage vector, or a name
+    // — for the gate purpose we only need to detect rows explicitly
+    // marked inactive at file scope.
+    const bool is_inactive = lc.active.has_value()
+        && std::holds_alternative<Int>(*lc.active)
+        && std::get<Int>(*lc.active) == 0;
+    if (!is_inactive) {
+      ++active_lc_count;
+    }
+  }
+
+  // Method gate for OTS.  OTS introduces per-line binary u_l decisions
+  // that make Benders cuts unsound on SDDP / cascade subproblems
+  // (cost-to-go nonconvexity — see issue body §"Why monolithic only,
+  // not SDDP" + Zou-Ahmed-Sun 2019).  Reject upfront so the
+  // misconfiguration surfaces at JSON load time rather than failing
+  // mid-SDDP with an opaque error.  A future SDDiP-style relaxation
+  // (Lagrangian cuts) would lift this restriction.
+  const auto method = planning.options.method.value_or(MethodType::monolithic);
+  if (method != MethodType::monolithic && active_lc_count > 0) {
+    const std::string_view method_name = (method == MethodType::sddp)
+        ? std::string_view {"sddp"}
+        : std::string_view {"cascade"};
+    result.errors.push_back(std::format(
+        "Optimal Transmission Switching (OTS) is incompatible with the "
+        "'{}' planning method: {} active LineCommitment row(s) found, "
+        "but Benders cuts on a mixed-integer subproblem are unsound "
+        "(Zou-Ahmed-Sun 2019).  Switch to method='monolithic' or "
+        "deactivate the LineCommitment rows (issue #509).",
+        method_name,
+        active_lc_count));
+  }
+
+  // Issue #509 v0.6 ``cycle_basis`` gate REMOVED in v1: the cycle-form
+  // big-M disjunctive rewrite is now implemented in
+  // ``source/kirchhoff_cycle_basis.cpp::add_kvl_rows`` (per-cycle
+  // ``M_C = 2θ_max · |C| · row_scale + Σ |φ_e| · row_scale``).  Both
+  // Kirchhoff modes (``node_angle`` and ``cycle_basis``) now support
+  // ``LineCommitment``; transport mode (``use_kirchhoff = false``)
+  // continues to work under capacity gating alone.
 
   // Log all findings
   for (const auto& warn : result.warnings) {

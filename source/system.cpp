@@ -805,6 +805,7 @@ void System::merge(System&& sys)
   gtopt::merge(emission_source_array, std::move(sys.emission_source_array));
   gtopt::merge(commitment_array, std::move(sys.commitment_array));
   gtopt::merge(simple_commitment_array, std::move(sys.simple_commitment_array));
+  gtopt::merge(line_commitment_array, std::move(sys.line_commitment_array));
 
   gtopt::merge(inertia_zone_array, std::move(sys.inertia_zone_array));
   gtopt::merge(inertia_provision_array, std::move(sys.inertia_provision_array));

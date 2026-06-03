@@ -38,6 +38,7 @@
 #include <gtopt/json/json_inertia_zone.hpp>
 #include <gtopt/json/json_junction.hpp>
 #include <gtopt/json/json_line.hpp>
+#include <gtopt/json/json_line_commitment.hpp>
 #include <gtopt/json/json_lng_terminal.hpp>
 #include <gtopt/json/json_plant.hpp>
 #include <gtopt/json/json_pump.hpp>
@@ -60,6 +61,7 @@
 namespace daw::json
 {
 
+using gtopt::LineCommitment;
 using gtopt::System;
 
 template<>
@@ -116,6 +118,9 @@ struct json_data_contract<System>
       json_array_null<"simple_commitment_array",
                       Array<SimpleCommitment>,
                       SimpleCommitment>,
+      json_array_null<"line_commitment_array",
+                      Array<LineCommitment>,
+                      LineCommitment>,
       json_array_null<"inertia_zone_array", Array<InertiaZone>, InertiaZone>,
       json_array_null<"inertia_provision_array",
                       Array<InertiaProvision>,
@@ -178,6 +183,7 @@ struct json_data_contract<System>
                                  system.emission_source_array,
                                  system.commitment_array,
                                  system.simple_commitment_array,
+                                 system.line_commitment_array,
                                  system.inertia_zone_array,
                                  system.inertia_provision_array,
                                  system.junction_array,

@@ -27,6 +27,13 @@
 namespace gtopt
 {
 
+class LineLP;
+
+/// SingleId-style FK alias for ``LineLP``.  Used by elements that
+/// reference a Line through ``ElementIndex`` (e.g. ``LineCommitmentLP``
+/// per issue #509).
+using LineLPSId = ObjectSingleId<LineLP>;
+
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
@@ -213,6 +220,18 @@ public:
       const std::pair<ScenarioUid, StageUid>& st_key) const
   {
     return theta_rows.contains(st_key) && !theta_rows.at(st_key).empty();
+  }
+
+  /// Per-(scenario, stage) Kirchhoff KVL row indices.  Returns the
+  /// inner per-block map for the ``(scenario, stage)`` cell, or a
+  /// static empty map when this line has no KVL rows for that cell
+  /// (radial network, ``node_angle`` mode skipped, etc.).  Read by
+  /// ``LineCommitmentLP`` (issue #509) when the OTS big-M
+  /// disjunction rewrite needs to mutate the existing equality row.
+  [[nodiscard]] constexpr const auto& theta_rows_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return find_or_empty_inner(theta_rows, scenario, stage);
   }
 
   /// @name Parameter accessors for user constraint resolution

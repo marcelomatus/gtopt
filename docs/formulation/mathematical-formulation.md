@@ -729,6 +729,143 @@ Kirchhoff constraints are added when **all** of:
 - The system has more than `kirchhoff_threshold` buses (default 0)
 - Line has a defined `reactance` value
 
+#### Optimal Transmission Switching (issue #509)
+
+When a `LineCommitment` row references a line, the line becomes a
+**switching candidate**: an additional binary
+$u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
+(1) the breaker dynamically at solve time
+[[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.926411).
+
+**Capacity gating** (always emitted, both Kirchhoff and transport
+modes; v0):
+
+$$
+-\overline{F}_l^{ba} \, u_{l,s,t,b}
+\;\leq\; f_{l,s,t,b} \;\leq\;
+\overline{F}_l^{ab} \, u_{l,s,t,b}
+\qquad \forall \; s, t, b
+$$
+
+so $u_{l,s,t,b} = 0$ forces $f_{l,s,t,b} = 0$ — the line carries
+no flow.
+
+**Kirchhoff KVL big-M disjunction** (v0.5; emitted only in
+`KirchhoffMode::node_angle`).  The existing equality KVL row
+$f = b^{\text{eff}}_l (\theta_a - \theta_b - \varphi_l)$ is
+rewritten in place as the upper-side inequality
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
+\;\leq\; M_l - \varphi_l
+$$
+
+and a new row is added for the lower-side:
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
+\;\geq\; -M_l - \varphi_l.
+$$
+
+At $u_{l,s,t,b} = 1$ both inequalities collapse to the original
+equality.  At $u_{l,s,t,b} = 0$ they simultaneously slack, freeing
+$\theta_a, \theta_b$ to take any values in
+$[-\theta_{\max}, +\theta_{\max}]$ — i.e. the two bus angles
+**decouple** exactly like the physics of an opened breaker.
+
+The big-M parameter $M_l$ defaults to
+
+$$
+M_l = 2 \, \theta_{\max} + |\varphi_l|
+$$
+
+(Fisher 2008 baseline refined for the phase-shift offset).  This
+is loose by design — `LineCommitment.kvl_big_m` overrides per line,
+serving as the write-back target for the v1 iterative-tightening
+pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
+
+**Cycle-basis disjunction (v1).**  In `kirchhoff_mode = cycle_basis`
+(the gtopt default) KVL is enforced as one equality per fundamental
+cycle $C$ (see `source/kirchhoff_cycle_basis.cpp`), so a single
+switched-off line $l \in C$ invalidates every cycle through it.
+`add_kvl_rows` checks each cycle row for switchable lines and, when
+any are present, replaces the equality with the disjunctive form
+
+$$
+-\!\!\sum_{l \in C \cap \text{switchable}}\!\!
+\bigl(1 - u_l\bigr) \, M_C
+\;\leq\;
+\sum_{e \in C} \text{sign}_e \,
+\bigl(x_{\tau,e} \, f_e + \varphi_e\bigr) \cdot \text{row\_scale}
+\;\leq\;
+\sum_{l \in C \cap \text{switchable}}\!\!
+\bigl(1 - u_l\bigr) \, M_C
+$$
+
+with per-cycle big-M
+
+$$
+M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row\_scale}
+\;+\; \sum_{e \in C} |\varphi_e| \, \text{row\_scale}.
+$$
+
+When every switchable line in the cycle is closed ($u_l = 1\;\forall
+\, l \in C \cap \text{switchable}$) the slack collapses to zero and
+both inequalities reduce to the original equality.  Any open line
+($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
+cycle through that branch.  Validation now accepts every combination
+of (`node_angle`, `cycle_basis`, transport mode) × `LineCommitment`.
+
+**Method gate.**  OTS is **strictly** rejected when
+`method ∈ {sddp, cascade}` because Benders cuts on a mixed-integer
+subproblem are unsound (the cost-to-go function loses convexity)
+[[Zou2019]](https://doi.org/10.1007/s10107-018-1249-5).  A future
+SDDiP-style relaxation (Lagrangian cuts) would lift the
+restriction.
+
+**Chronological-stage gate.**  Like `Commitment` for generators,
+OTS is enforced only on chronological stages; on duration-weighted
+representative blocks the binary has no cross-block meaning and is
+silently skipped.
+
+**u/v/w decomposition (v1.1).**  When the user sets
+`LineCommitment.startup_cost` and/or `shutdown_cost` (per-event line
+closing / opening costs, in \$), `LineCommitmentLP` switches from
+the single-`u_l` form to the Knueven–Ostrowski–Watson 2020 /
+Morales-España et al. 2013 three-binary decomposition.  A startup
+indicator $v_{l,t} \in [0,1]$ and a shutdown indicator $w_{l,t}
+\in [0,1]$ are added (continuous but implied-binary at the optimum)
+joined by the logic transition
+
+$$
+u_{l,t} - u_{l,t-1} - v_{l,t} + w_{l,t} = 0
+\qquad (t > 0),
+$$
+
+with the first-block row carrying the pre-stage `initial_status`
+on the right-hand side:
+
+$$
+u_{l,0} - v_{l,0} + w_{l,0} = u_l^{\text{init}}.
+$$
+
+The exclusion row $v_{l,t} + w_{l,t} \le 1$ enforces "at most one
+event per block".  The objective gains
+`startup_cost`$\sum_t v_{l,t}$ and `shutdown_cost`$\sum_t w_{l,t}$
+(face-value, NOT scaled by block duration — events are one-time, not
+per-hour).  Declaring only $u_{l,t}$ as integer is correct: C1 + C3
++ nonnegative event costs force $v, w$ to the integer up/down
+transition of an integer $u$ at every optimal vertex, cutting
+branching variables by ≈⅔ relative to a 3-integer formulation
+[[Knueven2020]](https://doi.org/10.1287/ijoc.2019.0944),
+[[Morales-Espana2013]](https://doi.org/10.1109/TPWRS.2013.2251373).
+
+The v0 `initial_status`-as-first-block-pin semantics is suppressed
+when u/v/w is active; pinning $u_{l,0}$ would over-constrain the LP
+(force the breaker open at $t = 0$ even when serving demand requires
+it closed).  Deferred to v1.2: `min_up_time` / `min_down_time` /
+`max_starts` (rolling-window constraints over the $v$ / $w$ series).
+
 ### 5.7 Battery / Energy Storage Constraints
 
 Batteries model energy storage with charge/discharge efficiencies and
