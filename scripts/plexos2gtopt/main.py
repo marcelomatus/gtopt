@@ -943,6 +943,14 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_legacy": args.plexos_legacy,
         "plp_embalses": args.plp_embalses,
         "no_plp_embalses": args.no_plp_embalses,
+        # Emission infrastructure (cli_flags.add_emissions_arguments).
+        # ``--only-emissions`` (issue #519) implies ``--emissions``
+        # and triggers carbon price stamping in the synthesized zone.
+        "emissions": getattr(args, "emissions", False),
+        "emissions_file": getattr(args, "emissions_file", None),
+        "emissions_report": getattr(args, "emissions_report", None),
+        "only_emissions": getattr(args, "only_emissions", False),
+        "carbon_price": getattr(args, "carbon_price", None),
     }
 
     if args.compare_json:

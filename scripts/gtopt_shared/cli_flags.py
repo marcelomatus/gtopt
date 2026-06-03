@@ -164,6 +164,36 @@ def add_emissions_arguments(
             "<output-dir>/plexos_emissions_report.json."
         ),
     )
+    parser.add_argument(
+        "--only-emissions",
+        dest="only_emissions",
+        action="store_true",
+        default=d.get("only_emissions", False),
+        help=(
+            "Configure the LP for pure-emissions objective mode (issue "
+            "#519).  Implies --emissions.  Emits "
+            "``model_options.objective_mode = 'emissions'`` (gtopt swaps "
+            "the LP objective from $-dispatch-cost to tCO2eq dispatch) "
+            "AND stamps the synthesised EmissionZone with "
+            "``price = 35.0 USD/tCO2eq`` (Chile's social cost of carbon, "
+            "the Comisión Nacional de Energía reference for emission "
+            "opportunity cost in least-cost dispatch).  In cost-mode "
+            "runs the price is left unset, so dispatch is not silently "
+            "distorted by a phantom carbon tax."
+        ),
+    )
+    parser.add_argument(
+        "--carbon-price",
+        dest="carbon_price",
+        type=float,
+        metavar="USD_PER_TCO2EQ",
+        default=d.get("carbon_price", None),
+        help=(
+            "Override the default carbon price stamped on EmissionZone "
+            "when --only-emissions is set.  Default: 35.0 USD/tCO2eq "
+            "(Chile SCC).  Ignored without --only-emissions."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -533,7 +533,17 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # fills gaps on Fuel elements that lack one and synthesizes the
         # emission_array['co2'] pollutant row when missing.  Off by
         # default — symmetric with plp2gtopt --emissions.
-        if options.get("emissions", False):
+        # ``--only-emissions`` (issue #519 pure-emissions objective)
+        # implies ``--emissions`` (the emission infrastructure must be
+        # present for the LP to weight dispatch by tCO2eq).  When set,
+        # apply_emission_defaults stamps both the
+        # ``EmissionZone.price`` (default 35.0 USD/tCO2eq Chile SCC,
+        # override via --carbon-price) AND the
+        # ``model_options.objective_mode = "emissions"`` so gtopt swaps
+        # its LP objective from $-cost to tCO2eq.  In default cost-mode
+        # runs neither is set, so dispatch is undistorted.
+        only_emissions = bool(options.get("only_emissions", False))
+        if options.get("emissions", False) or only_emissions:
             from gtopt_shared.emissions import (  # noqa: PLC0415
                 apply_emission_defaults_from_file,
             )
@@ -548,6 +558,8 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 report_path=(
                     Path(emissions_report) if emissions_report is not None else None
                 ),
+                only_emissions=only_emissions,
+                carbon_price=options.get("carbon_price"),
             )
 
         write_planning(planning, output_file)

@@ -469,6 +469,11 @@ def build_options(args: argparse.Namespace) -> dict:
         "emissions": getattr(args, "emissions", False),
         "emissions_file": getattr(args, "emissions_file", None),
         "emissions_report": getattr(args, "emissions_report", None),
+        # ``--only-emissions`` (issue #519) implies ``--emissions``
+        # and stamps the carbon price + objective_mode = "emissions"
+        # on the planning JSON so gtopt runs the pure-emissions LP.
+        "only_emissions": getattr(args, "only_emissions", False),
+        "carbon_price": getattr(args, "carbon_price", None),
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {

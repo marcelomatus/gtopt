@@ -573,6 +573,8 @@ def apply_emission_defaults(
     defaults: EmissionDefaults,
     *,
     report_path: Path | None = None,
+    only_emissions: bool = False,
+    carbon_price: float | None = None,
 ) -> EmissionReport:
     """Fill in missing CO2 factors on ``planning['system']['fuel_array']``.
 
@@ -754,15 +756,27 @@ def apply_emission_defaults(
             if uncovered_pollutants == [_CO2_POLLUTANT]
             else "global_ghg"
         )
-        zone_array.append(
-            {
-                "uid": max_zone_uid + 1,
-                "name": zone_name,
-                "emissions": [
-                    {"emission": p, "weight": 1.0} for p in uncovered_pollutants
-                ],
-            }
-        )
+        # Default zone is INERT (no ``price`` / ``cap``) in cost mode —
+        # purely a hook so per-generator EmissionSource rows synthesise
+        # via ``System::expand_fuel_emission_sources``.  Under
+        # ``--only-emissions`` (gtopt issue #519 pure-emissions
+        # objective), stamp the zone with the carbon price (default
+        # 35.0 USD/tCO2eq — Chile's social cost of carbon, the CNE
+        # reference value for emission opportunity cost in least-cost
+        # dispatch) so the LP's pure-emissions objective is denominated
+        # in $-equivalent and the per-MWh carbon shadow price on
+        # Reservoir/water_value_dual + Battery/energy_dual is directly
+        # comparable to the cost-mode LMPs.
+        zone_entry: dict[str, Any] = {
+            "uid": max_zone_uid + 1,
+            "name": zone_name,
+            "emissions": [{"emission": p, "weight": 1.0} for p in uncovered_pollutants],
+        }
+        if only_emissions:
+            zone_entry["price"] = float(
+                carbon_price if carbon_price is not None else 35.0
+            )
+        zone_array.append(zone_entry)
         emission_zone_created = True
 
     # ── Generator overrides (cogen / geothermal / waste-heat) ─────────
@@ -808,7 +822,41 @@ def apply_emission_defaults(
                 gen.pop("fuel", None)
             if ov.type_tag:
                 gen["type"] = ov.type_tag
+                # Stamp explicit ``is_cogen`` flag whenever the type
+                # tag advertises cogen, so downstream consumers (notably
+                # gtopt_marginal_units' merit-ladder walk-up) can detect
+                # cogen without re-parsing the type string or consulting
+                # the CEN reference list.  Same logic that
+                # ``gtopt_marginal_units._gtopt_reader._is_cogen``
+                # applies, kept here so the self-describing flag is
+                # written at conversion time.
+                if ov.type_tag.startswith("thermal:cogen"):
+                    gen["is_cogen"] = True
             overrides_applied.append(name)
+
+    # ── Emissions objective mode (issue #519) ────────────────────────
+    # When ``--only-emissions`` is set:
+    #   1. stamp ``model_options.objective_mode = "emissions"`` so gtopt
+    #      swaps the LP objective from $-cost to tCO2eq;
+    #   2. drop ``boundary_cuts_file`` (the FCF is dollar-denominated
+    #      and would inject a phantom multi-week future cost into the
+    #      pure-emissions LP);
+    #   3. stamp each Reservoir with a ``water_emission_value`` = EPF ·
+    #      gas_em · loss_mult [tCO2eq per (m³/s)·h], so the terminal
+    #      ``efin`` hard constraint has a meaningful carbon-shadow
+    #      coefficient (the LP's dual then is the marginal carbon cost
+    #      per stored cumec — replaces the $/hm³ ``water_value`` /
+    #      ``efin_cost`` of cost mode).
+    if only_emissions:
+        opts = planning.setdefault("options", {})
+        model_opts = opts.setdefault("model_options", {})
+        if "objective_mode" not in model_opts:
+            model_opts["objective_mode"] = "emissions"
+        # Drop FCF references — recurse the planning tree.  The cuts
+        # themselves stay on disk; gtopt simply won't load them.
+        _drop_boundary_cuts_refs(planning)
+        # Stamp EPF-derived terminal emission value on each Reservoir.
+        _stamp_reservoir_emission_terminal(system)
 
     report = EmissionReport(
         source_path=defaults.source_path,
@@ -848,10 +896,99 @@ def apply_emission_defaults_from_file(
     source_path: Path | None,
     *,
     report_path: Path | None = None,
+    only_emissions: bool = False,
+    carbon_price: float | None = None,
 ) -> EmissionReport:
     """Load ``source_path`` and apply it in one call.
 
     Convenience for the CLI hooks in plp2gtopt / plexos2gtopt writers.
+
+    When ``only_emissions`` is true, also stamps
+    ``model_options.objective_mode = "emissions"`` and
+    ``EmissionZone.price = carbon_price`` (default 35.0 USD/tCO2eq —
+    Chile's social cost of carbon) so gtopt runs the pure-emissions LP
+    (issue #519).
     """
     defaults = load_emission_defaults(source_path)
-    return apply_emission_defaults(planning, defaults, report_path=report_path)
+    return apply_emission_defaults(
+        planning,
+        defaults,
+        report_path=report_path,
+        only_emissions=only_emissions,
+        carbon_price=carbon_price,
+    )
+
+
+def _drop_boundary_cuts_refs(planning: dict[str, Any]) -> int:
+    """Remove every ``boundary_cuts_file`` key from the planning tree.
+
+    Used in pure-emissions mode (issue #519): the $-denominated SDDP
+    cuts are meaningless when the LP objective is tCO2eq.  Returns the
+    count of refs cleared (≥ 0).  Idempotent.
+    """
+    n = 0
+
+    def walk(d: Any) -> None:
+        nonlocal n
+        if isinstance(d, dict):
+            for k in list(d.keys()):
+                if k == "boundary_cuts_file":
+                    d.pop(k)
+                    n += 1
+                else:
+                    walk(d[k])
+        elif isinstance(d, list):
+            for v in d:
+                walk(v)
+
+    walk(planning)
+    return n
+
+
+def _stamp_reservoir_emission_terminal(
+    system: dict[str, Any],
+    *,
+    gas_em_tco2_per_mwh: float = 0.5,
+    loss_mult: float = 0.95,
+) -> dict[str, float]:
+    """Stamp every Reservoir with a ``water_emission_value`` field.
+
+    The value is ``EPF · gas_em · loss_mult`` in **tCO2eq per
+    (m³/s)·h** — the carbon shadow price of one cumec held back in
+    the reservoir for one hour, under the long-term marginal
+    replacement assumption (gas, 0.5 tCO2eq/MWh, scaled by 0.95
+    for round-trip / loss).  See ``gtopt_shared.hydro_epf`` for the
+    cascade-walk EPF computation.
+
+    Only stamps reservoirs that don't already carry the field
+    (idempotent, so user overrides win).  Returns
+    ``{reservoir_name: stamped_value}`` for reporting.
+
+    NOTE: The matching C++ consumer (``ReservoirLP`` reading
+    ``water_emission_value`` in emissions mode) is a separate
+    follow-up — issue #519 Phase 2.  Until that lands the field is
+    metadata for downstream tools (gtopt_marginal_units, the SDDP
+    boundary-cut builder, etc.) to know each reservoir's carbon
+    terminal value when interpreting LP duals.
+    """
+    from gtopt_shared.hydro_epf import (  # noqa: PLC0415
+        epf_per_reservoir,
+        water_emission_value_per_cumec_hour,
+    )
+
+    epfs = epf_per_reservoir(system)
+    stamped: dict[str, float] = {}
+    for res in system.get("reservoir_array", []) or []:
+        name = res.get("name")
+        if not name:
+            continue
+        if "water_emission_value" in res:
+            continue  # user already set it
+        epf = epfs.get(name, 0.0)
+        value = water_emission_value_per_cumec_hour(
+            epf, gas_em=gas_em_tco2_per_mwh, loss_mult=loss_mult
+        )
+        if value > 0.0:
+            res["water_emission_value"] = value
+            stamped[name] = value
+    return stamped

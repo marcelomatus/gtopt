@@ -1373,7 +1373,8 @@ class GTOptWriter(
         # gaps on Fuel elements that still lack one and synthesizes the
         # ``emission_array`` pollutant row when needed.  Enabled by the
         # ``--emissions`` master switch (off by default).
-        if options and options.get("emissions", False):
+        only_emissions = bool(options and options.get("only_emissions", False))
+        if options and (options.get("emissions", False) or only_emissions):
             from gtopt_shared.emissions import (  # noqa: PLC0415
                 apply_emission_defaults_from_file,
             )
@@ -1384,12 +1385,18 @@ class GTOptWriter(
                 out_dir = options.get("output_dir")
                 if out_dir is not None:
                     emissions_report = Path(out_dir) / "plexos_emissions_report.json"
+            # ``only_emissions`` (issue #519) → also stamps
+            # ``model_options.objective_mode = "emissions"`` and
+            # ``EmissionZone.price = carbon_price`` (default 35.0
+            # USD/tCO2eq Chile SCC).  See gtopt_shared/emissions.py.
             apply_emission_defaults_from_file(
                 self.planning,
                 Path(emissions_src) if emissions_src is not None else None,
                 report_path=(
                     Path(emissions_report) if emissions_report is not None else None
                 ),
+                only_emissions=only_emissions,
+                carbon_price=options.get("carbon_price"),
             )
 
         return self.planning
