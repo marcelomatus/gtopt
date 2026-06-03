@@ -828,6 +828,44 @@ OTS is enforced only on chronological stages; on duration-weighted
 representative blocks the binary has no cross-block meaning and is
 silently skipped.
 
+**u/v/w decomposition (v1.1).**  When the user sets
+`LineCommitment.startup_cost` and/or `shutdown_cost` (per-event line
+closing / opening costs, in \$), `LineCommitmentLP` switches from
+the single-`u_l` form to the Knueven–Ostrowski–Watson 2020 /
+Morales-España et al. 2013 three-binary decomposition.  A startup
+indicator $v_{l,t} \in [0,1]$ and a shutdown indicator $w_{l,t}
+\in [0,1]$ are added (continuous but implied-binary at the optimum)
+joined by the logic transition
+
+$$
+u_{l,t} - u_{l,t-1} - v_{l,t} + w_{l,t} = 0
+\qquad (t > 0),
+$$
+
+with the first-block row carrying the pre-stage `initial_status`
+on the right-hand side:
+
+$$
+u_{l,0} - v_{l,0} + w_{l,0} = u_l^{\text{init}}.
+$$
+
+The exclusion row $v_{l,t} + w_{l,t} \le 1$ enforces "at most one
+event per block".  The objective gains
+`startup_cost`$\sum_t v_{l,t}$ and `shutdown_cost`$\sum_t w_{l,t}$
+(face-value, NOT scaled by block duration — events are one-time, not
+per-hour).  Declaring only $u_{l,t}$ as integer is correct: C1 + C3
++ nonnegative event costs force $v, w$ to the integer up/down
+transition of an integer $u$ at every optimal vertex, cutting
+branching variables by ≈⅔ relative to a 3-integer formulation
+[[Knueven2020]](https://doi.org/10.1287/ijoc.2019.0944),
+[[Morales-Espana2013]](https://doi.org/10.1109/TPWRS.2013.2251373).
+
+The v0 `initial_status`-as-first-block-pin semantics is suppressed
+when u/v/w is active; pinning $u_{l,0}$ would over-constrain the LP
+(force the breaker open at $t = 0$ even when serving demand requires
+it closed).  Deferred to v1.2: `min_up_time` / `min_down_time` /
+`max_starts` (rolling-window constraints over the $v$ / $w$ series).
+
 ### 5.7 Battery / Energy Storage Constraints
 
 Batteries model energy storage with charge/discharge efficiencies and
