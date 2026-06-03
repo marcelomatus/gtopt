@@ -857,6 +857,16 @@ def apply_emission_defaults(
         _drop_boundary_cuts_refs(planning)
         # Stamp EPF-derived terminal emission value on each Reservoir.
         _stamp_reservoir_emission_terminal(system)
+        # Re-anchor every $/MWh slack penalty against the carbon scale.
+        # UNS → $150/tCO2eq (EU ETS); other slacks keep numerical
+        # value via the 1 tCO2eq/MWh bridge.  Commitment startup /
+        # shutdown costs are zeroed (no carbon equivalent under the
+        # pure-emissions LP).
+        from gtopt_shared.cost_defaults import (  # noqa: PLC0415
+            apply_emission_overrides,
+        )
+
+        apply_emission_overrides(planning)
 
     report = EmissionReport(
         source_path=defaults.source_path,
