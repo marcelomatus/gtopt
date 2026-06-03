@@ -807,14 +807,22 @@ def _zone_results_from_lp_duals(
             )
         else:
             # No interior merit candidate found.  Before falling through
-            # to ``unattributed``, check for the PLEXOS BESS phantom-
-            # bus pattern (#525): a zone whose buses are all
-            # ``*_int_bus`` AND/OR whose only generators are synthetic
-            # ``BAT_*_LOAD`` / ``BAT_*_gen`` wrappers.  The LP itself
-            # gives a perfectly good non-zero LMP at these buses
-            # (derived from the battery's energy-balance dual), so the
-            # right classification is ``hydro_marginal`` (storage
-            # marginal — em=0 by physics, recomputed_lmp = LP LMP).
+            # to ``unattributed``, check three more cases:
+            #
+            #   (a) Phantom-bus / storage-marginal (#525) — a zone whose
+            #       buses are all ``*_int_bus`` AND/OR whose only
+            #       generators are synthetic ``BAT_*_LOAD`` / ``_gen``
+            #       wrappers.  Classified as ``hydro_marginal``.
+            #
+            #   (b) Empty island — one or more buses sharing a zone
+            #       with no demand, no merit candidate, and no
+            #       generator with positive pmax at this cell.
+            #       Nothing is happening on the island this hour; LP
+            #       gives LMP=0 by free-vertex choice.  Classified as
+            #       ``empty_island`` (#43, follow-up to #526).
+            #       Singleton case = Ralco220 (tie lines inactive +
+            #       gens decommissioned); multi-bus case = a whole
+            #       sub-network disconnected from the main grid.
             from gtopt_marginal_units._zones import is_phantom_bus  # noqa: PLC0415
 
             bus_by_uid = {b.uid: b for b in topology.buses}
@@ -828,6 +836,38 @@ def _zone_results_from_lp_duals(
                 )
                 for b in zone_bus_uids
             )
+
+            # Empty-island check (#43): every bus in the zone has
+            # neither demand nor pmax-bearing gens AND LMP ≈ 0.
+            # We don't have ``load_by_bus`` in this function, but if
+            # there were unserved demand the LP would have lifted LMP
+            # to demand_fail_cost (handled by the branch above), so
+            # |LMP|≈0 is the safe demand-side filter.  On the supply
+            # side we check that no gen in any zone bus carries a
+            # positive ``pmax`` — the LP can only export from a bus
+            # with capacity.  Together: nothing flowing on the
+            # island this hour.  Works for singleton (Ralco220 tie-
+            # lines inactive + decommissioned gens) and multi-bus
+            # (whole sub-network disconnected from main grid) cases.
+            if not all_phantom and abs(lam) <= tol.tol_price:
+                zone_has_capacity = any(
+                    (g.pmax or 0) > tol.eps
+                    for b in zone_bus_uids
+                    for g in gens_by_bus.get(b, [])
+                )
+                if not zone_has_capacity:
+                    zone_results[zid] = ZoneR3Result(
+                        zone_id=zid,
+                        lambda_z=lam,
+                        formula_kind="empty_island",
+                        marginal_gen_uids=[],
+                        confidence=Confidence.LP_DUAL,
+                        degenerate=False,
+                        reason="island_has_no_active_capacity",
+                        clamped=False,
+                    )
+                    continue
+
             if all_phantom:
                 # Pick a representative synthetic gen as marginal_gen_uid
                 # — informational only; the consumer keys on

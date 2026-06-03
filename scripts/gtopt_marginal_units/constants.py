@@ -78,6 +78,15 @@ class FormulaKind(str, Enum):
     HYDRO_MARGINAL = "hydro_marginal"
     DEMAND_FAIL = "demand_fail"
     RENEWABLE_CURTAILMENT = "renewable_curtailment"
+    # A real island (one or more buses) that has no merit-eligible
+    # candidate AND no demand AND no generator with positive pmax at
+    # this cell — i.e. nothing is happening on the island this hour.
+    # LP gives LMP = 0 by free-vertex choice.  Distinct from
+    # ``UNATTRIBUTED`` (which signals a recipe / data gap) — this one
+    # is a faithful "nobody's home" classification.  Applies whether
+    # the island is a singleton (tie lines inactive) or several
+    # genuinely-disconnected buses.
+    EMPTY_ISLAND = "empty_island"
     UNATTRIBUTED = "unattributed"
 
 

@@ -270,6 +270,17 @@ def build_recipes_for_cell(
             r_em = 0.0
             constant_lmp = 0.0
             constant_em = 0.0
+        elif kind_str == FormulaKind.EMPTY_ISLAND.value:
+            # "Nobody's home" island — one or more buses sharing a
+            # zone with no demand, no merit candidate, and no
+            # generator with positive pmax this cell.  LMP=0 and em=0
+            # are the faithful answers (LP free-vertex choice).
+            # Distinct from renewable_curtailment because there's NO
+            # renewable to be on the margin either.
+            r_lmp = 0.0
+            r_em = 0.0
+            constant_lmp = 0.0
+            constant_em = 0.0
         elif kind_str == FormulaKind.UNATTRIBUTED.value:
             r_lmp = float("nan")
             r_em = float("nan")

@@ -199,8 +199,14 @@ def _make_gen(uid: int, name: str, bus_uid: int = 0, kind: str = "thermal"):
     from gtopt_canonical_feed import Generator
 
     return Generator(
-        uid=uid, name=name, bus_uid=bus_uid, pmin=0.0, pmax=100.0,
-        declared_MC=0.0, kind=kind, emission_rate=None,
+        uid=uid,
+        name=name,
+        bus_uid=bus_uid,
+        pmin=0.0,
+        pmax=100.0,
+        declared_MC=0.0,
+        kind=kind,
+        emission_rate=None,
     )
 
 
@@ -272,17 +278,21 @@ def test_525_real_bus_still_unattributed_when_no_match():
     from gtopt_marginal_units.constants import Tolerances
     from gtopt_marginal_units.main import _zone_results_from_lp_duals
 
+    # A bus with a positive-pmax thermal but NO LP dispatch (e.g. the
+    # LP put the load somewhere else, gen sits idle) and LMP far above
+    # demand_fail_cost — genuinely unattributed (no candidate, no
+    # phantom, has capacity so NOT empty_island, not at demand_fail).
     bus = Bus(uid=20, name="Cardones220")
-    # No gen on this bus — empty dispatch
-    topo = Topology(buses=[bus], generators=[], lines=[])
+    idle_thermal = _make_gen(999, "IDLE", bus_uid=20)  # default pmax=100 > 0
+    topo = Topology(buses=[bus], generators=[idle_thermal], lines=[])
     _, zone_results = _zone_results_from_lp_duals(
         topology=topo,
         lmp_by_bus={20: 0.001},  # tiny non-zero, no match
-        dispatch_by_uid={},
+        dispatch_by_uid={},  # idle thermal not dispatching
         gen_rc_by_uid=None,
         gen_srmc_by_uid=None,
         tol=Tolerances.default(),
-        merit_eligible={},
+        merit_eligible={999: True},
         demand_fail_cost=1000.0,
         topology_zone_of={20: 0},
     )
@@ -390,15 +400,26 @@ def test_523_scaling_one_when_bus_lmp_equals_srmc():
     from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
-        uid=1, name="ANGAMOS_1", bus_uid=10, pmin=0.0, pmax=300.0,
-        declared_MC=35.0, kind="thermal", emission_rate=0.92,
+        uid=1,
+        name="ANGAMOS_1",
+        bus_uid=10,
+        pmin=0.0,
+        pmax=300.0,
+        declared_MC=35.0,
+        kind="thermal",
+        emission_rate=0.92,
     )
     bus = Bus(uid=10, name="Crucero220")
     topo = Topology(buses=[bus], generators=[coal], lines=[])
     zres = ZoneR3Result(
-        zone_id=0, lambda_z=35.0, formula_kind="single_unit",
-        marginal_gen_uids=[1], confidence=Confidence.LP_DUAL,
-        degenerate=False, reason="test", clamped=False,
+        zone_id=0,
+        lambda_z=35.0,
+        formula_kind="single_unit",
+        marginal_gen_uids=[1],
+        confidence=Confidence.LP_DUAL,
+        degenerate=False,
+        reason="test",
+        clamped=False,
     )
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -428,20 +449,36 @@ def test_523_scaling_above_one_for_lossy_downstream_bus():
     from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
-        uid=1, name="COAL", bus_uid=10, pmin=0.0, pmax=300.0,
-        declared_MC=35.0, kind="thermal", emission_rate=0.92,
+        uid=1,
+        name="COAL",
+        bus_uid=10,
+        pmin=0.0,
+        pmax=300.0,
+        declared_MC=35.0,
+        kind="thermal",
+        emission_rate=0.92,
     )
     bus_a = Bus(uid=10, name="A")
     bus_b = Bus(uid=20, name="B")
     line = Line(
-        uid=100, bus_a_uid=10, bus_b_uid=20, tmax_ab=200.0, tmax_ba=200.0,
-        reactance=0.1, active=True,
+        uid=100,
+        bus_a_uid=10,
+        bus_b_uid=20,
+        tmax_ab=200.0,
+        tmax_ba=200.0,
+        reactance=0.1,
+        active=True,
     )
     topo = Topology(buses=[bus_a, bus_b], generators=[coal], lines=[line])
     zres = ZoneR3Result(
-        zone_id=0, lambda_z=35.0, formula_kind="single_unit",
-        marginal_gen_uids=[1], confidence=Confidence.LP_DUAL,
-        degenerate=False, reason="test", clamped=False,
+        zone_id=0,
+        lambda_z=35.0,
+        formula_kind="single_unit",
+        marginal_gen_uids=[1],
+        confidence=Confidence.LP_DUAL,
+        degenerate=False,
+        reason="test",
+        clamped=False,
     )
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -473,20 +510,36 @@ def test_523_scaling_capped_at_1_5():
     from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
-        uid=1, name="COAL", bus_uid=10, pmin=0.0, pmax=300.0,
-        declared_MC=35.0, kind="thermal", emission_rate=0.92,
+        uid=1,
+        name="COAL",
+        bus_uid=10,
+        pmin=0.0,
+        pmax=300.0,
+        declared_MC=35.0,
+        kind="thermal",
+        emission_rate=0.92,
     )
     bus_a = Bus(uid=10, name="A")
     bus_b = Bus(uid=20, name="B")
     line = Line(
-        uid=100, bus_a_uid=10, bus_b_uid=20, tmax_ab=200.0, tmax_ba=200.0,
-        reactance=0.1, active=True,
+        uid=100,
+        bus_a_uid=10,
+        bus_b_uid=20,
+        tmax_ab=200.0,
+        tmax_ba=200.0,
+        reactance=0.1,
+        active=True,
     )
     topo = Topology(buses=[bus_a, bus_b], generators=[coal], lines=[line])
     zres = ZoneR3Result(
-        zone_id=0, lambda_z=35.0, formula_kind="single_unit",
-        marginal_gen_uids=[1], confidence=Confidence.LP_DUAL,
-        degenerate=False, reason="test", clamped=False,
+        zone_id=0,
+        lambda_z=35.0,
+        formula_kind="single_unit",
+        marginal_gen_uids=[1],
+        confidence=Confidence.LP_DUAL,
+        degenerate=False,
+        reason="test",
+        clamped=False,
     )
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -516,15 +569,26 @@ def test_523_no_scaling_for_storage_marginal():
     from gtopt_marginal_units.constants import Tolerances
 
     bat = Generator(
-        uid=1, name="BAT_1", bus_uid=10, pmin=0.0, pmax=100.0,
-        declared_MC=0.0, kind="battery", emission_rate=0.0,
+        uid=1,
+        name="BAT_1",
+        bus_uid=10,
+        pmin=0.0,
+        pmax=100.0,
+        declared_MC=0.0,
+        kind="battery",
+        emission_rate=0.0,
     )
     bus = Bus(uid=10, name="X")
     topo = Topology(buses=[bus], generators=[bat], lines=[])
     zres = ZoneR3Result(
-        zone_id=0, lambda_z=25.0, formula_kind="hydro_marginal",
-        marginal_gen_uids=[1], confidence=Confidence.LP_DUAL,
-        degenerate=False, reason="test", clamped=False,
+        zone_id=0,
+        lambda_z=25.0,
+        formula_kind="hydro_marginal",
+        marginal_gen_uids=[1],
+        confidence=Confidence.LP_DUAL,
+        degenerate=False,
+        reason="test",
+        clamped=False,
     )
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -553,15 +617,26 @@ def test_523_no_scaling_when_srmc_unavailable():
     from gtopt_marginal_units.constants import Tolerances
 
     coal = Generator(
-        uid=1, name="C", bus_uid=10, pmin=0.0, pmax=300.0,
-        declared_MC=35.0, kind="thermal", emission_rate=0.92,
+        uid=1,
+        name="C",
+        bus_uid=10,
+        pmin=0.0,
+        pmax=300.0,
+        declared_MC=35.0,
+        kind="thermal",
+        emission_rate=0.92,
     )
     bus = Bus(uid=10, name="X")
     topo = Topology(buses=[bus], generators=[coal], lines=[])
     zres = ZoneR3Result(
-        zone_id=0, lambda_z=35.0, formula_kind="single_unit",
-        marginal_gen_uids=[1], confidence=Confidence.LP_DUAL,
-        degenerate=False, reason="test", clamped=False,
+        zone_id=0,
+        lambda_z=35.0,
+        formula_kind="single_unit",
+        marginal_gen_uids=[1],
+        confidence=Confidence.LP_DUAL,
+        degenerate=False,
+        reason="test",
+        clamped=False,
     )
     _, em_rows = build_recipes_for_cell(
         cell_key=(1, 1, 1, None, None, None),
@@ -575,3 +650,155 @@ def test_523_no_scaling_when_srmc_unavailable():
         tol=Tolerances.default(),
     )
     assert em_rows[0].recomputed_value == pytest.approx(0.92)
+
+
+# ---------------------------------------------------------------------------
+# Issue #43 — empty_island classification (real island with no demand,
+# no gen-with-pmax, LMP=0).  Faithful "nobody's home" tag.
+# ---------------------------------------------------------------------------
+
+
+def test_43_empty_island_single_bus_no_gens():
+    """Real single-bus island with NO generators at all + LMP=0 → empty_island."""
+    from gtopt_canonical_feed import Bus, Topology
+
+    from gtopt_marginal_units.constants import Tolerances
+    from gtopt_marginal_units.main import _zone_results_from_lp_duals
+
+    bus = Bus(uid=40, name="Cardones220")
+    topo = Topology(buses=[bus], generators=[], lines=[])
+    _, zone_results = _zone_results_from_lp_duals(
+        topology=topo,
+        lmp_by_bus={40: 0.0},
+        dispatch_by_uid={},
+        gen_rc_by_uid=None,
+        gen_srmc_by_uid=None,
+        tol=Tolerances.default(),
+        merit_eligible={},
+        demand_fail_cost=1000.0,
+        topology_zone_of={40: 0},
+    )
+    assert zone_results[0].formula_kind == "empty_island"
+    assert zone_results[0].lambda_z == 0.0
+    assert zone_results[0].marginal_gen_uids == []
+
+
+def test_43_empty_island_single_bus_decommissioned_gens():
+    """Single-bus island with gens but ALL have pmax=0 → empty_island.
+
+    The Ralco220 pattern: RALCO + PALMUCHO present but unavailable
+    this stage (pmax=0).
+    """
+    from gtopt_canonical_feed import Bus, Generator, Topology
+
+    from gtopt_marginal_units.constants import Tolerances
+    from gtopt_marginal_units.main import _zone_results_from_lp_duals
+
+    bus = Bus(uid=175, name="Ralco220")
+    ralco = Generator(
+        uid=65, name="RALCO", bus_uid=175, pmin=0.0, pmax=0.0,
+        declared_MC=0.0, kind="thermal", emission_rate=None,
+    )
+    palmucho = Generator(
+        uid=66, name="PALMUCHO", bus_uid=175, pmin=0.0, pmax=0.0,
+        declared_MC=0.0, kind="thermal", emission_rate=None,
+    )
+    topo = Topology(buses=[bus], generators=[ralco, palmucho], lines=[])
+    _, zone_results = _zone_results_from_lp_duals(
+        topology=topo,
+        lmp_by_bus={175: 0.0},
+        dispatch_by_uid={},
+        gen_rc_by_uid=None,
+        gen_srmc_by_uid=None,
+        tol=Tolerances.default(),
+        merit_eligible={65: True, 66: True},
+        demand_fail_cost=1000.0,
+        topology_zone_of={175: 0},
+    )
+    assert zone_results[0].formula_kind == "empty_island"
+    assert zone_results[0].reason == "island_has_no_active_capacity"
+
+
+def test_43_empty_island_multi_bus():
+    """Multi-bus disconnected sub-network with no demand or active
+    generation → all classified as one empty_island zone."""
+    from gtopt_canonical_feed import Bus, Topology
+
+    from gtopt_marginal_units.constants import Tolerances
+    from gtopt_marginal_units.main import _zone_results_from_lp_duals
+
+    b1 = Bus(uid=41, name="DeadBus1")
+    b2 = Bus(uid=42, name="DeadBus2")
+    b3 = Bus(uid=43, name="DeadBus3")
+    topo = Topology(buses=[b1, b2, b3], generators=[], lines=[])
+    _, zone_results = _zone_results_from_lp_duals(
+        topology=topo,
+        lmp_by_bus={41: 0.0, 42: 0.0, 43: 0.0},
+        dispatch_by_uid={},
+        gen_rc_by_uid=None,
+        gen_srmc_by_uid=None,
+        tol=Tolerances.default(),
+        merit_eligible={},
+        demand_fail_cost=1000.0,
+        topology_zone_of={41: 0, 42: 0, 43: 0},  # all same zone
+    )
+    assert zone_results[0].formula_kind == "empty_island"
+
+
+def test_43_not_empty_when_gen_has_capacity_but_idle():
+    """Bus with a positive-pmax gen that's NOT dispatching + LMP=0
+    → NOT empty_island (capacity is there; LP just didn't pick it).
+    Falls through to unattributed."""
+    from gtopt_canonical_feed import Bus, Generator, Topology
+
+    from gtopt_marginal_units.constants import Tolerances
+    from gtopt_marginal_units.main import _zone_results_from_lp_duals
+
+    bus = Bus(uid=44, name="X")
+    gen = Generator(
+        uid=900, name="IDLE_THERMAL", bus_uid=44, pmin=0.0, pmax=100.0,
+        declared_MC=50.0, kind="thermal", emission_rate=0.5,
+    )
+    topo = Topology(buses=[bus], generators=[gen], lines=[])
+    _, zone_results = _zone_results_from_lp_duals(
+        topology=topo,
+        lmp_by_bus={44: 0.0},
+        dispatch_by_uid={},  # gen idle
+        gen_rc_by_uid=None,
+        gen_srmc_by_uid=None,
+        tol=Tolerances.default(),
+        merit_eligible={900: True},
+        demand_fail_cost=1000.0,
+        topology_zone_of={44: 0},
+    )
+    # Capacity present (pmax=100) → NOT empty_island; classifier falls
+    # through to unattributed (no candidate, not at demand_fail, etc.)
+    assert zone_results[0].formula_kind != "empty_island"
+
+
+def test_43_not_empty_when_lmp_nonzero():
+    """Real bus with no capacity but LMP > 0 → NOT empty_island.
+
+    This protects against false positives when the LP price is
+    elevated (something upstream is forcing flow); the bus might
+    have no LOCAL gen but inherits the zone via tie lines.
+    """
+    from gtopt_canonical_feed import Bus, Topology
+
+    from gtopt_marginal_units.constants import Tolerances
+    from gtopt_marginal_units.main import _zone_results_from_lp_duals
+
+    bus = Bus(uid=45, name="X")
+    topo = Topology(buses=[bus], generators=[], lines=[])
+    _, zone_results = _zone_results_from_lp_duals(
+        topology=topo,
+        lmp_by_bus={45: 47.5},  # non-zero LMP
+        dispatch_by_uid={},
+        gen_rc_by_uid=None,
+        gen_srmc_by_uid=None,
+        tol=Tolerances.default(),
+        merit_eligible={},
+        demand_fail_cost=1000.0,
+        topology_zone_of={45: 0},
+    )
+    assert zone_results[0].formula_kind != "empty_island"
