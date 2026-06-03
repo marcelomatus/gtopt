@@ -226,27 +226,106 @@ def apply_emission_overrides(
             mo[name] = entry.emissions_mode
             applied[f"model_options.{name}"] = entry.emissions_mode
 
-    # 3. PLEXOS-input-derived per-element costs that get baked into the
-    # planning JSON during conversion.  These are NOT model_options
-    # defaults — they're read straight from PLEXOS XML / CSV and need
-    # to be re-anchored against the carbon scale.  Divide by the bridge
-    # factor (= 1 tCO2eq/MWh = dirtiest coal) → numerical identity, but
-    # ZERO out commitment startup/shutdown costs (they're $-fixed costs,
-    # not per-MWh, and have no carbon-equivalent under the pure-
-    # emissions LP — running a peaker once vs leaving it off carries
-    # the same per-MWh emission rate regardless of startup count).
-    n_startup = n_shutdown = 0
+    # 3. PLEXOS-input-derived per-element costs.
+    #
+    # Commitment.startup_cost / shutdown_cost ($) represent the FUEL
+    # burned during the start / stop transient — encoded as a dollar
+    # figure via PLEXOS's ``Start Cost`` / ``Shutdown Cost`` which are
+    # essentially ``startup_fuel × fuel.price``.  In emissions mode we
+    # convert back to a tCO2eq amount and then to the $-equiv via SCC:
+    #
+    #   startup_fuel    = startup_cost_$  /  fuel.price [$ /fuel-unit]
+    #   startup_energy  = startup_fuel    ×  fuel.heat_content [GJ/fuel-unit]
+    #   startup_em      = startup_energy  ×  fuel.ef_combustion [tCO2/GJ]
+    #   startup_em_$    = startup_em      ×  SCC [$/tCO2eq]
+    #
+    # Collapsed:
+    #   factor = (heat_content × ef_combustion / fuel.price) × SCC
+    #          = tCO2eq per $ of fuel × $ per tCO2eq
+    #          = dimensionless dollar-to-dollar conversion factor
+    #   startup_cost_em_$ = startup_cost_$ × factor
+    #
+    # Typical gas: heat_content 47.1 GJ/t, ef 0.056 tCO2/GJ,
+    #              price ≈ $300/t  → factor = (47.1×0.056/300)×35 ≈ 0.31
+    # Typical coal: heat_content 29 GJ/t,  ef 0.096 tCO2/GJ,
+    #               price ≈ $80/t  → factor = (29×0.096/80)×35 ≈ 1.22
+    # When fuel data is missing (no fuel ref, no price, or no
+    # emission factor), zero the cost — we cannot attribute carbon.
+    fuels_by_name = {
+        str(f.get("name", "")): f for f in sys_.get("fuel_array", []) or []
+    }
+    fuels_by_uid = {
+        int(f["uid"]): f for f in sys_.get("fuel_array", []) or [] if "uid" in f
+    }
+
+    def _fuel_for_gen(gen: dict) -> dict | None:
+        ref = gen.get("fuel")
+        if ref is None:
+            return None
+        if isinstance(ref, dict):
+            ref = ref.get("uid") or ref.get("name")
+        if isinstance(ref, int):
+            return fuels_by_uid.get(ref)
+        if isinstance(ref, str):
+            return fuels_by_name.get(ref)
+        return None
+
+    def _co2_ef_per_gj(fuel: dict) -> float:
+        for ef in fuel.get("emission_factors", []) or []:
+            if isinstance(ef, dict) and str(ef.get("emission", "")).lower() == "co2":
+                return float(ef.get("combustion", 0.0) or 0.0)
+        return 0.0
+
+    def _scc() -> float:
+        for z in sys_.get("emission_zone_array", []) or []:
+            if isinstance(z, dict) and z.get("price") is not None:
+                return float(z["price"])
+        return COST_DEFAULTS["demand_fail_cost"].emissions_mode or 35.0  # fallback
+
+    gens_by_name = {
+        str(g.get("name", "")): g for g in sys_.get("generator_array", []) or []
+    }
+    scc = _scc()
+    n_converted_su = n_zeroed_su = n_converted_sd = n_zeroed_sd = 0
     for c in sys_.get("commitment_array", []) or []:
-        if "startup_cost" in c:
-            c["startup_cost"] = 0.0
-            n_startup += 1
-        if "shutdown_cost" in c:
-            c["shutdown_cost"] = 0.0
-            n_shutdown += 1
-    if n_startup:
-        applied["commitment_array.startup_cost"] = 0.0
-    if n_shutdown:
-        applied["commitment_array.shutdown_cost"] = 0.0
+        gen_name = str(c.get("generator", ""))
+        gen = gens_by_name.get(gen_name) or {}
+        fuel = _fuel_for_gen(gen)
+        price = float((fuel or {}).get("price", 0.0) or 0.0)
+        heat_content = float((fuel or {}).get("heat_content", 0.0) or 0.0)
+        ef_gj = _co2_ef_per_gj(fuel or {})
+        # carbon-equivalent dollar conversion factor
+        if price > 0.0 and heat_content > 0.0 and ef_gj > 0.0:
+            factor = (heat_content * ef_gj / price) * scc
+        else:
+            factor = 0.0  # zero out when we cannot attribute carbon
+        for field, ctr_done, ctr_zero in (
+            ("startup_cost", "n_converted_su", "n_zeroed_su"),
+            ("shutdown_cost", "n_converted_sd", "n_zeroed_sd"),
+        ):
+            if field not in c:
+                continue
+            orig = float(c[field] or 0.0)
+            new = orig * factor
+            c[field] = new
+            if factor > 0.0:
+                if ctr_done == "n_converted_su":
+                    n_converted_su += 1
+                else:
+                    n_converted_sd += 1
+            else:
+                if ctr_zero == "n_zeroed_su":
+                    n_zeroed_su += 1
+                else:
+                    n_zeroed_sd += 1
+    if n_converted_su or n_zeroed_su:
+        applied["commitment_array.startup_cost"] = (
+            f"{n_converted_su} converted via fuel·ef·SCC, {n_zeroed_su} zeroed (no fuel/ef)"
+        )
+    if n_converted_sd or n_zeroed_sd:
+        applied["commitment_array.shutdown_cost"] = (
+            f"{n_converted_sd} converted via fuel·ef·SCC, {n_zeroed_sd} zeroed (no fuel/ef)"
+        )
 
     # 4. Waterway / FlowRight per-element fcost ($/(m³/s)/h) — bridge=1,
     # numerical identity.  No action needed (the values already match
