@@ -636,3 +636,91 @@ TEST_CASE(
   const auto expected_ratio = M2 / M1;
   CHECK(ratio == doctest::Approx(expected_ratio).epsilon(1e-6));
 }
+
+// ── (7) IEEE 9-bus + cycle_basis cross-mode parity ───────────────────
+//
+// The IEEE 9-bus is the canonical OPF testbed used in tests (3) / (4)
+// under node_angle.  This test runs the same case under cycle_basis
+// + LineCommitment on ``l4_6`` (the high-reactance loop-completing
+// branch) and verifies the LP-relax objective matches:
+//   (a) the no-OTS baseline under cycle_basis  (u_l = 1 picks itself)
+//   (b) the no-OTS baseline under node_angle    (cross-mode parity)
+//
+// Topology: 9 buses, 9 lines, 1 island → 9 − 9 + 1 = 1 fundamental
+// cycle.  ``l4_6`` is on that cycle, so the disjunctive rewrite
+// activates one ``kvl_minus`` row per block.
+
+TEST_CASE(
+    "LineCommitmentLP cycle_basis: IEEE 9b + LP-relax OTS matches "
+    "node_angle baseline (v1)")
+{
+  if (!tkbm_mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // Build helper that produces the IEEE 9b JSON in cycle_basis mode by
+  // swapping the kirchhoff_mode literal in the existing fixture.
+  auto swap_mode = [](std::string s) -> std::string
+  {
+    constexpr std::string_view from {"\"kirchhoff_mode\": \"node_angle\""};
+    constexpr std::string_view to {"\"kirchhoff_mode\": \"cycle_basis\""};
+    const auto pos = s.find(from);
+    if (pos != std::string::npos) {
+      s.replace(pos, from.size(), to);
+    }
+    return s;
+  };
+
+  // (a) node_angle baseline (no OTS) — the cross-mode anchor.
+  double obj_node_angle_baseline = 0.0;
+  {
+    Planning planning;
+    planning.merge(
+        parse_planning_json(make_ieee9b_with_ots_json(/*with_lc=*/false)));
+    PlanningLP planning_lp(std::move(planning));
+    REQUIRE(planning_lp.resolve().has_value());
+    obj_node_angle_baseline = planning_lp.systems()
+                                  .front()
+                                  .front()
+                                  .linear_interface()
+                                  .get_obj_value();
+  }
+
+  // (b) cycle_basis baseline (no OTS).  Must match node_angle: both
+  // modes describe the same physical KVL, so the optimum is identical
+  // up to numerical noise.
+  double obj_cycle_baseline = 0.0;
+  {
+    Planning planning;
+    planning.merge(parse_planning_json(
+        swap_mode(make_ieee9b_with_ots_json(/*with_lc=*/false))));
+    PlanningLP planning_lp(std::move(planning));
+    REQUIRE(planning_lp.resolve().has_value());
+    obj_cycle_baseline = planning_lp.systems()
+                             .front()
+                             .front()
+                             .linear_interface()
+                             .get_obj_value();
+  }
+  CHECK(obj_cycle_baseline
+        == doctest::Approx(obj_node_angle_baseline).epsilon(1e-3));
+
+  // (c) cycle_basis + OTS on l4_6 (LP-relax).  At u_l = 1 the
+  // disjunctive cycle row collapses to equality and the objective must
+  // match the cycle_basis baseline.
+  double obj_cycle_ots = 0.0;
+  {
+    Planning planning;
+    planning.merge(parse_planning_json(
+        swap_mode(make_ieee9b_with_ots_json(/*with_lc=*/true))));
+    PlanningLP planning_lp(std::move(planning));
+    REQUIRE(planning_lp.resolve().has_value());
+    obj_cycle_ots = planning_lp.systems()
+                        .front()
+                        .front()
+                        .linear_interface()
+                        .get_obj_value();
+  }
+  CHECK(obj_cycle_ots == doctest::Approx(obj_cycle_baseline).epsilon(1e-3));
+}
