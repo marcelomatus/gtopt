@@ -505,3 +505,134 @@ TEST_CASE(
   // Sanity: g1 × 100 MW × $10/MWh = $1000.
   CHECK(obj_baseline == doctest::Approx(1000.0).epsilon(1e-3));
 }
+
+// ── (6) Per-line kvl_big_m override ─────────────────────────────────
+//
+// ``LineCommitment.kvl_big_m`` lets the user (or a future
+// iterative-tightening pre-solve à la Pineda 2024) inject a tighter
+// per-line big-M than the default ``2·θ_max + |φ|``.  The override
+// flows through to the upper-side ``≤`` row's RHS exactly: row.uppb
+// becomes ``kvl_big_m + rhs_eq`` (where ``rhs_eq = -φ ≈ 0`` for a
+// line with no phase shift).
+//
+// This test pins the override → RHS relationship in node_angle mode.
+// cycle_basis ignores the per-line value (cycle big-M is a sum-of-edges
+// bound), so this test is node_angle-only.
+
+[[nodiscard]] std::string make_2bus_kirchhoff_bigm_json(double kvl_big_m)
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "kirchhoff_mode": "node_angle",
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [{ "uid": 1, "duration": 1 }],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 1,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_bigm_2bus",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2", "lmax": [[100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2",
+          "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200 }
+      ],
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": true,
+          "kvl_big_m": )";
+  out += std::to_string(kvl_big_m);
+  out += R"( }
+      ]
+    }
+  })";
+  return out;
+}
+
+TEST_CASE(
+    "LineCommitmentLP node_angle: per-line kvl_big_m override changes the "
+    "upper-side row's uppb (v1)")
+{
+  if (!tkbm_mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // The 2-bus line has no phase shift (φ = 0), so rhs_eq = -φ = 0
+  // and the upper-side row's uppb collapses to ``kvl_big_m`` exactly.
+  //
+  // Use two distinct override values that are both well below the
+  // default ``2·θ_max + |φ|`` (~ 2·100 · 0.05 · 2 = 20 for this fixture,
+  // give or take row_scale).  The difference between the two solves'
+  // uppbs must equal the difference between the override values.
+  constexpr double M1 = 5.0;
+  constexpr double M2 = 17.0;
+
+  auto upper_row_uppb = [](const LinearInterface& li) -> double
+  {
+    // Find the ``line_theta_`` row (upper-side ``≤`` half of the
+    // big-M disjunctive pair) and read its uppb.
+    const auto& names = li.row_name_map();
+    for (const auto& [name, idx] : names) {
+      if (name.contains("line_theta_")) {
+        const auto upps = li.get_row_upp();
+        return upps[value_of(idx)];
+      }
+    }
+    return 0.0;
+  };
+
+  LpMatrixOptions flat_opts;
+  flat_opts.row_with_names = true;
+  flat_opts.row_with_name_map = true;
+
+  double uppb1 = 0.0;
+  {
+    Planning planning;
+    planning.merge(parse_planning_json(make_2bus_kirchhoff_bigm_json(M1)));
+    PlanningLP planning_lp(std::move(planning), flat_opts);
+    REQUIRE(planning_lp.resolve().has_value());
+    uppb1 = upper_row_uppb(
+        planning_lp.systems().front().front().linear_interface());
+  }
+
+  double uppb2 = 0.0;
+  {
+    Planning planning;
+    planning.merge(parse_planning_json(make_2bus_kirchhoff_bigm_json(M2)));
+    PlanningLP planning_lp(std::move(planning), flat_opts);
+    REQUIRE(planning_lp.resolve().has_value());
+    uppb2 = upper_row_uppb(
+        planning_lp.systems().front().front().linear_interface());
+  }
+
+  // The uppb is M + rhs_eq, with rhs_eq = -φ = 0 for this fixture.
+  // Cross-mode coefficient scaling (row equilibration) could rescale
+  // the row by a uniform factor, but the RATIO uppb2/uppb1 should equal
+  // M2/M1 = 17/5 = 3.4 exactly because both rows are scaled identically.
+  REQUIRE(uppb1 > 0.0);
+  REQUIRE(uppb2 > 0.0);
+  const auto ratio = uppb2 / uppb1;
+  const auto expected_ratio = M2 / M1;
+  CHECK(ratio == doctest::Approx(expected_ratio).epsilon(1e-6));
+}
