@@ -56,27 +56,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
 
     const auto block_context =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
-    const auto rcol = block_rcost
-        ? lp.add_col({
-              .lowb = 0.0,
-              .uppb = block_rreq.value(),
-              .cost = -CostHelper::block_ecost(
-                  scenario, stage, block, block_rcost.value()),
-              .class_name = cname,
-              .variable_name = rname,
-              .variable_uid = uid,
-              .context = block_context,
-          })
-        : lp.add_col({
-              .lowb = block_rreq.value(),
-              .uppb = block_rreq.value(),
-              .cost = 0.0,
-              .class_name = cname,
-              .variable_name = rname,
-              .variable_uid = uid,
-              .context = block_context,
-          });
-    rr_cols[buid] = rcol;
 
     SparseRow rr_row {
         .class_name = cname,
@@ -84,8 +63,29 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
         .variable_uid = uid,
         .context = block_context,
     };
-    rr_row[rcol] = -1;
-    rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
+
+    if (block_rcost) {
+      // Priced shortage branch (soft requirement).
+      const auto rcol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = block_rreq.value(),
+          .cost = -CostHelper::block_ecost(
+              scenario, stage, block, block_rcost.value()),
+          .class_name = cname,
+          .variable_name = rname,
+          .variable_uid = uid,
+          .context = block_context,
+      });
+      rr_cols[buid] = rcol;
+      rr_row[rcol] = -1;
+      rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
+    } else {
+      // Hard requirement substitute-out: the legacy form built a
+      // fully-pinned bookkeeping column with `cost = 0`; move
+      // `block_rreq` to the row RHS instead.  Mirror of the
+      // ReserveZoneLP substitution (issue #529, item 1).
+      rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(*block_rreq)));
+    }
   }
 
   // storing the indices for this scenario and stage

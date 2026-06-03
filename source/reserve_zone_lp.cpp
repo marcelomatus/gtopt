@@ -47,27 +47,6 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
 
     const auto block_context =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
-    const auto rcol = block_rcost
-        ? lp.add_col({
-              .lowb = 0.0,
-              .uppb = block_rreq.value(),
-              .cost = -CostHelper::block_ecost(
-                  scenario, stage, block, block_rcost.value()),
-              .class_name = cname,
-              .variable_name = rname,
-              .variable_uid = uid,
-              .context = block_context,
-          })
-        : lp.add_col({
-              .lowb = block_rreq.value(),
-              .uppb = block_rreq.value(),
-              .cost = 0.0,
-              .class_name = cname,
-              .variable_name = rname,
-              .variable_uid = uid,
-              .context = block_context,
-          });
-    rr_cols[buid] = rcol;
 
     SparseRow rr_row {
         .class_name = cname,
@@ -75,8 +54,42 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
         .variable_uid = uid,
         .context = block_context,
     };
-    rr_row[rcol] = -1;
-    rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
+
+    if (block_rcost) {
+      // Priced slack branch (soft requirement): emit the bookkeeping
+      // requirement column and the row `Σ pf · prov − rcol ≥ 0`.  The
+      // column is bounded by `[0, block_rreq]` and carries a negative
+      // objective coefficient so the LP picks `rcol = block_rreq`
+      // whenever the provisions can supply it, and drops to a lower
+      // value (paying the shortage penalty in the objective) otherwise.
+      const auto rcol = lp.add_col({
+          .lowb = 0.0,
+          .uppb = block_rreq.value(),
+          .cost = -CostHelper::block_ecost(
+              scenario, stage, block, block_rcost.value()),
+          .class_name = cname,
+          .variable_name = rname,
+          .variable_uid = uid,
+          .context = block_context,
+      });
+      rr_cols[buid] = rcol;
+      rr_row[rcol] = -1;
+      rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(0)));
+    } else {
+      // Hard requirement, no shortage cost: the legacy form built a
+      // fully-pinned bookkeeping column (`lowb = uppb = block_rreq,
+      // cost = 0`) and a row `Σ pf · prov − rcol ≥ 0`.  Substitute the
+      // column out — move `block_rreq` to the row's RHS so the row
+      // reads `Σ pf · prov ≥ block_rreq` directly.  Saves one LP
+      // column per (zone, scenario, stage, block, up-or-dn) in every
+      // configuration that omits a reserve-shortage cost.  The PAMPL
+      // `reserve_zone(X).up` / `.dn` accessor is not registered for
+      // this zone in the no-cost branch (rr_cols stays empty), so user
+      // constraints referencing it on a hard-requirement zone now hit
+      // a strict resolver error instead of silently anchoring to the
+      // (pinned) column value — see issue #529 for the trade-off.
+      rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(*block_rreq)));
+    }
   }
 
   // storing the indices for this scenario and stage

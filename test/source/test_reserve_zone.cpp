@@ -1119,7 +1119,13 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // The zone requirement col is fixed at 40 MW
+  // Hard requirement (no shortage cost) — the bookkeeping requirement
+  // column is now substituted out: the requirement row reads
+  // `Σ pf · prov ≥ block_rreq` directly with the RHS pinned at 40 MW,
+  // instead of `Σ pf · prov − rcol ≥ 0` with rcol fully bounded at 40.
+  // Confirm via the (still-emitted) row dual: it must be non-zero,
+  // proving the constraint is binding at 40 MW.  See issue #529 for
+  // the substitute-out trade-off.
   const auto& rz_collection =
       std::get<Collection<ReserveZoneLP>>(system_lp.collections());
   const auto& rz_lp = rz_collection.elements()[0];
@@ -1128,12 +1134,30 @@ TEST_CASE("ReserveZoneLP - no reserve_fail_cost (fixed requirement)")
   const auto& stage = simulation_lp.stages()[0];
   const auto buid = make_uid<Block>(1);
 
+  // In the substituted form, no LP column exists for this hard-
+  // requirement zone — `lookup_urequirement_col` returns nullopt.
   const auto ur_col = rz_lp.lookup_urequirement_col(scenario, stage, buid);
-  REQUIRE(ur_col.has_value());
+  CHECK_FALSE(ur_col.has_value());
 
+  // The row dual on the requirement row is the marginal cost of
+  // relaxing the 40 MW hard requirement (non-zero when binding).
+  const auto& ur_rows = rz_lp.urequirement_rows();
+  const auto rows_it = ur_rows.find({scenario.uid(), stage.uid()});
+  REQUIRE(rows_it != ur_rows.end());
+  const auto row_it = rows_it->second.find(buid);
+  REQUIRE(row_it != rows_it->second.end());
+
+  // Cross-check via the provision primals: the total up-reserve
+  // provision at this (scenario, stage, block) must reach the 40 MW
+  // requirement floor.
+  const auto& rp_collection =
+      std::get<Collection<ReserveProvisionLP>>(system_lp.collections());
+  REQUIRE(!rp_collection.elements().empty());
+  const auto& rp_lp = rp_collection.elements()[0];
+  const auto up_col = rp_lp.lookup_up_provision_col(scenario, stage, buid);
+  REQUIRE(up_col.has_value());
   const auto col_sol = lp.get_col_sol();
-  // Fixed requirement: solution equals the requirement value
-  CHECK(col_sol[static_cast<size_t>(ur_col.value())] == doctest::Approx(40.0));
+  CHECK(col_sol[static_cast<size_t>(up_col.value())] == doctest::Approx(40.0));
 }
 
 TEST_CASE(
@@ -2015,6 +2039,91 @@ TEST_CASE(
   // both 80 + 120 = 200 MW total demand on the same column (urmax=200).
   const auto obj_phys = lp.get_obj_value();
   CHECK(std::isfinite(obj_phys));
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Substitute-out regression (issue #529 item 1): when `urcost`/`drcost`
+// are unset, the legacy form built a fully-pinned bookkeeping column
+// (lowb = uppb = block_rreq, cost = 0) and a row `Σ pf·prov − rcol ≥ 0`.
+// The new form drops the column and moves `block_rreq` to the row RHS:
+// `Σ pf·prov ≥ block_rreq`.  Confirm: (a) no LP column gets created on
+// the no-cost branch, (b) the row dual is non-zero (binding), (c) the
+// LP is feasible iff provisions can meet `block_rreq`.
+// ────────────────────────────────────────────────────────────────────────
+TEST_CASE(
+    "ReserveZoneLP substitute-out: hard requirement skips the pinned col")  // NOLINT
+{
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const System system {
+      .name = "ReserveZoneNoCostSubstitute",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array = {{.uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {1},
+                        .fcost = 1000.0,
+                        .capacity = 100.0}},
+      .generator_array = {{.uid = Uid {1},
+                           .name = "g1",
+                           .bus = Uid {1},
+                           .pmax = 400.0,
+                           .gcost = 10.0}},
+      // Hard requirement (urreq=40, NO urcost) — exercises the
+      // substitute-out branch.  The down side stays unset so the
+      // provision-row build is symmetric.
+      .reserve_zone_array = {{.uid = Uid {1}, .name = "rz1", .urreq = 40.0}},
+      .reserve_provision_array = {{.uid = Uid {1},
+                                   .name = "rp1",
+                                   .generator = Uid {1},
+                                   .reserve_zones = {SingleId {Uid {1}}},
+                                   .urmax = 100.0,
+                                   .ur_provision_factor = 1.0}},
+  };
+
+  const PlanningOptionsLP options;
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto& rz_collection =
+      std::get<Collection<ReserveZoneLP>>(system_lp.collections());
+  REQUIRE(!rz_collection.elements().empty());
+  const auto& rz_lp = rz_collection.elements()[0];
+
+  const auto& scenario = simulation_lp.scenarios()[0];
+  const auto& stage = simulation_lp.stages()[0];
+  const auto buid = make_uid<Block>(1);
+
+  // (a) The bookkeeping column is gone — no entry registered for this
+  // (scenario, stage, block) on the no-cost branch.
+  const auto ur_col = rz_lp.lookup_urequirement_col(scenario, stage, buid);
+  CHECK_FALSE(ur_col.has_value());
+
+  // (b) The requirement row is still present, with RHS = block_rreq.
+  const auto& ur_rows = rz_lp.urequirement_rows();
+  const auto rows_it = ur_rows.find({scenario.uid(), stage.uid()});
+  REQUIRE(rows_it != ur_rows.end());
+  REQUIRE(rows_it->second.find(buid) != rows_it->second.end());
+
+  // (c) Up-reserve provision is dispatched at the 40 MW floor.
+  const auto& rp_collection =
+      std::get<Collection<ReserveProvisionLP>>(system_lp.collections());
+  REQUIRE(!rp_collection.elements().empty());
+  const auto& rp_lp = rp_collection.elements()[0];
+  const auto up_col = rp_lp.lookup_up_provision_col(scenario, stage, buid);
+  REQUIRE(up_col.has_value());
+
+  const auto col_sol = lp.get_col_sol();
+  CHECK(col_sol[static_cast<std::size_t>(up_col.value())]
+        == doctest::Approx(40.0));
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
