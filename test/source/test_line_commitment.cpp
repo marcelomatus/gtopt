@@ -363,16 +363,16 @@ TEST_CASE("LineCommitment validation — monolithic method accepted")
   CHECK(result.ok());
 }
 
-// ── (4b) Validation — Kirchhoff-mode gate (cycle_basis rejected) ────
+// ── (4b) Validation — cycle_basis now accepted (v1) ─────────────────
 //
-// v0.5 KVL big-M disjunctive rewrite is node_angle-only.  cycle_basis
-// + active LineCommitment + use_kirchhoff must be rejected at
-// validation time — without the gate the open line is silently
-// reinjected into cycle KVL via its phase-shift / reactance terms.
-// Transport mode (use_kirchhoff = false) is exempt.
+// v0.6 gated cycle_basis + active LC + Kirchhoff as an error because
+// the disjunctive KVL big-M rewrite was node_angle-only.  v1 lands the
+// cycle-form rewrite in ``source/kirchhoff_cycle_basis.cpp``; both
+// Kirchhoff modes now support LineCommitment.
 
 TEST_CASE(
-    "LineCommitment validation — cycle_basis + active LC + Kirchhoff rejected")
+    "LineCommitment validation — cycle_basis + active LC + Kirchhoff accepted "
+    "(v1)")
 {
   auto planning = parse_planning_json(
       make_2bus_kirchhoff_gate_json(/*with_line_commitment=*/true,
@@ -380,17 +380,11 @@ TEST_CASE(
                                     /*use_kirchhoff=*/true,
                                     /*kirchhoff_mode=*/"cycle_basis"));
   const auto result = validate_planning(planning);
-  CHECK_FALSE(result.ok());
-  bool found = false;
+  // No kirchhoff_mode-related error should be raised.
   for (const auto& err : result.errors) {
-    if (err.contains("Optimal Transmission Switching")
-        && err.contains("kirchhoff_mode") && err.contains("node_angle"))
-    {
-      found = true;
-      break;
-    }
+    CHECK_FALSE(err.contains("kirchhoff_mode"));
   }
-  CHECK(found);
+  CHECK(result.ok());
 }
 
 TEST_CASE("LineCommitment validation — node_angle + active LC accepted")

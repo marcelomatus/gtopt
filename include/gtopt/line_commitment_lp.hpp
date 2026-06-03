@@ -20,25 +20,24 @@
  *      transparent to whether the underlying flow column is signed —
  *      ``tangent_signed_flow`` — or split into ``fp`` / ``fn``).
  *
- * **v0.5 scope** (issue #509 §"Implementation roadmap"):
+ * **v1 scope** (issue #509 §"Implementation roadmap"):
  *   - **Capacity gating** — always emitted (transport + Kirchhoff).
- *   - **KVL big-M disjunction** — emitted only in
- *     ``kirchhoff_mode = node_angle``.  The per-line KVL equality
- *     row stamped by ``LineLP`` is rewritten in place as an upper-
- *     side ``≤`` inequality and a new lower-side ``≥`` row is added,
- *     so ``u_l = 0`` decouples ``θ_a`` from ``θ_b`` exactly like an
- *     opened breaker.
+ *   - **node_angle KVL big-M disjunction** — emitted by this class:
+ *     the per-line KVL equality row stamped by ``LineLP`` is
+ *     rewritten in place as an upper-side ``≤`` inequality and a new
+ *     lower-side ``≥`` row is added, so ``u_l = 0`` decouples
+ *     ``θ_a`` from ``θ_b`` exactly like an opened breaker.
+ *   - **cycle_basis KVL big-M disjunction** — emitted by
+ *     ``kirchhoff::cycle_basis::add_kvl_rows`` (system-level
+ *     assembler).  Each cycle row containing a switchable line is
+ *     replaced by two inequalities with per-cycle big-M
+ *     ``M_C = 2·θ_max · |C| · row_scale + Σ |φ_e| · row_scale``.
  *
  * **Mode gates** (enforced by ``validate_planning``):
  *   - ``method ∈ {sddp, cascade}`` is rejected — Benders cuts on a
  *     mixed-integer subproblem are unsound (Zou-Ahmed-Sun 2019).
- *   - ``kirchhoff_mode = cycle_basis`` (the gtopt default) combined
- *     with active LineCommitment + ``use_kirchhoff = true`` is
- *     rejected — the v0.5 KVL big-M rewrite is node_angle-only.
- *     Users must pick ``kirchhoff_mode = node_angle`` (for DC-OPF
- *     OTS) or ``use_kirchhoff = false`` (transport-mode OTS, which
- *     is bit-for-bit correct under capacity gating alone).  A
- *     follow-up will land the cycle-form disjunctive rewrite.
+ *   - Both Kirchhoff modes (``node_angle``, ``cycle_basis``) and
+ *     transport mode (``use_kirchhoff = false``) are now supported.
  */
 
 #pragma once

@@ -355,3 +355,153 @@ TEST_CASE("LineCommitmentLP KVL big-M: IEEE 9b + must_run reproduces baseline")
 
   CHECK(obj_ots == doctest::Approx(obj_baseline).epsilon(1e-3));
 }
+
+// ── (5) cycle_basis disjunctive form (v1) ───────────────────────────
+//
+// In ``kirchhoff_mode = cycle_basis`` the cycle KVL equality
+// ``Σ sign_e · (x_τ·f_e + φ_e)·row_scale = 0`` is replaced by two
+// inequalities whenever at least one line on the cycle is switchable.
+// Per-cycle big-M ``M_C = 2θ_max · |C| · row_scale + Σ |φ|·row_scale``.
+// At ``u_l = 1`` both halves collapse to the original equality.
+//
+// 3-bus triangle fixture: lines l1_2, l2_3, l3_1 form one fundamental
+// cycle.  Generator at b1, demand at b2.  Without OTS the LP picks
+// an Δθ pattern that pushes some flow around the triangle.
+
+[[nodiscard]] std::string make_3bus_triangle_cycle_json(bool with_lc,
+                                                        bool relax = true)
+{
+  std::string out = R"({
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "kirchhoff_mode": "cycle_basis",
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [{ "uid": 1, "duration": 1 }],
+      "stage_array": [
+        { "uid": 1, "first_block": 0, "count_block": 1,
+          "active": 1, "chronological": true }
+      ],
+      "scenario_array": [{ "uid": 1, "probability_factor": 1 }]
+    },
+    "system": {
+      "name": "ots_cycle_triangle",
+      "bus_array": [
+        { "uid": 1, "name": "b1" },
+        { "uid": 2, "name": "b2" },
+        { "uid": 3, "name": "b3" }
+      ],
+      "generator_array": [
+        { "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 500, "gcost": 10, "capacity": 500 }
+      ],
+      "demand_array": [
+        { "uid": 1, "name": "d2", "bus": "b2", "lmax": [[100.0]] }
+      ],
+      "line_array": [
+        { "uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200 },
+        { "uid": 2, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200 },
+        { "uid": 3, "name": "l3_1", "bus_a": "b3", "bus_b": "b1", "reactance": 0.05, "tmax_ab": 200, "tmax_ba": 200 }
+      ])";
+  if (with_lc) {
+    out += R"(,
+      "line_commitment_array": [
+        { "uid": 1, "name": "l1_2_ots", "line": "l1_2", "relax": )";
+    out += (relax ? "true" : "false");
+    out += R"( }
+      ])";
+  }
+  out += R"(
+    }
+  })";
+  return out;
+}
+
+TEST_CASE(
+    "LineCommitmentLP cycle_basis: kvl_minus row added when switchable line "
+    "is on the cycle (v1)")
+{
+  if (!tkbm_mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  // Baseline: no LineCommitment — one ``cycle`` equality row per block.
+  {
+    Planning planning;
+    planning.merge(
+        parse_planning_json(make_3bus_triangle_cycle_json(/*with_lc=*/false)));
+    LpMatrixOptions flat_opts;
+    flat_opts.row_with_names = true;
+    flat_opts.row_with_name_map = true;
+    PlanningLP planning_lp(std::move(planning), flat_opts);
+    REQUIRE(planning_lp.resolve().has_value());
+    auto&& systems = planning_lp.systems();
+    const auto& li = systems.front().front().linear_interface();
+    // One cycle × one block = 1 equality row tagged ``kirchhoff_cycle_``.
+    CHECK(tkbm_count_rows_containing(li, "kirchhoff_cycle_") == 1);
+    // No ``kvl_minus`` row in baseline.
+    CHECK(tkbm_count_rows_containing(li, "kirchhoff_kvl_minus") == 0);
+  }
+
+  // OTS on l1_2: the cycle has one switchable line, so the equality is
+  // replaced by 1 upper-side ``≤`` + 1 lower-side ``≥`` row.
+  {
+    Planning planning;
+    planning.merge(
+        parse_planning_json(make_3bus_triangle_cycle_json(/*with_lc=*/true)));
+    LpMatrixOptions flat_opts;
+    flat_opts.row_with_names = true;
+    flat_opts.row_with_name_map = true;
+    PlanningLP planning_lp(std::move(planning), flat_opts);
+    REQUIRE(planning_lp.resolve().has_value());
+    auto&& systems = planning_lp.systems();
+    const auto& li = systems.front().front().linear_interface();
+    // Upper-side half reuses the ``cycle`` label.
+    CHECK(tkbm_count_rows_containing(li, "kirchhoff_cycle_") == 1);
+    // Lower-side half tagged ``kvl_minus``.
+    CHECK(tkbm_count_rows_containing(li, "kirchhoff_kvl_minus") == 1);
+  }
+}
+
+TEST_CASE(
+    "LineCommitmentLP cycle_basis: relaxed solve picks u_l = 1, objective "
+    "matches no-OTS baseline (v1)")
+{
+  if (!tkbm_mip_available()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+
+  Planning base;
+  base.merge(
+      parse_planning_json(make_3bus_triangle_cycle_json(/*with_lc=*/false)));
+  PlanningLP planning_baseline(std::move(base));
+  REQUIRE(planning_baseline.resolve().has_value());
+  const auto obj_baseline = planning_baseline.systems()
+                                .front()
+                                .front()
+                                .linear_interface()
+                                .get_obj_value();
+
+  Planning ots;
+  ots.merge(parse_planning_json(
+      make_3bus_triangle_cycle_json(/*with_lc=*/true, /*relax=*/true)));
+  PlanningLP planning_ots(std::move(ots));
+  REQUIRE(planning_ots.resolve().has_value());
+  const auto obj_ots =
+      planning_ots.systems().front().front().linear_interface().get_obj_value();
+
+  // At u_l = 1, both KVL halves collapse to equality; objective must
+  // match no-OTS baseline.
+  CHECK(obj_ots == doctest::Approx(obj_baseline).epsilon(1e-6));
+  // Sanity: g1 × 100 MW × $10/MWh = $1000.
+  CHECK(obj_baseline == doctest::Approx(1000.0).epsilon(1e-3));
+}

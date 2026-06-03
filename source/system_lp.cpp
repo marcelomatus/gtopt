@@ -400,8 +400,58 @@ constexpr auto flatten_from_collections(auto& collections,
       if (is_cycle_basis) {
         const auto& buses = std::get<Collection<BusLP>>(collections);
         const auto& lines = std::get<Collection<LineLP>>(collections);
-        kirchhoff::cycle_basis::add_kvl_rows(
-            system_context, scenario, stage, lp, buses, lines);
+        const auto& line_commitments =
+            std::get<Collection<LineCommitmentLP>>(collections);
+
+        // OTS hookup (issue #509 v1): build a `line_idx → u_col` lookup
+        // so the cycle row assembler can switch to the big-M
+        // disjunctive form for any cycle that contains a switchable
+        // line.  Empty when no LineCommitment rows exist, in which case
+        // the lookup is left default-constructed (`add_kvl_rows` then
+        // emits the standard equality rows — pre-OTS behaviour).
+        kirchhoff::cycle_basis::SwitchableLineLookup switchable_lookup;
+        if (!line_commitments.elements().empty()) {
+          // Pre-resolve: (LineLP element_index → const LineCommitmentLP*)
+          // so the cycle inner loop doesn't re-scan the commitment
+          // array per edge.  Use a flat vector indexed by line_index
+          // (uses sentinel `nullptr` for non-switchable lines); the
+          // line count is small enough that a hash map is overkill.
+          const auto n_lines = lines.elements().size();
+          std::vector<const LineCommitmentLP*> by_line_idx(n_lines, nullptr);
+          for (const auto& lcom : line_commitments.elements()) {
+            const auto li =
+                static_cast<std::size_t>(lines.element_index(lcom.line_sid()));
+            if (li < n_lines) {
+              by_line_idx[li] = &lcom;
+            }
+          }
+          switchable_lookup = [by_line_idx = std::move(by_line_idx),
+                               &scenario,
+                               &stage](std::size_t line_idx, BlockUid buid)
+              -> std::optional<kirchhoff::cycle_basis::SwitchableEdge>
+          {
+            if (line_idx >= by_line_idx.size()) {
+              return std::nullopt;
+            }
+            const auto* lcom = by_line_idx[line_idx];
+            if (lcom == nullptr) {
+              return std::nullopt;
+            }
+            const auto col = lcom->lookup_status_col(scenario, stage, buid);
+            if (!col.has_value()) {
+              return std::nullopt;
+            }
+            return kirchhoff::cycle_basis::SwitchableEdge {*col};
+          };
+        }
+
+        kirchhoff::cycle_basis::add_kvl_rows(system_context,
+                                             scenario,
+                                             stage,
+                                             lp,
+                                             buses,
+                                             lines,
+                                             switchable_lookup);
       }
 
       // node_angle: after all elements are added, check for

@@ -1805,57 +1805,13 @@ void check_scenario_probabilities(ValidationResult& result, Planning& planning)
         active_lc_count));
   }
 
-  // Kirchhoff-mode gate for OTS (v0.5 boundary).  The v0.5 KVL big-M
-  // disjunctive rewrite (``source/line_commitment_lp.cpp`` →
-  // ``add_kvl_bigm_disjunction``) targets only the per-line
-  // ``node_angle`` KVL rows emitted by ``LineLP``.  In ``cycle_basis``
-  // mode, KVL is enforced as one equality per fundamental cycle (see
-  // ``source/kirchhoff_cycle_basis.cpp``); a single switched-off line
-  // invalidates every cycle through it, so the correct disjunctive
-  // form is
-  //
-  //   |Σ_{e∈C} sign_e · (x_τ,e · f_e + φ_e) · row_scale|
-  //         ≤ Σ_{l ∈ C ∩ switchable} (1 − u_l) · M_C
-  //
-  // with ``M_C = 2θ_max · |C| · row_scale + Σ_e |φ_e| · row_scale``.
-  // That rewrite is deferred to a follow-up; without it,
-  // ``cycle_basis + LineCommitment`` would silently keep the open line
-  // physically present in cycle KVL (its phase-shift term still
-  // contributes, its reactance still couples the cycle), so the
-  // capacity gate would push the open line's flow to zero but the
-  // model would absorb that into other branches via the unmodified
-  // cycle equation — a wrong answer, not a graceful degradation.
-  // Reject explicitly so the user picks ``node_angle`` (the only
-  // currently-correct OTS Kirchhoff mode) at config time.
-  //
-  // Transport mode (``use_kirchhoff = false`` or ``use_single_bus =
-  // true``) is exempt: capacity gating alone is bit-for-bit correct
-  // for OTS in transport mode.
-  const auto use_kirchhoff =
-      planning.options.model_options.use_kirchhoff.value_or(true);
-  const auto use_single_bus =
-      planning.options.model_options.use_single_bus.value_or(false);
-  if (use_kirchhoff && !use_single_bus && active_lc_count > 0) {
-    const auto kirchhoff_mode =
-        planning.options.model_options.kirchhoff_mode.has_value()
-        ? enum_from_name<KirchhoffMode>(
-              *planning.options.model_options.kirchhoff_mode)
-              .value_or(KirchhoffMode::cycle_basis)
-        : KirchhoffMode::cycle_basis;
-    if (kirchhoff_mode == KirchhoffMode::cycle_basis) {
-      result.errors.push_back(std::format(
-          "Optimal Transmission Switching (OTS) requires "
-          "model_options.kirchhoff_mode = 'node_angle': {} active "
-          "LineCommitment row(s) found with kirchhoff_mode = 'cycle_basis' "
-          "(the default).  The v0.5 KVL big-M disjunctive rewrite is only "
-          "implemented for node_angle KVL rows; the cycle_basis form would "
-          "silently keep open lines electrically coupled.  Set "
-          "model_options.kirchhoff_mode = 'node_angle', or deactivate the "
-          "LineCommitment rows, or set use_kirchhoff = false for transport-"
-          "mode OTS (issue #509).",
-          active_lc_count));
-    }
-  }
+  // Issue #509 v0.6 ``cycle_basis`` gate REMOVED in v1: the cycle-form
+  // big-M disjunctive rewrite is now implemented in
+  // ``source/kirchhoff_cycle_basis.cpp::add_kvl_rows`` (per-cycle
+  // ``M_C = 2θ_max · |C| · row_scale + Σ |φ_e| · row_scale``).  Both
+  // Kirchhoff modes (``node_angle`` and ``cycle_basis``) now support
+  // ``LineCommitment``; transport mode (``use_kirchhoff = false``)
+  // continues to work under capacity gating alone.
 
   // Log all findings
   for (const auto& warn : result.warnings) {

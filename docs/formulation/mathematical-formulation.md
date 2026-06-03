@@ -784,28 +784,37 @@ is loose by design — `LineCommitment.kvl_big_m` overrides per line,
 serving as the write-back target for the v1 iterative-tightening
 pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
 
-**Kirchhoff-mode gate.**  OTS in DC-OPF mode is **strictly** rejected
-when `kirchhoff_mode = cycle_basis` (the gtopt default).  The v0.5
-big-M disjunctive rewrite above targets only the per-line equality
-KVL row emitted by `LineLP` in `node_angle` mode.  In `cycle_basis`
-mode KVL is enforced as one equality per fundamental cycle $C$
-(see `source/kirchhoff_cycle_basis.cpp`), so a single switched-off
-line $l \in C$ invalidates every cycle through it.  The correct
-disjunctive form for cycle-basis OTS is
+**Cycle-basis disjunction (v1).**  In `kirchhoff_mode = cycle_basis`
+(the gtopt default) KVL is enforced as one equality per fundamental
+cycle $C$ (see `source/kirchhoff_cycle_basis.cpp`), so a single
+switched-off line $l \in C$ invalidates every cycle through it.
+`add_kvl_rows` checks each cycle row for switchable lines and, when
+any are present, replaces the equality with the disjunctive form
 
 $$
-\left|\sum_{e \in C} \text{sign}_e \, \bigl(x_{\tau,e} \, f_e
-+ \varphi_e\bigr)\right| \cdot \text{row\_scale}
-\;\leq\; \sum_{l \in C \cap \text{switchable}}
+-\!\!\sum_{l \in C \cap \text{switchable}}\!\!
+\bigl(1 - u_l\bigr) \, M_C
+\;\leq\;
+\sum_{e \in C} \text{sign}_e \,
+\bigl(x_{\tau,e} \, f_e + \varphi_e\bigr) \cdot \text{row\_scale}
+\;\leq\;
+\sum_{l \in C \cap \text{switchable}}\!\!
 \bigl(1 - u_l\bigr) \, M_C
 $$
 
-with $M_C = 2 \theta_{\max} \, |C| \, \text{row\_scale}
-+ \sum_e |\varphi_e| \, \text{row\_scale}$.  Implementing the
-cycle-form disjunction is left to a v1 follow-up; until then, users
-must set `model_options.kirchhoff_mode = node_angle` (or disable
-KVL entirely via `use_kirchhoff = false` for transport-mode OTS,
-which is bit-for-bit correct under capacity gating alone).
+with per-cycle big-M
+
+$$
+M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row\_scale}
+\;+\; \sum_{e \in C} |\varphi_e| \, \text{row\_scale}.
+$$
+
+When every switchable line in the cycle is closed ($u_l = 1\;\forall
+\, l \in C \cap \text{switchable}$) the slack collapses to zero and
+both inequalities reduce to the original equality.  Any open line
+($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
+cycle through that branch.  Validation now accepts every combination
+of (`node_angle`, `cycle_basis`, transport mode) × `LineCommitment`.
 
 **Method gate.**  OTS is **strictly** rejected when
 `method ∈ {sddp, cascade}` because Benders cuts on a mixed-integer
