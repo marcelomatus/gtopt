@@ -273,8 +273,8 @@ def _run_b2(
 
 
 def test_b2_flags_true_scale_mismatch(tmp_path: Path) -> None:
-    # gtopt floor 137 vs PLEXOS floor 83.3 — disjoint ranges, a real
-    # unit/scale error on a binding constraint → flagged.
+    # gtopt floor 137 vs PLEXOS floor 83.3 — a real unit/scale error on a
+    # binding constraint → the distinct-value comparison flags it.
     items = _run_b2(
         tmp_path,
         name="ScaleBug",
@@ -282,9 +282,26 @@ def test_b2_flags_true_scale_mismatch(tmp_path: Path) -> None:
         rhs_values=[83.3, 83.3],
     )
     assert [it["name"] for it in items] == ["ScaleBug"]
-    assert items[0]["gtopt_rhs_range"] == [137.0, 137.0]
-    assert items[0]["plexos_rhs_range"] == [83.3, 83.3]
-    assert items[0]["gap"] > 1e-3
+    assert items[0]["gtopt_rhs_distinct"] == [137.0]
+    assert items[0]["plexos_rhs_distinct"] == [83.3]
+    assert items[0]["flattened"] is False
+
+
+def test_b2_flags_flattened_profile(tmp_path: Path) -> None:
+    # PLEXOS carries a per-day-varying floor (7 distinct values) but gtopt
+    # emitted a single scalar — the profile→scalar bug class.  The direct
+    # comparison flags it (range-overlap silently passed it: the scalar sits
+    # inside PLEXOS's band).
+    items = _run_b2(
+        tmp_path,
+        name="FlatBug",
+        pampl_def='constraint FlatBug: 1 * x("a") >= 83.30;',
+        rhs_values=[83.30, 83.03, 82.75, 82.56, 82.35, 82.41, 82.84],
+    )
+    assert [it["name"] for it in items] == ["FlatBug"]
+    assert items[0]["flattened"] is True
+    assert items[0]["gtopt_rhs_distinct"] == [83.30]
+    assert len(items[0]["plexos_rhs_distinct"]) == 7
 
 
 def test_b2_suppresses_le_nolimit_sentinel(tmp_path: Path) -> None:
@@ -300,10 +317,11 @@ def test_b2_suppresses_le_nolimit_sentinel(tmp_path: Path) -> None:
     assert not items
 
 
-def test_b2_suppresses_overlapping_block_profile(tmp_path: Path) -> None:
-    # gtopt block profile spans [187.42, 320]; PLEXOS spans [207, 320].
-    # The ranges overlap, so the non-aligned 187.42-vs-207 floors are not
-    # a scale mismatch (the Reg_SouthZone pattern).
+def test_b2_flags_distinct_rhs_level(tmp_path: Path) -> None:
+    # gtopt's lowest RHS level (187.42) differs from PLEXOS's (207) by ~9% —
+    # a genuine value difference, not numerical error.  The DIRECT
+    # distinct-value comparison flags it (the old range-overlap test silently
+    # passed it because the two bands [187.42, 320] / [207, 320] overlapped).
     items = _run_b2(
         tmp_path,
         name="ZoneCap",
@@ -312,7 +330,9 @@ def test_b2_suppresses_overlapping_block_profile(tmp_path: Path) -> None:
         ),
         rhs_values=[207.0, 232.0, 320.0],
     )
-    assert not items
+    assert [it["name"] for it in items] == ["ZoneCap"]
+    assert items[0]["gtopt_rhs_distinct"] == [187.42, 232.0, 320.0]
+    assert items[0]["plexos_rhs_distinct"] == [207.0, 232.0, 320.0]
 
 
 def test_b2_suppresses_never_binding(tmp_path: Path) -> None:

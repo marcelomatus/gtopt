@@ -418,6 +418,12 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
                 rec[f"{label}_max"] = max(values)
                 rec[f"{label}_min"] = min(values)
                 rec[f"{label}_sum_abs"] = sum(abs(v) for v in values)
+                if label == "rhs":
+                    # Keep the full per-interval series so the audit can do a
+                    # DIRECT distinct-value comparison vs gtopt (catching a
+                    # profile flattened to a scalar) rather than a lenient
+                    # range-overlap test.
+                    rec["rhs_values"] = list(values)
             else:
                 rec[f"{label}_n"] = 0
                 rec[f"{label}_sum"] = 0.0
@@ -494,6 +500,44 @@ class AuditResult:
             "per_row_diff": self.per_row_diff,
             "hard_list_total": len(self.hard_list),
         }
+
+
+# Numerical-error tolerance for the DIRECT RHS value comparison (B2).  Two
+# values are "the same" only when they differ by < ABS (absolute) AND < REL
+# (relative) — i.e. we accept float / 6-significant-figure rounding noise but
+# flag any genuine difference (a flattened profile collapsed to one value, or a
+# unit / sign / magnitude error).  No ranges, no overlap slack.
+_RHS_REL_TOL = 1e-4
+_RHS_ABS_TOL = 1e-4
+
+
+def _value_differs(a: float, b: float) -> bool:
+    """True when ``a`` and ``b`` differ beyond numerical-error tolerance."""
+    d = abs(a - b)
+    return d > _RHS_ABS_TOL and d > _RHS_REL_TOL * max(abs(a), abs(b), 1.0)
+
+
+def _distinct_values(values: list[float]) -> list[float]:
+    """Sorted distinct values, merging only entries within numerical tolerance.
+
+    The length of the result is the number of genuinely-distinct RHS levels —
+    1 for a flattened/constant RHS, K for a K-level per-day/per-block profile.
+    """
+    out: list[float] = []
+    for v in sorted(values):
+        if not out or _value_differs(v, out[-1]):
+            out.append(v)
+    return out
+
+
+def _is_nolimit_sentinel(v: float) -> bool:
+    """PLEXOS contingency-off "no-limit" placeholder (±10000 / ±100000 MW).
+
+    These are not real RHS levels — they mark a row as unconstrained on an
+    inactive contingency — so they must be excluded from the RHS value set.
+    """
+    a = abs(v)
+    return abs(a - 10000.0) < 1.0 or abs(a - 100000.0) < 1.0
 
 
 def run_audit(inputs: AuditInputs) -> AuditResult:
@@ -587,38 +631,51 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         # This drops the date-windowed ``PANGUEpriority`` (gtopt picks a
         # relaxed ``>= -10000`` floor row on the Oct horizon while PLEXOS
         # holds it at 20, but never binds it: price = 0, hours_binding = 0).
+        # B2: RHS mismatch — DIRECT distinct-value comparison (no ranges).
+        # PLEXOS and gtopt must carry the SAME set of distinct RHS values up to
+        # numerical error.  We cluster each side's values (merging only entries
+        # within numerical tolerance) and compare the sorted distinct lists:
+        #   * a different COUNT catches a per-day/per-block profile FLATTENED to
+        #     a scalar (gtopt 1 distinct value vs PLEXOS K) — the profile→scalar
+        #     bug class (Hydro_AntucoBounds day-to-day bounds, FlowRight
+        #     targets, fuel-price/battery series read with ``[0]`` / ``max()``).
+        #     The old range-OVERLAP test silently passed these: a flattened
+        #     scalar sitting inside PLEXOS's [min,max] band showed zero gap.
+        #   * a value DIFFERENCE catches a unit / sign / magnitude error.
+        # Gated on PLEXOS actually binding the row (price & hours > 0) — an
+        # unbound constraint's RHS can't change the dispatch.
         if (
             p["rhs_n"] > 0
             and g["rhs_scalar"] is not None
             and not g.get("daily_sum", False)
             and p["price_sum_abs"] > 0.0
             and p["hours_binding_sum"] > 0
+            and categorise(name) not in NATIVE_PRIMITIVE_FAMILIES
         ):
-            g_lo = min(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
-            g_hi = max(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
-            p_lo, p_hi = p["rhs_min"], p["rhs_max"]
-            # Gap between the two value ranges (0 when they overlap).
-            gap = max(p_lo - g_hi, g_lo - p_hi, 0.0)
-            scale = max(abs(p_lo), abs(p_hi), 1e-9)
-            if gap / scale > 0.05 and gap > 1e-3:
-                # Suppress B2 when the family is native-promoted on gtopt:
-                # PLEXOS's Constraint RHS is 0 by convention because the
-                # actual requirement lives on a native primitive (Reserve
-                # Min Provision, Inertia property, etc.), while gtopt
-                # carries the requirement on the UC RHS via a directive.
-                # Not a bug — encoding choice.  See NATIVE_PRIMITIVE_FAMILIES.
-                fam = categorise(name)
-                if fam in NATIVE_PRIMITIVE_FAMILIES:
-                    continue
-                buckets["B2_rhs_mismatch"].append(
-                    {
-                        "name": name,
-                        "gtopt_op": g["op"],
-                        "plexos_rhs_range": [p_lo, p_hi],
-                        "gtopt_rhs_range": [g_lo, g_hi],
-                        "gap": gap,
-                    }
+            g_vals = list(g["rhs_profile"]) if g["rhs_profile"] else [g["rhs_scalar"]]
+            p_raw = p.get("rhs_values") or [p["rhs_min"], p["rhs_max"]]
+            # Drop PLEXOS contingency-off no-limit sentinels (±10000 / ±100000):
+            # placeholders for "unconstrained", not real RHS levels, so they
+            # must not count as a distinct value (the gtopt cap legitimately
+            # sits below them).  Skip the row when PLEXOS is all-sentinel.
+            p_vals = [v for v in p_raw if not _is_nolimit_sentinel(v)]
+            if p_vals:
+                g_dist = _distinct_values(g_vals)
+                p_dist = _distinct_values(p_vals)
+                flattened = len(g_dist) == 1 and len(p_dist) > 1
+                mismatch = len(g_dist) != len(p_dist) or any(
+                    _value_differs(a, b) for a, b in zip(g_dist, p_dist)
                 )
+                if mismatch:
+                    buckets["B2_rhs_mismatch"].append(
+                        {
+                            "name": name,
+                            "gtopt_op": g["op"],
+                            "flattened": flattened,
+                            "plexos_rhs_distinct": [round(v, 4) for v in p_dist],
+                            "gtopt_rhs_distinct": [round(v, 4) for v in g_dist],
+                        }
+                    )
 
         # B5: hard in PLEXOS audit list, soft in gtopt (skip hydro-by-design)
         if name in hard_list and pen_class != "hard" and not is_hydro_minmax(name):
