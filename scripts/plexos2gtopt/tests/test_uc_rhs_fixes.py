@@ -591,6 +591,143 @@ def test_st_schedule_scenario_tag_active_overrides_default(tmp_path: Path) -> No
 
 
 # --------------------------------------------------------------------------- #
+# Reg_SouthZone: an RHS *value* row tagged with an INACTIVE scenario is a
+# losing override and must NOT be folded into the per-block RHS profile —
+# but a constraint whose ONLY RHS row is inactive-tagged keeps that value
+# (PLEXOS still applies it as the effective RHS).
+#
+# Verified on CEN PCP DATOS20251005 ``Reg_SouthZone``: base RHS=320 + an
+# untagged H11-17→230 timeslice row are applied, while H9-10→196.6 and
+# H18-20→187.42 carry an inactive Scenario tag → PLEXOS's solution RHS is
+# {320, 230} only.  ``CTF_DownMinProvision`` (single inactive-tagged
+# RHS=293) is still applied → never dropped.
+# --------------------------------------------------------------------------- #
+_RHS_SCENARIO_TAG_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>70</class_id><name>Constraint</name></t_class>
+  <t_class><class_id>78</class_id><name>Scenario</name></t_class>
+  <t_class><class_id>80</class_id><name>Model</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>G1</name></t_object>
+  <t_object><object_id>100</object_id><class_id>70</class_id>
+    <name>Reg_SouthZone</name></t_object>
+  <t_object><object_id>101</object_id><class_id>70</class_id>
+    <name>UC_OnlyInactiveTag</name></t_object>
+  <t_object><object_id>200</object_id><class_id>78</class_id>
+    <name>ActiveScen</name></t_object>
+  <t_object><object_id>201</object_id><class_id>78</class_id>
+    <name>InactiveScen</name></t_object>
+  <t_object><object_id>300</object_id><class_id>80</class_id>
+    <name>PRGdia_Full_Definitivo</name></t_object>
+  <t_collection>
+    <collection_id>700</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>32</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>70</child_class_id><name>Constraints</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>738</collection_id><parent_class_id>80</parent_class_id>
+    <child_class_id>78</child_class_id><name>Scenarios</name>
+  </t_collection>
+  <t_property>
+    <property_id>4369</property_id><collection_id>700</collection_id><name>Sense</name>
+  </t_property>
+  <t_property>
+    <property_id>4384</property_id><collection_id>700</collection_id><name>RHS</name>
+  </t_property>
+  <t_property>
+    <property_id>393</property_id><collection_id>32</collection_id>
+    <name>Generation Coefficient</name>
+  </t_property>
+  <t_membership>
+    <membership_id>700001</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>700002</membership_id><collection_id>700</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32001</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>100</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>32002</membership_id><collection_id>32</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>101</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>738001</membership_id><collection_id>738</collection_id>
+    <parent_object_id>300</parent_object_id><child_object_id>200</child_object_id>
+  </t_membership>
+  <t_data><data_id>1</data_id><membership_id>700001</membership_id>
+    <property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>2</data_id><membership_id>700001</membership_id>
+    <property_id>4384</property_id><value>320</value></t_data>
+  <t_data><data_id>3</data_id><membership_id>700001</membership_id>
+    <property_id>4384</property_id><value>230</value></t_data>
+  <t_data><data_id>4</data_id><membership_id>700001</membership_id>
+    <property_id>4384</property_id><value>196.6</value></t_data>
+  <t_data><data_id>5</data_id><membership_id>32001</membership_id>
+    <property_id>393</property_id><value>1.0</value></t_data>
+  <t_data><data_id>6</data_id><membership_id>700002</membership_id>
+    <property_id>4369</property_id><value>-1</value></t_data>
+  <t_data><data_id>7</data_id><membership_id>700002</membership_id>
+    <property_id>4384</property_id><value>293</value></t_data>
+  <t_data><data_id>8</data_id><membership_id>32002</membership_id>
+    <property_id>393</property_id><value>1.0</value></t_data>
+  <t_text><class_id>76</class_id><data_id>3</data_id><value>H11-17</value></t_text>
+  <t_text><class_id>76</class_id><data_id>4</data_id><value>H9-10</value></t_text>
+  <t_tag><data_id>4</data_id><object_id>201</object_id></t_tag>
+  <t_tag><data_id>7</data_id><object_id>201</object_id></t_tag>
+</MasterDataSet>
+"""
+
+
+def test_rhs_inactive_scenario_tag_suppressed(tmp_path: Path) -> None:
+    """An RHS timeslice row tagged with an INACTIVE Scenario is dropped, so
+    the emitted per-block RHS keeps only the untagged base (320) + the
+    untagged timeslice override (H11-17 → 230).  The inactive-tagged
+    H9-10 → 196.6 row never reaches the profile.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_RHS_SCENARIO_TAG_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    assert db.active_scenario_ids() == {200}
+    by_name = {c.name: c for c in extract_user_constraints(db, bundle)}
+    reg = by_name["Reg_SouthZone"]
+    # 24-block profile: base 320 with H11-17 (blocks 10..16) lowered to 230;
+    # H9-10 (blocks 8..9) must stay at 320, NOT 196.6.
+    profile = reg.rhs_profile
+    assert profile, "expected a per-block RHS profile"
+    assert set(round(v, 3) for v in profile) == {320.0, 230.0}
+    assert profile[8] == 320.0  # H9 — inactive-tagged 196.6 suppressed
+    assert profile[10] == 230.0  # H11 — untagged override applied
+
+
+def test_rhs_lone_inactive_scenario_tag_kept(tmp_path: Path) -> None:
+    """When the ONLY RHS row is inactive-scenario-tagged, PLEXOS still
+    applies its value (the row IS the effective RHS) — the converter must
+    keep it rather than drop the whole constraint.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_RHS_SCENARIO_TAG_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    by_name = {c.name: c for c in extract_user_constraints(db, bundle)}
+    # UC_OnlyInactiveTag carries a single RHS=293 tagged with InactiveScen;
+    # it must still be emitted with that RHS (active, not dropped).
+    assert "UC_OnlyInactiveTag" in by_name
+    uc = by_name["UC_OnlyInactiveTag"]
+    assert uc.active is not False
+    assert "293" in uc.expression
+
+
+# --------------------------------------------------------------------------- #
 # BAT_*_CF_*_COMP: Reserve×Battery Provision Coefficient cross-product.
 # PLEXOS scopes the ``α × Σ Provision[bat, rsv]`` term to (bat, rsv) pairs
 # where BOTH are members of the same constraint.  Without the cross-product

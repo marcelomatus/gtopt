@@ -7693,6 +7693,29 @@ def extract_user_constraints(
         # on all week instead of shutting down like PLEXOS).  See
         # ``_horizon_value``.
         rhs_rows = db.data_for(mid, prop_rhs)
+        # Scenario-tag resolution (symmetric with the "Include in ST
+        # Schedule" resolver above): PLEXOS applies an RHS row only when
+        # its Scenario tag is enabled in the Model being run.  A row
+        # tagged ONLY with inactive scenarios (``_row_tier`` == 2) is a
+        # losing OVERRIDE whenever an untagged/active-tagged row competes
+        # for the same constraint — keeping it folds an inactive-band
+        # value into the emitted RHS.  Drop those tier-2 rows, BUT ONLY
+        # when at least one tier<2 row survives: when EVERY row is tier-2
+        # the lone scenario-tagged value IS the effective RHS PLEXOS
+        # applies (mirrors the Include-ST resolver's "all rows inactive →
+        # fall back to the value" behaviour), so dropping it would wrongly
+        # delete the whole constraint.
+        #
+        # Verified on CEN PCP DATOS20251005 ``Reg_SouthZone``: base
+        # RHS=320 + untagged H11-17→230 win, while tagged H9-10→196.6 and
+        # H18-20→187.42 (inactive scenario 4157) are suppressed —
+        # PLEXOS's solution RHS is exactly {320, 230}, NOT the 4-level
+        # profile gtopt emitted before this filter.  Conversely
+        # ``CTF_DownMinProvision`` carries a SINGLE tier-2 row (293, tag
+        # 4114): PLEXOS still applies it, so it is kept.
+        _kept = [r for r in rhs_rows if _row_tier(r) < 2]
+        if _kept:
+            rhs_rows = _kept
         rhs_val = _horizon_value(rhs_rows, horizon_start, prefer_min=True)
         # PLEXOS timeslice tags (``<t_text class_id=76>``: ``H16-20``,
         # ``H1-8,H20-24``, ``W2-6,H8-21``) modulate individual RHS rows
