@@ -214,7 +214,7 @@ def test_run_audit_end_to_end_minimal(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # B2 RHS-scale-mismatch bucket — range-overlap + binding guard
 # ---------------------------------------------------------------------------
-def _run_b2(
+def _run_audit_buckets(
     tmp_path: Path,
     *,
     name: str,
@@ -222,12 +222,12 @@ def _run_b2(
     rhs_values: list[float],
     price: float = 5.0,
     binding: float = 4.0,
-) -> list[dict]:
-    """Build a one-constraint bundle and return its B2 bucket items.
+) -> dict:
+    """Build a one-constraint bundle and return ALL audit buckets.
 
     ``rhs_values`` are the per-block PLEXOS RHS rows (their min/max form
     the PLEXOS value range); ``price``/``binding`` populate the shadow
-    price and binding-hours the B2 guard checks.
+    price and binding-hours the guards check.
     """
     pampl_dir = tmp_path / "gtopt"
     pampl_dir.mkdir()
@@ -269,7 +269,27 @@ def _run_b2(
             hard_list=None,
         )
     )
-    return res.buckets.get("B2_rhs_mismatch", [])
+    return res.buckets
+
+
+def _run_b2(
+    tmp_path: Path,
+    *,
+    name: str,
+    pampl_def: str,
+    rhs_values: list[float],
+    price: float = 5.0,
+    binding: float = 4.0,
+) -> list[dict]:
+    """Return only the ``B2_rhs_mismatch`` items for the one-constraint bundle."""
+    return _run_audit_buckets(
+        tmp_path,
+        name=name,
+        pampl_def=pampl_def,
+        rhs_values=rhs_values,
+        price=price,
+        binding=binding,
+    ).get("B2_rhs_mismatch", [])
 
 
 def test_b2_flags_true_scale_mismatch(tmp_path: Path) -> None:
@@ -347,3 +367,47 @@ def test_b2_suppresses_never_binding(tmp_path: Path) -> None:
         binding=0.0,
     )
     assert not items
+
+
+def test_b2_skips_battery_shutoff_activity_echo(tmp_path: Path) -> None:
+    # GEN_BAT_*/LOAD_BAT_* are charge/discharge shut-off rows gtopt correctly
+    # emits as rhs 0.  PLEXOS echoes the battery's moving ACTIVITY back as the
+    # row "RHS" (pid 3073 == activity), so a naive compare reads gtopt-fixed-0
+    # vs PLEXOS-varying.  B2 must skip the family (same as B9).
+    items = _run_b2(
+        tmp_path,
+        name="GEN_BAT_BOLERO_FV",
+        pampl_def='constraint GEN_BAT_BOLERO_FV: 1 * x("a") <= 0;',
+        rhs_values=[0.0, 13.537, 46.989, 77.615, 93.977],
+    )
+    assert not items
+
+
+def test_b2_skips_gtopt_date_window_sentinel(tmp_path: Path) -> None:
+    # gtopt's date-window overlay emits the real limit on active blocks and a
+    # no-limit sentinel (100000) on inactive ones; PLEXOS reports only the
+    # active value.  The sentinel must be filtered from BOTH sides, else
+    # gtopt's [450, 100000] vs PLEXOS [450] is a spurious mismatch.
+    items = _run_b2(
+        tmp_path,
+        name="SDCF_Rx1_norte_a_sur",
+        pampl_def='constraint SDCF_Rx1_norte_a_sur rhs [450, 100000]: 1 * x("a") <= 450;',
+        rhs_values=[450.0, 450.0],
+    )
+    assert not items
+
+
+def test_b6_no_false_positive_from_solution_shadow_price(tmp_path: Path) -> None:
+    # PLEXOS reports a non-zero SOLUTION shadow price (its global
+    # infeasibility-relaxation dual) on a hard gtopt constraint — but ships no
+    # INPUT penalty.  B6 must NOT flag it from the shadow price alone (it is
+    # gated on ``input_penalty``, absent from the RES solution cache).
+    buckets = _run_audit_buckets(
+        tmp_path,
+        name="Tx_Jadresic_I",
+        pampl_def='constraint Tx_Jadresic_I: 1 * x("a") <= 100;',
+        rhs_values=[100.0, 100.0],
+        price=320.7,
+        binding=11.0,
+    )
+    assert not buckets.get("B6_soft_in_plexos_hard_in_gtopt", [])

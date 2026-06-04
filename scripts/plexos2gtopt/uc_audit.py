@@ -651,15 +651,26 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             and p["price_sum_abs"] > 0.0
             and p["hours_binding_sum"] > 0
             and categorise(name) not in NATIVE_PRIMITIVE_FAMILIES
+            # GEN_BAT_*/LOAD_BAT_* are battery charge/discharge shut-off rows
+            # gtopt correctly emits as ``rhs [0,0,…]``; PLEXOS echoes the
+            # battery's moving ACTIVITY back as the row "RHS" (solution pid
+            # 3073 ≡ activity pid 3069), so a direct compare spuriously reads
+            # gtopt-fixed-0 vs PLEXOS-varying.  Skip them here exactly as B9
+            # already does (see project_bat_cf_comp_activity_flow).
+            and not name.startswith(("GEN_BAT_", "LOAD_BAT_"))
         ):
-            g_vals = list(g["rhs_profile"]) if g["rhs_profile"] else [g["rhs_scalar"]]
+            g_raw = list(g["rhs_profile"]) if g["rhs_profile"] else [g["rhs_scalar"]]
             p_raw = p.get("rhs_values") or [p["rhs_min"], p["rhs_max"]]
-            # Drop PLEXOS contingency-off no-limit sentinels (±10000 / ±100000):
-            # placeholders for "unconstrained", not real RHS levels, so they
-            # must not count as a distinct value (the gtopt cap legitimately
-            # sits below them).  Skip the row when PLEXOS is all-sentinel.
+            # Drop the contingency-off no-limit sentinels (±10000 / ±100000)
+            # from BOTH sides: they are "unconstrained" placeholders, not real
+            # RHS levels.  gtopt's ``rhs_date_overlay`` emits the real limit on
+            # active blocks and a sentinel on inactive ones, while PLEXOS only
+            # reports the active-block value — so filtering only PLEXOS (the
+            # old behaviour) left gtopt's sentinel as a spurious extra distinct
+            # level (the SDCF_Rx*/SD_*/IL_*_Capacity false positives).
+            g_vals = [v for v in g_raw if not _is_nolimit_sentinel(v)]
             p_vals = [v for v in p_raw if not _is_nolimit_sentinel(v)]
-            if p_vals:
+            if p_vals and g_vals:
                 g_dist = _distinct_values(g_vals)
                 p_dist = _distinct_values(p_vals)
                 flattened = len(g_dist) == 1 and len(p_dist) > 1
@@ -692,26 +703,39 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 {"name": name, "gtopt_penalty": pv}
             )
 
-        # B6: PLEXOS treats as soft (binding with slack), gtopt enforces hard
+        # B6: PLEXOS MODELS the constraint as soft (a real per-constraint
+        # violation penalty) while gtopt enforces it hard.
+        #
+        # Gated on the PLEXOS *input* penalty, NOT a solution shadow price.
+        # The previous gate fired on ``price_sum_abs > 0`` — but that
+        # solution-side dual is PLEXOS's GLOBAL infeasibility-relaxation
+        # shadow price: PLEXOS relaxes generic constraints at a uniform
+        # internal penalty to avoid returning INFEASIBLE and reports slack +
+        # a shadow price on ANY binding row.  It is NOT evidence of a modeled
+        # soft constraint.  Verified directly against the input DBs: PLEXOS
+        # ships ZERO ``Penalty Price`` (pid 4393) / ``Penalty Quantity``
+        # (pid 4392) on all 1069 constraints, so every shadow-price hit was a
+        # false positive — gtopt's hard encoding is faithful and there is no
+        # penalty to port (cf. the no-invented-min-offtake /
+        # no-objective-cost-for-physical-limits rules).
+        #
+        # The reliable signal is the INPUT penalty (``input_penalty``), which
+        # the RES *solution* cache does not carry — so B6 stays correctly
+        # empty here until ``build_plexos_solution`` is given input-side
+        # penalty data.  When it is, this gate fires only on genuinely
+        # modeled-soft rows.
+        plexos_input_penalty = float(p.get("input_penalty", 0.0))
         if (
             name not in hard_list
             and pen_class == "hard"
             and not p["plexos_hard_solved"]
-            # Require PLEXOS to have actually PAID for the slack (price > 0).
-            # ``slack_sum_abs > 0`` alone is NOT enough: PLEXOS reports the
-            # natural ``RHS − LHS`` gap as "slack" on every row, INCLUDING
-            # inactive contingency rows (Include in ST Schedule = 0) that
-            # the LP never enforces.  Without the ``price > 0`` guard the
-            # audit floods B6 with ~380 inactive SD_* rows.  Only when
-            # PLEXOS reports a non-zero shadow price has the LP genuinely
-            # paid for the slack — that's the meaningful "PLEXOS soft"
-            # signal.
-            and p["price_sum_abs"] > 0.0
+            and plexos_input_penalty > 0.0
             and p["hours_binding_sum"] > 0
         ):
             buckets["B6_soft_in_plexos_hard_in_gtopt"].append(
                 {
                     "name": name,
+                    "plexos_input_penalty": plexos_input_penalty,
                     "plexos_slack": p["slack_sum_abs"],
                     "plexos_price": p["price_sum_abs"],
                     "plexos_hours_binding": p["hours_binding_sum"],
