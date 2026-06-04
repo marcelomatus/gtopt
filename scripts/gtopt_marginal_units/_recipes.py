@@ -22,7 +22,7 @@ from typing import Optional
 from gtopt_canonical_feed import Topology
 from gtopt_marginal_units._reconstruct import ZoneR3Result
 from gtopt_marginal_units._zones import is_phantom_bus
-from gtopt_marginal_units.constants import FormulaKind, Tolerances
+from gtopt_marginal_units.constants import FormulaKind, GeneratorKind, Tolerances
 from gtopt_marginal_units.errors import AttributionError
 
 
@@ -260,6 +260,19 @@ class RecipeRow:
     #   "n/a"              — formula_kind ≠ SINGLE_UNIT/TIED_UNITS
     loss_factor_raw: float = 1.0
     loss_factor_status: str = "n/a"
+    # True when EVERY marginal unit is a "pure power" zero-MC
+    # renewable (solar, wind, run-of-river hydro — kind="profile").
+    # The LP elects these as marginal when they're INTERIOR (between 0
+    # and pmax), so they have headroom: +1 MWh of incremental demand
+    # CAN be served by ramping them up, costing zero direct emission.
+    # The consequential walk-up should NOT fire in this case — the
+    # physically-correct marginal emission is the direct value (= 0).
+    # Walk-up DOES apply when the marginal is storage (battery,
+    # reservoir hydro) or cogen — those units cannot absorb
+    # incremental demand (storage has cross-block energy balance,
+    # cogen self-dispatches from an industrial process), so the
+    # backfill thermal is the real carbon-marginal.
+    marginal_all_profile: bool = False
     # Per-cell negative-LMP audit (independent of loss_factor_*).
     # When the zone's lambda_z went negative we always clamp the
     # recipe row's r_lmp and r_em to 0; ``negative_lmp_kind`` records
@@ -312,21 +325,31 @@ class RecipeRow:
             base["negative_lmp_kind"] = str(self.negative_lmp_kind)
             # Effective per-cell marginal emission rate — the column
             # downstream tools (battery balance, arbitrage, dashboards)
-            # SHOULD use to attribute CO2 at this bus.  Defined as:
-            #   * direct    when the LP marginal already emits
-            #     (recomputed_emission_intensity > 0 ⇒ a real
-            #     dispatching thermal sets the price)
-            #   * consequential   otherwise (hydro/storage marginal with
-            #     zero direct emission; the walked-up next-up thermal
-            #     captures the "marginal carbon if demand grew by 1
-            #     MWh").  Issue #1 light fix: 3,093 zero_srmc_hydro
-            #     cells in jan18 have direct=0 but cons ≈ 0.6-1.2
-            #     tCO2/MWh — using cons here gives consumers the
-            #     economically-meaningful number without needing
-            #     a conditional join on loss_factor_status.
-            base["effective_emission_intensity_t_per_mwh"] = (
-                direct if direct > 0.0 else cons
-            )
+            # SHOULD use to attribute CO2 at this bus.  Defined per
+            # marginal-unit kind:
+            #
+            #   * direct    when the LP marginal is a real combustion
+            #     thermal (``direct > 0``) — the marginal MWh costs
+            #     exactly the unit's own emission factor.
+            #   * direct (= 0) when EVERY marginal unit is a pure-power
+            #     zero-MC renewable (kind="profile": solar / wind / RoR).
+            #     The LP elects them as marginal only when INTERIOR
+            #     (between 0 and pmax), so they have headroom — +1 MWh
+            #     of demand is served by ramping them up, costing zero
+            #     direct emission.  Consequential walk-up does NOT
+            #     apply: it would mis-attribute the next-up thermal's
+            #     EF when the physical answer is genuinely zero.
+            #   * consequential   otherwise (storage marginal: battery,
+            #     reservoir hydro; or cogen marginal — units that
+            #     CANNOT absorb incremental demand: storage binds the
+            #     cross-block energy balance, cogen self-dispatches
+            #     from an industrial process).  The walked-up next-up
+            #     thermal captures the "marginal carbon if demand grew
+            #     by 1 MWh" via the displacement chain.
+            if direct > 0.0 or self.marginal_all_profile:
+                base["effective_emission_intensity_t_per_mwh"] = direct
+            else:
+                base["effective_emission_intensity_t_per_mwh"] = cons
         return base
 
 
@@ -913,6 +936,21 @@ def build_recipes_for_cell(
                 cons_scale = 1.0 / (1.0 - lf) if 0.0 <= lf < 1.0 else 1.0
                 cons_rate = cons_rate * cons_scale
 
+        # Pure-power detection: EVERY marginal unit is kind="profile"
+        # (solar / wind / RoR — zero-MC renewable with headroom).  In
+        # that case the LP-elected marginal IS the carbon-marginal: +1
+        # MWh of demand is served by ramping the renewable up, costing
+        # zero direct emission.  Consequential walk-up must NOT fire
+        # — see ``RecipeRow.to_dict`` and the ``marginal_all_profile``
+        # field docstring for the full kind-aware decision matrix.
+        marginal_all_profile = bool(marginal_uids) and all(
+            (
+                gen_by_uid.get(int(u)) is not None
+                and gen_by_uid[int(u)].kind == GeneratorKind.PROFILE.value
+            )
+            for u in marginal_uids
+        )
+
         emission_rows.append(
             RecipeRow(
                 cell_key=cell_key,
@@ -930,6 +968,7 @@ def build_recipes_for_cell(
                 loss_factor_raw=loss_raw,
                 loss_factor_status=loss_status,
                 negative_lmp_kind=negative_lmp_kind,
+                marginal_all_profile=marginal_all_profile,
             )
         )
 
