@@ -63,6 +63,72 @@ def test_auto_promote_min_only_creates_commitment_and_drops_uc() -> None:
     assert "ANTUCOmin" in dropped
 
 
+def test_auto_promote_min_carries_varying_rhs_profile() -> None:
+    """A per-day varying ``min`` RHS lands on ``Commitment.pmin_profile``.
+
+    ``Hydro_AntucoBounds.csv`` ships ``ANTUCOmin`` stepping 83.30 → 82.84
+    over the week; that variation rides on ``uc.rhs_profile`` and must
+    reach the native Commitment as ``pmin_profile`` (not be flattened to
+    the day-1 scalar).  The scalar ``pmin`` stays as the day-1 fallback.
+    """
+    profile = (83.30, 83.30, 82.84, 82.84)
+    base_ucs = (
+        UserConstraintSpec(
+            name="ANTUCOmin",
+            expression='1.0 * generator("ANTUCO_U1").generation >= 83.30',
+            rhs_profile=profile,
+        ),
+    )
+    new_commits, _ = _auto_promote_hydro_min_max_to_commitments(
+        base_ucs=base_ucs,
+        hydro_ucs=(),
+        generators=(_hydro_gen("ANTUCO_U1", pmax=200.0),),
+        existing_commitments=(),
+    )
+    assert len(new_commits) == 1
+    c = new_commits[0]
+    assert c.pmin == 83.30  # day-1 scalar fallback preserved
+    assert c.pmin_profile == profile  # per-day variation carried through
+
+
+def test_auto_promote_min_constant_profile_stays_empty() -> None:
+    """A CONSTANT ``rhs_profile`` collapses — scalar ``pmin`` covers it."""
+    base_ucs = (
+        UserConstraintSpec(
+            name="ANTUCOmin",
+            expression='1.0 * generator("ANTUCO_U1").generation >= 20.0',
+            rhs_profile=(20.0, 20.0, 20.0, 20.0),
+        ),
+    )
+    new_commits, _ = _auto_promote_hydro_min_max_to_commitments(
+        base_ucs=base_ucs,
+        hydro_ucs=(),
+        generators=(_hydro_gen("ANTUCO_U1"),),
+        existing_commitments=(),
+    )
+    assert len(new_commits) == 1
+    c = new_commits[0]
+    assert c.pmin == 20.0
+    assert c.pmin_profile == ()  # all-equal profile mirrors writer guard
+
+
+def test_auto_promote_min_no_profile_stays_empty() -> None:
+    """A scalar-only ``min`` UC (empty ``rhs_profile``) → empty profile."""
+    base_ucs = (
+        UserConstraintSpec(
+            name="ANTUCOmin",
+            expression='1.0 * generator("ANTUCO_U1").generation >= 20.0',
+        ),
+    )
+    new_commits, _ = _auto_promote_hydro_min_max_to_commitments(
+        base_ucs=base_ucs,
+        hydro_ucs=(),
+        generators=(_hydro_gen("ANTUCO_U1"),),
+        existing_commitments=(),
+    )
+    assert new_commits[0].pmin_profile == ()
+
+
 def test_auto_promote_min_and_max_combines_into_one_commitment() -> None:
     """``ANTUCOmin``+``ANTUCOmax`` → single Commitment(pmin=20).
 

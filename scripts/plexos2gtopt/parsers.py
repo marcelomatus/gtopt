@@ -22,6 +22,7 @@ import functools
 import logging
 import math
 import re
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -9860,6 +9861,57 @@ def _parse_single_gen_uc(expression: str) -> tuple[str, float, str, float] | Non
     return m["gen"], coeff, m["op"], rhs
 
 
+def _varying_profile_or_empty(
+    profile: tuple[float, ...] | None,
+) -> tuple[float, ...]:
+    """Return ``profile`` only when it actually varies, else ``()``.
+
+    Mirrors the writer's ``max(profile) != min(profile)`` guard: an
+    all-equal profile carries no information beyond the scalar bound,
+    so it is collapsed to the empty tuple (the writer then keeps the
+    inline scalar).
+    """
+    if not profile:
+        return ()
+    return profile if max(profile) != min(profile) else ()
+
+
+def _combine_bound_profiles(
+    acc: tuple[float, ...] | None,
+    rhs_profile: tuple[float, ...],
+    rhs: float,
+    *,
+    reducer: Callable[[float, float], float],
+) -> tuple[float, ...]:
+    """Element-wise combine a per-hour bound profile into ``acc``.
+
+    The common case is exactly one UC per ``(gen, kind)`` so this just
+    returns ``rhs_profile`` (or broadcasts the scalar ``rhs`` when the
+    UC has no per-hour profile).  When MULTIPLE UCs target the same
+    ``(gen, kind)`` the profiles are combined element-wise with
+    ``reducer`` (``max`` for pmin, ``min`` for pmax) — consistent with
+    the scalar aggregation rule.  An empty incoming profile is
+    broadcast from its scalar across the accumulator's horizon so the
+    element-wise combine stays well-defined.
+    """
+    incoming = rhs_profile
+    if acc is None:
+        # First UC for this (gen, kind): carry its profile verbatim
+        # (empty when the bound is constant — handled by the caller's
+        # ``_varying_profile_or_empty`` guard at construction time).
+        return incoming
+    if not acc and not incoming:
+        return ()
+    horizon = max(len(acc), len(incoming))
+    acc_full = acc if acc else (rhs,) * horizon
+    inc_full = incoming if incoming else (rhs,) * horizon
+    if len(acc_full) != len(inc_full):
+        # Mismatched horizons (should not happen for a single case) —
+        # fall back to the longer one untouched rather than guess.
+        return acc_full if len(acc_full) >= len(inc_full) else inc_full
+    return tuple(reducer(a, b) for a, b in zip(acc_full, inc_full, strict=True))
+
+
 def _auto_promote_hydro_min_max_to_commitments(
     base_ucs: tuple[UserConstraintSpec, ...],
     hydro_ucs: tuple[UserConstraintSpec, ...],
@@ -9894,8 +9946,15 @@ def _auto_promote_hydro_min_max_to_commitments(
         return ((), frozenset())
     committed: set[str] = {c.generator_name for c in existing_commitments}
 
-    # Index base UCs by (stem, kind) -> [(gen_name, op, rhs, uc_name)].
-    by_stem: dict[tuple[str, str], list[tuple[str, str, float, str]]] = {}
+    # Index base UCs by (stem, kind) ->
+    #   [(gen_name, op, rhs, uc_name, rhs_profile)].
+    # ``rhs_profile`` carries the per-hour varying bound (length
+    # 24 × n_days, empty ``()`` when the bound is constant) so the
+    # native Commitment can reproduce the per-day discharge floor /
+    # cap instead of flattening the horizon to the day-1 scalar.
+    by_stem: dict[
+        tuple[str, str], list[tuple[str, str, float, str, tuple[float, ...]]]
+    ] = {}
     for uc in base_ucs:
         m = _HYDRO_MIN_MAX_RE.match(uc.name)
         if m is None:
@@ -9914,7 +9973,9 @@ def _auto_promote_hydro_min_max_to_commitments(
         if gen_name in committed:
             continue
         stem, kind = m["stem"], m["kind"]
-        by_stem.setdefault((stem, kind), []).append((gen_name, op, rhs, uc.name))
+        by_stem.setdefault((stem, kind), []).append(
+            (gen_name, op, rhs, uc.name, uc.rhs_profile)
+        )
 
     if not by_stem:
         return ((), frozenset())
@@ -9922,14 +9983,27 @@ def _auto_promote_hydro_min_max_to_commitments(
     # Group across kinds: per generator collect (pmin, pmax, source-stem).
     pmin_by_gen: dict[str, float] = {}
     pmax_by_gen: dict[str, float] = {}
+    # Per-gen per-hour FLOOR profile (length 24 × n_days).  The native
+    # Commitment carries the ``min`` profile as ``pmin_profile`` (the
+    # writer emits it as a per-block TB schedule).  The ``max`` profile
+    # is deliberately NOT collected: it has no Commitment home —
+    # ``Generator.pmax`` already caps the upper bound and the max UC is
+    # promoted only to drop the now-redundant constraint.
+    pmin_profile_by_gen: dict[str, tuple[float, ...]] = {}
     stem_by_gen: dict[str, str] = {}
     drop_base_uc_names: set[str] = set()
     drop_stems: set[str] = set()
     for (stem, kind), rows in by_stem.items():
-        for gen_name, op, rhs, uc_name in rows:
+        for gen_name, op, rhs, uc_name, rhs_profile in rows:
             stem_by_gen.setdefault(gen_name, stem)
             if kind == "min" and op == ">=":
                 pmin_by_gen[gen_name] = max(pmin_by_gen.get(gen_name, 0.0), rhs)
+                pmin_profile_by_gen[gen_name] = _combine_bound_profiles(
+                    pmin_profile_by_gen.get(gen_name),
+                    rhs_profile,
+                    rhs,
+                    reducer=max,
+                )
                 drop_base_uc_names.add(uc_name)
                 drop_stems.add(stem)
             elif kind in ("max", "maxramp") and op == "<=":
@@ -9961,20 +10035,28 @@ def _auto_promote_hydro_min_max_to_commitments(
     for gen_name in sorted(stem_by_gen):
         pmin = pmin_by_gen.get(gen_name, 0.0)
         pmax = pmax_by_gen.get(gen_name, 0.0)
+        # Carry the per-day varying floor as ``pmin_profile`` so the
+        # writer emits a per-block TB schedule (the discharge bounds in
+        # e.g. ``Hydro_AntucoBounds.csv`` step down across the week).
+        # Mirror the writer's ``max != min`` guard: an all-equal profile
+        # adds nothing over the scalar ``pmin``, so leave it empty.
+        pmin_profile = _varying_profile_or_empty(pmin_profile_by_gen.get(gen_name))
         new_commitments.append(
             CommitmentSpec(
                 generator_name=gen_name,
                 pmin=pmin,
+                pmin_profile=pmin_profile,
                 initial_status=1.0,
             )
         )
         logger.info(
             "auto-promoted hydro min/max UC for stem %s to Commitment(%s) "
-            "pmin=%g pmax=%g",
+            "pmin=%g pmax=%g%s",
             stem_by_gen[gen_name],
             gen_name,
             pmin,
             pmax,
+            " (per-block pmin schedule)" if pmin_profile else "",
         )
 
     drop_names = frozenset(drop_base_uc_names | drop_discharge_names)
