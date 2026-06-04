@@ -6765,6 +6765,19 @@ _DAILY_ENERGY_RHS_SCALE = 1000.0
 #: Fix 6 inactive-stub path).
 _SD_NOLIMIT_RHS_SENTINEL = 10000.0
 
+#: PLEXOS emits its "no-limit / contingency-off" RHS values at exact
+#: round-magnitude sentinels: ``10000`` (soft) and ``100000`` (hard).
+#: Anything BETWEEN these two values (e.g. ``CFRS_PEHUENCHE = 51515.1``)
+#: is a *real* MW cap a CEN aggregate may bind on at peak, NOT a
+#: sentinel — flagging it inactive silently disables a constraint
+#: PLEXOS actively binds (verified 2026-06-03 against PCP_RES_20260118:
+#: CFRS_PEHUENCHE bound 126.5 GWh at $38.38/MWh on hour 1).  Match
+#: with a tight relative tolerance instead of the open-ended
+#: ``>= _SD_NOLIMIT_RHS_SENTINEL`` threshold so legitimate large caps
+#: stay active.
+_SD_NOLIMIT_EXACT_SENTINELS: tuple[float, ...] = (10000.0, 100000.0)
+_SD_NOLIMIT_REL_TOL: float = 1e-6
+
 
 #: LHS variable kinds that may appear in a sentinel-pattern constraint —
 #: all represent physical MW magnitudes that a 10000 / 100000 MW aggregate
@@ -6808,7 +6821,13 @@ def _is_nolimit_line_sentinel(expression: str, rhs_val: float) -> bool:
     # variable terms at all is not a sentinel — likely a parser bug).
     if not any(kind in expression for kind in _SENTINEL_MW_KINDS):
         return False
-    return abs(rhs_val) >= _SD_NOLIMIT_RHS_SENTINEL
+    # Match the EXACT sentinel values (10000 and 100000) with a tight
+    # relative tolerance.  Any other large RHS (e.g.  ``51515.1``) is a
+    # legitimate cap PLEXOS may bind on — don't silently disable it.
+    abs_rhs = abs(rhs_val)
+    return any(
+        abs(abs_rhs - s) <= _SD_NOLIMIT_REL_TOL * s for s in _SD_NOLIMIT_EXACT_SENTINELS
+    )
 
 
 _GAS_MAXOPDAY_NAME_RE = re.compile(r"^Gas_MaxOpDay(\d+)_(.+)$")

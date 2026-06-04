@@ -16,6 +16,7 @@ from pathlib import Path
 
 from gtopt_shared.cli_flags import (
     add_lift_line_caps_argument,
+    add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
     add_use_single_bus_argument,
 )
@@ -393,7 +394,18 @@ def make_parser() -> argparse.ArgumentParser:
             "line_losses.cpp seg_geom docstring)."
         ),
     )
-    add_loss_cost_eps_argument(parser, dialect="plexos")
+    # plexos2gtopt default = 0.1 ($/MWh) — strictly breaks PWL-loss
+    # bidirectional-flow degeneracy AND removes the lossp/lossn duals
+    # that, under the legacy 0.0, were exhibiting kappa contributions
+    # from the per-direction columns (ratio 5.77e+05 on jan18 LP-relax).
+    add_loss_cost_eps_argument(parser, dialect="plexos", default=0.1)
+    # plexos2gtopt default = "tangent_signed_flow" (Coffrin outer
+    # approximation): one signed flow column + K=6 tangents + 1 chord
+    # upper bound per (line, block); 56 % fewer LP nonzeros than the
+    # legacy `bidirectional` (`fp/fn/lossp/lossn`) model AND no
+    # phantom-flow degeneracy by construction.  K=6 is the default
+    # tangent count (driven by `--nseg-losses=6` below).
+    add_line_losses_mode_argument(parser, default="tangent_signed_flow")
     parser.add_argument(
         "--emin-eod-day1",
         dest="emin_eod_day1",
@@ -470,17 +482,17 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nseg-losses",
         type=int,
-        default=None,
+        default=6,
         help=(
-            "Piecewise-linear loss-segment count.  Interpretation depends "
-            "on ``--loss-error-pct``:\n"
+            "Piecewise-linear loss-segment / tangent count.  Default = **6** "
+            "(the K parameter for the Coffrin ``tangent_signed_flow`` model, "
+            "and the per-direction PWL-segment count under legacy modes).  "
+            "Interpretation depends on ``--loss-error-pct``:\n"
             "  * Adaptive mode (default, ``--loss-error-pct > 0``): "
             "``--nseg-losses`` is the CEILING on the per-line K computed "
-            "by the cube-root rule (``K_i ∝ L_max,i^(1/3)``).  When not "
-            "set, ceiling defaults to **6**.\n"
+            "by the cube-root rule (``K_i ∝ L_max,i^(1/3)``).\n"
             "  * Uniform mode (``--loss-error-pct 0``): every lossy line "
-            "gets exactly ``--nseg-losses`` segments.  When not set, "
-            "uniform K defaults to **4** (the historic CEN PCP value).\n"
+            "gets exactly ``--nseg-losses`` segments.\n"
             "Floor is always 2 (a single secant is degenerate).  "
             "L_max,i = R·fmax² (peak loss MW); global scale c = √(S/(4·B)) "
             "with S = Σ L^(1/3) and B = ``--loss-error-pct × Σ L_max``.  "

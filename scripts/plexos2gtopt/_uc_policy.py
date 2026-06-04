@@ -101,6 +101,27 @@ def _references_commitment(expression: str) -> bool:
     return "commitment(" in expression
 
 
+def _is_pure_commitment(expression: str) -> bool:
+    """LHS references ONLY ``commitment(...)`` terms.
+
+    PLEXOS pure-commitment constraints (``Campiche_starting``,
+    ``NVentanas_starting``, ``*_Comparison``, …) are operational
+    on/off / startup / status pins — almost always binding in PLEXOS
+    with zero slack.  Mixed-atom constraints (commitment + line.flow
+    or commitment + reserve_provision) can be soft (PLEXOS pays
+    slack — verified 2026-06-03 on jan18 audit for SD_*_Tocopilla,
+    PandeAzucar_Polpaico_CC, NRenca_SSCC_FA, CSF_LW_MIN_BAT_DON_*).
+    """
+    return (
+        "commitment(" in expression
+        and "line(" not in expression
+        and "generator(" not in expression
+        and "battery(" not in expression
+        and "reserve_provision(" not in expression
+        and "decision_variable(" not in expression
+    )
+
+
 def _is_reserve_provision_sum(constraint_name: str, expression: str) -> bool:
     """LHS is a reserve-provision aggregation (CSF/CPF/CTF *MinProvision* /
     *Calculation*).
@@ -301,11 +322,23 @@ def classify(
             directive=ConstraintDirective(kind=kind, penalty=RESERVE_PROV_SUM),
         )
 
-    # 4e — pure line flow / commitment-referencing → HARD.
-    if _references_commitment(expression) or _is_pure_line_flow(expression):
+    # 4e — pure-shape HARD branches.  PLEXOS keeps these binding with
+    # zero slack (verified on CEN PCP audits):
+    #   * pure-line-flow contingency / shadow-line rows;
+    #   * pure-commitment startup / status / *_Comparison pins
+    #     (``Campiche_starting``, ``NVentanas_starting``, …).
+    # MIXED-atom constraints (commitment + continuous variables) are
+    # NOT uniformly hard — the jan18 audit found 4 commitment-mixed
+    # rows that PLEXOS solves soft (SD_*_Tocopilla = gen+commit,
+    # PandeAzucar_Polpaico_CC = line+commit, NRenca_SSCC_FA / CSF_LW_*
+    # = reserve_provision+commit).  Audit-confirmed hard mixed rows
+    # stay HARD via 4b's ``hard_set`` lookup; the rest fall through to
+    # 4f's operational soft tier.
+    if _is_pure_line_flow(expression) or _is_pure_commitment(expression):
         return _Outcome(penalty=0.0, directive=None)
 
-    # 4f — catch-all hydro / generator floor.
+    # 4f — catch-all hydro / generator floor / mixed-atom rows without
+    # an audit-confirmed HARD listing.
     return _Outcome(penalty=HYDRO_SOFT, directive=None)
 
 

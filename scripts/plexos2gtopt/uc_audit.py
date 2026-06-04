@@ -699,6 +699,15 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             }
         )
 
+    # The B10 bucket promotes PLEXOS Constraints that gtopt encodes via
+    # entity LP primitives (``Battery.max_cycles_day``, ``Fuel.max_offtake``,
+    # ``Commitment.max_starts_week``) instead of UserConstraints — these
+    # ARE enforced in the LP, the UC name just doesn't appear.  Subtract
+    # their count from the "real missing" tally so the summary doesn't
+    # double-count them as data loss.
+    n_b10_native = sum(
+        int(item.get("count", 0)) for item in buckets["B10_native_primitive"]
+    )
     summary = {
         "n_plexos": len(plexos_names),
         "n_gtopt_pampl": len(gtopt_pampl),
@@ -706,6 +715,8 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         "n_gtopt_total": len(gtopt_all),
         "n_intersection": len(intersection),
         "n_missing_from_gtopt": len(missing_from_gtopt),
+        "n_missing_real": len(missing_from_gtopt) - n_b10_native,
+        "n_missing_native_primitive": n_b10_native,
         "n_synthetic_in_gtopt": len(synthetic_in_gtopt),
         "n_duplicates_in_gtopt": len(duplicates),
         "bucket_counts": {k: len(v) for k, v in buckets.items()},
@@ -733,7 +744,15 @@ def _print_summary(result: AuditResult) -> None:
         f"({s['n_gtopt_pampl']} PAMPL + {s['n_gtopt_json']} JSON)"
     )
     print(f"intersection (compared):   {s['n_intersection']}")
-    print(f"missing from gtopt:        {s['n_missing_from_gtopt']}")
+    n_b10 = s.get("n_missing_native_primitive", 0)
+    n_real = s.get("n_missing_real", s["n_missing_from_gtopt"])
+    if n_b10:
+        print(
+            f"missing from gtopt:        {s['n_missing_from_gtopt']} "
+            f"({n_real} REAL + {n_b10} encoded as native primitives, see B10)"
+        )
+    else:
+        print(f"missing from gtopt:        {s['n_missing_from_gtopt']}")
     print(f"synthetic in gtopt:        {s['n_synthetic_in_gtopt']}")
     print(f"duplicate names in gtopt:  {s['n_duplicates_in_gtopt']}")
     if s["hard_list_total"]:
