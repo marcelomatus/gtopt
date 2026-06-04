@@ -620,6 +620,67 @@ def build_recipes_for_cell(
             constant_lmp = 0.0
             constant_em = 0.0
 
+        # Per-bus DEMAND_FAIL override.  The zone-level classifier picks
+        # the formula_kind from the zone's representative LMP, but in
+        # multi-bus zones individual buses can hit demand-fail while
+        # the zone-rep stays at a cheap marginal gen's MC.  Verified
+        # 2026-06-04 on jan18 PLEXOS20260118: 84 cells at
+        # ``lmp_by_bus[bus_uid] ≈ 469 $/MWh`` (= ``demand_fail_cost``
+        # = 467.19 × small loss-factor inflation) were classified
+        # ``single_unit`` with ``recomputed_lmp ≈ $70``, producing a
+        # 400 $/MWh reconstruction error.  Match windows:
+        #   * ABSOLUTE: |bus_LMP − dfc| ≤ tol_price (catches cells where
+        #     the bus LMP is exactly dfc — the canonical PLEXOS VoLL
+        #     row).
+        #   * LOSS-INFLATED: bus_LMP ∈ [dfc, dfc × loss_factor_warn]
+        #     (catches cells where the bus is downstream of the
+        #     demand-fail node and pays a loss-multiplied VoLL,
+        #     typically 1.001 .. 1.05 × dfc).
+        # In both cases use the BUS's actual LP_LMP as ``r_lmp`` — this
+        # is the exact LP-side bus dual including the loss inflation,
+        # not the under-stated dfc constant.
+        bus_lmp_actual = (
+            float(lmp_by_bus[bus_uid])
+            if (lmp_by_bus is not None and bus_uid in lmp_by_bus)
+            else None
+        )
+        # Symmetric loss-factor band around dfc.  Upstream buses
+        # (further from the demand-fail load along the transmission
+        # graph) carry bus_LMP = dfc × (1 − loss_factor), so they land
+        # BELOW dfc.  Downstream / injection-bus copies carry bus_LMP =
+        # dfc × (1 + loss_factor) and land ABOVE.  jan18 empirical
+        # range: 443.76 .. 469.07 against dfc = 467.19 — i.e. ±5 %.
+        # 1.20 (±20 %) is comfortably wider than any single-hop CEN
+        # transmission loss inflation, but TIGHT enough that a real
+        # gas-peaker at $200/MWh or hydro at $300/MWh (in a high-water
+        # scarcity scene) doesn't get mis-classified as demand_fail.
+        # Tighter than ``loss_factor_warn`` (= 2 default — too wide for
+        # this guard) and looser than ``tol_price`` (= 0.01 default —
+        # too tight to catch loss-inflated dfc cells).
+        _DEMAND_FAIL_LOSS_BAND = 1.35
+        if (
+            bus_lmp_actual is not None
+            and dfc > 0.0
+            and (
+                abs(bus_lmp_actual - dfc) <= tol.tol_price
+                or (
+                    dfc / _DEMAND_FAIL_LOSS_BAND
+                    <= bus_lmp_actual
+                    <= dfc * _DEMAND_FAIL_LOSS_BAND
+                )
+            )
+            and kind_str != FormulaKind.DEMAND_FAIL.value
+        ):
+            kind_str = FormulaKind.DEMAND_FAIL.value
+            r_lmp = bus_lmp_actual
+            r_em = 0.0
+            constant_lmp = bus_lmp_actual
+            constant_em = 0.0
+            marginal_uids = []
+            weights = []
+            mcs = []
+            ems = []
+
         # Storage-marginal + negative lambda_z: clamp BOTH price and
         # emission factor to 0 (per user instruction).  Rationale: a
         # negative-LMP cell carries no real economic / carbon signal
