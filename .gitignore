@@ -84,3 +84,6 @@ docs/**/*.out
 *.synctex.gz
 docs/white_paper/*.log
 cases/sddp_hydro_3phase/cuts/
+
+# Regenerated converter output (created on the fly by plexos2gtopt)
+support/new_bess_emissions/reference/PLEXOS20260517.json
