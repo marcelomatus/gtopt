@@ -64,37 +64,42 @@ def _grep_objective(log: Path) -> float | None:
     return val
 
 
-def process_case(case_dir: Path, work: Path, gtopt_bin: str) -> dict:
+def process_case(
+    case_dir: Path, work: Path, gtopt_bin: str, *, lp_relax: bool = True
+) -> dict:
     name = case_dir.name
     d8 = name.replace("pcp_", "").replace("-", "")
     datos = case_dir / f"DATOS{d8}.zip.xz"
-    res: dict = {"case": name, "d8": d8}
+    res: dict = {"case": name, "d8": d8, "mode": "lp-relax" if lp_relax else "mip"}
     if not datos.exists():
         res["error"] = f"missing {datos}"
         return res
 
-    outdir = work / f"gtopt_relax_PLEXOS{d8}"
+    outdir = work / f"gtopt_{'relax' if lp_relax else 'mip'}_PLEXOS{d8}"
     outdir.mkdir(parents=True, exist_ok=True)
-    _log(f"=== {name} ===")
+    _log(f"=== {name} ({res['mode']}) ===")
 
     env = dict(os.environ)
     env["GTOPT_LIFT_LINE_CAPS"] = CAPRICORNIO
     env.setdefault("TMPDIR", str(Path.home() / "tmp"))
 
-    # 1. re-convert with lp-relax + Capricornio lift
+    # 1. re-convert with Capricornio lift; --lp-relax only in LP-relax mode
+    #    (MIP keeps commitment integrality).
+    convert_cmd = [
+        sys.executable,
+        "-m",
+        "plexos2gtopt.main",
+        str(datos),
+        "-o",
+        str(outdir),
+        "--no-check",
+        "--lift-line-caps",
+        CAPRICORNIO,
+    ]
+    if lp_relax:
+        convert_cmd.insert(convert_cmd.index("--no-check") + 1, "--lp-relax")
     res["convert_rc"] = run(
-        [
-            sys.executable,
-            "-m",
-            "plexos2gtopt.main",
-            str(datos),
-            "-o",
-            str(outdir),
-            "--no-check",
-            "--lp-relax",
-            "--lift-line-caps",
-            CAPRICORNIO,
-        ],
+        convert_cmd,
         cwd=SCRIPTS,
         log=outdir / "convert.log",
         env=env,
@@ -149,8 +154,14 @@ def process_case(case_dir: Path, work: Path, gtopt_bin: str) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default=str(Path.home() / "tmp" / "lp_relax_loop"))
+    ap.add_argument("--work", default=None)
     ap.add_argument("--cases", nargs="*")
+    ap.add_argument(
+        "--mip",
+        action="store_true",
+        help="MIP mode: convert WITHOUT --lp-relax (keep commitment "
+        "integrality) and solve the full MIP.  Default is LP-relax.",
+    )
     ap.add_argument(
         "--gtopt-bin",
         default=os.environ.get(
@@ -160,8 +171,11 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    work = Path(args.work)
+    lp_relax = not args.mip
+    default_work = "lp_relax_loop" if lp_relax else "mip_loop"
+    work = Path(args.work) if args.work else (Path.home() / "tmp" / default_work)
     work.mkdir(parents=True, exist_ok=True)
+    report_name = "lp_relax_report.json" if lp_relax else "mip_report.json"
     cases = sorted(d for d in SUPPORT.glob("pcp_*") if d.is_dir())
     if args.cases:
         wanted = set(args.cases)
@@ -170,12 +184,14 @@ def main() -> int:
     report: list[dict] = []
     for case_dir in cases:
         try:
-            report.append(process_case(case_dir, work, args.gtopt_bin))
+            report.append(
+                process_case(case_dir, work, args.gtopt_bin, lp_relax=lp_relax)
+            )
         except Exception as exc:  # noqa: BLE001
             report.append({"case": case_dir.name, "error": repr(exc)})
-        (work / "lp_relax_report.json").write_text(json.dumps(report, indent=2))
+        (work / report_name).write_text(json.dumps(report, indent=2))
 
-    print("\n==== LP-RELAX LOOP SUMMARY ====")
+    print(f"\n==== {'LP-RELAX' if lp_relax else 'MIP'} LOOP SUMMARY ====")
     for r in report:
         print(
             f"{r['case']:18s} conv={r.get('convert_rc')} solve={r.get('solve_rc')} "
