@@ -402,6 +402,39 @@ _LP_OP_RE = re.compile(r"(<=|>=|=)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$")
 NativeKey = tuple[str, str, str]
 
 
+_BESS_RESERVE_ZONE_RE = re.compile(r"^(CPF|CSF|CTF)_(LW|RS)_BESS$")
+
+
+def is_provision_only_bess_reserve_zone(name: str) -> bool:
+    """True when ``name`` is a PLEXOS ``*_BESS`` reserve sub-tracker.
+
+    These zones (``CTF_LW_BESS``, ``CSF_RS_BESS``, …) are PROVISION-ONLY
+    sub-trackers, NOT independent reserve requirements: PLEXOS ships them with
+    ``Min Provision = 0``, ``Min Requirement = 0`` and no ``Res_Requirement.csv``
+    row, so ``extract_reserves`` faithfully emits an empty requirement
+    (``drreq=[0.0]``).  The requirement is carried ONCE on the non-BESS twin
+    (e.g. ``CTF_LW``), and the BESS term contributes 0 to the shared
+    ``*MinProvision`` aggregation.  B11 must DEFER these (their zero requirement
+    is correct) rather than flag a "fold" against the full constraint RHS.
+
+    PLEXOS-doc basis (Energy Exemplar ``Reserve.MinProvision``): Min Provision is
+    the minimum reserve SUPPLIED by designated generators/purchasers — a
+    supply-side floor, distinct from the Risk/requirement.  A zone with
+    provision-eligible batteries but zero Min Provision and zero requirement is a
+    provision-only aggregator feeding the shared parent requirement.
+    """
+    return _BESS_RESERVE_ZONE_RE.match(name) is not None
+
+
+def primary_reserve_zone_for_bess(name: str) -> str | None:
+    """Return the non-BESS twin for a ``*_BESS`` sub-tracker (``CTF_LW_BESS`` →
+    ``CTF_LW``); ``None`` when ``name`` is not a ``*_BESS`` reserve zone."""
+    m = _BESS_RESERVE_ZONE_RE.match(name)
+    if m is None:
+        return None
+    return f"{m.group(1)}_{m.group(2)}"
+
+
 def _reserve_zone_uid_to_name(planning_json: Path) -> dict[int, str]:
     """Map ``reserve_zone_array`` uid → name from the planning JSON."""
     if not planning_json.is_file():
@@ -820,6 +853,18 @@ def _compare_native_element(
     """
     if kind == "commitment":
         src = _commitment_plexos_source(ident, plexos)
+    elif is_provision_only_bess_reserve_zone(ident):
+        # *_BESS zones are PLEXOS provision-only sub-trackers (Min Provision = 0,
+        # no requirement of their own — it is enforced once on the non-BESS twin
+        # that shares the *MinProvision source).  Defer rather than flag the
+        # legitimate zero requirement as a fold.
+        return {
+            "element_kind": kind,
+            "name": ident,
+            "direction": direction,
+            "deferred": "provision-only BESS sub-tracker; requirement on "
+            + (primary_reserve_zone_for_bess(ident) or "primary zone"),
+        }
     else:
         src = _reserve_zone_plexos_source(ident, direction, plexos)
     if src is None:

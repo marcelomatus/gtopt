@@ -16,10 +16,12 @@ from plexos2gtopt.uc_audit import (
     categorise,
     discover_gtopt_lp,
     is_hydro_minmax,
+    is_provision_only_bess_reserve_zone,
     load_hard_list,
     parse_json_ucs,
     parse_lp_native_constraints,
     parse_pampl_file,
+    primary_reserve_zone_for_bess,
     reserve_zone_requirement_series,
     run_audit,
 )
@@ -842,3 +844,35 @@ def test_b6_input_penalty_absent_keeps_b6_empty(tmp_path: Path) -> None:
     )
     assert res.summary["input_penalty_present"] is False
     assert res.buckets.get("B6_soft_in_plexos_hard_in_gtopt", []) == []
+
+
+def test_is_provision_only_bess_reserve_zone() -> None:
+    # The six PLEXOS ``*_BESS`` sub-trackers carry a zero requirement and must
+    # be DEFERRED by B11, not flagged as a fold against the shared
+    # ``*MinProvision`` constraint.
+    for z in (
+        "CPF_LW_BESS",
+        "CPF_RS_BESS",
+        "CSF_LW_BESS",
+        "CSF_RS_BESS",
+        "CTF_LW_BESS",
+        "CTF_RS_BESS",
+    ):
+        assert is_provision_only_bess_reserve_zone(z) is True
+    # The primary (non-BESS) twins carry the real requirement — never deferred.
+    for z in ("CPF_LW", "CSF_RS", "CTF_LW", "CTF_RS"):
+        assert is_provision_only_bess_reserve_zone(z) is False
+    # Unrelated names (a BESS-cycle UC, a battery object) are not zones.
+    assert is_provision_only_bess_reserve_zone("CPF_BESS_ANGAMOS") is False
+    assert is_provision_only_bess_reserve_zone("BAT_TOCOPILLA") is False
+    assert is_provision_only_bess_reserve_zone("CTF_LW_BESS_EXTRA") is False
+
+
+def test_primary_reserve_zone_for_bess() -> None:
+    # Each ``*_BESS`` sub-tracker maps to its non-BESS twin (the requirement
+    # carrier sharing the ``*MinProvision`` source).
+    assert primary_reserve_zone_for_bess("CTF_LW_BESS") == "CTF_LW"
+    assert primary_reserve_zone_for_bess("CSF_RS_BESS") == "CSF_RS"
+    assert primary_reserve_zone_for_bess("CPF_LW_BESS") == "CPF_LW"
+    assert primary_reserve_zone_for_bess("CTF_LW") is None
+    assert primary_reserve_zone_for_bess("CPF_BESS_ANGAMOS") is None
