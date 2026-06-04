@@ -1689,7 +1689,20 @@ def build_battery_array(
         # ``Σ discharge·Δt ≤ N · capacity`` per day — so it needs an
         # explicit ``capacity`` (the usable energy = ``emax``) for the
         # RHS; without it the cap is unbounded and gtopt skips the row.
-        if bat.max_cycles_day > 0.0 and bat.emax > 0.0:
+        # Only emit the cycle cap when it can PHYSICALLY bind.  The discharge-
+        # throughput limit ``Σ discharge·Δt ≤ N·emax`` bounds full cycles/day;
+        # with hourly blocks a 1C battery tops out at 12 cycles/day (1 h charge
+        # + 1 h discharge per cycle), and a sub-1C battery scales by pmax/emax →
+        # ``reachable = 12·pmax_discharge/emax``.  PLEXOS ships "no-limit"
+        # placeholders (e.g. ``Max Cycles Day = 100`` on BAT_VICTOR_JARA at
+        # 0.15C, 54× its physical max of 1.85), which would emit one inert row
+        # per block + a large ``N·emax`` RHS for a constraint that can never
+        # bind.  Drop it — same spirit as the impedance floors: don't model a
+        # limit that nothing can reach.
+        reachable_cycles = (
+            12.0 * bat.pmax_discharge / bat.emax if bat.emax > 0.0 else 0.0
+        )
+        if 0.0 < bat.max_cycles_day < reachable_cycles:
             entry["capacity"] = bat.emax
             entry["max_cycles_day"] = bat.max_cycles_day
         # Default self-discharge for Li-ion BESS — gtopt's
