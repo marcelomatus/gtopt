@@ -78,6 +78,13 @@ DEFAULT_BLOCK_DURATION_H = 1.0
 # stays consistent with the rest of the objective.
 _DEFAULT_OBJ_SCALE = 1000.0
 
+# Soft end-of-horizon penalty ($/MWh) for a daily-cycle battery's return to
+# its initial SoC (``vol_end + slack >= efin``).  Batteries carry no
+# boundary-cut water value, so a fixed moderate price is used: high enough
+# that the LP returns to eini whenever physically possible, low enough that it
+# buys out (bounded by the battery capacity) instead of going infeasible.
+_BATTERY_EFIN_COST = 100.0
+
 # Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
 # Each soft-capped line gets a FREE band up to ``normal × rating`` and the
 # ``_LINE_OVERLOAD_PENALTY`` $/MWh only on flow between ``normal × rating``
@@ -1531,6 +1538,8 @@ def build_demand_array(
 def build_battery_array(
     batteries: tuple[BatterySpec, ...],
     block_layout: tuple[tuple[int, ...], ...] = (),
+    *,
+    apply_default_loss: bool = False,
 ) -> list[dict[str, Any]]:
     """One battery entry per :class:`BatterySpec`.
 
@@ -1598,18 +1607,17 @@ def build_battery_array(
             and bat.emax > 0.0
             and block_layout  # need to know n_blocks per stage
         )
-        if use_cycle_anchor:
-            n_blocks = len(block_layout)
-            emin_blocks = [bat.emin] * n_blocks
-            emax_blocks = [bat.emax] * n_blocks
-            # Pin block 1 hard to eini.
-            emin_blocks[0] = eini
-            emax_blocks[0] = eini
-            # Pin block N hard to eini — full daily-cycle equality.
-            emin_blocks[-1] = eini
-            emax_blocks[-1] = eini
-            emin_field = [emin_blocks]
-            emax_field = [emax_blocks]
+        # Soft-efin (reservoir-like) batteries do NOT pin block 1 (or block N)
+        # via the emin/emax profile.  The initial SoC is the ``eini`` FIELD
+        # (the C++ sini column); the end is the SOFT ``vol_end + slack >=
+        # efin`` row (efin_cost, below).  A block-1 ``emin = eini`` pin is
+        # worse than redundant: with ``strict_storage_emin`` (default true)
+        # the C++ takes the LAST block's lower bound from ``stage_emin`` =
+        # the FIRST block's profile emin, so pinning block 1 to eini
+        # propagates to ``energy[N] >= eini`` and, against ``emax = eini``,
+        # hard-pins ``energy[N] = eini`` — infeasible when a full battery
+        # can't recharge to full (02-15 BAT_ANDES_3_FV).  Leave emin/emax at
+        # their flat [bat.emin, bat.emax] band; ``eini`` anchors the start.
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": bat.name,
@@ -1619,13 +1627,31 @@ def build_battery_array(
             "eini": eini,
             "efin": bat.efin,
         }
+        # SOFT end-of-horizon target, like the reservoir efin: a daily-cycle
+        # battery prefers to return to its initial SoC, but the LP must be
+        # able to end below it (paying ``_BATTERY_EFIN_COST`` $/MWh) rather
+        # than going infeasible.  Batteries carry no boundary-cut water value,
+        # so a fixed moderate penalty is used.
+        if use_cycle_anchor and bat.efin > 0.0:
+            entry["efin_cost"] = _BATTERY_EFIN_COST
         if use_cycle_anchor:
-            # Disable gtopt's auto-cycle ``efin == eini`` anchor —
-            # the per-block emin/emax profiles already encode the
-            # daily-cycle physics.  Leaving ``daily_cycle = true``
-            # (the BatteryLP default) would double-anchor and force
-            # the LP into a strictly tighter region than PLEXOS.
+            # Make the battery behave like a regular RESERVOIR: a KNOWN
+            # initial SoC (``eini``, hard-pinned at block 1 above) plus a
+            # SOFT end target (``efin`` + ``efin_cost``).  Two data flags get
+            # it out of the daily-cycle ``efin == eini`` close:
+            #   * ``daily_cycle = false`` — don't run the cycle physics (the
+            #     default ``true`` would force ``efin == eini`` with eini a
+            #     FREE variable; here eini is a fixed parameter).
+            #   * ``use_state_variable = true`` — route through the
+            #     state-variable storage path (the reservoir path) so the
+            #     hard close is never added; the soft ``vol_end + slack >=
+            #     efin`` row prices ending below target instead of pinning
+            #     ``energy[last] == eini`` (which is infeasible when a battery
+            #     that starts full can't recharge to full — 02-15
+            #     BAT_ANDES_3_FV).  Batteries default ``use_state_variable``
+            #     to false, unlike reservoirs.
             entry["daily_cycle"] = False
+            entry["use_state_variable"] = True
         if bat.pmax_discharge > 0.0:
             entry["pmax_discharge"] = bat.pmax_discharge
         if bat.pmax_charge > 0.0:
@@ -1691,14 +1717,16 @@ def build_battery_array(
         # self-documenting for downstream tools (gtopt_check, audit
         # scripts) that expect explicit physical parameters.
         #
-        # Only emit when PLEXOS doesn't already ship its own
-        # ``annual_loss`` value (which the converter pulls from
-        # ``Battery.Self-discharge Rate`` if PLEXOS sets it — never
-        # observed populated in v0407 but the safety check costs
-        # nothing).
-        if bat.max_cycles_day > 0.0 and bat.emax > 0.0:
+        # OPT-IN ONLY (``--default-storage-loss``, default OFF): this synthetic
+        # default self-discharge is NOT emitted unless explicitly requested —
+        # by default a battery carries no annual loss so the energy balance is
+        # not perturbed by a value PLEXOS never ships.  When enabled, emit it
+        # only if PLEXOS didn't already ship its own ``annual_loss`` (pulled
+        # from ``Battery.Self-discharge Rate`` if set — never observed
+        # populated in v0407, but the safety check costs nothing).
+        if apply_default_loss and bat.max_cycles_day > 0.0 and bat.emax > 0.0:
             if "annual_loss" not in entry:
-                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year
+                entry["annual_loss"] = 0.215  # 2%/month → 21.5%/year (see above)
         out.append(entry)
     return out
 
@@ -1836,6 +1864,7 @@ def build_reservoir_array(
     *,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
     water_values: dict[str, float] | None = None,
+    apply_default_loss: bool = False,
 ) -> list[dict[str, Any]]:
     """One ``Reservoir`` per :class:`ReservoirSpec``.
 
@@ -2016,25 +2045,29 @@ def build_reservoir_array(
         #   * Andean / cool-climate reservoirs (CEN: PEHUENCHE, RALCO,
         #     COLBUN, ELTORO, MACHICURA, PANGUE — all alpine):
         #     1–3 %/year typical
+        #   * Pyrenean reservoirs (cool mountain, comparable climate;
+        #     Dialnet art. 2762772): 2.8–5.6 %/year
         #   * Mediterranean / arid reservoirs: 4–7 %/year
         #   * Tropical / desert reservoirs: 8–15 %/year
         #
-        # 4 %/year is a reasonable mid-range default for CEN's
-        # Andean reservoirs — slightly above the cool-climate 1–3 %
-        # band to account for the high-altitude UV-driven evaporation
-        # at the larger surface-area reservoirs (RAPEL, COLBUN).
-        # Conservative enough not to distort the LP economics but
-        # large enough to gently anchor the storage chain and
-        # regularise the LP basis.
+        # 3 %/year is the value that falls inside BOTH cool/mountain-climate
+        # studies: the TOP of the Andean 1–3 %/year band (Colbún on the Maule,
+        # PEHUENCHE, RALCO, ELTORO, …) AND the BOTTOM of the Pyrenean
+        # 2.8–5.6 %/year range — so it is supported by both rather than picking
+        # one.  Small enough not to distort the LP economics, large enough to
+        # gently anchor the storage chain and regularise the LP basis.
         #
-        # Only emit when PLEXOS doesn't already ship its own
-        # ``annual_loss`` value (which the converter pulls from
-        # ``Storage.Annual Loss Rate`` if PLEXOS sets it — never
-        # observed populated in v0407 but the safety check costs
-        # nothing).  Skip reservoirs with effectively zero storage
-        # (pass-through / RoR pondage where the loss is meaningless).
-        if "annual_loss" not in entry and res.emax > 0.0:
-            entry["annual_loss"] = 0.04  # 4 %/year — CEN Andean default
+        # OPT-IN ONLY (``--default-storage-loss``, default OFF): this synthetic
+        # default evaporation/seepage loss is NOT emitted unless explicitly
+        # requested — by default a reservoir carries no annual loss so the
+        # water balance is not perturbed by a value PLEXOS never ships.  When
+        # enabled, emit only if PLEXOS didn't already ship its own
+        # ``annual_loss`` (pulled from ``Storage.Annual Loss Rate`` if set —
+        # never observed populated in v0407, safety check costs nothing) and
+        # skip reservoirs with effectively zero storage (pass-through / RoR
+        # pondage where the loss is meaningless).
+        if apply_default_loss and "annual_loss" not in entry and res.emax > 0.0:
+            entry["annual_loss"] = 0.03  # 3 %/year — in Andean 1–3% ∩ Pyrenean 2.8–5.6%
         out.append(entry)
     return out
 
@@ -2584,8 +2617,20 @@ def build_flow_right_array(
             entry["fmax"] = fr.fmax
         # Soft kink point — only meaningful when paired with fcost
         # and/or uvalue.  Required for the LP-side ``fail_col`` /
-        # ``excess_col`` slack machinery to activate.
-        if fr.target > 0.0:
+        # ``excess_col`` slack machinery to activate.  A per-hour
+        # ``target_profile`` (time-varying obligation) is block-aggregated
+        # and emitted as the ``[[stage_blocks]]`` schedule shape; otherwise
+        # the scalar ``target`` is broadcast by the LP.
+        if fr.target_profile:
+            per_block = (
+                _aggregate_to_blocks(
+                    list(fr.target_profile), block_layout, reducer="mean"
+                )
+                if block_layout
+                else list(fr.target_profile)
+            )
+            entry["target"] = [per_block]
+        elif fr.target > 0.0:
             entry["target"] = fr.target
         # fcost is OptTBRealFieldSched (same shape as Demand.fcost):
         # broadcast the scalar across the horizon as a [[stage_blocks]]
@@ -2954,6 +2999,7 @@ def build_planning(
     lp_relax: bool = False,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
     soft_penalty_override: float | None = None,
+    default_storage_loss: bool = False,
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
     loss_cost_eps: float = 0.0,
@@ -3025,7 +3071,9 @@ def build_planning(
         ),
         "demand_array": demand_array,
         "battery_array": build_battery_array(
-            case.batteries, block_layout=case.bundle.block_layout
+            case.batteries,
+            block_layout=case.bundle.block_layout,
+            apply_default_loss=default_storage_loss,
         ),
         "fuel_array": fuel_array,
         "emission_array": emission_array,
@@ -3039,6 +3087,7 @@ def build_planning(
             water_values=(
                 dict(case.boundary_cut.slopes) if case.boundary_cut else None
             ),
+            apply_default_loss=default_storage_loss,
         ),
         # PLEXOS waterways model only physical spillage / scheduled
         # bypass now.  ``build_turbine_array`` emits each turbine as its

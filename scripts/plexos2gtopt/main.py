@@ -449,6 +449,22 @@ def make_parser() -> argparse.ArgumentParser:
         help="drop the efin=eini pin (see --battery-efin-pin).",
     )
     parser.add_argument(
+        "--default-storage-loss",
+        dest="default_storage_loss",
+        action="store_true",
+        default=False,
+        help=(
+            "emit the converter's SYNTHETIC default annual self-discharge / "
+            "evaporation loss on storage that PLEXOS leaves unset: batteries "
+            "21.5%%/yr (2%%/month Li-ion, BU/NREL/IEA) and reservoirs 4%%/yr "
+            "(ICOLD/World Bank Andean mid-range).  Default OFF — no synthetic "
+            "storage loss is added, so the energy/water balance is not "
+            "perturbed by a value the source data never ships.  Enable to "
+            "gently regularise the storage-balance chain (LP conditioning) "
+            "and document the physical loss explicitly."
+        ),
+    )
+    parser.add_argument(
         "--soft-efin-reservoirs",
         type=str,
         default="L_Maule",
@@ -941,6 +957,7 @@ def main(argv: list[str] | None = None) -> None:
         "uc_emit": args.uc_emit,
         "soft_penalty_cost": args.soft_penalty_cost,
         "water_fail_cost": args.water_fail_cost,
+        "default_storage_loss": args.default_storage_loss,
         "spill_fcost": args.spill_fcost,
         "spill_fcost_scale": args.spill_fcost_scale,
         "vert_routing": args.vert_routing,

@@ -751,6 +751,12 @@ class FlowRightSpec:
     # ``[fmin, fmax]`` with no fcost activation — so ``target`` must
     # be set for any soft-pin behaviour.
     target: float = 0.0
+    # Per-block soft kink profile [m³/s].  When non-empty it OVERRIDES the
+    # scalar ``target`` so a time-varying obligation (e.g. ``Riego_LAJA_I``
+    # irrigates only the first day, then 0) is delivered block-by-block — a
+    # scalar target would soft-force the peak every hour and over-remove
+    # water.  Emitted by the writer as ``FlowRight.target = [[profile]]``.
+    target_profile: tuple[float, ...] = ()
     # Per-(stage, block) slack-violation penalty in $/(m³/s)/h. The
     # writer broadcasts this scalar across the 24-block horizon when
     # emitting the FlowRight; matches gtopt's

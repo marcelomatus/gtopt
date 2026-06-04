@@ -3622,7 +3622,7 @@ def _vert_waterways_referenced_by_constraints(db: PlexosDb) -> frozenset[str]:
 def extract_waterways(
     db: PlexosDb,
     bundle: PlexosBundle | None = None,
-    forced_targets_out: list[tuple[str, str, float]] | None = None,
+    forced_targets_out: list[tuple[str, str, float, tuple[float, ...]]] | None = None,
     ocean_sources_out: set[str] | None = None,
     junction_drain_configs_out: dict[str, dict[str, float | None]] | None = None,
 ) -> tuple[WaterwaySpec, ...]:
@@ -4003,6 +4003,27 @@ def extract_waterways(
             pinned_count += 1
             if min(forced) != max(forced):
                 forced_profile = tuple(forced)
+        # Consumptive 1-ended forced diversion (Riego_/Caudal_Eco_/Filt_/Ext_
+        # draining to a synthetic ``*_sink``): emit a SOFT FlowRight at the
+        # SOURCE junction instead of a HARD fmin=fmax waterway, so a dry month
+        # can under-deliver at the water-fail cost rather than going
+        # infeasible (e.g. 03-15 LAJA_I).  The FlowRight is consumptive on
+        # ``f_name`` — it debits the source balance exactly as the waterway
+        # did; the sink credit was irrelevant (water leaves the basin).  The
+        # full per-block profile is carried so a target that pauses (e.g.
+        # irrigation only on day 1) is honoured block-by-block.
+        if (
+            forced_targets_out is not None
+            and has_forced
+            and forced_target > 0.0
+            and not is_bypass
+            and t_name is not None
+            and t_name.endswith("_sink")
+        ):
+            forced_targets_out.append((ww.name, f_name, forced_target, tuple(forced)))
+            if t_name in synthetic_sinks:
+                synthetic_sinks.remove(t_name)
+            continue
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -5719,28 +5740,29 @@ def extract_hydro_discharge_user_constraints(
 
 
 def _synthesise_pinned_flow_rights(
-    forced_waterway_targets: list[tuple[str, str, float]],
+    forced_waterway_targets: list[tuple[str, str, float, tuple[float, ...]]],
     known_junction_names: frozenset[str],
 ) -> tuple[FlowRightSpec, ...]:
     """Convert pinned forced-flow waterways into soft FlowRights.
 
-    For each ``(name, source_junction, target_m3s)`` triplet captured
-    by ``extract_waterways`` (Filt_Laja / Filt_Inv / Filt_Colb /
-    Caudal_Eco_Ralco / Riego_RUCUE etc.), emit a FlowRight at the
-    SOURCE junction with:
+    For each ``(name, source_junction, target_m3s, profile)`` tuple
+    captured by ``extract_waterways`` (Filt_Laja / Filt_Inv / Filt_Colb /
+    Caudal_Eco_Ralco / Riego_RUCUE / Riego_LAJA_I etc.), emit a FlowRight
+    at the SOURCE junction with:
 
-      * ``target = target_m3s``  (the operational delivery target)
-      * ``fcost  = 36,000 $/(m³/s)/h``  (= $10/m³ × 3600 — mirrors
-        PLP's ``hydro_fail_cost = 10 $/m³`` convention; converts
-        per-volume to per-flow-per-hour units the LP expects)
-      * ``fmax  = 10 × target``  (large enough to also serve as a
-        spill outlet when upstream has surplus — FlowRight's column
-        drains the junction, so any flow above target is overflow)
+      * ``target`` / ``target_profile``  (the operational delivery target;
+        the per-hour ``profile`` is carried whenever it varies so a target
+        that pauses — e.g. irrigation only on day 1 — is honoured
+        block-by-block instead of soft-forcing the peak all horizon)
+      * ``fcost``  ($/(m³/s)/h shortfall penalty)
+      * ``fmax = 10 × target``  (large enough to also serve as a spill
+        outlet when upstream has surplus — FlowRight's column drains the
+        junction, so any flow above target is overflow)
 
-    The paired Waterway still exists with its operational ``fmax``
-    cap but no longer hard-pins ``fmin``, so the LP gets a soft
-    delivery requirement priced at the unserved cost instead of an
-    infeasibility when upstream is short.
+    The paired hard Waterway + synthetic sink are DROPPED (the FlowRight is
+    consumptive on the source junction), so the LP gets a soft delivery
+    obligation priced at the unserved cost instead of an infeasibility when
+    upstream is short.
     """
     # FlowRight unserved cost — high enough that the LP only
     # shortchanges the obligation when no feasible alternative
@@ -5749,24 +5771,25 @@ def _synthesise_pinned_flow_rights(
     # than thermal generation and the LP avoids them by default.
     fcost_per_cumec_hour = 1000.0
     out: list[FlowRightSpec] = []
-    for name, source_junction, target in forced_waterway_targets:
+    for name, source_junction, target, profile in forced_waterway_targets:
         if source_junction not in known_junction_names:
             continue
+        # Carry the per-hour profile only when the obligation varies; a flat
+        # obligation collapses to the scalar ``target``.
+        varies = bool(profile) and min(profile) != max(profile)
         out.append(
             FlowRightSpec(
-                # ``soft_`` prefix: each FlowRight here is a SOFT
-                # delivery obligation priced at ``fcost`` (= $10/(m³/s)·h
-                # shortfall, ≈ $10/m³).  ``target`` is the soft kink the
-                # LP is steered toward; ``fmax = 10 × target`` lets the
-                # LP also deliver more if it's profitable.  The legacy
-                # ``pinned_`` prefix was misleading — these are not
-                # hard pins.
+                # ``soft_`` prefix: a SOFT delivery obligation priced at
+                # ``fcost``.  ``target`` is the soft kink the LP is steered
+                # toward; ``fmax = 10 × target`` lets it deliver more when
+                # profitable.
                 name=f"soft_{name}",
                 junction_name=source_junction,
                 purpose="forced_flow",
                 fmin=0.0,
                 fmax=target * 10.0,
                 target=target,
+                target_profile=tuple(profile) if varies else (),
                 fcost=fcost_per_cumec_hour,
             )
         )
@@ -9962,7 +9985,7 @@ def extract_case(
     # column on the Junction balance row, and a co-located zero-storage
     # Reservoir would just add a redundant balance equation and an
     # unconstrained ``vol_t`` variable.
-    forced_waterway_targets: list[tuple[str, str, float]] = []
+    forced_waterway_targets: list[tuple[str, str, float, tuple[float, ...]]] = []
     # Drain configs harvested from ``Vert_*`` spillway arcs that the
     # extractor collapses onto the source storage's junction instead of
     # emitting a ``<src>_ocean`` Junction + connecting Waterway.  Maps

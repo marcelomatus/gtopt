@@ -427,6 +427,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             lp_relax=bool(options.get("lp_relax", False)),
             soft_efin_reservoirs=soft_efin_set,
             soft_penalty_override=options.get("soft_penalty_cost"),
+            default_storage_loss=bool(options.get("default_storage_loss", False)),
             loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
             line_losses_mode=options.get("line_losses_mode"),
             write_out=options.get("write_out"),
