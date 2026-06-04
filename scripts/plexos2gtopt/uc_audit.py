@@ -64,8 +64,25 @@ PROP_SLACK = 3070
 PROP_HRSBIND = 3072
 PROP_RHS = 3073
 PROP_PRICE = 3074
+# INPUT penalty properties (modelled soft data), distinct from the solution
+# columns above.  PLEXOS ``Penalty Quantity`` / ``Penalty Price`` on a
+# Constraint mark it as genuinely soft.  These are NOT present in the
+# constraint-SOLUTION cache (only solution pids 3069-3074 are), so their
+# absence is the signal that the B6 "soft in PLEXOS" check has no modelled
+# evidence to fire on (see the B6 refinement in :func:`run_audit`).
+PROP_PENALTY_QUANTITY = 4392
+PROP_PENALTY_PRICE = 4393
+_INPUT_PENALTY_PIDS = frozenset({PROP_PENALTY_QUANTITY, PROP_PENALTY_PRICE})
 _WANTED_PIDS = frozenset(
-    {PROP_ACTIVITY, PROP_SLACK, PROP_HRSBIND, PROP_RHS, PROP_PRICE}
+    {
+        PROP_ACTIVITY,
+        PROP_SLACK,
+        PROP_HRSBIND,
+        PROP_RHS,
+        PROP_PRICE,
+        PROP_PENALTY_QUANTITY,
+        PROP_PENALTY_PRICE,
+    }
 )
 CONSTRAINT_CLASS_ID = 70
 SYS_CONSTRAINT_COLLECTION_ID = 700
@@ -340,6 +357,158 @@ def parse_json_ucs(planning_json: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Native-constraint LP row parsing (B11 source)
+# ---------------------------------------------------------------------------
+# B2 (the UC-name RHS comparison) is BLIND to anything gtopt encodes as a
+# NATIVE LP primitive rather than a UserConstraint: the
+# ``NATIVE_PRIMITIVE_FAMILIES`` are explicitly skipped, so a reserve_zone fold
+# or a Commitment per-day-floor flatten is never RHS-compared to PLEXOS.  The
+# handle is that gtopt emits one NAMED LP row per (native element, scenario,
+# stage, block).  Scanning those rows recovers the RHS gtopt actually enforces.
+#
+# Row-name grammar (standalone / CPLEX LP writer):
+#   reservezone_urequirement_<uid>_<sc>_<st>_<blk>:  Σ provision  >= <rhs>
+#   reservezone_drequirement_<uid>_<sc>_<st>_<blk>:  Σ provision  >= <rhs>
+#   <genname>_pmax_constraint_<id>_<sc>_<st>_<blk>:  Σ generation <= <rhs>
+#   <genname>_pmin_constraint_<id>_<sc>_<st>_<blk>:  Σ generation >= <rhs>
+# Element identity is recovered from the JSON for reserve zones
+# (``uid`` → ``name`` via ``reserve_zone_array``); for commitments the
+# lower-cased ``<genname>`` prefix IS the identity (the trailing ``<id>`` is a
+# per-row counter, NOT a stable uid, so it is discarded).
+#
+# REFINEMENT (vs reading the enforced ``.lp`` requirement row): the
+# reserve-zone requirement VALUES are read from the JSON ``reserve_zone_array``
+# (``urreq`` / ``drreq``), NOT from the enforced LP row.  The enforced LP row
+# folds in the ``ReserveZone.urmin`` / ``drmin`` Min-Provision FLOOR, so gtopt
+# correctly enforces ``max(requirement, MinProvision)`` while PLEXOS REPORTS
+# the bare requirement and enforces the floor separately.  Comparing the
+# enforced row false-positives (e.g. CTF_LW gtopt 183 floor vs PLEXOS 94
+# requirement).  The ``.lp`` is still used to ENUMERATE which reserve-zone
+# elements exist; the COMPARED values come from the JSON requirement.
+_LP_RESERVEZONE_RE = re.compile(
+    r"^\s*reservezone_(?P<dir>u|d)requirement_(?P<uid>\d+)_\d+_\d+_\d+\s*:"
+)
+_LP_COMMIT_RE = re.compile(
+    r"^\s*(?P<gen>[A-Za-z0-9_]+?)_(?P<bound>pmin|pmax)_constraint_\d+_\d+_\d+_\d+\s*:"
+)
+# Operator + numeric RHS terminating an LP row.  CPLEX wraps long rows across
+# many continuation lines; the operator sits on the row's FINAL line.
+_LP_OP_RE = re.compile(r"(<=|>=|=)\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s*$")
+
+# Keys are (element_kind, identity, direction):
+#   element_kind: "reserve_zone" | "commitment"
+#   identity:     reserve-zone name (from JSON uid) | commitment genname prefix
+#   direction:    "up"/"down" (reserve_zone) | "pmin"/"pmax" (commitment)
+NativeKey = tuple[str, str, str]
+
+
+def _reserve_zone_uid_to_name(planning_json: Path) -> dict[int, str]:
+    """Map ``reserve_zone_array`` uid → name from the planning JSON."""
+    if not planning_json.is_file():
+        return {}
+    data = json.loads(planning_json.read_text())
+    out: dict[int, str] = {}
+    for z in data.get("system", {}).get("reserve_zone_array", []):
+        try:
+            out[int(z["uid"])] = str(z["name"])
+        except (KeyError, ValueError, TypeError):
+            continue
+    return out
+
+
+def _flatten_block_schedule(raw: Any) -> list[float]:
+    """Flatten a (possibly nested) per-block schedule into a flat float list.
+
+    The converter emits requirement schedules as ``urreq``/``drreq`` shaped
+    either as a flat ``[v, v, ...]`` list or a nested ``[[...], [...]]``
+    (per-stage rows of per-block values).  Recover a single flat per-block
+    series, dropping non-numeric entries.
+    """
+    out: list[float] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, (list, tuple)):
+            for sub in node:
+                _walk(sub)
+            return
+        try:
+            out.append(float(node))
+        except (TypeError, ValueError):
+            return
+
+    _walk(raw)
+    return out
+
+
+def reserve_zone_requirement_series(
+    planning_json: Path,
+) -> dict[tuple[str, str], list[float]]:
+    """Per-block reserve-zone REQUIREMENT series from the planning JSON.
+
+    Returns ``{(zone_name, direction): [rhs, rhs, ...]}`` where ``direction``
+    is ``"up"`` (from ``urreq``) or ``"down"`` (from ``drreq``).  This is the
+    bare requirement the converter emits — the value PLEXOS REPORTS — NOT the
+    enforced ``max(requirement, MinProvision)`` floor on the LP row.  Used by
+    the B11 reserve-zone comparison so the Min-Provision floor never
+    false-positives a fold.
+    """
+    if not planning_json.is_file():
+        return {}
+    data = json.loads(planning_json.read_text())
+    out: dict[tuple[str, str], list[float]] = {}
+    for z in data.get("system", {}).get("reserve_zone_array", []):
+        name = z.get("name")
+        if name is None:
+            continue
+        for direction, key in (("up", "urreq"), ("down", "drreq")):
+            if key in z and z[key] is not None:
+                series = _flatten_block_schedule(z[key])
+                if series:
+                    out[(str(name), direction)] = series
+    return out
+
+
+def parse_lp_native_constraints(
+    lp_path: Path, planning_json: Path
+) -> dict[NativeKey, list[float]]:
+    """Scan a gtopt ``.lp`` → per-block RHS series for native constraints.
+
+    Returns ``{(element_kind, identity, direction): [rhs, rhs, ...]}`` — the
+    per-(sc, st, blk) RHS gtopt enforces for every reserve-zone requirement
+    row and every commitment pmin/pmax bound row.  Collapsing into distinct
+    levels is left to the B11 comparator so it reuses :func:`_distinct_values`.
+    """
+    zone_names = _reserve_zone_uid_to_name(planning_json)
+    series: dict[NativeKey, list[float]] = defaultdict(list)
+    cur: NativeKey | None = None  # row being accumulated across continuations
+    with lp_path.open() as f:
+        for line in f:
+            mz = _LP_RESERVEZONE_RE.match(line)
+            if mz:
+                uid = int(mz.group("uid"))
+                direction = "up" if mz.group("dir") == "u" else "down"
+                ident = zone_names.get(uid, f"uid{uid}")
+                cur = ("reserve_zone", ident, direction)
+            else:
+                mc = _LP_COMMIT_RE.match(line)
+                if mc:
+                    cur = ("commitment", mc.group("gen"), mc.group("bound"))
+            if cur is not None:
+                mo = _LP_OP_RE.search(line)
+                if mo:
+                    series[cur].append(float(mo.group(2)))
+                    cur = None
+    return dict(series)
+
+
+def discover_gtopt_lp(gtopt_dir: Path) -> Path | None:
+    """Return the first ``*.lp`` in ``gtopt_dir`` (None when none exists)."""
+    for p in sorted(gtopt_dir.glob("*.lp")):
+        return p
+    return None
+
+
+# ---------------------------------------------------------------------------
 # PLEXOS sol .accdb cache loaders
 # ---------------------------------------------------------------------------
 def _read_csv(path: Path) -> list[dict]:
@@ -408,6 +577,11 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
             ("hours_binding", PROP_HRSBIND),
             ("rhs", PROP_RHS),
             ("price", PROP_PRICE),
+            # MODELLED input penalty price (pid 4393) — distinct from the
+            # solution-side ``price`` (shadow price) above.  Absent from the
+            # constraint-solution cache; its presence (non-zero) is the only
+            # reliable "genuinely soft in PLEXOS" signal the B6 check trusts.
+            ("input_penalty", PROP_PENALTY_PRICE),
         ):
             values: list[float] = []
             for kid in prop_keys.get(pid, ()):
@@ -430,6 +604,10 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
                 rec[f"{label}_max"] = 0.0
                 rec[f"{label}_min"] = 0.0
                 rec[f"{label}_sum_abs"] = 0.0
+        # Modelled input penalty price (max over intervals); 0.0 when the
+        # cache carries no penalty data (the usual case).
+        rec["input_penalty_price"] = rec.get("input_penalty_max", 0.0)
+        rec["input_penalty_present"] = bool(rec.get("input_penalty_n", 0) > 0)
         rec["plexos_hard_solved"] = bool(
             rec["price_sum_abs"] > 0.0 and rec["slack_sum_abs"] == 0.0
         )
@@ -470,6 +648,9 @@ class AuditInputs:
     gtopt_pampl_dir: Path
     gtopt_json: Path
     hard_list: Path | None = None
+    # Optional gtopt ``.lp`` enabling the B11 native-constraint RHS check.
+    # When None the native check is skipped gracefully (B11 stays empty).
+    gtopt_lp: Path | None = None
 
 
 @dataclass
@@ -486,6 +667,9 @@ class AuditResult:
     per_row_diff: list[dict]
     summary: dict
     hard_list: set[str] = field(default_factory=set)
+    # B11 native-RHS subsets whose PLEXOS source isn't in the constraint cache
+    # (e.g. reserve requirements carried on a Reserve object, not a Constraint).
+    native_deferred: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -498,6 +682,7 @@ class AuditResult:
                 k: {"count": len(v), "items": v} for k, v in self.buckets.items()
             },
             "per_row_diff": self.per_row_diff,
+            "native_deferred": self.native_deferred,
             "hard_list_total": len(self.hard_list),
         }
 
@@ -540,9 +725,200 @@ def _is_nolimit_sentinel(v: float) -> bool:
     return abs(a - 10000.0) < 1.0 or abs(a - 100000.0) < 1.0
 
 
+# ---------------------------------------------------------------------------
+# B11: native-encoded constraint RHS comparison
+# ---------------------------------------------------------------------------
+# Map a gtopt native LP element → its PLEXOS source Constraint name (the
+# Constraint that gtopt DROPPED or PROMOTED, which therefore shows up only in
+# the cache, not as a gtopt UC).
+#
+#   commitment  (<gen>_pmin/pmax_constraint): the source is the original
+#     per-plant hydro ``<NAME>min`` / ``<NAME>max`` PLEXOS Constraint, present
+#     in the cache but dropped from gtopt by the auto-promotion.  Matched by
+#     the genname prefix (case-insensitive).  CLEAN case — the LP pmin/pmax
+#     row carries no separate floor, so the enforced LP value IS the bound.
+#
+#   reserve_zone (reservezone_(u|d)requirement): the requirement is carried on
+#     PLEXOS's native ``Reserve.Min Provision`` property (a Reserve object,
+#     NOT a Constraint — so NOT in the constraint-only cache).  The redundant
+#     ``<prefix>_<Up|Down>MinProvision`` Constraint IS in the cache and, when
+#     it carries a non-trivial RHS series, is the best available proxy for the
+#     enforced requirement.  Zone-name suffix governs direction:
+#       ``*_RS`` → up (raise/spinning) → ``<prefix>_UpMinProvision``
+#       ``*_LW`` → down (lower)        → ``<prefix>_DownMinProvision``
+#     If no usable redundant constraint exists, the subset is REPORTED as
+#     "source not in solution cache" rather than guessed.  IMPORTANT: the
+#     gtopt-side values compared are the JSON ``urreq``/``drreq`` REQUIREMENT
+#     schedule (what PLEXOS reports), NOT the enforced LP row (which folds in
+#     the ``urmin``/``drmin`` Min-Provision FLOOR and would false-positive).
+
+
+def _commitment_plexos_source(genname: str, plexos: dict[str, dict]) -> str | None:
+    """PLEXOS source Constraint name for a commitment genname (or None).
+
+    The LP genname is the lower-cased, sanitised plant stem.  Match it
+    case-insensitively against ``<NAME>max`` / ``<NAME>min`` / ``<NAME>_PMax``
+    / ``<NAME>_PMin`` style PLEXOS Constraint names in the cache.
+    """
+    stem = genname.lower()
+    suffixes = ("max", "min", "_pmax", "_pmin")
+    for cname in plexos:
+        cl = cname.lower()
+        for suf in suffixes:
+            if cl == stem + suf:
+                return cname
+    return None
+
+
+def _reserve_zone_plexos_source(
+    zone_name: str, direction: str, plexos: dict[str, dict]
+) -> str | None:
+    """PLEXOS redundant ``*MinProvision`` Constraint for a reserve zone.
+
+    ``direction`` is ``"up"`` or ``"down"``.  Returns the cache constraint
+    name when a usable redundant ``*MinProvision`` exists for this zone +
+    direction, else None.
+
+    Only the zone whose SUFFIX matches the direction carries the real
+    requirement (``_LW`` → lower/down, ``_RS`` → raise/up).  The opposite-
+    direction row on a zone is a structural fold (all-zero) and must NOT be
+    compared against the source — otherwise every zone double-counts its
+    sibling's source and spuriously flags a 0-vs-real "flatten".
+    """
+    m = re.search(r"_(RS|LW)(_BESS)?$", zone_name)
+    if m is None:
+        return None
+    suffix = m.group(1)
+    suffix_dir = "down" if suffix == "LW" else "up"
+    if suffix_dir != direction:
+        return None
+    prefix = zone_name[: m.start()]
+    tag = "Up" if direction == "up" else "Down"
+    cand = f"{prefix}_{tag}MinProvision"
+    if cand not in plexos:
+        return None
+    return cand
+
+
+def _compare_native_element(
+    kind: str,
+    ident: str,
+    direction: str,
+    g_series: list[float],
+    plexos: dict[str, dict],
+) -> dict | None:
+    """Compare one native element's gtopt RHS vs its PLEXOS source.
+
+    Returns a B11 item dict on a material mismatch, ``{"deferred": ...}`` when
+    the source is not in the cache, or ``None`` when matched / immaterial.
+
+    For ``reserve_zone`` ``g_series`` is the JSON ``urreq``/``drreq``
+    REQUIREMENT schedule (NOT the enforced LP row), so the ``urmin``/``drmin``
+    Min-Provision floor gtopt enforces never false-positives a fold.  For
+    ``commitment`` ``g_series`` is the enforced LP pmin/pmax row (correct —
+    no separate floor there).
+    """
+    if kind == "commitment":
+        src = _commitment_plexos_source(ident, plexos)
+    else:
+        src = _reserve_zone_plexos_source(ident, direction, plexos)
+    if src is None:
+        return {
+            "element_kind": kind,
+            "name": ident,
+            "direction": direction,
+            "deferred": "source not in solution cache",
+        }
+    p = plexos[src]
+    if p["rhs_n"] == 0:
+        return {
+            "element_kind": kind,
+            "name": ident,
+            "direction": direction,
+            "plexos_source": src,
+            "deferred": "source has no RHS series in cache",
+        }
+    # Gate like B2: only compare when PLEXOS actually BOUND the source row
+    # (non-zero shadow price AND binding hours) — an unbound source RHS can't
+    # change the dispatch, so a divergence there is immaterial.
+    if not (p["price_sum_abs"] > 0.0 and p["hours_binding_sum"] > 0):
+        return None
+    g_vals = [v for v in g_series if not _is_nolimit_sentinel(v)]
+    p_vals = [v for v in (p.get("rhs_values") or []) if not _is_nolimit_sentinel(v)]
+    if not g_vals or not p_vals:
+        return None
+    g_dist = _distinct_values(g_vals)
+    p_dist = _distinct_values(p_vals)
+    flattened = len(g_dist) == 1 and len(p_dist) > 1
+    fixed_vs_variable = len(g_dist) < len(p_dist)
+    mismatch = len(g_dist) != len(p_dist) or any(
+        _value_differs(a, b) for a, b in zip(g_dist, p_dist)
+    )
+    if not mismatch:
+        return None
+    return {
+        "element_kind": kind,
+        "name": ident,
+        "direction": direction,
+        "plexos_source": src,
+        "flattened": flattened,
+        "fixed_vs_variable": fixed_vs_variable,
+        "gtopt_rhs_distinct": [round(v, 4) for v in g_dist],
+        "plexos_rhs_distinct": [round(v, 4) for v in p_dist],
+    }
+
+
+def build_b11_native_rhs(
+    native: dict[NativeKey, list[float]],
+    plexos: dict[str, dict],
+    reserve_zone_requirement: dict[tuple[str, str], list[float]] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Build the B11 bucket + the deferred-source list from native LP rows.
+
+    Returns ``(b11_items, deferred_items)``.  Commitment rows compare the
+    enforced LP pmin/pmax series.  Reserve-zone rows compare the JSON
+    ``urreq``/``drreq`` REQUIREMENT series (passed in
+    ``reserve_zone_requirement``, keyed ``(zone_name, direction)``) — NOT the
+    enforced LP requirement row, which folds in the ``urmin``/``drmin``
+    Min-Provision floor and would false-positive (gtopt enforces
+    ``max(requirement, MinProvision)``; PLEXOS reports the bare requirement).
+    The ``.lp`` is still used to ENUMERATE which reserve-zone elements exist.
+    A reserve-zone subset with no JSON requirement series is skipped.
+    """
+    reqs = reserve_zone_requirement or {}
+    b11: list[dict] = []
+    deferred: list[dict] = []
+    for (kind, ident, direction), g_series in sorted(native.items()):
+        if kind == "reserve_zone":
+            req = reqs.get((ident, direction))
+            if req is None:
+                # No requirement schedule emitted for this zone/direction —
+                # nothing to compare (the LP row may be a pure structural fold).
+                continue
+            compare_series = req
+        else:
+            compare_series = g_series
+        item = _compare_native_element(kind, ident, direction, compare_series, plexos)
+        if item is None:
+            continue
+        if "deferred" in item:
+            deferred.append(item)
+        else:
+            b11.append(item)
+    return b11, deferred
+
+
 def run_audit(inputs: AuditInputs) -> AuditResult:
     """Run the full audit and return :class:`AuditResult`."""
     plexos = build_plexos_solution(inputs.plexos_cache_dir)
+    # Whether ANY constraint carries modelled input penalty data (pid 4393).
+    # Drives the refined B6 gate: when no modelled penalty is present (the
+    # normal case for a constraint-SOLUTION cache), the only "soft" signal
+    # available is a solution-side relaxation shadow price, which is NOT
+    # evidence of a modelled soft constraint — so B6 stays empty.
+    input_penalty_present = any(
+        rec.get("input_penalty_present", False) for rec in plexos.values()
+    )
     gtopt_pampl = parse_pampl_dir(inputs.gtopt_pampl_dir)
     gtopt_json = (
         parse_json_ucs(inputs.gtopt_json) if inputs.gtopt_json.is_file() else []
@@ -644,7 +1020,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         #   * a value DIFFERENCE catches a unit / sign / magnitude error.
         # Gated on PLEXOS actually binding the row (price & hours > 0) — an
         # unbound constraint's RHS can't change the dispatch.
-        if (
+        if (  # pylint: disable=too-many-boolean-expressions
             p["rhs_n"] > 0
             and g["rhs_scalar"] is not None
             and not g.get("daily_sum", False)
@@ -703,41 +1079,41 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 {"name": name, "gtopt_penalty": pv}
             )
 
-        # B6: PLEXOS MODELS the constraint as soft (a real per-constraint
-        # violation penalty) while gtopt enforces it hard.
+        # B6: PLEXOS models the constraint as SOFT, gtopt enforces it HARD.
         #
-        # Gated on the PLEXOS *input* penalty, NOT a solution shadow price.
-        # The previous gate fired on ``price_sum_abs > 0`` — but that
-        # solution-side dual is PLEXOS's GLOBAL infeasibility-relaxation
-        # shadow price: PLEXOS relaxes generic constraints at a uniform
-        # internal penalty to avoid returning INFEASIBLE and reports slack +
-        # a shadow price on ANY binding row.  It is NOT evidence of a modeled
-        # soft constraint.  Verified directly against the input DBs: PLEXOS
-        # ships ZERO ``Penalty Price`` (pid 4393) / ``Penalty Quantity``
-        # (pid 4392) on all 1069 constraints, so every shadow-price hit was a
-        # false positive — gtopt's hard encoding is faithful and there is no
-        # penalty to port (cf. the no-invented-min-offtake /
-        # no-objective-cost-for-physical-limits rules).
+        # REFINED (false-positive fix).  The previous gate fired whenever
+        # PLEXOS reported a non-zero shadow price + slack on a row gtopt keeps
+        # hard.  That signal is UNRELIABLE: a sibling investigation proved
+        # PLEXOS ships ZERO modelled ``Penalty Price`` (pid 4393) / ``Penalty
+        # Quantity`` (pid 4392) on ALL constraints — the price the gate reads
+        # is PLEXOS's GLOBAL infeasibility-relaxation shadow price (a
+        # solution-side artefact), NOT modelled soft data.  So the old gate
+        # flagged rows gtopt CORRECTLY leaves hard.
         #
-        # The reliable signal is the INPUT penalty (``input_penalty``), which
-        # the RES *solution* cache does not carry — so B6 stays correctly
-        # empty here until ``build_plexos_solution`` is given input-side
-        # penalty data.  When it is, this gate fires only on genuinely
-        # modeled-soft rows.
-        plexos_input_penalty = float(p.get("input_penalty", 0.0))
+        # The constraint-solution cache carries only solution columns (pids
+        # 3069-3074); the input penalty pids (4392/4393) are NOT present, so a
+        # solution-only shadow price can never distinguish a genuinely-soft
+        # constraint from a relaxation artefact.  B6 therefore only fires when
+        # there is EXPLICIT evidence of a modelled soft constraint
+        # (``input_penalty_present``).  When that evidence is absent — the
+        # normal case for the constraint-solution cache — B6 stays empty by
+        # design rather than emitting a false alarm.
+        gtopt_keeps_hard = pen_class == "hard" and name not in hard_list
+        plexos_modelled_soft = (
+            input_penalty_present and p.get("input_penalty_price", 0.0) > 0.0
+        )
         if (
-            name not in hard_list
-            and pen_class == "hard"
+            gtopt_keeps_hard
+            and plexos_modelled_soft
             and not p["plexos_hard_solved"]
-            and plexos_input_penalty > 0.0
             and p["hours_binding_sum"] > 0
         ):
             buckets["B6_soft_in_plexos_hard_in_gtopt"].append(
                 {
                     "name": name,
-                    "plexos_input_penalty": plexos_input_penalty,
                     "plexos_slack": p["slack_sum_abs"],
                     "plexos_price": p["price_sum_abs"],
+                    "input_penalty_price": p.get("input_penalty_price", 0.0),
                     "plexos_hours_binding": p["hours_binding_sum"],
                 }
             )
@@ -822,6 +1198,27 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     n_b10_native = sum(
         int(item.get("count", 0)) for item in buckets["B10_native_primitive"]
     )
+
+    # B11: native-encoded constraint RHS comparison.  The UC-name comparison
+    # (B2) is blind to anything gtopt encodes as a native LP primitive
+    # (reserve_zone requirement, Commitment pmin/pmax) — those families are in
+    # NATIVE_PRIMITIVE_FAMILIES and skipped.  When a gtopt ``.lp`` is supplied
+    # we ENUMERATE the native rows it carries and compare the RHS gtopt
+    # actually enforces to the PLEXOS source Constraint the converter dropped /
+    # promoted (``<plant>min``/``max`` for commitments, ``*MinProvision`` for
+    # reserve zones).  Reserve-zone VALUES come from the JSON ``urreq``/
+    # ``drreq`` requirement (not the enforced LP row, which folds in the
+    # Min-Provision floor).  ``plexos`` is rekeyed to sanitised identifiers
+    # above, but the native source names (ANTUCO_PMax, CTF_DownMinProvision,
+    # ...) are already valid identifiers, so the sanitised dict resolves 1:1.
+    native_deferred: list[dict] = []
+    if inputs.gtopt_lp is not None and inputs.gtopt_lp.is_file():
+        native = parse_lp_native_constraints(inputs.gtopt_lp, inputs.gtopt_json)
+        rz_req = reserve_zone_requirement_series(inputs.gtopt_json)
+        b11_items, native_deferred = build_b11_native_rhs(native, plexos, rz_req)
+        for item in b11_items:
+            buckets["B11_native_rhs_mismatch"].append(item)
+
     summary = {
         "n_plexos": len(plexos_names),
         "n_gtopt_pampl": len(gtopt_pampl),
@@ -833,6 +1230,8 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         "n_missing_native_primitive": n_b10_native,
         "n_synthetic_in_gtopt": len(synthetic_in_gtopt),
         "n_duplicates_in_gtopt": len(duplicates),
+        "n_native_deferred": len(native_deferred),
+        "input_penalty_present": input_penalty_present,
         "bucket_counts": {k: len(v) for k, v in buckets.items()},
         "hard_list_total": len(hard_list),
     }
@@ -847,6 +1246,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         per_row_diff=per_row,
         summary=summary,
         hard_list=hard_list,
+        native_deferred=native_deferred,
     )
 
 
@@ -869,6 +1269,12 @@ def _print_summary(result: AuditResult) -> None:
         print(f"missing from gtopt:        {s['n_missing_from_gtopt']}")
     print(f"synthetic in gtopt:        {s['n_synthetic_in_gtopt']}")
     print(f"duplicate names in gtopt:  {s['n_duplicates_in_gtopt']}")
+    n_def = s.get("n_native_deferred", 0)
+    if n_def:
+        print(
+            f"native RHS source deferred:{n_def} "
+            "(PLEXOS source not in constraint cache)"
+        )
     if s["hard_list_total"]:
         print(f"hard-list size:            {s['hard_list_total']}")
     print("buckets:")
@@ -900,6 +1306,14 @@ def make_parser() -> argparse.ArgumentParser:
         default=None,
         help="explicit path to the planning JSON (defaults to the first *.json "
         "in --gtopt-dir that is NOT a *.provenance.json)",
+    )
+    parser.add_argument(
+        "--gtopt-lp",
+        type=Path,
+        default=None,
+        help="explicit path to the gtopt .lp enabling the B11 native-RHS check "
+        "(defaults to the first *.lp in --gtopt-dir; the check is skipped "
+        "gracefully when no .lp is available)",
     )
     parser.add_argument(
         "--hard-list",
@@ -940,11 +1354,18 @@ def main(argv: list[str] | None = None) -> int:
     if not args.gtopt_dir.is_dir():
         raise SystemExit(f"--gtopt-dir not a directory: {args.gtopt_dir}")
     gtopt_json = _resolve_gtopt_json(args)
+    gtopt_lp = args.gtopt_lp
+    if gtopt_lp is None:
+        gtopt_lp = discover_gtopt_lp(args.gtopt_dir)
+    if gtopt_lp is not None and not gtopt_lp.is_file():
+        logger.warning("--gtopt-lp not found (%s); skipping B11 native check", gtopt_lp)
+        gtopt_lp = None
     inputs = AuditInputs(
         plexos_cache_dir=args.plexos_cache,
         gtopt_pampl_dir=args.gtopt_dir,
         gtopt_json=gtopt_json,
         hard_list=args.hard_list if args.hard_list.is_file() else None,
+        gtopt_lp=gtopt_lp,
     )
     result = run_audit(inputs)
     _print_summary(result)
