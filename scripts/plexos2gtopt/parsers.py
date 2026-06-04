@@ -5602,10 +5602,13 @@ def extract_hydro_discharge_user_constraints(
     if not bundle.has("Hydro_AntucoBounds.csv"):
         return ()
 
-    # Per-name first-seen RHS value (the CSV ships one row per day;
-    # collapse to the first value because gtopt's scalar RHS is shared
-    # across blocks unless the new TB-schedule rhs is used).
-    rhs_by_name: dict[str, float] = {}
+    # Per-name per-DAY RHS series.  ``Hydro_AntucoBounds.csv`` ships one row
+    # per day (columns NAME,YEAR,MONTH,DAY,PERIOD,Value with PERIOD=1), and the
+    # bound genuinely varies day-to-day (e.g. ANTUCOmin 83.30→82.84 m³/s over a
+    # week).  Keep the WHOLE series — rows arrive in chronological order — so it
+    # can be carried as a per-block ``rhs_profile`` instead of flattened to the
+    # first day (which would pin the whole horizon to day-1's discharge bound).
+    rhs_days_by_name: dict[str, list[float]] = {}
     with Path(bundle.csv("Hydro_AntucoBounds.csv")).open(
         "r", encoding="utf-8", newline=""
     ) as fh:
@@ -5613,14 +5616,12 @@ def extract_hydro_discharge_user_constraints(
             if not row or not row[0] or row[0] == "NAME":
                 continue
             name = row[0]
-            if name in rhs_by_name:
-                continue
             try:
-                rhs_by_name[name] = float(row[5])
+                rhs_days_by_name.setdefault(name, []).append(float(row[5]))
             except (ValueError, IndexError):
                 continue
 
-    if not rhs_by_name:
+    if not rhs_days_by_name:
         return ()
 
     # Map from generator name → production_factor (MW per m³/s).  When
@@ -5660,7 +5661,7 @@ def extract_hydro_discharge_user_constraints(
         cstr_obj = objs.get(m.child_object_id)
         if gen_obj is None or cstr_obj is None:
             continue
-        if cstr_obj.name not in rhs_by_name:
+        if cstr_obj.name not in rhs_days_by_name:
             continue
         # Only drop the term when the parent generator isn't in the
         # converted case at all (PLEXOS object existed but our
@@ -5673,7 +5674,10 @@ def extract_hydro_discharge_user_constraints(
         members_by_constraint.setdefault(cstr_obj.name, []).append(gen_obj.name)
 
     out: list[UserConstraintSpec] = []
-    for cstr_name, rhs in rhs_by_name.items():
+    for cstr_name, rhs_days in rhs_days_by_name.items():
+        # Scalar fallback baked into the expression tail (day 1); the per-day
+        # series is carried as ``rhs_profile`` below and OVERRIDES it per block.
+        rhs = rhs_days[0]
         members = members_by_constraint.get(cstr_name, [])
         if not members:
             logger.debug(
@@ -5717,11 +5721,22 @@ def extract_hydro_discharge_user_constraints(
             sign = " - " if coeff < 0 else (" + " if terms else "")
             terms.append(f'{sign}{coeff:.6g} * generator("{gen_name}").generation')
         expression = "".join(terms) + f" {op} {rhs:g}"
+        # Carry the day-to-day variation as a per-HOUR profile (each day's
+        # bound held across its 24 hours); the writer block-aggregates it to
+        # the gtopt ``rhs`` TB-schedule, overriding the day-1 scalar above at
+        # every (stage, block).  Only emit when the bound actually varies —
+        # a constant series is fully captured by the scalar tail.
+        rhs_profile = (
+            tuple(v for v in rhs_days for _ in range(24))
+            if len(set(rhs_days)) > 1
+            else ()
+        )
         out.append(
             UserConstraintSpec(
                 name=f"discharge_{cstr_name}",
                 expression=expression,
                 penalty=uc_penalty,
+                rhs_profile=rhs_profile,
                 description=(
                     f"PLEXOS hydro discharge bound '{cstr_name}': "
                     f"Σ generation/production_factor = turbine discharge "
