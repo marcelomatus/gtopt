@@ -1835,6 +1835,7 @@ def build_reservoir_array(
     reservoirs: tuple[ReservoirSpec, ...],
     *,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
+    water_values: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """One ``Reservoir`` per :class:`ReservoirSpec``.
 
@@ -1949,42 +1950,26 @@ def build_reservoir_array(
         #    ships 10,000 $/GWh on every dispatched reservoir.
         if res.efin > 0.0:
             entry["efin"] = res.efin
-            # Per-reservoir SOFTENING opt-in (``soft_efin_reservoirs``
-            # set, default ``{"L_Maule"}``).  Outside the set, ``efin``
-            # is emitted WITHOUT ``efin_cost`` → gtopt builds a HARD
-            # ``vol_end >= efin`` row that the LP MUST satisfy.
+            # SOFT end-of-horizon target: ``vol_end + slack >= efin`` priced
+            # at the reservoir's WATER VALUE.  A HARD ``vol_end >= efin`` is
+            # infeasible whenever the floor exceeds what the inflow + initial
+            # volume can reach against forced extraction — e.g. 10-05 ELTORO
+            # (efin 18,184 > eini 17,867) makes the reservoir energy balance
+            # infeasible (propagated to block 2).  PLEXOS never hard-pins the
+            # terminal volume; it prices draining below the floor at the
+            # storage's water value, exactly the marginal cost of the water.
             #
-            # Rationale: every reservoir with a finite ``Water Value``
-            # used to be soft (efin_cost = water_value).  That let the
-            # LP pay the per-GWh penalty (e.g. ELTORO at $10k) and
-            # drain water past the published floor, generating
-            # downstream cascade hydro for cheap.  CEN PCP 2026-04-22
-            # gtopt drained ELTORO 128 GWh below its 12,079-GWh
-            # target → $1.28M slack, freeing +20 GWh of ELTORO
-            # dispatch + +5 GWh of cascade RUCUE generation that
-            # PLEXOS doesn't take.  Restoring the HARD floor for
-            # ELTORO (and other regular reservoirs) closes the
-            # arbitrage, matching PLEXOS treatment.
-            #
-            # ``L_Maule`` keeps a SOFT efin because its PLEXOS
-            # ``Water Value = 1e+30`` sentinel implies a never-drain
-            # floor that the LP cannot reach without slack when
-            # combined with the upstream ramp / FixedLoad tightening
-            # (otherwise the L_Maule reservoir balance becomes the
-            # dominant infeasibility row).  Pin its slack at a HIGH
-            # cost so the LP respects it whenever physically possible.
-            # ``efin_cost`` is intentionally NOT emitted: terminal
-            # storage is now valued by the single end-of-horizon boundary
-            # cut (FCF + per-reservoir water-value slopes from
-            # ``Hydro_StoWaterValues.csv``, wired via
-            # ``simulation.boundary_cuts_file``).  A per-reservoir
-            # ``efin_cost`` would double-count that valuation, and the old
-            # sentinel ``efin_cost = 1e6`` for never-drain reservoirs is
-            # dropped per design: never_drain ⇒ no drain target priced,
-            # no cost.  ``efin`` is still emitted, so the LP keeps a HARD
-            # ``vol_end >= efin`` floor; the boundary cut prices storage
-            # above that floor.
-            _ = soft_efin_reservoirs  # retained for CLI compat; no longer gates efin_cost
+            # The water value is ``-cut_coeff``: the boundary cut ships
+            # coefficient ``-wv`` on each reservoir's efin state (more storage
+            # ⇒ lower future cost), and ``BoundaryCutSpec.slopes`` already
+            # holds ``+wv``.  KEEP THE SIGN — a few state variables carry a
+            # NEGATIVE water value (terminal storage is a liability there), so
+            # ``abs()`` would wrongly turn a drawdown reward into a penalty.
+            # Reservoirs with no boundary-cut slope keep the legacy HARD floor.
+            wv = (water_values or {}).get(res.name, 0.0)
+            if wv != 0.0:
+                entry["efin_cost"] = wv
+            _ = soft_efin_reservoirs  # superseded by water-value softening
         # Reservoir-internal drain is DISABLED by default, matching PLP's
         # convention: spillage leaves the basin via an explicit ``Vert_*``
         # Waterway routed to a ``<source>_ocean`` drain junction (added by
@@ -3046,7 +3031,14 @@ def build_planning(
         "emission_array": emission_array,
         "junction_array": build_junction_array(case.junctions),
         "reservoir_array": build_reservoir_array(
-            case.reservoirs, soft_efin_reservoirs=soft_efin_reservoirs
+            case.reservoirs,
+            soft_efin_reservoirs=soft_efin_reservoirs,
+            # Per-reservoir water values (boundary-cut slopes) price the SOFT
+            # ``vol_end >= efin`` slack — terminal storage valued at its
+            # marginal water value, not hard-pinned.
+            water_values=(
+                dict(case.boundary_cut.slopes) if case.boundary_cut else None
+            ),
         ),
         # PLEXOS waterways model only physical spillage / scheduled
         # bypass now.  ``build_turbine_array`` emits each turbine as its
