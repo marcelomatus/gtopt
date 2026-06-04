@@ -1710,6 +1710,24 @@ def _recover_csv_only_thermals(
     return recovered
 
 
+#: A generator whose finalised ``pmax`` is positive but below this floor
+#: (MW) is a degenerate stale-rating artifact, not a real plant — e.g.
+#: ``SANTA_ROSA`` ships ``3.45e-10`` MW from PLEXOS.  Such a tiny pmax lands
+#: as the ``commitment_gen_upper`` coefficient (``gen <= pmax*status``),
+#: injecting a ~1e-10 matrix entry that blows the LP condition number
+#: (kappa) to ~1e14.  Collapsing it to exactly ``0.0`` routes the unit
+#: through the existing ``pmax == 0`` machinery (commitment dropped, safe
+#: ``[0, 0]`` column).  The CEN pmax distribution has a clean gap — nothing
+#: between ``3.45e-10`` MW (SANTA_ROSA) and ``0.01`` MW (smallest real
+#: plant) — so this floor (1e-3 MW = 1 kW) catches only garbage ratings.
+#: Empirically observed CEN garbage values: MUCHI = 4.03e-8 MW (40 nW —
+#: arbitrary precision residual on an OFF unit), EL_MIRADOR = 3.31e-4 MW
+#: (0.33 kW).  The previous 1e-4 floor caught MUCHI but missed
+#: EL_MIRADOR; 1e-3 catches both without risking any real CEN unit
+#: (smallest real dispatchable plant in CEN is ≥1 MW).
+_PMAX_DEGENERATE_FLOOR_MW = 1.0e-3
+
+
 def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpec, ...]:
     """One :class:`GeneratorSpec` per Generator object.
 
@@ -2138,6 +2156,16 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
             # Fallback: XML-only schemas (118-Bus, RTS-96) carry
             # ``Max Capacity`` on the System→Generators collection.
             pmax = db.static_property("Generator", gen.object_id, "Max Capacity")
+        # Collapse a degenerate near-zero pmax (stale PLEXOS rating, e.g.
+        # SANTA_ROSA = 3.45e-10 MW) to exactly 0.0 so the unit flows through
+        # the ``pmax == 0`` path (commitment dropped, [0, 0] column) instead
+        # of injecting a ~1e-10 ``commitment_gen_upper`` coefficient that
+        # wrecks the LP condition number.  Zero the profile too: pmax is its
+        # max, so every entry is already below the floor.
+        if 0.0 < pmax < _PMAX_DEGENERATE_FLOOR_MW:
+            pmax = 0.0
+            if profile:
+                profile = tuple(0.0 for _ in profile)
         # PLEXOS Min Stable Level is per-docs commitment-conditional
         # (Generator.MinStableLevel: applies only when the unit is
         # committed).  It travels via ``CommitmentSpec.pmin`` (set in
@@ -5343,6 +5371,23 @@ def extract_commitments(
                     ramp_down,
                 )
                 initial_power = pmax0
+        # Threshold tiny ``initial_power`` to 0 — applied AFTER the
+        # Fixed-Load override and the ramp_down cap so it catches every
+        # path that can leave the field at a numerical-residual value.
+        # PLEXOS Gen_IniGeneration / Gen_FixedLoad occasionally ships
+        # numerical-noise values for plants that are physically OFF
+        # (verified on jan18 PLEXOS20260118: ``uc_MUCHI`` ends up with
+        # ``initial_power = 4.03e-08 MW`` from a tiny Fixed-Load[0]
+        # value; ``uc_EL_MIRADOR`` at ``3.31e-04 MW``).  Both are
+        # clearly intended as zero but each residual lands as the
+        # ``Commitment[i].status × gen_upper`` coefficient over 168
+        # blocks, dragging the LP coefficient ratio to 2.49e+07 and
+        # the CPLEX kappa to ~10⁹–10¹⁰.  A 1 kW (1e-3 MW) threshold —
+        # below the physical minimum tech of every CEN unit — zeros
+        # these out without touching any real dispatch level.
+        _MIN_INITIAL_POWER_MW = 1.0e-3
+        if 0.0 < abs(initial_power) < _MIN_INITIAL_POWER_MW:
+            initial_power = 0.0
         any_param = (
             startup_cost
             or shutdown_cost
@@ -7017,6 +7062,114 @@ def _consolidate_gas_maxopday_groups(
         )
 
     return survivors + consolidated
+
+
+#: Coefficient magnitude above which a decision-variable term in a
+#: ``physical_output - M*dv <= 0`` availability gate is treated as a big-M
+#: to be tightened.  PLEXOS ships ``M = 100000`` (the Decision Variable's
+#: ``Value Coefficient``); M only needs to be >= the gated entity's real
+#: max power, so the 1e5 coefficient is ~5 orders above the ~300 MW it
+#: actually gates — a pure LP condition-number (kappa) liability.
+_DV_BIGM_THRESHOLD_MW = 1.0e3
+
+#: Matches ``<coeff> * <kind>("<name>").<attr>`` terms in a UserConstraint
+#: expression (the AMPL grammar the gtopt constraint parser consumes).
+_GATE_TERM_RE = re.compile(
+    r"(?P<coeff>[+-]?\s*[0-9.eE+]+)\s*\*\s*"
+    r"(?P<kind>generator|battery|decision_variable)"
+    r'\("(?P<name>[^"]+)"\)\.(?P<attr>\w+)'
+)
+
+
+def _tighten_dv_bigm_expression(
+    expr: str,
+    pmax_by_gen: dict[str, float],
+    pmax_discharge_by_bat: dict[str, float],
+    pmax_charge_by_bat: dict[str, float],
+) -> str | None:
+    """Return a rewritten ``expr`` with oversized decision-variable big-M
+    coefficients capped at the gated physical capacity, or ``None`` when
+    nothing changed.
+
+    Only touches the exact availability-gate pattern ``Σ output - M*dv <=
+    0``: an upper-bound row with RHS 0 whose decision-variable coefficient
+    magnitude both exceeds :data:`_DV_BIGM_THRESHOLD_MW` AND exceeds the
+    summed physical capacity it gates.  Capping ``M`` to that capacity is
+    semantics-preserving — the entity's own ``pmax`` bound already binds
+    below ``M`` when the gate is open (``dv = 1``) — while collapsing a
+    1e5 matrix entry to ~1e2.  Anything else is left byte-for-byte intact.
+    """
+    m_op = re.search(r"(<=|>=|=)\s*(-?[0-9.eE+]+)\s*$", expr)
+    if m_op is None or m_op.group(1) != "<=":
+        return None
+    try:
+        if abs(float(m_op.group(2))) > 1.0e-6:
+            return None
+    except ValueError:
+        return None
+    lhs = expr[: m_op.start()]
+    terms = list(_GATE_TERM_RE.finditer(lhs))
+    if not terms:
+        return None
+
+    gate_cap = 0.0
+    dv_hits: list[tuple[re.Match[str], float]] = []
+    for t in terms:
+        try:
+            coeff = float(t.group("coeff").replace(" ", ""))
+        except ValueError:
+            return None
+        kind, name, attr = t.group("kind"), t.group("name"), t.group("attr")
+        if kind == "generator" and attr == "generation":
+            gate_cap += abs(coeff) * pmax_by_gen.get(name, 0.0)
+        elif kind == "battery" and attr == "discharge":
+            gate_cap += abs(coeff) * pmax_discharge_by_bat.get(name, 0.0)
+        elif kind == "battery" and attr == "charge":
+            gate_cap += abs(coeff) * pmax_charge_by_bat.get(name, 0.0)
+        elif kind == "decision_variable" and attr == "value":
+            dv_hits.append((t, coeff))
+    if gate_cap <= 0.0 or not dv_hits:
+        return None
+
+    new_lhs = lhs
+    changed = False
+    # Replace right-to-left so earlier match spans stay valid.
+    for t, coeff in reversed(dv_hits):
+        if abs(coeff) >= _DV_BIGM_THRESHOLD_MW and abs(coeff) > gate_cap:
+            capped = -gate_cap if coeff < 0.0 else gate_cap
+            token = f"- {gate_cap:g}" if capped < 0.0 else f"+ {gate_cap:g}"
+            new_lhs = new_lhs[: t.start("coeff")] + token + new_lhs[t.end("coeff") :]
+            changed = True
+    if not changed:
+        return None
+    return new_lhs + expr[m_op.start() :]
+
+
+def _tighten_decision_variable_bigm(
+    ucs: tuple[UserConstraintSpec, ...],
+    pmax_by_gen: dict[str, float],
+    pmax_discharge_by_bat: dict[str, float],
+    pmax_charge_by_bat: dict[str, float],
+) -> tuple[UserConstraintSpec, ...]:
+    """Cap oversized decision-variable big-M gates across all UCs."""
+    out: list[UserConstraintSpec] = []
+    n_capped = 0
+    for uc in ucs:
+        new_expr = _tighten_dv_bigm_expression(
+            uc.expression, pmax_by_gen, pmax_discharge_by_bat, pmax_charge_by_bat
+        )
+        if new_expr is not None:
+            out.append(dataclasses.replace(uc, expression=new_expr))
+            n_capped += 1
+        else:
+            out.append(uc)
+    if n_capped:
+        logger.info(
+            "tightened decision-variable big-M on %d availability-gate UCs "
+            "(M -> gated capacity; kappa fix)",
+            n_capped,
+        )
+    return tuple(out)
 
 
 def extract_user_constraints(
@@ -10335,6 +10488,15 @@ def extract_case(
         lax_refs=lax_uc_refs,
         reserves=reserves,
         plexos_legacy=plexos_legacy,
+    )
+    # Tighten oversized decision-variable big-M availability gates
+    # (``output - 100000*dv <= 0``) down to the gated entity's real max
+    # power, so the 1e5 PLEXOS Value Coefficient stops inflating kappa.
+    base_ucs = _tighten_decision_variable_bigm(
+        base_ucs,
+        {g.name: (g.pmax or 0.0) for g in case.generators},
+        {b.name: (b.pmax_discharge or 0.0) for b in case.batteries},
+        {b.name: (b.pmax_charge or 0.0) for b in case.batteries},
     )
     hydro_ucs = extract_hydro_discharge_user_constraints(
         db, bundle, all_turbines_for_pf, case.generators

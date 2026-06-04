@@ -966,6 +966,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
         "loss_cost_eps": args.loss_cost_eps,
+        "line_losses_mode": args.line_losses_mode,
         # Forwarded to ``options.write_out`` (see
         # ``gtopt_writer.build_options``).  ``getattr`` with the canonical
         # default keeps in-tree fixtures that build a minimal Namespace

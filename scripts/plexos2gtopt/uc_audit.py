@@ -566,18 +566,41 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             "in_hard_list": name in hard_list,
         }
 
-        # B2: RHS scale mismatch (gtopt's per-period max vs PLEXOS's per-period max)
+        # B2: RHS SCALE mismatch — a gross unit / sign / magnitude error
+        # (e.g. ANTUCO 137 MW vs 83.3 m³/s), NOT a per-block profile
+        # wiggle.  Both gtopt and PLEXOS carry block-varying RHS, so the
+        # only sound scalar test is whether the two value RANGES OVERLAP.
+        # Comparing a single aggregate (max-vs-max OR min-vs-min) is unsafe
+        # because the extrema occur in different blocks: the old max-vs-max
+        # silently matched ``Reg_SouthZone`` (both peak at 320) while
+        # min-vs-min would falsely flag its 187.42 floor against PLEXOS's
+        # 207 floor — two non-aligned blocks.  Range overlap also dissolves
+        # PLEXOS's "contingency-off" no-limit sentinels (10000 / 100000 MW):
+        # gtopt's real 400 MW cap sits inside PLEXOS's [400, 10000] band, so
+        # ``SD_*_Guacolda_Maitencillo`` no longer false-positives.
+        #
+        # We also gate on PLEXOS having ACTUALLY bound the row (non-zero
+        # shadow price AND binding hours): when PLEXOS never pays for the
+        # constraint its RHS value cannot change the solution, so a
+        # mismatch is immaterial — the same guard the B6 bucket uses below
+        # and the audit's stated goal of silencing never-binding noise.
+        # This drops the date-windowed ``PANGUEpriority`` (gtopt picks a
+        # relaxed ``>= -10000`` floor row on the Oct horizon while PLEXOS
+        # holds it at 20, but never binds it: price = 0, hours_binding = 0).
         if (
             p["rhs_n"] > 0
             and g["rhs_scalar"] is not None
             and not g.get("daily_sum", False)
+            and p["price_sum_abs"] > 0.0
+            and p["hours_binding_sum"] > 0
         ):
-            g_eff = max(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
-            p_eff = p["rhs_max"]
-            rel = (
-                abs(p_eff - g_eff) / max(abs(p_eff), 1e-9) if p_eff is not None else 0.0
-            )
-            if rel > 0.05 and abs(p_eff - g_eff) > 1e-3 and g_eff != 0.0:
+            g_lo = min(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
+            g_hi = max(g["rhs_profile"]) if g["rhs_profile"] else g["rhs_scalar"]
+            p_lo, p_hi = p["rhs_min"], p["rhs_max"]
+            # Gap between the two value ranges (0 when they overlap).
+            gap = max(p_lo - g_hi, g_lo - p_hi, 0.0)
+            scale = max(abs(p_lo), abs(p_hi), 1e-9)
+            if gap / scale > 0.05 and gap > 1e-3:
                 # Suppress B2 when the family is native-promoted on gtopt:
                 # PLEXOS's Constraint RHS is 0 by convention because the
                 # actual requirement lives on a native primitive (Reserve
@@ -590,9 +613,10 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 buckets["B2_rhs_mismatch"].append(
                     {
                         "name": name,
-                        "plexos_rhs_max": p_eff,
-                        "gtopt_rhs_eff": g_eff,
-                        "ratio": g_eff / p_eff if p_eff else None,
+                        "gtopt_op": g["op"],
+                        "plexos_rhs_range": [p_lo, p_hi],
+                        "gtopt_rhs_range": [g_lo, g_hi],
+                        "gap": gap,
                     }
                 )
 

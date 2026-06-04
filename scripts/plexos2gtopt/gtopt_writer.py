@@ -53,6 +53,7 @@ from .entities import (
     WaterwaySpec,
 )
 from .parsers import (
+    _PMAX_DEGENERATE_FLOOR_MW,
     FUEL_FAMILY_RENEWABLE,
     FUEL_FAMILY_THERMAL,
     RENEWABLE_FAMILIES,
@@ -115,6 +116,7 @@ def build_options(
     use_single_bus: bool = False,
     demand_fail_cost: float = 1000.0,
     loss_cost_eps: float = 0.0,
+    line_losses_mode: str | None = None,
     write_out: str | None = None,
 ) -> dict[str, Any]:
     """Map :class:`BundleSpec` onto gtopt's ``options`` block.
@@ -188,6 +190,11 @@ def build_options(
             # inherits this ε to break LP-relax bidirectional-flow
             # degeneracy.
             **({"loss_cost_eps": loss_cost_eps} if loss_cost_eps > 0.0 else {}),
+            # ``line_losses_mode`` (default ``tangent_signed_flow`` on
+            # plexos2gtopt — Coffrin outer-approximation) is emitted
+            # only when explicitly set.  ``None`` lets gtopt fall back
+            # to its built-in ``adaptive`` default.
+            **({"line_losses_mode": line_losses_mode} if line_losses_mode else {}),
         },
         # Enable the backend solver log by default.  Two knobs are
         # needed (they are independent):
@@ -817,6 +824,23 @@ def build_generator_array(
                 mode_variant="secondary",
                 inherits_emission_from=gen.inherits_emission_from,
             )
+
+        # Floor a degenerate near-zero emitted pmax to exactly 0.  This is
+        # the universal chokepoint covering every pmax source — Gen_Rating,
+        # block profile, AND the Fixed-Load path above (e.g. SANTA_ROSA's
+        # forced renewable forecast of 3.45e-10 MW).  A tiny pmax becomes
+        # the ``commitment_gen_upper`` coefficient (gen <= pmax*status),
+        # injecting a ~1e-10 LP-matrix entry that blows the condition number
+        # (kappa) to ~1e14.  Zeroing it drops the term cleanly; the unit
+        # produces nothing either way (see _PMAX_DEGENERATE_FLOOR_MW).
+        _pm = entry.get("pmax")
+        if isinstance(_pm, (int, float)):
+            if 0.0 < _pm < _PMAX_DEGENERATE_FLOOR_MW:
+                entry["pmax"] = 0.0
+        elif isinstance(_pm, list) and _pm and isinstance(_pm[0], list):
+            entry["pmax"] = [
+                [0.0 if 0.0 < v < _PMAX_DEGENERATE_FLOOR_MW else v for v in _pm[0]]
+            ]
 
         out.append(entry)
 
@@ -2953,6 +2977,7 @@ def build_planning(
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
     loss_cost_eps: float = 0.0,
+    line_losses_mode: str | None = None,
     write_out: str | None = None,
     cogen_must_run: frozenset[str] = frozenset(),
     cogen_must_run_all: bool = False,
@@ -3079,67 +3104,24 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
     }
-    # End-of-horizon future-cost valuation.  The ``boundary_cuts.csv``
-    # path only binds under SDDP; for the monolithic LP we encode the
-    # same FCF hyperplane explicitly as an ``alpha_fcf`` variable + a
-    # ``FCF_future_cost`` user constraint, which DOES bind in monolithic.
-    if case.boundary_cut is not None:
-        # α-rebase state per reservoir (single cut, single scenario):
-        # evaluate the boundary cut at the PRECISE end-volume target
-        # ``efin`` — we expect the solution to hit it, so the cut value
-        # ``c = FCF − Σ wv·efin`` is the cost-to-go AT that target and α'
-        # centres on ~0 at the solution → minimal objective perturbance.
-        # Falls back to the bound midpoint, then the initial volume, when
-        # ``efin`` is absent.
-        def _last_scalar(val: Any) -> float | None:
-            while isinstance(val, list):
-                if not val:
-                    return None
-                val = val[-1]
-            return float(val) if isinstance(val, (int, float)) else None
-
-        reservoir_state: dict[str, float] = {}
-        for r in system.get("reservoir_array", []):
-            efin_v = _last_scalar(r.get("efin"))
-            if efin_v is not None:
-                reservoir_state[r["name"]] = efin_v
-                continue
-            emin_v = _last_scalar(r.get("emin"))
-            emax_v = _last_scalar(r.get("emax"))
-            eini_v = _last_scalar(r.get("eini"))
-            if emin_v is not None and emax_v is not None:
-                reservoir_state[r["name"]] = 0.5 * (emin_v + emax_v)
-            elif eini_v is not None:
-                reservoir_state[r["name"]] = eini_v
-            else:
-                reservoir_state[r["name"]] = 0.0
-        dv_arr = system.setdefault("decision_variable_array", [])
-        uc_arr = system.setdefault("user_constraint_array", [])
-        next_dv_uid = max((int(v["uid"]) for v in dv_arr), default=0) + 1
-        next_uc_uid = max((int(u["uid"]) for u in uc_arr), default=0) + 1
-        # Last block of the horizon (end-of-horizon, where `.efin` lives):
-        # block uids are 1..N in build_simulation, so the last uid is the
-        # block count.  ``alpha_fcf`` is an energy variable, so no
-        # block-duration correction is needed.
-        if case.bundle.block_layout:
-            last_block_uid = len(case.bundle.block_layout)
-        else:
-            last_block_uid = int(case.bundle.step_count * case.bundle.n_days)
-        fcf_terms = build_fcf_alpha_terms(
-            case.boundary_cut,
-            reservoir_state,
-            dv_uid=next_dv_uid,
-            uc_uid=next_uc_uid,
-            last_block_uid=last_block_uid,
-            scale_alpha=(
-                fcf_scale_alpha if fcf_scale_alpha is not None else _FCF_SCALE_ALPHA
-            ),
-            coeff_divisor=fcf_coeff_divisor,
-        )
-        if fcf_terms is not None:
-            alpha_dv, fcf_uc = fcf_terms
-            dv_arr.append(alpha_dv)
-            uc_arr.append(fcf_uc)
+    # End-of-horizon future-cost valuation is now provided SOLELY by the C++
+    # boundary-cut loader.  ``MonolithicMethod`` registers the α future-cost
+    # state variable and binds ``boundary_cuts.csv`` as
+    # ``α + Σ wvᵣ·efinᵣ >= FCF`` (``monolithic_boundary_cuts_mode`` defaults to
+    # ``separated``), α-rebased at the ``efin`` target identically to the old
+    # Python oracle (verified: source/monolithic_method.cpp + TASK 1/2 of
+    # test/source/test_monolithic_boundary_cuts.cpp; the run log shows
+    # "MonolithicMethod: loading boundary cuts" + "loaded 1 boundary cuts").
+    #
+    # The converter USED TO ALSO encode the same hyperplane explicitly here as
+    # an ``alpha_fcf`` DecisionVariable + ``FCF_future_cost`` UserConstraint,
+    # from when the monolithic LP ignored boundary cuts.  Now that the C++ path
+    # binds them, emitting BOTH DOUBLE-COUNTS the cost-to-go — two α columns,
+    # two cuts, a 2× terminal-storage gradient.  Dropped; ``boundary_cuts.csv``
+    # is the single source of truth.  ``build_fcf_alpha_terms`` is retained
+    # (unit-tested) for the no-C++-loader path; ``fcf_scale_alpha`` /
+    # ``fcf_coeff_divisor`` stay on the signature for CLI/API stability.
+    _ = (fcf_scale_alpha, fcf_coeff_divisor)  # retained; see note above
     # ── Default soft-EL=1 augmentation ────────────────────────────────
     # When the caller did NOT pass ``--lift-line-caps`` (empty env var),
     # add a parallel slack line on every EL=1 line so the LP has a
@@ -3204,6 +3186,7 @@ def build_planning(
             use_single_bus=use_single_bus,
             demand_fail_cost=case.bundle.demand_fail_cost,
             loss_cost_eps=loss_cost_eps,
+            line_losses_mode=line_losses_mode,
             write_out=write_out,
         ),
         "simulation": build_simulation(case.bundle),

@@ -209,3 +209,121 @@ def test_run_audit_end_to_end_minimal(tmp_path: Path) -> None:
     assert res.summary["n_plexos"] == 1
     assert res.summary["n_gtopt_total"] == 1
     assert res.summary["n_intersection"] == 1
+
+
+# ---------------------------------------------------------------------------
+# B2 RHS-scale-mismatch bucket — range-overlap + binding guard
+# ---------------------------------------------------------------------------
+def _run_b2(
+    tmp_path: Path,
+    *,
+    name: str,
+    pampl_def: str,
+    rhs_values: list[float],
+    price: float = 5.0,
+    binding: float = 4.0,
+) -> list[dict]:
+    """Build a one-constraint bundle and return its B2 bucket items.
+
+    ``rhs_values`` are the per-block PLEXOS RHS rows (their min/max form
+    the PLEXOS value range); ``price``/``binding`` populate the shadow
+    price and binding-hours the B2 guard checks.
+    """
+    pampl_dir = tmp_path / "gtopt"
+    pampl_dir.mkdir()
+    (pampl_dir / "uc_x.pampl").write_text(pampl_def + "\n")
+    plan = pampl_dir / "planning.json"
+    plan.write_text(json.dumps({"system": {"user_constraint_array": []}}))
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    _write_csv(
+        cache / "t_object.csv",
+        ["object_id", "name", "class_id"],
+        [[42, name, 70]],
+    )
+    _write_csv(
+        cache / "t_membership.csv",
+        ["membership_id", "collection_id", "child_class_id", "child_object_id"],
+        [[101, 700, 70, 42]],
+    )
+    _write_csv(
+        cache / "t_key.csv",
+        ["key_id", "membership_id", "property_id"],
+        [
+            [1002, 101, 3073],  # rhs
+            [1003, 101, 3072],  # hours_binding
+            [1004, 101, 3074],  # price
+        ],
+    )
+    data = [[1002, v] for v in rhs_values]
+    data.append([1003, binding])
+    data.append([1004, price])
+    _write_csv(cache / "t_data_0.csv", ["key_id", "value"], data)
+
+    res = run_audit(
+        AuditInputs(
+            plexos_cache_dir=cache,
+            gtopt_pampl_dir=pampl_dir,
+            gtopt_json=plan,
+            hard_list=None,
+        )
+    )
+    return res.buckets.get("B2_rhs_mismatch", [])
+
+
+def test_b2_flags_true_scale_mismatch(tmp_path: Path) -> None:
+    # gtopt floor 137 vs PLEXOS floor 83.3 — disjoint ranges, a real
+    # unit/scale error on a binding constraint → flagged.
+    items = _run_b2(
+        tmp_path,
+        name="ScaleBug",
+        pampl_def='constraint ScaleBug: 1 * x("a") >= 137;',
+        rhs_values=[83.3, 83.3],
+    )
+    assert [it["name"] for it in items] == ["ScaleBug"]
+    assert items[0]["gtopt_rhs_range"] == [137.0, 137.0]
+    assert items[0]["plexos_rhs_range"] == [83.3, 83.3]
+    assert items[0]["gap"] > 1e-3
+
+
+def test_b2_suppresses_le_nolimit_sentinel(tmp_path: Path) -> None:
+    # gtopt cap 400 sits INSIDE PLEXOS's [400, 10000] band (10000 is the
+    # contingency-off no-limit sentinel) → ranges overlap → no flag, even
+    # though PLEXOS binds the row.
+    items = _run_b2(
+        tmp_path,
+        name="SD_x_Foo_Bar",
+        pampl_def='constraint SD_x_Foo_Bar: 1 * x("a") <= 400;',
+        rhs_values=[400.0, 10000.0],
+    )
+    assert not items
+
+
+def test_b2_suppresses_overlapping_block_profile(tmp_path: Path) -> None:
+    # gtopt block profile spans [187.42, 320]; PLEXOS spans [207, 320].
+    # The ranges overlap, so the non-aligned 187.42-vs-207 floors are not
+    # a scale mismatch (the Reg_SouthZone pattern).
+    items = _run_b2(
+        tmp_path,
+        name="ZoneCap",
+        pampl_def=(
+            'constraint ZoneCap rhs [320, 232, 187.42, 320]: 1 * x("a") <= 320;'
+        ),
+        rhs_values=[207.0, 232.0, 320.0],
+    )
+    assert not items
+
+
+def test_b2_suppresses_never_binding(tmp_path: Path) -> None:
+    # Disjoint ranges (gtopt -10000 vs PLEXOS 20) but PLEXOS never binds
+    # (price = 0, binding = 0) → immaterial, suppressed (PANGUEpriority).
+    items = _run_b2(
+        tmp_path,
+        name="PANGUEpriority",
+        pampl_def='constraint PANGUEpriority: 1 * x("a") >= -10000;',
+        rhs_values=[20.0, 20.0],
+        price=0.0,
+        binding=0.0,
+    )
+    assert not items

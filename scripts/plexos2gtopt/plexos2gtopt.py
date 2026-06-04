@@ -429,6 +429,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             soft_efin_reservoirs=soft_efin_set,
             soft_penalty_override=options.get("soft_penalty_cost"),
             loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
+            line_losses_mode=options.get("line_losses_mode"),
             write_out=options.get("write_out"),
             cogen_must_run=_cogen_names,
             cogen_must_run_all=_cogen_all,
