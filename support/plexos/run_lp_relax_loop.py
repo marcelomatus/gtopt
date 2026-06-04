@@ -132,21 +132,17 @@ def process_case(
     except (json.JSONDecodeError, KeyError):
         res["capricornio_lift"] = "unparsed"
 
-    # 2. write --no-scale LP and SOLVE (default CPLEX).  Run from outdir:
-    #    JSON references the uc_*.pampl files by basename.
+    # 2. SOLVE (default CPLEX).  Run from outdir: JSON references the
+    #    uc_*.pampl files by basename.  LP-relax mode adds ``--no-scale`` for
+    #    raw-coefficient / kappa diagnostics; MIP mode solves the production
+    #    LP WITH scaling (the FCF alpha + loss-link conditioning needs it).
     t0 = time.time()
     solve_log = outdir / "solve.log"
-    res["solve_rc"] = run(
-        [
-            gtopt_bin,
-            json_path.name,
-            "--no-scale",
-            "-l",
-            json_path.stem,
-        ],
-        cwd=outdir,
-        log=solve_log,
-    )
+    solve_cmd = [gtopt_bin, json_path.name]
+    if lp_relax:
+        solve_cmd.append("--no-scale")
+    solve_cmd += ["-l", json_path.stem]
+    res["solve_rc"] = run(solve_cmd, cwd=outdir, log=solve_log)
     res["solve_secs"] = round(time.time() - t0, 1)
     res["objective"] = _grep_objective(solve_log)
     return res
