@@ -2375,6 +2375,14 @@ def build_reserve_zone_array(
 
         entry["urreq"] = [_shape(rsv.ur_requirement)]
         entry["drreq"] = [_shape(rsv.dr_requirement)]
+        # Static Min-Provision floor (scalar MW): the LP enforces
+        # ``Σ pf·prov ≥ max(urreq, urmin)``, so the time-varying urreq/drreq
+        # above mirror PLEXOS's reported RHS while the floor still binds on
+        # low-requirement hours.  Emit only when non-zero.
+        if rsv.ur_min_provision > 0.0:
+            entry["urmin"] = rsv.ur_min_provision
+        if rsv.dr_min_provision > 0.0:
+            entry["drmin"] = rsv.dr_min_provision
         # Shortage-penalty costs ($/MWh) emit only when non-zero — gtopt
         # treats the unset OptTBRealFieldSched as "no penalty", matching
         # PLEXOS semantics for Reserves that ship VoRS=-1 (sentinel).

@@ -566,6 +566,11 @@ class ReserveSpec:
     name: str
     ur_requirement: tuple[float, ...] = field(default_factory=tuple)
     dr_requirement: tuple[float, ...] = field(default_factory=tuple)
+    #: Static PLEXOS ``Min Provision`` floor [MW] on total provided reserve,
+    #: kept SEPARATE from the time-varying requirement so the LP enforces
+    #: ``Σ pf·prov ≥ max(requirement, min)`` → ReserveZone.urmin / .drmin.
+    ur_min_provision: float = 0.0
+    dr_min_provision: float = 0.0
     eligible_generators: tuple[str, ...] = field(default_factory=tuple)
     # PLEXOS Reserve.Type encodes the ancillary-service class:
     # 1=Regulation, 2=Spinning, 3=Regulation Raise, 4=Regulation Lower,

@@ -18,6 +18,8 @@ struct json_data_contract<ReserveZone>
       json_string_null<"description", OptName>,
       json_variant_null<"urreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"urmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
@@ -30,6 +32,8 @@ struct json_data_contract<ReserveZone>
                                  obj.description,
                                  obj.urreq,
                                  obj.drreq,
+                                 obj.urmin,
+                                 obj.drmin,
                                  obj.urcost,
                                  obj.drcost);
   }

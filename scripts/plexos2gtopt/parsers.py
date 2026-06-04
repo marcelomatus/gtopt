@@ -4495,13 +4495,15 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
         # ``min_provision``; when the CSV is present each hour gets the
         # max of the two so the static floor still binds even on the
         # low-requirement hours that ``Res_Requirement.csv`` reports.
-        target_len = 24 * bundle.n_days
-        if profile:
-            requirement = tuple(max(float(v), min_provision) for v in profile)
-        elif min_provision > 0.0:
-            requirement = tuple([min_provision] * target_len)
-        else:
-            requirement = ()
+        # Requirement = the time-varying CSV profile ONLY (mirrors PLEXOS's
+        # reported per-block RHS).  The static ``Min Provision`` floor is carried
+        # SEPARATELY as ur_min/dr_min → ReserveZone.urmin/drmin, so the LP
+        # enforces ``Σ pf·prov ≥ max(requirement, min)`` while the reported
+        # requirement schedule still matches PLEXOS (it is NOT raised by the
+        # floor on low-requirement hours).  Previously this folded
+        # ``max(csv, min_provision)`` into the requirement, which over-reported
+        # the RHS on low hours (e.g. CTF_DownMinProvision 94→293).
+        requirement = tuple(float(v) for v in profile) if profile else ()
         ur_req: tuple[float, ...] = ()
         dr_req: tuple[float, ...] = ()
         if requirement:
@@ -4509,6 +4511,10 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
                 dr_req = requirement
             else:
                 ur_req = requirement
+        ur_min_provision = (
+            min_provision if (min_provision > 0.0 and not is_down) else 0.0
+        )
+        dr_min_provision = min_provision if (min_provision > 0.0 and is_down) else 0.0
         plexos_type_raw = db.static_property("Reserve", rsv.object_id, "Type")
         plexos_type = int(plexos_type_raw) if plexos_type_raw else 0
         type_tag = type_tag_map.get(plexos_type, "other")
@@ -4543,6 +4549,8 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
                 name=rsv.name,
                 ur_requirement=ur_req,
                 dr_requirement=dr_req,
+                ur_min_provision=ur_min_provision,
+                dr_min_provision=dr_min_provision,
                 eligible_generators=tuple(sorted(set(eligibility.get(rsv.name, [])))),
                 plexos_type=plexos_type,
                 type_tag=type_tag,

@@ -97,9 +97,11 @@ private:
                 std::string_view cname,
                 const Id& id,
                 auto&& rreq,
+                auto&& rmin,
                 auto&& rcost);
 
     OptTBRealSched req;
+    OptTBRealSched min;  ///< Min-Provision floor; effective RHS = max(req, min)
     OptTBRealSched cost;
     STBIndexHolder<ColIndex> requirement_cols;
     STBIndexHolder<RowIndex> requirement_rows;

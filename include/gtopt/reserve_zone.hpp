@@ -47,6 +47,16 @@ struct ReserveZone
 
   OptTBRealFieldSched urreq {};  ///< Up-reserve requirement schedule [MW]
   OptTBRealFieldSched drreq {};  ///< Down-reserve requirement schedule [MW]
+  OptTBRealFieldSched urmin {};  ///< Up-reserve Min-Provision floor [MW].  A
+                                 ///< static lower bound on total provided
+                                 ///< up-reserve (PLEXOS ``Min Provision``):
+                                 ///< the LP enforces ``Σ pf·prov ≥
+                                 ///< max(urreq, urmin)``.  Kept separate from
+                                 ///< ``urreq`` so the time-varying requirement
+                                 ///< schedule mirrors PLEXOS's reported RHS
+                                 ///< instead of being raised by the floor.
+  OptTBRealFieldSched drmin {};  ///< Down-reserve Min-Provision floor [MW].
+                                 ///< Mirrors ``urmin`` for the down direction.
   OptTBRealFieldSched urcost {};  ///< Up-reserve shortage penalty [$/MW]
                                   ///< per-(stage, block); accepts a scalar
                                   ///< (broadcasts), a 2-D nested array, or

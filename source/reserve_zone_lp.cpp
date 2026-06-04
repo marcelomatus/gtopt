@@ -24,7 +24,7 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
                                            const auto rname)
 {
   using STKey = STBIndexHolder<ColIndex>::key_type;
-  if (!rr.req) {
+  if (!rr.req && !rr.min) {
     return {};
   }
 
@@ -36,9 +36,25 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
   for (const auto& block : blocks) {
     const auto buid = block.uid();
     const auto block_rreq = rr.req.optval(stage.uid(), block.uid());
-    if (!block_rreq) {
+    const auto block_rmin = rr.min.optval(stage.uid(), block.uid());
+    // Effective requirement = max(time-varying requirement, Min-Provision
+    // floor).  Keeping ``min`` separate from ``req`` lets the JSON / PAMPL
+    // ``req`` schedule mirror PLEXOS's reported per-block RHS while the static
+    // floor still binds on low-requirement blocks (PLEXOS ``Min Provision``).
+    double effective = 0.0;
+    bool has_req = false;
+    if (block_rreq) {
+      effective = *block_rreq;
+      has_req = true;
+    }
+    if (block_rmin) {
+      effective = std::max(effective, *block_rmin);
+      has_req = true;
+    }
+    if (!has_req) {
       continue;
     }
+    const double block_rreq_eff = effective;
 
     // `rr.cost` is now per-(stage, block): resolve per block via the
     // overload that consults `model_options.reserve_shortage_cost` as
@@ -64,7 +80,7 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       // value (paying the shortage penalty in the objective) otherwise.
       const auto rcol = lp.add_col({
           .lowb = 0.0,
-          .uppb = block_rreq.value(),
+          .uppb = block_rreq_eff,
           .cost = -CostHelper::block_ecost(
               scenario, stage, block, block_rcost.value()),
           .class_name = cname,
@@ -88,7 +104,8 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       // constraints referencing it on a hard-requirement zone now hit
       // a strict resolver error instead of silently anchoring to the
       // (pinned) column value — see issue #529 for the trade-off.
-      rr_rows[buid] = lp.add_row(std::move(rr_row.greater_equal(*block_rreq)));
+      rr_rows[buid] =
+          lp.add_row(std::move(rr_row.greater_equal(block_rreq_eff)));
     }
   }
 
@@ -108,8 +125,10 @@ ReserveZoneLP::Requirement::Requirement(const InputContext& ic,
                                         std::string_view cname,
                                         const Id& id,
                                         auto&& rreq,
+                                        auto&& rmin,
                                         auto&& rcost)
     : req(ic, cname, id, std::forward<decltype(rreq)>(rreq))
+    , min(ic, cname, id, std::forward<decltype(rmin)>(rmin))
     , cost(ic, cname, id, std::forward<decltype(rcost)>(rcost))
 {
 }
@@ -121,11 +140,13 @@ ReserveZoneLP::ReserveZoneLP(const ReserveZone& preserve_zone,
          Element::class_name,
          id(),
          std::move(reserve_zone().urreq),
+         std::move(reserve_zone().urmin),
          std::move(reserve_zone().urcost))
     , dr(ic,
          Element::class_name,
          id(),
          std::move(reserve_zone().drreq),
+         std::move(reserve_zone().drmin),
          std::move(reserve_zone().drcost))
 {
 }
