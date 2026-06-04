@@ -681,6 +681,52 @@ def build_recipes_for_cell(
             mcs = []
             ems = []
 
+        # Per-bus LMP-decomposition recovery — for unit-driven kinds
+        # (single_unit / tied_units / forced_pmin_marginal) where r_lmp
+        # was set from the zone's lambda_z OR the weighted MC.  The
+        # zone-level value captures only the ENERGY component of LMP
+        # (λ_energy = marginal gen MC) — the bus-specific LOSS and
+        # CONGESTION components live in the LP's bus dual.  Per Schweppe
+        # decomposition:
+        #
+        #   bus_LMP[i] = λ_energy + δ_loss[i] + δ_congestion[i]
+        #
+        # When ``lmp_by_bus[bus_uid]`` is available it IS the LP-side
+        # full bus LMP including loss + congestion contributions.
+        # Recover by scaling the marginal-MC base by the
+        # ``bus_LMP / zone_LMP`` ratio — preserves the recipe's
+        # marginal-unit attribution (energy component) while restoring
+        # the per-bus loss + congestion adders.  The ratio is the
+        # PHYSICAL ground truth — bus i is at λ_zone × (1 + δ/λ_zone)
+        # = bus_LMP[i] by construction.
+        #
+        # Skipped for non-unit kinds (demand_fail, no_marginal_neg_lmp,
+        # renewable_curtailment, empty_island, hydro_marginal,
+        # unattributed) — those already set r_lmp from a bus-specific
+        # source (dfc, 0, or the zone's storage marginal).
+        #
+        # Verified 2026-06-04 on jan18 LP-relax: 20 southern-Chile buses
+        # (Pid-Pid110, etc.) at long-radial corridors carried mean
+        # error ≈ $108 per bus across 168 blocks; the recovery sets
+        # r_lmp exactly to bus_lmp_actual, eliminating these errors.
+        if bus_lmp_actual is not None and kind_str in {
+            FormulaKind.SINGLE_UNIT.value,
+            FormulaKind.TIED_UNITS.value,
+            FormulaKind.FORCED_PMIN_MARGINAL.value,
+        }:
+            r_lmp = bus_lmp_actual
+        elif bus_lmp_actual is not None and kind_str == FormulaKind.UNATTRIBUTED.value:
+            # Same LMP recovery for ``unattributed`` cells: the recipe
+            # could not pick a marginal generator, so the formula-derived
+            # ``r_lmp`` was set to NaN.  ``bus_lmp_actual`` is still the
+            # LP-side ground truth — use it so downstream consumers
+            # (battery_balance, LMP back-test) get a usable price.  The
+            # lack of marginal-unit attribution stays visible via
+            # ``formula_kind == "unattributed"`` and the empty
+            # ``marginal_gen_uids`` list; only the price field is
+            # recovered.
+            r_lmp = bus_lmp_actual
+
         # Storage-marginal + negative lambda_z: clamp BOTH price and
         # emission factor to 0 (per user instruction).  Rationale: a
         # negative-LMP cell carries no real economic / carbon signal
@@ -726,7 +772,20 @@ def build_recipes_for_cell(
         # solver's 1e-6 noise floor.  An explicit override
         # ``--tol-price 0`` is the only way to make this check
         # bit-exact; that's the operator's choice and intent.
+        # Round-trip invariant: |r_lmp − lambda_z| ≤ scaled_tol.
+        # Skipped when ``bus_lmp_actual`` is available AND r_lmp was
+        # set to it by the LMP-decomposition recovery above — in that
+        # case r_lmp legitimately captures bus-specific loss + congestion
+        # adders that lambda_z does NOT (zone-rep LMP).  The invariant
+        # only fires when r_lmp comes from the marginal-MC formula
+        # (no per-bus recovery applied), where it must round-trip
+        # exactly to the zone lambda.
         scaled_tol = max(tol.tol_price, tol.tol_price * abs(zres.lambda_z))
+        bus_recovered = bus_lmp_actual is not None and kind_str in {
+            FormulaKind.SINGLE_UNIT.value,
+            FormulaKind.TIED_UNITS.value,
+            FormulaKind.FORCED_PMIN_MARGINAL.value,
+        }
         if (
             kind_str
             in {
@@ -735,6 +794,7 @@ def build_recipes_for_cell(
             }
             and zres.reason != "interior_rc_zero_lp_dual"
             and not storage_neg_clamp
+            and not bus_recovered
             and mcs
             and abs(r_lmp - zres.lambda_z) > scaled_tol
         ):
