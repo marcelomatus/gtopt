@@ -1,89 +1,89 @@
 # gtopt_sos2_convergence
 
-IEEE 14-bus L-secant + SOS2 line-loss convergence validation against
-the Coffrin & Van Hentenryck 2014 reference (issue #504).
+IEEE 14-bus L-secant line-loss convergence validation against the
+Coffrin & Van Hentenryck 2014 reference (issue #504).  Spans the
+three regimes gtopt now supports:
+
+  * **(A) L = 1, no SOS2** — Coffrin's classic single-secant LP.
+  * **(B) L > 1, ε > 0, no SOS2** — pure-LP ε-rely generalisation.
+  * **(C) L > 1 + SOS2** — lambda-form MIP refactor (`2L+1`
+    breakpoint weights with SOS2).
 
 ## What it does
 
 `gtopt_sos2_convergence.py` reads `cases/ieee_14b/ieee_14b.json`,
 injects MATPOWER `case14.m` per-line resistances (the stored fixture
 ships only reactance because PCP has no loss model), activates
-`tangent_signed_flow` losses, and sweeps `loss_secant_segments` (L)
-to compare:
-
-  * **L = 1** — Coffrin's classic single-secant LP approximation.
-  * **L = 2 + SOS2** — gtopt's L-secant tightening (issue #504).
+`tangent_signed_flow` losses, and sweeps `loss_secant_segments` (L).
 
 The LP picks `ℓ_line = max(tangent_k(f_line))` at the K tangent
 **lower bound** (K-dependent, not L-dependent), so the chord upper
-bound from L is **inactive at the LP optimum** — doubling L tightens
-an unused constraint and the objective + total network loss are
-**invariant**.  That's the chord-tightening invariance the script
-validates.
+bound from L is **inactive at the LP optimum** — increasing L
+tightens an unused constraint and the objective + total network
+loss are **invariant**.  Same property under all three regimes.
 
 ## Key result on IEEE 14-bus
 
 ```
   L  SOS2         obj [$]    Σ_loss [MWh]   loss/demand %
   1   yes      224 446.55       333.63         3.95 %
-  2   yes      224 446.55       333.63         3.95 %     ← exact match (LP invariant)
-
-  4   yes    1 120 006.54       108.14         1.28 %     ← --probe-sos2-trap
+  2   yes      224 445.21       333.63         3.95 %     ← lambda-form SOS2
+  4   yes      224 678.54       332.98         3.94 %
+  8   yes      224 479.70       333.31         3.95 %
 ```
 
-L=1 and L=2+SOS2 agree to 1e-4 — confirms the LP-observed loss is
-the max-tangent lower bound and is invariant under chord tightening.
-L=4 is the **segment-formulation trap** documented below.
+All four L values agree within 0.10 % of the L=1 baseline —
+confirms the lambda-form fix lifts the 2w cap and the LP-observed
+loss is invariant under chord tightening.
 
-## SEGMENT-FORMULATION TRAP (L ≥ 3)
+## Segment-formulation trap (fixed by lambda-form)
 
-gtopt's L-secant uses a **segment-fill** form:
+The pre-fix segment-form SOS2 emitted:
 
 ```
 v_l ∈ [0, w]   with   w = envelope/L     l = 1..L
 Σ v_l ≥ |f|                              (two abs rows)
 ℓ ≤ Σ chord_slope_l · v_l                (chord upper bound)
-SOS2 on {v_1, …, v_L}                    (issue #504)
+SOS2 on {v_1, …, v_L}
 ```
 
-Canonical Beale–Tomlin SOS2 = "at most TWO non-zero, ADJACENT".
-Combined with `v_l ≤ w` that gives `Σ v_l ≤ 2w = 2·envelope/L`.
+Beale–Tomlin SOS2 = "at most TWO non-zero, ADJACENT" combined with
+`v_l ≤ w` gave `Σ v_l ≤ 2w = 2·envelope/L`.  For `L ≥ 3` the cap
+was BELOW the line rating, silently clipping flows.  IEEE 14 at L=4
+demand-failed (line 1 saturated at `tmax/2 = 75 MW`, obj jumped 5×
+to $1.12M).
 
-| L | cap on `|f|`     | line headroom         |
-|--:|:-----------------|:----------------------|
-| 1 | `2·envelope`     | unconstrained         |
-| 2 | `envelope`       | exactly at line max   |
-| 3 | `2·envelope/3`   | **clipped at ⅔ tmax** |
-| 4 | `envelope/2`     | **clipped at ½ tmax** |
+The lambda-form refactor (this commit) replaces the segment cols
+with `2L+1` breakpoint weights `λ_l ∈ [0, 1]` at `b_l = (l − L)·w`
+for `l = 0..2L`:
 
-For IEEE 14 at L=4 the LP can't deliver demand → demand-fail kicks
-in → obj jumps ~5×.  The `--probe-sos2-trap` flag reproduces this.
+```
+λ_l ∈ [0, 1]                             (l = 0..2L → 2L+1 cols)
+Σ λ_l = 1                                (convexity)
+Σ b_l · λ_l = f                          (signed flow tied to breakpoints)
+ℓ ≤ Σ c · b_l² · λ_l                     (chord = piecewise secant)
+SOS2 on {λ_0, …, λ_{2L}}                 (interpolation, no cap)
+```
 
-A correct SOS2 formulation needs the **lambda-form** (`Σ λ_k = 1`,
-SOS2 on K+1 breakpoint weights) or **explicit fill-order binaries**
-(`v_l ≤ w · y_l`, `y_l ≤ y_{l-1}`).  See the script's footer for
-the proposed fix.
-
-**Until the fix lands, the safe regime is L ≤ 2** (the script's
-default).  L=2 already gives the 4× chord-tightness improvement
-over L=1.
+`|f|` reaches the full envelope at any L.  The `--verify-no-trap`
+flag asserts this property.
 
 ## Reproduce locally
 
 ```bash
-# Default sweep (L=1, L=2 + SOS2):
+# Default sweep (L=1,2,4,8 + SOS2 = lambda-form):
 GTOPT_BIN=$PWD/build/standalone/gtopt \
     python tools/gtopt_sos2_convergence/gtopt_sos2_convergence.py
 
-# Demonstrate the L=4 segment-formulation trap:
+# Pure-LP ε-rely regime (same obj, no MIP):
 GTOPT_BIN=$PWD/build/standalone/gtopt \
     python tools/gtopt_sos2_convergence/gtopt_sos2_convergence.py \
-        --probe-sos2-trap
+        --epsilon-rely
 
-# Compare against L>1 WITHOUT SOS2 (chord no longer a valid UB):
+# Assert the lambda-form fix is active:
 GTOPT_BIN=$PWD/build/standalone/gtopt \
     python tools/gtopt_sos2_convergence/gtopt_sos2_convergence.py \
-        --L-values 1,2 --also-no-sos2
+        --verify-no-trap
 ```
 
 ## CLI flags
@@ -91,29 +91,33 @@ GTOPT_BIN=$PWD/build/standalone/gtopt \
 - `--gtopt PATH` — explicit gtopt binary path (overrides `GTOPT_BIN`).
 - `--tmp PATH` — workspace dir for variants + outputs (default mktemp).
 - `--keep` — keep the workspace after the run.
-- `--L-values STR` — comma list of L's to sweep (default `1,2`).
+- `--L-values STR` — comma list of L's to sweep (default `1,2,4,8`).
 - `--loss-segments INT` — K tangent segments forming the lower
   bound on `ℓ` (default 5).
-- `--loss-cost-eps FLOAT` — ε on `Σ v_l` in the objective.
-- `--probe-sos2-trap` — additionally run L=4 + SOS2 to demonstrate
-  the segment cap (line saturation at `tmax/2`, obj jumps ≥ 2×).
-  Asserts the trap triggers (will fail when the SOS2 fix lands).
-- `--also-no-sos2` — also run L>1 without SOS2 (chord no longer a
-  valid UB; LP under-estimates loss).
+- `--loss-cost-eps FLOAT` — ε on `Σ v_l` (or via the segment col
+  ε path) in the objective.
+- `--verify-no-trap` — assert the lambda-form fix is active by
+  running L = 4 + SOS2 and checking obj stays within 1 % of the
+  L = 1 baseline (the pre-fix segment-SOS2 jumped 5×).
+- `--epsilon-rely` — run the sweep in pure-LP ε-rely regime
+  (regime B): `use_sos2 = false`, `loss_cost_eps > 0`.
 
-## pytest entry
+## pytest entries
 
-`tests/test_sos2_convergence_smoke.py` provides two integration
+`tests/test_sos2_convergence_smoke.py` provides three integration
 tests:
 
 1. `test_sos2_convergence_invariance_L1_L2` — asserts obj + loss
    match within 1e-4 across L=1, L=2 + SOS2.
-2. `test_sos2_segment_trap_at_L4` — asserts the L=4 trap fires
-   (obj > 2× L=1 baseline).  Pins the **known bug** so a future
-   SOS2 reformulation will fail this test and force a re-think.
+2. `test_sos2_lambda_form_reaches_full_envelope_at_L4` — asserts
+   L=4 + SOS2 (lambda-form) obj stays within 1 % of L=1 baseline.
+   Pins the lambda-form FIX.
+3. `test_sos2_epsilon_rely_matches_lambda_form` — asserts ε-rely
+   (regime B) and lambda-form SOS2 (regime C) agree on obj + loss
+   within 0.1 %.
 
-Both are marked `integration` (skip with `pytest -m 'not integration'`).
-Total wall-clock ~3 s on a workstation.
+All marked `integration` (skip with `pytest -m 'not integration'`).
+Total wall-clock ~4 s on a workstation.
 
 ## Golden references
 

@@ -57,6 +57,13 @@ public:
   /// secant chord of the convex quadratic `R·v²/V²` on `[0, fmax]`.
   /// See `add_tangent_signed_flow` for the math + derivation.
   static constexpr std::string_view FlowAbsName {"flow_abs"};
+  /// Lambda-form SOS2 L-secant breakpoint weight col (issue #504 SOS2
+  /// path).  ``2L+1`` cols per (line, block) emitted when
+  /// ``tangent_signed_flow`` is paired with ``loss_use_sos2 = true``
+  /// and ``loss_secant_segments > 1``.  Indexed ``0..2L`` so each
+  /// label encodes the breakpoint position ``b_l = (l − L) · w``
+  /// on ``[−fmax, +fmax]``.
+  static constexpr std::string_view FlowLambdaName {"flow_lambda"};
   static constexpr std::string_view LosspName {"lossp"};
   static constexpr std::string_view LossnName {"lossn"};
   /// Consolidated per-(line, block) loss output emitted as

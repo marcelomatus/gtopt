@@ -392,6 +392,8 @@ TEST_CASE(
   }
   // Global default: use_sos2 = false, L = 1.  Per-line override:
   // L = 4 + use_sos2 = true.  The per-line override must win.
+  // Lambda-form SOS2 emits 2L+1 = 9 ``line_flow_lambda_`` cols and
+  // 0 ``line_flow_abs_`` cols (segment-form rows are dropped).
   TwoBusSos2Fixture fix(/*L=*/4,
                         /*use_sos2=*/true,
                         /*K=*/5,
@@ -399,7 +401,8 @@ TEST_CASE(
                         /*global_secant_segments=*/1,
                         /*global_use_sos2=*/false);
   auto& li = fix.lp();
-  CHECK(count_cols_containing(li, "line_flow_abs_") == 4);
+  CHECK(count_cols_containing(li, "line_flow_lambda_") == (2 * 4) + 1);
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 0);
   CHECK(li.sos2_set_count() == 1);
 }
 
@@ -411,7 +414,8 @@ TEST_CASE(
     return;
   }
   // No per-line override; global says L = 3 + SOS2 on.  Line should
-  // inherit those values via the planning-options resolver.
+  // inherit those values via the planning-options resolver and emit
+  // 2L+1 = 7 lambda cols.
   TwoBusSos2Fixture fix(/*L=*/0,
                         /*use_sos2=*/false,
                         /*K=*/5,
@@ -419,7 +423,8 @@ TEST_CASE(
                         /*global_secant_segments=*/3,
                         /*global_use_sos2=*/true);
   auto& li = fix.lp();
-  CHECK(count_cols_containing(li, "line_flow_abs_") == 3);
+  CHECK(count_cols_containing(li, "line_flow_lambda_") == (2 * 3) + 1);
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 0);
   CHECK(li.sos2_set_count() == 1);
 }
 
@@ -664,8 +669,8 @@ TEST_CASE(
 // Skipped when no MIP solver is loaded (CLP-only CI builds).
 
 TEST_CASE(
-    "tangent_signed_flow L=4 + use_sos2: CPLEX solve respects "
-    "at-most-two-adjacent-non-zero")
+    "tangent_signed_flow L=4 + use_sos2 (lambda-form): CPLEX solve "
+    "respects at-most-two-adjacent-non-zero on the λ ladder")
 {
   if (!sos2_available()) {
     MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
@@ -698,17 +703,16 @@ TEST_CASE(
   const auto sol = li.get_col_sol();
   const auto& col_map = li.col_name_map();
 
-  // Collect the v_l primal values in order — segment label
-  // distinguished by the trailing _l<index> tag emitted by
-  // ``add_tangent_signed_flow`` when L > 1.
-  std::array<double, 4> v {};
+  // Collect the λ_l primal values in order.  Lambda-form emits
+  // ``line_flow_lambda_<scen>_<stage>_<block>_<l>`` for l = 0..2L.
+  // For L=4 → 9 cols indexed 0..8.
+  constexpr int L = 4;
+  constexpr int lambda_count = (2 * L) + 1;
+  std::array<double, lambda_count> lam {};
   for (const auto& [name, idx] : col_map) {
-    if (!name.contains("line_flow_abs_")) {
+    if (!name.contains("line_flow_lambda_")) {
       continue;
     }
-    // The segment index is the LAST integer in the label
-    // (``…flow_abs_<scen>_<stage>_<block>_<l>``).  Parse via reverse
-    // search.
     const auto last_underscore = name.find_last_of('_');
     if (last_underscore == std::string_view::npos) {
       continue;
@@ -720,46 +724,55 @@ TEST_CASE(
     if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
       continue;
     }
-    if (seg_idx >= 1 && seg_idx <= 4) {
-      v[static_cast<std::size_t>(seg_idx - 1)] = sol[value_of(idx)];
+    if (seg_idx >= 0 && seg_idx < lambda_count) {
+      lam[static_cast<std::size_t>(seg_idx)] = sol[value_of(idx)];
     }
   }
 
-  // Pure SOS2 invariant (Beale & Tomlin 1970): at most TWO of the L
-  // columns may be non-zero, AND if two are non-zero their indices
-  // must be ADJACENT in the listed order.  SOS2 does NOT inherently
-  // force "non-zeros at the start" — the LP's preference for
-  // low-index (smaller chord_slope) segments drives that, but with a
-  // microscopic ``loss_cost_eps`` and a degenerate LP face the
-  // solver is free to pick any single-non-zero or two-adjacent
-  // configuration.  Both are SOS2-feasible.
+  // Pure SOS2 invariant (Beale & Tomlin 1970): at most TWO of the
+  // 2L+1 lambda columns may be non-zero, AND if two are non-zero
+  // their indices must be ADJACENT in the listed order.
   std::vector<int> nonzero_indices;
-  for (int l = 0; l < 4; ++l) {
-    if (v[static_cast<std::size_t>(l)] > 1e-6) {
+  for (int l = 0; l < lambda_count; ++l) {
+    if (lam[static_cast<std::size_t>(l)] > 1e-6) {
       nonzero_indices.push_back(l);
     }
   }
-  CAPTURE(v[0]);
-  CAPTURE(v[1]);
-  CAPTURE(v[2]);
-  CAPTURE(v[3]);
-  // At most 2 non-zero.
+  CAPTURE(lam[0]);
+  CAPTURE(lam[1]);
+  CAPTURE(lam[2]);
+  CAPTURE(lam[3]);
+  CAPTURE(lam[4]);
+  CAPTURE(lam[5]);
+  CAPTURE(lam[6]);
+  CAPTURE(lam[7]);
+  CAPTURE(lam[8]);
   CHECK(nonzero_indices.size() <= 2);
-  // If 2 non-zero, they must be adjacent.
   if (nonzero_indices.size() == 2) {
     CHECK(nonzero_indices[1] == nonzero_indices[0] + 1);
   }
 
-  // Total fill matches |f|.  The fixture sets demand = 100 MW on bus 2
-  // and capacity 500 MW on bus 1's generator, so the optimal LP picks
-  // f = 100 MW (full demand served from cheaper source), which gives
-  // Σ v_l = 100.  Loose tolerance: solver can round in either direction
-  // up to LP epsilon.
-  double sum_v = 0.0;
-  for (const auto& vl : v) {
-    sum_v += vl;
+  // Convexity: Σ λ_l = 1.
+  double sum_lambda = 0.0;
+  for (const auto& v : lam) {
+    sum_lambda += v;
   }
-  CHECK(sum_v == doctest::Approx(100.0).epsilon(1e-3));
+  CHECK(sum_lambda == doctest::Approx(1.0).epsilon(1e-3));
+
+  // Flow tie: f = Σ b_l · λ_l.  Breakpoints b_l = (l-L)·w with
+  // L=4, w=TMAX/L=50: b_l ∈ {-200, -150, -100, -50, 0, 50, 100,
+  // 150, 200}.  Fixture demand = 100 MW @ bus 2, gen capacity =
+  // 500 MW @ bus 1 → LP picks f = 100, so λ_6 = 1 (single non-zero
+  // at the breakpoint b_6 = +100).  Other SOS2-feasible (λ_5, λ_6)
+  // combos with f = 100 require λ_5 = 0 anyway, so the LP-optimum
+  // is the single-non-zero case.
+  constexpr double w = TwoBusSos2Fixture::TMAX / L;
+  double f_from_lambda = 0.0;
+  for (int l = 0; l < lambda_count; ++l) {
+    const double b_l = static_cast<double>(l - L) * w;
+    f_from_lambda += b_l * lam[static_cast<std::size_t>(l)];
+  }
+  CHECK(f_from_lambda == doctest::Approx(100.0).epsilon(1e-3));
 }
 
 // ── (13) Edge cases for the refactored L-secant emission ────────────
@@ -910,8 +923,8 @@ private:
 using test_line_losses_sos2_edge_ns::MultiBlockSos2Fixture;
 
 TEST_CASE(
-    "tangent_signed_flow L=4 + use_sos2: SOS2 set count scales with block "
-    "count (3 blocks ⇒ 3 sets)")
+    "tangent_signed_flow L=4 + use_sos2 (lambda-form): SOS2 set "
+    "count scales with block count (3 blocks ⇒ 3 sets)")
 {
   if (!sos2_available()) {
     MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
@@ -921,28 +934,36 @@ TEST_CASE(
   auto& li = fix.lp();
   // 1 SOS2 set per (line, block) × 3 blocks = 3 sets.
   CHECK(li.sos2_set_count() == 3);
-  // 4 segment cols × 3 blocks = 12 ``line_flow_abs_`` cols.
-  CHECK(count_cols_containing(li, "line_flow_abs_") == 12);
-  // 2 abs rows × 3 blocks = 6 rows tagged ``line_flow_abs``.
-  CHECK(count_rows_containing(li, "line_flow_abs") == 6);
+  // Lambda-form: 2L+1 = 9 ``line_flow_lambda_`` cols × 3 blocks = 27.
+  CHECK(count_cols_containing(li, "line_flow_lambda_") == (((2 * 4) + 1) * 3));
+  // Lambda-form drops the segment-form abs rows entirely.
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 0);
+  CHECK(count_rows_containing(li, "line_flow_abs") == 0);
+  // 1 convexity row + 1 flow row per (line, block) × 3 blocks = 3 each.
+  CHECK(count_rows_containing(li, "line_loss_lambda_convex") == 3);
+  CHECK(count_rows_containing(li, "line_loss_lambda_flow") == 3);
 }
 
 TEST_CASE(
-    "tangent_signed_flow L=4 + use_sos2: 5 blocks ⇒ 20 segment cols, "
-    "10 abs rows, 5 SOS2 sets")
+    "tangent_signed_flow L=4 + use_sos2 (lambda-form): 5 blocks ⇒ "
+    "45 lambda cols, 0 abs rows, 5 convexity + 5 flow + 5 SOS2 sets")
 {
   if (!sos2_available()) {
     MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
     return;
   }
-  // Stress test: the refactored emit_abs_row + v_ctx_for helpers
-  // must produce the same scaling on a longer horizon.  Catches any
-  // hidden per-block state that a naive lambda capture would leak.
+  // Stress test: the lambda-form helpers must produce the same
+  // scaling on a longer horizon.  Catches any hidden per-block
+  // state that a naive lambda capture would leak.
   MultiBlockSos2Fixture fix(/*L=*/4, /*use_sos2=*/true, /*n_blocks=*/5);
   auto& li = fix.lp();
   CHECK(li.sos2_set_count() == 5);
-  CHECK(count_cols_containing(li, "line_flow_abs_") == 20);
-  CHECK(count_rows_containing(li, "line_flow_abs") == 10);
+  // Lambda-form: 9 cols × 5 blocks = 45 ``line_flow_lambda_`` cols.
+  CHECK(count_cols_containing(li, "line_flow_lambda_") == (((2 * 4) + 1) * 5));
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 0);
+  CHECK(count_rows_containing(li, "line_flow_abs") == 0);
+  CHECK(count_rows_containing(li, "line_loss_lambda_convex") == 5);
+  CHECK(count_rows_containing(li, "line_loss_lambda_flow") == 5);
 }
 
 TEST_CASE(
@@ -972,4 +993,228 @@ TEST_CASE(
   // assert that none of the L>1 distinguishers (``_l1``) is in the
   // label.
   CHECK_FALSE(col_name.contains("_l1"));
+}
+
+// ── (14) Lambda-form full-envelope reachability (issue #504 fix) ────
+//
+// The pre-lambda-form (segment) SOS2 emission used L cols ``v_l ∈
+// [0, w]``  with SOS2 on them, which caps ``Σ v_l ≤ 2w`` (Beale–
+// Tomlin "at most 2 adjacent non-zero") and silently restricts
+// ``|f| ≤ 2·envelope/L``.  For ``L ≥ 3`` that's below the line
+// rating ⇒ demand-fail / infeasibility on cases that need full
+// envelope.
+//
+// The lambda-form refactor switches to 2L+1 breakpoint weights with
+// SOS2, which interpolates linearly between any two adjacent
+// breakpoints on ``[-envelope, +envelope]`` — no cap.  These tests
+// pin the fix.
+//
+// We replicate the fixture pattern but parameterise demand to push
+// past the old 2w cap.
+
+namespace test_line_losses_sos2_envelope_ns  // NOLINT
+{
+namespace  // NOLINT
+{
+
+struct FullEnvelopeFixture
+{
+  System system;
+  Simulation simulation;
+  PlanningOptions opts;
+  PlanningOptionsLP options;
+  SimulationLP sim_lp;
+  SystemLP sys_lp;
+
+  static constexpr double R = 0.01;
+  static constexpr double V = 100.0;
+  static constexpr double TMAX = 200.0;
+
+  FullEnvelopeFixture(int L,
+                      bool use_sos2,
+                      double demand_MW,
+                      double loss_cost_eps = 0.0)
+      : system {
+            .name = "FullEnvelope",
+            .bus_array =
+                {
+                    {.uid = Uid {1}, .name = "b1",},
+                    {.uid = Uid {2}, .name = "b2",},
+                },
+            .demand_array =
+                {
+                    {
+                        .uid = Uid {1},
+                        .name = "d1",
+                        .bus = Uid {2},
+                        .capacity = demand_MW,
+                    },
+                },
+            .generator_array =
+                {
+                    {
+                        .uid = Uid {1},
+                        .name = "g1",
+                        .bus = Uid {1},
+                        .gcost = 10.0,
+                        .capacity = 500.0,
+                    },
+                },
+            .line_array = {make_line(L, use_sos2, loss_cost_eps),},
+        }
+      , simulation {
+            .block_array = {{.uid = Uid {1}, .duration = 1,},},
+            .stage_array =
+                {{.uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,},},
+            .scenario_array = {{.uid = Uid {0},},},
+        }
+      , opts {}
+      , options(make_options())
+      , sim_lp(simulation, options)
+      , sys_lp(system, sim_lp, build_opts())
+  {
+  }
+
+  [[nodiscard]] auto& lp() { return sys_lp.linear_interface(); }
+
+private:
+  static Line make_line(int L, bool use_sos2, double loss_cost_eps)
+  {
+    Line ln {
+        .uid = Uid {1},
+        .name = "l1",
+        .bus_a = Uid {1},
+        .bus_b = Uid {2},
+        .voltage = V,
+        .resistance = R,
+        .line_losses_mode = OptName {std::string {"tangent_signed_flow"}},
+        .loss_segments = 5,
+        .tmax_ba = TMAX,
+        .tmax_ab = TMAX,
+        .capacity = TMAX,
+    };
+    ln.loss_secant_segments = L;
+    ln.loss_use_sos2 = use_sos2;
+    if (loss_cost_eps > 0.0) {
+      ln.loss_cost_eps = loss_cost_eps;
+    }
+    return ln;
+  }
+
+  PlanningOptionsLP make_options()
+  {
+    opts.model_options.use_single_bus = false;
+    opts.model_options.use_kirchhoff = false;
+    opts.model_options.scale_objective = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
+    return PlanningOptionsLP {opts};
+  }
+
+  static LpMatrixOptions build_opts()
+  {
+    LpMatrixOptions bo;
+    bo.col_with_names = true;
+    bo.col_with_name_map = true;
+    bo.row_with_names = true;
+    bo.row_with_name_map = true;
+    return bo;
+  }
+};
+
+}  // namespace
+}  // namespace test_line_losses_sos2_envelope_ns
+
+using test_line_losses_sos2_envelope_ns::FullEnvelopeFixture;
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + SOS2 (lambda-form) reaches full "
+    "envelope — demand = 200 MW = tmax solves without demand-fail")
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
+  // Demand at the full envelope (= tmax = 200 MW).  Under the old
+  // segment-form SOS2 the cap |f| ≤ 2w = 2·200/4 = 100 MW would
+  // force demand-fail (cost ≈ 100 × 1000 = 100 000 vs gen cost
+  // 200 × 10 = 2 000).  Lambda-form reaches f = 200 cleanly via
+  // λ_8 = 1 (single non-zero at b_8 = +envelope).
+  FullEnvelopeFixture fix(/*L=*/4, /*use_sos2=*/true, /*demand_MW=*/200.0);
+  auto& li = fix.lp();
+  const auto solve_status = li.resolve();
+  REQUIRE(solve_status.has_value());
+
+  // Objective must be dominated by gen cost (~ $2 000) not by
+  // demand-fail penalty (~ $200 000).  Loose upper bound: $10 000
+  // covers gen + ε + small losses.
+  const double obj = li.get_obj_value();
+  CAPTURE(obj);
+  CHECK(obj < 10000.0);
+
+  // The boundary lambda λ_{2L} = λ_8 (at b_8 = +envelope) should
+  // carry ≈ all the weight.
+  const auto sol = li.get_col_sol();
+  const auto& col_map = li.col_name_map();
+  constexpr int L = 4;
+  constexpr int lambda_count = (2 * L) + 1;
+  std::array<double, lambda_count> lam {};
+  for (const auto& [name, idx] : col_map) {
+    if (!name.contains("line_flow_lambda_")) {
+      continue;
+    }
+    const auto last_underscore = name.find_last_of('_');
+    if (last_underscore == std::string_view::npos) {
+      continue;
+    }
+    const auto seg_str = name.substr(last_underscore + 1);
+    int seg_idx {};
+    auto first = seg_str.data();
+    auto last = first + seg_str.size();  // NOLINT
+    if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
+      continue;
+    }
+    if (seg_idx >= 0 && seg_idx < lambda_count) {
+      lam[static_cast<std::size_t>(seg_idx)] = sol[value_of(idx)];
+    }
+  }
+  CHECK(lam[lambda_count - 1] == doctest::Approx(1.0).epsilon(1e-3));
+}
+
+// ── (15) ε-rely segment-form (regime B) full-envelope reachability ──
+//
+// ``L > 1 && !use_sos2 && loss_cost_eps > 0`` is the ε-rely path:
+// pure LP, no MIP, no cap.  Σ v_l = |f| at LP optimum (ε term
+// makes that the cheapest feasible Σ), LP-greedy fills v_1 → v_L
+// because chord_slope_l strictly increases in l.  Reaches the full
+// envelope.
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + ε > 0 + no SOS2 (ε-rely): reaches "
+    "full envelope, fills bottom-up via LP greediness")
+{
+  // ε on the per-line override path keeps the fixture surface
+  // small (no test-only setter on PlanningOptionsLP).
+  FullEnvelopeFixture fix(/*L=*/4,
+                          /*use_sos2=*/false,
+                          /*demand_MW=*/200.0,
+                          /*loss_cost_eps=*/1e-3);
+
+  auto& li = fix.lp();
+  const auto solve_status = li.resolve();
+  REQUIRE(solve_status.has_value());
+
+  const double obj = li.get_obj_value();
+  CAPTURE(obj);
+  // Gen-dominated obj (~ $2 000 + small losses), not demand-fail
+  // (~ $200 000).  Loose upper bound covers gen + ε + losses.
+  CHECK(obj < 10000.0);
+
+  // No SOS2 set declared (this is the pure-LP regime).
+  CHECK(li.sos2_set_count() == 0);
+
+  // 4 segment cols emitted (the segment-form, not lambda-form).
+  CHECK(count_cols_containing(li, "line_flow_abs_") == 4);
+  CHECK(count_cols_containing(li, "line_flow_lambda_") == 0);
 }

@@ -81,7 +81,7 @@ def _parse_table_row(line: str) -> tuple[int, float, float] | None:
         L = int(parts[0])
     except ValueError:
         return None
-    if parts[1] != "yes":
+    if parts[1] not in ("yes", "no"):
         return None
     try:
         obj = float(parts[2])
@@ -179,13 +179,20 @@ def test_sos2_convergence_invariance_L1_L2(tmp_path):
     reason="IEEE 14-bus case file (cases/ieee_14b/ieee_14b.json) missing",
 )
 @pytest.mark.integration
-def test_sos2_segment_trap_at_L4(tmp_path):
-    """L=4 + SOS2 must hit the segment-cap trap: line 1 saturates at
-    ``tmax/2``, demand-fail kicks in, obj jumps ≥ 2× over baseline.
+def test_sos2_lambda_form_reaches_full_envelope_at_L4(tmp_path):
+    """Lambda-form SOS2 fix (issue #504): L = 4 + SOS2 reaches full
+    envelope on IEEE 14, obj stays within 1 % of L = 1 baseline.
 
-    This pins the **known bug** in the segment formulation so a
-    future SOS2 reformulation (lambda-form or fill-order binaries)
-    will fail this test and force a re-think of the assertion.
+    The original segment-form SOS2 capped ``|f| ≤ 2·envelope/L`` so
+    L = 4 on this case caused line 1 to saturate at ``tmax/2`` and
+    the LP paid demand-fail, jumping obj 5× to ~$1.12M.  The lambda-
+    form refactor uses ``2L+1`` breakpoint weights with SOS2 on
+    them — no cap.
+
+    The script's ``--verify-no-trap`` flag asserts obj stays within
+    1 % of L = 1 baseline; exit code 0 means the fix is active.  A
+    failure here means either the segment-form SOS2 came back or
+    the lambda-form is mis-emitted.
     """
     env = os.environ.copy()
     env["GTOPT_BIN"] = str(GTOPT)
@@ -197,7 +204,7 @@ def test_sos2_segment_trap_at_L4(tmp_path):
             str(tmp_path / "workspace"),
             "--L-values",
             "1",
-            "--probe-sos2-trap",
+            "--verify-no-trap",
         ],
         capture_output=True,
         text=True,
@@ -206,13 +213,68 @@ def test_sos2_segment_trap_at_L4(tmp_path):
     )
     print(proc.stdout)
     print(proc.stderr, file=sys.stderr)
-    # The script's --probe-sos2-trap path asserts obj > 2× L=1, so
-    # exit code 0 means the trap reproduced as expected.  Non-zero
-    # would mean the trap is no longer triggered (e.g. SOS2 was
-    # reformulated) and the script's assertion failed.
     assert proc.returncode == 0, (
         f"gtopt_sos2_convergence.py exited {proc.returncode}; this "
-        "test EXPECTS the L=4 SOS2 trap to fire (obj > 2× L=1).  "
-        "If the SOS2 implementation was fixed to use lambda-form or "
-        "fill-order binaries, update this test."
+        "test EXPECTS L=4 + SOS2 obj within 1 % of L=1.  If non-zero, "
+        "the lambda-form SOS2 fix may have regressed back to the "
+        "segment-form 2w cap."
+    )
+
+
+@pytest.mark.skipif(
+    GTOPT is None or not GTOPT.is_file(),
+    reason="gtopt binary not available (set GTOPT_BIN or build standalone)",
+)
+@pytest.mark.skipif(
+    CASE is None or not CASE.is_file(),
+    reason="IEEE 14-bus case file (cases/ieee_14b/ieee_14b.json) missing",
+)
+@pytest.mark.integration
+def test_sos2_epsilon_rely_matches_lambda_form(tmp_path):
+    """ε-rely (regime B) pure-LP path must match lambda-form SOS2
+    (regime C) on IEEE 14: same obj + loss within solver tolerance.
+
+    Both regimes deliver the same piecewise-linear chord under L > 1
+    — only the LP/MIP class differs.  This pins their equivalence as
+    a structural property of the formulation.
+    """
+    env = os.environ.copy()
+    env["GTOPT_BIN"] = str(GTOPT)
+
+    def _run(extra_flags: list[str]) -> tuple[float, float]:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT),
+                "--tmp",
+                str(tmp_path / ("ws_" + "_".join(extra_flags))),
+                "--L-values",
+                "2",
+                *extra_flags,
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+        assert proc.returncode == 0, (
+            f"script failed for flags {extra_flags}: {proc.stderr}"
+        )
+        for line in proc.stdout.splitlines():
+            row = _parse_table_row(line)
+            if row is not None and row[0] == 2:
+                return row[1], row[2]
+        raise AssertionError(f"no L=2 row in: {proc.stdout}")
+
+    obj_sos2, loss_sos2 = _run([])  # default: lambda-form SOS2
+    obj_eps, loss_eps = _run(["--epsilon-rely"])  # regime B
+
+    assert abs(obj_eps - obj_sos2) <= 1e-3 * max(1.0, abs(obj_sos2)), (
+        f"ε-rely obj {obj_eps:.4f} differs from lambda-form SOS2 "
+        f"obj {obj_sos2:.4f} by {abs(obj_eps - obj_sos2):.4f} > 0.1 %.  "
+        "Both regimes should produce the same LP optimum."
+    )
+    assert abs(loss_eps - loss_sos2) <= 1e-3 * max(1.0, abs(loss_sos2)), (
+        f"ε-rely loss {loss_eps:.4f} differs from lambda-form SOS2 "
+        f"loss {loss_sos2:.4f} by more than 0.1 %.  Same equivalence."
     )

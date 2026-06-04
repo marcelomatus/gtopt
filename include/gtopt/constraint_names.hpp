@@ -82,6 +82,19 @@ inline constexpr std::string_view loss_link_constraint_name = "loss_link";
 /// loss column.  Two rows per (line, block): `v − f ≥ 0` and `v + f ≥ 0`.
 inline constexpr std::string_view flow_abs_constraint_name = "flow_abs";
 
+/// Lambda-form SOS2 L-secant convexity row `Σ λ_l = 1` (issue #504
+/// SOS2 path).  Emitted once per (line, block) when
+/// `tangent_signed_flow` is paired with `loss_use_sos2 = true` and
+/// `loss_secant_segments > 1`.
+inline constexpr std::string_view loss_lambda_convex_constraint_name =
+    "loss_lambda_convex";
+
+/// Lambda-form SOS2 L-secant flow row `f = Σ b_l · λ_l` (issue #504
+/// SOS2 path).  Pins the signed flow to the breakpoint-weighted
+/// interpolation.
+inline constexpr std::string_view loss_lambda_flow_constraint_name =
+    "loss_lambda_flow";
+
 /// Kirchhoff Voltage Law cycle constraint (Σ X·P = 0 around a loop).
 inline constexpr std::string_view kirchhoff_cycle_constraint_name = "cycle";
 

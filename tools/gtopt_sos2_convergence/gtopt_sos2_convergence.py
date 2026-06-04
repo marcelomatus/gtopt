@@ -4,14 +4,19 @@ reference case (issue #504).
 
 This tool reproduces the Coffrin & Van Hentenryck (2014) linear loss
 approximation methodology on a real benchmark network, sweeping the
-gtopt ``loss_secant_segments`` parameter ``L`` and verifying that:
+gtopt ``loss_secant_segments`` parameter ``L`` across the three LP/MIP
+regimes that gtopt now supports:
 
-  * **L = 1**: reduces exactly to Coffrin's classic single-secant LP
+  * **(A) L = 1, no SOS2**: Coffrin's classic single-secant LP
     approximation (one chord per direction over the full
     ``[-tmax, +tmax]`` envelope).
-  * **L = 2 + SOS2**: the SOS2 fill-order extension from issue #504,
-    which tightens the chord to a piecewise-linear over-approximation
-    of the quadratic loss with breakpoint-tight error.
+  * **(B) L > 1, ε > 0, no SOS2** (``--epsilon-rely``): pure-LP
+    generalisation — segment cols + ε in the objective force
+    ``Σ v_l = |f|`` and LP greediness recovers bottom-up fill.
+  * **(C) L > 1 + SOS2** (lambda-form refactor, this commit): MIP
+    on ``2L+1`` breakpoint weights ``λ_l`` with SOS2; canonical
+    Beale–Tomlin "at most 2 adjacent non-zero" interpolates between
+    breakpoints over the full ``[-envelope, +envelope]`` range.
 
 The L-secant chord upper-bound proved in
 ``include/gtopt/line_losses.hpp`` overstates the true quadratic loss
@@ -21,40 +26,32 @@ property verified by the unit test in
 ``test/source/test_line_losses_sos2.cpp::"L-secant: worst-gap shrinks
 O(1/L²) under SOS2"``.
 
-## SEGMENT-FORMULATION TRAP (L ≥ 3 — REAL BUG)
+## Segment-formulation trap, fixed by lambda-form
 
-gtopt's L-secant uses a **segment** formulation:
+The original issue #504 SOS2 implementation used a **segment** form
+``{v_1, …, v_L}`` with SOS2 on the v's directly.  Canonical SOS2
+combined with ``v_l ≤ w = envelope/L``  capped ``Σ v_l ≤ 2w``  ⇒
+``|f| ≤ 2·envelope/L``  which clipped flows below the line rating
+for ``L ≥ 3``.  IEEE 14 at L=4 demand-failed (line 1 saturated at
+``tmax/2 = 75 MW``, obj jumped 5× to $1.12M).
 
-  * v_l ∈ [0, w]  with  w = envelope/L  for each l = 1..L
-  * Σ_l v_l ≥ |f|   (two abs rows)
-  * ℓ ≤ Σ_l chord_slope_l · v_l   (chord upper bound)
+The lambda-form refactor (this commit) replaces the segment-SOS2 with
+``2L+1`` breakpoint weights ``λ_l ∈ [0, 1]`` placed at ``b_l =
+(l − L)·w``  for ``l = 0..2L``  (covers ``[-envelope, +envelope]``
+symmetrically), with rows ``Σ λ_l = 1``,  ``Σ b_l · λ_l = f``,  ``ℓ
+≤ Σ c · b_l² · λ_l``,  and SOS2 on the full ladder.  ``|f|`` reaches
+the full envelope at any L.
 
-The SOS2 declaration on ``{v_1, …, v_L}`` enforces the canonical
-Beale–Tomlin invariant "at most TWO non-zero, ADJACENT".  Combined
-with ``v_l ≤ w``  that caps ``Σ v_l ≤ 2w``  ⇒  ``|f| ≤ 2w =
-2·envelope/L``.
-
-For ``L = 1``: cap is ``2·envelope``,  no constraint (line max is
-``envelope``).  For ``L = 2``: cap is ``envelope``,  exactly the
-line max.  For ``L ≥ 3``: **the cap is below the line rating** —
-SOS2 silently restricts the line to ``2·envelope/L < envelope``.
-
-This integration tool runs the actual LP build on IEEE 14-bus at
-``L ∈ {1, 2}`` (safe regime) and validates the chord-tightening
-invariance.  The ``--probe-sos2-trap`` flag adds an ``L = 4`` run
-that **demonstrates** the trap (line 1 saturates at ``75 MW`` =
-``150/2``, demand-fail penalty kicks in, obj jumps ≈ 5×).
-
-A correct SOS2 formulation needs the *lambda-form*
-(``Σ λ_k = 1``, breakpoint weights with SOS2) or explicit
-fill-order binaries — see the script's footer for the proposed
-fix.
+The ``--verify-no-trap`` flag asserts the fix is active by running
+the L = 4 case that used to demand-fail and checking that obj stays
+within 1 % of the L = 1 baseline (the LP-observed loss is invariant
+under L because gtopt picks ``ℓ_line = max(tangent_k(f_line))``,
+K-dependent not L-dependent).
 
 This integration tool runs the actual LP build and tracks the
 solver's behaviour as ``L`` varies — the LP-observed total network
-loss is invariant under the L sweep (gtopt picks the tightest
-tangent **lower bound**, which is K-dependent not L-dependent), but
-the objective ``$/h`` is non-decreasing as L tightens the chord.
+loss is invariant under the L sweep, and the objective stays within
+solver tolerance across the regimes.
 
 ## Coffrin reference case
 
@@ -300,22 +297,34 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--L-values",
         type=str,
-        default="1,2",
+        default="1,2,4,8",
         help=(
-            "Comma-separated list of L (loss_secant_segments) to sweep. "
-            "Default '1,2' covers the safe regime (segment SOS2 caps "
-            "|f| at 2·envelope/L which only exceeds tmax for L ≤ 2). "
-            "Use --probe-sos2-trap to additionally show the L=4 trap."
+            "Comma-separated list of L (loss_secant_segments) to "
+            "sweep.  Default '1,2,4,8' now spans the full range "
+            "since the lambda-form refactor lifted the segment-SOS2 "
+            "2w cap (issue #504 fix)."
         ),
     )
     p.add_argument(
-        "--probe-sos2-trap",
+        "--verify-no-trap",
         action="store_true",
         help=(
-            "Additionally run L=4 + SOS2 to demonstrate the segment-"
-            "formulation trap: SOS2 caps |f| ≤ 2w = envelope/2, so "
-            "lines requiring f > envelope/2 saturate at the cap and "
-            "the LP pays demand_fail.  Surfaces as a 5×+ obj jump."
+            "Assert the lambda-form fix is active.  Runs L = 4 + SOS2 "
+            "and checks the objective stays within 1 %% of the L = 1 "
+            "baseline (under the original segment-SOS2 the obj jumped "
+            "5× because line 1 saturated at tmax/2 and demand-fail "
+            "kicked in).  Inverse of the pre-fix --probe-sos2-trap "
+            "flag — surfaces the FIX, not the trap."
+        ),
+    )
+    p.add_argument(
+        "--epsilon-rely",
+        action="store_true",
+        help=(
+            "Run L sweep in pure-LP ε-rely regime (regime B): "
+            "use_sos2 = false on every line, loss_cost_eps > 0 picks "
+            "Σ v_l = |f| via LP greediness.  Equivalent to regime C "
+            "in objective but pure LP (no MIP), so much faster."
         ),
     )
     p.add_argument(
@@ -376,7 +385,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"# loss_cost_eps:      {args.loss_cost_eps}")
 
     L_values = [int(s) for s in args.L_values.split(",") if s.strip()]
-    print(f"# L sweep (SOS2):     {L_values}")
+    # Pick the regime per --epsilon-rely flag.  Default = (C)
+    # lambda-form SOS2; --epsilon-rely switches to (B) pure-LP ε-rely.
+    use_sos2_for_L_gt_1 = not args.epsilon_rely
+    regime_label = "lambda-form SOS2" if use_sos2_for_L_gt_1 else "ε-rely (no SOS2)"
+    print(f"# L sweep regime:     {regime_label}")
+    print(f"# L sweep:            {L_values}")
 
     print()
     header_fmt = (
@@ -391,37 +405,44 @@ def main(argv: list[str] | None = None) -> int:
 
     results = []
     for L in L_values:
+        use_sos2 = use_sos2_for_L_gt_1 and L > 1
         case = _build_ieee14_with_losses(
             base_case,
             L=L,
-            use_sos2=(L > 1),
+            use_sos2=use_sos2,
             loss_cost_eps=args.loss_cost_eps,
             loss_segments=args.loss_segments,
         )
-        json_path = workspace / f"ieee14_L{L}_sos2.json"
+        json_path = workspace / f"ieee14_L{L}_{'sos2' if use_sos2 else 'eps'}.json"
         with json_path.open("w") as f:
             json.dump(case, f, indent=2)
-        out_dir = workspace / f"out_L{L}_sos2"
+        out_dir = workspace / f"out_L{L}_{'sos2' if use_sos2 else 'eps'}"
         obj, loss_MWh = _run_gtopt(gtopt_bin, json_path, out_dir)
-        results.append({"L": L, "sos2": True, "obj": obj, "loss": loss_MWh})
+        results.append({"L": L, "sos2": use_sos2, "obj": obj, "loss": loss_MWh})
 
-    obj_L1 = next(r["obj"] for r in results if r["L"] == 1)
+    # Δobj baseline = L=1 if present, else the first result (so the
+    # Δ column is still meaningful when the sweep doesn't start at L=1).
+    obj_L1 = next(
+        (r["obj"] for r in results if r["L"] == 1),
+        results[0]["obj"] if results else 0.0,
+    )
 
     for r in results:
         print(
-            f"{r['L']:>3}  {'yes':>4}  "
+            f"{r['L']:>3}  {'yes' if r['sos2'] else 'no':>4}  "
             f"{r['obj']:>14.4f}  "
             f"{r['loss']:>14.4f}  "
             f"{(r['loss'] / total_demand) * 100:>13.4f}%  "
             f"{r['obj'] - obj_L1:>+18.4f}"
         )
 
-    # --- probe-sos2-trap: L=4 + SOS2 demonstrates the segment cap ---
-    if args.probe_sos2_trap:
+    # --- verify-no-trap: assert the lambda-form fix is active ---
+    if args.verify_no_trap:
         print()
         print(
-            "# --- probe-sos2-trap: L=4 + SOS2 (expects line saturation "
-            "at tmax/2 + demand-fail penalty) ---"
+            "# --- verify-no-trap: L = 4 + SOS2 (expects "
+            "obj within 1 %% of L = 1 baseline; the pre-fix "
+            "segment-SOS2 would have triggered demand-fail) ---"
         )
         case = _build_ieee14_with_losses(
             base_case,
@@ -430,52 +451,25 @@ def main(argv: list[str] | None = None) -> int:
             loss_cost_eps=args.loss_cost_eps,
             loss_segments=args.loss_segments,
         )
-        json_path = workspace / "ieee14_L4_sos2_trap.json"
+        json_path = workspace / "ieee14_L4_sos2_verify.json"
         with json_path.open("w") as f:
             json.dump(case, f, indent=2)
-        out_dir = workspace / "out_L4_sos2_trap"
-        obj_trap, loss_trap = _run_gtopt(gtopt_bin, json_path, out_dir)
+        out_dir = workspace / "out_L4_sos2_verify"
+        obj_v, loss_v = _run_gtopt(gtopt_bin, json_path, out_dir)
         print(
             f"{4:>3}  {'yes':>4}  "
-            f"{obj_trap:>14.4f}  "
-            f"{loss_trap:>14.4f}  "
-            f"{(loss_trap / total_demand) * 100:>13.4f}%  "
-            f"{obj_trap - obj_L1:>+18.4f}"
+            f"{obj_v:>14.4f}  "
+            f"{loss_v:>14.4f}  "
+            f"{(loss_v / total_demand) * 100:>13.4f}%  "
+            f"{obj_v - obj_L1:>+18.4f}"
         )
-        # Validation: obj must jump > 2× over L=1 baseline (demand-fail
-        # penalty kicked in because line 1 needs > tmax/2).
-        assert obj_trap > 2.0 * obj_L1, (
-            f"--probe-sos2-trap expected obj > 2× L=1 baseline "
-            f"(saw {obj_trap:.2f} vs {obj_L1:.2f}); the segment-SOS2 "
-            "trap should make L=4 demand-fail.  If this passes the "
-            "trap may have been fixed."
+        rel_gap = abs(obj_v - obj_L1) / max(1.0, abs(obj_L1))
+        assert rel_gap <= 0.01, (
+            f"--verify-no-trap expected L=4 + SOS2 obj within 1 % of "
+            f"L=1 baseline (saw obj_L4={obj_v:.2f}, obj_L1={obj_L1:.2f}, "
+            f"rel gap={rel_gap * 100:.4f} %).  The lambda-form fix may "
+            "have regressed back to the segment-SOS2 trap."
         )
-
-    if args.also_no_sos2:
-        print()
-        print("# --- additional runs without SOS2 (chord NOT a valid upper bound) ---")
-        for L in L_values:
-            if L == 1:
-                continue  # L=1 is identical with/without SOS2.
-            case = _build_ieee14_with_losses(
-                base_case,
-                L=L,
-                use_sos2=False,
-                loss_cost_eps=args.loss_cost_eps,
-                loss_segments=args.loss_segments,
-            )
-            json_path = workspace / f"ieee14_L{L}_nosos2.json"
-            with json_path.open("w") as f:
-                json.dump(case, f, indent=2)
-            out_dir = workspace / f"out_L{L}_nosos2"
-            obj, loss_MWh = _run_gtopt(gtopt_bin, json_path, out_dir)
-            print(
-                f"{L:>3}  {'no':>4}  "
-                f"{obj:>14.4f}  "
-                f"{loss_MWh:>14.4f}  "
-                f"{(loss_MWh / total_demand) * 100:>13.4f}%  "
-                f"{obj - obj_L1:>+18.4f}"
-            )
 
     # ----- Validation -----
     #
@@ -513,57 +507,41 @@ def main(argv: list[str] | None = None) -> int:
 
 
 # ----------------------------------------------------------------------
-# Proposed fix for the L ≥ 3 SOS2 trap (segment-formulation cap).
+# How the lambda-form refactor fixes the segment-SOS2 cap
 # ----------------------------------------------------------------------
 #
-# The current ``line_losses.cpp`` emits
+# The pre-fix ``line_losses.cpp`` emitted:
 #
 #     v_l ∈ [0, w]   for l = 1..L     (w = envelope/L)
 #     Σ v_l ≥ |f|                      (two abs rows)
 #     ℓ ≤ Σ chord_slope_l · v_l        (chord upper bound)
-#     SOS2 on {v_1, …, v_L}            (issue #504)
+#     SOS2 on {v_1, …, v_L}            (capped |f| ≤ 2w!)
 #
-# But SOS2 (Beale–Tomlin 1970) says "at most 2 non-zero, adjacent",
-# which combined with v_l ≤ w means Σ v_l ≤ 2w.  For L ≥ 3 this
-# silently caps line flow at 2·envelope/L < envelope.
+# Beale–Tomlin SOS2 "at most 2 adjacent non-zero" combined with
+# ``v_l ≤ w``  gave ``Σ v_l ≤ 2w``  ⇒  silently capped line flow at
+# ``2·envelope/L`` < ``envelope`` for L ≥ 3.
 #
-# Three fixes from the LP literature:
+# The lambda-form fix emits instead, for L > 1 + SOS2:
 #
-# 1.  *Lambda-form on breakpoints*.  Replace v_l with L+1 weights
-#     λ_0, …, λ_L on the L+1 breakpoints b_l = l·w:
-#         Σ λ_l = 1,  λ_l ≥ 0
-#         SOS2 on {λ_0, …, λ_L}
-#         |f| = Σ b_l · λ_l
-#         ℓ ≤ Σ true_loss(b_l) · λ_l = Σ c·b_l² · λ_l
-#     Pros: standard, supported by every MIP solver, chord becomes
-#     EXACTLY the piecewise secant with tight breakpoints, allows
-#     |f| up to envelope without any cap.  Cons: changes the col
-#     count from L to L+1 and reshapes the abs rows.
+#     λ_l ∈ [0, 1]   for l = 0..2L     (2L+1 breakpoint weights)
+#     b_l = (l − L) · w                (breakpoints, [-envelope..+envelope])
+#     Σ λ_l = 1                        (convexity)
+#     Σ b_l · λ_l = f                  (signed flow tied to breakpoints)
+#     ℓ ≤ Σ c · b_l² · λ_l             (chord = piecewise secant)
+#     SOS2 on {λ_0, …, λ_{2L}}         (interpolation between adjacent b's)
 #
-# 2.  *Fill-order binaries*.  Keep the segment cols but add L−1
-#     binaries z_l with v_l > 0 ⇒ z_l = 1 and z_l ≤ z_{l−1}:
-#         v_l ≤ w · z_l         (BigM via z_l ∈ {0, 1})
-#         z_l ≤ z_{l−1}         (l ≥ 2)
-#     SOS2 then becomes redundant (the binaries already encode
-#     fill-order), and Σ v_l can reach L·w = envelope.
+# Beale–Tomlin SOS2 on ``{λ_0, …, λ_{2L}}``  forces the LP to land
+# on or between two adjacent breakpoints, so ``f`` interpolates
+# linearly between ``b_l`` and ``b_{l+1}``  and the chord delivers
+# the *exact piecewise secant* of ``c·f²`` on that segment.  No 2w
+# cap — ``|f|``  reaches ``|b_0|`` = ``|b_{2L}|`` = ``envelope``.
 #
-# 3.  *Drop SOS2 and rely on ε > 0*.  The L ≥ 1 chord remains a
-#     valid upper bound on ℓ even without fill-order, but the LP
-#     may pick a degenerate v_l distribution that inflates Σ v_l
-#     and makes the chord constant.  ``loss_cost_eps > 0`` on each
-#     v_l forces Σ v_l = |f| at the LP optimum and recovers the
-#     piecewise-linear chord.  This is option (c) the existing
-#     foot-gun warning in ``line_losses.cpp:316``  already names.
-#
-# The simplest fix is (1): lambda-form SOS2 is the canonical way to
-# express a piecewise-linear function in LP/MIP and the solver-side
-# support is identical.  The segment-form was a clean abstraction
-# for the L = 1 case (one v ≥ |f|, one chord ≤ k·envelope·v) but
-# doesn't generalise cleanly to L ≥ 2 with SOS2.
-#
-# Until a fix lands, **the safe regime is L ≤ 2** (this script's
-# default).  L = 2 already gives the 4× chord-tightness improvement
-# over L = 1, which captures most of the convergence benefit.
+# The ε-rely path (regime B) is also supported as a pure-LP
+# alternative (``loss_use_sos2 = false`` + ``loss_cost_eps > 0``):
+# segment cols + ε in the objective force ``Σ v_l = |f|`` at LP
+# optimum, then LP greediness fills v_1 → v_L because chord_slope_l
+# strictly increases in l.  Same piecewise secant, no MIP, no cap.
+# Use ``--epsilon-rely`` to exercise this regime.
 
 
 if __name__ == "__main__":
