@@ -25,6 +25,7 @@ or (b) the IEEE 14-bus case file is missing.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -36,6 +37,54 @@ import pytest
 
 _HERE = Path(__file__).resolve().parent
 _SCRIPT = _HERE.parent / "gtopt_sos2_convergence.py"
+
+
+def test_matpower_case14_parser_matches_upstream():
+    """Parser-loaded R values must match every upstream MATPOWER
+    case14.m branch row exactly.
+
+    This is the audit trail: a vendor bump that silently changes
+    R will fail this test and force a re-review before the LP
+    coefficients move.  Values pinned from
+    https://github.com/MATPOWER/matpower/blob/master/data/case14.m
+    (commit at the time of vendoring).
+    """
+    # Import the parser from the tool module.
+    spec = importlib.util.spec_from_file_location("gtopt_sos2_convergence", _SCRIPT)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    expected = {
+        1: 0.01938,
+        2: 0.05403,
+        3: 0.04699,
+        4: 0.05811,
+        5: 0.05695,
+        6: 0.06701,
+        7: 0.01335,
+        8: 0.0,
+        9: 0.0,
+        10: 0.0,
+        11: 0.09498,
+        12: 0.12291,
+        13: 0.06615,
+        14: 0.0,
+        15: 0.0,
+        16: 0.03181,
+        17: 0.12711,
+        18: 0.08205,
+        19: 0.22092,
+        20: 0.17093,
+    }
+    parsed = mod.MATPOWER_CASE14_R_PU
+    assert len(parsed) == 20, f"expected 20 branches, got {len(parsed)}"
+    for uid, r_expected in expected.items():
+        r_parsed = parsed.get(uid)
+        assert r_parsed is not None, f"missing uid {uid} in parsed table"
+        assert abs(r_parsed - r_expected) < 1e-9, (
+            f"line uid {uid}: parsed R={r_parsed} != expected R={r_expected}"
+        )
 
 
 def _gtopt_binary() -> Path | None:

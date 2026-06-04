@@ -11,10 +11,19 @@ three regimes gtopt now supports:
 
 ## What it does
 
-`gtopt_sos2_convergence.py` reads `cases/ieee_14b/ieee_14b.json`,
-injects MATPOWER `case14.m` per-line resistances (the stored fixture
-ships only reactance because PCP has no loss model), activates
-`tangent_signed_flow` losses, and sweeps `loss_secant_segments` (L).
+`gtopt_sos2_convergence.py` reads `cases/ieee_14b/ieee_14b.json`
+and injects MATPOWER `case14.m` per-line resistances (the stored
+fixture ships only reactance because PCP has no loss model).  The
+R values come from the **vendored upstream file** at
+`data/case14.m`, downloaded verbatim from
+https://github.com/MATPOWER/matpower/blob/master/data/case14.m
+(baseMVA = 100, IEEE CDF conversion 1993) and parsed at import
+time — `tests/test_sos2_convergence_smoke.py::test_matpower_case14_parser_matches_upstream`
+pins all 20 R values so a future vendor bump cannot silently change
+the LP coefficients.
+
+It activates `tangent_signed_flow` losses and sweeps
+`loss_secant_segments` (L).
 
 The LP picks `ℓ_line = max(tangent_k(f_line))` at the K tangent
 **lower bound** (K-dependent, not L-dependent), so the chord upper

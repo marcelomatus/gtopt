@@ -96,32 +96,61 @@ import sys
 import tempfile
 from pathlib import Path
 
-# MATPOWER case14.m line resistances (per-unit on 100 MVA base).
-# Line ordering follows ``cases/ieee_14b/ieee_14b.json`` 1..20 which
-# was verified above to match MATPOWER's case14.m line ordering by
-# reactance.  Zero-R lines are transformers (lossless in MATPOWER).
-MATPOWER_CASE14_R_PU = {
-    1: 0.01938,  # b1-b2
-    2: 0.05403,  # b1-b5
-    3: 0.04699,  # b2-b3
-    4: 0.05811,  # b2-b4
-    5: 0.05695,  # b2-b5
-    6: 0.06701,  # b3-b4
-    7: 0.01335,  # b4-b5
-    8: 0.0,  # b4-b7 (transformer)
-    9: 0.0,  # b4-b9 (transformer)
-    10: 0.0,  # b5-b6 (transformer)
-    11: 0.09498,  # b6-b11
-    12: 0.12291,  # b6-b12
-    13: 0.06615,  # b6-b13
-    14: 0.0,  # b7-b8 (transformer)
-    15: 0.0,  # b7-b9 (transformer)
-    16: 0.03181,  # b9-b10
-    17: 0.12711,  # b9-b14
-    18: 0.08205,  # b10-b11
-    19: 0.22092,  # b12-b13
-    20: 0.17093,  # b13-b14
-}
+# MATPOWER case14.m line resistances are loaded from the VENDORED
+# upstream file at ``data/case14.m`` (downloaded from
+# https://github.com/MATPOWER/matpower/blob/master/data/case14.m,
+# baseMVA = 100, IEEE CDF conversion 1993).  The branch table is
+# parsed at import time and indexed by line uid 1..20 matching
+# the same row order as the in-tree ``cases/ieee_14b/ieee_14b.json``
+# (verified by the line-reactance equality on every row).
+_CASE14_M_PATH = Path(__file__).resolve().parent / "data" / "case14.m"
+
+
+def _parse_matpower_branch_r_pu(path: Path) -> dict[int, float]:
+    """Parse the ``mpc.branch = [ ... ];`` block of a MATPOWER .m
+    file and return ``{1-based-line-uid: r_pu}`` for every row.
+
+    The MATPOWER branch-table format is:
+
+        %    fbus  tbus  r  x  b  rateA  rateB  rateC  ratio  angle  status  angmin  angmax
+        mpc.branch = [
+            1   2   0.01938  0.05917  0.0528  0  0  0  0  0  1  -360  360;
+            ...
+        ];
+
+    Only the third column (``r``) is read; rows are numbered from 1
+    in declaration order, matching gtopt's per-line ``uid``.
+    """
+    text = path.read_text()
+    start = text.find("mpc.branch")
+    if start < 0:
+        raise SystemExit(f"no mpc.branch table found in {path}")
+    open_bracket = text.find("[", start)
+    close_bracket = text.find("];", open_bracket)
+    if open_bracket < 0 or close_bracket < 0:
+        raise SystemExit(f"malformed mpc.branch block in {path}")
+    body = text[open_bracket + 1 : close_bracket]
+    out: dict[int, float] = {}
+    uid = 0
+    for raw_line in body.splitlines():
+        stripped = raw_line.strip().rstrip(";").strip()
+        if not stripped or stripped.startswith("%"):
+            continue
+        cols = stripped.split()
+        if len(cols) < 3:
+            continue
+        try:
+            r_pu = float(cols[2])
+        except ValueError:
+            continue
+        uid += 1
+        out[uid] = r_pu
+    if not out:
+        raise SystemExit(f"parsed 0 branches from {path}")
+    return out
+
+
+MATPOWER_CASE14_R_PU = _parse_matpower_branch_r_pu(_CASE14_M_PATH)
 
 # Map per-unit R on MATPOWER's 100 MVA base into gtopt's
 # ``c = R/V²``.  Set ``V = 10`` so ``V² = 100 = baseMVA`` and
