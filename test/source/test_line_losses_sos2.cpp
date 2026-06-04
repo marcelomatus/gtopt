@@ -1033,7 +1033,8 @@ struct FullEnvelopeFixture
   FullEnvelopeFixture(int L,
                       bool use_sos2,
                       double demand_MW,
-                      double loss_cost_eps = 0.0)
+                      double loss_cost_eps = 0.0,
+                      bool reverse_flow = false)
       : system {
             .name = "FullEnvelope",
             .bus_array =
@@ -1041,12 +1042,16 @@ struct FullEnvelopeFixture
                     {.uid = Uid {1}, .name = "b1",},
                     {.uid = Uid {2}, .name = "b2",},
                 },
+            // Default: demand on b2, gen on b1 → f > 0 (bus_a → bus_b).
+            // reverse_flow=true: swap so demand is on b1 and gen on b2,
+            // driving f < 0 on the same line (covers the lambda-form
+            // negative half of the breakpoint ladder).
             .demand_array =
                 {
                     {
                         .uid = Uid {1},
                         .name = "d1",
-                        .bus = Uid {2},
+                        .bus = Uid {reverse_flow ? 1 : 2},
                         .capacity = demand_MW,
                     },
                 },
@@ -1055,7 +1060,7 @@ struct FullEnvelopeFixture
                     {
                         .uid = Uid {1},
                         .name = "g1",
-                        .bus = Uid {1},
+                        .bus = Uid {reverse_flow ? 2 : 1},
                         .gcost = 10.0,
                         .capacity = 500.0,
                     },
@@ -1217,4 +1222,202 @@ TEST_CASE(
   // 4 segment cols emitted (the segment-form, not lambda-form).
   CHECK(count_cols_containing(li, "line_flow_abs_") == 4);
   CHECK(count_cols_containing(li, "line_flow_lambda_") == 0);
+}
+
+// ── (16) Negative-flow lambda-form coverage ─────────────────────────
+//
+// The breakpoint ladder b_l = (l−L)·w  spans [-envelope, +envelope].
+// All other lambda-form tests drive f > 0 (gen on b1, demand on b2),
+// which only stresses the upper half (l > L).  This test flips the
+// fixture (gen on b2, demand on b1) so f = −demand and SOS2 picks
+// λ_l on the LOWER half (l < L).  A sign bug in
+// ``b_l = (l − L) · seg_width``  (e.g., `(L − l)` or `l·w`) would
+// fail this test even though the existing positive-flow tests pass.
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + SOS2 (lambda-form) negative flow: "
+    "demand on bus_a drives f < 0, λ_l carries weight for l < L")
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
+  // Demand 100 MW on b1 (= bus_a) with gen on b2: f flows b2 → b1,
+  // signed convention bus_a→bus_b means f = −100.  Lambda ladder
+  // b_l ∈ {−200, …, +200}, b_2 = −100 (= demand magnitude), so the
+  // LP picks λ_2 = 1 (single-non-zero at b_l = −100).
+  FullEnvelopeFixture fix(/*L=*/4,
+                          /*use_sos2=*/true,
+                          /*demand_MW=*/100.0,
+                          /*loss_cost_eps=*/0.0,
+                          /*reverse_flow=*/true);
+  auto& li = fix.lp();
+  const auto solve_status = li.resolve();
+  REQUIRE(solve_status.has_value());
+
+  const auto sol = li.get_col_sol();
+  const auto& col_map = li.col_name_map();
+  constexpr int L = 4;
+  constexpr int lambda_count = (2 * L) + 1;
+  std::array<double, lambda_count> lam {};
+  for (const auto& [name, idx] : col_map) {
+    if (!name.contains("line_flow_lambda_")) {
+      continue;
+    }
+    const auto last_underscore = name.find_last_of('_');
+    if (last_underscore == std::string_view::npos) {
+      continue;
+    }
+    const auto seg_str = name.substr(last_underscore + 1);
+    int seg_idx {};
+    auto first = seg_str.data();
+    auto last = first + seg_str.size();  // NOLINT
+    if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
+      continue;
+    }
+    if (seg_idx >= 0 && seg_idx < lambda_count) {
+      lam[static_cast<std::size_t>(seg_idx)] = sol[value_of(idx)];
+    }
+  }
+
+  // Convexity: Σ λ_l = 1.
+  double sum_lambda = 0.0;
+  for (const auto& v : lam) {
+    sum_lambda += v;
+  }
+  CHECK(sum_lambda == doctest::Approx(1.0).epsilon(1e-3));
+
+  // Flow tie: f = Σ b_l · λ_l = -100 (negative because demand is
+  // on bus_a = bus 1, gen on bus_b = bus 2).
+  constexpr double w = FullEnvelopeFixture::TMAX / L;
+  double f_from_lambda = 0.0;
+  for (int l = 0; l < lambda_count; ++l) {
+    const double b_l = static_cast<double>(l - L) * w;
+    f_from_lambda += b_l * lam[static_cast<std::size_t>(l)];
+  }
+  CHECK(f_from_lambda == doctest::Approx(-100.0).epsilon(1e-3));
+
+  // SOS2 invariant: at most 2 adjacent λ_l non-zero, lower half.
+  std::vector<int> nonzero_indices;
+  for (int l = 0; l < lambda_count; ++l) {
+    if (lam[static_cast<std::size_t>(l)] > 1e-6) {
+      nonzero_indices.push_back(l);
+    }
+  }
+  CHECK(nonzero_indices.size() <= 2);
+  if (!nonzero_indices.empty()) {
+    // Active breakpoint(s) must be in the lower half (l ≤ L = 4).
+    CHECK(nonzero_indices.back() <= L);
+  }
+}
+
+// ── (17) ε-rely L=4: Σ v_l = |f| at LP optimum ──────────────────────
+//
+// The structural property that makes ε-rely correct is the equality
+// ``Σ v_l = |f|``  at LP optimum — driven by ``loss_cost_eps > 0`` on
+// each v_l, which makes the cheapest feasible Σ (= |f| from the abs
+// rows) the LP minimum.  This pins the chord at a finite value
+// (chord = Σ chord_slope_l · v_l ≤ chord_slope_L · |f| = bounded).
+//
+// IMPORTANT CORRECTION (vs the first draft of this test).  We do
+// NOT claim ε-rely forces bottom-up fill ``v_1 ≥ v_2 ≥ … ≥ v_L``.
+// The chord row is an UPPER bound on ℓ; the K-tangent rows are LOWER
+// bounds.  At LP optimum the LP picks ``ℓ = max_tangent(f)`` and
+// the chord row is INACTIVE — so any distribution of v_l with
+// ``Σ v_l = |f|``  is LP-equivalent (the objective is indifferent).
+// Empirically the solver picks e.g. ``v = {0, 25, 50, 0}``  rather
+// than the bottom-up ``{50, 25, 0, 0}``  — both yield the same obj.
+//
+// The structural test is therefore just ``Σ v_l = |f|``.  A bug in
+// the ε term (e.g., ε = 0 by accident) would let Σ v_l inflate
+// past |f| and fail the equality.
+
+TEST_CASE(
+    "tangent_signed_flow L=4 + ε > 0 + no SOS2 (ε-rely): Σ v_l = |f| "
+    "at LP optimum")
+{
+  FullEnvelopeFixture fix(/*L=*/4,
+                          /*use_sos2=*/false,
+                          /*demand_MW=*/75.0,
+                          /*loss_cost_eps=*/1e-3);
+  auto& li = fix.lp();
+  const auto solve_status = li.resolve();
+  REQUIRE(solve_status.has_value());
+
+  const auto sol = li.get_col_sol();
+  const auto& col_map = li.col_name_map();
+
+  // Collect v_l primals.
+  std::array<double, 4> v {};
+  for (const auto& [name, idx] : col_map) {
+    if (!name.contains("line_flow_abs_")) {
+      continue;
+    }
+    const auto last_underscore = name.find_last_of('_');
+    if (last_underscore == std::string_view::npos) {
+      continue;
+    }
+    const auto seg_str = name.substr(last_underscore + 1);
+    int seg_idx {};
+    auto first = seg_str.data();
+    auto last = first + seg_str.size();  // NOLINT
+    if (std::from_chars(first, last, seg_idx).ec != std::errc {}) {
+      continue;
+    }
+    if (seg_idx >= 1 && seg_idx <= 4) {
+      v[static_cast<std::size_t>(seg_idx - 1)] = sol[value_of(idx)];
+    }
+  }
+
+  CAPTURE(v[0]);
+  CAPTURE(v[1]);
+  CAPTURE(v[2]);
+  CAPTURE(v[3]);
+
+  // Σ v_l = |f| = 75 — the core ε-rely invariant.
+  const double sum_v = v[0] + v[1] + v[2] + v[3];
+  CHECK(sum_v == doctest::Approx(75.0).epsilon(1e-3));
+
+  // Each v_l honours its [0, w] bound with w = TMAX / L = 50.
+  constexpr double w = FullEnvelopeFixture::TMAX / 4;
+  for (const auto& vl : v) {
+    CHECK(vl >= -1e-9);
+    CHECK(vl <= w + 1e-9);
+  }
+}
+
+// ── (18) Lambda col bounds λ_l ∈ [0, 1] ─────────────────────────────
+//
+// A copy-paste bug like ``uppb = seg_width`` (cribbed from the
+// segment-form emitter) would silently let λ exceed 1 and break
+// the convexity constraint's semantic.  Pin the structural bound
+// directly via the LP's col_upp accessor.
+
+TEST_CASE("tangent_signed_flow L=4 + SOS2 (lambda-form): λ_l ∈ [0, 1]")
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping SOS2 test — no SOS2-capable backend loaded");
+    return;
+  }
+  FullEnvelopeFixture fix(/*L=*/4,
+                          /*use_sos2=*/true,
+                          /*demand_MW=*/100.0);
+  auto& li = fix.lp();
+  const auto col_upp = li.get_col_upp_raw();
+  const auto col_low = li.get_col_low_raw();
+  const auto& col_map = li.col_name_map();
+
+  int lambda_cols_seen = 0;
+  for (const auto& [name, idx] : col_map) {
+    if (!name.contains("line_flow_lambda_")) {
+      continue;
+    }
+    ++lambda_cols_seen;
+    const auto raw = value_of(idx);
+    CHECK(col_low[static_cast<std::size_t>(raw)]
+          == doctest::Approx(0.0).epsilon(1e-9));
+    CHECK(col_upp[static_cast<std::size_t>(raw)]
+          == doctest::Approx(1.0).epsilon(1e-9));
+  }
+  CHECK(lambda_cols_seen == (2 * 4) + 1);
 }
