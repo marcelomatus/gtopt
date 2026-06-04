@@ -134,26 +134,44 @@ def test_ots_ieee118_mip_finds_positive_savings(tmp_path):
         f"OTS obj {obj_ots} > baseline {obj_baseline}; MIP likely "
         "returned a sub-optimal incumbent."
     )
-    # Cheapest-dispatch decomposition: ieee_118b has 19 generators at
-    # $20/MWh with total capacity 6 466 MW > 4 242 MW demand.  So the
-    # theoretical minimum dispatch cost is $20 × 4 242 = $84 840.  The
-    # baseline obj sits just above that ($85 151 with 0.02× line scale,
-    # i.e. 200 MW caps) — the $311 gap is the congestion cost that OTS
-    # can eliminate.
-    #
-    # Asserting the "congestion cost eliminated" metric is more robust
-    # than the savings-vs-total ratio because it normalises by the
-    # bit OTS can actually reduce, decoupling the test from any future
-    # cost-data refresh that changes the total dispatch level.
-    cheapest_dispatch = 20.0 * 4242.0  # = 84 840
-    congestion_cost = obj_baseline - cheapest_dispatch
-    assert congestion_cost > 0.0, (
-        f"Baseline obj {obj_baseline} ≤ cheapest dispatch "
-        f"{cheapest_dispatch}; the test fixture has no congestion. "
+
+    # Golden value: the analytical LP floor.
+    # pp2gtopt collapses pglib-opf's quadratic ``cp1·P + cp2·P²``
+    # cost to its linear part (cp1 only).  ``ieee_118b`` has 19
+    # generators at $20/MWh with total capacity 6 466 MW > 4 242 MW
+    # demand, so the gtopt LP optimum is bounded BELOW by
+    # ``$20 × 4 242 = $84 840``.  Baseline sits just above this
+    # (= floor + congestion penalty); OTS pushes it back down to
+    # the floor exactly.  See cases/ieee_118b/README.md "Why gtopt ≠
+    # pandapower" for the cp2 discussion.
+    GTOPT_LP_FLOOR = 20.0 * 4242.0  # = 84 840 $/h
+
+    assert obj_baseline > GTOPT_LP_FLOOR, (
+        f"Baseline obj {obj_baseline} ≤ analytical LP floor "
+        f"{GTOPT_LP_FLOOR}; the test fixture has no congestion. "
         "Check that --line-limit-scale 0.02 is being applied."
     )
-    eliminated = obj_baseline - obj_ots
-    eliminated_pct = eliminated / congestion_cost
+    assert obj_baseline <= 1.10 * GTOPT_LP_FLOOR, (
+        f"Baseline obj {obj_baseline} > 110 % of analytical floor "
+        f"{GTOPT_LP_FLOOR}; the cost data may have changed.  "
+        "If pp2gtopt now imports cp2 quadratic costs, the floor "
+        "needs to be re-derived from the new effective marginal."
+    )
+
+    # OTS should reach the analytical floor exactly: with linearised
+    # costs the optimal dispatch is "all cheap gens up to demand",
+    # and OTS removes any topological obstacle to that.
+    assert abs(obj_ots - GTOPT_LP_FLOOR) <= 0.01, (
+        f"OTS obj {obj_ots} differs from analytical LP floor "
+        f"{GTOPT_LP_FLOOR} by ${abs(obj_ots - GTOPT_LP_FLOOR):.4f}; "
+        "expected exact match within solver tolerance.  Either "
+        "the MIP returned a sub-optimal incumbent or the cost data "
+        "changed."
+    )
+
+    # Derived metric: ≥ 90 % of congestion cost eliminated.
+    congestion_cost = obj_baseline - GTOPT_LP_FLOOR
+    eliminated_pct = (obj_baseline - obj_ots) / congestion_cost
     assert eliminated_pct >= 0.90, (
         f"OTS eliminated only {eliminated_pct * 100:.1f} % of the "
         f"${congestion_cost:.2f} congestion cost; expected ≥ 90 %.  "

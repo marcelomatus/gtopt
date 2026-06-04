@@ -120,6 +120,43 @@ FISHER_2008_TABLE = {
     "38 lines (MIP optimum)": {"cost": 1543.0, "saving_pct": 25.0},
 }
 
+# pglib-opf published baseline values for case118_ieee, Typical
+# Operating Conditions (TYP) table.  Source:
+#   https://github.com/power-grid-lib/pglib-opf/blob/master/BASELINE.md
+# These are reference values from PowerModels.jl's solver runs; the
+# gtopt LP cannot match them because (a) gtopt is DC-only (linear LP)
+# and (b) pp2gtopt collapses pglib's quadratic ``cp1·P + cp2·P²`` cost
+# to its linear part (cp1 only).  See cases/ieee_118b/README.md for
+# the cp2-import roadmap.
+PGLIB_OPF_AC_OPF = 97214.0  # $/h
+PGLIB_OPF_DC_OPF = 93101.0  # $/h
+
+
+def _linear_cost_floor(case: dict) -> tuple[float, float, float]:
+    """Compute the analytical LP floor for gtopt's linearised costs.
+
+    pp2gtopt collapses pglib-opf's quadratic ``cp1·P + cp2·P²`` cost
+    to its linear part (cp1 only), so the gtopt LP optimum is bounded
+    BELOW by ``cheapest_cp1 × total_demand`` — the cheapest single-
+    generator dispatch.  Returns ``(cheapest_cp1, total_demand,
+    floor)`` for the result-decomposition printout.
+
+    For the stored ``ieee_118b`` this evaluates to
+    $20/MWh × 4 242 MW = $84 840/h, matching the gtopt baseline obj
+    to the cent on the loose-limits (9 900 MW) variant and
+    matching the OTS optimum on both loose AND tightened variants
+    (OTS eliminates the congestion penalty entirely).
+    """
+    gens = case["system"]["generator_array"]
+    cheapest = min(g.get("gcost", float("inf")) for g in gens)
+    demand = 0.0
+    for dem in case["system"]["demand_array"]:
+        lmax = dem.get("lmax")
+        if isinstance(lmax, list) and lmax:
+            row = lmax[0]
+            demand += row[0] if isinstance(row, list) else row
+    return cheapest, demand, cheapest * demand
+
 
 def _project_root() -> Path:
     """Walk upward from this file until a ``cases/`` directory is found."""
@@ -450,24 +487,17 @@ def main(argv: list[str] | None = None) -> int:
     savings = obj_base - obj_ots
     ratio = savings / obj_base if obj_base != 0.0 else 0.0
 
-    # Theoretical cheapest dispatch = cheapest_gen_cost × total_demand.
-    # The DIFFERENCE between obj_baseline and this floor is the
-    # "congestion cost" — the part OTS can actually reduce.  Computing
-    # savings as a fraction of that cost gives a more interpretable
-    # number than savings vs total dispatch cost (which is dominated
-    # by the unaffected cheapest-gen MWh × cost).
-    gens = base["system"]["generator_array"]
-    demand_array = base["system"]["demand_array"]
-    cheapest_cost = min(g.get("gcost", float("inf")) for g in gens)
-    total_demand = 0.0
-    for dem in demand_array:
-        lmax = dem.get("lmax")
-        if isinstance(lmax, list) and lmax:
-            row = lmax[0]
-            total_demand += row[0] if isinstance(row, list) else row
-    cheapest_dispatch = cheapest_cost * total_demand
+    cheapest_cost, total_demand, cheapest_dispatch = _linear_cost_floor(base)
     congestion_cost = obj_base - cheapest_dispatch
     cong_ratio = savings / congestion_cost if congestion_cost > 1e-6 else 0.0
+
+    # Distance to each published golden value.  ``pp2gtopt`` collapses
+    # pglib-opf's quadratic costs to linear, so gtopt's LP floor
+    # ($84 840 on this case) is BELOW the pglib DC-OPF golden — the
+    # gap is the cp2 contribution we discard.
+    diff_floor = obj_base - cheapest_dispatch
+    diff_pglib_dc = obj_base - PGLIB_OPF_DC_OPF
+    diff_pglib_ac = obj_base - PGLIB_OPF_AC_OPF
 
     print("\n# Result")
     print(f"  obj_baseline:         {obj_base:.4f}")
@@ -485,6 +515,22 @@ def main(argv: list[str] | None = None) -> int:
         f"    OTS eliminated:               "
         f"${savings:.2f}  ({cong_ratio * 100:.1f} % of congestion cost)"
     )
+    print()
+    print("  Cross-tool golden comparison:")
+    print(
+        f"    gtopt analytical LP floor:    "
+        f"${cheapest_dispatch:>10.2f}/h  (Δ = {diff_floor:+9.2f})"
+    )
+    print(
+        f"    pglib-opf DC OPF (PowerModels): "
+        f"${PGLIB_OPF_DC_OPF:>8.2f}/h  (Δ = {diff_pglib_dc:+9.2f})"
+    )
+    print(
+        f"    pglib-opf AC OPF (PowerModels): "
+        f"${PGLIB_OPF_AC_OPF:>8.2f}/h  (Δ = {diff_pglib_ac:+9.2f})"
+    )
+    print("    (gtopt LP can only match the floor; pglib values are higher")
+    print("    because they retain the quadratic cp2 term we discard.)")
     print()
     print(f"  Fisher 2008 MIP golden:  {FISHER_2008_GOLDEN_SAVINGS * 100:.2f} %")
     print("  Fisher 2008 table (DC-OPF):")
