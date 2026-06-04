@@ -304,19 +304,6 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--fcf-scale-alpha",
-        type=float,
-        default=None,
-        help=(
-            "column scale for the FCF cost-to-go variable alpha_fcf (default "
-            "1e6).  The cut/objective coefficient on alpha is this value, so "
-            "alpha carries future_cost/scale_alpha; pick it near the "
-            "cost-to-go magnitude (~1e6) to land the alpha column at O(1-1e3) "
-            "like the other LP variables.  Tune (1 / 1e3 / 1e6 …) to study LP "
-            "conditioning; independent of the alpha-rebase shift."
-        ),
-    )
-    parser.add_argument(
         "--uc-emit",
         choices=("pampl", "inline"),
         default="pampl",
@@ -952,7 +939,6 @@ def main(argv: list[str] | None = None) -> None:
         "pampl_uc_only": args.pampl_uc_only,
         "pampl_uc_off": args.pampl_uc_off,
         "uc_emit": args.uc_emit,
-        "fcf_scale_alpha": args.fcf_scale_alpha,
         "soft_penalty_cost": args.soft_penalty_cost,
         "water_fail_cost": args.water_fail_cost,
         "spill_fcost": args.spill_fcost,

@@ -57,11 +57,19 @@ namespace gtopt
   if (option_scale_alpha > 0.0) {
     return option_scale_alpha;
   }
-  // Mirror the auto-scale heuristic in SDDPMethod::initialize_solver():
-  //   scale_alpha = max(state.var_scale)
-  // across every (scene, phase) state-variable cell.
+  // Auto-scale heuristic (extends SDDPMethod::initialize_solver()):
+  //   scale_alpha = max( scale_objective , max(state.var_scale) )
+  // across every (scene, phase) state-variable cell.  α carries the future
+  // cost (money), so its column scale must cover BOTH regimes it couples:
+  // the state-variable scale (the cut's ``wv·efin`` coefficients) AND the
+  // objective scale (every other money term α is added to).  Using only the
+  // state-var max left α under-scaled against a ``scale_objective = 1e3``
+  // objective — an asymmetric gradient magnitude that degrades barrier
+  // conditioning; the objective-scale floor keeps α matched to the rest of
+  // the objective.  ``scale_objective()`` is 1.0 for SDDP/cascade and under
+  // ``--no-scale``, so this only lifts the floor on the scaled monolithic LP.
   const auto& sim = planning_lp.simulation();
-  double max_vs = 1.0;
+  double max_vs = std::max(1.0, planning_lp.options().scale_objective());
   for (auto&& [si, scene] : enumerate<SceneIndex>(sim.scenes())) {
     for (auto&& [pi, phase] : enumerate<PhaseIndex>(sim.phases())) {
       for (const auto& [key, svar] : sim.state_variables(si, pi)) {

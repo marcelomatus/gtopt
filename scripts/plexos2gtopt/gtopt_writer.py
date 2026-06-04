@@ -70,15 +70,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_BLOCK_COUNT = 24
 DEFAULT_BLOCK_DURATION_H = 1.0
 
-# Single objective-scale knob driving both ``model_options.scale_objective``
-# (LP objective coefficient divisor — gtopt divides every cost by this so
-# the backend sees physical-cost / scale) AND the FCF ``alpha_fcf`` column
-# scale ``_FCF_SCALE_ALPHA`` (objective coefficient on the alpha column,
-# which carries ``future_cost / scale_alpha`` in physical terms).  Keeping
-# the two in sync at 1000 means the alpha column's LP cost matches the
-# rest of the objective's scaling regime — same gradient magnitude across
-# every cost term, no asymmetric kappa contribution from a tiny alpha
-# coefficient.  Tunable in one place; both downstream emissions read it.
+# Default ``model_options.scale_objective`` — the LP objective coefficient
+# divisor gtopt divides every cost by so the backend sees physical-cost /
+# scale.  The FCF cost-to-go column scale (``α``) is matched to this same
+# regime on the C++ side (``effective_scale_alpha`` floors the auto value at
+# ``scale_objective``; source/sddp_cut_io.cpp), so α's gradient magnitude
+# stays consistent with the rest of the objective.
 _DEFAULT_OBJ_SCALE = 1000.0
 
 # Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
@@ -2370,9 +2367,7 @@ def build_decision_variable_array(
     $, NOT probability/discount/duration-weighted), which is correct for the
     general PLEXOS DecisionVariables (penalties, reserve VoRS, BESS knobs —
     discrete face-value costs).  Δt-weighting them (the old "power" default)
-    over-charged them by the block length.  ``alpha_fcf`` is built
-    separately and sets ``cost_type: "raw"`` explicitly (so it is
-    unaffected by this default).
+    over-charged them by the block length.
     """
     out: list[dict[str, Any]] = []
     for i, dv in enumerate(decision_variables):
@@ -3104,24 +3099,16 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
     }
-    # End-of-horizon future-cost valuation is now provided SOLELY by the C++
-    # boundary-cut loader.  ``MonolithicMethod`` registers the α future-cost
+    # End-of-horizon future-cost valuation is provided SOLELY by the C++
+    # boundary-cut loader: ``MonolithicMethod`` registers the α future-cost
     # state variable and binds ``boundary_cuts.csv`` as
     # ``α + Σ wvᵣ·efinᵣ >= FCF`` (``monolithic_boundary_cuts_mode`` defaults to
-    # ``separated``), α-rebased at the ``efin`` target identically to the old
-    # Python oracle (verified: source/monolithic_method.cpp + TASK 1/2 of
-    # test/source/test_monolithic_boundary_cuts.cpp; the run log shows
-    # "MonolithicMethod: loading boundary cuts" + "loaded 1 boundary cuts").
-    #
-    # The converter USED TO ALSO encode the same hyperplane explicitly here as
-    # an ``alpha_fcf`` DecisionVariable + ``FCF_future_cost`` UserConstraint,
-    # from when the monolithic LP ignored boundary cuts.  Now that the C++ path
-    # binds them, emitting BOTH DOUBLE-COUNTS the cost-to-go — two α columns,
-    # two cuts, a 2× terminal-storage gradient.  Dropped; ``boundary_cuts.csv``
-    # is the single source of truth.  ``build_fcf_alpha_terms`` is retained
-    # (unit-tested) for the no-C++-loader path; ``fcf_scale_alpha`` /
-    # ``fcf_coeff_divisor`` stay on the signature for CLI/API stability.
-    _ = (fcf_scale_alpha, fcf_coeff_divisor)  # retained; see note above
+    # ``separated``), α-rebased at the ``efin`` target (source/
+    # monolithic_method.cpp; test/source/test_monolithic_boundary_cuts.cpp).
+    # The converter writes that cut file in ``convert_plexos_bundle`` — it no
+    # longer ALSO encodes the hyperplane as an ``alpha_fcf`` DecisionVariable +
+    # ``FCF_future_cost`` UserConstraint, which would double-count the
+    # cost-to-go (two α columns, two cuts, a 2× terminal-storage gradient).
     # ── Default soft-EL=1 augmentation ────────────────────────────────
     # When the caller did NOT pass ``--lift-line-caps`` (empty env var),
     # add a parallel slack line on every EL=1 line so the LP has a
@@ -3219,125 +3206,6 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
         installed.append(dst)
         logger.info("installed solver param file: %s", dst)
     return installed
-
-
-# Column scale for the FCF cost-to-go variable ``alpha_fcf``: the cut and
-# objective coefficient on α is ``scale_alpha``, so α carries
-# ``future_cost / scale_alpha``.  Tunable via ``--fcf-scale-alpha``
-# (1 / 1e3 / 1e6 …).  Independent of the α-rebase shift (``obj_constant``
-# and the cut RHS do not depend on ``scale_alpha``).
-#
-# DEFAULT = ``_DEFAULT_OBJ_SCALE`` (1000) so the alpha column shares the
-# same scaling regime as ``scale_objective``.  Earlier LP-relax scans
-# (DATOS20260422, K8 uniform, full UC) showed the reparametrization is
-# benign for 1 ↔ 1e3 (identical optimum $956,155,053, ~85 s, kappa
-# ~1.1e9); 1e6 BREAKS the solve (CPLEX aborts with garbage objective).
-# Tying alpha to scale_objective keeps the LP coefficient on alpha
-# matched to the rest of the objective — no asymmetric gradient
-# magnitude that could degrade barrier conditioning.
-_FCF_SCALE_ALPHA = _DEFAULT_OBJ_SCALE
-
-
-def build_fcf_alpha_terms(
-    boundary_cut: BoundaryCutSpec,
-    reservoir_state: dict[str, float],
-    *,
-    dv_uid: int,
-    uc_uid: int,
-    last_block_uid: int,
-    scale_alpha: float = _FCF_SCALE_ALPHA,
-    coeff_divisor: float = 1.0,
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    """Encode the FCF boundary cut as an alpha variable + user constraint.
-
-    gtopt's ``boundary_cuts_file`` loader only feeds the SDDP path; in
-    the monolithic LP the loaded cut is inert.  So we encode the same
-    future-cost hyperplane explicitly, which DOES bind in monolithic:
-
-      * ``alpha_fcf`` — the future cost-to-go in $, as a single
-        last-block (``block`` scope), ENERGY (``cost_type`` = energy,
-        cost = 1, NOT duration-weighted) DecisionVariable.
-      * a UserConstraint
-          ``alpha_fcf + Σ wv_r · reservoir(r).efin >= FCF``
-        i.e. ``alpha_fcf >= FCF − Σ wv·efin``.  The objective pays
-        ``FCF − Σ wv·efin``, rewarding terminal storage at each
-        reservoir's water value — exactly PLEXOS's FCF first-order
-        effect.  The constant ``FCF`` is α-rebased out (see below); the
-        slopes ``wv_r`` drive the hydro/thermal trade-off.
-
-    Returns ``(alpha_dv, fcf_uc)`` dicts, or ``None`` when no slope maps
-    onto a bundle reservoir.
-    """
-    # ``coeff_divisor`` scales every water-value slope ``wv`` (the marginal
-    # value of terminal storage).  divisor=2 halves the water values, making
-    # hydro cheaper at the margin (more drawdown, less thermal back-fill) —
-    # a sensitivity knob for the hydro/thermal trade-off.  Default 1.0 = off.
-    cols = [
-        (name, boundary_cut.slopes[name] / coeff_divisor)
-        for name in boundary_cut.slopes
-        if name in reservoir_state
-    ]
-    if not cols:
-        return None
-    # The FCF is a single END-OF-HORIZON future-cost cut: it values the
-    # terminal (`.efin`) reservoir volumes, which only exist on the last
-    # block.  Scope BOTH the cut (`for(block in {N})`, matched by
-    # block.uid in user_constraint_lp.cpp:797) AND ``alpha_fcf`` itself
-    # (``block`` scope) to that block, so each emits ONE row/column.
-    # ``alpha_fcf`` is a RAW money variable (``cost_type`` = raw): the $
-    # cost-to-go, present-valued by the discount factor only — NOT
-    # probability- or duration-weighted.  cost = 1 reads it directly in
-    # dollars (no ``cost = 1/duration`` magic correction).
-    #
-    # α-rebase (mean-shift) — mirrors SDDP boundary-cut loading and the
-    # PLP convention: evaluate the cut at each reservoir's expected terminal
-    # state (``reservoir_state`` = the ``efin`` target) to get ``c``, the
-    # cost-to-go at that state, then substitute ``α = α' + c``:
-    #     α' + Σ wv·efin >= FCF − c = Σ wv·state
-    # Because the solution is expected to hit the ``efin`` target, α'
-    # centres on ~0 AT THE SOLUTION → minimal objective perturbance, the LP
-    # stays well-conditioned, and the relative MIP gap is meaningful (the
-    # objective is no longer dominated by the raw ~1e9 intercept).  ``α'``
-    # is FREE (the cut bounds it); safe because ``alpha_fcf`` is a SINGLE
-    # last-block column.  The rebased-out ``c`` is added back verbatim via
-    # ``add_obj_constant`` (``obj_constant``) so the reported objective is
-    # the un-rebased value.  (Single cut, single scenario.)
-    sum_slope_state = sum(wv * reservoir_state[name] for name, wv in cols)
-    obj_constant = boundary_cut.fcf - sum_slope_state  # = c, cost-to-go @ efin
-    shifted_rhs = sum_slope_state  # = FCF − c
-    alpha_dv = {
-        "uid": dv_uid,
-        "name": "alpha_fcf",
-        # FREE column: the FCF cut itself bounds α' (≥ −Σ wv·efin); after the
-        # mean-shift α' may be negative, exactly as SDDP releases α to ±∞.
-        "cost": scale_alpha,  # = 1; raw money → discount-only, not duration-weighted
-        "cost_type": "raw",
-        # Single last-block column (DecisionVariable.block scope) — the FCF
-        # cost-to-go is one end-of-horizon variable, not one per block.
-        "block": last_block_uid,
-        # Mean-shift restitution: α = α' + c was rebased out of the
-        # objective; the LP adds back obj_constant (= c) via
-        # add_obj_constant so the reported objective is the un-rebased value.
-        "obj_constant": obj_constant,
-    }
-    terms = [f'{scale_alpha:g} * decision_variable("alpha_fcf").value']
-    terms += [f'{wv:.6f} * reservoir("{name}").efin' for name, wv in cols]
-    expr = (
-        " + ".join(terms) + f" >= {shifted_rhs:.6f}, for(block in {{{last_block_uid}}})"
-    )
-    fcf_uc = {
-        "uid": uc_uid,
-        "name": "FCF_future_cost",
-        "expression": expr,
-    }
-    logger.info(
-        "FCF future-cost: alpha_fcf (cost=%.0f) + %d reservoir water-value "
-        "terms >= %.3e",
-        scale_alpha,
-        len(cols),
-        boundary_cut.fcf,
-    )
-    return alpha_dv, fcf_uc
 
 
 def write_boundary_cut_csv(

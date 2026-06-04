@@ -409,7 +409,6 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         soft_efin_set = frozenset(
             n.strip() for n in soft_efin_raw if isinstance(n, str) and n.strip()
         )
-        fcf_scale_alpha = options.get("fcf_scale_alpha")
         # ``cogen_must_run`` is a (names_set, force_all) tuple parsed in
         # main._parse_cogen_must_run.  Unpack to the build_planning
         # kwargs (defaults match the pre-option behaviour).
@@ -433,11 +432,6 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             write_out=options.get("write_out"),
             cogen_must_run=_cogen_names,
             cogen_must_run_all=_cogen_all,
-            **(
-                {"fcf_scale_alpha": float(fcf_scale_alpha)}
-                if fcf_scale_alpha is not None
-                else {}
-            ),
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):
@@ -488,24 +482,6 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
 
             only = _fam_set("pampl_uc_only") or None
             off_fams = _fam_set("pampl_uc_off")
-
-            # Couple ``alpha_fcf`` to the FCF boundary cut: the cut lives in
-            # the ``terminal_value`` family.  When that family is filtered
-            # out (mode=off / not in --pampl-uc-only / in --pampl-uc-off),
-            # the cut is dropped — so drop the orphaned ``alpha_fcf``
-            # DecisionVariable too.  A free α with no cut to bound it makes
-            # the LP unbounded (cost = 1, α → −∞).
-            fcf_kept = (
-                uc_mode != "off"
-                and (only is None or "terminal_value" in only)
-                and "terminal_value" not in off_fams
-            )
-            if not fcf_kept:
-                dv_list = sys_d.get("decision_variable_array")
-                if dv_list:
-                    sys_d["decision_variable_array"] = [
-                        v for v in dv_list if v.get("name") != "alpha_fcf"
-                    ]
 
             emit = str(options.get("uc_emit") or "pampl")
             if emit == "inline":
