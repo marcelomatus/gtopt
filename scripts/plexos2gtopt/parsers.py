@@ -8978,13 +8978,17 @@ def extract_user_constraints(
                     for i in range(n):
                         rsv_sum[i] += coef * profile[i]
                 if any_profile:
-                    # Effective RHS per block = max(scalar, requirement sum).
-                    # For SE/equality sense ``=``: still apply the
-                    # per-block requirement when it exceeds the scalar
-                    # floor (matches PLEXOS pid-3073 behaviour).
-                    rhs_profile_tuple = tuple(
-                        max(rhs_val, rsv_sum[i]) for i in range(n_blocks)
-                    )
+                    # RHS per block = the time-varying reserve-requirement
+                    # aggregation (Σ_rsv coef × Reserve.requirement[t]) — this
+                    # mirrors PLEXOS's reported, VARIABLE constraint RHS (e.g.
+                    # CTF_DownMinProvision 94..633).  The static ``rhs_val``
+                    # (the constraint's nominal/Min-Provision floor) is NOT
+                    # folded in here: that floor is enforced natively via
+                    # ``ReserveZone.urmin/drmin`` (``Σ pf·prov ≥ max(req,
+                    # min)``), so the reported RHS is not raised to a FIXED
+                    # floor on low-requirement hours (which over-reported the
+                    # RHS and made it look fixed where PLEXOS is variable).
+                    rhs_profile_tuple = tuple(rsv_sum[i] for i in range(n_blocks))
         # GWh→MWh scale for daily-ENERGY budgets.  The scalar ``rhs_val`` was
         # already scaled above (it feeds the inline ``<op> NUMBER`` tail); the
         # per-block ``rhs_profile_tuple`` here carries the RAW ``RHS Day`` /

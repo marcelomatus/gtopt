@@ -663,6 +663,14 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                 g_dist = _distinct_values(g_vals)
                 p_dist = _distinct_values(p_vals)
                 flattened = len(g_dist) == 1 and len(p_dist) > 1
+                # gtopt carries FEWER distinct RHS levels than PLEXOS — it
+                # collapsed a VARIABLE per-block requirement into a FIXED (or
+                # coarser) RHS.  Covers both a full flatten (1 vs K, e.g. a
+                # scalar where PLEXOS varies) and a partial fix (a constant
+                # floor band where PLEXOS varies, e.g. CTF_DownMinProvision
+                # 7→12 before the Min-Provision split).  This is the
+                # "fixed-instead-of-variable" signal.
+                fixed_vs_variable = len(g_dist) < len(p_dist)
                 mismatch = len(g_dist) != len(p_dist) or any(
                     _value_differs(a, b) for a, b in zip(g_dist, p_dist)
                 )
@@ -672,6 +680,7 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
                             "name": name,
                             "gtopt_op": g["op"],
                             "flattened": flattened,
+                            "fixed_vs_variable": fixed_vs_variable,
                             "plexos_rhs_distinct": [round(v, 4) for v in p_dist],
                             "gtopt_rhs_distinct": [round(v, 4) for v in g_dist],
                         }
