@@ -66,6 +66,11 @@ GTOPT = _gtopt_binary()
 CASE = _case_file()
 
 
+# Top-10 most-utilised lines at the 0.02× baseline (≈ 200 MW caps).
+# Pinned in the test so the MIP is small + reproducible.
+_CANDIDATES = "l26_30,l38_65,l89_92,t8_5,t68_69,t38_37,t65_66,t116_68,l8_9,l9_10"
+
+
 @pytest.mark.skipif(
     GTOPT is None or not GTOPT.is_file(),
     reason="gtopt binary not available (set GTOPT_BIN or build standalone)",
@@ -75,13 +80,16 @@ CASE = _case_file()
     reason="IEEE 118-bus case file (cases/ieee_118b/ieee_118b.json) missing",
 )
 @pytest.mark.integration
-def test_ots_ieee118_smoke(tmp_path):
-    """Run the smoke test script end-to-end.
+def test_ots_ieee118_mip_finds_positive_savings(tmp_path):
+    """Run the IEEE 118-bus MIP OTS solve on a 10-line candidate set.
 
-    Asserts the script exits 0 (= both gtopt runs succeeded AND the
-    OTS obj is monotone-improving vs baseline).  Marked ``integration``
-    so it can be excluded from the fast unit subset via ``-m 'not
-    integration'``.
+    Asserts (a) both gtopt runs succeed, (b) ``obj_ots < obj_baseline``
+    by at least 0.1 %.  The MIP with 10 binaries + 300 s time limit
+    reproducibly finds ~0.4 % savings on this case (Fisher 2008's
+    all-line MIP would reach 25 % but is hours of solve time).
+
+    Marked ``integration`` so it can be excluded from the fast unit
+    subset via ``-m 'not integration'``.
     """
     env = os.environ.copy()
     env["GTOPT_BIN"] = str(GTOPT)
@@ -91,6 +99,12 @@ def test_ots_ieee118_smoke(tmp_path):
             str(_SCRIPT),
             "--tmp",
             str(tmp_path / "workspace"),
+            "--time-limit",
+            "300",
+            "--mip-gap",
+            "0.01",
+            "--candidate-lines",
+            _CANDIDATES,
         ],
         capture_output=True,
         text=True,
@@ -103,7 +117,30 @@ def test_ots_ieee118_smoke(tmp_path):
         f"gtopt_ots_ieee118.py exited {proc.returncode}; see captured "
         "stdout/stderr above for the gtopt error"
     )
-    # The script writes both objectives into stdout; sanity-check they
-    # both came out as numbers (not None / NaN sentinels).
-    assert "obj_baseline =" in proc.stdout
-    assert "obj_ots      =" in proc.stdout
+
+    # Extract the two objectives the script printed.
+    obj_baseline = obj_ots = None
+    for line in proc.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("obj_baseline ="):
+            obj_baseline = float(stripped.split("=", 1)[1].strip())
+        elif stripped.startswith("obj_ots") and "=" in stripped:
+            obj_ots = float(stripped.split("=", 1)[1].strip())
+    assert obj_baseline is not None, "obj_baseline not found in stdout"
+    assert obj_ots is not None, "obj_ots not found in stdout"
+
+    # Monotonicity: OTS can only improve over baseline.
+    assert obj_ots <= obj_baseline + 1e-6, (
+        f"OTS obj {obj_ots} > baseline {obj_baseline}; MIP likely "
+        "returned a sub-optimal incumbent."
+    )
+    # Sanity floor: with 10 congested-line candidates + 300 s time
+    # limit + 1 % MIP gap, gtopt reproducibly finds ≥ 0.1 % savings.
+    savings_ratio = (obj_baseline - obj_ots) / obj_baseline
+    assert savings_ratio >= 0.001, (
+        f"Expected ≥ 0.1 % OTS savings on the 10-candidate fixture; "
+        f"got {savings_ratio * 100:.4f} %.  Either the OTS LP build "
+        "is silently skipping LineCommitment (check chronological "
+        "gate, kirchhoff_mode, method=monolithic), or the MIP "
+        "solver returned a degenerate solution."
+    )

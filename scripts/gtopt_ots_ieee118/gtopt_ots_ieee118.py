@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""IEEE 118-bus OTS infrastructure smoke test (issue #509).
+"""IEEE 118-bus OTS validation against Fisher 2008's golden 25 % savings.
 
 Reads ``cases/ieee_118b/ieee_118b.json``, generates two OTS-compatible
-variants (baseline + LineCommitment on every line, LP-relax), runs gtopt
-on each, and reports the savings ratio.
+variants (baseline + LineCommitment on selected candidate lines),
+runs gtopt on each as a **MIP** (binary ``u_l``), and reports the
+savings ratio vs the published Fisher-O'Neill-Ferris 2008 golden
+table.
 
 ## Golden reference
 
@@ -20,47 +22,60 @@ on each, and reports the savings ratio.
         lines 132 + 136 + 153                $1 646 /h ⇒ 19.9 %
         38 lines (MIP optimum)               $1 543 /h ⇒ 25.0 %
 
-## Caveat: LP-relax doesn't reproduce the 25 %
+## Settings that influence the result
 
-This script enables OTS in LP-RELAX mode (``relax: true`` on every
-LineCommitment row), which makes ``u_l ∈ [0, 1]`` continuous.  The
-LP solver typically picks ``u_l = 1`` on every line (no benefit
-to fractional opening), so the LP-relax savings ratio is usually
-0 % — much less than Fisher's integer-MIP 25 %.
+Three knobs:
 
-The integer-OTS benefit comes from fully OPENING lines (``u_l = 0``),
-which:
-  (a) eliminates their thermal contribution to KVL coupling, and
-  (b) frees the LP to reroute flow through cheaper paths.
+  1. **--line-limit-scale**.  gtopt's stored ``ieee_118b`` ships with
+     a uniform 9 900 MW thermal limit, which is ~2× total system
+     demand — no congestion possible.  Default 0.02 ≈ 200 MW caps
+     (Fisher 2008's per-line range, 5 lines saturated at baseline);
+     0.01 ≈ 99 MW (much more congestion).
 
-LP-relax of OTS cannot exploit (a) or (b) effectively because half-
-open lines still impose KVL coupling and contribute fractional
-capacity.  A meaningful comparison to Fisher 2008 would require:
+  2. **--candidate-lines** (optional).  Fisher's all-line MIP over
+     186 binaries is genuinely hard (Fisher reported hours).
+     Restricting to the K most-congested lines makes the MIP
+     tractable AND mirrors the practical OTS workflow.  Default:
+     all 186 lines.
 
-  1. A full MIP solve with the binary ``u_l`` (drop ``relax: true``).
-     gtopt supports this but only on a backend with MIP capability
-     (CPLEX or HiGHS).
-  2. Realistic per-line thermal limits.  gtopt's stored
-     ``ieee_118b`` ships with a uniform 9 900 MW limit, which is
-     ~2× the total system demand — no congestion to relieve.  Pass
-     ``--line-limit-scale 0.02`` to tighten to ~200 MW (Fisher 2008's
-     congestion regime).
+  3. **--mip-gap / --time-limit**.  Looser gap or shorter time
+     limit returns sub-optimal incumbents; if the MIP times out
+     before improving on the trivial all-closed solution, you'll
+     see ``obj_ots > obj_baseline``.
 
-## What this script validates
-
-  1. The OTS LP infrastructure builds without crashing on a 118-bus /
-     186-line case (every ``LineCommitment`` row is honoured).
-  2. ``obj_ots ≤ obj_baseline`` (monotonicity — OTS can only improve).
-  3. Both runs produce parseable ``solution.csv`` output.
-
-## Run
+## Quick-start: reproduce ~3 % savings in ~5 minutes
 
     GTOPT_BIN=$PWD/build/standalone/gtopt \\
-        python gtopt_ots_ieee118.py [--line-limit-scale 0.02] [--keep]
+        python gtopt_ots_ieee118.py \\
+            --time-limit 600 --mip-gap 0.001 \\
+            --line-limit-scale 0.01 \\
+            --candidate-lines \\
+              'l26_30,l38_65,l89_92,t8_5,t68_69,t38_37,t65_66,t116_68,l8_9,l9_10,t30_17,l82_83,l110_111,l23_25,t65_68,l64_65,l25_27,l77_82,t81_68,t81_80'
 
-Exit codes:
+(The candidate list is the top 20 most-utilised lines at baseline
+with the 0.01 scale.)
+
+## Why don't we reach Fisher's 25 % exactly?
+
+  1. gtopt's ``ieee_118b`` has DIFFERENT generator cost data than
+     Fisher 2008's IEEE 118 (gtopt: $20-$40/MWh from pglib-opf;
+     Fisher: $0.19-$10/MWh scaled).  Absolute objective values
+     aren't comparable; only relative savings.
+
+  2. The savings ratio is highly sensitive to which line limits
+     are binding.  Fisher's experiment used a single specific
+     load level and line-limit profile; ours uses a uniform scale.
+
+  3. All-line MIP (186 binaries) is the only way to reach 25 %;
+     restricting to a subset of K candidates caps the savings at
+     whatever those K candidates can deliver.
+
+## Exit codes
+
    0  Both runs succeeded and obj_ots ≤ obj_baseline.
-   2  Monotonicity violation (obj_ots > obj_baseline + 1e-6).
+   2  Monotonicity violation (obj_ots > obj_baseline + 1e-6) —
+      usually a sub-optimal MIP incumbent; rerun with looser
+      --time-limit or smaller candidate set.
    1  gtopt failed on either run, or file/CLI error.
 """
 
@@ -106,6 +121,8 @@ def _build_ots_variant(
     *,
     with_line_commitment: bool,
     line_limit_scale: float = 1.0,
+    lp_relax: bool = False,
+    candidate_lines: list[str] | None = None,
 ) -> dict:
     """Return a deep copy of ``base`` reconfigured for OTS-compatible solve.
 
@@ -141,6 +158,15 @@ def _build_ots_variant(
         }
     )
 
+    # LineCommitmentLP silently skips on non-chronological stages
+    # (the chronological gate is shared with CommitmentLP — see
+    # ``include/gtopt/line_commitment_lp.hpp`` v1 scope).  The stored
+    # ieee_118b case has ``chronological`` unset on every stage, which
+    # defaults to false, so we must override here or the LineCommitment
+    # rows below get silently dropped from the LP.
+    for stage in out["simulation"]["stage_array"]:
+        stage["chronological"] = True
+
     # Tighten line limits when requested.
     if line_limit_scale != 1.0:
         for ln in out["system"]["line_array"]:
@@ -150,23 +176,38 @@ def _build_ots_variant(
 
     if with_line_commitment:
         lines = out["system"]["line_array"]
+        # Filter to ``candidate_lines`` (by name).  None ⇒ all 186
+        # lines are OTS candidates (Fisher 2008's all-line MIP).  A
+        # subset (e.g. the top-K most-congested) is more practical
+        # because 186-line OTS is a genuinely hard MIP — Fisher
+        # reported hours of solve time with mid-2000s solvers.
+        cand_set = set(candidate_lines) if candidate_lines else None
         lcs = []
         for i, ln in enumerate(lines, start=1):
             line_ref = ln.get("name") if ln.get("name") else ln["uid"]
-            lcs.append(
-                {
-                    "uid": i,
-                    "name": f"lc_{line_ref}",
-                    "line": line_ref,
-                    "relax": True,
-                }
-            )
+            if cand_set is not None and line_ref not in cand_set:
+                continue
+            entry = {
+                "uid": i,
+                "name": f"lc_{line_ref}",
+                "line": line_ref,
+            }
+            if lp_relax:
+                entry["relax"] = True
+            lcs.append(entry)
         out["system"]["line_commitment_array"] = lcs
 
     return out
 
 
-def _run_gtopt(gtopt_bin: Path, planning_json: Path, output_dir: Path) -> float:
+def _run_gtopt(
+    gtopt_bin: Path,
+    planning_json: Path,
+    output_dir: Path,
+    *,
+    mip_gap: float | None = None,
+    time_limit: float | None = None,
+) -> float:
     """Run gtopt on a single planning JSON and return the objective value.
 
     The objective is read from ``solution.csv``'s ``obj_value`` column.
@@ -182,6 +223,10 @@ def _run_gtopt(gtopt_bin: Path, planning_json: Path, output_dir: Path) -> float:
         "--write-out",
         "sol",
     ]
+    if mip_gap is not None:
+        cmd += ["--mip-gap", str(mip_gap)]
+    if time_limit is not None:
+        cmd += ["--time-limit", str(time_limit)]
     print(f"  + {' '.join(cmd)}", flush=True)
     proc = subprocess.run(
         cmd,
@@ -240,6 +285,50 @@ def main(argv: list[str] | None = None) -> int:
             "savings.  Use 1.0 to leave the original limits unchanged."
         ),
     )
+    p.add_argument(
+        "--lp-relax",
+        action="store_true",
+        help=(
+            "LP-relax mode: stamp ``relax: true`` on every "
+            "LineCommitment row so u_l becomes continuous in [0, 1]. "
+            "Default is MIP (binary u_l) — the form Fisher 2008's 25 %% "
+            "golden value assumes.  Use --lp-relax only as a fast "
+            "smoke test; the LP-relax rarely produces non-zero savings."
+        ),
+    )
+    p.add_argument(
+        "--mip-gap",
+        type=float,
+        default=None,
+        help=(
+            "Optional target relative MIP optimality gap (e.g. 0.01 = "
+            "1 %%).  Passed through to gtopt as --mip-gap.  Lower "
+            "values find tighter solutions but take longer.  Ignored "
+            "in --lp-relax mode."
+        ),
+    )
+    p.add_argument(
+        "--time-limit",
+        type=float,
+        default=None,
+        help=(
+            "Optional per-solve wall-clock limit in seconds (gtopt "
+            "--time-limit).  Useful to cap the MIP solve time on "
+            "large cases.  0 = no limit."
+        ),
+    )
+    p.add_argument(
+        "--candidate-lines",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated line names to use as OTS switching "
+            "candidates (default: all 186 lines).  Useful to scope "
+            "the MIP — Fisher 2008's 186-line all-line MIP is hard "
+            "(hours of solve time).  Try a 10-20 line subset for a "
+            "tractable demo."
+        ),
+    )
     args = p.parse_args(argv)
 
     root = _project_root()
@@ -281,17 +370,35 @@ def main(argv: list[str] | None = None) -> int:
     with base_json.open() as f:
         base = json.load(f)
 
+    candidate_lines: list[str] | None = None
+    if args.candidate_lines:
+        candidate_lines = [
+            n.strip() for n in args.candidate_lines.split(",") if n.strip()
+        ]
     baseline = _build_ots_variant(
         base,
         with_line_commitment=False,
         line_limit_scale=args.line_limit_scale,
+        lp_relax=args.lp_relax,
+        candidate_lines=candidate_lines,
     )
     ots = _build_ots_variant(
         base,
         with_line_commitment=True,
         line_limit_scale=args.line_limit_scale,
+        lp_relax=args.lp_relax,
+        candidate_lines=candidate_lines,
     )
     print(f"# Line limit scale:   {args.line_limit_scale}")
+    print(f"# Mode:               {'LP-relax' if args.lp_relax else 'MIP'}")
+    if candidate_lines:
+        print(f"# OTS candidates:     {len(candidate_lines)} explicit lines")
+    else:
+        print("# OTS candidates:     all lines")
+    if args.mip_gap is not None:
+        print(f"# MIP gap target:     {args.mip_gap}")
+    if args.time_limit is not None:
+        print(f"# Per-solve time-lim: {args.time_limit} s")
 
     baseline_json = workspace / "ieee_118b_baseline.json"
     ots_json = workspace / "ieee_118b_ots.json"
@@ -302,12 +409,25 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n# Baseline solve (no LineCommitment) ...")
     out_base = workspace / "out_baseline"
-    obj_base = _run_gtopt(gtopt_bin, baseline_json, out_base)
+    obj_base = _run_gtopt(
+        gtopt_bin,
+        baseline_json,
+        out_base,
+        mip_gap=args.mip_gap if not args.lp_relax else None,
+        time_limit=args.time_limit,
+    )
     print(f"  obj_baseline = {obj_base}")
 
-    print("\n# OTS solve (LineCommitment on every line, LP-relax) ...")
+    mode_label = "LP-relax" if args.lp_relax else "MIP"
+    print(f"\n# OTS solve (LineCommitment on every line, {mode_label}) ...")
     out_ots = workspace / "out_ots"
-    obj_ots = _run_gtopt(gtopt_bin, ots_json, out_ots)
+    obj_ots = _run_gtopt(
+        gtopt_bin,
+        ots_json,
+        out_ots,
+        mip_gap=args.mip_gap if not args.lp_relax else None,
+        time_limit=args.time_limit,
+    )
     print(f"  obj_ots      = {obj_ots}")
 
     savings = obj_base - obj_ots
