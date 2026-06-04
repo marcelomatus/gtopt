@@ -59,6 +59,21 @@ struct ModelOptions
   /// (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifter sentinels (`X = 0`)
   /// are caught.  Set to `0.0` to disable promotion entirely.
   OptReal dc_line_reactance_threshold {};
+  /// Per-unit resistance floor `|R/V²|` below which a transmission line's
+  /// quadratic losses are dropped (the line is treated as lossless).  Mirrors
+  /// `dc_line_reactance_threshold`: `PlanningLP::validate_line_resistance`
+  /// rewrites the line's resistance schedule to scalar `0.0`, so the loss
+  /// assembler (`line_losses`) takes its `R ≤ 0 → lossless` path and omits the
+  /// loss-PWL entirely (both the loss-pricing row AND the `line_loss*_link`
+  /// row).  This removes the huge `loss-link` coefficients (`∝ 1/(R/V²)`) that
+  /// very-low-R lines — transformers, busbar segments, or V-vs-kV unit-typo
+  /// lines (e.g. `R/V² ≈ 5e-8`) — otherwise inject as the largest matrix
+  /// entries, blowing up `--no-scale` kappa.  Default (when unset): `1e-7`
+  /// p.u. — one decade BELOW the reactance floor because real lines run lower
+  /// in `R/V²` than `X/V²` (EHV lines have `R ≪ X`; a real 220 kV `R = 0.01 Ω`
+  /// line is at `R/V² = 2e-7`), so `1e-7` spares genuine lossy lines while
+  /// catching the degenerate ones.  Set to `0.0` to disable.
+  OptReal dc_line_resistance_threshold {};
   /// Number of piecewise-linear segments for quadratic line losses.
   OptInt loss_segments {};
   /// Divisor for all objective coefficients (numerical stability).
@@ -234,6 +249,7 @@ struct ModelOptions
     merge_opt(line_losses_mode, opts.line_losses_mode);
     merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
     merge_opt(dc_line_reactance_threshold, opts.dc_line_reactance_threshold);
+    merge_opt(dc_line_resistance_threshold, opts.dc_line_resistance_threshold);
     merge_opt(loss_segments, opts.loss_segments);
     merge_opt(scale_objective, opts.scale_objective);
     merge_opt(scale_theta, opts.scale_theta);
@@ -259,7 +275,8 @@ struct ModelOptions
     return use_single_bus.has_value() || use_kirchhoff.has_value()
         || kirchhoff_mode.has_value() || use_line_losses.has_value()
         || line_losses_mode.has_value() || kirchhoff_threshold.has_value()
-        || dc_line_reactance_threshold.has_value() || loss_segments.has_value()
+        || dc_line_reactance_threshold.has_value()
+        || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
         || theta_max.has_value() || demand_fail_cost.has_value()
@@ -285,6 +302,8 @@ struct ModelOptions
         && covers_opt(kirchhoff_threshold, other.kirchhoff_threshold)
         && covers_opt(dc_line_reactance_threshold,
                       other.dc_line_reactance_threshold)
+        && covers_opt(dc_line_resistance_threshold,
+                      other.dc_line_resistance_threshold)
         && covers_opt(loss_segments, other.loss_segments)
         && covers_opt(scale_objective, other.scale_objective)
         && covers_opt(scale_theta, other.scale_theta)

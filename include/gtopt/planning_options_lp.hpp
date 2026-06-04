@@ -91,12 +91,32 @@ public:
    *  CPLEX/HiGHS kappa.
    *
    *  `1e-6` is conservative: real transmission `x_pu ≥ 1e-3` (4 OOM
-   *  above), real distribution `x_pu ≥ 1e-4` (2 OOM above), so genuine
-   *  lines are never falsely promoted.  V-vs-kV unit-typo lines
-   *  (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifters (`X = 0`) are caught.
+   *  above), real distribution `x_pu ≥ 1e-4` (2 OOM above), and real EHV
+   *  lines in physical units (e.g. 220 kV, X=0.1 Ω → `x_pu ≈ 2e-6`) are
+   *  never falsely promoted — a 1e-5 floor WOULD wrongly catch them.
+   *  V-vs-kV unit-typo lines (`x_pu ≈ 1e-7…1e-9`) and HVDC/phase-shifters
+   *  (`X = 0`) are caught.
    *  Set to `0.0` via `--set model_options.dc_line_reactance_threshold=0`
    *  to disable promotion entirely. */
   static constexpr Real default_dc_line_reactance_threshold = 1e-6;
+  /** @brief Default per-unit resistance floor for lossless auto-promotion.
+   *
+   *  Lines whose per-unit loss term `|R/V²|` falls below this value are
+   *  rewritten to `R = 0` by `PlanningLP::validate_line_resistance` and
+   *  skipped by the loss assembler — eliminating the outlier `line_loss*_link`
+   *  coefficients (`∝ 1/(R/V²)`) that very-low-R lines inject as the largest
+   *  matrix entries and that blow up `--no-scale` CPLEX/HiGHS kappa.
+   *
+   *  The loss-link coefficient is driven by `R/V²` (X is irrelevant), so the
+   *  dimensionally-correct test is `|R/V²|`, not `|R|` or the `R·X` product
+   *  (which misses low-R / normal-X lines).  The threshold is `1e-7` — one
+   *  decade BELOW the reactance floor (`1e-6`), because real lines run lower in
+   *  `R/V²` than in `X/V²` (EHV lines have `R ≪ X`): a real 220 kV line with
+   *  `R = 0.01 Ω` sits at `R/V² = 2e-7`, so a `1e-6` resistance floor would
+   *  wrongly strip its losses, whereas `1e-7` spares it while still catching
+   *  V-vs-kV unit-typo / busbar lines (e.g. `R/V² ≈ 5e-8`).  Set to `0.0` via
+   *  `--set model_options.dc_line_resistance_threshold=0` to disable. */
+  static constexpr Real default_dc_line_resistance_threshold = 1e-7;
   /** @brief Default voltage-angle bound (`θ ∈ [−2π, +2π]`) used as
    *  fallback when `auto_scale_theta` did not run (e.g.
    *  `auto_scale=false`).  When auto-scaling is enabled the bound is
@@ -417,6 +437,16 @@ public:
   {
     return m_options_.model_options.dc_line_reactance_threshold.value_or(
         default_dc_line_reactance_threshold);
+  }
+
+  /// Returns the resolved threshold used by
+  /// `PlanningLP::validate_line_resistance` when deciding whether a
+  /// line's `|R/V²|` is small enough to warrant rewriting `R` to `0`
+  /// (and thus dropping the line's quadratic loss model).
+  [[nodiscard]] constexpr auto dc_line_resistance_threshold() const
+  {
+    return m_options_.model_options.dc_line_resistance_threshold.value_or(
+        default_dc_line_resistance_threshold);
   }
 
   /// @brief Gets the voltage angle scaling factor.

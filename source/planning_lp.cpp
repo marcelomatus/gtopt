@@ -52,6 +52,121 @@ namespace gtopt
 // kBaselineReservedMB / kLpBuildPerTaskMB / kWriteOutPerTaskMB constants
 // that systematically mis-estimated on larger models.
 
+// ── Line impedance validation helpers ─────────────────────────────────────
+
+namespace
+{
+// Representative scalar voltage for a line: the per-unit default 1.0 when
+// unset; the max non-zero entry of a vector schedule (→ smallest per-unit
+// ratio → most conservative legitimacy probe); std::nullopt for a FileSched
+// (cannot be validated statically).  Shared by the reactance (DC promotion)
+// and resistance (lossless promotion) validators.
+[[nodiscard]] std::optional<double> line_repr_voltage(const Line& line)
+{
+  if (!line.voltage.has_value()) {
+    return 1.0;
+  }
+  const auto& sched = *line.voltage;
+  if (std::holds_alternative<double>(sched)) {
+    return std::get<double>(sched);
+  }
+  if (std::holds_alternative<std::vector<double>>(sched)) {
+    double v_max = 0.0;
+    for (const double v : std::get<std::vector<double>>(sched)) {
+      v_max = std::max(v_max, std::abs(v));
+    }
+    return v_max > 0.0 ? std::optional<double> {v_max} : std::nullopt;
+  }
+  return std::nullopt;
+}
+
+// Rewrite to 0, in place, any per-unit schedule entry whose |value/V²| is below
+// `threshold` on the `member` schedule of every line.  Returns the number of
+// lines touched.  `what`/`action` flavour the warning text.  Backs both
+// `validate_line_reactance` (member = &Line::reactance, the LP assembler then
+// drops the θ-row) and `validate_line_resistance` (member = &Line::resistance,
+// the loss assembler then takes its `R ≤ 0 → lossless` path and omits the
+// loss-PWL).  The coefficient driven by `|value/V²|` is `∝ 1/(value/V²)`, so
+// the dimensionally-correct probe is the per-unit ratio, not the raw value.
+[[nodiscard]] std::size_t clamp_line_pu_schedule_below(
+    Planning& planning,
+    double threshold,
+    OptTRealFieldSched Line::* member,
+    std::string_view what,
+    std::string_view action)
+{
+  std::size_t clamped = 0;
+  for (auto& line : planning.system.line_array) {
+    auto& opt = line.*member;
+    if (!opt.has_value()) {
+      continue;
+    }
+    const auto v_opt = line_repr_voltage(line);
+    if (!v_opt.has_value() || *v_opt == 0.0) {
+      continue;  // unable to compute per-unit ratio — skip.
+    }
+    const double v = *v_opt;
+    const double v_sq = v * v;
+    auto& sched = *opt;
+
+    // Scalar schedule.
+    if (std::holds_alternative<double>(sched)) {
+      const double val = std::get<double>(sched);
+      const double pu = val / v_sq;
+      if (val != 0.0 && std::abs(pu) < threshold) {
+        spdlog::warn(
+            "(line_{0}) Line '{1}' (uid={2}): per-unit {0} {0}/V²={3:.3e} "
+            "({0}={4:.3e}, V={5:.3e}) is below {6:.0e} — clamping to 0 ({7}).",
+            what,
+            line.name,
+            line.uid,
+            pu,
+            val,
+            v,
+            threshold,
+            action);
+        sched = 0.0;
+        ++clamped;
+      }
+      continue;
+    }
+
+    // Vector schedule: clamp any offending entry in place.
+    if (std::holds_alternative<std::vector<double>>(sched)) {
+      auto& vec = std::get<std::vector<double>>(sched);
+      bool any_small = false;
+      double min_bad = std::numeric_limits<double>::infinity();
+      for (auto& val : vec) {
+        const double pu = val / v_sq;
+        if (val != 0.0 && std::abs(pu) < threshold) {
+          any_small = true;
+          min_bad = std::min(min_bad, std::abs(pu));
+          val = 0.0;
+        }
+      }
+      if (any_small) {
+        spdlog::warn(
+            "(line_{0}) Line '{1}' (uid={2}): {0} schedule has per-unit "
+            "entries below {3:.0e} (min {0}/V²={4:.3e}, V={5:.3e}) — clamped "
+            "to 0 ({6}).",
+            what,
+            line.name,
+            line.uid,
+            threshold,
+            min_bad,
+            v,
+            action);
+        ++clamped;
+      }
+      continue;
+    }
+
+    // FileSched — can't validate statically; leave alone.
+  }
+  return clamped;
+}
+}  // namespace
+
 // ── Line reactance validation ────────────────────────────────────────────
 
 void PlanningLP::validate_line_reactance(Planning& planning)
@@ -95,107 +210,66 @@ void PlanningLP::validate_line_reactance(Planning& planning)
     return;
   }
 
-  auto& sys = planning.system;
-  size_t clamped = 0;
-
-  // Extract a representative scalar voltage for the line — mirrors the
-  // `line.param_voltage(stage.uid()).value_or(1.0)` resolution used in
-  // `kirchhoff_node_angle.cpp`.  When the schedule is a vector we use
-  // the maximum non-zero entry, which gives the *smallest* x_pu and is
-  // therefore the most conservative "is this line legitimate" probe.
-  // Schedules expressed as files cannot be validated statically; we
-  // skip them rather than risk a false positive from a missing default.
-  const auto extract_voltage = [](const Line& line) -> std::optional<double>
-  {
-    if (!line.voltage.has_value()) {
-      return 1.0;  // per-unit default
-    }
-    const auto& sched = *line.voltage;
-    if (std::holds_alternative<double>(sched)) {
-      return std::get<double>(sched);
-    }
-    if (std::holds_alternative<std::vector<double>>(sched)) {
-      const auto& vec = std::get<std::vector<double>>(sched);
-      double v_max = 0.0;
-      for (const double v : vec) {
-        v_max = std::max(v_max, std::abs(v));
-      }
-      if (v_max > 0.0) {
-        return v_max;
-      }
-      return std::nullopt;
-    }
-    return std::nullopt;  // FileSched — cannot validate statically.
-  };
-
-  for (auto& line : sys.line_array) {
-    if (!line.reactance.has_value()) {
-      continue;
-    }
-    const auto v_opt = extract_voltage(line);
-    if (!v_opt.has_value() || *v_opt == 0.0) {
-      continue;  // unable to compute x_pu — skip.
-    }
-    const double v = *v_opt;
-    const double v_sq = v * v;
-    auto& sched = *line.reactance;
-
-    // Scalar schedule.
-    if (std::holds_alternative<double>(sched)) {
-      const double x = std::get<double>(sched);
-      const double x_pu = x / v_sq;
-      if (x != 0.0 && std::abs(x_pu) < threshold) {
-        spdlog::warn(
-            "(line_reactance) Line '{}' (uid={}): per-unit reactance "
-            "x_pu=X/V²={:.3e} (X={:.3e}, V={:.3e}) is below {:.0e} — "
-            "clamping X to 0 (line will be treated as DC/HVDC, no "
-            "Kirchhoff constraint).",
-            line.name,
-            line.uid,
-            x_pu,
-            x,
-            v,
-            threshold);
-        sched = 0.0;
-        ++clamped;
-      }
-      continue;
-    }
-
-    // Vector schedule: clamp any offending entry in place.
-    if (std::holds_alternative<std::vector<double>>(sched)) {
-      auto& vec = std::get<std::vector<double>>(sched);
-      bool any_small = false;
-      double min_bad = std::numeric_limits<double>::infinity();
-      for (auto& x : vec) {
-        const double x_pu = x / v_sq;
-        if (x != 0.0 && std::abs(x_pu) < threshold) {
-          any_small = true;
-          min_bad = std::min(min_bad, std::abs(x_pu));
-          x = 0.0;
-        }
-      }
-      if (any_small) {
-        spdlog::warn(
-            "(line_reactance) Line '{}' (uid={}): reactance schedule has "
-            "per-unit entries below {:.0e} (min x_pu={:.3e}, V={:.3e}) "
-            "— clamped to 0 (DC/HVDC for those stages).",
-            line.name,
-            line.uid,
-            threshold,
-            min_bad,
-            v);
-        ++clamped;
-      }
-      continue;
-    }
-
-    // FileSched — can't validate statically; leave alone.
-  }
+  const std::size_t clamped = clamp_line_pu_schedule_below(
+      planning,
+      threshold,
+      &Line::reactance,
+      "reactance",
+      "line treated as DC/HVDC, no Kirchhoff constraint");
 
   if (clamped > 0) {
     spdlog::info(
         "  Line reactance validation: clamped {} line(s) with |x_pu|=|X/V²| "
+        "below {:.0e} to zero.",
+        clamped,
+        threshold);
+  }
+}
+
+// ── Line resistance validation ────────────────────────────────────────────
+
+void PlanningLP::validate_line_resistance(Planning& planning)
+{
+  // The line loss-link row coefficient is `∝ 1/(R/V²)`, so a very-low-R line
+  // injects a huge coefficient (the matrix max — e.g. 64102 for an `R/V²` of
+  // 5e-8) for a physically negligible loss.  The dimensionally-correct outlier
+  // check is therefore `|R/V²| < threshold`, mirroring
+  // `validate_line_reactance` on `|X/V²|`.  Lines below the threshold are
+  // almost always one of:
+  //   1. data-entry mistakes (V in V instead of kV → R/V² 1e6× too small),
+  //   2. transformers / busbar segments whose copper loss is below solver
+  //      tolerance anyway, or
+  //   3. lossless connectors (R = 0 sentinel).
+  // In every case the right action is to drop the line out of the loss model.
+  // We do this by rewriting the line's resistance schedule to scalar 0.0 — the
+  // loss assembler in `line_losses` then takes its `R ≤ 0 → lossless` path and
+  // omits the loss-PWL entirely (both the loss-pricing AND the
+  // `line_loss*_link` rows), removing the outlier coefficients that blow up
+  // `--no-scale` kappa.  Note: unlike the reactance floor (which the solver's
+  // Ruiz equilibration can partially absorb under scaling), this matters most
+  // on the unscaled path where no equilibration runs.
+  //
+  // Default threshold is `default_dc_line_resistance_threshold` (1e-6 p.u.).
+  // Read directly from `model_options` — this pass runs before
+  // `PlanningOptionsLP` is constructed; the option has no deprecated flat
+  // field, so the direct lookup is safe.
+  const double threshold =
+      planning.options.model_options.dc_line_resistance_threshold.value_or(
+          PlanningOptionsLP::default_dc_line_resistance_threshold);
+  if (!(threshold > 0.0)) {
+    return;
+  }
+
+  const std::size_t clamped = clamp_line_pu_schedule_below(
+      planning,
+      threshold,
+      &Line::resistance,
+      "resistance",
+      "line treated as lossless, loss model dropped");
+
+  if (clamped > 0) {
+    spdlog::info(
+        "  Line resistance validation: clamped {} line(s) with |r_pu|=|R/V²| "
         "below {:.0e} to zero.",
         clamped,
         threshold);

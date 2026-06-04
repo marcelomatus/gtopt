@@ -140,6 +140,26 @@ public:
   /// `scripts/plp2gtopt/battery_writer.py`.
   static void validate_line_reactance(Planning& planning);
 
+  /// Validate line resistance values and clamp tiny ones to zero.
+  ///
+  /// Promotes any line whose per-unit loss term `|r_pu| = |R/V²|` falls below
+  /// `model_options.dc_line_resistance_threshold` (default `1e-6`) to a
+  /// lossless line by rewriting its resistance schedule to scalar `0.0`.  The
+  /// loss assembler in `line_losses` then takes its `R ≤ 0 → lossless` path and
+  /// omits the loss-PWL (both the loss-pricing AND the `line_loss*_link` rows).
+  ///
+  /// The line loss-link coefficient is `∝ 1/(R/V²)`, so a very-low-R line
+  /// injects the matrix's largest coefficient (e.g. 64102 for `R/V² = 5e-8`)
+  /// for a negligible physical loss.  The dimensionally-correct check is
+  /// `|R/V²|` (X is irrelevant — the `R·X` product would miss low-R/normal-X
+  /// lines), mirroring `validate_line_reactance` on `|X/V²|`.  Catches data
+  /// V-vs-kV typos, lossless connectors (`R = 0`), and transformer/busbar
+  /// segments whose copper loss is below solver tolerance.
+  ///
+  /// Set `model_options.dc_line_resistance_threshold = 0` to disable.  Static
+  /// so it can be exercised by unit tests without a full PlanningLP.
+  static void validate_line_resistance(Planning& planning);
+
   /// Compute adaptive `scale_loss_link` from `median(R/V²)` when not
   /// explicitly set.  Picks a power-of-10 multiplier `s = 10^round(
   /// −log10(median(R/V²)))` so the smallest segment coefficient
@@ -198,6 +218,7 @@ public:
               if constexpr (!std::is_const_v<
                                 std::remove_reference_t<PlanningT>>) {
                 validate_line_reactance(planning);
+                validate_line_resistance(planning);
                 auto_scale_theta(planning);
                 auto_scale_loss_link(planning);
                 // Query the default solver's `+infinity` value from the
