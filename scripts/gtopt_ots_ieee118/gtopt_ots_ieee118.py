@@ -57,18 +57,35 @@ with the 0.01 scale.)
 
 ## Why don't we reach Fisher's 25 % exactly?
 
+The short answer: **gtopt's OTS is already optimal — the case data
+just doesn't have 25 % of obj to save.**
+
   1. gtopt's ``ieee_118b`` has DIFFERENT generator cost data than
-     Fisher 2008's IEEE 118 (gtopt: $20-$40/MWh from pglib-opf;
-     Fisher: $0.19-$10/MWh scaled).  Absolute objective values
-     aren't comparable; only relative savings.
+     Fisher 2008's IEEE 118.  gtopt's pglib-opf data ships only
+     TWO generator-cost levels ($20 and $40/MWh — ratio 2×).
+     Fisher used $0.19-$10/MWh (ratio 50×).
 
-  2. The savings ratio is highly sensitive to which line limits
-     are binding.  Fisher's experiment used a single specific
-     load level and line-limit profile; ours uses a uniform scale.
+  2. The cheapest dispatch floor =
+        cheapest_gen_cost × total_demand
+        = $20 × 4 242 MW = $84 840 /h
+     which is essentially identical to the baseline solve obj
+     ($85 151 /h).  The DIFFERENCE — $311 — is the
+     **congestion cost**: extra dispatch through the $40/MWh
+     generators forced by transmission limits.
 
-  3. All-line MIP (186 binaries) is the only way to reach 25 %;
-     restricting to a subset of K candidates caps the savings at
-     whatever those K candidates can deliver.
+  3. OTS eliminated 100 % of that $311 congestion cost ⇒ the
+     LP-relax obj equals the cheapest-dispatch floor exactly.
+     The MIP and LP-relax both reach $84 840 /h.
+
+  4. In Fisher's case the cheapest-dispatch floor was MUCH lower
+     than baseline (50× cost spread means much more $0.19/MWh
+     generation displaceable by routing improvements), so the
+     same "eliminate all congestion" result delivered 25 % of
+     a congestion-dominated obj.
+
+The script's output decomposition makes this explicit: see the
+``OTS eliminated: $X (Y % of congestion cost)`` line — Y is the
+fair comparison metric for cost-structure-sensitive cases.
 
 ## Exit codes
 
@@ -432,11 +449,45 @@ def main(argv: list[str] | None = None) -> int:
 
     savings = obj_base - obj_ots
     ratio = savings / obj_base if obj_base != 0.0 else 0.0
+
+    # Theoretical cheapest dispatch = cheapest_gen_cost × total_demand.
+    # The DIFFERENCE between obj_baseline and this floor is the
+    # "congestion cost" — the part OTS can actually reduce.  Computing
+    # savings as a fraction of that cost gives a more interpretable
+    # number than savings vs total dispatch cost (which is dominated
+    # by the unaffected cheapest-gen MWh × cost).
+    gens = base["system"]["generator_array"]
+    demand_array = base["system"]["demand_array"]
+    cheapest_cost = min(g.get("gcost", float("inf")) for g in gens)
+    total_demand = 0.0
+    for dem in demand_array:
+        lmax = dem.get("lmax")
+        if isinstance(lmax, list) and lmax:
+            row = lmax[0]
+            total_demand += row[0] if isinstance(row, list) else row
+    cheapest_dispatch = cheapest_cost * total_demand
+    congestion_cost = obj_base - cheapest_dispatch
+    cong_ratio = savings / congestion_cost if congestion_cost > 1e-6 else 0.0
+
     print("\n# Result")
-    print(f"  Absolute savings:  {savings:+.4f}")
-    print(f"  Savings ratio:     {ratio * 100:+.2f} %")
-    print(f"  Fisher 2008 MIP:   {FISHER_2008_GOLDEN_SAVINGS * 100:.2f} %")
-    print("  Fisher 2008 table (DC-OPF, with realistic line limits):")
+    print(f"  obj_baseline:         {obj_base:.4f}")
+    print(f"  obj_ots:              {obj_ots:.4f}")
+    print(f"  Absolute savings:     {savings:+.4f}")
+    print(f"  Savings vs total:     {ratio * 100:+.4f} %")
+    print()
+    print("  Cheapest-dispatch decomposition:")
+    print(
+        f"    cheapest_gen × demand:        "
+        f"${cheapest_cost:.2f}/MWh × {total_demand:.0f} MW = ${cheapest_dispatch:.2f}"
+    )
+    print(f"    congestion cost (= obj_base - cheap): ${congestion_cost:.2f}")
+    print(
+        f"    OTS eliminated:               "
+        f"${savings:.2f}  ({cong_ratio * 100:.1f} % of congestion cost)"
+    )
+    print()
+    print(f"  Fisher 2008 MIP golden:  {FISHER_2008_GOLDEN_SAVINGS * 100:.2f} %")
+    print("  Fisher 2008 table (DC-OPF):")
     for label, info in FISHER_2008_TABLE.items():
         print(
             f"    {label:35s} ${info['cost']:>7.0f}/h  "
@@ -444,10 +495,22 @@ def main(argv: list[str] | None = None) -> int:
         )
     if abs(ratio) < 1e-6:
         print(
-            "\n  Note: LP-relax OTS rarely produces non-zero savings; the\n"
-            "  integer-OTS benefit is lost when ``u_l`` can be fractional.\n"
-            "  See the script docstring for why and how to get to Fisher's\n"
-            "  golden 25 % (full MIP + tightened line limits)."
+            "\n  Note: 0 % savings.  Either (a) the case has no congestion at\n"
+            "  current line limits (try --line-limit-scale 0.02), (b) the\n"
+            "  chronological-stage gate dropped LineCommitment rows (verify\n"
+            "  the LP via --lp-only --lp-file foo and grep for\n"
+            "  linecommitment_status), or (c) the MIP solver hit the time\n"
+            "  limit before improving."
+        )
+    elif cong_ratio > 0.99:
+        print(
+            "\n  Note: OTS eliminated ~100 % of the congestion cost — the\n"
+            "  ideal outcome for this case.  The savings ratio looks small\n"
+            "  vs Fisher's 25 % because gtopt's ieee_118b uses pglib-opf\n"
+            "  cost data with only 2× gen-cost ratio ($20-$40/MWh), so the\n"
+            "  obj is dominated by the unavoidable cheapest-gen dispatch.\n"
+            "  Fisher 2008 used 50× cost ratio ($0.19-$10/MWh) where the\n"
+            "  obj was congestion-dominated and 25 % savings was possible."
         )
 
     if cleanup:

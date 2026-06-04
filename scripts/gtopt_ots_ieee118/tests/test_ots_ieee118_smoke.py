@@ -134,13 +134,30 @@ def test_ots_ieee118_mip_finds_positive_savings(tmp_path):
         f"OTS obj {obj_ots} > baseline {obj_baseline}; MIP likely "
         "returned a sub-optimal incumbent."
     )
-    # Sanity floor: with 10 congested-line candidates + 300 s time
-    # limit + 1 % MIP gap, gtopt reproducibly finds ≥ 0.1 % savings.
-    savings_ratio = (obj_baseline - obj_ots) / obj_baseline
-    assert savings_ratio >= 0.001, (
-        f"Expected ≥ 0.1 % OTS savings on the 10-candidate fixture; "
-        f"got {savings_ratio * 100:.4f} %.  Either the OTS LP build "
-        "is silently skipping LineCommitment (check chronological "
-        "gate, kirchhoff_mode, method=monolithic), or the MIP "
-        "solver returned a degenerate solution."
+    # Cheapest-dispatch decomposition: ieee_118b has 19 generators at
+    # $20/MWh with total capacity 6 466 MW > 4 242 MW demand.  So the
+    # theoretical minimum dispatch cost is $20 × 4 242 = $84 840.  The
+    # baseline obj sits just above that ($85 151 with 0.02× line scale,
+    # i.e. 200 MW caps) — the $311 gap is the congestion cost that OTS
+    # can eliminate.
+    #
+    # Asserting the "congestion cost eliminated" metric is more robust
+    # than the savings-vs-total ratio because it normalises by the
+    # bit OTS can actually reduce, decoupling the test from any future
+    # cost-data refresh that changes the total dispatch level.
+    cheapest_dispatch = 20.0 * 4242.0  # = 84 840
+    congestion_cost = obj_baseline - cheapest_dispatch
+    assert congestion_cost > 0.0, (
+        f"Baseline obj {obj_baseline} ≤ cheapest dispatch "
+        f"{cheapest_dispatch}; the test fixture has no congestion. "
+        "Check that --line-limit-scale 0.02 is being applied."
+    )
+    eliminated = obj_baseline - obj_ots
+    eliminated_pct = eliminated / congestion_cost
+    assert eliminated_pct >= 0.90, (
+        f"OTS eliminated only {eliminated_pct * 100:.1f} % of the "
+        f"${congestion_cost:.2f} congestion cost; expected ≥ 90 %.  "
+        "Either the OTS LP build is silently skipping LineCommitment "
+        "(check chronological gate, kirchhoff_mode, method=monolithic) "
+        "or the MIP solver returned a sub-optimal incumbent."
     )
