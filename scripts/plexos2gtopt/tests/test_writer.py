@@ -878,7 +878,10 @@ def test_build_line_array_dlr_emits_matrix_and_loss_mode() -> None:
             units=1,
         ),
     )
-    out = build_line_array(lines)
+    # Explicit ``piecewise`` (the converter default is now Coffrin
+    # ``tangent_signed_flow`` — see test_line_losses_mode.py); this case still
+    # exercises the piecewise layout + adaptive-K path.
+    out = build_line_array(lines, line_losses_mode="piecewise")
     # The varying DLR profile materialises as a [[per-hour]] matrix.
     assert isinstance(out[0]["tmax_ab"], list)
     assert out[0]["tmax_ab"] == [[100.0] * 12 + [200.0] * 12]
@@ -915,7 +918,7 @@ def test_build_line_array_constant_profile_keeps_scalar_tmax() -> None:
             units=1,
         ),
     )
-    out = build_line_array(lines)
+    out = build_line_array(lines, line_losses_mode="piecewise")
     # No matrix — the constant profile collapses to a scalar.
     assert out[0]["tmax_ab"] == 200.0
     assert out[0]["resistance"] == 0.05

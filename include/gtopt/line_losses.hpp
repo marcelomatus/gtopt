@@ -11,15 +11,28 @@
  *
  * ### Supported modes
  *
- * | Mode                | Extra rows/block | Extra cols/block          |
- * |---------------------|------------------|---------------------------|
- * | `none`              | 0                | 1 (bidirectional flow)    |
- * | `linear`            | 0                | 1–2 (flow per dir)        |
- * | `piecewise`         | 2                | K+3 (segs + loss + fp+fn) |
- * | `bidirectional`     | 4                | 2(K+2) (per-dir segs)     |
- * | `adaptive`          | resolved at config time (piecewise/bidirectional) |
- * | `dynamic`           | placeholder → piecewise                           |
- * | `piecewise_direct`  | 0                | 2K  (per-dir segs only)       |
+ * Counts are PER LOSSY LINE, PER BLOCK — a mode's LP footprint is
+ * `count × n_lossy_lines × n_blocks`.  (`K` = number of segments / tangents.)
+ *
+ * | Mode                  | Extra rows/block            | Extra cols/block |
+ * |-----------------------|-----------------------------|---------------------------|
+ * | `none`                | 0                           | 1 (bidirectional
+ * flow)    | | `linear`              | 0                           | 1–2 (flow
+ * per dir)        | | `piecewise`           | 2                           | K+3
+ * (segs + loss + fp+fn) | | `bidirectional`       | 4 | 2(K+2) (per-dir segs) |
+ * | `piecewise_direct`    | 0                           | 2K  (per-dir segs
+ * only)   | | `tangent_signed_flow` | K+1 (K tangents + 1 loss-upper envelope)
+ * | 2 (signed flow + loss) | | `adaptive`            | resolved at config time
+ * (piecewise/bidirectional) | | `dynamic`             | placeholder → piecewise
+ * |
+ *
+ * `tangent_signed_flow` (Coffrin outer-approximation; `LinePwlLayout::tangent`)
+ * is the plexos2gtopt DEFAULT (eps=0.1, K=6) and is BOTH the most compact (2
+ * cols) AND the most accurate: its K tangent inequalities form a LOWER outer
+ * envelope of `(R/V²)·f²`, exact at every tangent point, so it never
+ * over-states loss.  Example footprint (10-05, 278 lossy lines × 168 blocks):
+ * `tangent K=6` → 93,408 cols / 326,928 rows, vs the regressed
+ * `piecewise uniform/midpoint K=2–5` mix → 284,088 cols / 93,408 rows.
  *
  * ### Mathematical background
  *
@@ -29,6 +42,18 @@
  *   - Segment width: `w = f_max / K`
  *   - Segment k (1-based) loss coefficient: `loss_k = w · R · (2k−1) / V²`
  *   - Total: `loss = Σ_k loss_k · seg_k`, with `Σ_k seg_k = |f|`
+ *
+ * PWL layout (`LinePwlLayout`, line_enums.hpp) controls ACCURACY at fixed K:
+ *   - `uniform`  — equal-width SECANT chords.  A chord is an UPPER bound of the
+ *     convex quadratic: exact at the segment endpoints, over-stating between
+ *     them, worst near `f = 0`.  On a lightly-loaded line (`f ≪ f_max`) with
+ *     few segments the first chord (constant slope `R·w/V²`) sits far above the
+ *     true `R·f²/V²`, over-stating loss by ≈ `w/f`.  Aggregated this is why the
+ *     uniform mix booked 93.3 GWh of loss against only ~40 GWh that the flows
+ *     physically support (10-05).
+ *   - `midpoint` — each chord shifted to the segment midpoint → de-biased.
+ *   - `tangent`  — Coffrin tangents: a LOWER outer envelope, exact at the
+ *     tangent points, never over-states.  Preferred (and the intended default).
  *
  * References:
  * - [1] Macedo, Vallejos, Fernández, "A Dynamic Piecewise Linear Model
