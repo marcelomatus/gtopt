@@ -310,4 +310,57 @@ std::expected<int, Error> LinearInterface::resolve(
   }
 }
 
+std::expected<LinearInterface::FixIntegersOutcome, Error>
+LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
+{
+  using Clock = std::chrono::steady_clock;
+
+  ensure_backend();
+
+  // Build the effective options the backend's internal re-solve runs
+  // under: backend-optimal defaults, user settings overlaid on top, then
+  // the scale-objective optimality-tolerance correction — exactly what
+  // `resolve()` applies before a solve (this TU owns the helper).  The
+  // common backend method re-applies these via `apply_options(opts)`
+  // internally; the CPLEX override then overrides only the LP method to
+  // warm dual simplex for the throwaway fixed-LP pass.
+  auto effective = m_backend_->optimal_options();
+  effective.overlay(opts);
+  scale_optimality_tol_for_objective(effective, m_scale_objective_);
+  m_last_solver_options_ = effective;
+
+  // Delegate the fix + re-solve to the one common backend virtual.  Each
+  // plugin implements it with its native mechanism (CPLEX: single-call
+  // `CPXPROB_FIXEDMILP` warm dual pass; everyone else: the portable
+  // pin-bounds -> relax -> resolve default).  The fix happens on the LIVE
+  // backend right after the MIP solve — no compress/reconstruct between
+  // fix and read — so this is intentionally NOT routed through the LI
+  // replay log; the fixed LP is a throwaway whose sole product is the
+  // committed-solution duals.
+  const auto t0 = Clock::now();
+  const int fixed = m_backend_->fix_mip_and_resolve_duals(effective);
+  m_solver_stats_.total_solve_time_s +=
+      std::chrono::duration<double>(Clock::now() - t0).count();
+
+  if (fixed <= 0) {
+    // fixed < 0: no incumbent / fixed-LP solve failed — preserve the
+    //   historical early-return contract so the cell does not fail (the
+    //   caller already warns and keeps the MIP primal).
+    // fixed == 0: pure LP — caller's existing duals are already valid.
+    return FixIntegersOutcome {.fixed_columns = 0, .status = std::nullopt};
+  }
+
+  // The fixed LP was solved on the live backend; refresh the LI cache the
+  // same way `resolve()` does post-solve so downstream dual / reduced-cost
+  // readers see the committed-solution values, not stale MIP data.
+  ++m_solver_stats_.resolve_calls;
+  m_cache_.mark_solution_fresh(/*v=*/true);
+  populate_solution_cache_post_solve();
+
+  return FixIntegersOutcome {
+      .fixed_columns = Index {fixed},
+      .status = 0,
+  };
+}
+
 }  // namespace gtopt

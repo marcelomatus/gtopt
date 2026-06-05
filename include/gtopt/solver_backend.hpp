@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <optional>
@@ -34,7 +35,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 8;
+inline constexpr int k_solver_abi_version = 10;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -282,6 +283,64 @@ public:
       }
     }
     return relaxed;
+  }
+
+  /// Fix every integer column to its incumbent (MIP-optimal) value and
+  /// re-solve as an LP to recover row duals / reduced costs, warm-started
+  /// where the backend supports it.  Called right after a MIP `resolve()`
+  /// on the live backend; the fixed LP is a throwaway whose only product
+  /// is the committed-solution duals.
+  ///
+  /// Output is the COMMITTED-solution duals (integers pinned to the
+  /// incumbent), identical to the portable default path — only wall-clock
+  /// differs.
+  ///
+  /// Default (portable) path: gather integer columns via `is_integer`,
+  /// read the current column solution (`col_solution`), pin each integer
+  /// column to `std::round(value)` on both bounds, `relax_all_integers`,
+  /// `apply_options(opts)`, then `resolve()`.  This default is already
+  /// warm on Clp/OSI (its `resolve()` retains the basis) and correct
+  /// everywhere.  CPLEX overrides with the single-call `CPXPROB_FIXEDMILP`
+  /// fast path (fixes integers AND installs the incumbent-node basis, then
+  /// a warm dual-simplex re-solve — no barrier, no crossover).
+  ///
+  /// @param opts Solver options for the follow-up LP solve (the caller
+  ///             typically enables `crossover` so a barrier backend
+  ///             produces clean vertex duals).
+  /// @return Number of fixed integer columns: `0` = pure LP / nothing to
+  ///         do (caller's existing duals already valid); `> 0` = fixed and
+  ///         re-solved (caller must refresh its solution cache from the
+  ///         backend); `< 0` = no incumbent / failure (caller keeps the
+  ///         MIP result untouched).
+  virtual int fix_mip_and_resolve_duals(const SolverOptions& opts)
+  {
+    const int n = get_num_cols();
+    // Read the current (MIP-optimal) primal BEFORE any bound mutation —
+    // the first `set_col_lower/upper` may invalidate the solution view.
+    const double* sol = col_solution();
+    if (sol == nullptr) {
+      return -1;  // no incumbent solution available
+    }
+
+    int fixed = 0;
+    for (int i = 0; i < n; ++i) {
+      if (is_integer(i)) {
+        // Round to the nearest integer: an integer column may report a
+        // value a hair off the lattice (e.g. 0.9999997) under tolerance.
+        const double pinned = std::round(sol[i]);
+        set_col_lower(i, pinned);
+        set_col_upper(i, pinned);
+        ++fixed;
+      }
+    }
+    if (fixed == 0) {
+      return 0;  // pure LP — caller's duals are already valid
+    }
+
+    relax_all_integers();
+    apply_options(opts);
+    resolve();
+    return fixed;
   }
 
   // ---- solution access (raw pointers, caller wraps in std::span) ----

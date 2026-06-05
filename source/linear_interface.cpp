@@ -3093,80 +3093,9 @@ bool LinearInterface::has_integer_cols() const
   return false;
 }
 
-std::expected<LinearInterface::FixIntegersOutcome, Error>
-LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
-{
-  ensure_backend();
-
-  // Snapshot the MIP-optimal primal vector BEFORE any mutation: the
-  // first `set_col_bounds_raw` below invalidates the cached solution
-  // (and may detach the backend pointer view), so we must own a copy.
-  const auto mip_sol = get_col_sol_raw();
-  const auto ncols = static_cast<size_t>(get_numcols());
-  if (mip_sol.size() < ncols) {
-    return std::unexpected(Error {
-        .code = ErrorCode::InternalError,
-        .message = std::format(
-            "fix_integers_and_resolve: MIP solution size {} < numcols {} "
-            "for problem {}",
-            mip_sol.size(),
-            ncols,
-            get_prob_name()),
-    });
-  }
-
-  // Collect the integer columns and the rounded value each should be
-  // pinned to.  Single backend scan; build the bulk-bound arrays in one
-  // pass so the fix is a single `set_col_bounds_raw` dispatch (CPLEX
-  // collapses it to one `CPXchgbds`).
-  std::vector<ColIndex> idx;
-  std::vector<char> lu;
-  std::vector<double> vals;
-  idx.reserve(ncols);
-  lu.reserve(ncols);
-  vals.reserve(ncols);
-  for (size_t c = 0; c < ncols; ++c) {
-    const auto col = ColIndex {static_cast<Index>(c)};
-    if (!m_backend_->is_integer(static_cast<int>(c))) {
-      continue;
-    }
-    // Round to the nearest integer: integer columns may report a value
-    // a hair off the lattice (e.g. 0.9999997) under solver tolerance.
-    // The bound is in LP-raw space, matching `get_col_sol_raw`.
-    const double pinned = std::round(mip_sol[c]);
-    idx.push_back(col);
-    lu.push_back('B');  // pin both lower and upper
-    vals.push_back(pinned);
-  }
-
-  if (idx.empty()) {
-    // Pure LP — caller's existing duals are already valid; do nothing.
-    return FixIntegersOutcome {.fixed_columns = 0, .status = std::nullopt};
-  }
-
-  // 1. Pin every integer column to its rounded MIP value (one dispatch).
-  set_col_bounds_raw(idx, lu, vals);
-
-  // 2. Relax integrality so the follow-up solve is a pure LP that yields
-  //    well-defined row duals and column reduced costs.  `relax_integers`
-  //    is idempotent and routes through the backend's native bulk
-  //    `relax_all_integers` (solver-agnostic).
-  const auto relaxed = relax_integers();
-
-  // 3. Re-solve the now-continuous LP.  `resolve` re-populates the LI
-  //    cache (col_sol / row_dual / col_cost) with the LP solution: the
-  //    primal is unchanged (integers pinned to the MIP values) while the
-  //    duals / reduced costs are now well-defined.
-  auto result = resolve(opts);
-  if (!result) {
-    return std::unexpected(std::move(result.error()));
-  }
-
-  return FixIntegersOutcome {
-      .fixed_columns = relaxed,
-      .status = *result,
-  };
-}
+// ── fix_integers_and_resolve ─ moved to linear_interface_solve.cpp
+//   (delegates to the backend's `fix_mip_and_resolve_duals` virtual; lives
+//    next to `resolve` so it shares the effective-options helper).
 
 // ── Names & LP file output ─ moved to linear_interface_labels.cpp
 // ── Solve ─ moved to linear_interface_solve.cpp

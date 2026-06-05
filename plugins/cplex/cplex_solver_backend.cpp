@@ -991,6 +991,70 @@ int CplexSolverBackend::relax_all_integers()
   return relaxed;
 }
 
+int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+
+  // 1. Pure LP / QP — nothing to fix; caller's duals are already valid.
+  const int cplex_type = CPXgetprobtype(env, lp);
+  if (cplex_type != CPXPROB_MILP && cplex_type != CPXPROB_MIQP) {
+    return 0;
+  }
+
+  // 2. Require an incumbent.  `CPXPROB_FIXEDMILP` needs the MIP to have
+  //    found (and stored) an integer-feasible solution; without one there
+  //    is nothing to fix and the caller must keep the MIP result.
+  const int stat = CPXgetstat(env, lp);
+  const bool has_incumbent = stat == CPXMIP_OPTIMAL
+      || stat == CPXMIP_OPTIMAL_TOL || stat == CPXMIP_OPTIMAL_INFEAS;
+  if (!has_incumbent) {
+    return -1;
+  }
+
+  // 3. Count the discrete columns BEFORE switching problem type
+  //    (`CPXgetnumint` / `CPXgetnumbin` are O(1)).  After the type flip
+  //    every column is continuous, so the counts must be read now.
+  const int fixed = CPXgetnumint(env, lp) + CPXgetnumbin(env, lp);
+
+  // 4. `CPXPROB_FIXEDMILP` fixes every discrete variable to its incumbent
+  //    value AND installs the incumbent node's optimal simplex basis.  A
+  //    warm simplex off that basis is a handful of pivots — no barrier, no
+  //    crossover.  If the conversion fails, no state changed: bail out and
+  //    let the caller keep the MIP result.
+  if (CPXchgprobtype(env, lp, CPXPROB_FIXEDMILP) != 0) {
+    return -1;
+  }
+
+  // 5. Apply the caller options FIRST so the bundled `cplex.prm` loads
+  //    (it forces `LPMethod 4` = barrier), THEN override the LP method to
+  //    warm dual simplex for this throwaway fixed-LP pass only.  Save the
+  //    current method and restore it afterwards so the global `cplex.prm`
+  //    barrier setting still governs the cold MIP-root relaxation solves.
+  apply_options(opts);
+  int saved_lpmethod = CPX_ALG_AUTOMATIC;
+  CPXgetintparam(env, CPX_PARAM_LPMETHOD, &saved_lpmethod);
+  CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
+
+  // 6. Warm dual-simplex solve of the fixed LP.  If it does not reach
+  //    optimality, retry once with barrier on the still-fixed problem as a
+  //    safety net (matches the cold-start fallback the `.prm` documents).
+  m_solve_status_ = CPXlpopt(env, lp);
+  if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
+    CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
+    m_solve_status_ = CPXlpopt(env, lp);
+  }
+
+  // 7. Restore the saved LP method so subsequent cold solves keep barrier.
+  CPXsetintparam(env, CPX_PARAM_LPMETHOD, saved_lpmethod);
+
+  // 8. Report the fixed count, or -1 if the fixed-LP solve still failed.
+  if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
+    return -1;
+  }
+  return fixed;
+}
+
 void CplexSolverBackend::invalidate_problem_data() const noexcept
 {
   m_collb_cached_ = false;
