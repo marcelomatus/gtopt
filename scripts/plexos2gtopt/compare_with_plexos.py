@@ -48,7 +48,7 @@ from rich.table import Table
 # A schema mismatch silently falls back to re-extraction; do not
 # guard with try/except in the call site, the unpickler will surface
 # AttributeError / KeyError naturally.
-_PLEXOS_CACHE_VERSION = 6  # +startup_cost_usd in totals (Step 3 cost breakdown)
+_PLEXOS_CACHE_VERSION = 7  # +unserved_mwh in totals (measured PLEXOS USE, prop 1408)
 
 
 def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
@@ -348,6 +348,9 @@ PLEXOS_PROP_NODE_LOAD = 1373  # consumer demand only (apples-to-apples
 #                              vs gtopt's demand_array)
 PLEXOS_PROP_NODE_GENERATION = 1377
 PLEXOS_PROP_NODE_PRICE = 1412  # LMP $/MWh
+PLEXOS_PROP_NODE_UNSERVED = 1408  # Node Unserved Energy (MW per period) —
+#   the consumer-side load-shed; node-level mirrors NODE_LOAD scope.
+#   (Region Unserved Energy is prop 1000; node is apples-to-apples here.)
 #
 # Collection-303 (Line / transmission):
 PLEXOS_PROP_LINE_FLOW = 1462  # MW
@@ -555,6 +558,10 @@ def compute_plexos_energy_totals(
     battery_load = _energy_mwh(PLEXOS_PROP_BATTERY_LOAD)
     return {
         "load_mwh": max(0.0, node_load - battery_load),
+        # PLEXOS Node Unserved Energy (prop 1408) — measured, not assumed.
+        # On a feasible CEN PCP solve this is 0, but extracting it keeps the
+        # comparison honest (and catches a PLEXOS load-shed if one occurs).
+        "unserved_mwh": _energy_mwh(PLEXOS_PROP_NODE_UNSERVED),
         "load_node_mwh": node_load,
         "load_region_mwh": _energy_mwh(PLEXOS_PROP_REGION_LOAD),
         "battery_load_mwh": battery_load,
@@ -3139,7 +3146,11 @@ def _render_solution_compare(
             bus_resid_g,
         )
     _row("Generation [MWh]", plexos_tot["gen_mwh"], gtopt_tot["gen_mwh"])
-    _row("Unserved [MWh]", 0.0, gtopt_tot.get("fail_mwh", 0.0))
+    _row(
+        "Unserved [MWh]",
+        plexos_tot.get("unserved_mwh", 0.0),
+        gtopt_tot.get("fail_mwh", 0.0),
+    )
 
     # Operational cost — break down into the cost components both PLEXOS
     # and gtopt declare in their objective functions, then sum.
