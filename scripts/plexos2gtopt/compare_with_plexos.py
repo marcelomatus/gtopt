@@ -3752,20 +3752,20 @@ def _render_report(
         return
     delta = gtopt["sum_obj"] - plexos_obj
     rel = 100.0 * delta / abs(plexos_obj)
-    # ⚠ Horizon-mismatch caveat: the CEN PCP daily bundle reports
-    # PLEXOS totals over its full 7-day PCP forward-look (4-stage
-    # MT chained schedule), whereas plexos2gtopt currently emits a
-    # 1-stage 24-block JSON.  A like-for-like cost diff must
-    # divide PLEXOS by ~7 (or extract day-1 only via
-    # cen2gtopt.pcp_solution.extract_property against the .accdb).
-    # Until that's wired into this scout, the raw Δ below is
-    # apples-to-oranges and the user must apply the 1/7 mental
-    # correction.  Tracked for follow-up.
+    # Horizon: the converter emits the FULL PCP forward-look horizon (the CEN
+    # daily bundle is 1 stage × 168 hourly blocks = 7 days), matching PLEXOS's
+    # 168-h horizon — it is NOT a 1-day slice.  So the cost TOTALS are over the
+    # same span and directly comparable; the Step-3 "Block count / hours
+    # covered" row confirms both cover the same horizon.  (Earlier this scout
+    # wrongly divided PLEXOS by 7 on the false premise that gtopt ran 1 day.)
+    # A large Δ here is therefore a cost-COMPOSITION signal — PLEXOS's MIP
+    # objective vs gtopt's objective, which may include FCF / water-value
+    # terminal terms, demand-fail or reserve-shortage penalty tiers, or a
+    # different offer-curve integration — NOT a horizon artifact.
     console.print(
-        "[dim]⚠ Horizon caveat: PLEXOS log reports totals across "
-        "its full 7-day PCP forward-look; gtopt currently runs 1 day.  "
-        "Divide PLEXOS by ~7 for a per-day comparison until this "
-        "scout learns to extract per-day totals from the .accdb.[/dim]"
+        "[dim]Horizon: gtopt and PLEXOS both cover the full PCP forward-look "
+        "(see the Step-3 block-count row); cost totals are directly "
+        "comparable — no per-day rescaling.[/dim]"
     )
     if abs(rel) < 2.0:
         console.print(
@@ -3774,19 +3774,17 @@ def _render_report(
         )
     elif delta > 0:
         console.print(
-            "[yellow]gtopt costs > PLEXOS by "
-            f"{rel:+.1f}%.  Likely demand_fail_cost or reserve-"
-            "shortage penalty firing because a commitment or "
-            "reserve constraint is overconstrained.[/yellow]"
+            "[yellow]gtopt objective > PLEXOS by "
+            f"{rel:+.1f}% (same horizon).  Drill into cost composition: FCF / "
+            "water-value terminal terms, demand_fail_cost, or reserve-shortage "
+            "penalty — not a horizon effect.[/yellow]"
         )
     else:
         console.print(
-            f"[yellow]gtopt costs < PLEXOS by {rel:+.1f}% (raw).  "
-            "After the horizon correction (PLEXOS/7 ≈ "
-            f"${plexos_obj / 7.0:,.0f}/day) the corrected delta is "
-            f"{100.0 * (gtopt['sum_obj'] - plexos_obj / 7.0) / (plexos_obj / 7.0):+.1f}%.  "
-            "Expected when gtopt is LP-relaxed vs PLEXOS MIP with "
-            "commitment / startup costs.[/yellow]"
+            f"[yellow]gtopt objective < PLEXOS by {rel:+.1f}% (same horizon).  "
+            "Likely cost terms gtopt omits that PLEXOS integrates (multi-band "
+            "offer curves, start/shutdown); cross-check the Step-3 dispatch $ "
+            "and the pid-119 GenCost side-channel.[/yellow]"
         )
 
 
