@@ -88,19 +88,28 @@ _BATTERY_EFIN_COST = 100.0
 # Soft-cap parameters for ex-PLEXOS-EL=0 lines (see ``build_line_array``).
 # Each soft-capped line gets a FREE band up to ``normal × rating`` and the
 # ``_LINE_OVERLOAD_PENALTY`` $/MWh only on flow between ``normal × rating``
-# and the hard cap ``hard × rating``.  Raising the free threshold to 2×
-# means the typical PLEXOS over-use (radial 110 kV at ~1.3–1.6×) flows
-# free — no penalty, no LMP inflation — while a hard cap at 5× still blocks
-# the DC-OPF teleport.  Lines named in ``--lift-line-caps`` (the radial
-# corridors PLEXOS itself runs hardest, e.g. Capricornio110->LaNegra110 at
-# 2.7×) get a wider free band (4×) and a 10× hard cap instead of being
-# uncapped — so they carry PLEXOS-like flow for free yet can't teleport.
-_LINE_SOFT_NORMAL_FACTOR = 2.0
-_LINE_SOFT_HARD_FACTOR = 5.0
-_LINE_LIFTED_NORMAL_FACTOR = 4.0
-_LINE_LIFTED_HARD_FACTOR = 10.0
-# The soft-cap overload penalty ($/MWh on flow between the rating and the
-# 3× hard cap) is COMPUTED per bundle, not hard-coded: it is
+# and the hard cap ``hard × rating``.  The free threshold is 3×, calibrated
+# to the observed PLEXOS-solution envelope on EL=0 ("Never enforce") lines:
+# on CEN PCP 2025-11-09 the 15 EL=0 corridors PLEXOS ran above their
+# ``Lin_MaxRating`` peaked at 1.05–2.89× rated (S-Km6100->Salar110 the
+# extreme at 2.89×), so a 3× free band lets every flow PLEXOS itself makes
+# pass with no penalty and no LMP inflation, while a hard cap at 6× still
+# blocks the DC-OPF teleport (gtopt's DC-OPF, unlike PLEXOS's AC physics,
+# would otherwise route tens of GW across a nominally uncapped line).  This
+# uniform 3× envelope reproduces PLEXOS for ALL EL=0 lines — including the
+# radial corridors (e.g. Capricornio110->LaNegra110 at 2.7×) that the
+# legacy hand-curated ``--lift-line-caps`` list singled out.  The lift's
+# only legitimate role is to RECLASSIFY an EL=1/EL=2 line as EL=0 (so it is
+# soft-capped instead of hard-capped); a lifted line then gets the SAME
+# calibrated 3×/6× band as any other EL=0 line — NOT a wider hand-tuned
+# band.  (The lifted factors are therefore equal to the soft factors; they
+# remain as named constants only to keep the promotion path explicit.)
+_LINE_SOFT_NORMAL_FACTOR = 3.0
+_LINE_SOFT_HARD_FACTOR = 6.0
+_LINE_LIFTED_NORMAL_FACTOR = 3.0
+_LINE_LIFTED_HARD_FACTOR = 6.0
+# The soft-cap overload penalty ($/MWh on flow between the 3× free band and
+# the 6× hard cap) is COMPUTED per bundle, not hard-coded: it is
 # ``_compute_default_slack_cost(demands, gens) / _LINE_OVERLOAD_DIVISOR``,
 # i.e. one quarter of the calibrated slack cost
 # ``(min demand.fcost + max gen.gcost) / 2`` (~$285 → ~$71/MWh).  The ÷4
@@ -1249,7 +1258,8 @@ def build_line_array(
             # of GW across them while keeping the radial pockets PLEXOS
             # over-serves feasible.  Orig EL=1/EL=2 stay plain hard caps.
             if line.soft_cap:
-                # Lifted corridors get the wider 4×/10× band; the rest 2×/5×.
+                # Lifted (EL1/2→0 promoted) and regular EL=0 lines both get
+                # the same calibrated 3×/6× band.
                 normal_f = (
                     _LINE_LIFTED_NORMAL_FACTOR
                     if line.soft_cap_lifted
@@ -1293,7 +1303,7 @@ def build_line_array(
                 if orig_env > 0.0:
                     # ``--loss-extend-overload`` (#44): when ON, extend
                     # the PWL envelope by the hard-cap headroom factor
-                    # (2× for regular soft_cap, 4× for soft_cap_lifted)
+                    # (3× for both regular soft_cap and soft_cap_lifted)
                     # so the K segments — already sized for the wider
                     # envelope by ``_apply_adaptive_loss_segments`` —
                     # actually have envelope room to cover the soft-cap

@@ -324,11 +324,20 @@ def test_lift_line_caps_plp_explicit() -> None:
     assert args.lift_line_caps == "L1:3.0,L2"
 
 
-def test_lift_line_caps_plexos_default_capricornio() -> None:
+def test_lift_line_caps_plexos_default_is_plexos_lifted_set() -> None:
+    from gtopt_shared.cli_flags import DEFAULT_LIFT_LINE_CAPS_PLEXOS
+
     parser = _parser()
     add_lift_line_caps_argument(parser, dialect="plexos")
     args = parser.parse_args([])
-    assert args.lift_line_caps == "Capricornio110->LaNegra110"
+    # Default ships the data-derived PLEXOS-lifted set (34 EL=0 lines that the
+    # solution runs above rating + the EL=1 Capricornio corridor).
+    assert args.lift_line_caps == DEFAULT_LIFT_LINE_CAPS_PLEXOS
+    names = args.lift_line_caps.split(",")
+    assert "Capricornio110->LaNegra110" in names
+    assert "S-Km6100->Salar110" in names  # a known-lifted EL=0 line
+    assert "PMontt220->Chiloe110" not in names  # the cable is NEVER lifted
+    assert len(names) == 35
 
 
 def test_lift_line_caps_plexos_empty_opt_in_soft_mode() -> None:
@@ -435,7 +444,9 @@ def test_add_common_arguments_plexos_dialects() -> None:
     args = parser.parse_args([])
     assert args.use_single_bus is False  # store_true default
     assert args.loss_cost_eps == 0.0
-    assert args.lift_line_caps == "Capricornio110->LaNegra110"
+    from gtopt_shared.cli_flags import DEFAULT_LIFT_LINE_CAPS_PLEXOS
+
+    assert args.lift_line_caps == DEFAULT_LIFT_LINE_CAPS_PLEXOS
 
 
 def test_add_common_arguments_skip() -> None:

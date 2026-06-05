@@ -79,6 +79,7 @@ class ConversionOptions:
     loss_sos2_lines: str | None = None
     loss_sos2_auto: str | None = None
     lift_line_caps: str | None = None
+    no_lift_lines: str | None = None
     el0_lines: str | None = None
     # ── PLEXOS-solution curve-fit modes ─────────────────────────────────
     use_plexos_commit: bool | None = None
@@ -158,6 +159,7 @@ _ENV_BRIDGE: tuple[tuple[str, str, Any], ...] = (
     ("use_plexos_gen_cap", "GTOPT_USE_PLEXOS_GEN_CAP", _str_bool_one_only),
     ("use_plexos_efin", "GTOPT_USE_PLEXOS_EFIN", _str_bool_one_only),
     ("lift_line_caps", "GTOPT_LIFT_LINE_CAPS", str),
+    ("no_lift_lines", "GTOPT_NO_LIFT_LINES", str),
     ("el0_lines", "GTOPT_EL0_LINES", str),
     ("reservoir_spillway", "GTOPT_RESERVOIR_SPILL", str),
     ("spill_fcost", "GTOPT_SPILL_FCOST", lambda v: f"{float(v)}"),

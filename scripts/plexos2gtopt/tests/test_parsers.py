@@ -1652,6 +1652,175 @@ def test_extract_lines_max_rating_sentinel_filter(tmp_path: Path) -> None:
     assert by_name["B"].max_rating == 1400.0
 
 
+_EL0_LINE_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_class><class_id>24</class_id><name>Line</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>10</object_id><class_id>22</class_id><name>bus_n</name></t_object>
+  <t_object><object_id>11</object_id><class_id>22</class_id><name>bus_s</name></t_object>
+  <t_object><object_id>20</object_id><class_id>24</class_id><name>CABLE</name></t_object>
+  <t_object><object_id>21</object_id><class_id>24</class_id><name>HARDLINE</name></t_object>
+  <t_collection>
+    <collection_id>306</collection_id><parent_class_id>24</parent_class_id>
+    <child_class_id>22</child_class_id><name>Node From</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>307</collection_id><parent_class_id>24</parent_class_id>
+    <child_class_id>22</child_class_id><name>Node To</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>400</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>24</child_class_id><name>Lines</name>
+  </t_collection>
+  <t_property>
+    <property_id>1881</property_id><collection_id>400</collection_id>
+    <name>Enforce Limits</name>
+  </t_property>
+  <t_membership>
+    <membership_id>900</membership_id><collection_id>306</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>901</membership_id><collection_id>307</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>11</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>902</membership_id><collection_id>306</collection_id>
+    <parent_object_id>21</parent_object_id><child_object_id>10</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>903</membership_id><collection_id>307</collection_id>
+    <parent_object_id>21</parent_object_id><child_object_id>11</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>950</membership_id><collection_id>400</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>20</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>951</membership_id><collection_id>400</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>21</child_object_id>
+  </t_membership>
+  <!-- CABLE: Enforce Limits = 0 ("Never enforce") → EL=0 soft-cap candidate. -->
+  <t_data>
+    <data_id>10001</data_id><membership_id>950</membership_id>
+    <property_id>1881</property_id><value>0</value>
+  </t_data>
+  <!-- HARDLINE: Enforce Limits = 2 ("Always") → already a plain hard cap. -->
+  <t_data>
+    <data_id>10002</data_id><membership_id>951</membership_id>
+    <property_id>1881</property_id><value>2</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_lines_no_lift_pins_hard_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--no-lift-lines`` pins an EL=0 line to a plain HARD cap.
+
+    The inverse of ``--lift-line-caps``: without the pin an EL=0
+    ("Never enforce") line is soft-capped (``enforce_limits=1``,
+    ``soft_cap=True`` → free over-rating band); listing it in
+    ``GTOPT_NO_LIFT_LINES`` flips it to a plain hard cap
+    (``enforce_limits=2``, ``soft_cap=False``) at the directional rating
+    (forward ``Lin_MaxRating``, reverse ``|Lin_MinRating|``).
+
+    The pin acts ONLY on EL=0 lines: a line already hard-capped in PLEXOS
+    (EL=1/EL=2) named in the list is a no-op and keeps its enforce level.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_EL0_LINE_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "CABLE,2026,1,1,1,1,90\n"
+        "HARDLINE,2026,1,1,1,1,200\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Lin_MinRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "CABLE,2026,1,1,1,1,-90\n"
+        "HARDLINE,2026,1,1,1,1,-200\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+
+    monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
+    monkeypatch.setenv("GTOPT_EL0_LINES", "extended")
+
+    # No pin → EL=0 extended soft cap.
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+    soft = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert soft.enforce_limits == 1
+    assert soft.soft_cap is True
+
+    # Pin BOTH the EL=0 cable and the EL=2 line.
+    monkeypatch.setenv("GTOPT_NO_LIFT_LINES", "CABLE,HARDLINE")
+    pinned = {ln.name: ln for ln in extract_lines(db, bundle)}
+
+    # EL=0 cable → flipped to a plain hard cap, no free band.
+    hard = pinned["CABLE"]
+    assert hard.enforce_limits == 2
+    assert hard.soft_cap is False
+    assert hard.soft_cap_lifted is False
+    assert hard.tmax_ab == 90.0
+    assert hard.tmin_ab == -90.0
+
+    # EL=2 line → pin is a no-op; stays EL=2, never soft-capped.
+    noop = pinned["HARDLINE"]
+    assert noop.enforce_limits == 2
+    assert noop.soft_cap is False
+
+
+def test_extract_lines_el0_default_strict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The DEFAULT EL=0 mode is ``strict`` — a plain hard cap.
+
+    With no ``GTOPT_EL0_LINES`` / list env set, an EL=0 line is hard-capped
+    (``enforce_limits=2``, ``soft_cap=False``) at its rating; only lines named
+    in ``--lift-line-caps`` get the soft over-rating band.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_EL0_LINE_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "CABLE,2026,1,1,1,1,90\n"
+        "HARDLINE,2026,1,1,1,1,200\n",
+    )
+    _write_csv(
+        tmp_path,
+        "Lin_MinRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "CABLE,2026,1,1,1,1,-90\n"
+        "HARDLINE,2026,1,1,1,1,-200\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+
+    # Clean slate: no mode, no lists → default strict.
+    monkeypatch.delenv("GTOPT_EL0_LINES", raising=False)
+    monkeypatch.delenv("GTOPT_LIFT_LINE_CAPS", raising=False)
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+    strict = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert strict.enforce_limits == 2  # EL=0 → hard cap by default
+    assert strict.soft_cap is False
+
+    # A line in the lift list IS lifted to a soft cap, overriding strict.
+    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE")
+    lifted = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert lifted.enforce_limits == 1
+    assert lifted.soft_cap is True
+    assert lifted.soft_cap_lifted is True
+
+
 # ---------------------------------------------------------------------------
 # T2: Battery extractor drops infeasible Min Charge / Min Discharge Level
 # ---------------------------------------------------------------------------

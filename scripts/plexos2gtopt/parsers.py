@@ -2540,28 +2540,76 @@ def extract_lines(
 
         _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
         _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
+        # ``--no-lift-lines`` (GTOPT_NO_LIFT_LINES): the INVERSE of the lift
+        # list — names PINNED to a plain HARD cap at their rating, overriding
+        # the EL=0 soft-cap free band.  For genuine physical limits PLEXOS
+        # never overloads despite EL=0 (the Chacao cable
+        # ``PMontt220->Chiloe110``: 90 MW, PLEXOS peak 62 MW into the bounded
+        # Chiloé island pocket).  The keep-vs-lift decision is internal to
+        # PLEXOS's LP/relaxation and is not derivable from the input rating
+        # attributes, so the pin list is hand-curated (default ships the
+        # cable; see ``DEFAULT_NO_LIFT_LINES_PLEXOS``).
+        _no_lift_raw = _os_lift.environ.get("GTOPT_NO_LIFT_LINES", "")
+        _no_lift_set = {n.strip() for n in _no_lift_raw.split(",") if n.strip()}
         # EL=0 ("Never enforce") handling mode (CLI ``--el0-lines``):
-        #   "extended" (default) — relax: soft cap with a free over-rating
-        #       band + penalty (the behaviour described above).
-        #   "strict" — treat EL=0 like EL=2: a plain hard cap at the nominal
-        #       rating (no free band, no headroom).
-        _el0_mode = _os_lift.environ.get("GTOPT_EL0_LINES", "extended").strip().lower()
+        #   "strict" (DEFAULT) — treat EL=0 like EL=2: a plain hard cap at the
+        #       nominal rating (no free band, no headroom).  Matches the PLEXOS
+        #       solution, where only ~34/188 EL=0 lines are ever run above
+        #       rating; those exceptions are LIFTED back to a soft cap via the
+        #       ``--lift-line-caps`` default list.
+        #   "extended" — relax: soft cap with a free over-rating band + penalty
+        #       for EVERY EL=0 line (the behaviour described above).
+        _el0_mode = _os_lift.environ.get("GTOPT_EL0_LINES", "strict").strip().lower()
+        enforce_limits_orig = enforce_limits
         soft_cap = False
         soft_cap_lifted = False
-        if line.name in _lift_set:
-            # Soft-cap (NOT uncap) with the wider 4×/10× band: lifting to
-            # EL=0 let the DC-OPF teleport (685 MW on the 76 MW
-            # Capricornio110->LaNegra110, 9× rated).  A 4× free band covers
-            # PLEXOS's own 2.7× over-use penalty-free, and the 10× hard cap
-            # blocks the teleport.  ``--lift-line-caps`` is an explicit user
-            # override, so it stays soft regardless of ``--el0-lines``.
+        if line.name in _no_lift_set and enforce_limits == 0:
+            # ``--no-lift-lines`` ONLY acts on genuine EL=0 lines — its whole
+            # purpose is to suppress the EL=0 soft-cap free band.  An EL=1/EL=2
+            # line is already a plain hard cap, so the pin is a no-op there and
+            # we deliberately do NOT demote it (that would silently rewrite its
+            # PLEXOS enforce level).  Pin to a plain HARD cap at the rating:
+            # forward ``tmax_ab = Lin_MaxRating``, reverse
+            # ``tmax_ba = |Lin_MinRating|`` (already set above), NO free band,
+            # NO overload penalty.  Wins over both ``--lift-line-caps`` and the
+            # EL=0 ``extended`` mode.
+            enforce_limits = 2
+            logger.info(
+                "extract_lines: '%s' (--no-lift-lines) → hard cap at rating "
+                "(tmax_ab=%.1f, tmax_ba=%.1f); EL=0 soft-cap free band "
+                "suppressed.",
+                line.name,
+                tmax,
+                abs(tmin) if tmin != 0.0 else tmax,
+            )
+        elif line.name in _no_lift_set:
+            # Named in --no-lift-lines but NOT EL=0 (already hard-capped):
+            # nothing to suppress — leave the PLEXOS enforce level untouched.
+            logger.debug(
+                "extract_lines: '%s' (--no-lift-lines) is EL=%d, not EL=0 — "
+                "already hard-capped, pin is a no-op.",
+                line.name,
+                enforce_limits,
+            )
+        elif line.name in _lift_set:
+            # LIFT to a soft cap (3× free / 6× hard band).  Under the
+            # ``--el0-lines strict`` default both EL=0 and EL=1 lines are
+            # plain hard caps; the lift list carves out the corridors the
+            # PLEXOS solution actually runs ABOVE rating (the data-derived 34
+            # EL=0 lines + the EL=1 ``Capricornio110->LaNegra110``).  A bare
+            # hard cap there would create unserved demand in the radial
+            # load pocket; the soft band lets the LP push past the rating at a
+            # penalty without teleporting GWs (the 6× hard cap blocks that).
+            # ``--lift-line-caps`` is an explicit override, so it stays soft
+            # regardless of ``--el0-lines`` / ``--no-lift-lines``.
             enforce_limits = 1
             soft_cap = True
             soft_cap_lifted = True
             logger.info(
                 "extract_lines: '%s' (--lift-line-caps) → soft cap, free to "
-                "4x rating then penalised up to 10x (was uncapped EL=0).",
+                "3x rating then penalised up to 6x (was EL=%d hard cap).",
                 line.name,
+                enforce_limits_orig,
             )
         elif enforce_limits == 0:
             if _el0_mode == "strict":

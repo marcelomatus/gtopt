@@ -18,6 +18,7 @@ from gtopt_shared.cli_flags import (
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
+    add_no_lift_lines_argument,
     add_use_single_bus_argument,
 )
 from gtopt_shared.state_snapshot import (
@@ -798,21 +799,25 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     add_lift_line_caps_argument(parser, dialect="plexos")
+    add_no_lift_lines_argument(parser, dialect="plexos")
     parser.add_argument(
         "--el0-lines",
         choices=("extended", "strict"),
-        default="extended",
+        default="strict",
         help=(
             "How to model PLEXOS EL=0 ('Never enforce') transmission lines:\n"
-            "  'extended' (default, a.k.a. relaxed): soft cap — flow is free "
-            "up to the rating, penalised between the rating and a headroom "
-            "multiple, hard-capped at that multiple.  Mirrors PLEXOS, which "
-            "leaves these lines uncapped yet runs the radial pockets above "
-            "rating; stops the DC-OPF from teleporting GWs across them.\n"
-            "  'strict': treat EL=0 like EL=2 — a plain hard cap at the "
-            "nominal rating (no free band, no headroom).  Use when you want "
-            "every line rating enforced.  (Lines named in --lift-line-caps "
-            "stay soft regardless.)"
+            "  'strict' (DEFAULT): treat EL=0 like EL=2 — a plain hard cap at "
+            "the nominal rating (no free band, no headroom).  This matches the "
+            "PLEXOS solution: a 14-case sweep (2025-10 → 2026-05) found only "
+            "~34 of 188 EL=0 lines are EVER run above their rating, so the "
+            "faithful default is to enforce the rating and LIFT only the known "
+            "exceptions via --lift-line-caps (whose default ships that set).\n"
+            "  'extended' (a.k.a. relaxed): soft cap — flow is free up to the "
+            "rating, penalised between the rating and a headroom multiple, "
+            "hard-capped at that multiple.  Lets EVERY EL=0 line run over "
+            "rating at a penalty; use for a new bundle whose lift set isn't "
+            "curated yet.  (Lines named in --lift-line-caps stay soft, and "
+            "lines in --no-lift-lines stay hard, regardless of this mode.)"
         ),
     )
     parser.add_argument(
@@ -1080,6 +1085,7 @@ def main(argv: list[str] | None = None) -> None:
         "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,
         "lift_line_caps": args.lift_line_caps,
+        "no_lift_lines": args.no_lift_lines,
         "el0_lines": args.el0_lines,
         "horizon_mode": args.horizon_mode,
         "horizon_days": args.horizon_days,

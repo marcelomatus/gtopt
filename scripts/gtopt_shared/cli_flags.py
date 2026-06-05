@@ -464,6 +464,56 @@ def add_loss_cost_eps_argument(
         )
 
 
+#: Default ``--lift-line-caps`` set for the plexos dialect.  Under the
+#: ``--el0-lines strict`` DEFAULT every EL=0 ("Never enforce") line is a plain
+#: hard cap; this list LIFTS back to a soft cap (3× free / 6× hard band) the
+#: EL=0 lines that the PLEXOS solution actually runs ABOVE their rating, plus
+#: the one EL=1 radial corridor (``Capricornio110->LaNegra110``) PLEXOS
+#: over-uses.  The EL=0 members are data-derived: a 14-case CEN PCP sweep
+#: (2025-10 → 2026-05) found exactly these 34 EL=0 lines lifted in ≥1 case
+#: (util > 1.02× rating); the other ~154 EL=0 lines are never lifted and stay
+#: hard (see ``DEFAULT_NO_LIFT_LINES_PLEXOS`` for the cable kept hard even
+#: under ``--el0-lines extended``).
+_DEFAULT_LIFT_LINES_PLEXOS: tuple[str, ...] = (
+    "AJahuel220->AJahuel154",
+    "AJahuel220->PAltoCmpc110",
+    "ASanta220->ASanta110",
+    "Almendros220->Almendros110",
+    "Ancoa220->Itahue154",
+    "Arica066->PAlmonte110",
+    "CNavia220->CNavia110",
+    "Capricorn220->Capricorn110",
+    "Capricornio110->LaNegra110",
+    "Charrua220->Conce154",
+    "Chuqui220->Chuqui100",
+    "Chuquicamata100->S-Km6100",
+    "Conce154->Conce066",
+    "Encuentro220->Colla220",
+    "Encuentro220->ElTesoro220",
+    "Esmeralda110->Portada110",
+    "Esmeralda220->Esmeralda110",
+    "Futuro033_CRCA2B>Andes220",
+    "Futuro033_CRCA4>Andes220",
+    "GasAta220->Esmeralda220",
+    "LaNegra110->AltoNorte110",
+    "Lagunas220->Collahuasi220",
+    "Mejillones110->Pampa110",
+    "Mejillones220->Mejillones110",
+    "PAlmonte220->PAlmonte110",
+    "PAzucar110->ElPenon110",
+    "Pampa110->Desalant110",
+    "PuntaSierra220->Mauro220",
+    "Quillota110->Mirafl110",
+    "Quillota220->Quillota110",
+    "S-Km6100->Salar110",
+    "Tamaya110->S-AA100_3B",
+    "Tamaya110->Salar110_4B",
+    "Temuco66->LasVioletas66",
+    "Trupan220->Charrua220",
+)
+DEFAULT_LIFT_LINE_CAPS_PLEXOS = ",".join(_DEFAULT_LIFT_LINES_PLEXOS)
+
+
 def add_lift_line_caps_argument(
     parser: argparse.ArgumentParser,
     *,
@@ -505,33 +555,28 @@ def add_lift_line_caps_argument(
             ),
         )
     elif dialect == "plexos":
-        eff_default = "Capricornio110->LaNegra110" if default is None else default
+        eff_default = DEFAULT_LIFT_LINE_CAPS_PLEXOS if default is None else default
         parser.add_argument(
             "--lift-line-caps",
             type=str,
             default=eff_default,
             help=(
-                "Comma-separated list of Line names to demote from PLEXOS "
-                "EL=1 (enforce hard cap) down to EL=0 (no cap, but keep "
-                "tmax_ab for loss-segment discretization).  Used for "
-                "PLEXOS lines where the dispatched flow exceeds the "
-                "published rating because the line is radial and the LP "
-                "has no alternative path — enforcing the cap in gtopt "
-                "would otherwise create unserved demand.\n"
+                "Comma-separated list of Line names to LIFT to a soft cap "
+                "(3x-free / 6x-hard band) instead of the plain hard cap that "
+                "is the default for both EL=0 ('Never enforce', under "
+                "``--el0-lines strict``) and the demoted EL=1 corridors.  "
+                "Used for PLEXOS lines whose dispatched flow exceeds the "
+                "published rating (radial / load-pocket feeders with no "
+                "alternative path) — hard-capping them in gtopt would create "
+                "unserved demand.\n"
                 "\n"
-                "Default lifts ``Capricornio110->LaNegra110`` only — the "
-                "single canonical case on the CEN PCP weekly bundle (76 "
-                "MW Max Flow, 204 MW in PLEXOS dispatch, 269%% of cap; "
-                "the line is a 110 kV radial stepdown to the Antofagasta "
-                "region with no parallel path).  Pass an empty string "
-                "(``--lift-line-caps=''``) to activate the experimental "
-                "SOFT-EL=1 mode instead — every EL=1 line gets a parallel "
-                "slack at ``tcost = (min(demand.fcost) + max(generator."
-                "gcost)) / 2`` ($/MWh).  Soft mode lets the LP push past "
-                "the PLEXOS rating at a penalty, but on CEN PCP weekly "
-                "increased BESS-charging +77%% and losses +18%% vs the "
-                "Capricornio-only baseline — kept as an opt-in for new "
-                "bundles where the lift list isn't curated yet."
+                "Default ships the 34 EL=0 lines that the PLEXOS solution "
+                "actually runs above rating across a 14-case CEN PCP sweep "
+                "(2025-10 -> 2026-05) plus the EL=1 radial corridor "
+                "``Capricornio110->LaNegra110`` (76 MW rated, ~204 MW in "
+                "PLEXOS dispatch).  Every other EL=0 line stays hard-capped "
+                "at its rating.  Pass an empty string (``--lift-line-caps=''``) "
+                "to lift NOTHING (every EL=0/EL=1 line strictly hard-capped)."
             ),
         )
     else:
@@ -539,6 +584,72 @@ def add_lift_line_caps_argument(
             f"add_lift_line_caps_argument: unknown dialect {dialect!r}; "
             "expected 'plp' or 'plexos'"
         )
+
+
+#: Default ``--no-lift-lines`` list for the plexos dialect.  Under the
+#: ``--el0-lines strict`` DEFAULT every EL=0 line is already hard-capped, so
+#: this list mainly matters when a user opts back into ``--el0-lines
+#: extended`` (soft EL=0 everywhere): it keeps the named lines HARD even then.
+#: The Chacao submarine cable ``PMontt220->Chiloe110`` is the canonical entry —
+#: EL=0 in PLEXOS yet its solution never exceeds the 90 MW rating (peak 62 MW;
+#: Chiloé is a bounded load island whose demand sits below the cable rating),
+#: so it must never be lifted.
+DEFAULT_NO_LIFT_LINES_PLEXOS = "PMontt220->Chiloe110"
+
+
+def add_no_lift_lines_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: str | None = None,
+    dialect: str = "plexos",
+) -> None:
+    """Register ``--no-lift-lines`` (per-line hard-cap pin list).
+
+    The INVERSE of ``--lift-line-caps``: instead of demoting a line to
+    EL=0 (soft cap with a free over-rating band), this PINS named EL=0
+    lines back to a plain HARD cap at their rating — forward
+    ``tmax_ab = Lin_MaxRating``, reverse ``tmax_ba = |Lin_MinRating|`` —
+    with NO free band and NO overload penalty.
+
+    Acts ONLY on genuine EL=0 lines (its sole purpose is to suppress the
+    EL=0 soft-cap free band).  A named line that PLEXOS already hard-caps
+    (EL=1/EL=2) is a no-op — its enforce level is left untouched.
+
+    Used for genuine physical limits that PLEXOS never overloads despite
+    flagging them EL=0 (e.g. the Chacao submarine cable
+    ``PMontt220->Chiloe110``): the EL=0 soft-cap free band would
+    otherwise let gtopt's DC-OPF over-import into the bounded pocket.
+
+    Only the ``"plexos"`` dialect is defined; ``default=None`` uses the
+    curated :data:`DEFAULT_NO_LIFT_LINES_PLEXOS`.  Pass an empty string
+    (``--no-lift-lines=''``) to disable the pin entirely.
+    """
+    if dialect != "plexos":
+        raise ValueError(
+            f"add_no_lift_lines_argument: unknown dialect {dialect!r}; "
+            "expected 'plexos'"
+        )
+    eff_default = DEFAULT_NO_LIFT_LINES_PLEXOS if default is None else default
+    parser.add_argument(
+        "--no-lift-lines",
+        dest="no_lift_lines",
+        type=str,
+        default=eff_default,
+        help=(
+            "Comma-separated list of EL=0 Line names to PIN to a plain "
+            "HARD cap at their rating (tmax_ab = Lin_MaxRating, tmax_ba = "
+            "|Lin_MinRating|), overriding the EL=0 soft-cap free band.  "
+            "Acts only on EL=0 lines (no-op on EL=1/EL=2, already hard-"
+            "capped).  The inverse of --lift-line-caps.  Use for genuine "
+            "physical "
+            "limits PLEXOS never overloads despite EL=0 (the keep-vs-lift "
+            "call is internal to PLEXOS's LP/relaxation, not derivable "
+            "from the input).  Default pins the Chacao cable "
+            f"``{DEFAULT_NO_LIFT_LINES_PLEXOS}`` (90 MW, EL=0, PLEXOS peak "
+            "62 MW into the Chiloé island pocket).  Pass an empty string "
+            "(``--no-lift-lines=''``) to disable."
+        ),
+    )
 
 
 def add_aperture_chunk_size_argument(
