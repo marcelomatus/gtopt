@@ -526,10 +526,11 @@ def make_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--loss-extend-overload",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "EXPERIMENTAL — DEFAULT OFF.  Extend each soft-cap line's PWL "
+            "DEFAULT ON (since the Coffrin loss mode became default).  "
+            "Extend each soft-cap / lifted line's PWL "
             "``loss_envelope`` from ``[0, tmax_normal]`` to "
             "``[0, headroom_factor × tmax_normal]`` (= the full lifted "
             "tmax_ab) so the segments cover the overload band the LP can "
@@ -542,7 +543,19 @@ def make_parser() -> argparse.ArgumentParser:
             "  * EL=0 soft-cap (regular):       envelope → 2 × tmax_normal.\n"
             "  * --lift-line-caps (wider band): envelope → 4 × tmax_normal.\n"
             "\n"
-            "WHY THE DEFAULT IS OFF — the trade-off in three flow regimes:\n"
+            "WHY ON IS NOW THE DEFAULT — the trade-off below is a "
+            "PIECEWISE/secant concern only.  The current default loss mode "
+            "``tangent_signed_flow`` (Coffrin) uses LOWER tangents, exact at "
+            "their touch points and never over-stating loss, and "
+            "``loss_cost_eps`` removes the loss-arbitrage that made the secant "
+            "bias bite — so a wider envelope costs no accuracy under the "
+            "default mode.  Meanwhile OFF makes the loss-PWL domain double as a "
+            "flow ceiling at the ORIGINAL rating, stranding demand behind "
+            "lifted corridors (e.g. ``load_AltoNorte110`` on the CEN far-north "
+            "500 kV haul shed 8 GWh purely because its feeder envelope stayed "
+            "122 while tmax was lifted to 610).  The legacy secant trade-off in "
+            "three flow regimes (relevant only with ``--line-losses-mode "
+            "piecewise``):\n"
             "\n"
             "  Regime A (f ∈ [0, tmax_normal]):  the same K segments are\n"
             "    now spread over 2× the range, so per-segment width is\n"
@@ -580,11 +593,12 @@ def make_parser() -> argparse.ArgumentParser:
             "[0, tmax_normal] for **zero offsetting benefit** anywhere the\n"
             "LP actually operates.\n"
             "\n"
-            "HEURISTIC: leave OFF for routine production runs.  Flip ON\n"
-            "only when you expect non-trivial flow past ~(1 + 1/K)·tmax_normal\n"
-            "— N-1 contingency MIPs, peak-stress dispatches, lifted-cap\n"
-            "scenarios with tight reserves, or when a post-solve audit shows\n"
-            "non-trivial overload-band traffic on multiple lines."
+            "HEURISTIC: keep ON (default) with the Coffrin loss mode — it\n"
+            "preserves feasibility on lifted corridors at no accuracy cost.\n"
+            "Pass ``--no-loss-extend-overload`` only when running the legacy\n"
+            "``--line-losses-mode piecewise`` on a healthy slack-capacity\n"
+            "system, where the secant trade-off above favours the\n"
+            "original-rating envelope."
         ),
     )
     parser.add_argument(
