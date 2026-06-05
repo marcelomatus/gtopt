@@ -126,6 +126,52 @@ def load_state_snapshot(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _coerce_via_action_type(
+    parser: argparse.ArgumentParser, ns: argparse.Namespace
+) -> None:
+    """Walk parser._actions and apply each action's ``type`` callable
+    to the corresponding ``ns`` attribute when:
+      * the attribute exists,
+      * it's a ``str`` (JSON-serialised),
+      * the action has a typed ``type`` (Path / int / float / etc.) that's
+        different from ``str``.
+
+    Lists carry the action's type as the element type, so we map each
+    element through it.  Tuple-of-Path / nested-list shapes don't appear
+    in either converter's argparse surface today; if they're added later
+    the simplest fix is to extend this helper.
+    """
+    for action in parser._actions:
+        dest = action.dest
+        if dest == "help":
+            continue
+        if not hasattr(ns, dest):
+            continue
+        val = getattr(ns, dest)
+        if val is None:
+            continue
+        t = action.type
+        if t is None or t is str or not callable(t):
+            continue
+        try:
+            if isinstance(val, str):
+                setattr(ns, dest, t(val))
+            elif isinstance(val, list):
+                setattr(
+                    ns,
+                    dest,
+                    [t(x) if isinstance(x, str) else x for x in val],
+                )
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "apply_state_to_args: could not coerce %s=%r via %s: %s",
+                dest,
+                val,
+                t,
+                exc,
+            )
+
+
 def apply_state_to_args(
     parser: argparse.ArgumentParser,
     state_args: dict[str, Any],
@@ -139,33 +185,55 @@ def apply_state_to_args(
       2. Values from ``state_args``.
       3. Argparse defaults (already baked into ``parser``).
 
+    After merging, JSON-serialised values are coerced back to the
+    types declared by argparse (``Path`` for ``type=Path``, ``float``
+    for ``type=float``, …).  Without this step, downstream callers
+    that compare ``isinstance(args.foo, Path)`` would see a ``str``
+    instead.
+
     The current CLI overrides MAY include the ``--from-state`` flag
-    itself; we filter it out of the parser run so reload is idempotent.
+    itself; we filter it out of the parser run by stripping it from
+    ``cli_argv`` so the reload is idempotent.
     """
-    # Parse the current CLI line WITHOUT any state — gives us the
-    # operator's per-invocation overrides.  Defaults set here are
-    # discarded below (we only keep keys the operator EXPLICITLY set).
-    explicit = {}
-    if cli_argv:
-        # Walk parser actions to identify which dest fields the
-        # operator passed (anything appearing in cli_argv with a
-        # matching ``option_strings`` entry).
-        opt_strings_to_dest = {
-            o: a.dest for a in parser._actions for o in a.option_strings
-        }
-        for i, tok in enumerate(cli_argv):
-            # Handle both ``--flag=value`` and ``--flag value`` forms.
-            flag = tok.split("=", 1)[0]
-            if flag in opt_strings_to_dest:
-                explicit[opt_strings_to_dest[flag]] = True
-    # Now parse the FULL command line — this gives us all defaults
-    # filled + the operator's overrides applied.
-    cli_ns = parser.parse_args(cli_argv)
-    # Build the merged Namespace: start from state, overlay explicit CLI.
+    # Strip ``--from-state PATH`` (and its ``=PATH`` form) from the
+    # current CLI line so it doesn't shadow itself on the inner
+    # ``parser.parse_args`` call.
+    filtered_argv: list[str] = []
+    skip_next = False
+    for i, tok in enumerate(cli_argv):
+        if skip_next:
+            skip_next = False
+            continue
+        if tok == "--from-state":
+            skip_next = True
+            continue
+        if tok.startswith("--from-state="):
+            continue
+        filtered_argv.append(tok)
+
+    # Identify which dest fields the operator EXPLICITLY passed (vs
+    # filled by argparse defaults).  We only carry over those, so
+    # the state's values stay authoritative for anything not on the
+    # current CLI line.
+    explicit: dict[str, bool] = {}
+    opt_strings_to_dest = {o: a.dest for a in parser._actions for o in a.option_strings}
+    for tok in filtered_argv:
+        flag = tok.split("=", 1)[0]
+        if flag in opt_strings_to_dest:
+            explicit[opt_strings_to_dest[flag]] = True
+
+    # Parse the FULL filtered command line — gives all defaults
+    # filled + any per-invocation override applied + correct types.
+    cli_ns = parser.parse_args(filtered_argv)
+
+    # Build merged namespace: state first, overlay explicit CLI.
     merged = argparse.Namespace(**state_args)
-    for dest in explicit:
+    for dest, _ in explicit.items():
         if hasattr(cli_ns, dest):
             setattr(merged, dest, getattr(cli_ns, dest))
+
+    # Restore typed fields from JSON-deserialised primitives.
+    _coerce_via_action_type(parser, merged)
     return merged
 
 

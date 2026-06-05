@@ -212,6 +212,23 @@ def make_parser() -> argparse.ArgumentParser:
     add_tech_arguments(parser, conf)
     add_general_arguments(parser, conf)
 
+    parser.add_argument(
+        "--from-state",
+        dest="from_state",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "load every parsed argument from a prior run's "
+            "``plp2gtopt_state.json`` snapshot (written automatically to "
+            "every output directory).  Reproduces the original invocation "
+            "byte-for-byte unless overriden by an explicit flag on the "
+            "current command line (e.g. ``--from-state foo/plp2gtopt_state.json "
+            "-o new_output_dir`` reuses every option except output dir).  "
+            "See <output_dir>/README.md for the snapshot format."
+        ),
+    )
+
     return parser
 
 
@@ -618,6 +635,29 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = make_parser()
     args = parser.parse_args(argv)
+
+    # ``--from-state PATH`` reload: rebuild args from a prior snapshot
+    # so the current invocation reproduces the original byte-for-byte
+    # (modulo any explicit overrides on the current CLI line).  The
+    # snapshot file is written at the END of every plp2gtopt run to
+    # ``<output_dir>/plp2gtopt_state.json`` — see the per-output
+    # ``README.md`` for the format.
+    if getattr(args, "from_state", None) is not None:
+        from gtopt_shared.state_snapshot import (  # noqa: PLC0415
+            apply_state_to_args,
+            load_state_snapshot,
+        )
+
+        try:
+            payload = load_state_snapshot(Path(args.from_state))
+        except (FileNotFoundError, ValueError) as exc:
+            parser.error(f"--from-state: {exc}")
+        else:
+            args = apply_state_to_args(
+                parser,
+                payload["args"],
+                list(argv) if argv is not None else sys.argv[1:],
+            )
 
     if args.init_config:
         _init_config()
