@@ -533,6 +533,72 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
       }
     }
 
+    // Save pre-solve state snapshot:
+    // ``<output_directory>/planning_state.json``.
+    //
+    // Captures the FULLY-MERGED Planning (all input ``-s`` files
+    // unified + every CLI override applied via ``--set``, ``--no-mip``,
+    // ``--solver``, ``--no-scale``, ``--method``, etc.) as a single
+    // self-contained JSON the solver is about to consume.
+    //
+    // Reproducibility contract: re-running ``gtopt -s
+    // <output_directory>/planning_state.json`` with no other CLI flags
+    // produces a byte-identical LP and (modulo solver non-determinism)
+    // a byte-identical solution.  The snapshot is the canonical
+    // "this is what was solved" record — drop it into a bug report,
+    // an audit trail, or a regression-test fixture.
+    //
+    // Always-on; distinct from the user-facing ``--json-file PATH``
+    // (which writes the same JSON to an explicit path the operator
+    // chooses).  Distinct from the POST-solve ``planning.json`` sidecar
+    // written by ``gtopt_lp_runner`` after solving: that one carries
+    // the final state as gtopt left it (which may differ from the
+    // pre-solve inputs if any auto-defaults were resolved during
+    // build).  For replay use the pre-solve snapshot here.
+    //
+    // Silent on missing output directory: when ``output_directory`` is
+    // unset and no default applies (e.g. ``--lp-only`` smoke tests),
+    // skip the snapshot — the LP build is the only meaningful artefact.
+    {
+      // Resolution order — matches what ``PlanningOptionsLP`` does later
+      // when actually writing per-class output, so the snapshot lands
+      // next to the LP outputs regardless of how the operator
+      // configured the directory:
+      //   1. ``my_planning.options.output_directory`` (JSON-side)
+      //   2. ``opts.output_directory`` (CLI ``--output-directory``)
+      //   3. ``"output"`` (built-in default, same as
+      //      ``PlanningOptionsLP::output_directory``)
+      const std::string out_dir = my_planning.options.output_directory.value_or(
+          opts.output_directory.value_or(std::string {"output"}));
+      const auto snapshot_path =
+          (std::filesystem::path(out_dir) / "planning_state.json").string();
+      // Best-effort: ensure the directory exists (the post-solve
+      // write_out will recreate it anyway, but we land HERE first).
+      std::error_code ec;
+      std::filesystem::create_directories(out_dir, ec);
+      // Snapshot is SELF-CONTAINED: the PAMPL files were already
+      // parsed and merged into ``user_constraint_array`` (+
+      // ``user_param_array``) before we got here.  Strip the
+      // ``user_constraint_file`` / ``user_constraint_files``
+      // references so a reload doesn't re-parse them on top of the
+      // already-merged constraints (which would trigger gtopt's
+      // unique-name guard, e.g. ``non-unique name Campiche_starting
+      // or uid 2018``).  Make a copy so the in-memory planning we
+      // pass on to ``build_solve_and_output`` keeps the original
+      // file refs intact.
+      Planning snapshot_planning = my_planning;
+      snapshot_planning.system.user_constraint_file.reset();
+      snapshot_planning.system.user_constraint_files.clear();
+      auto snap = write_json_output(snapshot_planning, snapshot_path);
+      if (snap) {
+        spdlog::info("  pre-solve state snapshot: {}", snapshot_path);
+      } else {
+        spdlog::warn("  failed to save pre-solve state snapshot {}: {}",
+                     snapshot_path,
+                     snap.error());
+      }
+    }
+
     // Build, solve, and write output
     return build_solve_and_output(std::move(my_planning), opts);
 
