@@ -542,6 +542,286 @@ def discover_gtopt_lp(gtopt_dir: Path) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# B12: parameter-bounds consistency (gtopt JSON vs PLEXOS input CSV)
+# ---------------------------------------------------------------------------
+# This bucket is INDEPENDENT of the UC-name audit above: it compares the
+# converted gtopt element bounds against the RAW PLEXOS input time-series
+# (NOT the sol cache).  It catches converter extraction bugs where gtopt's
+# base rating disagrees with the per-element CSV.
+#
+# NOTE on EL=0 soft-cap lines: the converter INTENTIONALLY inflates the cap
+# on ``Enforce Limits = 0`` lines (free flow up to 3× the rating, penalised
+# up to a 6× hard cap) to reproduce the over-rating PLEXOS itself runs on
+# such lines (it never enforces their limit).  That inflation is by design,
+# so this raw bounds diff will report it as a large delta — it is NOT a
+# converter bug.  The cable case (an EL=0 line whose PLEXOS solution never
+# exceeds the rating, so the free band is unwarranted) is classified
+# separately downstream; this bucket only proves the BASE rating was read.
+#
+# Comparison rules (DIRECTIONAL — PLEXOS Max Rating is the forward/export
+# limit, Min Rating the reverse/import limit stored negative):
+#   * generators: gtopt ``pmax`` vs max(Gen_Rating profile);
+#                 gtopt ``pmin`` vs max(Gen_MinStableLevel profile).
+#   * lines fwd:  gtopt ``tmax_ab`` / ``tmax_normal_ab`` vs
+#                 max(Lin_MaxRating profile).
+#   * lines rev:  gtopt ``tmax_ba`` / ``tmax_normal_ba`` vs
+#                 |min(Lin_MinRating profile)| (falls back to the forward
+#                 rating when no Min Rating ships = symmetric line).
+# A mismatch fires when |gtopt - plexos| exceeds BOTH a relative (1%) AND an
+# absolute (0.5 MW) tolerance — float / rounding noise is tolerated.
+
+# B12 bounds tolerances: a value is "the same" only when it is within BOTH
+# the relative AND the absolute band (so a tiny 0.5 MW line is not flagged on
+# 1% rounding, and a large line is not flagged on a 0.4 MW float wobble).
+_BOUNDS_REL_TOL = 0.01
+_BOUNDS_ABS_TOL = 0.5
+
+_BOUNDS_INPUT_FILES = {
+    "gen_rating": "Gen_Rating.csv",
+    "gen_min_stable": "Gen_MinStableLevel.csv",
+    # Dispatch-state CSVs the converter layers on top of Gen_Rating to
+    # derive the EFFECTIVE pmin/pmax (see parsers.py ~1755-1790 and the
+    # gtopt_writer build_generator_array rule).  B12 must mirror these or
+    # it false-flags every units-out / fixed-load generator.  (Gen_Commit
+    # is intentionally NOT loaded: its codes never zero pmax — see
+    # _expected_gen_bounds.)
+    "gen_fixed_load": "Gen_FixedLoad.csv",
+    "gen_units_out": "Gen_UnitsOut.csv",
+    "lin_max_rating": "Lin_MaxRating.csv",
+    "lin_min_rating": "Lin_MinRating.csv",
+}
+
+
+def _bounds_differ(gtopt: float, plexos: float) -> bool:
+    """True when ``gtopt`` and ``plexos`` differ beyond the bounds tolerance."""
+    d = abs(gtopt - plexos)
+    return d > _BOUNDS_ABS_TOL and d > _BOUNDS_REL_TOL * max(
+        abs(gtopt), abs(plexos), 1.0
+    )
+
+
+def _load_plexos_input_series(
+    input_dir: Path,
+) -> dict[str, dict[str, list[float]]]:
+    """Load the PLEXOS input bound CSVs from ``input_dir``.
+
+    Returns ``{key: {name: [v_per_period, ...]}}`` for each of the four
+    bound files (``gen_rating``, ``gen_min_stable``, ``lin_max_rating``,
+    ``lin_min_rating``).  A missing file maps to an empty dict so the
+    comparator degrades gracefully (that side is simply not compared).
+    """
+    from .plexos_csv import read_long
+
+    out: dict[str, dict[str, list[float]]] = {}
+    for key, fname in _BOUNDS_INPUT_FILES.items():
+        path = input_dir / fname
+        if path.is_file():
+            out[key] = read_long(path, n_days=1, fill_forward=True)
+        else:
+            logger.warning("B12: PLEXOS input file not found: %s", path)
+            out[key] = {}
+    return out
+
+
+def _parse_gtopt_bounds(planning_json: Path) -> tuple[list[dict], list[dict]]:
+    """Extract ``(generators, lines)`` bound records from the planning JSON.
+
+    Each generator record is ``{name, pmin, pmax}`` (``None`` when unset);
+    each line record is ``{name, tmax_ab, tmax_ba, tmax_normal_ab,
+    tmax_normal_ba, tmin_ab, tmin_ba}``.
+    """
+    if not planning_json.is_file():
+        return [], []
+    data = json.loads(planning_json.read_text())
+    system = data.get("system", {})
+    gens: list[dict] = []
+    for g in system.get("generator_array", []):
+        name = g.get("name")
+        if name is None:
+            continue
+        gens.append({"name": str(name), "pmin": g.get("pmin"), "pmax": g.get("pmax")})
+    lines: list[dict] = []
+    for ln in system.get("line_array", []):
+        name = ln.get("name")
+        if name is None:
+            continue
+        lines.append(
+            {
+                "name": str(name),
+                "tmax_ab": ln.get("tmax_ab"),
+                "tmax_ba": ln.get("tmax_ba"),
+                "tmax_normal_ab": ln.get("tmax_normal_ab"),
+                "tmax_normal_ba": ln.get("tmax_normal_ba"),
+                "tmin_ab": ln.get("tmin_ab"),
+                "tmin_ba": ln.get("tmin_ba"),
+            }
+        )
+    return gens, lines
+
+
+def _bounds_item(name: str, field_name: str, gval: Any, pval: float) -> dict | None:
+    """Emit a B12 mismatch dict when ``gval`` (gtopt) differs from ``pval``.
+
+    ``gval`` may be ``None`` (field unset in the JSON) — in that case there
+    is nothing to compare and ``None`` is returned.
+    """
+    if gval is None:
+        return None
+    try:
+        g = float(gval)
+    except (TypeError, ValueError):
+        return None
+    if not _bounds_differ(g, pval):
+        return None
+    return {
+        "name": name,
+        "field": field_name,
+        "gtopt": round(g, 4),
+        "plexos": round(pval, 4),
+        "delta": round(g - pval, 4),
+    }
+
+
+def _expected_gen_bounds(
+    name: str,
+    series: dict[str, dict[str, list[float]]],
+) -> tuple[float | None, float | None, str | None]:
+    """Compute the converter's EXPECTED ``(pmin, pmax)`` for a generator.
+
+    Mirrors the converter's effective-bound rule (parsers.py ~1755-1790,
+    gtopt_writer.build_generator_array) so B12 compares gtopt against what
+    the converter is SUPPOSED to emit, not the raw nameplate:
+
+      * Fully OUT  → expected ``pmin = pmax = 0``.  A unit is "out" when
+        ``max(Gen_UnitsOut) >= 1`` — for the single-unit CEN daily case
+        (almost all gens) 1 unit out means the converter zeroes pmax for
+        the whole horizon.  NOTE: ``Gen_Commit`` is deliberately NOT a
+        forced-off signal: per PLEXOS semantics (parsers.py ~1783) the
+        Commit code ``-1`` means "Endogenous / no commitment" (55% of CEN
+        gens — the LP dispatches them freely), NOT forced-off; ``0`` =
+        "don't commit" leaves pmax untouched; ``+1`` = must-run.  None of
+        them zero pmax, so Commit is irrelevant to the effective bound.
+      * Fixed Load set → expected ``pmin = pmax = max(|Gen_FixedLoad|)``.
+        PLEXOS Fixed Load is a hard required-generation equality that
+        OVERRIDES MinStableLevel for non-renewable units.
+      * Otherwise   → expected ``pmax = max(Gen_Rating)``,
+        ``pmin = max(Gen_MinStableLevel)`` (the legacy comparison).
+
+    Returns ``(expected_pmin, expected_pmax, explanation)`` where each
+    bound is ``None`` when the driving CSV is missing (so the caller skips
+    that field rather than comparing against a phantom value) and
+    ``explanation`` is a short tag (``"units_out"`` / ``"fixed_load"`` /
+    ``None``) used only for the explained-diff summary log.
+    """
+    rating = series.get("gen_rating", {}).get(name)
+    msl = series.get("gen_min_stable", {}).get(name)
+    fixed = series.get("gen_fixed_load", {}).get(name)
+    units_out = series.get("gen_units_out", {}).get(name)
+
+    # --- Fully out: all units out for the horizon ⇒ pmax derated to 0. ---
+    if units_out is not None and max(units_out) >= 1.0:
+        return 0.0, 0.0, "units_out"
+
+    # --- Fixed Load overrides MinStableLevel (hard pmin=pmax equality). ---
+    if fixed is not None and max(abs(v) for v in fixed) > 0.0:
+        fl = max(abs(v) for v in fixed)
+        return fl, fl, "fixed_load"
+
+    # --- Default: nameplate rating / min stable level. ---
+    exp_pmax = max(rating) if rating else None
+    exp_pmin = max(msl) if msl else None
+    return exp_pmin, exp_pmax, None
+
+
+def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
+    """Compare gtopt element bounds vs the PLEXOS input CSVs (B12 bucket).
+
+    Returns the list of mismatch items, one per (element, field) that
+    diverges beyond tolerance.  Generators compare ``pmin``/``pmax``
+    against the converter's EFFECTIVE expected bounds (see
+    :func:`_expected_gen_bounds`) — accounting for forced-off
+    (Gen_UnitsOut / Gen_Commit) and Fixed Load overrides — NOT the raw
+    nameplate, so a correctly-zeroed forced-off unit or a fixed-load unit
+    is not false-flagged.  When the rule-driving CSVs are absent the
+    expected bound falls back to the legacy ``max(Gen_Rating)`` /
+    ``max(Gen_MinStableLevel)`` comparison.  Lines compare every
+    ``tmax_*`` field against the max of ``Lin_MaxRating`` and the reverse
+    legs against ``|min(Lin_MinRating)|``.  An element with no matching
+    CSV row is skipped (nothing to compare against).
+    """
+    series = _load_plexos_input_series(input_dir)
+    lin_max = series.get("lin_max_rating", {})
+    lin_min = series.get("lin_min_rating", {})
+
+    raw_rating = series.get("gen_rating", {})
+    gens, lines = _parse_gtopt_bounds(planning_json)
+    items: list[dict] = []
+    explained = 0  # gen diffs ABSORBED by units-out / fixed-load rules.
+
+    for g in gens:
+        name = g["name"]
+        exp_pmin, exp_pmax, why = _expected_gen_bounds(name, series)
+        if exp_pmax is not None:
+            it = _bounds_item(name, "pmax", g["pmax"], exp_pmax)
+            if it is not None:
+                items.append(it)
+        if exp_pmin is not None:
+            it = _bounds_item(name, "pmin", g["pmin"], exp_pmin)
+            if it is not None:
+                items.append(it)
+        # Count an "explained" diff only when the effective rule fired AND
+        # gtopt's pmax would otherwise have been flagged against the raw
+        # nameplate (max(Gen_Rating)) — i.e. the rule genuinely absorbed a
+        # would-be false positive.
+        if why is not None:
+            rating = raw_rating.get(name)
+            try:
+                gpmax = float(g["pmax"])
+            except (TypeError, ValueError):
+                gpmax = None
+            if rating and gpmax is not None and _bounds_differ(gpmax, max(rating)):
+                explained += 1
+
+    if explained:
+        logger.info(
+            "B12: %d generator(s) explained by the converter's units-out / "
+            "fixed-load effective-bound rule (would false-flag vs raw "
+            "nameplate; not counted as mismatches)",
+            explained,
+        )
+
+    for ln in lines:
+        name = ln["name"]
+        maxr = lin_max.get(name)
+        minr = lin_min.get(name)
+        # PLEXOS ships DIRECTIONAL ratings: ``Lin_MaxRating`` is the forward
+        # (export) limit, ``Lin_MinRating`` the reverse (import) limit, stored
+        # as a negative number.  The converter models these as two caps —
+        # ``tmax_ab = max(Lin_MaxRating)`` and ``tmax_ba = |min(Lin_MinRating)|``
+        # — so the reverse leg MUST be compared against the Min Rating
+        # magnitude.  Comparing ``tmax_ba`` against ``Lin_MaxRating`` would
+        # false-flag every line with an asymmetric rating (e.g.
+        # Crucero220->Laberinto220: MaxRating 282 / MinRating -276 → tmax_ba
+        # 276 is correct, not a 6 MW "mismatch").  When no Min Rating ships,
+        # PLEXOS treats the line as symmetric and the reverse leg mirrors the
+        # forward rating.
+        fwd = max(maxr) if maxr else None
+        rev = abs(min(minr)) if minr else fwd
+        if fwd is not None:
+            for fld in ("tmax_ab", "tmax_normal_ab"):
+                it = _bounds_item(name, fld, ln[fld], fwd)
+                if it is not None:
+                    items.append(it)
+        if rev is not None:
+            for fld in ("tmax_ba", "tmax_normal_ba"):
+                it = _bounds_item(name, fld, ln[fld], rev)
+                if it is not None:
+                    items.append(it)
+
+    return items
+
+
+# ---------------------------------------------------------------------------
 # PLEXOS sol .accdb cache loaders
 # ---------------------------------------------------------------------------
 def _read_csv(path: Path) -> list[dict]:
@@ -684,6 +964,10 @@ class AuditInputs:
     # Optional gtopt ``.lp`` enabling the B11 native-constraint RHS check.
     # When None the native check is skipped gracefully (B11 stays empty).
     gtopt_lp: Path | None = None
+    # Optional RAW PLEXOS input dir (the one containing ``Lin_MaxRating.csv``,
+    # ``Gen_Rating.csv``, ...) enabling the B12 parameter-bounds check.  When
+    # None the bounds check is skipped gracefully (B12 stays empty).
+    plexos_input_dir: Path | None = None
 
 
 @dataclass
@@ -1264,6 +1548,15 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         for item in b11_items:
             buckets["B11_native_rhs_mismatch"].append(item)
 
+    # B12: parameter-bounds consistency (gtopt JSON vs PLEXOS input CSV).
+    # Independent of the UC audit: compares converted generator pmin/pmax and
+    # line tmax/tmin against the raw PLEXOS input time-series, catching
+    # converter extraction bugs (e.g. the Chacao cable over-rated 2x because
+    # the converter ignored Lin_MaxRating.csv = 90 and used the XML fallback).
+    if inputs.plexos_input_dir is not None and inputs.plexos_input_dir.is_dir():
+        for item in build_b12_bounds(inputs.gtopt_json, inputs.plexos_input_dir):
+            buckets["B12_bounds_mismatch"].append(item)
+
     summary = {
         "n_plexos": len(plexos_names),
         "n_gtopt_pampl": len(gtopt_pampl),
@@ -1361,6 +1654,13 @@ def make_parser() -> argparse.ArgumentParser:
         "gracefully when no .lp is available)",
     )
     parser.add_argument(
+        "--plexos-input-dir",
+        type=Path,
+        default=None,
+        help="raw PLEXOS input dir (containing Lin_MaxRating.csv, Gen_Rating.csv, "
+        "...) enabling the B12 parameter-bounds check; skipped when omitted",
+    )
+    parser.add_argument(
         "--hard-list",
         type=Path,
         default=Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt",
@@ -1405,12 +1705,20 @@ def main(argv: list[str] | None = None) -> int:
     if gtopt_lp is not None and not gtopt_lp.is_file():
         logger.warning("--gtopt-lp not found (%s); skipping B11 native check", gtopt_lp)
         gtopt_lp = None
+    plexos_input_dir = args.plexos_input_dir
+    if plexos_input_dir is not None and not plexos_input_dir.is_dir():
+        logger.warning(
+            "--plexos-input-dir not a directory (%s); skipping B12 bounds check",
+            plexos_input_dir,
+        )
+        plexos_input_dir = None
     inputs = AuditInputs(
         plexos_cache_dir=args.plexos_cache,
         gtopt_pampl_dir=args.gtopt_dir,
         gtopt_json=gtopt_json,
         hard_list=args.hard_list if args.hard_list.is_file() else None,
         gtopt_lp=gtopt_lp,
+        plexos_input_dir=plexos_input_dir,
     )
     result = run_audit(inputs)
     _print_summary(result)
