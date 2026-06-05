@@ -152,6 +152,9 @@ def _convert_juan(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -
         "laja_water_rights.json",
         "maule_water_rights.json",
         "ror_promoted.json",
+        # State snapshot — written at run end by main.py, not part
+        # of the converter's planning artefact set.
+        "plp2gtopt_state.json",
     }
     json_files = [p for p in json_files if p.name not in _aux]
     assert len(json_files) == 1, f"Expected 1 main JSON file, got {json_files}"

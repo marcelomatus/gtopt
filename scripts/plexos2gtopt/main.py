@@ -20,11 +20,16 @@ from gtopt_shared.cli_flags import (
     add_loss_cost_eps_argument,
     add_use_single_bus_argument,
 )
+from gtopt_shared.state_snapshot import (
+    write_plexos2gtopt_readme,
+    write_state_snapshot,
+)
 
 from .auto_lift_lines import DEFAULT_THRESHOLD
 from .info_display import display_plexos_info
 from .parsers import UnresolvedConstraintReferenceError
 from .plexos2gtopt import (
+    _resolve_output_paths,
     compare_plexos_bundle,
     convert_plexos_bundle,
     validate_plexos_bundle,
@@ -1035,6 +1040,32 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.validate:
         sys.exit(0 if validate_plexos_bundle(options) else 1)
+
+    # Pre-conversion state snapshot + README.  Resolves the output
+    # directory the same way ``convert_plexos_bundle`` will (via the
+    # shared ``_resolve_output_paths`` helper), creates it if needed,
+    # then drops a ``plexos2gtopt_state.json`` + ``README.md`` so the
+    # operator has a self-documenting bundle the moment the converter
+    # starts working.  Best-effort: snapshot failure must not abort
+    # the conversion.  See ``gtopt_shared.state_snapshot`` for the
+    # reproducibility contract + file-format.
+    try:
+        _snapshot_out_dir, _, _ = _resolve_output_paths(
+            bundle,
+            options.get("output_dir"),
+            options.get("output_file"),
+            options.get("name"),
+        )
+        write_state_snapshot(
+            output_dir=_snapshot_out_dir,
+            tool_name="plexos2gtopt",
+            args=args,
+            tool_version=__version__,
+            extra=options,
+        )
+        write_plexos2gtopt_readme(_snapshot_out_dir)
+    except (OSError, ValueError) as exc:
+        print(f"warning: failed to write state snapshot: {exc}", file=sys.stderr)
 
     # Default action: convert. Returns 0 on success, or the count of
     # CRITICAL findings the converter logged (so CI can gate on it).

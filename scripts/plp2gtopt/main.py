@@ -8,6 +8,10 @@ import sys
 from pathlib import Path
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
+from gtopt_shared.state_snapshot import (
+    write_plp2gtopt_readme,
+    write_state_snapshot,
+)
 
 from .plp2gtopt import (
     convert_plp_case,
@@ -680,8 +684,11 @@ def main(argv: list[str] | None = None) -> None:
     if getattr(args, "pumped_storage_template", False):
         sys.exit(print_pumped_storage_template())
 
+    # Resolve options once so the snapshot + the converter share the
+    # exact same parsed-options dict (incl. resolved output_dir).
+    _opts_for_snapshot = build_options(args)
     try:
-        critical_count = convert_plp_case(build_options(args))
+        critical_count = convert_plp_case(_opts_for_snapshot)
     except (RuntimeError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         if no_args:
@@ -692,6 +699,26 @@ def main(argv: list[str] | None = None) -> None:
                 file=sys.stderr,
             )
         sys.exit(1)
+
+    # Post-conversion state snapshot + README.  Written AFTER
+    # ``convert_plp_case`` because the converter atomically replaces
+    # the entire output directory via temp-dir + rename, which would
+    # wipe any pre-conversion writes.  Best-effort — snapshot failure
+    # must not turn a successful conversion into an error.  See
+    # ``gtopt_shared.state_snapshot`` for the file format +
+    # reproducibility contract.
+    try:
+        _snapshot_out_dir = Path(_opts_for_snapshot["output_dir"])
+        write_state_snapshot(
+            output_dir=_snapshot_out_dir,
+            tool_name="plp2gtopt",
+            args=args,
+            tool_version=__version__,
+            extra=_opts_for_snapshot,
+        )
+        write_plp2gtopt_readme(_snapshot_out_dir)
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"warning: failed to write state snapshot: {exc}", file=sys.stderr)
 
     # A structural bug in the generated planning (duplicate entity names,
     # missing references, etc.) surfaces as a CRITICAL finding from

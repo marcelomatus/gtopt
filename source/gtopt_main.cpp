@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
+#include <fstream>
 #include <ranges>
 #include <string>
 #include <utility>
@@ -534,7 +535,12 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     }
 
     // Save pre-solve state snapshot:
-    // ``<output_directory>/planning_state.json``.
+    // ``<output_directory>/gtopt_state.json``.
+    //
+    // The ``<tool>_state.json`` naming convention is shared with the
+    // Python converters (``plexos2gtopt_state.json``,
+    // ``plp2gtopt_state.json``) so the originating tool is obvious
+    // from the filename across all output directories.
     //
     // Captures the FULLY-MERGED Planning (all input ``-s`` files
     // unified + every CLI override applied via ``--set``, ``--no-mip``,
@@ -571,7 +577,7 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
       const std::string out_dir = my_planning.options.output_directory.value_or(
           opts.output_directory.value_or(std::string {"output"}));
       const auto snapshot_path =
-          (std::filesystem::path(out_dir) / "planning_state.json").string();
+          (std::filesystem::path(out_dir) / "gtopt_state.json").string();
       // Best-effort: ensure the directory exists (the post-solve
       // write_out will recreate it anyway, but we land HERE first).
       std::error_code ec;
@@ -596,6 +602,69 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
         spdlog::warn("  failed to save pre-solve state snapshot {}: {}",
                      snapshot_path,
                      snap.error());
+      }
+
+      // README.md — self-documenting output-directory guide.  Same
+      // ``<tool>_state.json`` convention + reproducibility narrative
+      // as the Python converters' READMEs (see
+      // ``scripts/gtopt_shared/state_snapshot.py`` ::
+      // ``write_gtopt_readme``).  Best-effort; failure to write is a
+      // warning, not a fatal.
+      const auto readme_path =
+          (std::filesystem::path(out_dir) / "README.md").string();
+      try {
+        std::ofstream f(readme_path, std::ios::trunc);
+        f << R"MD(# gtopt output directory
+
+This directory contains the output of a `gtopt` run.
+
+| File / dir | Purpose |
+|---|---|
+| `planning.json` | Post-solve planning sidecar (Planning as gtopt left it after solving — useful for downstream tooling). |
+| `gtopt_state.json` | **Pre-solve state snapshot** — fully-merged Planning (all `-s` inputs unified + every CLI override applied) written immediately BEFORE solve.  See *Reproducing this run* below. |
+| `solver_status.json` | One-line solver outcome (status, method, elapsed time, scenes done). |
+| `<Class>/` | Per-LP-class output Parquet streams (`Generator/generation_sol.parquet`, `Bus/balance_dual.parquet`, `Line/flowp_sol.parquet`, …).  Which fields appear depends on `--write-out`. |
+| `logs/` | Per-(scene, phase) solver logs (`cplex_sc0_ph0.log`, `gtopt_1.log`). |
+| `README.md` | This file. |
+
+## Reproducing this run
+
+`gtopt` writes a **pre-solve state snapshot** to `gtopt_state.json` at the
+START of every run, capturing the fully-merged Planning (all `-s` input
+files unified + every CLI override applied — `--set`, `--no-mip`,
+`--solver`, `--no-scale`, `--method`, etc.).
+
+### Re-run with the same options
+
+```bash
+gtopt -s gtopt_state.json
+```
+
+The snapshot is self-contained; PAMPL `user_constraint_file` references
+are stripped before write (constraints are inlined into
+`user_constraint_array`), so a reload doesn't re-parse them on top of
+already-merged constraints.
+
+### Reproducibility contract
+
+Re-running with no other CLI flags produces a **stable** LP across
+iterations: snapshot N=2 vs snapshot N=3 written from a snapshot reload
+are byte-identical, including the per-block LP coefficients.  Use the
+snapshot for bug reports, audit trails, and regression-test fixtures.
+
+### Inspect the snapshot
+
+```bash
+jq '.options' gtopt_state.json
+jq '.simulation' gtopt_state.json
+jq '.system | keys' gtopt_state.json
+```
+)MD";
+        if (f) {
+          spdlog::info("  output README: {}", readme_path);
+        }
+      } catch (const std::exception& ex) {
+        spdlog::warn("  failed to write README {}: {}", readme_path, ex.what());
       }
     }
 
