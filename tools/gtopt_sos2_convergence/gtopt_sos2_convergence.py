@@ -12,7 +12,11 @@ regimes that gtopt now supports:
     ``[-tmax, +tmax]`` envelope).
   * **(B) L > 1, ε > 0, no SOS2** (``--epsilon-rely``): pure-LP
     generalisation — segment cols + ε in the objective force
-    ``Σ v_l = |f|`` and LP greediness recovers bottom-up fill.
+    ``Σ v_l = |f|`` at LP optimum, which keeps the chord bounded
+    by the piecewise secant rather than the loose constant ceiling.
+    The v_l distribution is LP-indifferent (the chord row is
+    inactive at LP optimum) but the obj matches regime (C) to
+    within solver tolerance.
   * **(C) L > 1 + SOS2** (lambda-form refactor, this commit): MIP
     on ``2L+1`` breakpoint weights ``λ_l`` with SOS2; canonical
     Beale–Tomlin "at most 2 adjacent non-zero" interpolates between
@@ -351,9 +355,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Run L sweep in pure-LP ε-rely regime (regime B): "
-            "use_sos2 = false on every line, loss_cost_eps > 0 picks "
-            "Σ v_l = |f| via LP greediness.  Equivalent to regime C "
-            "in objective but pure LP (no MIP), so much faster."
+            "use_sos2 = false on every line, loss_cost_eps > 0 forces "
+            "Σ v_l = |f| at LP optimum (chord stays bounded by the "
+            "piecewise secant).  Equivalent to regime C in objective "
+            "but pure LP (no MIP), so much faster."
         ),
     )
     p.add_argument(
@@ -567,10 +572,17 @@ def main(argv: list[str] | None = None) -> int:
 #
 # The ε-rely path (regime B) is also supported as a pure-LP
 # alternative (``loss_use_sos2 = false`` + ``loss_cost_eps > 0``):
-# segment cols + ε in the objective force ``Σ v_l = |f|`` at LP
-# optimum, then LP greediness fills v_1 → v_L because chord_slope_l
-# strictly increases in l.  Same piecewise secant, no MIP, no cap.
-# Use ``--epsilon-rely`` to exercise this regime.
+# segment cols + ε in the objective force ``Σ v_l = |f|``  at LP
+# optimum.  The v_l distribution is then LP-indifferent — the chord
+# row is INACTIVE at LP optimum (the K-tangent lower bound on ℓ
+# binds first), so the LP has no obj preference between e.g.
+# bottom-up ``{50, 25, 0, 0}``  and a degenerate ``{0, 25, 50, 0}``
+# at f = 75 with L = 4.  Both yield the same obj; the obj matches
+# lambda-form (regime C) to within solver tolerance.  What ε > 0
+# buys is purely structural: keeps Σ v_l = |f| bounded so the
+# chord stays at the piecewise secant value rather than the loose
+# constant ceiling under the unbounded-Σ arbitrage.  Pure LP, no
+# MIP, no flow cap.  Use ``--epsilon-rely`` to exercise this regime.
 
 
 if __name__ == "__main__":

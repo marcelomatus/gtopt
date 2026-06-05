@@ -305,17 +305,21 @@ LossConfig make_config(LineLossesMode mode,
   // Foot-gun warning (issue #504 review P2-3): the LP-arbitrage that
   // inflates ``Σ v_l`` past ``|f|`` — collapsing the L-secant chord to
   // a loose constant ceiling — is killed by EITHER ``loss_use_sos2 =
-  // true`` (degeneracy ruled out structurally, but caps ``|f| ≤
-  // 2·envelope/L``; see the SOS2 declaration site) OR ``loss_cost_eps
-  // > 0`` (ε on Σ v_l makes Σ = |f| at the LP optimum, then LP-greedy
-  // fills the smallest-slope segment first — the "ε-rely"
-  // generalisation of the Coffrin L=1 single-secant recipe to L>1
-  // segments).  Both achieve the tight piecewise chord; ε-rely stays
-  // pure LP and reaches the full envelope, SOS2 turns it into a MIP
-  // and caps ``|f|``.  The warning fires only when BOTH are off
-  // (the genuinely-broken config).  One-shot so the misconfig
-  // surfaces during the first ``make_config`` call without flooding
-  // the log on every (line, stage) pass.
+  // true``  (lambda-form MIP, full envelope, no ε needed) OR
+  // ``loss_cost_eps > 0``  (ε on Σ v_l makes ``Σ v_l = |f|``  at the
+  // LP optimum; the v distribution is then LP-indifferent because
+  // the chord row is INACTIVE at optimum — the K-tangent lower bound
+  // on ℓ binds first — but ``Σ v_l = |f|``  alone is enough to keep
+  // the chord ≤ ``c · fmax²``  rather than ``c · fmax² · (2L−1)``
+  // under the unbounded-Σ arbitrage).  The "ε-rely" generalisation
+  // of the Coffrin L=1 single-secant recipe to L>1 segments.  Both
+  // achieve a piecewise-linear chord ≥ true loss; lambda-form's is
+  // exactly the secant at every distribution, ε-rely's is the secant
+  // when bottom-up filled and looser otherwise (the LP can pick any
+  // feasible distribution with no obj impact).  The warning fires
+  // only when BOTH are off (the genuinely-broken config).  One-shot
+  // so the misconfig surfaces during the first ``make_config`` call
+  // without flooding the log on every (line, stage) pass.
   if (mode == LineLossesMode::tangent_signed_flow && nseg_secant_eff > 1
       && !use_sos2 && loss_cost_eps <= 0.0)
   {
@@ -324,13 +328,12 @@ LossConfig make_config(LineLossesMode mode,
       spdlog::warn(
           "line_losses: tangent_signed_flow with "
           "loss_secant_segments={} requires EITHER loss_use_sos2=true "
-          "(structural fill-order, MIP, caps |f| ≤ 2·envelope/{}) OR "
-          "loss_cost_eps > 0 (ε-rely fill-order via LP greediness, "
-          "pure LP, full envelope).  With both off the LP inflates "
-          "Σ v_l and the chord collapses to a constant ceiling — "
-          "STRICTLY WORSE than loss_secant_segments=1.  See issue "
-          "#504.",
-          nseg_secant_eff,
+          "(lambda-form MIP, full envelope) OR loss_cost_eps > 0 "
+          "(ε-rely: ε on Σv_l forces Σv_l=|f| at LP optimum, keeps "
+          "the chord bounded; pure LP).  With both off the LP "
+          "inflates Σ v_l and the chord collapses to a constant "
+          "ceiling — STRICTLY WORSE than loss_secant_segments=1.  "
+          "See issue #504.",
           nseg_secant_eff);
       warned_l_no_sos2 = true;
     }
@@ -1716,14 +1719,23 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   //       same two abs rows ``Σ v_l ≥ ±f``.  Chord becomes the
   //       piecewise secant ``ℓ ≤ Σ chord_slope_l · v_l``  with
   //       ``chord_slope_l = c·w·(2l−1)``.  With ``loss_cost_eps > 0``
-  //       on Σ v_l, the LP picks ``Σ v_l = |f|`` (cheapest feasible
-  //       Σ) and then picks the v_l distribution that *minimises*
-  //       the chord (smaller chord ⇒ smaller ℓ ⇒ lower obj).  Smallest
-  //       chord under ``Σ v_l = |f|``  is the bottom-up greedy fill
-  //       (``chord_slope_l`` strictly increases in l), so LP greediness
-  //       gives the *tight* piecewise secant at the breakpoints ``b_l
-  //       = l·w``.  Pure LP, full envelope reachable, no MIP.  Worst-
-  //       case overstatement drops to ``c·fmax²/(4·L²)`` (O(1/L²)).
+  //       on Σ v_l, the LP picks ``Σ v_l = |f|`` at LP optimum (the
+  //       cheapest feasible Σ).  The v distribution is then **LP-
+  //       indifferent**: the chord row is INACTIVE at LP optimum
+  //       (the K-tangent lower bound on ℓ binds first), so the LP
+  //       has no obj preference between e.g. ``v = {50, 25, 0, 0}``
+  //       (bottom-up secant, chord_min) and ``v = {0, 25, 50, 0}``
+  //       (degenerate, chord ≫ secant).  Both deliver the same ℓ_LP
+  //       = max_tangent(f).  What ``ε > 0``  buys is purely
+  //       structural: keeps ``Σ v_l``  bounded at ``|f|``  rather
+  //       than letting it inflate to ``L·w = envelope``  (which
+  //       would push the chord up to the loose constant ceiling
+  //       ``c·envelope²·(2L−1)`` — STRICTLY WORSE than L=1).
+  //       Pure LP, full envelope reachable, no MIP.  Worst-case
+  //       overstatement (over the LP-indifferent set of v
+  //       distributions) drops to ``c·fmax²/(4·L²)`` (O(1/L²)) at
+  //       the bottom-up corner — the lambda-form (regime C) attains
+  //       the same tightness structurally on every solve.
   //
   //   (C) **Lambda-form SOS2, L > 1, use_sos2 (issue #504 SOS2 path,
   //       lambda-form refactor)**.  Symmetric ``2L+1`` breakpoint
@@ -1875,10 +1887,15 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // v_l`` with ``chord_slope_l = c·w·(2l−1)``.
     //
     // ε (``loss_cost_eps > 0``) on Σ v_l is REQUIRED for L > 1 to
-    // close the inflate-v arbitrage and recover bottom-up greedy
-    // fill — see the structural caveat in the doc block above.  L=1
-    // also benefits from ε but works (loosely) without it because
-    // there's only one segment to inflate.
+    // close the inflate-v arbitrage by forcing ``Σ v_l = |f|``  at
+    // LP optimum.  The v distribution is then LP-indifferent (the
+    // chord row is INACTIVE at the LP optimum — the K-tangent lower
+    // bound binds first), but ``Σ v_l = |f|``  alone is enough to
+    // keep the chord bounded by the piecewise secant rather than
+    // the loose constant ceiling.  See the (B) doc block above for
+    // the full explanation.  L=1 also benefits from ε but works
+    // (loosely) without it because there's only one segment to
+    // inflate.
 
     // ε contributes a tiny per-MWh cost on Σ v_l.  ``make_config``
     // already converted nothing → ``loss_cost_eps`` is the raw user
