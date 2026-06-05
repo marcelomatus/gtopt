@@ -17,6 +17,8 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness,
 // readability-trailing-comma)
 
+namespace test_line_losses_ns
+{
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
@@ -2235,6 +2237,7 @@ TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 }
 
 }  // namespace
+}  // namespace test_line_losses_ns
 
 // NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness,
 // readability-trailing-comma)
