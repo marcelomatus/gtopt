@@ -170,6 +170,13 @@ public:
   int relax_all_integers() override;
   int fix_mip_and_resolve_duals(const SolverOptions& opts) override;
 
+  // ---- SOS sets ----
+  /// Delegates to ``CPXaddsos`` with sostype 2 (CPX_TYPE_SOS2).  See
+  /// ``SolverBackend::add_sos2`` for the contract — gtopt uses
+  /// implicit weights ``1, 2, …, N`` aligned with the geometric
+  /// breakpoint order encoded by the caller.
+  void add_sos2(std::span<const int> columns) override;
+
   // ---- solution access ----
   [[nodiscard]] const double* col_lower() const override;
   [[nodiscard]] const double* col_upper() const override;

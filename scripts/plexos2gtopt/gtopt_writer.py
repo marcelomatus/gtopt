@@ -1350,27 +1350,41 @@ def build_line_array(
             # 2026-04-22 (the EL=2 set covers the most binding
             # international and inter-zonal interconnections).
             if "tmax_ab" in entry:
-                # Honor the model-level loss mode (``--line-losses-mode``,
-                # default ``tangent_signed_flow`` = Coffrin outer-approximation).
-                # Coffrin is its own signed-flow model — K tangent inequalities
-                # forming a LOWER outer envelope of ``(R/V²)·f²``, exact at the
-                # tangent points so it never over-states loss — and carries NO
-                # PWL layout; K defaults to ``--nseg-losses`` (6).  Only the
-                # piecewise modes use a per-line PWL layout + adaptive K.
-                # (Previously this hard-coded ``"piecewise"``, silently
-                # shadowing the global ``tangent_signed_flow`` default with the
-                # over-counting uniform/midpoint mix — see line_losses.hpp.)
-                mode = line_losses_mode or "tangent_signed_flow"
-                entry["line_losses_mode"] = mode
-                if mode == "tangent_signed_flow":
+                # Per-line L-secant + SOS2 override (issue #504 task #5).
+                # When the converter's ``--loss-sos2-lines`` /
+                # ``--loss-sos2-auto`` post-pass flagged this line, FORCE
+                # ``tangent_signed_flow`` so the L-secant chord + SOS2
+                # fill-order actually fire (they're gtopt no-ops in
+                # ``piecewise`` mode) — overriding the model-level CLI
+                # default below.
+                use_sos2 = bool(getattr(line, "loss_use_sos2", False))
+                secant_L = int(getattr(line, "loss_secant_segments", 0) or 0)
+                if use_sos2 and secant_L > 1:
+                    entry["line_losses_mode"] = "tangent_signed_flow"
+                    entry["loss_secant_segments"] = secant_L
+                    entry["loss_use_sos2"] = True
                     entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 6)
                 else:
-                    layout, nseg = _resolve_loss_layout(line)
-                    entry["loss_segments"] = nseg
-                    # Emit ``loss_pwl_layout`` only when non-default (uniform
-                    # is gtopt's default) to keep the JSON minimal.
-                    if layout != "uniform":
-                        entry["loss_pwl_layout"] = layout
+                    # Honor the model-level loss mode (``--line-losses-mode``,
+                    # default ``tangent_signed_flow`` = Coffrin
+                    # outer-approximation).  Coffrin is its own signed-flow
+                    # model — K tangent inequalities forming a LOWER outer
+                    # envelope of ``(R/V²)·f²``, exact at the tangent points
+                    # so it never over-states loss — and carries NO PWL
+                    # layout; K defaults to ``--nseg-losses`` (6).  Only the
+                    # piecewise modes use a per-line PWL layout + adaptive K.
+                    mode = line_losses_mode or "tangent_signed_flow"
+                    entry["line_losses_mode"] = mode
+                    if mode == "tangent_signed_flow":
+                        entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 6)
+                    else:
+                        layout, nseg = _resolve_loss_layout(line)
+                        entry["loss_segments"] = nseg
+                        # Emit ``loss_pwl_layout`` only when non-default
+                        # (uniform is gtopt's default) to keep the JSON
+                        # minimal.
+                        if layout != "uniform":
+                            entry["loss_pwl_layout"] = layout
                 # Pin ``loss_envelope`` to the line's ORIGINAL rating
                 # whenever it wasn't already set by the soft-cap block
                 # above.  Without this, ``line_losses.cpp`` falls back

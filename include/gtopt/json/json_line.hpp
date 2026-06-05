@@ -65,7 +65,9 @@ struct json_data_contract<Line>
       json_variant_null<"tap_ratio", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"phase_shift_deg",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_number_null<"loss_secant_segments", OptInt>,
+      json_bool_null<"loss_use_sos2", OptBool>>;
 
   constexpr static auto to_json_data(Line const& line)
   {
@@ -103,7 +105,9 @@ struct json_data_contract<Line>
                                  line.annual_derating,
                                  line.integer_expmod,
                                  line.tap_ratio,
-                                 line.phase_shift_deg);
+                                 line.phase_shift_deg,
+                                 line.loss_secant_segments,
+                                 line.loss_use_sos2);
   }
 };
 }  // namespace daw::json

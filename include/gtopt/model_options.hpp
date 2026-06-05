@@ -100,6 +100,23 @@ struct ModelOptions
   /// Inert for ``none``, ``linear``, ``piecewise_direct``, and
   /// ``tangent`` layouts.
   OptReal loss_cost_eps {};
+  /// Global default for ``Line.loss_secant_segments`` (issue #504).
+  /// When ``> 1`` and ``loss_use_sos2`` is enabled, the
+  /// ``tangent_signed_flow`` loss model emits ``L`` segment columns
+  /// per (line, block) with an SOS2 ordering constraint, tightening
+  /// the loss upper bound from a single secant to a piecewise chord.
+  /// Per-line ``Line.loss_secant_segments`` overrides this default.
+  /// Unset → ``1`` (single-secant chord, current production behaviour).
+  OptInt loss_secant_segments {};
+  /// Global default for ``Line.loss_use_sos2`` (issue #504).
+  /// Toggles SOS2 enforcement on the ``L`` secant-segment columns
+  /// emitted by the ``tangent_signed_flow`` model when
+  /// ``loss_secant_segments > 1``.  REQUIRES a MIP-capable LP
+  /// backend with native SOS2 (CPLEX / Gurobi / HiGHS ≥ 1.6);
+  /// the LP build raises a structured error if SOS2 is requested
+  /// with an unsupporting backend.  Per-line override beats this
+  /// global.  Unset → false.
+  OptBool loss_use_sos2 {};
   /// Bound for voltage-angle variables: `θ ∈ [−theta_max, +theta_max]`.
   /// When unset, `PlanningLP::auto_scale_theta` computes it as
   /// `Σ_l tmax_l · x_τ_l` (a topology-aware upper bound on the
@@ -255,6 +272,8 @@ struct ModelOptions
     merge_opt(scale_theta, opts.scale_theta);
     merge_opt(scale_loss_link, opts.scale_loss_link);
     merge_opt(loss_cost_eps, opts.loss_cost_eps);
+    merge_opt(loss_secant_segments, opts.loss_secant_segments);
+    merge_opt(loss_use_sos2, opts.loss_use_sos2);
     merge_opt(theta_max, opts.theta_max);
     merge_opt(auto_scale, opts.auto_scale);
     merge_opt(demand_fail_cost, opts.demand_fail_cost);
@@ -279,6 +298,7 @@ struct ModelOptions
         || dc_line_resistance_threshold.has_value() || loss_segments.has_value()
         || scale_objective.has_value() || scale_theta.has_value()
         || scale_loss_link.has_value() || loss_cost_eps.has_value()
+        || loss_secant_segments.has_value() || loss_use_sos2.has_value()
         || theta_max.has_value() || demand_fail_cost.has_value()
         || reserve_shortage_cost.has_value() || hydro_spill_cost.has_value()
         || hydro_use_value.has_value() || state_violation_cost.has_value()
@@ -309,6 +329,8 @@ struct ModelOptions
         && covers_opt(scale_theta, other.scale_theta)
         && covers_opt(scale_loss_link, other.scale_loss_link)
         && covers_opt(loss_cost_eps, other.loss_cost_eps)
+        && covers_opt(loss_secant_segments, other.loss_secant_segments)
+        && covers_opt(loss_use_sos2, other.loss_use_sos2)
         && covers_opt(theta_max, other.theta_max)
         && covers_opt(demand_fail_cost, other.demand_fail_cost)
         && covers_opt(reserve_shortage_cost, other.reserve_shortage_cost)

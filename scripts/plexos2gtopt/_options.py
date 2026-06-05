@@ -71,6 +71,13 @@ class ConversionOptions:
     loss_tangent_lines: str | None = None
     nseg_tangent: int | None = None
     nseg_uniform: int | None = None
+    # L-secant + SOS2 selector (issue #504 task #5).  ``loss_sos2_lines``
+    # is the explicit per-line opt-in (CSV); ``loss_sos2_auto`` is the
+    # heuristic auto-rule (off / heavy / all-lossy).  The post-pass
+    # stamps the UNION of both sources on each LineSpec's
+    # ``loss_secant_segments`` and ``loss_use_sos2`` fields.
+    loss_sos2_lines: str | None = None
+    loss_sos2_auto: str | None = None
     lift_line_caps: str | None = None
     el0_lines: str | None = None
     # ── PLEXOS-solution curve-fit modes ─────────────────────────────────
@@ -163,6 +170,8 @@ _ENV_BRIDGE: tuple[tuple[str, str, Any], ...] = (
     ("loss_tangent_lines", "GTOPT_LOSS_TANGENT_LINES", str),
     ("nseg_tangent", "GTOPT_NSEG_TANGENT", lambda v: str(int(v))),
     ("nseg_uniform", "GTOPT_NSEG_UNIFORM", lambda v: str(int(v))),
+    ("loss_sos2_lines", "GTOPT_LOSS_SOS2_LINES", str),
+    ("loss_sos2_auto", "GTOPT_LOSS_SOS2_AUTO", str),
     ("emin_eod_day1", "GTOPT_EMIN_EOD_DAY1", _str_bool_zero_one),
     ("battery_efin_pin", "GTOPT_BATTERY_PIN_EFIN", _str_bool_zero_one),
 )

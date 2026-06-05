@@ -138,6 +138,25 @@ struct LossConfig
   /// unchanged.  Inert for ``none``, ``linear``, ``piecewise_direct``,
   /// and ``tangent`` layouts.
   double loss_cost_eps {0.0};
+  /// Number of L-secant segment columns ``v_l`` emitted per (line,
+  /// block) by ``add_tangent_signed_flow`` when the L-secant chord
+  /// upper bound is active (issue #504).  ``1`` (default) preserves
+  /// the pre-#504 single-secant chord ``ℓ ≤ (R·envelope/V²)·v``.
+  /// ``L > 1`` replaces the single ``v`` column with ``L`` columns
+  /// bounded ``v_l ∈ [0, envelope/L]`` and the chord upper bound
+  /// becomes the piecewise ``ℓ ≤ Σ chord_slope_l · v_l`` with
+  /// ``chord_slope_l = (R/V²)·(envelope/L)·(2l − 1)``.
+  /// Inert outside ``tangent_signed_flow`` mode.
+  int nseg_secant {1};
+  /// Toggle SOS2 enforcement on the ``L`` secant-segment columns
+  /// emitted when ``nseg_secant > 1`` (issue #504).  Without SOS2 the
+  /// LP exploits the segment freedom to maximise the chord ceiling;
+  /// with SOS2 at most two consecutive ``v_l`` are non-zero, forcing
+  /// fill order ``v_1`` → … → ``v_L``.  Requires a MIP-capable LP
+  /// backend with native SOS2 (CPLEX / Gurobi / HiGHS ≥ 1.6); see
+  /// ``SolverBackend::add_sos2`` for the support matrix.  Inert
+  /// outside ``tangent_signed_flow`` mode or when ``nseg_secant ≤ 1``.
+  bool use_sos2 {false};
 };
 
 // ─── PWL geometry (exposed for unit testing) ────────────────────────
@@ -449,7 +468,9 @@ struct BlockResult
                                      double fmax,
                                      double loss_row_scale = 1.0,
                                      double loss_envelope = 0.0,
-                                     double loss_cost_eps = 0.0);
+                                     double loss_cost_eps = 0.0,
+                                     int nseg_secant = 1,
+                                     bool use_sos2 = false);
 
 // ─── LP construction ────────────────────────────────────────────────
 

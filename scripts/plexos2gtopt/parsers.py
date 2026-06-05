@@ -2605,7 +2605,7 @@ def extract_lines(
     # peak loss get more segments; tiny stubs collapse to the floor.
     # ``loss_error_pct = 0`` disables adaptation (legacy: every lossy
     # line gets the ceiling K).
-    return _apply_adaptive_loss_segments(tuple(out))
+    return _apply_loss_sos2_policy(_apply_adaptive_loss_segments(tuple(out)))
 
 
 def _apply_adaptive_loss_segments(
@@ -3002,6 +3002,123 @@ def _apply_dynamic_loss_layout(
             new_lines[i],
             loss_segments=K_map[i],
             loss_pwl_layout=layouts[i],
+        )
+    return tuple(new_lines)
+
+
+def _apply_loss_sos2_policy(
+    lines: tuple[LineSpec, ...],
+) -> tuple[LineSpec, ...]:
+    """Stamp ``loss_secant_segments`` + ``loss_use_sos2`` on offender lines.
+
+    Issue #504 task #5 — runs AFTER the adaptive K + layout passes
+    (``_apply_adaptive_loss_segments`` ± ``_apply_dynamic_loss_layout``)
+    so the segment count ``K`` is already finalised per-line.  The L-secant
+    chord upper bound used here mirrors that ``K`` value: stamping
+    ``loss_secant_segments = K`` and ``loss_use_sos2 = True`` instructs
+    the gtopt LP to replace the single ``|f|`` aux with ``K`` segment
+    cols and an SOS2 fill-order lock when (and only when) the line
+    routes to ``line_losses_mode = tangent_signed_flow``.
+
+    Sources (composed via UNION):
+
+      * ``GTOPT_LOSS_SOS2_LINES`` (``--loss-sos2-lines``): explicit
+        comma-separated line names.  Always honoured, no heuristic.
+      * ``GTOPT_LOSS_SOS2_AUTO``  (``--loss-sos2-auto``): auto-rule
+        selecting offenders by peak loss ``L_max = R·envelope²``.
+          - ``off`` (default) ⇒ no auto pick.
+          - ``heavy`` ⇒ top quartile by peak loss (≥ 75th percentile).
+          - ``all-lossy`` ⇒ every line with ``R > 0`` and non-zero
+            peak loss.
+
+    No-op when both sources are empty / off — lines are returned
+    unchanged so the policy is opt-in and cannot regress existing
+    bundle outputs.  Zero-loss lines (R == 0 or envelope == 0) are
+    never stamped: an L-secant chord would be vacuous (loss ≡ 0
+    anyway) and SOS2 would add useless MIP cuts.
+    """
+    import os as _os
+
+    explicit_raw = _os.environ.get("GTOPT_LOSS_SOS2_LINES", "").strip()
+    explicit = {n.strip() for n in explicit_raw.split(",") if n.strip()}
+
+    auto_mode = _os.environ.get("GTOPT_LOSS_SOS2_AUTO", "off").strip().lower()
+    if auto_mode == "":
+        auto_mode = "off"
+
+    # Fast-path: nothing requested → no stamping, no allocation.
+    if not explicit and auto_mode == "off":
+        return lines
+
+    def _peak_loss(ln: LineSpec) -> float:
+        """Mirror ``_apply_adaptive_loss_segments._peak_loss`` (same envelope
+        precedence: original tmax + DLR profile peak + soft-cap headroom
+        when ``GTOPT_LOSS_EXTEND_OVERLOAD`` is set)."""
+        if ln.resistance <= 0.0:
+            return 0.0
+        profile_peak = (
+            max(abs(x) for x in ln.tmax_ab_profile) if ln.tmax_ab_profile else 0.0
+        )
+        base_fmax = max(abs(ln.tmax_ab), abs(ln.tmin_ab), profile_peak)
+        extend_overload = _os.environ.get(
+            "GTOPT_LOSS_EXTEND_OVERLOAD", "0"
+        ).strip() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if extend_overload:
+            if ln.soft_cap_lifted:
+                fmax = 4.0 * base_fmax
+            elif ln.soft_cap:
+                fmax = 2.0 * base_fmax
+            else:
+                fmax = base_fmax
+        else:
+            fmax = base_fmax
+        return ln.resistance * fmax * fmax
+
+    losses = [(i, ln, _peak_loss(ln)) for i, ln in enumerate(lines)]
+    auto_idx: set[int] = set()
+
+    if auto_mode == "all-lossy":
+        auto_idx = {i for i, _, L in losses if L > 0.0}
+    elif auto_mode == "heavy":
+        lossy_only = [(i, L) for i, _, L in losses if L > 0.0]
+        if lossy_only:
+            sorted_L = sorted(L for _, L in lossy_only)
+            # Top-quartile threshold: ≥ 75th percentile (nearest-rank,
+            # inclusive at the cut — small populations include the
+            # whole top group).  A 4-line lossy set picks 1; a 12-line
+            # set picks 3; a single lossy line picks itself.
+            idx_p75 = max(0, (3 * len(sorted_L)) // 4)
+            threshold = sorted_L[idx_p75]
+            auto_idx = {i for i, L in lossy_only if L >= threshold}
+
+    # Build name→index for the explicit list and intersect with lossy
+    # lines (skip stamping on R=0 lines even if the user named them —
+    # vacuous chord, no MIP benefit, document it via the skip).
+    name_to_lossy_idx = {ln.name: i for i, ln, L in losses if L > 0.0}
+    explicit_idx = {name_to_lossy_idx[n] for n in explicit if n in name_to_lossy_idx}
+
+    stamp_idx = auto_idx | explicit_idx
+    if not stamp_idx:
+        return lines
+
+    new_lines = list(lines)
+    for i in stamp_idx:
+        ln = new_lines[i]
+        # Mirror the line's per-line K (set by _apply_adaptive_loss_segments).
+        # Skip if K is 0 (lossless OR adaptive pass declined to stamp);
+        # an L=0 chord stamping would be ignored by gtopt anyway.
+        k = ln.loss_segments
+        if k <= 1:
+            continue
+        new_lines[i] = dataclasses.replace(
+            ln,
+            loss_secant_segments=k,
+            loss_use_sos2=True,
         )
     return tuple(new_lines)
 

@@ -622,6 +622,82 @@ $$
 \text{cost}(f_{l,s,t,b}^{+}) = \text{cost}(f_{l,s,t,b}^{-}) = c_{l,t} \cdot \omega_{s,t,b}
 $$
 
+#### Quadratic Losses via `tangent_signed_flow` (Coffrin Outer Approximation)
+
+When `line_losses_mode = "tangent_signed_flow"`, the line uses a SIGNED
+flow column $f_l \in [-\overline{F}_l^{ba}, +\overline{F}_l^{ab}]$ (one
+column per line + block, sign carries direction) and approximates the
+convex quadratic loss curve
+
+$$ \ell(f) = c_l \cdot f^2, \qquad c_l = R_l / V_l^2 $$
+
+with $K$ TANGENT inequalities forming a piecewise-affine LOWER envelope:
+
+$$ \ell_{l,s,t,b} \;\geq\; 2 \, c_l \, f_l^{(k)} \, f_{l,s,t,b}
+   \;-\; c_l \, (f_l^{(k)})^2, \qquad k = 1, \dots, K $$
+
+at $K$ tangent points $f_l^{(k)} = \overline{F}_l \cdot (2k - K - 1) / K$
+spread on $(-\overline{F}_l, +\overline{F}_l)$.
+
+To bound $\ell$ from above (preventing the LP from inflating it in
+arbitrage scenarios with negative LMPs), an auxiliary
+$|f|$-envelope variable $v_l \geq |f_l|$ encodes the absolute value
+via two inequalities
+
+$$ v_{l,s,t,b} \;\geq\; +f_{l,s,t,b}, \qquad
+   v_{l,s,t,b} \;\geq\; -f_{l,s,t,b} $$
+
+and a single secant chord bounds the loss column
+
+$$ \ell_{l,s,t,b} \;\leq\; (c_l \, \overline{F}_l) \cdot v_{l,s,t,b}. $$
+
+#### L-Secant Chord with SOS2 Fill-Order (issue #504)
+
+When `loss_secant_segments = L > 1` AND `loss_use_sos2 = true` the
+single $v_l \in [0, \overline{F}_l]$ auxiliary is replaced by **$L$
+segment columns** $v_{l,\ell} \in [0, w_l]$ with $w_l = \overline{F}_l /
+L$, tied to $|f_l|$ by sum-of-segments rows
+
+$$ \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; +f_{l,s,t,b},
+   \qquad
+   \sum_{\ell = 1}^{L} v_{l,\ell,s,t,b} \;\geq\; -f_{l,s,t,b}. $$
+
+The upper bound on $\ell$ becomes piecewise:
+
+$$ \ell_{l,s,t,b} \;\leq\;
+   \sum_{\ell=1}^{L} \underbrace{c_l \, w_l \, (2\ell - 1)}_{\text{chord\_slope}_\ell}
+   \, v_{l,\ell,s,t,b}. $$
+
+Each chord slope matches the secant of the convex quadratic on
+$[(\ell-1) w_l, \ell w_l]$.  Without an ordering constraint the LP
+exploits the segment freedom to maximise the upper bound (loose by
+factor $L$); a **Type-2 Special-Ordered-Set** declaration
+
+$$ \text{SOS2}\big( v_{l,1}, \, v_{l,2}, \, \ldots, \, v_{l,L} \big) $$
+
+forces at most two consecutive $v_{l,\ell}$ to be non-zero, yielding
+the fill-order $v_{l,1} \to v_{l,2} \to \cdots \to v_{l,L}$.  Under
+SOS2 the piecewise chord is **tight at every breakpoint**
+$b_l = \ell \cdot w_l$ and overestimates by at most
+$c_l \cdot (w_l / 2)^2$ between breakpoints.  Worst-case overstatement
+therefore decays as
+
+$$ \mathrm{gap}_{\max}(L) \;=\; \frac{c_l \cdot \overline{F}_l^2}{4 L^2}
+   \;=\; \mathcal{O}(1/L^2). $$
+
+Doubling $L$ cuts the worst-case gap by 4.  This converts the line
+flow + loss assembly from a pure LP into a MILP for the lines flagged
+with `loss_use_sos2 = true`; the cost is paid only for the targeted
+"offender" lines whose envelope-to-peak-flow ratio is large (see
+issue #504 §"Targeted application").  Backend support: CPLEX (via
+`CPXaddsos` with `CPX_TYPE_SOS2`), Gurobi (`GRBaddsos`), HiGHS ≥ 1.6
+(`Highs_addSos`); CBC has no native SOS2 entry point and rejects the
+configuration at LP-build time.
+
+References: Beale & Tomlin 1970 (SOS2 piecewise-linear envelope);
+Coffrin & Van Hentenryck 2014 (signed-flow outer approximation);
+Aigner & Van Hentenryck 2022 arXiv:2112.10975.
+
 ### 5.6 Kirchhoff Voltage Law (DC OPF)
 
 When `use_kirchhoff = true` and `use_single_bus = false`, voltage angle
@@ -728,6 +804,186 @@ Kirchhoff constraints are added when **all** of:
 - `use_single_bus = false` (default)
 - The system has more than `kirchhoff_threshold` buses (default 0)
 - Line has a defined `reactance` value
+
+#### Optimal Transmission Switching (issue #509)
+
+When a `LineCommitment` row references a line, the line becomes a
+**switching candidate**: an additional binary
+$u_{l,s,t,b} \in \{0, 1\}$ is introduced that opens (0) or closes
+(1) the breaker dynamically at solve time
+[[Fisher2008]](https://doi.org/10.1109/TPWRS.2008.926411).
+
+**Capacity gating** (always emitted, both Kirchhoff and transport
+modes; v0):
+
+$$
+-\overline{F}_l^{ba} \, u_{l,s,t,b}
+\;\leq\; f_{l,s,t,b} \;\leq\;
+\overline{F}_l^{ab} \, u_{l,s,t,b}
+\qquad \forall \; s, t, b
+$$
+
+so $u_{l,s,t,b} = 0$ forces $f_{l,s,t,b} = 0$ — the line carries
+no flow.
+
+**Kirchhoff KVL big-M disjunction** (v0.5; emitted only in
+`KirchhoffMode::node_angle`).  The existing equality KVL row
+$f = b^{\text{eff}}_l (\theta_a - \theta_b - \varphi_l)$ is
+rewritten in place as the upper-side inequality
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} + M_l \, u_{l,s,t,b}
+\;\leq\; M_l - \varphi_l
+$$
+
+and a new row is added for the lower-side:
+
+$$
+-\theta_a + \theta_b + x_\tau \, f_{l,s,t,b} - M_l \, u_{l,s,t,b}
+\;\geq\; -M_l - \varphi_l.
+$$
+
+At $u_{l,s,t,b} = 1$ both inequalities collapse to the original
+equality.  At $u_{l,s,t,b} = 0$ they simultaneously slack, freeing
+$\theta_a, \theta_b$ to take any values in
+$[-\theta_{\max}, +\theta_{\max}]$ — i.e. the two bus angles
+**decouple** exactly like the physics of an opened breaker.
+
+The big-M parameter $M_l$ defaults to
+
+$$
+M_l = 2 \, \theta_{\max} + |\varphi_l|
+$$
+
+(Fisher 2008 baseline refined for the phase-shift offset).  This
+is loose by design — `LineCommitment.kvl_big_m` overrides per line,
+serving as the write-back target for the v1 iterative-tightening
+pre-solve [[Pineda2024]](https://doi.org/10.1016/j.epsr.2024.110720).
+
+**Cycle-basis disjunction (v1).**  In `kirchhoff_mode = cycle_basis`
+(the gtopt default) KVL is enforced as one equality per fundamental
+cycle $C$ (see `source/kirchhoff_cycle_basis.cpp`), so a single
+switched-off line $l \in C$ invalidates every cycle through it.
+`add_kvl_rows` checks each cycle row for switchable lines and, when
+any are present, replaces the equality with the disjunctive form
+
+$$
+-\!\!\sum_{l \in C \cap \text{switchable}}\!\!
+\bigl(1 - u_l\bigr) \, M_C
+\;\leq\;
+\sum_{e \in C} \text{sign}_e \,
+\bigl(x_{\tau,e} \, f_e + \varphi_e\bigr) \cdot \text{row\_scale}
+\;\leq\;
+\sum_{l \in C \cap \text{switchable}}\!\!
+\bigl(1 - u_l\bigr) \, M_C
+$$
+
+with per-cycle big-M
+
+$$
+M_C \;=\; 2 \theta_{\max} \, |C| \, \text{row\_scale}
+\;+\; \sum_{e \in C} |\varphi_e| \, \text{row\_scale}.
+$$
+
+When every switchable line in the cycle is closed ($u_l = 1\;\forall
+\, l \in C \cap \text{switchable}$) the slack collapses to zero and
+both inequalities reduce to the original equality.  Any open line
+($u_l = 0$) widens the slack by exactly $M_C$, decoupling the
+cycle through that branch.  Validation now accepts every combination
+of (`node_angle`, `cycle_basis`, transport mode) × `LineCommitment`.
+
+**Method gate.**  OTS is **strictly** rejected when
+`method ∈ {sddp, cascade}` because Benders cuts on a mixed-integer
+subproblem are unsound (the cost-to-go function loses convexity)
+[[Zou2019]](https://doi.org/10.1007/s10107-018-1249-5).  A future
+SDDiP-style relaxation (Lagrangian cuts) would lift the
+restriction.
+
+**Chronological-stage gate.**  Like `Commitment` for generators,
+OTS is enforced only on chronological stages; on duration-weighted
+representative blocks the binary has no cross-block meaning and is
+silently skipped.
+
+**u/v/w decomposition (v1.1).**  When the user sets
+`LineCommitment.startup_cost` and/or `shutdown_cost` (per-event line
+closing / opening costs, in \$), `LineCommitmentLP` switches from
+the single-`u_l` form to the Knueven–Ostrowski–Watson 2020 /
+Morales-España et al. 2013 three-binary decomposition.  A startup
+indicator $v_{l,t} \in [0,1]$ and a shutdown indicator $w_{l,t}
+\in [0,1]$ are added (continuous but implied-binary at the optimum)
+joined by the logic transition
+
+$$
+u_{l,t} - u_{l,t-1} - v_{l,t} + w_{l,t} = 0
+\qquad (t > 0),
+$$
+
+with the first-block row carrying the pre-stage `initial_status`
+on the right-hand side:
+
+$$
+u_{l,0} - v_{l,0} + w_{l,0} = u_l^{\text{init}}.
+$$
+
+The exclusion row $v_{l,t} + w_{l,t} \le 1$ enforces "at most one
+event per block".  The objective gains
+`startup_cost`$\sum_t v_{l,t}$ and `shutdown_cost`$\sum_t w_{l,t}$
+(face-value, NOT scaled by block duration — events are one-time, not
+per-hour).  Declaring only $u_{l,t}$ as integer is correct: C1 + C3
++ nonnegative event costs force $v, w$ to the integer up/down
+transition of an integer $u$ at every optimal vertex, cutting
+branching variables by ≈⅔ relative to a 3-integer formulation
+[[Knueven2020]](https://doi.org/10.1287/ijoc.2019.0944),
+[[Morales-Espana2013]](https://doi.org/10.1109/TPWRS.2013.2251373).
+
+The v0 `initial_status`-as-first-block-pin semantics is suppressed
+when u/v/w is active; pinning $u_{l,0}$ would over-constrain the LP
+(force the breaker open at $t = 0$ even when serving demand requires
+it closed).
+
+**Min up / min down time (v1.2).**  When `LineCommitment.min_up_time`
+[hours] is set together with u/v/w, an anti-flicker family of rows
+is emitted (mirroring `CommitmentLP` C6):
+
+$$
+\sum_{q=t}^{t + \mathrm{UT}_t - 1} u_{l,q}
+\;\geq\; \mathrm{UT}_t \cdot v_{l,t},
+$$
+
+where $\mathrm{UT}_t$ is the smallest block-count whose cumulative
+duration covers `min_up_time` hours starting at block $t$.  When
+$v_{l,t} = 1$ (line closes at $t$) the right-hand side forces every
+$u_{l,q}$ in the window to 1.  Rows are skipped at the end of the
+stage where $\mathrm{UT}_t \le 1$ (trivially satisfied).  The
+symmetric `min_down_time` row family uses the dual form
+
+$$
+\sum_{q=t}^{t + \mathrm{DT}_t - 1} u_{l,q}
+\;+\; \mathrm{DT}_t \cdot w_{l,t}
+\;\leq\; \mathrm{span}_t,
+$$
+
+with $\mathrm{span}_t = \min(\mathrm{DT}_t, N - t)$.
+
+**Max starts / min starts (v1.2).**  Two-sided rolling-window cap on
+the closing-event count (mirrors `CommitmentLP` C9):
+
+$$
+\mathrm{min\_starts} \;\leq\;
+\sum_{t \in W} v_{l,t}
+\;\leq\; \mathrm{max\_starts}
+\qquad \forall \, W,
+$$
+
+where $W$ is a window defined by `starts_scope`:
+`"hour"` ⇒ 1 row per block, `"day"` ⇒ 24-hour cumulative-duration
+window, `"week"` ⇒ 168-hour window, `"horizon"` (default) ⇒ one row
+per stage, or an explicit integer hour count.  Aliases `"month"` and
+`"year"` collapse to `"horizon"` since a typical gtopt stage is
+shorter than a calendar month.  Both bounds share the same window
+LHS; either side is omitted when its bound is unset.  Mirrors
+PLEXOS's `Max Starts {Hour|Day|Week|...}` properties on the
+`Generator` class.
 
 ### 5.7 Battery / Energy Storage Constraints
 

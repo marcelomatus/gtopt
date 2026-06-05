@@ -281,6 +281,40 @@ struct Line
   /// constraint: `f = B_eff · (θ_a − θ_b − φ)`.  Positive values reduce
   /// the natural power flow from bus_a to bus_b.  Defaults to 0.0.
   OptTRealFieldSched phase_shift_deg {};
+
+  /// Number of L-secant segments for the ``tangent_signed_flow`` loss-
+  /// upper-bound chord (issue #504).  When ``L > 1`` the single
+  /// ``v ≥ |f|`` auxiliary column is replaced by ``L`` segment columns
+  /// ``v_l ∈ [0, envelope/L]`` and the chord upper bound becomes the
+  /// piecewise sum ``ℓ ≤ Σ chord_slope_l · v_l`` with per-segment slope
+  /// ``(R/V²) · (envelope/L) · (2l − 1)``.  Combined with
+  /// ``loss_use_sos2`` this yields a tight piecewise-linear upper bound
+  /// on the convex quadratic loss curve, lowering worst-case
+  /// overstatement from ``c·envelope²/4`` (L=1 secant) to
+  /// ``c·envelope²/(4·L²)``.
+  ///
+  /// Per-line override beats ``model_options.loss_secant_segments``.
+  /// Unset → ``1`` (single-secant chord, current production behaviour).
+  /// Inert outside ``tangent_signed_flow`` mode.
+  OptInt loss_secant_segments {};
+
+  /// Enable SOS2 enforcement on the ``L`` secant-segment columns
+  /// emitted when ``loss_secant_segments > 1`` (issue #504).  Without
+  /// SOS2 the LP exploits the segment freedom to maximise the chord
+  /// ceiling; with SOS2 at most two consecutive ``v_l`` are non-zero,
+  /// forcing fill order ``v_1`` → ``v_2`` → … → ``v_L`` and making
+  /// the chord piecewise-tight at every breakpoint ``b_l = l·w``.
+  ///
+  /// REQUIRES a MIP-capable LP backend (CPLEX, Gurobi, HiGHS ≥ 1.6);
+  /// gtopt's CBC/CLP plugins do not currently expose SOS2 — the LP
+  /// build raises a structured error if SOS2 is requested with an
+  /// unsupporting backend so the misconfig surfaces at build time.
+  ///
+  /// Per-line override beats ``model_options.loss_use_sos2``.
+  /// Unset → false (no SOS2 declaration; behaviour identical to the
+  /// pre-#504 single-secant chord).  Inert outside
+  /// ``tangent_signed_flow`` mode or when ``loss_secant_segments ≤ 1``.
+  OptBool loss_use_sos2 {};
 };
 
 }  // namespace gtopt

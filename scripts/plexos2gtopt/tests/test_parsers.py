@@ -2661,3 +2661,251 @@ def test_dynamic_respects_err_pct_zero_uniform_fallback() -> None:
         assert ln.loss_pwl_layout == "", (
             f"Dynamic should not annotate uniform-K-fallback lines: {ln}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Issue #504 task #5 — SOS2 fill-order selector (loss_use_sos2 post-pass)
+# --------------------------------------------------------------------------- #
+
+from plexos2gtopt.parsers import _apply_loss_sos2_policy  # noqa: E402
+
+
+def _reset_sos2_env() -> None:
+    """Clear the two SOS2-policy env vars so each test starts fresh."""
+    for k in ("GTOPT_LOSS_SOS2_LINES", "GTOPT_LOSS_SOS2_AUTO"):
+        _os.environ.pop(k, None)
+
+
+@pytest.fixture(autouse=True)
+def _scrub_sos2_env_after_test():
+    """Autouse fixture — clear the SOS2 env vars AFTER every test in
+    this module so a test that leaves them set can't leak into siblings
+    (mirrors ``_scrub_loss_env_after_test`` for the adaptive-K helper).
+    """
+    yield
+    _reset_sos2_env()
+
+
+def _ls_k(name: str, R: float, tmax: float, K: int = 4, **kw) -> LineSpec:
+    """LineSpec factory that pre-stamps ``loss_segments`` (K).
+
+    The SOS2 post-pass runs AFTER the adaptive-K pass, so production
+    inputs always carry a non-zero K on lossy lines.  Tests mirror this
+    by stamping K=4 by default; lossless lines pass K=0 to mimic the
+    real flow.
+    """
+    return LineSpec(
+        object_id=hash(name) & 0xFFFF,
+        name=name,
+        bus_from="a",
+        bus_to="b",
+        resistance=R,
+        tmax_ab=tmax,
+        loss_segments=K,
+        **kw,
+    )
+
+
+def test_sos2_policy_off_by_default_no_stamping() -> None:
+    """No env vars set ⇒ policy is off ⇒ every LineSpec returned
+    unchanged.  This is the regression guard: existing bundle outputs
+    must not flip on by accident."""
+    _reset_sos2_env()
+    lines = (
+        _ls_k("heavy", 0.05, 2000.0, K=6),
+        _ls_k("light", 0.01, 100.0, K=2),
+        _ls_k("zero_R", 0.0, 1000.0, K=0),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    # Identity (same tuple object short-circuits on the empty fast path).
+    assert out is lines
+    for ln in out:
+        assert ln.loss_secant_segments == 0
+        assert ln.loss_use_sos2 is False
+
+
+def test_sos2_policy_explicit_lines_honoured() -> None:
+    """``GTOPT_LOSS_SOS2_LINES`` lists names by comma; flagged lines get
+    ``loss_secant_segments = K`` + ``loss_use_sos2 = True``.  Unnamed
+    lines are untouched.  Lossless (R=0) lines are skipped even when
+    named — the L-secant chord is vacuous there."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_LINES"] = "heavy, also_heavy ,zero_R"
+    lines = (
+        _ls_k("heavy", 0.05, 2000.0, K=6),
+        _ls_k("also_heavy", 0.05, 1000.0, K=5),
+        _ls_k("not_picked", 0.01, 500.0, K=3),
+        _ls_k("zero_R", 0.0, 1000.0, K=0),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["heavy"].loss_use_sos2 is True
+    assert by_name["heavy"].loss_secant_segments == 6
+    assert by_name["also_heavy"].loss_use_sos2 is True
+    assert by_name["also_heavy"].loss_secant_segments == 5
+    assert by_name["not_picked"].loss_use_sos2 is False
+    assert by_name["not_picked"].loss_secant_segments == 0
+    # Lossless lines: never stamped even when explicitly named.
+    assert by_name["zero_R"].loss_use_sos2 is False
+    assert by_name["zero_R"].loss_secant_segments == 0
+
+
+def test_sos2_policy_auto_all_lossy_stamps_every_lossy_line() -> None:
+    """``GTOPT_LOSS_SOS2_AUTO=all-lossy`` ⇒ every line with R>0 and
+    non-zero peak loss gets stamped.  Lossless lines stay untouched."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "all-lossy"
+    lines = (
+        _ls_k("a", 0.01, 500.0, K=3),
+        _ls_k("b", 0.05, 2000.0, K=6),
+        _ls_k("zero_R", 0.0, 1000.0, K=0),
+        _ls_k("zero_tmax", 0.10, 0.0, K=0),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["a"].loss_use_sos2 is True
+    assert by_name["b"].loss_use_sos2 is True
+    assert by_name["zero_R"].loss_use_sos2 is False
+    assert by_name["zero_tmax"].loss_use_sos2 is False
+
+
+def test_sos2_policy_auto_heavy_picks_top_quartile() -> None:
+    """``GTOPT_LOSS_SOS2_AUTO=heavy`` picks the top quartile by peak
+    loss ``R·envelope²``.  With 8 lossy lines, the top 2 (≥ 75th
+    percentile) should be flagged.  Boundary case: ties at the
+    threshold are inclusive (selecting more is safer than fewer)."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    # Peak losses: R=0.01 × tmax² → L_i = 0.01 * (100·i)² for i=1..8.
+    # Sorted L: 100, 400, 900, 1600, 2500, 3600, 4900, 6400.
+    # 75th percentile (index 3·8//4 = 6) = sorted_L[6] = 4900.  So
+    # lines with L >= 4900 (i.e. L7=4900 and L8=6400) are flagged.
+    lines = tuple(_ls_k(f"L{i}", 0.01, 100.0 * i, K=3) for i in range(1, 9))
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    flagged = {n for n, ln in by_name.items() if ln.loss_use_sos2}
+    assert flagged == {"L7", "L8"}, f"Expected top-quartile picks; got {flagged}"
+
+
+def test_sos2_policy_explicit_and_auto_compose_union() -> None:
+    """Manual ``--loss-sos2-lines`` + auto ``--loss-sos2-auto`` compose
+    as a UNION — both sources can contribute.  An explicit pick that
+    the auto-rule would have missed still gets stamped."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    _os.environ["GTOPT_LOSS_SOS2_LINES"] = "L2"  # below-quartile pick
+    lines = tuple(_ls_k(f"L{i}", 0.01, 100.0 * i, K=3) for i in range(1, 9))
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    flagged = {n for n, ln in by_name.items() if ln.loss_use_sos2}
+    # Auto picks L7, L8 (top quartile); explicit adds L2.  Union = {L2, L7, L8}.
+    assert flagged == {"L2", "L7", "L8"}, f"Union expected; got {flagged}"
+
+
+def test_sos2_policy_skips_lines_with_k_le_1() -> None:
+    """A line whose adaptive-K pass left ``loss_segments <= 1`` (degenerate
+    single secant) must NOT be stamped — an L=1 SOS2 declaration is
+    vacuous and ``make_config`` would drop it anyway.  The post-pass
+    saves the round-trip by filtering up front."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_LINES"] = "vacuous"
+    lines = (
+        _ls_k("vacuous", 0.01, 100.0, K=1),
+        _ls_k("ok", 0.01, 100.0, K=4),
+    )
+    _os.environ["GTOPT_LOSS_SOS2_LINES"] = "vacuous,ok"
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["vacuous"].loss_use_sos2 is False
+    assert by_name["vacuous"].loss_secant_segments == 0
+    assert by_name["ok"].loss_use_sos2 is True
+    assert by_name["ok"].loss_secant_segments == 4
+
+
+def test_sos2_policy_auto_off_string_treated_as_off() -> None:
+    """The auto-rule's ``off`` value (and any empty / unknown value)
+    must be a true no-op even when paired with an empty manual list."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "off"
+    lines = (_ls_k("a", 0.05, 1000.0, K=5),)
+    out = _apply_loss_sos2_policy(lines)
+    assert out is lines  # identity → no-op fast path
+    assert out[0].loss_use_sos2 is False
+
+
+def test_sos2_policy_auto_empty_string_normalised_to_off() -> None:
+    """Explicit ``GTOPT_LOSS_SOS2_AUTO=""`` is normalised to ``off`` by
+    the ``if auto_mode == "":`` branch.  Without a manual list this
+    must short-circuit through the no-op fast path."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = ""
+    lines = (_ls_k("a", 0.05, 1000.0, K=5),)
+    out = _apply_loss_sos2_policy(lines)
+    assert out is lines  # identity → no-op fast path
+    assert out[0].loss_use_sos2 is False
+
+
+def test_sos2_policy_extend_overload_soft_cap_lifted_4x_envelope() -> None:
+    """With ``GTOPT_LOSS_EXTEND_OVERLOAD=1`` the ``_peak_loss`` helper
+    inflates the envelope of ``soft_cap_lifted`` lines by 4× (mirrors
+    ``_apply_adaptive_loss_segments``).  Exercise the branch and pin
+    the peak-loss ordering it produces under the ``heavy`` auto-rule:
+    a lifted-cap line beats a regular line of the same nominal rating."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
+    # Both lines: R = 0.01, tmax = 100 → nominal peak loss = 100.
+    # Lifted line gets envelope × 4 → peak loss × 16 = 1600.
+    # With 2 lines and top-quartile (index 3·2//4 = 1) → only the
+    # max-L line is flagged: the lifted one.
+    lines = (
+        _ls_k("regular", 0.01, 100.0, K=4),
+        _ls_k("lifted", 0.01, 100.0, K=4, soft_cap_lifted=True),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["lifted"].loss_use_sos2 is True
+    assert by_name["regular"].loss_use_sos2 is False
+    # Clean up the extra env var we set (autouse fixture covers the SOS2 ones).
+    _os.environ.pop("GTOPT_LOSS_EXTEND_OVERLOAD", None)
+
+
+def test_sos2_policy_extend_overload_soft_cap_2x_envelope() -> None:
+    """Mirror of the previous test for the ``soft_cap`` (× 2 envelope)
+    branch.  Without the ``soft_cap_lifted`` flag the line gets the
+    regular soft-cap multiplier."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "heavy"
+    _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
+    # Lines: regular (nominal peak 100), soft_cap (4×), soft_cap_lifted (16×).
+    # Top quartile of 3 = index 3·3//4 = 2 → only the lifted line.
+    # To exercise the 2× branch as a "picked" line, keep just two: one
+    # regular and one soft_cap.  Soft-cap wins.
+    lines = (
+        _ls_k("regular", 0.01, 100.0, K=4),
+        _ls_k("soft", 0.01, 100.0, K=4, soft_cap=True),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    by_name = {ln.name: ln for ln in out}
+    assert by_name["soft"].loss_use_sos2 is True
+    assert by_name["regular"].loss_use_sos2 is False
+    _os.environ.pop("GTOPT_LOSS_EXTEND_OVERLOAD", None)
+
+
+def test_sos2_policy_empty_stamp_set_returns_input() -> None:
+    """When the auto-rule is enabled but every line is lossless, the
+    stamp set is empty and the function returns the input unchanged.
+    Covers the `if not stamp_idx: return lines` branch after the auto
+    pass (vs the upfront no-op path)."""
+    _reset_sos2_env()
+    _os.environ["GTOPT_LOSS_SOS2_AUTO"] = "all-lossy"
+    lines = (
+        _ls_k("zero_R_1", 0.0, 1000.0, K=0),
+        _ls_k("zero_R_2", 0.0, 500.0, K=0),
+    )
+    out = _apply_loss_sos2_policy(lines)
+    # All lines are lossless → no stamps → input returned verbatim.
+    assert out is lines
+    for ln in out:
+        assert ln.loss_use_sos2 is False
+        assert ln.loss_secant_segments == 0

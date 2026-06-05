@@ -27,6 +27,13 @@
 namespace gtopt
 {
 
+class LineLP;
+
+/// SingleId-style FK alias for ``LineLP``.  Used by elements that
+/// reference a Line through ``ElementIndex`` (e.g. ``LineCommitmentLP``
+/// per issue #509).
+using LineLPSId = ObjectSingleId<LineLP>;
+
 class LineLP : public CapacityObjectLP<Line>
 {
 public:
@@ -60,6 +67,13 @@ public:
   /// secant chord of the convex quadratic `R·v²/V²` on `[0, fmax]`.
   /// See `add_tangent_signed_flow` for the math + derivation.
   static constexpr std::string_view FlowAbsName {"flow_abs"};
+  /// Lambda-form SOS2 L-secant breakpoint weight col (issue #504 SOS2
+  /// path).  ``2L+1`` cols per (line, block) emitted when
+  /// ``tangent_signed_flow`` is paired with ``loss_use_sos2 = true``
+  /// and ``loss_secant_segments > 1``.  Indexed ``0..2L`` so each
+  /// label encodes the breakpoint position ``b_l = (l − L) · w``
+  /// on ``[−fmax, +fmax]``.
+  static constexpr std::string_view FlowLambdaName {"flow_lambda"};
   static constexpr std::string_view LosspName {"lossp"};
   static constexpr std::string_view LossnName {"lossn"};
   /// Consolidated per-(line, block) loss output emitted as
@@ -223,6 +237,18 @@ public:
       const std::pair<ScenarioUid, StageUid>& st_key) const
   {
     return theta_rows.contains(st_key) && !theta_rows.at(st_key).empty();
+  }
+
+  /// Per-(scenario, stage) Kirchhoff KVL row indices.  Returns the
+  /// inner per-block map for the ``(scenario, stage)`` cell, or a
+  /// static empty map when this line has no KVL rows for that cell
+  /// (radial network, ``node_angle`` mode skipped, etc.).  Read by
+  /// ``LineCommitmentLP`` (issue #509) when the OTS big-M
+  /// disjunction rewrite needs to mutate the existing equality row.
+  [[nodiscard]] constexpr const auto& theta_rows_at(const ScenarioLP& scenario,
+                                                    const StageLP& stage) const
+  {
+    return find_or_empty_inner(theta_rows, scenario, stage);
   }
 
   /// @name Parameter accessors for user constraint resolution

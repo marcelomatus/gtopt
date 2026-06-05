@@ -481,6 +481,25 @@ public:
     return m_options_.model_options.loss_cost_eps.value_or(0.0);
   }
 
+  /// @brief Gets the global default for ``Line.loss_secant_segments``
+  /// (issue #504 L-secant chord — number of segment columns
+  /// per (line, block) emitted by ``tangent_signed_flow`` when the
+  /// SOS2 L-secant chord is active).  Per-line override beats this
+  /// value; ``1`` (single-secant chord) preserves pre-#504 behaviour.
+  [[nodiscard]] constexpr auto loss_secant_segments() const
+  {
+    return m_options_.model_options.loss_secant_segments.value_or(1);
+  }
+
+  /// @brief Gets the global default for ``Line.loss_use_sos2``
+  /// (issue #504 — SOS2 enforcement on the L-secant segment columns).
+  /// Per-line override beats this value; ``false`` preserves pre-#504
+  /// behaviour (no SOS2 declared even when ``loss_secant_segments > 1``).
+  [[nodiscard]] constexpr auto loss_use_sos2() const
+  {
+    return m_options_.model_options.loss_use_sos2.value_or(false);
+  }
+
   /// @brief Gets the bound for voltage-angle variables (`θ ∈
   /// [−theta_max, +theta_max]`).
   ///

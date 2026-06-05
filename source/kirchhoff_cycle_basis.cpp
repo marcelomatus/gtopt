@@ -225,7 +225,8 @@ std::size_t add_kvl_rows(const SystemContext& sc,
                          const StageLP& stage,
                          LinearProblem& lp,
                          const Collection<BusLP>& buses,
-                         const Collection<LineLP>& lines)
+                         const Collection<LineLP>& lines,
+                         const SwitchableLineLookup& switchable_lookup)
 {
   const auto& line_elements = lines.elements();
   if (line_elements.empty()) {
@@ -336,10 +337,38 @@ std::size_t add_kvl_rows(const SystemContext& sc,
   static constexpr std::string_view class_name = kirchhoff_class_name;
   static constexpr std::string_view constraint_name =
       kirchhoff_cycle_constraint_name;
+  static constexpr std::string_view constraint_name_upper =
+      kirchhoff_cycle_constraint_name;  // upper half of disjunctive pair
+  static constexpr std::string_view constraint_name_lower = "kvl_minus";
+
+  // ── Big-M for the OTS disjunctive form ─────────────────────────────
+  // `M_C = 2·θ_max · |C| · row_scale + Σ_{e ∈ C} |φ_e| · row_scale`
+  // (Fisher 2008 baseline refined for phase shifts).  Bounds the
+  // maximum magnitude of `LHS − RHS_eq` over feasible flows when every
+  // line in the cycle is in-service, so collapsing `Σ (1 − u_l) · M_C`
+  // to zero (all `u_l = 1`) recovers the original equality, and any
+  // `u_l = 0` slacks the cycle by exactly `M_C`.
+  //
+  // We use `theta_max` from the planning options (auto-set by
+  // `PlanningLP::auto_scale_theta` to `Σ_l |x_τ_l|·tmax_l`).  Per-line
+  // `LineCommitment.kvl_big_m` overrides are NOT consulted here — the
+  // cycle-form big-M is a sum-of-edges bound, not a per-edge value.
+  const double theta_max = sc.options().theta_max();
 
   std::size_t total_rows = 0;
   std::size_t cycle_idx = 0;
   for (const auto& cycle : cycles) {
+    // Per-cycle `M_C` base (block-invariant: depends only on the
+    // cycle's edges' `x_tau`s and `phi_rad`s, both stage-resolved).
+    double sum_abs_phi = 0.0;
+    for (const auto& ce : cycle) {
+      const auto& rl = resolved[ce.line_index];
+      sum_abs_phi += std::abs(rl.phi_rad);
+    }
+    const double M_C =
+        (2.0 * theta_max * static_cast<double>(cycle.size()) * row_scale)
+        + (sum_abs_phi * row_scale);
+
     for (const auto& block : blocks) {
       const auto buid = block.uid();
 
@@ -366,20 +395,24 @@ std::size_t add_kvl_rows(const SystemContext& sc,
         continue;
       }
 
-      double rhs = 0.0;
-      auto row =
-          SparseRow {
-              .class_name = class_name,
-              .constraint_name = constraint_name,
-              .variable_uid = Uid {static_cast<int>(cycle_idx)},
-              .context =
-                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      // ── Collect switchable lines on this cycle (OTS disjunctive
+      //    form is needed iff at least one u_l column exists).
+      std::vector<ColIndex> u_cols;
+      if (switchable_lookup) {
+        u_cols.reserve(cycle.size());
+        for (const auto& ce : cycle) {
+          if (auto sw = switchable_lookup(ce.line_index, buid)) {
+            u_cols.push_back(sw->u_col);
           }
-              .equal(0.0);
-      // Rough non-zero estimate: every cycle edge contributes 1
-      // (aggregator) or K (segs) cols per direction.  Reserve the
-      // larger of cycle.size() and 4 to cover the typical case.
-      row.reserve(std::max<std::size_t>(cycle.size() * 2, 4));
+        }
+      }
+      const bool disjunctive = !u_cols.empty();
+
+      double rhs = 0.0;
+      // Build a "core" sparse map of flow coefficients first (shared
+      // between upper and lower rows when disjunctive).  `flat_map` has
+      // no `reserve`; the inserts amortise.
+      SparseRow::cmap_t flow_coeffs;
 
       for (const auto& ce : cycle) {
         const auto& rl = resolved[ce.line_index];
@@ -394,38 +427,92 @@ std::size_t add_kvl_rows(const SystemContext& sc,
         // directly with the same per-edge coefficient.
         const auto& fpc = rl.line->flowp_cols_at(scenario, stage);
         if (auto it = fpc.find(buid); it != fpc.end()) {
-          row[it->second] += coef_base;
+          flow_coeffs[it->second] += coef_base;
         }
         const auto& fnc = rl.line->flown_cols_at(scenario, stage);
         if (auto it = fnc.find(buid); it != fnc.end()) {
-          row[it->second] -= coef_base;
+          flow_coeffs[it->second] -= coef_base;
         }
         const auto& fpsegc = rl.line->flowp_seg_cols_at(scenario, stage);
         if (auto it = fpsegc.find(buid); it != fpsegc.end()) {
           for (const auto& col : it->second) {
-            row[col] += coef_base;
+            flow_coeffs[col] += coef_base;
           }
         }
         const auto& fnsegc = rl.line->flown_seg_cols_at(scenario, stage);
         if (auto it = fnsegc.find(buid); it != fnsegc.end()) {
           for (const auto& col : it->second) {
-            row[col] -= coef_base;
+            flow_coeffs[col] -= coef_base;
           }
         }
         // ``tangent_signed_flow`` mode: single signed flow column carries
-        // its own sign, so use a single ``+`` stamp (the sign of the
-        // contribution to the cycle equation comes from ``ce.sign`` baked
-        // into ``coef_base``, exactly as for the aggregator path).
+        // its own sign, so use a single ``+`` stamp.
         const auto& fsc = rl.line->flows_cols_at(scenario, stage);
         if (auto it = fsc.find(buid); it != fsc.end()) {
-          row[it->second] += coef_base;
+          flow_coeffs[it->second] += coef_base;
         }
       }
 
-      // Update RHS now that all edges have been summed.
-      row.equal(-rhs);
-      [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
-      ++total_rows;
+      if (!disjunctive) {
+        // ── Standard equality row (no OTS in this cycle) ──
+        SparseRow row {
+            .cmap = std::move(flow_coeffs),
+            .class_name = class_name,
+            .constraint_name = constraint_name,
+            .variable_uid = Uid {static_cast<int>(cycle_idx)},
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        };
+        row.equal(-rhs);
+        [[maybe_unused]] const auto row_idx = lp.add_row(std::move(row));
+        ++total_rows;
+        continue;
+      }
+
+      // ── OTS disjunctive form ──
+      //   −Σ M_C · (1 − u_l)  ≤  LHS − (−rhs)  ≤  +Σ M_C · (1 − u_l)
+      //
+      // Expanded with `u_l` coefficients on the LHS:
+      //   LHS + Σ M_C · u_l  ≤  −rhs + |sw| · M_C        (upper)
+      //   LHS − Σ M_C · u_l  ≥  −rhs − |sw| · M_C        (lower)
+      const double slack = M_C * static_cast<double>(u_cols.size());
+
+      // Upper-side row: LHS + Σ M_C · u_l  ≤  −rhs + slack
+      {
+        SparseRow::cmap_t upper_coeffs = flow_coeffs;  // copy
+        for (const auto col : u_cols) {
+          upper_coeffs[col] += M_C;
+        }
+        SparseRow upper {
+            .cmap = std::move(upper_coeffs),
+            .class_name = class_name,
+            .constraint_name = constraint_name_upper,
+            .variable_uid = Uid {static_cast<int>(cycle_idx)},
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        };
+        upper.less_equal(-rhs + slack);
+        [[maybe_unused]] const auto upper_idx = lp.add_row(std::move(upper));
+        ++total_rows;
+      }
+      // Lower-side row: LHS − Σ M_C · u_l  ≥  −rhs − slack
+      {
+        SparseRow::cmap_t lower_coeffs = std::move(flow_coeffs);
+        for (const auto col : u_cols) {
+          lower_coeffs[col] -= M_C;
+        }
+        SparseRow lower {
+            .cmap = std::move(lower_coeffs),
+            .class_name = class_name,
+            .constraint_name = constraint_name_lower,
+            .variable_uid = Uid {static_cast<int>(cycle_idx)},
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
+        };
+        lower.greater_equal(-rhs - slack);
+        [[maybe_unused]] const auto lower_idx = lp.add_row(std::move(lower));
+        ++total_rows;
+      }
     }
     ++cycle_idx;
   }

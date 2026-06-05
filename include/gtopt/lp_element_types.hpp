@@ -38,6 +38,7 @@ class HydrogenStorageLP;
 class ThermalNodeLP;
 class ThermalStorageLP;
 class CommitmentLP;
+class LineCommitmentLP;
 class ConverterLP;
 class DemandLP;
 class DecisionVariableLP;
@@ -116,6 +117,7 @@ using lp_element_types_t = std::tuple<BusLP,
                                       EmissionSourceLP,
                                       CommitmentLP,
                                       SimpleCommitmentLP,
+                                      LineCommitmentLP,
                                       ConverterLP,
                                       InertiaZoneLP,
                                       InertiaProvisionLP,
