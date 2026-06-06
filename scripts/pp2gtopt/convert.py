@@ -361,6 +361,11 @@ def convert(
     net: pp.pandapowerNet | None = None,
     name: str | None = None,
     solver_type: str = DEFAULT_SOLVER,
+    *,
+    scale_objective: float = 1000.0,
+    demand_fail_cost: float = 1000.0,
+    use_kirchhoff: bool = True,
+    use_single_bus: bool = False,
 ) -> dict[str, Any]:
     """Load a pandapower network and write the gtopt JSON file.
 
@@ -399,10 +404,10 @@ def convert(
         "annual_discount_rate": 0.0,
         "output_format": "csv",
         "output_compression": "uncompressed",
-        "use_single_bus": False,
-        "demand_fail_cost": 1000,
-        "scale_objective": 1000,
-        "use_kirchhoff": True,
+        "use_single_bus": use_single_bus,
+        "demand_fail_cost": demand_fail_cost,
+        "scale_objective": scale_objective,
+        "use_kirchhoff": use_kirchhoff,
     }
     if solver_type == "cascade":
         options["cascade_options"] = _default_cascade_options()

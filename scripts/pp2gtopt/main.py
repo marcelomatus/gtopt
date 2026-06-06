@@ -13,6 +13,12 @@ from gtopt_config import (
     configure_logging,
     get_version,
 )
+from gtopt_shared.cli_flags import (
+    add_demand_fail_cost_argument,
+    add_scale_objective_argument,
+    add_use_kirchhoff_argument,
+    add_use_single_bus_argument,
+)
 
 from .convert import (
     DEFAULT_SOLVER,
@@ -225,6 +231,16 @@ def make_parser() -> argparse.ArgumentParser:
         action="version",
         version=f"%(prog)s {__version__}",
     )
+
+    # Canonical solver-option flags from gtopt_shared.cli_flags
+    # (issue #507 Phase 2 wire-up).  Defaults preserve the original
+    # hardcoded pp2gtopt convert() values so existing call sites
+    # produce byte-identical JSON.
+    add_scale_objective_argument(parser, default=1000.0)
+    add_demand_fail_cost_argument(parser, default=1000.0)
+    add_use_kirchhoff_argument(parser, default=True)
+    add_use_single_bus_argument(parser, default=False, dialect="boolean_optional")
+
     add_log_level_argument(parser)
     add_color_argument(parser)
     return parser
@@ -251,7 +267,16 @@ def main() -> None:
         name = network
 
     output = args.output if args.output is not None else Path(f"{name}.json")
-    planning = convert(output, net=net, name=name, solver_type=args.solver_type)
+    planning = convert(
+        output,
+        net=net,
+        name=name,
+        solver_type=args.solver_type,
+        scale_objective=args.scale_objective,
+        demand_fail_cost=args.demand_fail_cost,
+        use_kirchhoff=args.use_kirchhoff,
+        use_single_bus=bool(args.use_single_bus),
+    )
 
     if args.run_check:
         run_post_check(planning)
