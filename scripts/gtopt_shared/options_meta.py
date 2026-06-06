@@ -166,7 +166,22 @@ SIMULATION_OPTION_KEYS: frozenset[str] = frozenset(
     }
 )
 
-_OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
+# Keys that LEGITIMATELY appear in more than one sub-object partition.
+# SDDP / monolithic both expose the same boundary-cuts knobs under the
+# same JSON name; the igtopt Excel sheet uses prefixed names
+# (``monolithic_boundary_cuts_file``) to disambiguate on input but the
+# JSON keys themselves are shared by design.  Consumers that need to
+# verify partition disjointness must subtract this set first.
+INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
+    {
+        "boundary_cuts_file",
+        "boundary_cuts_mode",
+        "boundary_max_iterations",
+    }
+)
+
+
+OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     # ------------------------------------------------------------------
     # Top-level options (stay at root of "options" JSON object)
     # ------------------------------------------------------------------
@@ -528,3 +543,11 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
 ]
+
+
+# Backward-compat alias: ``OPTIONS_FIELDS`` was previously named
+# ``_OPTIONS_FIELDS``; the leading underscore implied "private" but
+# the data is part of the package contract (re-exported via the
+# ``igtopt._options_meta`` shim).  Keep the alias so existing imports
+# of ``_OPTIONS_FIELDS`` continue to work.
+_OPTIONS_FIELDS = OPTIONS_FIELDS

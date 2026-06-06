@@ -120,6 +120,60 @@ def test_multi_scenario_probability_normalisation() -> None:
     assert uids == [1, 2, 3, 4]
 
 
+def test_build_simulation_with_empty_blocks_emits_empty_arrays() -> None:
+    """Degenerate spec with empty tuples emits empty arrays cleanly."""
+    spec = SimulationSpec(blocks=(), stages=(), scenarios=())
+    out = build_simulation(spec)
+    assert out == {
+        "block_array": [],
+        "stage_array": [],
+        "scenario_array": [],
+    }
+    assert "phase_array" not in out
+
+
+def test_single_stage_uniform_scenarios_zero_raises_value_error() -> None:
+    """``scenarios=0`` is rejected with a clear ValueError, not ZeroDivisionError."""
+    with pytest.raises(ValueError, match="scenarios must be > 0"):
+        single_stage_uniform(num_blocks=1, block_duration_h=1.0, scenarios=0)
+
+
+def test_multi_stage_uniform_blocks_per_stage_zero_raises_value_error() -> None:
+    """``blocks_per_stage=0`` is rejected before the division kicks in."""
+    with pytest.raises(ValueError, match="blocks_per_stage must be > 0"):
+        multi_stage_uniform(num_stages=2, blocks_per_stage=0, stage_duration_h=24.0)
+
+
+def test_multi_stage_uniform_zero_stages_produces_empty_arrays() -> None:
+    """``num_stages=0`` yields empty stages and blocks (valid degenerate case)."""
+    spec = multi_stage_uniform(num_stages=0, blocks_per_stage=2, stage_duration_h=24.0)
+    out = build_simulation(spec)
+    assert out["block_array"] == []
+    assert out["stage_array"] == []
+    assert len(out["scenario_array"]) == 1  # default scenarios=1
+
+
+def test_heterogeneous_blocks_empty_durations_produces_empty_block_array() -> None:
+    """Empty ``block_durations`` yields a stage with ``count_block=0``."""
+    spec = heterogeneous_blocks(block_durations=())
+    out = build_simulation(spec)
+    assert out["block_array"] == []
+    assert out["stage_array"][0]["count_block"] == 0
+
+
+def test_heterogeneous_blocks_scenarios_zero_raises() -> None:
+    """``scenarios=0`` rejected in heterogeneous_blocks too."""
+    with pytest.raises(ValueError, match="scenarios must be > 0"):
+        heterogeneous_blocks(block_durations=(1.0,), scenarios=0)
+
+
+def test_single_stage_uniform_chronological_false_emits_key() -> None:
+    """``chronological=False`` explicitly emits ``chronological: false`` in JSON."""
+    spec = single_stage_uniform(num_blocks=1, block_duration_h=1.0, chronological=False)
+    out = build_simulation(spec)
+    assert out["stage_array"][0]["chronological"] is False
+
+
 def test_specs_are_frozen() -> None:
     """All spec dataclasses are frozen so callers can't mutate after build."""
     block = BlockSpec(uid=1, duration=1.0)

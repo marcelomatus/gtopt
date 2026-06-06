@@ -2,10 +2,12 @@
 """Shared ``build_simulation`` for the gtopt-writer framework (issue #507 Phase 3).
 
 Unifies the block / stage / scenario / phase array assembly across
-the five planning-writer converters.  Each converter still owns the
-ADAPTER step that produces a :class:`SimulationSpec` from its native
-input (PLEXOS bundle, PLP study, SDDP psrclasses, pandapower net,
-igtopt Excel sheets) — this module owns the JSON SHAPE.
+the four planning-writer converters (``plp2gtopt``, ``plexos2gtopt``,
+``sddp2gtopt``, ``pp2gtopt``) plus the Excel writer (``igtopt``).
+Each converter still owns the ADAPTER step that produces a
+:class:`SimulationSpec` from its native input (PLEXOS bundle, PLP
+study, SDDP psrclasses, pandapower net, igtopt Excel sheets) — this
+module owns the JSON SHAPE.
 
 Output is the ``simulation`` sub-object of a gtopt planning JSON:
 
@@ -28,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BlockSpec:
     """One block in the gtopt simulation block_array."""
 
@@ -36,7 +38,7 @@ class BlockSpec:
     duration: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StageSpec:
     """One stage covering ``count_block`` consecutive blocks."""
 
@@ -47,7 +49,7 @@ class StageSpec:
     chronological: bool | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ScenarioSpec:
     """One scenario with a probability weight."""
 
@@ -55,7 +57,7 @@ class ScenarioSpec:
     probability_factor: float = 1.0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PhaseSpec:
     """One phase covering ``count_stage`` consecutive stages (optional)."""
 
@@ -64,7 +66,7 @@ class PhaseSpec:
     count_stage: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SimulationSpec:
     """All four arrays the gtopt ``simulation`` sub-object carries.
 
@@ -117,6 +119,24 @@ def build_simulation(spec: SimulationSpec) -> dict[str, Any]:
 # ── Convenience constructors for the common shapes ────────────────────
 
 
+def _build_uniform_scenarios(scenarios: int) -> tuple[ScenarioSpec, ...]:
+    """Build ``scenarios`` ScenarioSpecs with even probability.
+
+    Raised to ValueError on ``scenarios <= 0`` (preserves a clear
+    error path; the alternative ``1.0 / 0`` ZeroDivisionError is
+    opaque at the call site).
+    """
+    if scenarios <= 0:
+        raise ValueError(
+            f"scenarios must be > 0; got {scenarios}.  Single-scenario "
+            "cases pass scenarios=1 (the default)."
+        )
+    return tuple(
+        ScenarioSpec(uid=i + 1, probability_factor=1.0 / scenarios)
+        for i in range(scenarios)
+    )
+
+
 def single_stage_uniform(
     *,
     num_blocks: int,
@@ -129,6 +149,9 @@ def single_stage_uniform(
     Matches the pp2gtopt and plexos2gtopt-hourly defaults.  When
     ``chronological`` is set, the stage carries the
     ``chronological`` flag (gtopt's commitment LP requires it).
+
+    Raises ``ValueError`` on ``scenarios <= 0``.  ``num_blocks=0``
+    is accepted and produces a degenerate stage with ``count_block=0``.
     """
     blocks = tuple(
         BlockSpec(uid=i + 1, duration=block_duration_h) for i in range(num_blocks)
@@ -140,11 +163,11 @@ def single_stage_uniform(
         active=1,
         chronological=chronological,
     )
-    scenario_list = tuple(
-        ScenarioSpec(uid=i + 1, probability_factor=1.0 / scenarios)
-        for i in range(scenarios)
+    return SimulationSpec(
+        blocks=blocks,
+        stages=(stage,),
+        scenarios=_build_uniform_scenarios(scenarios),
     )
-    return SimulationSpec(blocks=blocks, stages=(stage,), scenarios=scenario_list)
 
 
 def multi_stage_uniform(
@@ -160,8 +183,19 @@ def multi_stage_uniform(
     each stage carries the same number of equal-duration blocks.
     Block duration is computed as ``stage_duration_h /
     blocks_per_stage``.
+
+    Raises ``ValueError`` on ``blocks_per_stage <= 0`` (would force a
+    ``ZeroDivisionError`` on the block-duration computation) or
+    ``scenarios <= 0``.  ``num_stages=0`` is accepted and produces
+    empty ``blocks`` and ``stages`` tuples.
     """
-    block_h = stage_duration_h / max(blocks_per_stage, 1)
+    if blocks_per_stage <= 0:
+        raise ValueError(
+            f"blocks_per_stage must be > 0; got {blocks_per_stage}.  "
+            "Use single_stage_uniform(num_blocks=0) for the degenerate "
+            "no-block case."
+        )
+    block_h = stage_duration_h / blocks_per_stage
     blocks: list[BlockSpec] = []
     stages: list[StageSpec] = []
     bid = 1
@@ -178,12 +212,10 @@ def multi_stage_uniform(
                 active=1,
             )
         )
-    scenario_list = tuple(
-        ScenarioSpec(uid=i + 1, probability_factor=1.0 / scenarios)
-        for i in range(scenarios)
-    )
     return SimulationSpec(
-        blocks=tuple(blocks), stages=tuple(stages), scenarios=scenario_list
+        blocks=tuple(blocks),
+        stages=tuple(stages),
+        scenarios=_build_uniform_scenarios(scenarios),
     )
 
 
@@ -198,6 +230,10 @@ def heterogeneous_blocks(
     Matches plexos-native mode where each block aggregates a
     heterogeneous number of hourly intervals (e.g. 111 blocks
     across 7 days for CEN PCP).
+
+    Raises ``ValueError`` on ``scenarios <= 0``.  Empty
+    ``block_durations`` is accepted and produces a degenerate stage
+    with ``count_block=0``.
     """
     blocks = tuple(
         BlockSpec(uid=i + 1, duration=float(d)) for i, d in enumerate(block_durations)
@@ -209,8 +245,8 @@ def heterogeneous_blocks(
         active=1,
         chronological=chronological,
     )
-    scenario_list = tuple(
-        ScenarioSpec(uid=i + 1, probability_factor=1.0 / scenarios)
-        for i in range(scenarios)
+    return SimulationSpec(
+        blocks=blocks,
+        stages=(stage,),
+        scenarios=_build_uniform_scenarios(scenarios),
     )
-    return SimulationSpec(blocks=blocks, stages=(stage,), scenarios=scenario_list)

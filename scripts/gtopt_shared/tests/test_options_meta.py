@@ -12,18 +12,10 @@ from __future__ import annotations
 from gtopt_shared import options_meta
 
 
-# Keys that legitimately appear in MORE THAN ONE partition.  PLEXOS
-# / SDDP / monolithic all expose the same boundary-cuts knobs under
-# the same JSON name; the igtopt Excel sheet uses prefixed names
-# (``monolithic_boundary_cuts_file``) to disambiguate on input but
-# the JSON keys themselves are shared by design.
-_INTENTIONAL_OVERLAPS: frozenset[str] = frozenset(
-    {
-        "boundary_cuts_file",
-        "boundary_cuts_mode",
-        "boundary_max_iterations",
-    }
-)
+# Re-import the canonical overlap set so the policy lives in one place
+# (the data module) — see ``INTENTIONAL_OPTION_KEY_OVERLAPS`` in
+# ``gtopt_shared/options_meta.py``.
+_INTENTIONAL_OVERLAPS = options_meta.INTENTIONAL_OPTION_KEY_OVERLAPS
 
 
 def test_frozensets_are_mostly_disjoint() -> None:
@@ -76,10 +68,9 @@ def test_options_fields_shape() -> None:
     knobs are JSON-only).  We only pin the row SHAPE here so future
     additions can't accidentally break the Excel generator.
     """
-    # pylint: disable=protected-access
-    assert options_meta._OPTIONS_FIELDS, "_OPTIONS_FIELDS is empty"
+    assert options_meta.OPTIONS_FIELDS, "OPTIONS_FIELDS is empty"
     seen_keys: set[str] = set()
-    for i, row in enumerate(options_meta._OPTIONS_FIELDS):
+    for i, row in enumerate(options_meta.OPTIONS_FIELDS):
         assert isinstance(row, tuple), (
             f"_OPTIONS_FIELDS[{i}] is not a tuple: got {type(row)}"
         )
