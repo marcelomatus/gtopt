@@ -1692,6 +1692,16 @@ def _render_lmp_compare(
         deltas = [r[3] for r in rows]
         import statistics
 
+        # Average marginal cost over the PLEXOS-PRICED buses only (``rows``
+        # excludes the buses PLEXOS leaves at 0 / doesn't save) — same bus
+        # set on both sides, so it's apples-to-apples.
+        amc_p = statistics.mean(r[1] for r in rows)
+        amc_g = statistics.mean(r[2] for r in rows)
+        console.print(
+            f"[dim]Avg marginal cost over {len(rows)} PLEXOS-priced buses: "
+            f"PLEXOS = {amc_p:.2f} $/MWh, gtopt = {amc_g:.2f} $/MWh "
+            f"(Δ = {amc_g - amc_p:+.2f}).[/dim]"
+        )
         console.print(
             f"[dim]LMP diff over {len(rows)} common buses: "
             f"mean Δ = {statistics.mean(deltas):+.2f} $/MWh, "
