@@ -50,6 +50,7 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <gtopt/arrow_input_guards.hpp>
 #include <gtopt/fmap.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -534,6 +535,7 @@ auto read_parquet_table(const std::string& filepath)
   if (auto s = reader->ReadTable(&table); !s.ok()) {
     return std::unexpected(make_io_error(filepath, s.ToString()));
   }
+  reject_nan_in_float_columns(*table, filepath);
   return table;
 }
 

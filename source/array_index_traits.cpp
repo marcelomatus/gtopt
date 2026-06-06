@@ -20,6 +20,7 @@
 #include <arrow/io/compressed.h>
 #include <arrow/util/compression.h>
 #include <gtopt/array_index_traits.hpp>
+#include <gtopt/arrow_input_guards.hpp>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/input_context.hpp>
 #include <gtopt/system_context.hpp>
@@ -90,9 +91,16 @@ namespace
 
   const auto& io_context = arrow::io::default_io_context();
 
-  // Helper: try to read a CSV table from an open InputStream.
-  const auto try_read_csv = [&](std::shared_ptr<arrow::io::InputStream> stream)
-      -> arrow::Result<ArrowTable>
+  // Helper: try to read a CSV table from an open InputStream.  The
+  // ``reject_non_numeric_columns`` guard fires AFTER a successful Read
+  // — Arrow's CSV type-inference silently falls back to ``String`` on
+  // any non-numeric token (e.g. ``"1, foo, 3"``), so we surface that
+  // as a hard failure instead of carrying a string column into the
+  // numeric LP build.  Integer values (``"1, -5"``) are accepted: the
+  // guard only rejects non-{integer, floating} columns.
+  const auto try_read_csv =
+      [&](std::shared_ptr<arrow::io::InputStream> stream,
+          std::string_view source_label) -> arrow::Result<ArrowTable>
   {
     ARROW_ASSIGN_OR_RAISE(auto reader,
                           arrow::csv::TableReader::Make(io_context,
@@ -100,7 +108,9 @@ namespace
                                                         read_options,
                                                         parse_options,
                                                         convert_options));
-    return reader->Read();
+    ARROW_ASSIGN_OR_RAISE(auto table, reader->Read());
+    reject_non_numeric_columns(*table, source_label);
+    return table;
   };
 
   // Try plain .csv first
@@ -108,7 +118,7 @@ namespace
   auto maybe_infile = arrow::io::ReadableFile::Open(filename);
   if (maybe_infile.ok()) {
     SPDLOG_DEBUG("csv_read_table: creating CSV reader for '{}'", filename);
-    auto maybe_table = try_read_csv(*maybe_infile);
+    auto maybe_table = try_read_csv(*maybe_infile, filename);
     if (maybe_table.ok()) {
       SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
                    filename,
@@ -130,7 +140,7 @@ namespace
   auto maybe_gz_stream =
       open_compressed_stream(gz_filename, arrow::Compression::GZIP);
   if (maybe_gz_stream.ok()) {
-    auto maybe_table = try_read_csv(*maybe_gz_stream);
+    auto maybe_table = try_read_csv(*maybe_gz_stream, gz_filename);
     if (maybe_table.ok()) {
       SPDLOG_DEBUG("csv_read_table: successfully read '{}' ({} rows, {} cols)",
                    gz_filename,
@@ -163,7 +173,7 @@ namespace
         "Can't open file {}, {} or {}", filename, gz_filename, zst_filename));
   }
 
-  auto maybe_table = try_read_csv(*maybe_zst_stream);
+  auto maybe_table = try_read_csv(*maybe_zst_stream, zst_filename);
   if (!maybe_table.ok()) {
     SPDLOG_DEBUG("csv_read_table: failed to read '{}': {}",
                  zst_filename,
@@ -218,6 +228,7 @@ namespace
         path,
         table->num_rows(),
         table->num_columns());
+    reject_nan_in_float_columns(*table, path);
     return table;
   };
 
@@ -252,6 +263,7 @@ namespace
               filename,
               table->num_rows(),
               table->num_columns());
+          reject_nan_in_float_columns(*table, filename);
           return table;
         }
         SPDLOG_DEBUG("parquet_read_table: failed to read table from '{}': {}",
