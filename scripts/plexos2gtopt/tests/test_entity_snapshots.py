@@ -8,12 +8,11 @@ giving drift attribution at the per-builder level — when a Phase 4
 entity-builder refactor migrates one builder into the shared layer,
 running just this test attributes any drift to the right entity.
 
-This file covers **15 builders** with simple or moderately-rich
-spec inputs.  The remaining 4 builders (turbine, user_constraint,
-commitment, reserve_provision) have richer cross-referenced spec
-trees with name-based generator / fuel / zone resolution; those
-ship in a follow-up file once their fixture surface warrants its
-own design.
+This file covers **all 19 ``build_*_array`` builders** in
+``plexos2gtopt.gtopt_writer`` with minimal in-process specs.
+Together with the full-JSON golden in ``test_golden_round_trip.py``
+this gives Phase 0 the per-builder drift attribution layer the
+Phase 4 entity-builder unification needs.
 
 Refresh with ``PYTEST_UPDATE_GOLDEN=1 python -m pytest …``.
 """
@@ -28,6 +27,7 @@ import pytest
 
 from plexos2gtopt.entities import (
     BatterySpec,
+    CommitmentSpec,
     DecisionVariableSpec,
     DemandSpec,
     FlowRightSpec,
@@ -38,13 +38,17 @@ from plexos2gtopt.entities import (
     LineSpec,
     NodeSpec,
     PlantSpec,
+    ReserveProvisionSpec,
     ReserveSpec,
     ReservoirSpec,
+    TurbineSpec,
+    UserConstraintSpec,
     WaterwaySpec,
 )
 from plexos2gtopt.gtopt_writer import (
     build_battery_array,
     build_bus_array,
+    build_commitment_array,
     build_decision_variable_array,
     build_demand_array,
     build_emission_array,
@@ -55,8 +59,11 @@ from plexos2gtopt.gtopt_writer import (
     build_junction_array,
     build_line_array,
     build_plant_array,
+    build_reserve_provision_array,
     build_reserve_zone_array,
     build_reservoir_array,
+    build_turbine_array,
+    build_user_constraint_array,
     build_waterway_array,
 )
 
@@ -386,3 +393,77 @@ def test_build_generator_array_snapshot() -> None:
     )
     fuels = (FuelSpec(object_id=10, name="COAL", price=85.0, heat_content=24.0),)
     _assert_snapshot("build_generator_array", build_generator_array(generators, fuels))
+
+
+def test_build_turbine_array_snapshot() -> None:
+    """Turbine entries: generator + reservoir + production factor + optional tail."""
+    turbines = (
+        TurbineSpec(
+            generator_name="ANTUCO_U1",
+            reservoir_name="LAJA",
+            production_factor=0.85,
+            tail_reservoir_name="ABANICO",
+        ),
+        TurbineSpec(
+            generator_name="LOMA_ALTA",
+            reservoir_name="MAULE",
+            production_factor=0.95,
+        ),
+    )
+    _assert_snapshot("build_turbine_array", build_turbine_array(turbines))
+
+
+def test_build_commitment_array_snapshot() -> None:
+    """Commitment entries: per-generator UC params; MIP by default."""
+    commitments = (
+        CommitmentSpec(
+            generator_name="COCHRANE_1",
+            startup_cost=500.0,
+            shutdown_cost=200.0,
+            min_up_time=6.0,
+            min_down_time=4.0,
+            initial_status=1.0,
+            initial_hours=12.5,
+        ),
+    )
+    _assert_snapshot("build_commitment_array", build_commitment_array(commitments))
+
+
+def test_build_user_constraint_array_snapshot() -> None:
+    """UC entries: AMPL expression + optional penalty + optional active flag."""
+    constraints = (
+        UserConstraintSpec(
+            name="PANGUE_min_daily",
+            expression="TRB_PANGUE.gen >= 20",
+            penalty=10000.0,
+            description="PLEXOS Min Daily Generation @ PANGUE",
+        ),
+        UserConstraintSpec(
+            name="LAJA_contingency_N1",
+            expression="LAJA_R_flow <= 800",
+            active=False,
+        ),
+    )
+    _assert_snapshot(
+        "build_user_constraint_array", build_user_constraint_array(constraints)
+    )
+
+
+def test_build_reserve_provision_array_snapshot() -> None:
+    """ReserveProvision entries: per-generator zone-eligibility + caps."""
+    provisions = (
+        ReserveProvisionSpec(
+            generator_name="COCHRANE_1",
+            reserve_zones=("SEN_RS", "SEN_LW"),
+            urmax=50.0,
+            drmax=30.0,
+        ),
+        ReserveProvisionSpec(
+            generator_name="BAT_ARICA",
+            reserve_zones=("SEN_RS",),
+            urmax=10.0,
+        ),
+    )
+    _assert_snapshot(
+        "build_reserve_provision_array", build_reserve_provision_array(provisions)
+    )
