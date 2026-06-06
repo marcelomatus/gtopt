@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: BSD-3-Clause
+"""Golden-fixture regression test for pp2gtopt JSON output (issue #507 Phase 0).
+
+Runs ``convert`` on pandapower's built-in ``case_ieee30`` and compares
+the canonical JSON output against a frozen fixture.  Refresh the
+fixture with ``PYTEST_UPDATE_GOLDEN=1 python -m pytest …`` when an
+intentional change to the converter output is made.
+
+Mirrors ``plp2gtopt/tests/test_golden_round_trip.py``.
+"""
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+
+_TESTS_DIR = Path(__file__).parent
+_GOLDEN_DIR = _TESTS_DIR / "fixtures"
+_GOLDEN = _GOLDEN_DIR / "ieee30b_golden.json"
+
+
+def _canonicalise(path: Path) -> str:
+    """Return the JSON content sorted by keys with stable indentation."""
+    data = json.loads(path.read_text())
+    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+
+
+@pytest.mark.integration
+def test_ieee30b_golden_json_round_trip(tmp_path):
+    """case_ieee30 → JSON output is byte-stable against the golden fixture."""
+    # Import inside the test so test discovery does not pull pandapower.
+    pn = pytest.importorskip("pandapower.networks")
+    from pp2gtopt.convert import convert
+
+    net = pn.case_ieee30()
+    out_path = tmp_path / "ieee30b.json"
+    convert(output_path=out_path, net=net, name="ieee30b", solver_type="cascade")
+
+    assert out_path.exists(), f"converter did not produce {out_path}"
+    canonical = _canonicalise(out_path)
+
+    if os.environ.get("PYTEST_UPDATE_GOLDEN"):
+        _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
+        _GOLDEN.write_text(canonical, encoding="utf-8")
+        pytest.skip(
+            f"golden fixture written to {_GOLDEN}; re-run without "
+            "PYTEST_UPDATE_GOLDEN to verify"
+        )
+
+    if not _GOLDEN.exists():
+        pytest.skip(
+            f"golden fixture missing: {_GOLDEN}; create it with "
+            "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
+            "pp2gtopt/tests/test_golden_round_trip.py -q"
+        )
+
+    expected = _GOLDEN.read_text(encoding="utf-8")
+    assert canonical == expected, (
+        "ieee30b.json output changed; if intentional, refresh with "
+        "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
+        "pp2gtopt/tests/test_golden_round_trip.py -q"
+    )
