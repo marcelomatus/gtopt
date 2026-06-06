@@ -1,0 +1,15 @@
+[
+  {
+    "bus_a": "A",
+    "bus_b": "B",
+    "line_losses_mode": "tangent_signed_flow",
+    "loss_envelope": 350.0,
+    "loss_segments": 6,
+    "name": "L_AB",
+    "resistance": 0.012,
+    "tmax_ab": 350.0,
+    "tmax_ba": 350.0,
+    "uid": 1,
+    "voltage": 10.0
+  }
+]

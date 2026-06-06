@@ -1,0 +1,13 @@
+[
+  {
+    "name": "LAJA",
+    "uid": 1
+  },
+  {
+    "drain": true,
+    "drain_capacity": 1500.0,
+    "drain_cost": 7200.0,
+    "name": "ANGOSTURA",
+    "uid": 2
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "bus": 1,
+    "capacity": 360.2,
+    "gcost": 20.0,
+    "name": "g1",
+    "pmax": 360.2,
+    "pmin": 0,
+    "uid": 1
+  },
+  {
+    "bus": 2,
+    "capacity": 140.0,
+    "gcost": 20.0,
+    "name": "g2",
+    "pmax": 140.0,
+    "pmin": 0.0,
+    "uid": 2
+  },
+  {
+    "bus": 5,
+    "capacity": 100.0,
+    "gcost": 40.0,
+    "name": "g3",
+    "pmax": 100.0,
+    "pmin": 0.0,
+    "uid": 3
+  },
+  {
+    "bus": 8,
+    "capacity": 100.0,
+    "gcost": 40.0,
+    "name": "g4",
+    "pmax": 100.0,
+    "pmin": 0.0,
+    "uid": 4
+  },
+  {
+    "bus": 11,
+    "capacity": 100.0,
+    "gcost": 40.0,
+    "name": "g5",
+    "pmax": 100.0,
+    "pmin": 0.0,
+    "uid": 5
+  },
+  {
+    "bus": 13,
+    "capacity": 100.0,
+    "gcost": 40.0,
+    "name": "g6",
+    "pmax": 100.0,
+    "pmin": 0.0,
+    "uid": 6
+  }
+]

@@ -16,6 +16,8 @@ import signal
 import sys
 from pathlib import Path
 
+from gtopt_config import add_color_argument
+
 from .info_display import display_sddp_info
 from .sddp2gtopt import convert_sddp_case, validate_sddp_case
 
@@ -26,16 +28,21 @@ __version__ = "0.1.0"
 _DESCRIPTION = """\
 Convert a PSR SDDP case directory to gtopt JSON format.
 
-v0 reads the typed snapshot ``psrclasses.json`` that PSR SDDP writes
-alongside the legacy ``.dat`` files. ``--info`` and ``--validate``
-are wired today; full conversion is in development (see DESIGN.md).
+Reads the typed snapshot ``psrclasses.json`` that PSR SDDP writes
+alongside the legacy ``.dat`` files.  ``--info`` displays a case
+summary, ``--validate`` runs a light schema sanity check, and
+``-i / --input-dir`` + ``-o / --output-dir`` invoke the full
+conversion (currently emits a single-bus 1-scenario planning JSON
+covering thermal generators, flattened hydro generators, and per-
+stage demand; richer network / reservoir topology is on the roadmap
+— see DESIGN.md).
 """
 
 _EPILOG = """\
 Examples:
-  sddp2gtopt --info  case0           Show a summary of the case
-  sddp2gtopt --validate case0        Light schema sanity check
-  sddp2gtopt -i case0 -o gtopt_case0 (P1+) Convert to gtopt JSON
+  sddp2gtopt --info  case0            Show a summary of the case
+  sddp2gtopt --validate case0         Light schema sanity check
+  sddp2gtopt -i case0 -o gtopt_case0  Convert to gtopt JSON
 """
 
 
@@ -72,7 +79,7 @@ def make_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=None,
-        help="output directory for the gtopt planning (P1+)",
+        help="output directory for the gtopt planning JSON",
     )
     parser.add_argument(
         "-l",
@@ -92,6 +99,7 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run schema sanity checks and exit (0 = ok)",
     )
+    add_color_argument(parser)
     parser.add_argument(
         "-V",
         "--version",

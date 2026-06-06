@@ -1,0 +1,13 @@
+[
+  {
+    "generator": "COCHRANE_1",
+    "initial_hours": 12.5,
+    "initial_status": 1.0,
+    "min_down_time": 4.0,
+    "min_up_time": 6.0,
+    "name": "uc_COCHRANE_1",
+    "shutdown_cost": 200.0,
+    "startup_cost": 500.0,
+    "uid": 1
+  }
+]
