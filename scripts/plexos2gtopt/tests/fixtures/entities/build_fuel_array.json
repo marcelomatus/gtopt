@@ -1,0 +1,22 @@
+[
+  {
+    "emission_factors": [
+      {
+        "combustion": 0.0741,
+        "emission": "co2"
+      }
+    ],
+    "heat_content": 42.0,
+    "name": "diesel",
+    "price": 85.0,
+    "type": "diesel",
+    "uid": 1
+  },
+  {
+    "heat_content": 0.0,
+    "name": "biomasa",
+    "price": 0.0,
+    "type": "biomasa",
+    "uid": 2
+  }
+]

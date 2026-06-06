@@ -1,0 +1,20 @@
+[
+  {
+    "bus": "sys1_bus",
+    "capacity": 100.0,
+    "gcost": 42.5,
+    "name": "T1",
+    "pmax": 100.0,
+    "pmin": 10.0,
+    "uid": 1
+  },
+  {
+    "bus": "sys2_bus",
+    "capacity": 50.0,
+    "gcost": 60.0,
+    "name": "T2",
+    "pmax": 50.0,
+    "pmin": 0.0,
+    "uid": 2
+  }
+]

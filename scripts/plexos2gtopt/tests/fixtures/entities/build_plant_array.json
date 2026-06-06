@@ -1,0 +1,23 @@
+[
+  {
+    "generator_names": [
+      "COCHRANE_1",
+      "COCHRANE_2"
+    ],
+    "name": "COCHRANE",
+    "pmax": 550.0,
+    "uid": 1
+  },
+  {
+    "commit_coeffs": [
+      1.0
+    ],
+    "generator_names": [
+      "ANDINA_U1"
+    ],
+    "n_units": 2,
+    "name": "ANDINA",
+    "uid": 2,
+    "uniq_mutex": true
+  }
+]

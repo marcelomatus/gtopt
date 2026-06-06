@@ -1,0 +1,76 @@
+[
+  {
+    "bus_a": 6,
+    "bus_b": 9,
+    "name": "t6_9",
+    "reactance": 0.208,
+    "tap_ratio": 0.978,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 6,
+    "bus_b": 10,
+    "name": "t6_10",
+    "reactance": 0.556,
+    "tap_ratio": 0.969,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 11,
+    "bus_b": 9,
+    "name": "t11_9",
+    "reactance": 0.208,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 10,
+    "bus_b": 9,
+    "name": "t10_9",
+    "reactance": 0.11,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 4,
+    "bus_b": 12,
+    "name": "t4_12",
+    "reactance": 0.256,
+    "tap_ratio": 0.932,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 12,
+    "bus_b": 13,
+    "name": "t12_13",
+    "reactance": 0.14,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  },
+  {
+    "bus_a": 28,
+    "bus_b": 27,
+    "name": "t28_27",
+    "reactance": 0.396,
+    "tap_ratio": 0.968,
+    "tmax_ab": 100.0,
+    "tmax_ba": 100.0,
+    "type": "transformer",
+    "voltage": 10
+  }
+]
