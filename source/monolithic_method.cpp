@@ -78,9 +78,18 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     // loading so the loader binds the cuts.  α carries the same objective
     // coefficient (respecting `scale_alpha` / auto-scale) and is freed from
     // its bootstrap pin by the cut install (`bound_alpha_for_cut`).
+    // Auto-scale α from the boundary-cut coefficients: average each state
+    // column over all cut rows and round the max magnitude up to the next
+    // power of ten (see `effective_scale_alpha`).  Falls back to the
+    // state-variable `var_scale` heuristic when the CSV is unreadable.
+    const double cut_max_coeff = boundary_cut_max_avg_coeff(boundary_cuts_file);
     const double scale_alpha = effective_scale_alpha(
-        planning_lp, planning_lp.options().sddp_scale_alpha());
+        planning_lp, planning_lp.options().sddp_scale_alpha(), cut_max_coeff);
     bc_opts.scale_alpha = scale_alpha;
+    SPDLOG_INFO(
+        "MonolithicMethod: boundary-cut max avg coeff {:.6g} -> scale_alpha {}",
+        cut_max_coeff,
+        scale_alpha);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       register_alpha_variables(planning_lp, scene_index, scale_alpha);
     }
@@ -89,6 +98,26 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     const auto num_phases_bc = planning_lp.systems().empty()
         ? 0UZ
         : planning_lp.systems().front().size();
+
+    // Freeze the base-row count on every (scene, phase) BEFORE installing the
+    // boundary cuts below — mirroring SDDPMethod (sddp_method.cpp:509).  This
+    // flips `is_cut_phase` (m_base_numrows_set_) true so each boundary-cut row
+    // routes through `LinearInterface::compose_physical` (× col_scale,
+    // ÷ scale_objective) instead of being emitted raw via `add_row_raw`.
+    // Without it the monolithic boundary cuts installed UNSCALED at
+    // scale_objective ≠ 1: α and the cut RHS stayed physical while the
+    // objective had already been divided by scale_objective, leaving α
+    // under-weighted by scale_objective — which inflated the reservoir
+    // water-value duals (50–315×) and forced spurious water hoarding.
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index :
+           iota_range<PhaseIndex>(0, static_cast<Index>(num_phases_bc)))
+      {
+        planning_lp.system(scene_index, phase_index)
+            .linear_interface()
+            .save_base_numrows();
+      }
+    }
     StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, PhaseStateInfo>>
         scene_phase_states;
     scene_phase_states.resize(

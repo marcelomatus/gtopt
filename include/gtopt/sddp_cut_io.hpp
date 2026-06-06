@@ -91,10 +91,27 @@ inline constexpr std::string_view EfinColName {"efin"};
 
 // ─── Scale helpers ─────────────────────────────────────────────────────────
 
+/// Compute the column-averaged max coefficient magnitude of a boundary-cut
+/// CSV.  Parses the header to locate the state-variable columns (every
+/// column after ``rhs``; an optional leading ``iteration`` column is
+/// tolerated), averages each state column over all cut rows, and returns
+/// ``max_i |avg(coeff_i)|``.  Returns 0.0 when the file is missing,
+/// malformed, or has no state columns — the caller then falls back to the
+/// state-variable ``var_scale`` heuristic.
+[[nodiscard]] auto boundary_cut_max_avg_coeff(const std::string& filepath)
+    -> double;
+
 /// Compute the effective scale_alpha: if the option is > 0 use it,
-/// otherwise auto-compute as max(var_scale) across all state variables.
+/// otherwise auto-compute as ``max(scale_objective,
+/// 10^ceil(log10(cut_max_coeff)))`` — the log10 round-up SDDP uses for its
+/// α estimate.  ``cut_max_coeff`` is the column-averaged max boundary-cut
+/// coefficient (see ``boundary_cut_max_avg_coeff``) and is required: α only
+/// exists when boundary cuts are installed, so this is never called without
+/// a cut to scale against.  A non-positive ``cut_max_coeff`` (unreadable /
+/// empty CSV) falls back to the floor ``max(1, scale_objective)``.
 [[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,
-                                         double option_scale_alpha) -> double;
+                                         double option_scale_alpha,
+                                         double cut_max_coeff) -> double;
 
 // ─── Boundary / named-cut CSV loaders ──────────────────────────────────────
 //

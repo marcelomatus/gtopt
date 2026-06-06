@@ -1925,8 +1925,17 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   const bool have_col_scales = !m_col_scales_->empty();
   const bool have_equilibration =
       m_equilibration_method_ != LpEquilibrationMethod::none;
+  // Objective-coupled cut rows (α-bearing SDDP / boundary cuts) must still
+  // receive compose_physical's `÷ scale_objective` (step 1b) even when there
+  // are no column scales and equilibration is off.  The objective itself was
+  // divided by `scale_objective` at flatten(); a cut emitted raw would leave
+  // α (future-cost $) AND the cut RHS under-weighted by `scale_objective`
+  // relative to the rest of the objective, which inflates the reservoir
+  // water-value duals and forces water hoarding.  `physical == LP` only holds
+  // when `scale_objective == 1` too — so include it in the gate.
+  const bool have_scale_obj = m_scale_objective_ != 1.0;
   const bool compose_physical =
-      is_cut_phase && (have_col_scales || have_equilibration);
+      is_cut_phase && (have_col_scales || have_equilibration || have_scale_obj);
 
   if (!compose_physical) {
     return add_row_raw(row, eps);
@@ -2168,8 +2177,12 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   const bool have_col_scales = !m_col_scales_->empty();
   const bool have_equilibration =
       m_equilibration_method_ != LpEquilibrationMethod::none;
+  // See the singular `add_row` gate: objective-coupled cut rows need the
+  // `÷ scale_objective` composition even with no col_scales / equilibration,
+  // so `physical == LP` only when `scale_objective == 1` too.
+  const bool have_scale_obj = m_scale_objective_ != 1.0;
   const bool compose_physical =
-      is_cut_phase && (have_col_scales || have_equilibration);
+      is_cut_phase && (have_col_scales || have_equilibration || have_scale_obj);
 
   if (!compose_physical) {
     add_rows_raw(rows, eps);

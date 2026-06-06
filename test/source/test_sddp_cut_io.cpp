@@ -150,19 +150,29 @@ TEST_CASE(
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
-  // When option > 0, it should be returned directly
-  const auto alpha = effective_scale_alpha(planning_lp, 42.0);
+  // When option > 0, it is returned directly regardless of the cut
+  // coefficient (the explicit override always wins).
+  const auto alpha =
+      effective_scale_alpha(planning_lp, 42.0, /*cut_max_coeff=*/9999.0);
   CHECK(alpha == doctest::Approx(42.0));
 }
 
-TEST_CASE("effective_scale_alpha auto-computes when zero")  // NOLINT
+TEST_CASE(
+    "effective_scale_alpha rounds cut coeff up to a power of ten")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   const PlanningLP planning_lp(std::move(planning));
 
-  // When option is 0.0, auto-compute from state variables
-  const auto alpha = effective_scale_alpha(planning_lp, 0.0);
-  CHECK(alpha >= 0.0);
+  // option == 0 → auto-compute = max(scale_objective,
+  // 10^ceil(log10(cut_max_coeff))).  7983 → 10^4 = 10000, well above the
+  // (≤ 1e3) objective floor of the fixture.
+  const auto alpha = effective_scale_alpha(planning_lp, 0.0, 7983.43);
+  CHECK(alpha == doctest::Approx(10000.0));
+
+  // A non-positive coefficient (no usable cut) degenerates to the
+  // objective floor, never below 1.
+  const auto floor_alpha = effective_scale_alpha(planning_lp, 0.0, 0.0);
+  CHECK(floor_alpha >= 1.0);
 }
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────
