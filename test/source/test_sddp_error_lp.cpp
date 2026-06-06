@@ -49,12 +49,23 @@
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 // NOLINTBEGIN(misc-const-correctness)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+// Uniquely-named outer namespace: under the test unity build multiple .cpp
+// files are batched into one TU, so anonymous-namespace helpers with the same
+// name across files collide (ODR / silent wrong-symbol → SIGSEGV when run in a
+// batch but not in isolation).  A per-file named namespace keeps this file's
+// fixtures distinct.  See test/CMakeLists.txt "Unity build".
+namespace test_sddp_error_lp_ns
 {
 
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
+
+// Inner anonymous namespace gives the fixture internal linkage; the unique
+// outer namespace keeps it from colliding with same-named fixtures in other
+// unity-batched test files.
+namespace
+{
 
 /// Minimal single-phase planning whose LP is unconditionally infeasible.
 ///
@@ -138,6 +149,8 @@ auto make_phase0_infeasible_planning() -> Planning
           },
   };
 }
+
+}  // namespace
 
 // Branch B uses `make_forced_infeasibility_planning()` from
 // `sddp_helpers.hpp` — a two-reservoir forced-flow fixture whose
@@ -301,6 +314,6 @@ TEST_CASE(  // NOLINT
   CHECK(logs.contains("elastic filter produced no feasibility cut"));
 }
 
-}  // namespace
+}  // namespace test_sddp_error_lp_ns
 
 // NOLINTEND(misc-const-correctness)
