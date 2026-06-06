@@ -92,6 +92,7 @@ class TestWaterRightsIntegration:
             "laja_water_rights.json",
             "maule_water_rights.json",
             "ror_promoted.json",
+            "plp2gtopt_state.json",
         }
         json_files = [p for p in output_dir.glob("*.json") if p.name not in _aux_names]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
@@ -327,6 +328,7 @@ class TestGtoptLpBuild:
             "laja_water_rights.json",
             "maule_water_rights.json",
             "ror_promoted.json",
+            "plp2gtopt_state.json",
         }
         json_files = [p for p in output_dir.glob("*.json") if p.name not in _aux_names]
         assert len(json_files) == 1, f"Expected 1 JSON file, got {json_files}"
