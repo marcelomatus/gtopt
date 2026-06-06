@@ -15,11 +15,11 @@ shell) is pinned by this golden.  Drift in default option values,
 simulation skeleton, or top-level keys will fail the test.
 """
 
-import json
-import os
 from pathlib import Path
 
 import pytest
+
+from gtopt_shared.testing import assert_golden_file
 
 from plexos2gtopt.entities import BundleSpec, PlexosCase
 from plexos2gtopt.gtopt_writer import build_planning, write_planning
@@ -27,13 +27,7 @@ from plexos2gtopt.gtopt_writer import build_planning, write_planning
 
 _TESTS_DIR = Path(__file__).parent
 _GOLDEN_DIR = _TESTS_DIR / "fixtures"
-_GOLDEN = _GOLDEN_DIR / "empty_case_golden.json"
-
-
-def _canonicalise(path: Path) -> str:
-    """Return the JSON content sorted by keys with stable indentation."""
-    data = json.loads(path.read_text())
-    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+_REFRESH_TARGET = "plexos2gtopt/tests/test_golden_round_trip.py"
 
 
 @pytest.mark.integration
@@ -44,28 +38,6 @@ def test_empty_case_golden_json_round_trip(tmp_path):
     planning = build_planning(case, name="golden_empty")
     out_path = tmp_path / "golden_empty.json"
     write_planning(planning, out_path)
-
-    assert out_path.exists(), f"converter did not produce {out_path}"
-    canonical = _canonicalise(out_path)
-
-    if os.environ.get("PYTEST_UPDATE_GOLDEN"):
-        _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-        _GOLDEN.write_text(canonical, encoding="utf-8")
-        pytest.skip(
-            f"golden fixture written to {_GOLDEN}; re-run without "
-            "PYTEST_UPDATE_GOLDEN to verify"
-        )
-
-    if not _GOLDEN.exists():
-        pytest.skip(
-            f"golden fixture missing: {_GOLDEN}; create it with "
-            "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-            "plexos2gtopt/tests/test_golden_round_trip.py -q"
-        )
-
-    expected = _GOLDEN.read_text(encoding="utf-8")
-    assert canonical == expected, (
-        "empty PlexosCase JSON output changed; if intentional, refresh with "
-        "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-        "plexos2gtopt/tests/test_golden_round_trip.py -q"
+    assert_golden_file(
+        "empty_case_golden", out_path, _GOLDEN_DIR, refresh_target=_REFRESH_TARGET
     )

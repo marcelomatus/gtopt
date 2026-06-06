@@ -14,11 +14,11 @@ Refresh with ``PYTEST_UPDATE_GOLDEN=1 python -m pytest …``.
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 
 import pytest
+
+from gtopt_shared.testing import assert_snapshot
 
 # Force pandapower import to fail-soft if missing
 pn = pytest.importorskip("pandapower.networks")
@@ -37,36 +37,12 @@ from pp2gtopt.convert import (  # noqa: E402  (pandapower must import first)
 
 
 _GOLDEN_DIR = Path(__file__).parent / "fixtures" / "entities"
-
-
-def _canonicalise(obj) -> str:
-    """Return JSON sorted-key dump with stable indentation."""
-    return json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+_REFRESH_TARGET = "pp2gtopt/tests/test_entity_snapshots.py"
 
 
 def _assert_snapshot(name: str, payload) -> None:
-    """Compare payload against the named golden under ``fixtures/entities/``."""
-    canonical = _canonicalise(payload)
-    path = _GOLDEN_DIR / f"{name}.json"
-
-    if os.environ.get("PYTEST_UPDATE_GOLDEN"):
-        _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(canonical, encoding="utf-8")
-        pytest.skip(f"golden written to {path}")
-
-    if not path.exists():
-        pytest.skip(
-            f"golden missing: {path}; create with "
-            "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-            "pp2gtopt/tests/test_entity_snapshots.py -q"
-        )
-
-    expected = path.read_text(encoding="utf-8")
-    assert canonical == expected, (
-        f"{name} entity output changed; if intentional, refresh with "
-        "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-        "pp2gtopt/tests/test_entity_snapshots.py -q"
-    )
+    """Wrap the shared helper with this file's golden dir + refresh target."""
+    assert_snapshot(name, payload, _GOLDEN_DIR, refresh_target=_REFRESH_TARGET)
 
 
 @pytest.fixture(scope="module")

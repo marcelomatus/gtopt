@@ -12,11 +12,11 @@ Mirrors ``plp2gtopt/tests/test_golden_round_trip.py``.
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import pathlib
 
 import pytest
+
+from gtopt_shared.testing import assert_golden_file
 
 from igtopt.igtopt import _run as _igtopt_run
 
@@ -24,21 +24,17 @@ from igtopt.igtopt import _run as _igtopt_run
 _SCRIPTS_DIR = pathlib.Path(__file__).parent.parent.parent
 _C0_XLSX = _SCRIPTS_DIR / "cases" / "igtopt_c0" / "system_c0.xlsx"
 _GOLDEN_DIR = pathlib.Path(__file__).parent / "fixtures"
-_GOLDEN = _GOLDEN_DIR / "system_c0_golden.json"
+_REFRESH_TARGET = "igtopt/tests/test_golden_round_trip.py"
 
 
-def _canonicalise(path: pathlib.Path) -> str:
-    """Return the JSON content sorted by keys with stable indentation.
-
-    Scrubs the ``options.input_directory`` field (which igtopt sets to
-    the absolute path of the time-series output dir) so the golden
-    comparison is independent of the test's ``tmp_path``.
+def _scrub_input_directory(data: dict) -> dict:
+    """Replace ``options.input_directory`` (the per-run tmp_path absolute path)
+    with a fixed sentinel so the golden is independent of pytest's tmp_path.
     """
-    data = json.loads(path.read_text())
     options = data.get("options")
     if isinstance(options, dict) and "input_directory" in options:
         options["input_directory"] = "<scrubbed>"
-    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    return data
 
 
 @pytest.mark.skipif(
@@ -66,27 +62,10 @@ def test_system_c0_golden_json_round_trip(tmp_path):
 
     rc = _igtopt_run(args)
     assert rc == 0, "igtopt._run() returned non-zero"
-    assert json_out.exists(), f"JSON not created at {json_out}"
-    canonical = _canonicalise(json_out)
-
-    if os.environ.get("PYTEST_UPDATE_GOLDEN"):
-        _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-        _GOLDEN.write_text(canonical, encoding="utf-8")
-        pytest.skip(
-            f"golden fixture written to {_GOLDEN}; re-run without "
-            "PYTEST_UPDATE_GOLDEN to verify"
-        )
-
-    if not _GOLDEN.exists():
-        pytest.skip(
-            f"golden fixture missing: {_GOLDEN}; create it with "
-            "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-            "igtopt/tests/test_golden_round_trip.py -q"
-        )
-
-    expected = _GOLDEN.read_text(encoding="utf-8")
-    assert canonical == expected, (
-        "system_c0.json output changed; if intentional, refresh with "
-        "PYTEST_UPDATE_GOLDEN=1 python -m pytest "
-        "igtopt/tests/test_golden_round_trip.py -q"
+    assert_golden_file(
+        "system_c0_golden",
+        json_out,
+        _GOLDEN_DIR,
+        refresh_target=_REFRESH_TARGET,
+        scrub=_scrub_input_directory,
     )
