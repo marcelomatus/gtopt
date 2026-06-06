@@ -2006,38 +2006,31 @@ def build_reservoir_array(
         # ``Hydro_MinVolume.csv`` (see ``extract_reservoirs``).  Two
         # paths from here:
         #
-        # 1. ``never_drain == True`` (PLEXOS sentinel Water Value
-        #    ``1e+30``, e.g. ``L_Maule``): emit a HARD
-        #    ``vol_end >= efin`` constraint with NO ``efin_cost``
-        #    slack — the LP can't buy out of the sentinel at any
-        #    finite price.
-        # 2. Otherwise: SOFT slack priced at the storage's PLEXOS
-        #    ``Water Value`` ($/GWh, since gtopt's per-PLEXOS-bundle
-        #    ``efin`` is in PLEXOS native GWh-equivalent units, so
-        #    ``efin_cost`` is also in $/GWh).  CEN PCP 2026-04-22
-        #    ships 10,000 $/GWh on every dispatched reservoir.
+        # The end-of-horizon target is ALWAYS soft: ``vol_end + slack >=
+        # efin`` with the slack cost derived in the gtopt C++ side
+        # (``apply_boundary_cut_soft_costs`` → ``boundary_cut_soft_cost`` =
+        # lower-bound water value, capped at ``max(1, …)``) from the
+        # per-reservoir slopes in ``boundary_cuts.csv`` — NOT written here,
+        # so plexos2gtopt and plp2gtopt share one derivation path.
+        #
+        # ``never_drain`` is a SEPARATE concern: it disables the
+        # reservoir's drain (spill) variable (``drain_max = 0``) so water
+        # can only leave through turbines, never spilled.  It does NOT
+        # touch ``efin``.  Reserved for ELTORO (the Laja cascade head).
         if res.efin > 0.0:
             entry["efin"] = res.efin
-            # SOFT end-of-horizon target: ``vol_end + slack >= efin`` priced
-            # at the reservoir's WATER VALUE.  A HARD ``vol_end >= efin`` is
-            # infeasible whenever the floor exceeds what the inflow + initial
-            # volume can reach against forced extraction — e.g. 10-05 ELTORO
-            # (efin 18,184 > eini 17,867) makes the reservoir energy balance
-            # infeasible (propagated to block 2).  PLEXOS never hard-pins the
-            # terminal volume; it prices draining below the floor at the
-            # storage's water value, exactly the marginal cost of the water.
-            #
-            # The water value is ``-cut_coeff``: the boundary cut ships
-            # coefficient ``-wv`` on each reservoir's efin state (more storage
-            # ⇒ lower future cost), and ``BoundaryCutSpec.slopes`` already
-            # holds ``+wv``.  KEEP THE SIGN — a few state variables carry a
-            # NEGATIVE water value (terminal storage is a liability there), so
-            # ``abs()`` would wrongly turn a drawdown reward into a penalty.
-            # Reservoirs with no boundary-cut slope keep the legacy HARD floor.
-            wv = (water_values or {}).get(res.name, 0.0)
-            if wv != 0.0:
-                entry["efin_cost"] = wv
-            _ = soft_efin_reservoirs  # superseded by water-value softening
+            # SOFT end-of-horizon floor: ``vol_end + slack >= efin``.  The
+            # slack cost — the penalty for ending BELOW the target, which
+            # forces the reservoir to refill toward ``efin`` (a HARD
+            # ``vol_end >= efin`` is infeasible when the floor exceeds what
+            # inflow + initial volume can reach, e.g. 10-05 ELTORO) — is
+            # derived in the gtopt C++ side, NOT written here:
+            # ``apply_boundary_cut_soft_costs`` reads the per-reservoir
+            # slopes from ``boundary_cuts.csv`` and sets
+            # ``efin_cost = max(1, lower-bound water value)``.  Keeping it in
+            # C++ means plexos2gtopt and plp2gtopt share one derivation path
+            # (both just emit ``boundary_cuts.csv`` + ``efin``).
+            _ = (water_values, soft_efin_reservoirs)  # now C++-derived
         # Reservoir-internal drain is DISABLED by default, matching PLP's
         # convention: spillage leaves the basin via an explicit ``Vert_*``
         # Waterway routed to a ``<source>_ocean`` drain junction (added by

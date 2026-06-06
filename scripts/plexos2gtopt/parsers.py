@@ -3693,17 +3693,19 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         # ``never_drain`` clamp is obsolete.
         #
         # ``keep_sentinel`` defaults to False → the PLEXOS ``1e+30``
-        # marker on virtual storages (e.g. ``L_Maule``) silently drops
-        # to ``None`` → ``water_value_gwh = 0.0``.  No warning, no hard
-        # ``vol_end >= eini`` clamp; the boundary cut prices terminal
-        # storage uniformly across all reservoirs.
+        # marker silently drops to ``None`` → ``water_value_gwh = 0.0``.
+        # The boundary cut prices terminal storage uniformly across all
+        # reservoirs (efin is always SOFT; the slack cost is derived in
+        # the gtopt C++ side from boundary_cuts.csv).
         water_value_gwh = (
             db.static_property("Storage", storage.object_id, "Water Value") or 0.0
         )
         never_drain = False  # retired sentinel; field retained on
         # ``ReservoirSpec`` for backward compatibility with downstream
-        # consumers (writer, integration tests).  Always False — the
-        # boundary cut handles terminal pricing.
+        # consumers (writer, integration tests).  ``never_drain`` means
+        # "disable the drain (spill) variable" (drain_max=0) — a spill
+        # restriction reserved for ELTORO, NOT a hard-efin constraint and
+        # unrelated to terminal pricing.
         # ── Pass-through PLEXOS Storage objects ─────────────────
         # CEN PCP "Storage" entries that are topology-only nodes
         # (bocatomas ``B_*``, ``Post_*``, run-of-river intakes,

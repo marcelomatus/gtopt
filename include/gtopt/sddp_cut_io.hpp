@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <expected>
 #include <span>
 #include <string>
@@ -115,15 +116,22 @@ struct BoundaryCutCoeffStats
                                            BoundaryCutSoftCost which) noexcept
     -> double
 {
+  double cost = -s.avg;
   switch (which) {
     case BoundaryCutSoftCost::min:
-      return -s.max;  // lower bound of the cost
+      cost = -s.max;  // lower bound of the water value
+      break;
     case BoundaryCutSoftCost::max:
-      return -s.min;  // upper bound of the cost
+      cost = -s.min;  // upper bound of the water value
+      break;
     case BoundaryCutSoftCost::avg:
       break;
   }
-  return -s.avg;
+  // The soft-efin slack penalises ending BELOW the target, forcing the
+  // reservoir to refill, so the cost MUST be positive.  Floor at 1 so a
+  // bad/negative cut coefficient (terminal storage priced as a liability)
+  // can't flip the floor into a drawdown reward.
+  return std::max(1.0, cost);
 }
 
 /// Extract the per-state-variable coefficient statistics from a boundary-cut

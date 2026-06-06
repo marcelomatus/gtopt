@@ -69,14 +69,14 @@ void apply_boundary_cut_soft_costs(Planning& planning)
   const auto& mono = planning.options.monolithic_options;
   const auto& sddp = planning.options.sddp_options;
 
-  // The option is itself optional — an absent value means "do not derive
-  // soft costs", so presence alone is the opt-in.
+  // Default to the lower-bound (min) water value when unspecified: a single
+  // shared derivation for plexos2gtopt and plp2gtopt (both just emit
+  // boundary_cuts.csv + efin).  The cut-file presence below is the real gate,
+  // so absent option + present cut file ⇒ derive efin_cost with the min
+  // (capped at max(1, …) inside cut_soft_cost).
   const auto soft_opt =
       is_mono ? mono.boundary_cut_soft_cost : sddp.boundary_cut_soft_cost;
-  if (!soft_opt.has_value()) {
-    return;
-  }
-  const auto soft = *soft_opt;
+  const auto soft = soft_opt.value_or(BoundaryCutSoftCost::min);
   const std::string file =
       (is_mono ? mono.boundary_cuts_file : sddp.boundary_cuts_file)
           .value_or(Name {});
