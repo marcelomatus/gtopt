@@ -1,0 +1,22 @@
+[
+  {
+    "discharge": [
+      [
+        [
+          100.0,
+          105.0,
+          110.0
+        ]
+      ]
+    ],
+    "junction": "COCHRANE",
+    "name": "inflow_COCHRANE",
+    "uid": 1
+  },
+  {
+    "fcost": 10000.0,
+    "junction": "LAJA",
+    "name": "slack_LAJA",
+    "uid": 2
+  }
+]

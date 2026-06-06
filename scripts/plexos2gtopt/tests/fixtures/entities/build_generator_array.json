@@ -1,0 +1,33 @@
+[
+  {
+    "bus": "COCHRANE",
+    "description": "PLEXOS Generator 'COCHRANE_1' at bus 'COCHRANE' → gtopt Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate [fuel-unit/MWh]; (File: DBSEN_PRGDIARIO.xml + Gen_*.csv)",
+    "fuel": "COAL",
+    "gcost": 1.2,
+    "heat_rate": 2.5,
+    "name": "COCHRANE_1",
+    "pmax": 250.0,
+    "type": "thermal:coal",
+    "uid": 1
+  },
+  {
+    "bus": "NORTE",
+    "description": "PLEXOS Generator 'SOLAR_NORTE' at bus 'NORTE' → gtopt Generator; pmin/pmax [MW], gcost [$/MWh], heat_rate [fuel-unit/MWh]; (File: DBSEN_PRGDIARIO.xml + Gen_*.csv)",
+    "gcost": 0.0,
+    "name": "SOLAR_NORTE",
+    "pmax": [
+      [
+        0.0,
+        0.0,
+        0.5,
+        0.9,
+        1.0,
+        0.8,
+        0.3,
+        0.0
+      ]
+    ],
+    "type": "renewable:solar",
+    "uid": 2
+  }
+]

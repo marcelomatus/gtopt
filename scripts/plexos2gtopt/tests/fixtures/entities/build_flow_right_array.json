@@ -1,0 +1,47 @@
+[
+  {
+    "fcost": [
+      [
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0,
+        720.0
+      ]
+    ],
+    "fmax": 50.0,
+    "fmin": 15.0,
+    "junction": "LAJA",
+    "name": "Riego_LAJA_I",
+    "purpose": "irrigation",
+    "target": 30.0,
+    "uid": 1
+  },
+  {
+    "bypass_cost": 5.0,
+    "bypass_junction": "DOWNSTREAM",
+    "junction": "UPSTREAM",
+    "name": "bypass_demo",
+    "purpose": "env_flow",
+    "uid": 3
+  }
+]
