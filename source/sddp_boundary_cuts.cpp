@@ -834,13 +834,39 @@ using namespace gtopt::detail;
       if (cuts.empty()) {
         continue;
       }
-      for (const auto& cut : cuts) {
+      // Single linear terminal value (the typical PLP / PLEXOS boundary
+      // cut, one row per scene): install it as an EQUALITY and free α, so
+      // the cut becomes the *continuous* terminal value (PLEXOS-style
+      // ``+ Σ wvᵣ·efinᵣ``) rather than a slack-able ``≥`` lower bound that
+      // is ignored above the efin target.  With ``α + Σ wvᵣ·efinᵣ = FCF``
+      // and α free, α is pinned to ``FCF − Σ wvᵣ·efinᵣ``, so its dual is 1
+      // and every reservoir's terminal storage is priced at ``wvᵣ`` on
+      // both sides of the target — matching how PLEXOS applies its single
+      // MT water value.  With MANY cuts (a piecewise-linear future cost)
+      // we keep the ``≥`` Benders form (the value function is the max of
+      // its supporting cuts).
+      const bool single_cut = cuts.size() == 1;
+      for (auto& cut : cuts) {
+        if (single_cut) {
+          cut.uppb = cut.lowb;  // ``≥``  →  ``=``
+        }
         (void)gtopt::add_cut_row(planning_lp,
                                  si,
                                  last_phase,
                                  CutType::Optimality,
                                  cut,
                                  options.cut_coeff_eps);
+      }
+      if (single_cut) {
+        // Free α (override the cut-derived floor `bound_alpha_for_cut`
+        // installs) so the equality is feasible when Σ wvᵣ·efinᵣ > FCF —
+        // α must be able to go negative for the reward to keep applying as
+        // the reservoir conserves above the target.
+        const auto* asv = find_alpha_state_var(sim, si, last_phase);
+        if (asv != nullptr) {
+          auto& li = planning_lp.system(si, last_phase).linear_interface();
+          li.set_col_low_raw(asv->col(), -li.infinity());
+        }
       }
       // Log the per-scene mean-shift (the shift itself was applied
       // to `cut.lowb` in the pre-install pass above).  The c̄
