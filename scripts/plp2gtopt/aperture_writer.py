@@ -25,6 +25,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from gtopt_shared.csv_io import write_csv
+
 from .base_writer import _DEFAULT_COMPRESSION, _probe_parquet_codec
 
 
@@ -676,7 +678,7 @@ def write_aperture_afluents(
         fmt = (options or {}).get("output_format", "parquet")
         if fmt == "csv":
             out_path = flow_dir / f"{central_name}.csv"
-            table.to_pandas().to_csv(out_path, index=False)
+            write_csv(table, out_path)
         else:
             out_path = flow_dir / f"{central_name}.parquet"
             comp = _probe_parquet_codec(

@@ -44,6 +44,8 @@ from typing import Any, Dict, List, Mapping, Optional
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 from .base_writer import BaseWriter
 from ._water_value import WaterValueResolver
 
@@ -659,7 +661,7 @@ class PminFlowRightWriter(BaseWriter):
             if is_parquet:
                 df.to_parquet(path, index=False)
             else:
-                df.to_csv(path, index=False)
+                write_csv(df, path)
         except (OSError, ValueError) as exc:
             _logger.warning(
                 "pmin_as_flowright: could not rewrite %s after column "

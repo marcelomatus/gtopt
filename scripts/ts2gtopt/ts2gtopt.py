@@ -56,6 +56,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 logger = logging.getLogger(__name__)
 
 _INDEX_COLS = {"scenario", "stage", "block"}
@@ -1013,7 +1015,7 @@ def write_schedule(
         comp = probed if probed else None
         write_df.to_parquet(output_path, index=False, compression=comp)
     elif output_format == "csv":
-        write_df.to_csv(output_path, index=False)
+        write_csv(write_df, output_path)
     else:
         raise ValueError(
             f"output_format must be 'parquet' or 'csv', got '{output_format}'"
@@ -1257,7 +1259,7 @@ def _write_hourly_result(
         probed = _probe_parquet_codec(compression)
         result.to_parquet(out_path, index=False, compression=probed or None)
     else:
-        result.to_csv(out_path, index=False)
+        write_csv(result, out_path)
 
 
 def reconstruct_output_hours(

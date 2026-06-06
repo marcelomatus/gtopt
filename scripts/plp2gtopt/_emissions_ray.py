@@ -44,11 +44,12 @@ single linear cut over the horizon-end storage state.
 
 from __future__ import annotations
 
-import csv
 import logging
 import math
 from pathlib import Path
 from typing import Any
+
+from gtopt_shared.csv_io import write_csv
 
 logger = logging.getLogger(__name__)
 
@@ -178,10 +179,11 @@ def write_emissions_ray_csv(
     )
     if reservoir_order is None:
         reservoir_order = sorted(epf_by_reservoir)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
-        w.writerow(["iteration", "scene", "rhs", *reservoir_order])
-        w.writerow([1, 0, rhs, *[slopes.get(r, 0.0) for r in reservoir_order]])
+    write_csv(
+        [[1, 0, rhs, *(slopes.get(r, 0.0) for r in reservoir_order)]],
+        path,
+        headers=["iteration", "scene", "rhs", *reservoir_order],
+    )
     logger.info(
         "synthetic emissions ray written: %s (%d reservoirs, NPV=%.2f)",
         path,

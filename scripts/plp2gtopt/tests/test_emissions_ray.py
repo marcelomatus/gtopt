@@ -121,7 +121,9 @@ class TestWriteEmissionsRayCsv:
             rows = list(csv.reader(f))
         assert len(rows) == 2
         assert rows[0] == ["iteration", "scene", "rhs", "L_Maule", "COLBUN"]
-        assert rows[1][:3] == ["1", "0", "0.0"]
+        # Arrow CSV writes shortest round-trip floats, so 0.0 -> "0".
+        # Compare on numeric equivalence, not textual form.
+        assert [float(x) for x in rows[1][:3]] == [1.0, 0.0, 0.0]
         # Slopes are non-zero floats
         assert float(rows[1][3]) > 0
         assert float(rows[1][4]) > 0

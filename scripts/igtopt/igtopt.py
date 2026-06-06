@@ -16,6 +16,8 @@ from itertools import zip_longest
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 from igtopt.template_builder import (
     _find_repo_root,
     _build_workbook,
@@ -312,7 +314,7 @@ def _write_boundary_cuts_csv(df, input_path):
     out_dir = pathlib.Path(input_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "boundary_cuts.csv"
-    df.to_csv(csv_path, index=False)
+    write_csv(df, csv_path)
     return csv_path
 
 
@@ -335,7 +337,7 @@ def df_to_file(
     df = df.astype(types)
 
     if input_format == "csv":
-        df.to_csv(input_file, index=False)
+        write_csv(df, input_file)
     else:
         probed = _probe_parquet_codec(compression) if compression else ""
         pq_kw: dict = {"index": False}

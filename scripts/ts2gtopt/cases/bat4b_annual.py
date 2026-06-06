@@ -45,6 +45,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -450,9 +452,9 @@ def write_bat4b_timeseries(
     solar_csv = raw_dir / "solar_pmax.csv"
     gen_csv = raw_dir / "generator_pmax.csv"
 
-    make_demand_timeseries(year).to_csv(demand_csv, index=False)
-    make_solar_pmax_timeseries(year).to_csv(solar_csv, index=False)
-    make_generator_pmax_timeseries(year).to_csv(gen_csv, index=False)
+    write_csv(make_demand_timeseries(year), demand_csv)
+    write_csv(make_solar_pmax_timeseries(year), solar_csv)
+    write_csv(make_generator_pmax_timeseries(year), gen_csv)
 
     horizon = make_horizon(year)
     return convert_timeseries(

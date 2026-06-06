@@ -23,6 +23,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from gtopt_shared.cli_flags import DEFAULT_WRITE_OUT as _DEFAULT_WRITE_OUT_FALLBACK
+from gtopt_shared.csv_io import write_csv
 from gtopt_shared.pampl_ident import (
     pampl_ident as _pampl_ident,
     penalty_param_name as _penalty_param_name,
@@ -3354,16 +3355,17 @@ def write_boundary_cut_csv(
             dropped,
         )
     path = output_dir / filename
-    with path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(["scene", "rhs", *cols])
-        writer.writerow(
+    write_csv(
+        [
             [
                 scene,
-                repr(boundary_cut.fcf),
-                *(repr(-boundary_cut.slopes[c]) for c in cols),
+                float(boundary_cut.fcf),
+                *(float(-boundary_cut.slopes[c]) for c in cols),
             ]
-        )
+        ],
+        path,
+        headers=["scene", "rhs", *cols],
+    )
     logger.info(
         "wrote boundary cut: %s (scene=%d, rhs=%.3e, %d reservoir slopes)",
         path,

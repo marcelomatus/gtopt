@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, TypeVar, Callable
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 from .block_parser import BlockParser
 from .stage_parser import StageParser
 from .base_parser import BaseParser
@@ -299,7 +301,7 @@ class BaseWriter(ABC):
         fmt = self.get_output_format(options)
         if fmt == "csv":
             out = output_dir / f"{stem}.csv"
-            df.to_csv(out, index=False)
+            write_csv(df, out)
         else:
             out = output_dir / f"{stem}.parquet"
             df.to_parquet(out, index=False, **self.get_compression_kwargs(options))
@@ -459,6 +461,6 @@ def convert_tree_to_long(root: Path, options: Optional[Dict[str, Any]] = None) -
         long_df = to_long_layout(df)
         if long_df is None:
             continue
-        long_df.to_csv(path, index=False)
+        write_csv(long_df, path)
         converted += 1
     return converted
