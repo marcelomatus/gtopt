@@ -9,10 +9,15 @@ C++ parser accepts:
   ``_`` (writer-side annotations gtopt's ``StrictParsePolicy`` would
   reject).
 * :func:`sanitize_inf` — recursively replace ``math.inf`` /
-  ``-math.inf`` with the daw-json-link sentinels ``"Infinity"`` /
-  ``"-Infinity"`` (parseable on the C++ side under
-  ``gtopt::NumberOptsWithInf``), with an opt-in set of keys where
-  the cleanest representation is to omit the field entirely.
+  ``-math.inf`` with the numeric ``DblMax`` sentinel
+  ``±sys.float_info.max`` (Python's equivalent of
+  ``std::numeric_limits<double>::max()``).  The standard JSON number
+  parser accepts these as ordinary doubles; gtopt's ``is_infinity()``
+  guard then clamps anything ``≥ solver_infinity`` to ±inf at the LP
+  layer, so the round-trip is correct on every backend without
+  needing daw-json-link's per-field ``AllowNanInf`` mode.  Select
+  keys (``fmax`` / ``fmin``) are instead OMITTED — gtopt's struct
+  defaults read absent optional fields as ±inf too.
 
 Both helpers were originally inlined in
 ``plp2gtopt/gtopt_writer.py``.  Issue #507 Phase 1 calls for moving
@@ -25,6 +30,7 @@ its own writer for back-compat.
 from __future__ import annotations
 
 import math
+import sys
 from typing import Any
 
 
@@ -52,17 +58,23 @@ def strip_internal_keys(planning: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-#: Sentinel string the daw-json-link C++ parser recognises as ``+inf``
-#: under ``gtopt::NumberOptsWithInf`` (``LiteralAsStringOpt::Maybe`` +
-#: ``JsonNumberErrors::AllowNanInf``).  See
-#: ``include/gtopt/json/json_parse_policy.hpp`` for the recipe.
-_INF_JSON_SENTINEL = "Infinity"
-_NEG_INF_JSON_SENTINEL = "-Infinity"
+#: Numeric sentinel emitted in place of ``math.inf`` so the JSON stays
+#: strictly conformant (no ``"Infinity"`` literal token, no quoted
+#: string).  ``sys.float_info.max`` is the Python equivalent of
+#: ``std::numeric_limits<double>::max()`` (≈ 1.798e308) — the same
+#: ``DblMax`` constant defined at ``include/gtopt/sparse_col.hpp:25``.
+#: gtopt's LP layer treats any magnitude ``≥ solver_infinity`` (CPLEX
+#: 1e20, HiGHS/Gurobi/OSI 1e30) as ``±inf`` via ``is_infinity()``
+#: (``include/gtopt/sparse_col.hpp:35``), so this value reliably round-
+#: trips through any backend without needing daw-json-link's per-field
+#: ``AllowNanInf`` mode.
+_INF_JSON_SENTINEL = sys.float_info.max
+_NEG_INF_JSON_SENTINEL = -sys.float_info.max
 
 #: Default set of keys whose ``math.inf`` value should be OMITTED from
-#: the JSON instead of being serialised as ``"Infinity"``.  For these
-#: fields gtopt's C++ struct already defaults to an empty optional that
-#: the LP flatten code reads as ``±DblMax`` → solver ±infinity, so
+#: the JSON instead of being substituted with the DblMax sentinel.  For
+#: these fields gtopt's C++ struct already defaults to an empty optional
+#: that the LP flatten code reads as ``±DblMax`` → solver ±infinity, so
 #: omitting the key is the cleanest representation.  Callers can extend
 #: this set via the ``omit_keys`` parameter of :func:`sanitize_inf`.
 DEFAULT_INF_OMIT_KEYS: frozenset[str] = frozenset(
@@ -72,13 +84,6 @@ DEFAULT_INF_OMIT_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: PLP ships ``1e30`` as a "soft infinity" sentinel; the converter
-#: treats anything ``≥ 1e20`` (in absolute value) inside an omit-key as
-#: ``inf`` so the field is dropped instead of serialised as a literal
-#: ``1e30``.  Other fields are passed through unchanged — gtopt's LP
-#: flatten code clamps anything ``≥ DblMax`` to solver ±infinity.
-_PLP_INF_THRESHOLD: float = 1e20
-
 
 def sanitize_inf(
     obj: Any,
@@ -87,9 +92,12 @@ def sanitize_inf(
 ) -> Any:
     """Recursively make ``math.inf`` / ``-math.inf`` JSON-safe.
 
-    Default rule: serialise as the quoted-string sentinels ``"Infinity"``
-    / ``"-Infinity"`` so daw-json-link's ``AllowNanInf`` can parse them
-    on the C++ side.
+    Default rule: serialise as the numeric ``DblMax`` sentinel
+    ``±sys.float_info.max`` so the JSON stays strictly conformant and
+    the standard daw-json-link number parser accepts the value as a
+    plain double.  gtopt's LP layer treats anything ``≥ solver_infinity``
+    as ±inf (``include/gtopt/sparse_col.hpp::is_infinity``), so the
+    round-trip is exact for every backend.
 
     Exception (preferred for select keys — listed in ``omit_keys``):
     omit the key entirely from its containing dict.  gtopt's struct
@@ -113,16 +121,21 @@ def sanitize_inf(
 def _sanitize_inf_impl(obj: Any, omit_keys: frozenset[str]) -> Any:
     """Internal recursive worker for :func:`sanitize_inf`."""
     if isinstance(obj, dict):
-        # Two-pass.  Pass 1 identifies keys whose value is ``math.inf``
+        # Two-pass.  Pass 1 identifies keys whose value is ``±math.inf``
         # AND the key is in the omit-set — those get dropped entirely.
         # Other inf values fall through to the per-value sanitisation
-        # in pass 2 (which serialises them as the "Infinity" sentinel).
+        # in pass 2 (which substitutes the numeric ``DblMax`` sentinel).
+        # Large finite values (e.g. PLP's 1e30 soft-inf sentinel) flow
+        # through as ordinary numbers — gtopt's ``is_infinity()`` is
+        # solver-aware (1e20 CPLEX / 1e30 HiGHS) and clamps at the LP
+        # layer.  No hardcoded threshold here would be correct for every
+        # backend, so the writer doesn't try.
         drops: list[Any] = []
         for k, v in obj.items():
             if (
                 k in omit_keys
                 and isinstance(v, float)
-                and (v == math.inf or v == -math.inf or abs(v) >= _PLP_INF_THRESHOLD)
+                and (v == math.inf or v == -math.inf)
             ):
                 drops.append(k)
         for k in drops:

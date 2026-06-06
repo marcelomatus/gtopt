@@ -3,10 +3,13 @@
 
 Coverage:
 * ``strip_internal_keys`` drops top-level ``_``-prefixed keys, keeps the rest.
-* ``sanitize_inf`` serialises ``+inf`` / ``-inf`` to the daw-json-link
-  sentinels and recurses into nested dicts / lists.
+* ``sanitize_inf`` substitutes ``±math.inf`` with the numeric
+  ``±sys.float_info.max`` (DblMax) sentinel and recurses into nested
+  dicts / lists.
 * The default omit-key set (``fmax`` / ``fmin``) drops the field entirely
-  rather than emitting the sentinel, including for PLP's ``1e30`` soft-inf.
+  when its value is exact ``±inf``.  Large finite values (e.g. PLP's
+  ``1e30`` soft-inf) flow through unchanged — gtopt's solver-aware
+  ``is_infinity()`` handles clamping at the LP layer.
 * Custom ``omit_keys`` overrides extend the dropped-key set.
 * Non-numeric values pass through untouched.
 """
@@ -14,6 +17,7 @@ Coverage:
 from __future__ import annotations
 
 import math
+import sys
 
 import pytest
 
@@ -75,14 +79,18 @@ def test_sanitize_inf_omits_fmin_neg_inf() -> None:
     assert "fmin" not in out
 
 
-def test_sanitize_inf_drops_plp_soft_inf_sentinel() -> None:
-    """PLP ships ``1e30`` as a soft-infinity sentinel; the omit-key path
-    treats anything ``≥ 1e20`` as inf.
+def test_sanitize_inf_keeps_plp_soft_inf_sentinel() -> None:
+    """PLP ships ``1e30`` as a soft-infinity sentinel.  Past versions of
+    sanitize_inf treated ``≥ 1e20`` as inf and dropped the field, but
+    that threshold was solver-specific (1e20 is CPLEX's infinity, 1e30
+    is HiGHS's).  The writer no longer guesses: large finite values
+    flow through unchanged and gtopt's ``is_infinity()`` clamps them
+    at the LP layer per the configured solver.
     """
     obj = {"fmax": 1e30, "fmin": -1e30, "name": "w1"}
     out = sanitize_inf(obj)
-    assert "fmax" not in out
-    assert "fmin" not in out
+    assert out["fmax"] == 1e30
+    assert out["fmin"] == -1e30
 
 
 # ---------------------------------------------------------------------------
@@ -93,13 +101,13 @@ def test_sanitize_inf_drops_plp_soft_inf_sentinel() -> None:
 def test_sanitize_inf_serialises_pos_inf_to_sentinel() -> None:
     obj = {"some_other_field": math.inf}
     out = sanitize_inf(obj)
-    assert out["some_other_field"] == "Infinity"
+    assert out["some_other_field"] == sys.float_info.max
 
 
 def test_sanitize_inf_serialises_neg_inf_to_sentinel() -> None:
     obj = {"some_other_field": -math.inf}
     out = sanitize_inf(obj)
-    assert out["some_other_field"] == "-Infinity"
+    assert out["some_other_field"] == -sys.float_info.max
 
 
 def test_sanitize_inf_walks_nested_dict() -> None:
@@ -113,7 +121,7 @@ def test_sanitize_inf_walks_nested_dict() -> None:
 def test_sanitize_inf_walks_inside_list_serialising_inf() -> None:
     obj = [math.inf, -math.inf, 1.0, "x"]
     out = sanitize_inf(obj)
-    assert out == ["Infinity", "-Infinity", 1.0, "x"]
+    assert out == [sys.float_info.max, -sys.float_info.max, 1.0, "x"]
 
 
 # ---------------------------------------------------------------------------
@@ -125,10 +133,10 @@ def test_sanitize_inf_custom_omit_keys() -> None:
     obj = {"my_field": math.inf, "fmax": math.inf, "other": math.inf}
     out = sanitize_inf(obj, omit_keys=frozenset({"my_field"}))
     assert "my_field" not in out
-    # fmax + other now serialise to "Infinity" because the user's
-    # explicit set replaces the default.
-    assert out["fmax"] == "Infinity"
-    assert out["other"] == "Infinity"
+    # fmax + other now serialise to the DblMax sentinel because the
+    # user's explicit set replaces the default.
+    assert out["fmax"] == sys.float_info.max
+    assert out["other"] == sys.float_info.max
 
 
 def test_default_omit_keys_value() -> None:
