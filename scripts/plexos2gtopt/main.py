@@ -14,6 +14,7 @@ import signal
 import sys
 from pathlib import Path
 
+from gtopt_config import add_color_argument
 from gtopt_shared.cli_flags import (
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
@@ -43,10 +44,13 @@ __version__ = "0.1.0"
 _DESCRIPTION = """\
 Convert a CEN PCP daily PLEXOS bundle to gtopt JSON format.
 
-v0 reads the PLEXOS XML object database (``DBSEN_PRGDIARIO.xml``) plus
-the per-class CSV time-series shipped in ``DATOS{date}.zip``. ``--info``
-and ``--validate`` are wired today; full conversion is in development
-(see DESIGN.md).
+Reads the PLEXOS XML object database (``DBSEN_PRGDIARIO.xml``) plus
+the per-class CSV time-series shipped in ``DATOS{date}.zip``.
+``--info`` displays a bundle summary, ``--validate`` runs a schema
+sanity check, and ``-i / --input-bundle`` + ``-o / --output-dir``
+performs the full conversion (generators, lines, batteries,
+reservoirs, waterways, turbines, flow rights, reserve zones, user
+constraints, commitments — the full PLEXOS object catalog).
 """
 
 _EPILOG = """\
@@ -259,6 +263,7 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     add_use_single_bus_argument(parser, dialect="store_true")
+    add_color_argument(parser)
     parser.add_argument(
         "--cogen-must-run",
         default=None,
