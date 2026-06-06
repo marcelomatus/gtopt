@@ -171,6 +171,44 @@ def parse_plexos_log(log_path: Path) -> dict[str, float]:
     return out
 
 
+def compute_plexos_problem_stats(log_path: Path) -> dict[str, float]:
+    """LP/MIP problem size and TOTAL run time from a PLEXOS solver log.
+
+    Parses the matrix-size banner and the model-completion wall time, e.g.::
+
+        Tasks: 1   Cols 3,289,156   Ints 256,158   Rows 4,956,106   Nzs 14,023,279
+        <-- Model "PRGdia_Full_Definitivo" Completed. Time: 01:57:14.9
+
+    Returns ``{rows, cols, int_vars, run_s}``.  ``run_s`` is the TOTAL
+    PLEXOS run wall time (``Model ... Completed. Time: HH:MM:SS.s`` =
+    cumulative elapsed since model start — compilation + solve + solution
+    DB write), matching the gtopt total-run measure.  Missing pieces
+    default to 0.0.
+    """
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    stats: dict[str, float] = {
+        "rows": 0.0,
+        "cols": 0.0,
+        "int_vars": 0.0,
+        "run_s": 0.0,
+    }
+
+    banner = re.search(r"Cols\s+([\d,]+)\s+Ints\s+([\d,]+)\s+Rows\s+([\d,]+)", text)
+    if banner:
+        stats["cols"] = float(banner.group(1).replace(",", ""))
+        stats["int_vars"] = float(banner.group(2).replace(",", ""))
+        stats["rows"] = float(banner.group(3).replace(",", ""))
+
+    # Total run wall time: ``Model "<name>" Completed. Time: HH:MM:SS.s``.
+    done = re.search(
+        r'Model\s+"[^"]*"\s+Completed\.\s+Time:\s*(\d+):(\d+):([\d.]+)', text
+    )
+    if done:
+        h, m, s = done.groups()
+        stats["run_s"] = int(h) * 3600 + int(m) * 60 + float(s)
+    return stats
+
+
 def find_plexos_log_in_res_bundle(res_zip: Path) -> Path:
     """Extract the nested log file from a CEN PCP RES bundle.
 
@@ -790,26 +828,30 @@ def _compute_plexos_line_losses_analytic_mwh(
 
 
 def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
-    """LP/MIP problem size and solve time for the gtopt run.
+    """LP/MIP problem size and TOTAL run time for the gtopt run.
 
     Sources, all under ``<case>/output``:
-      * ``solver_status.json`` → ``elapsed_s`` (wall solve time), ``solver``,
-        ``method``.
-      * newest ``logs/gtopt_*.log`` → ``avg LP size : N vars, M rows``.
+      * newest ``logs/gtopt_*.log`` → first/last ``[YYYY-MM-DD HH:MM:SS.mmm]``
+        timestamps (delta = TOTAL run wall time: LP build + solve + write_out)
+        and ``avg LP size : N vars, M rows``.
       * newest ``logs/cplex_*.log`` → ``Reduced MIP has B binaries, G
         generals`` (0/absent under an LP relaxation).
+      * ``solver_status.json`` → ``solver``, ``method`` labels.
 
-    Returns ``{rows, cols, int_vars, solve_s, solver, method}`` with missing
-    pieces defaulting to 0 / "" so the renderer degrades gracefully.
+    ``run_s`` is the total process wall time (matches PLEXOS's
+    ``Model ... Completed`` total), NOT the solver-only time.  Returns
+    ``{rows, cols, int_vars, run_s, solver, method}`` with missing pieces
+    defaulting to 0 / "" so the renderer degrades gracefully.
     """
     import json
+    from datetime import datetime
 
     out_dir = case_dir / "output"
     stats: dict[str, float | str] = {
         "rows": 0.0,
         "cols": 0.0,
         "int_vars": 0.0,
-        "solve_s": 0.0,
+        "run_s": 0.0,
         "solver": "",
         "method": "",
     }
@@ -818,7 +860,6 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
     if status_path.is_file():
         try:
             sd = json.loads(status_path.read_text())
-            stats["solve_s"] = float(sd.get("elapsed_s", 0.0) or 0.0)
             stats["solver"] = str(sd.get("solver", ""))
             stats["method"] = str(sd.get("method", ""))
         except (ValueError, OSError):
@@ -832,6 +873,17 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
         if m:
             stats["cols"] = float(m.group(1).replace(",", ""))
             stats["rows"] = float(m.group(2).replace(",", ""))
+        # Total run wall time = last − first log timestamp (covers LP build,
+        # solve, and write_out — the whole gtopt process).
+        ts = re.findall(r"\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+)\]", text)
+        if len(ts) >= 2:
+            fmt = "%Y-%m-%d %H:%M:%S.%f"
+            try:
+                t0 = datetime.strptime(ts[0], fmt)
+                t1 = datetime.strptime(ts[-1], fmt)
+                stats["run_s"] = max(0.0, (t1 - t0).total_seconds())
+            except ValueError:
+                pass
 
     cplex_logs = sorted(logs.glob("cplex_*.log")) if logs.is_dir() else []
     if cplex_logs:
@@ -840,6 +892,43 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
         if m:
             stats["int_vars"] = float(int(m.group(1)) + int(m.group(2)))
     return stats
+
+
+def _render_problem_size_compare(
+    plexos_ps: dict[str, float],
+    gtopt_ps: dict[str, float | str],
+    console: Console,
+) -> None:
+    """Step 3b: problem size + TOTAL run time, PLEXOS vs gtopt."""
+    table = Table(title="Problem size & total run time — PLEXOS vs gtopt")
+    table.add_column("Metric", style="bold")
+    table.add_column("PLEXOS", justify="right")
+    table.add_column("gtopt", justify="right")
+    table.add_column("PLEXOS / gtopt", justify="right")
+
+    def _row(label: str, p: float, g: float, fmt: str) -> None:
+        ratio = f"{p / g:.2f}×" if g else "—"
+        table.add_row(label, fmt.format(p), fmt.format(g), ratio)
+
+    _row(
+        "Total run time [s]", plexos_ps["run_s"], float(gtopt_ps["run_s"]), "{:>12,.1f}"
+    )
+    _row("Rows", plexos_ps["rows"], float(gtopt_ps["rows"]), "{:>12,.0f}")
+    _row("Cols", plexos_ps["cols"], float(gtopt_ps["cols"]), "{:>12,.0f}")
+    _row(
+        "Integer vars",
+        plexos_ps["int_vars"],
+        float(gtopt_ps["int_vars"]),
+        "{:>12,.0f}",
+    )
+    console.print(table)
+    console.print(
+        "[dim]Total run time = full wall clock: PLEXOS "
+        "``Model … Completed`` (compile + solve + solution-DB write); gtopt "
+        "first→last log timestamp (LP build + solve + write_out).  PLEXOS "
+        "may interrupt its MIP at gap; gtopt runs to its configured gap — "
+        "termination is not identical.[/dim]"
+    )
 
 
 def _sum_consumer_demand_field_mwh(
@@ -4576,15 +4665,26 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     )
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
+                # Step 3b — problem size + total run time, PLEXOS vs gtopt.
                 if case_dir is not None:
-                    ps = compute_gtopt_problem_stats(case_dir)
-                    console.print(
-                        "[dim]gtopt problem size & solve time: "
-                        f"{int(ps['rows']):,} rows, {int(ps['cols']):,} cols, "
-                        f"{int(ps['int_vars']):,} integer vars — solved in "
-                        f"{float(ps['solve_s']):.1f}s "
-                        f"({ps['solver']}, {ps['method']}).[/dim]"
-                    )
+                    gtopt_ps = compute_gtopt_problem_stats(case_dir)
+                    plexos_ps = {
+                        "rows": 0.0,
+                        "cols": 0.0,
+                        "int_vars": 0.0,
+                        "run_s": 0.0,
+                    }
+                    if res_zip is not None:
+                        try:
+                            log_path = find_plexos_log_in_res_bundle(res_zip)
+                            plexos_ps = compute_plexos_problem_stats(log_path)
+                        except (FileNotFoundError, OSError) as exc:
+                            console.print(
+                                f"[yellow]Step 3b: could not read PLEXOS log "
+                                f"({exc}); showing gtopt only.[/yellow]"
+                            )
+                    console.print()
+                    _render_problem_size_compare(plexos_ps, gtopt_ps, console)
             else:
                 console.print(
                     "[yellow]Step 3 skipped: could not compute "
