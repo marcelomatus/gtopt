@@ -246,16 +246,26 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    """Parse arguments and run the conversion."""
+def main() -> int:
+    """Parse arguments and run the conversion.
+
+    Returns:
+        Exit code (0 = success, 1 = conversion failed, 2 = input
+        file not found).  Following the gtopt CLI taxonomy used by
+        plp2gtopt / sddp2gtopt / plexos2gtopt.
+    """
     parser = make_parser()
     args = parser.parse_args()
     configure_logging(args)
 
     if args.list_networks:
         _list_networks_and_exit()
+        return 0
 
     if args.file is not None:
+        if not args.file.exists():
+            logger.error("input file not found: %s", args.file)
+            return 2
         net = load_network(args.file)
         name = args.file.stem
     else:
@@ -281,6 +291,8 @@ def main() -> None:
     if args.run_check:
         run_post_check(planning)
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
