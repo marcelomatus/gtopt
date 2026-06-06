@@ -180,6 +180,21 @@ INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
     }
 )
 
+# Python-side keys that are LEGACY ALIASES of canonical C++ fields
+# (kept for the ``gtopt-legacy`` dialect) and therefore do NOT appear
+# in ``include/gtopt/json/*.hpp``.  The C++ → Python sync gate must
+# subtract these before checking subset-of-contract.
+#
+# Each entry has a canonical C++ counterpart in the SAME partition:
+#   reserve_fail_cost → reserve_shortage_cost  (model)
+#   hydro_fail_cost   → hydro_spill_cost       (model)
+LEGACY_OPTION_KEY_ALIASES: frozenset[str] = frozenset(
+    {
+        "reserve_fail_cost",
+        "hydro_fail_cost",
+    }
+)
+
 
 OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     # ------------------------------------------------------------------
