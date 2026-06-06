@@ -27,7 +27,9 @@
 // holds and serves as a regression guard if the install path ever
 // gates again on `mode != off`.
 
+#include <atomic>
 #include <filesystem>
+#include <format>
 #include <fstream>
 
 #include <doctest/doctest.h>
@@ -36,6 +38,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_types.hpp>
+#include <unistd.h>
 
 #include "sddp_helpers.hpp"
 
@@ -245,8 +248,14 @@ inline void check_row_coeffs_equal(const LinearInterface& a,
 [[nodiscard]] auto write_one_cut_csv(double rhs, double state_coeff)
     -> std::string
 {
+  // Unique per (process, call) so the multiple TEST_CASEs in this file —
+  // each a separate `ctest -j` process running the same binary — never
+  // race on a shared fixed path.
+  static std::atomic<unsigned> counter {0};
   const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_bdr_clone_replay.csv")
+                         / std::format("gtopt_test_bdr_clone_replay_{}_{}.csv",
+                                       ::getpid(),
+                                       counter.fetch_add(1)))
                             .string();
   std::ofstream ofs(tmp_file);
   ofs << "iteration,scene,rhs,rsv1\n";
