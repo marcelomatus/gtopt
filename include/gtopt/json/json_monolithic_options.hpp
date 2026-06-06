@@ -17,6 +17,7 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::BoundaryCutSoftCost;
 using gtopt::MonolithicOptions;
 using gtopt::SolveMode;
 using gtopt::SolverOptions;
@@ -29,6 +30,7 @@ struct MonolithicOptionsConstructor
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptInt boundary_max_iterations,
+      OptName boundary_cut_soft_cost_str,
       std::optional<SolverOptions> solver_options) const
   {
     MonolithicOptions opts;
@@ -42,6 +44,10 @@ struct MonolithicOptionsConstructor
           "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
+    if (boundary_cut_soft_cost_str) {
+      opts.boundary_cut_soft_cost = gtopt::require_enum<BoundaryCutSoftCost>(
+          "boundary_cut_soft_cost", *boundary_cut_soft_cost_str);
+    }
     opts.solver_options = solver_options;
     return opts;
   }
@@ -57,6 +63,7 @@ struct json_data_contract<MonolithicOptions>
                        json_string_null<"boundary_cuts_file", OptName>,
                        json_string_null<"boundary_cuts_mode", OptName>,
                        json_number_null<"boundary_max_iterations", OptInt>,
+                       json_string_null<"boundary_cut_soft_cost", OptName>,
                        json_class_null<"solver_options", SolverOptions>>;
 
   static auto to_json_data(MonolithicOptions const& opt)
@@ -65,6 +72,7 @@ struct json_data_contract<MonolithicOptions>
                            opt.boundary_cuts_file,
                            detail::enum_to_opt_name(opt.boundary_cuts_mode),
                            opt.boundary_max_iterations,
+                           detail::enum_to_opt_name(opt.boundary_cut_soft_cost),
                            opt.solver_options);
   }
 };

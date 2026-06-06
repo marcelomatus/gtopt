@@ -407,6 +407,27 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
+  // Resolve relative SDDP file paths against `input_directory` (mirrors the
+  // aperture-directory resolution at sddp_method.cpp:179-186).  Defined here
+  // (ahead of the α-scale block) because the boundary-cut path is needed to
+  // derive scale_alpha below; the cut loaders further down reuse the same
+  // lambda.  Without this, gtopt invoked from a cwd other than the case dir
+  // silently skips boundary / named / hot-start cut files even when the JSON
+  // wires them up correctly.  Absolute paths pass through unchanged.
+  const auto resolve_input = [&](const std::string& path) -> std::string
+  {
+    if (path.empty()) {
+      return path;
+    }
+    const std::filesystem::path p {path};
+    if (p.is_absolute()) {
+      return path;
+    }
+    return (std::filesystem::path {planning_lp().options().input_directory()}
+            / p)
+        .string();
+  };
+
   // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
   // master optimum so that the LP-space α coefficient lands O(1)
   // after the cut row's α-pivot equilibration (see
@@ -438,36 +459,54 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // variables drop out of cut-row LP coefficients (s_v cancels), so
   // their magnitude doesn't drive cut-row κ.  α's magnitude does.
   if (m_options_.scale_alpha <= 0.0) {
-    double max_lp_coef = 1.0;
-    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
-        const auto& li =
-            planning_lp().system(scene_index, phase_index).linear_interface();
-        max_lp_coef = std::max(max_lp_coef, li.lp_stats_max_abs());
+    // Boundary-cut workflow: derive scale_alpha from the cut coefficients
+    // through the SAME shared computation MonolithicMethod uses
+    // (`boundary_cut_scale_alpha`).  The rule no longer depends on any
+    // per-method state, so α is scaled identically regardless of solver
+    // method.  Only when no boundary-cut file is supplied (cuts are produced
+    // dynamically by the backward pass) do we fall back to the α-magnitude
+    // proxy below — there are no input coefficients to read in that case.
+    double cut_scale = 0.0;
+    if (!m_options_.boundary_cuts_file.empty()) {
+      const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
+      if (std::filesystem::exists(bc_path)) {
+        cut_scale = boundary_cut_scale_alpha(
+            planning_lp(), bc_path, /*option_scale_alpha=*/0.0);
       }
     }
-    const auto scale_obj = planning_lp().options().scale_objective();
-    const auto num_phases_d = static_cast<double>(num_phases);
-    // Linear-in-N heuristic:
-    //   scale_alpha ≈ scale_obj × num_phases × max_lp_coef
-    // Rationale: α_phys at master optimum ≈ Σ_t block_cost_t = O(N)
-    // per-phase magnitudes.  Going LARGER than necessary is also
-    // harmful: α_LP = α_phys / scale_alpha underflows, and α's obj
-    // coefficient (scale_alpha / scale_obj) balloons relative to
-    // other obj coefs — both hurt solver precision.  Per-case
-    // tuning via the explicit ``scale_alpha`` JSON option overrides
-    // this default.
-    const auto raw_estimate = max_lp_coef * scale_obj * num_phases_d;
-    const auto raw_clamped = std::max(raw_estimate, 1.0);
-    m_options_.scale_alpha = std::pow(10.0, std::ceil(std::log10(raw_clamped)));
-    SPDLOG_INFO(
-        "SDDP: auto scale_alpha = {:.2e} (raw_estimate={:.3e} = "
-        "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases={})",
-        m_options_.scale_alpha,
-        raw_estimate,
-        max_lp_coef,
-        scale_obj,
-        num_phases);
+
+    if (cut_scale > 0.0) {
+      m_options_.scale_alpha = cut_scale;
+      SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (from boundary-cut coeffs)",
+                  m_options_.scale_alpha);
+    } else {
+      // No input cuts — proxy α's magnitude from the LP coefficient scale.
+      //   scale_alpha ≈ scale_obj × num_phases × max_lp_coef
+      // Rationale: α_phys at master optimum ≈ Σ_t block_cost_t = O(N)
+      // per-phase magnitudes, rounded UP to the next power of ten.
+      double max_lp_coef = 1.0;
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+          const auto& li =
+              planning_lp().system(scene_index, phase_index).linear_interface();
+          max_lp_coef = std::max(max_lp_coef, li.lp_stats_max_abs());
+        }
+      }
+      const auto scale_obj = planning_lp().options().scale_objective();
+      const auto num_phases_d = static_cast<double>(num_phases);
+      const auto raw_estimate = max_lp_coef * scale_obj * num_phases_d;
+      const auto raw_clamped = std::max(raw_estimate, 1.0);
+      m_options_.scale_alpha =
+          std::pow(10.0, std::ceil(std::log10(raw_clamped)));
+      SPDLOG_INFO(
+          "SDDP: auto scale_alpha = {:.2e} (raw_estimate={:.3e} = "
+          "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases={})",
+          m_options_.scale_alpha,
+          raw_estimate,
+          max_lp_coef,
+          scale_obj,
+          num_phases);
+    }
   }
 
   // The setup steps below (add_col for alpha, get_col bounds for
@@ -538,26 +577,8 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   std::string cuts_source;  // "" → cold; otherwise file or dir path
   std::size_t boundary_count = 0;
 
-  // Resolve relative SDDP file paths against `input_directory` (mirrors the
-  // aperture-directory resolution at sddp_method.cpp:179-186).  Without
-  // this, gtopt invoked from a cwd other than the case dir silently skips
-  // boundary / named / hot-start cut files even when the JSON wires them
-  // up correctly — observed on `support/juan/gtopt_iplp_plain` as
-  // `boundary=none` in the HotStart summary and α=0 throughout the last
-  // phase.  Absolute paths pass through unchanged.
-  const auto resolve_input = [&](const std::string& path) -> std::string
-  {
-    if (path.empty()) {
-      return path;
-    }
-    const std::filesystem::path p {path};
-    if (p.is_absolute()) {
-      return path;
-    }
-    return (std::filesystem::path {planning_lp().options().input_directory()}
-            / p)
-        .string();
-  };
+  // `resolve_input` is defined above the α-scale block (it is also used to
+  // locate the boundary-cut file for scale_alpha).
 
   if (m_options_.recovery_mode >= RecoveryMode::cuts) {
     if (!m_options_.cuts_input_file.empty()) {

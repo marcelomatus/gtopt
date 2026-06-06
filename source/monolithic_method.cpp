@@ -78,18 +78,17 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     // loading so the loader binds the cuts.  α carries the same objective
     // coefficient (respecting `scale_alpha` / auto-scale) and is freed from
     // its bootstrap pin by the cut install (`bound_alpha_for_cut`).
-    // Auto-scale α from the boundary-cut coefficients: average each state
-    // column over all cut rows and round the max magnitude up to the next
-    // power of ten (see `effective_scale_alpha`).  Falls back to the
-    // state-variable `var_scale` heuristic when the CSV is unreadable.
-    const double cut_max_coeff = boundary_cut_max_avg_coeff(boundary_cuts_file);
-    const double scale_alpha = effective_scale_alpha(
-        planning_lp, planning_lp.options().sddp_scale_alpha(), cut_max_coeff);
+    // Auto-scale α from the boundary-cut coefficients — the SAME shared
+    // computation SDDPMethod uses (`boundary_cut_scale_alpha`): average each
+    // state column over all cut rows and round the max magnitude up to the
+    // next power of ten.  Keeping a single entry point means α is scaled
+    // identically regardless of solver method.
+    const double scale_alpha =
+        boundary_cut_scale_alpha(planning_lp,
+                                 boundary_cuts_file,
+                                 planning_lp.options().sddp_scale_alpha());
     bc_opts.scale_alpha = scale_alpha;
-    SPDLOG_INFO(
-        "MonolithicMethod: boundary-cut max avg coeff {:.6g} -> scale_alpha {}",
-        cut_max_coeff,
-        scale_alpha);
+    SPDLOG_INFO("MonolithicMethod: boundary-cut scale_alpha {}", scale_alpha);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       register_alpha_variables(planning_lp, scene_index, scale_alpha);
     }

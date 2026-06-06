@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 
 #include <arrow/api.h>
@@ -55,18 +56,22 @@ namespace gtopt
 
 // ─── Helper: state-variable name matching ───────────────────────────────────
 
-// ─── Auto-scale alpha helper ────────────────────────────────────────────────
+// ─── Boundary-cut coefficient extraction ────────────────────────────────────
 
-[[nodiscard]] auto boundary_cut_max_avg_coeff(const std::string& filepath)
-    -> double
+[[nodiscard]] auto boundary_cut_coeff_stats(const std::string& filepath)
+    -> flat_map<std::string, BoundaryCutCoeffStats>
 {
   // Read the boundary-cut CSV with the Arrow CSV reader — same path as
   // ``load_boundary_cuts_csv`` so layout detection (CRLF / quoting / type
-  // inference) stays identical.  We then average each state column with the
-  // Arrow ``mean`` compute kernel (null-aware) and return the max magnitude.
+  // inference) stays identical.  Each trailing column is a state variable
+  // (reservoir / battery name); we summarise it with the Arrow ``min_max``
+  // and ``mean`` compute kernels (null-aware) over all cut rows and return
+  // ``{name → {min, avg, max}}``.
+  flat_map<std::string, BoundaryCutCoeffStats> stats;
+
   auto maybe_infile = arrow::io::ReadableFile::Open(filepath);
   if (!maybe_infile.ok()) {
-    return 0.0;
+    return stats;
   }
 
   auto read_options = arrow::csv::ReadOptions::Defaults();
@@ -84,11 +89,11 @@ namespace gtopt
                                     parse_options,
                                     convert_options);
   if (!maybe_reader.ok()) {
-    return 0.0;
+    return stats;
   }
   auto maybe_table = (*maybe_reader)->Read();
   if (!maybe_table.ok()) {
-    return 0.0;
+    return stats;
   }
   const auto& table = *maybe_table;
   const auto schema = table->schema();
@@ -99,11 +104,12 @@ namespace gtopt
       schema->num_fields() > 0 && schema->field(0)->name() == "iteration";
   const int state_var_start = has_iteration_col ? 3 : 2;
 
-  double max_coeff = 0.0;
+  map_reserve(stats,
+              static_cast<std::size_t>(schema->num_fields() - state_var_start));
   for (int fi = state_var_start; fi < schema->num_fields(); ++fi) {
     auto col = table->column(fi);
-    // Cast to float64 so the mean kernel is uniform (state columns may be
-    // inferred as int64 when every coefficient is integral).
+    // Cast to float64 so the walk is uniform (state columns may be inferred
+    // as int64 when every coefficient is integral).
     if (col->type()->id() != arrow::Type::DOUBLE) {
       arrow::compute::CastOptions cast_opts;
       cast_opts.to_type = arrow::float64();
@@ -113,15 +119,50 @@ namespace gtopt
       }
       col = cast_result->chunked_array();
     }
-    auto mean_result = arrow::compute::Mean(col);
-    if (!mean_result.ok()) {
+
+    // Walk every chunk accumulating min / sum / max over the valid (non-null)
+    // values.  A manual walk is robust and simple for the small per-column
+    // cut tables, and avoids the aggregate-kernel struct-scalar plumbing.
+    double sum = 0.0;
+    double vmin = std::numeric_limits<double>::infinity();
+    double vmax = -std::numeric_limits<double>::infinity();
+    int64_t count = 0;
+    for (int ci = 0; ci < col->num_chunks(); ++ci) {
+      const auto arr =
+          std::dynamic_pointer_cast<arrow::DoubleArray>(col->chunk(ci));
+      if (!arr) {
+        continue;
+      }
+      for (int64_t i = 0; i < arr->length(); ++i) {
+        if (!arr->IsValid(i)) {
+          continue;
+        }
+        const double v = arr->Value(i);
+        sum += v;
+        vmin = std::min(vmin, v);
+        vmax = std::max(vmax, v);
+        ++count;
+      }
+    }
+    if (count == 0) {
       continue;
     }
-    const auto& mean_scalar = mean_result->scalar_as<arrow::DoubleScalar>();
-    if (!mean_scalar.is_valid) {
-      continue;
-    }
-    max_coeff = std::max(max_coeff, std::abs(mean_scalar.value));
+    stats.emplace(schema->field(fi)->name(),
+                  BoundaryCutCoeffStats {
+                      .min = vmin,
+                      .avg = sum / static_cast<double>(count),
+                      .max = vmax,
+                  });
+  }
+  return stats;
+}
+
+[[nodiscard]] auto boundary_cut_max_avg_coeff(const std::string& filepath)
+    -> double
+{
+  double max_coeff = 0.0;
+  for (const auto& [name, s] : boundary_cut_coeff_stats(filepath)) {
+    max_coeff = std::max(max_coeff, std::abs(s.avg));
   }
   return max_coeff;
 }
@@ -143,20 +184,30 @@ namespace gtopt
       std::max(1.0, planning_lp.options().scale_objective());
 
   // α only exists when boundary cuts are installed, so this is always called
-  // with a cut to scale against.  Rule:
+  // with a cut to scale against.  Rule (identical for MonolithicMethod and
+  // SDDPMethod — the computation no longer depends on any per-method state):
   //   scale_alpha = max( scale_objective , 10^ceil(log10(max_coeff)) )
   // where max_coeff = max_i |avg(coeff_i)| over the cut state columns.  This
-  // matches α to the magnitude of the cut coefficients it balances and
-  // mirrors the log10 round-up SDDP already uses for its α estimate
-  // (sddp_method.cpp); rounding up to the next power of ten keeps α at a
-  // clean decimal scale instead of an arbitrary coefficient value.  A
-  // non-positive ``cut_max_coeff`` (unreadable / empty CSV — no usable cut)
-  // degenerates to the objective floor.
+  // matches α to the magnitude of the cut coefficients it balances; rounding
+  // up to the next power of ten keeps α at a clean decimal scale instead of
+  // an arbitrary coefficient value.  A non-positive ``cut_max_coeff``
+  // (unreadable / empty CSV — no usable cut) degenerates to the objective
+  // floor.
   if (cut_max_coeff <= 0.0) {
     return obj_floor;
   }
   const double pow10 = std::pow(10.0, std::ceil(std::log10(cut_max_coeff)));
   return std::max(obj_floor, pow10);
+}
+
+[[nodiscard]] auto boundary_cut_scale_alpha(
+    const PlanningLP& planning_lp,
+    const std::string& boundary_cuts_file,
+    double option_scale_alpha) -> double
+{
+  return effective_scale_alpha(planning_lp,
+                               option_scale_alpha,
+                               boundary_cut_max_avg_coeff(boundary_cuts_file));
 }
 // ``extract_iteration_from_name`` was removed in 2026-05.  Every
 // consumer now reads the iteration index directly from the matching

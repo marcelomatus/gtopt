@@ -175,6 +175,56 @@ TEST_CASE(
   CHECK(floor_alpha >= 1.0);
 }
 
+// ─── boundary_cut_coeff_stats / select_cut_coeff ────────────────────────────
+
+TEST_CASE("boundary_cut_coeff_stats summarises each cut column")  // NOLINT
+{
+  const auto tmp = std::filesystem::temp_directory_path()
+      / "test_boundary_cut_coeff_stats.csv";
+  {
+    std::ofstream out(tmp);
+    // header: scene, rhs, then two state columns
+    out << "scene,rhs,RES_A,RES_B\n";
+    out << "0,1000.0,-10.0,5.0\n";
+    out << "0,2000.0,-30.0,5.0\n";  // RES_A: min -30, avg -20, max -10
+  }
+
+  const auto stats = boundary_cut_coeff_stats(tmp.string());
+  REQUIRE(stats.size() == 2);
+
+  const auto a = stats.find("RES_A");
+  REQUIRE(a != stats.end());
+  CHECK(a->second.min == doctest::Approx(-30.0));
+  CHECK(a->second.avg == doctest::Approx(-20.0));
+  CHECK(a->second.max == doctest::Approx(-10.0));
+
+  const auto b = stats.find("RES_B");
+  REQUIRE(b != stats.end());
+  CHECK(b->second.min == doctest::Approx(5.0));
+  CHECK(b->second.avg == doctest::Approx(5.0));
+  CHECK(b->second.max == doctest::Approx(5.0));
+
+  // cut_soft_cost returns the water value (-coeff), with min/max selecting
+  // the lower/upper bound of the COST.  RES_A coeff in [-30, -10] → cost in
+  // [10, 30]: min cost = -max(coeff) = 10, max cost = -min(coeff) = 30.
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::min)
+        == doctest::Approx(10.0));
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::avg)
+        == doctest::Approx(20.0));
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::max)
+        == doctest::Approx(30.0));
+
+  // scale_alpha helper uses max |avg|: max(|-20|, |5|) = 20.
+  CHECK(boundary_cut_max_avg_coeff(tmp.string()) == doctest::Approx(20.0));
+
+  // Missing / unreadable file → empty, and max-avg 0.
+  CHECK(boundary_cut_coeff_stats("/no/such/file.csv").empty());
+  CHECK(boundary_cut_max_avg_coeff("/no/such/file.csv")
+        == doctest::Approx(0.0));
+
+  std::filesystem::remove(tmp);
+}
+
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────
 
 // ─── save_cuts / load_cuts round-trip via SDDPMethod (Parquet) ──────────────

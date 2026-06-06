@@ -17,6 +17,7 @@
 namespace daw::json
 {
 using gtopt::BoundaryCutsMode;
+using gtopt::BoundaryCutSoftCost;
 using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
 using gtopt::CutDrainMode;
@@ -66,6 +67,7 @@ struct SddpOptionsConstructor
       OptName boundary_cuts_mode_str,
       OptBool boundary_cuts_mean_shift,
       OptInt boundary_max_iterations,
+      OptName boundary_cut_soft_cost_str,
       OptName missing_cut_var_mode_str,
       OptInt max_cuts_per_phase,
       OptInt cut_prune_interval,
@@ -143,6 +145,10 @@ struct SddpOptionsConstructor
     }
     opts.boundary_cuts_mean_shift = boundary_cuts_mean_shift;
     opts.boundary_max_iterations = boundary_max_iterations;
+    if (boundary_cut_soft_cost_str) {
+      opts.boundary_cut_soft_cost = gtopt::require_enum<BoundaryCutSoftCost>(
+          "boundary_cut_soft_cost", *boundary_cut_soft_cost_str);
+    }
     if (missing_cut_var_mode_str) {
       opts.missing_cut_var_mode = gtopt::require_enum<MissingCutVarMode>(
           "missing_cut_var_mode", *missing_cut_var_mode_str);
@@ -228,6 +234,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"boundary_cuts_mode", OptName>,
       json_bool_null<"boundary_cuts_mean_shift", OptBool>,
       json_number_null<"boundary_max_iterations", OptInt>,
+      json_string_null<"boundary_cut_soft_cost", OptName>,
       json_string_null<"missing_cut_var_mode", OptName>,
       json_number_null<"max_cuts_per_phase", OptInt>,
       json_number_null<"cut_prune_interval", OptInt>,
@@ -289,6 +296,7 @@ struct json_data_contract<SddpOptions>
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_cuts_mean_shift,
         opt.boundary_max_iterations,
+        detail::enum_to_opt_name(opt.boundary_cut_soft_cost),
         detail::enum_to_opt_name(opt.missing_cut_var_mode),
         opt.max_cuts_per_phase,
         opt.cut_prune_interval,

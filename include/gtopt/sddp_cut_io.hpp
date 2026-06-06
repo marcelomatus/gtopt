@@ -24,6 +24,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
 
 namespace gtopt
@@ -89,15 +90,54 @@ inline constexpr std::string_view EfinColName {"efin"};
 [[nodiscard]] auto build_scene_uid_map(const PlanningLP& planning_lp)
     -> flat_map<SceneUid, SceneIndex>;
 
-// ─── Scale helpers ─────────────────────────────────────────────────────────
+// ─── Boundary-cut coefficient extraction ────────────────────────────────────
 
-/// Compute the column-averaged max coefficient magnitude of a boundary-cut
-/// CSV.  Parses the header to locate the state-variable columns (every
-/// column after ``rhs``; an optional leading ``iteration`` column is
-/// tolerated), averages each state column over all cut rows, and returns
-/// ``max_i |avg(coeff_i)|``.  Returns 0.0 when the file is missing,
-/// malformed, or has no state columns — the caller then falls back to the
-/// state-variable ``var_scale`` heuristic.
+/// Per-state-variable summary of a boundary cut's coefficient across all cut
+/// rows: the ``min``, ``avg`` (mean) and ``max`` of that column.  The cut
+/// ships coefficient ``−wv`` on each reservoir's efin state, so the marginal
+/// water value is the negated statistic; ``scale_alpha`` uses the magnitude.
+struct BoundaryCutCoeffStats
+{
+  double min {};  ///< minimum coefficient seen for this state column
+  double avg {};  ///< mean coefficient over all cut rows
+  double max {};  ///< maximum coefficient seen for this state column
+};
+
+/// Terminal soft cost (marginal water value) for the chosen bound.
+///
+/// The cut ships coefficient ``−wv`` on each state variable, so the water
+/// value is ``cost = −coeff``.  ``min`` / ``max`` select the lower / upper
+/// bound of the **cost** — and because of the negation that is ``−max`` /
+/// ``−min`` of the coefficient, respectively (the most negative coefficient
+/// is the largest cost).  ``avg`` uses the mean.  Sign is preserved, so a
+/// state with a genuinely negative water value stays a reward.
+[[nodiscard]] constexpr auto cut_soft_cost(const BoundaryCutCoeffStats& s,
+                                           BoundaryCutSoftCost which) noexcept
+    -> double
+{
+  switch (which) {
+    case BoundaryCutSoftCost::min:
+      return -s.max;  // lower bound of the cost
+    case BoundaryCutSoftCost::max:
+      return -s.min;  // upper bound of the cost
+    case BoundaryCutSoftCost::avg:
+      break;
+  }
+  return -s.avg;
+}
+
+/// Extract the per-state-variable coefficient statistics from a boundary-cut
+/// CSV: ``{state_var_name → {min, avg, max}}`` over every cut row, read
+/// through the same Arrow CSV path as ``load_boundary_cuts_csv``.  The state
+/// variable name is the trailing CSV column header (reservoir / battery
+/// name).  This is the single shared parse the scale-alpha and water-value
+/// (efin soft cost) consumers both build on.  Empty when the file is missing,
+/// malformed, or has no state columns.
+[[nodiscard]] auto boundary_cut_coeff_stats(const std::string& filepath)
+    -> flat_map<std::string, BoundaryCutCoeffStats>;
+
+/// ``max_i |avg(coeff_i)|`` over ``boundary_cut_coeff_stats`` — the cut-coeff
+/// magnitude used to scale α.  Returns 0.0 when the file yields no columns.
 [[nodiscard]] auto boundary_cut_max_avg_coeff(const std::string& filepath)
     -> double;
 
@@ -112,6 +152,16 @@ inline constexpr std::string_view EfinColName {"efin"};
 [[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,
                                          double option_scale_alpha,
                                          double cut_max_coeff) -> double;
+
+/// Compute scale_alpha for a boundary-cut workflow straight from the cut
+/// file: ``effective_scale_alpha(planning_lp, option_scale_alpha,
+/// boundary_cut_max_avg_coeff(boundary_cuts_file))``.  This is the single
+/// entry point both MonolithicMethod and SDDPMethod use when boundary cuts
+/// are installed, so α is scaled identically regardless of solver method.
+[[nodiscard]] auto boundary_cut_scale_alpha(
+    const PlanningLP& planning_lp,
+    const std::string& boundary_cuts_file,
+    double option_scale_alpha) -> double;
 
 // ─── Boundary / named-cut CSV loaders ──────────────────────────────────────
 //

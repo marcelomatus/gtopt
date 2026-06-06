@@ -53,6 +53,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_mode",
         "boundary_cuts_mean_shift",
         "boundary_max_iterations",
+        "boundary_cut_soft_cost",
         "cut_drain_mode",
         "missing_cut_var_mode",
         "max_cuts_per_phase",
@@ -103,6 +104,7 @@ MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
+        "boundary_cut_soft_cost",
         "solver_options",
     }
 )
@@ -440,6 +442,12 @@ _OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         "boundary_max_iterations",
         "[sddp] Max SDDP iterations to load from boundary cuts (0=all)",
         0,
+    ),
+    (
+        "boundary_cut_soft_cost",
+        "[sddp] Derive terminal soft cost from cut coeffs "
+        "('min'/'avg'/'max'); omit to disable",
+        None,
     ),
     (
         "named_cuts_file",
