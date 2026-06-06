@@ -30,10 +30,20 @@ namespace gtopt
 /// Strict parser with hash-comment support and full checking.
 /// Rejects unknown JSON members.  Use for all JSON input — user-facing
 /// planning files and internally constructed overlays (e.g. --set) alike.
+///
+/// ``IEEE754Precise::yes`` is mandatory, not optional: daw-json-link's
+/// default (fast) real parser silently mis-parses number literals with
+/// more significant digits than fit in a ``uint64_t`` (> ~19) by orders
+/// of magnitude when the document is fed as a ``std::string`` — which is
+/// exactly how ``parse_planning_json`` feeds the canonicalised buffer.
+/// The strtod fallback that handles over-long significands is compiled
+/// out unless this flag is set.  See
+/// https://github.com/beached/daw_json_link/issues/474 (daw 3.31.0).
 constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
     daw::json::options::PolicyCommentTypes::hash,
     daw::json::options::CheckedParseMode::yes,
     daw::json::options::ExcludeSpecialEscapes::yes,
+    daw::json::options::IEEE754Precise::yes,
     daw::json::options::UseExactMappingsByDefault::yes>;
 
 /// Per-member number options that allow ``Infinity`` / ``-Infinity``

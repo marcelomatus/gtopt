@@ -1973,16 +1973,7 @@ def build_reservoir_array(
             # ``3600/86400 = 1/24`` (s/h ÷ s/day).  PLP volumes in
             # hm³ use the struct default ``0.0036 = 3600/1e6``
             # instead.
-            # Avoid the EXACT IEEE 754 bit pattern of 1.0/24.0
-            # (= 0.041666666666666664), which triggers a 10× mutation
-            # in daw::json's parser path on this specific value
-            # (verified 2026-05-22 via the parse probe in
-            # gtopt_json_io_parse.cpp; 1 ULP up or down doesn't
-            # trigger).  Perturb the divisor by ~1e-13 so the parsed
-            # double lands one ULP off the trigger bit pattern while
-            # remaining dimensionally identical to 1/24 to double
-            # precision.
-            "flow_conversion_rate": 1.0 / 24.000000000001,
+            "flow_conversion_rate": 1.0 / 24.0,
         }
         # Per-block profile takes precedence over the scalar — emitted
         # as the inline ``[[per-block]]`` matrix gtopt's ``Reservoir``
