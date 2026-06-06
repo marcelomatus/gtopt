@@ -4,7 +4,7 @@
     "eini": 1500.0,
     "emax": 2000.0,
     "emin": 800.0,
-    "flow_conversion_rate": 0.04166666666666494,
+    "flow_conversion_rate": 0.041666666666666664,
     "junction": "COCHRANE",
     "name": "COCHRANE",
     "uid": 1
@@ -14,7 +14,7 @@
     "eini": 3000.0,
     "emax": 5000.0,
     "emin": 100.0,
-    "flow_conversion_rate": 0.04166666666666494,
+    "flow_conversion_rate": 0.041666666666666664,
     "junction": "LAJA",
     "name": "LAJA",
     "spillway_cost": 1000.0,
