@@ -48,7 +48,7 @@ from rich.table import Table
 # A schema mismatch silently falls back to re-extraction; do not
 # guard with try/except in the call site, the unpickler will surface
 # AttributeError / KeyError naturally.
-_PLEXOS_CACHE_VERSION = 7  # +unserved_mwh in totals (measured PLEXOS USE, prop 1408)
+_PLEXOS_CACHE_VERSION = 8  # +sum_f2_dur per line (analytic loss from PLEXOS flows)
 
 
 def _plexos_cache_path(res_zip: Path, cache_dir: Path | None = None) -> Path:
@@ -129,6 +129,7 @@ def _compute_plexos_all(accdb_path: Path) -> dict:
         "line": compute_plexos_per_line(accdb_path),
         "tech": compute_plexos_generation_by_technology(accdb_path),
         "res": compute_plexos_reservoir_volumes(accdb_path),
+        "res_wv": compute_plexos_reservoir_water_value(accdb_path),
         "bat": compute_plexos_battery_operation(accdb_path),
         "commit": compute_plexos_commitment(accdb_path),
         # Name→category map: used by ``compute_gtopt_generation_by_technology``
@@ -337,6 +338,10 @@ PLEXOS_PROP_BATTERY_DISCHARGING = 524  # MW out of cell (DC-side) — do NOT com
 PLEXOS_PROP_STORAGE_SOC = 518  # GWh / m³ per period
 PLEXOS_PROP_STORAGE_INITIAL_VOLUME = 645
 PLEXOS_PROP_STORAGE_END_VOLUME = 646
+# Storage "Shadow Price" (prop 680, Storages collection, unit $/CMD) = the
+# marginal value of stored water = PLEXOS's water value.  Pairs with gtopt
+# Reservoir/water_value_dual (the storage-balance dual, also $/CMD).
+PLEXOS_PROP_STORAGE_SHADOW_PRICE = 680
 #
 # Collection-200 (Region) — system-level aggregates:
 PLEXOS_PROP_REGION_LOAD = 966  # GROSS demand: consumer + batt + losses
@@ -728,6 +733,113 @@ def _compute_line_losses_analytic_mwh(
     flow = flow.dropna(subset=["R"])
     flow["loss_mwh"] = flow["R"] / (flow["V"] ** 2) * flow["fabs"] ** 2 * flow["dur"]
     return float(flow["loss_mwh"].sum())
+
+
+def _compute_plexos_line_losses_analytic_mwh(
+    plexos_line: dict[str, dict[str, float]],
+    case_dir: Path,
+) -> float:
+    """Analytic line-loss total recomputed from **PLEXOS** flows.
+
+    Mirrors :func:`_compute_line_losses_analytic_mwh` (the gtopt side) but
+    drives the ``Σ_line (R/V²)·Σ_block |f|²·dur`` formula off PLEXOS's own
+    per-line flow series (``sum_f2_dur`` from :func:`compute_plexos_per_line`)
+    and the SAME ``R``/``V`` from the gtopt bundle, matched by line name.
+
+    Comparing this against the gtopt analytic isolates **flow-driven** from
+    **model-driven** loss differences: identical R/V² on both sides, so any
+    gap is purely how the two dispatches route power.  Comparing it against
+    PLEXOS's reported ``Region.Losses`` validates the resistance data.
+
+    PLEXOS computes losses **post-solve** (not in the LP objective), so its
+    flows are effectively the lossless-dispatch solution; this recomputation
+    is the apples-to-apples bridge to gtopt, which prices PWL losses inside
+    the LP.  Returns 0.0 when no flows / resistances are available.
+    """
+    import json
+
+    bundle_path: Path | None = None
+    for cand in sorted(case_dir.glob("*.json")):
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        return 0.0
+    bundle = json.loads(bundle_path.read_text())
+
+    # Per-line R/V² keyed by NAME (PLEXOS reports names, not uids).
+    rv2_by_name: dict[str, float] = {}
+    for line in bundle["system"].get("line_array", []):
+        r = line.get("resistance")
+        if r is None:
+            continue
+        v = line.get("voltage")
+        vv = float(v) if v else 1.0
+        rv2_by_name[str(line["name"])] = float(r) / (vv * vv)
+    if not rv2_by_name:
+        return 0.0
+
+    total = 0.0
+    for name, entry in plexos_line.items():
+        rv2 = rv2_by_name.get(name)
+        if rv2 is None:
+            continue
+        total += rv2 * entry.get("sum_f2_dur", 0.0)
+    return total
+
+
+def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
+    """LP/MIP problem size and solve time for the gtopt run.
+
+    Sources, all under ``<case>/output``:
+      * ``solver_status.json`` → ``elapsed_s`` (wall solve time), ``solver``,
+        ``method``.
+      * newest ``logs/gtopt_*.log`` → ``avg LP size : N vars, M rows``.
+      * newest ``logs/cplex_*.log`` → ``Reduced MIP has B binaries, G
+        generals`` (0/absent under an LP relaxation).
+
+    Returns ``{rows, cols, int_vars, solve_s, solver, method}`` with missing
+    pieces defaulting to 0 / "" so the renderer degrades gracefully.
+    """
+    import json
+
+    out_dir = case_dir / "output"
+    stats: dict[str, float | str] = {
+        "rows": 0.0,
+        "cols": 0.0,
+        "int_vars": 0.0,
+        "solve_s": 0.0,
+        "solver": "",
+        "method": "",
+    }
+
+    status_path = out_dir / "solver_status.json"
+    if status_path.is_file():
+        try:
+            sd = json.loads(status_path.read_text())
+            stats["solve_s"] = float(sd.get("elapsed_s", 0.0) or 0.0)
+            stats["solver"] = str(sd.get("solver", ""))
+            stats["method"] = str(sd.get("method", ""))
+        except (ValueError, OSError):
+            pass
+
+    logs = out_dir / "logs"
+    gtopt_logs = sorted(logs.glob("gtopt_*.log")) if logs.is_dir() else []
+    if gtopt_logs:
+        text = gtopt_logs[-1].read_text(errors="ignore")
+        m = re.search(r"avg LP size\s*:\s*([\d,]+)\s*vars,\s*([\d,]+)\s*rows", text)
+        if m:
+            stats["cols"] = float(m.group(1).replace(",", ""))
+            stats["rows"] = float(m.group(2).replace(",", ""))
+
+    cplex_logs = sorted(logs.glob("cplex_*.log")) if logs.is_dir() else []
+    if cplex_logs:
+        text = cplex_logs[-1].read_text(errors="ignore")
+        m = re.search(r"Reduced MIP has\s+(\d+)\s+binaries,\s+(\d+)\s+generals", text)
+        if m:
+            stats["int_vars"] = float(int(m.group(1)) + int(m.group(2)))
+    return stats
 
 
 def _sum_consumer_demand_field_mwh(
@@ -1610,6 +1722,7 @@ def compute_plexos_per_line(
         entry: dict[str, float] = {
             "energy_mwh": 0.0,
             "peak_flow_mw": 0.0,
+            "sum_f2_dur": 0.0,
             "max_flow": 0.0,
             "min_flow": 0.0,
             "active": 0.0,
@@ -1654,6 +1767,13 @@ def compute_plexos_per_line(
                 entry["peak_flow_mw"] = max(
                     (abs(v) for p, v in rows if _is_in_service(p)),
                     default=0.0,
+                )
+                # Σ |MW|² · dur over in-service periods — the flow² energy
+                # term the analytic loss (R/V²·|f|²·dt) multiplies.  Lets the
+                # caller recompute PLEXOS line losses from PLEXOS's own flows
+                # with the exact same formula gtopt uses on its flows.
+                entry["sum_f2_dur"] = sum(
+                    (v * v) * durations.get(p, 0) for p, v in rows if _is_in_service(p)
                 )
                 entry["active"] = 1.0 if rows else 0.0
             elif fname == "min_flow":
@@ -2395,6 +2515,66 @@ def compute_plexos_reservoir_volumes(
     return out
 
 
+def compute_plexos_reservoir_water_value(
+    accdb_path: Path,
+) -> dict[str, float]:
+    """Per-reservoir water value [$/CMD] from PLEXOS.
+
+    Returns ``{storage_name → avg_water_value}``: the duration-weighted
+    average of the Storage ``Shadow Price`` (prop 680, unit ``$/CMD``)
+    over the horizon — PLEXOS's marginal value of stored water.  Pairs
+    with gtopt ``Reservoir/water_value_dual``.
+    """
+    import collections
+    import csv
+    import io
+    import subprocess
+
+    durations = _plexos_block_durations_from_accdb(accdb_path)
+    if not durations:
+        return {}
+    total_hours = sum(durations.values()) or 1.0
+
+    def _dump(table: str) -> list[dict[str, str]]:
+        out = subprocess.check_output(["mdb-export", str(accdb_path), table], text=True)
+        return list(csv.DictReader(io.StringIO(out)))
+
+    obj_name = {int(o["object_id"]): o["name"] for o in _dump("t_object")}
+    mem_child = {
+        int(m["membership_id"]): int(m["child_object_id"])
+        for m in _dump("t_membership")
+    }
+    key_oid: dict[int, int] = {}
+    for k in _dump("t_key"):
+        try:
+            if int(k["property_id"]) != PLEXOS_PROP_STORAGE_SHADOW_PRICE:
+                continue
+            oid = mem_child.get(int(k["membership_id"]))
+        except (KeyError, ValueError):
+            continue
+        if oid is not None:
+            key_oid[int(k["key_id"])] = oid
+
+    by_res: dict[str, list[tuple[int, float]]] = collections.defaultdict(list)
+    for r in _dump("t_data_0"):
+        try:
+            oid = key_oid.get(int(r["key_id"]))
+            if oid is None:
+                continue
+            name = obj_name.get(oid)
+            if name is None:
+                continue
+            by_res[name].append((int(r["period_id"]), float(r["value"])))
+        except (KeyError, ValueError):
+            continue
+
+    out: dict[str, float] = {}
+    for name, series in by_res.items():
+        weighted = sum(v * durations.get(p, 0.0) for p, v in series)
+        out[name] = weighted / total_hours
+    return out
+
+
 def compute_gtopt_reservoir_volumes(
     case_dir: Path,
 ) -> dict[str, dict[str, float]]:
@@ -2460,6 +2640,53 @@ def compute_gtopt_reservoir_volumes(
     return out
 
 
+def compute_gtopt_reservoir_water_value(
+    case_dir: Path,
+) -> dict[str, float]:
+    """Per-reservoir water value [$/CMD] from gtopt.
+
+    Duration-weighted average of ``Reservoir/water_value_dual.parquet``
+    (the storage-balance shadow price, $ per cumec-day) over the horizon.
+    Pairs with PLEXOS Storage ``Shadow Price`` (prop 680).
+    """
+    import json
+
+    import pyarrow.parquet as pq
+
+    bundle_path: Path | None = None
+    for cand in sorted(case_dir.glob("*.json")):
+        if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
+            continue
+        bundle_path = cand
+        break
+    if bundle_path is None or not bundle_path.is_file():
+        raise FileNotFoundError(f"no PLEXOS-source JSON in {case_dir}")
+
+    bundle = json.loads(bundle_path.read_text())
+    durations = {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in bundle["simulation"]["block_array"]
+    }
+    name_by_uid: dict[int, str] = {
+        int(r["uid"]): r["name"] for r in bundle["system"].get("reservoir_array", [])
+    }
+    total_hours = sum(durations.values()) or 1.0
+
+    f = case_dir / "output" / "Reservoir" / "water_value_dual.parquet"
+    if not f.exists():
+        return {}
+    df = pq.read_table(f).to_pandas()
+    df["duration"] = df["block"].astype(int).map(durations).fillna(0.0)
+    out: dict[str, float] = {}
+    for uid, sub in df.groupby("uid", observed=True):
+        name = name_by_uid.get(int(uid))
+        if name is None:
+            continue
+        weighted = float((sub["value"] * sub["duration"]).sum())
+        out[name] = weighted / total_hours
+    return out
+
+
 def _render_reservoir_compare(
     plexos_res: dict[str, dict[str, float]],
     gtopt_res: dict[str, dict[str, float]],
@@ -2514,6 +2741,56 @@ def _render_reservoir_compare(
         "storages, m³ for waterways).  PLEXOS eini = prop 645 "
         "Initial Volume, efin = prop 646 End Volume.  gtopt: "
         "Reservoir/eini_sol[first block] and efin_sol[last block].[/dim]"
+    )
+
+
+def _render_water_value_compare(
+    plexos_wv: dict[str, float],
+    gtopt_wv: dict[str, float],
+    console: Console,
+) -> None:
+    """Step 8b — per-reservoir water-value [$/CMD] comparison.
+
+    The marginal value of stored water: PLEXOS Storage ``Shadow Price``
+    (prop 680) vs gtopt ``Reservoir/water_value_dual`` — both in $/CMD, so
+    directly comparable.  A large gtopt/PLEXOS ratio flags a mis-scaled FCF
+    / boundary-cut terminal term that distorts the hydro-thermal trade-off
+    (an inflated water value makes gtopt hoard water → under-use hydro).
+    """
+    common = sorted(set(plexos_wv) & set(gtopt_wv))
+    if not common:
+        return
+    rows = sorted(common, key=lambda n: -abs(gtopt_wv[n] - plexos_wv[n]))
+    t = Table(
+        title=(
+            f"Water value (Step 8b) — reservoir marginal value of stored "
+            f"water [$/CMD]  (common: {len(common)}, "
+            f"PLEXOS-only: {len(set(plexos_wv) - set(gtopt_wv))}, "
+            f"gtopt-only: {len(set(gtopt_wv) - set(plexos_wv))})"
+        ),
+    )
+    t.add_column("Reservoir", style="bold")
+    t.add_column("PLEXOS", justify="right")
+    t.add_column("gtopt", justify="right")
+    t.add_column("Δ (g−p)", justify="right")
+    t.add_column("ratio g/p", justify="right")
+    for name in rows:
+        p = plexos_wv[name]
+        g = gtopt_wv[name]
+        ratio = f"{g / p:.2f}x" if abs(p) > 1e-9 else "—"
+        t.add_row(
+            name,
+            f"{p:>12,.1f}",
+            f"{g:>12,.1f}",
+            f"{g - p:>+12,.1f}",
+            f"{ratio:>8}",
+        )
+    console.print(t)
+    console.print(
+        "[dim]Water value = marginal value of stored water.  PLEXOS = "
+        "Storage Shadow Price (prop 680, $/CMD); gtopt = duration-weighted "
+        "Reservoir/water_value_dual.  Ratios ≫ 1 indicate an over-scaled "
+        "FCF / boundary-cut term (water hoarding).[/dim]"
     )
 
 
@@ -3131,6 +3408,18 @@ def _render_solution_compare(
         plexos_tot.get("losses_mwh", 0.0),
         gtopt_tot.get("losses_line_analytic_mwh", 0.0),
     )
+    # Same R/V²·|f|²·dt formula applied to EACH side's own flows — equal
+    # resistances, so the gap is purely how the two dispatches route power
+    # (flow-driven), vs the row above where PLEXOS is its reported
+    # Region.Losses.  PLEXOS-from-flows ≈ Region.Losses validates the
+    # resistance data; gtopt-from-flows is the same number as the row above.
+    plexos_from_flows = plexos_tot.get("losses_analytic_from_flows_mwh")
+    if plexos_from_flows is not None:
+        _row(
+            "Line losses analytic-from-flows [MWh]",
+            plexos_from_flows,
+            gtopt_tot.get("losses_line_analytic_mwh", 0.0),
+        )
     extras_g = gtopt_tot.get("losses_line_extras_mwh", 0.0)
     if extras_g > 0.0:
         _row(
@@ -3210,12 +3499,26 @@ def _render_solution_compare(
             f"{_format_money(g_shutdown)}."
         )
     console.print(
-        "[dim]Demand/Gen are duration-weighted ∫MW dt across the "
-        "111-block PLEXOS layout (block durations from t_phase_3).  "
+        "[dim]Demand/Gen are duration-weighted ∫MW dt across the PLEXOS "
+        "t_phase_3 block layout (block durations from t_phase_3).  "
         "Dispatch $ uses gen × SRMC × duration on BOTH sides; Start & "
         "Shutdown $ on PLEXOS is pid-120 Generator.StartShutdownCost "
         "(already integrated $ per block), on gtopt is Σ_t v_{c,t} × "
         "commitment[c].(start|shutdown)_cost." + pid119_note + extra_note + "[/dim]"
+    )
+    console.print(
+        "[dim]Line losses — methodology differs by side.  PLEXOS computes "
+        "losses POST-SOLVE (R·I² on the optimised flows; not a term in the "
+        "LP objective/balance), so its dispatch is effectively lossless and "
+        "its bus residual is ~0.  gtopt models PWL losses INSIDE the LP "
+        "(priced in the objective, served from generation) — hence the "
+        "'LP-internal' row and the non-zero 'Bus residual' diagnostic, and "
+        "why gtopt generation runs higher to cover modelled loss.  Rows: "
+        "'analytic' = gtopt Σ(R/V²)|f|²·dt vs PLEXOS reported Region.Losses "
+        "(prop 997); 'analytic-from-flows' applies that SAME formula to each "
+        "side's own flows (equal R/V²), so its gap is purely flow-driven; "
+        "'LP-internal' is the loss the gtopt LP charged itself "
+        "(--write-out all,extras:Line).[/dim]"
     )
 
 
@@ -4246,6 +4549,12 @@ def main(argv: list[str] | None = None) -> int:
             # Step 8 — reservoir trajectories
             plexos_res = plexos_data["res"]
             gtopt_res = compute_gtopt_reservoir_volumes(case_dir)
+            # Step 8b — reservoir water values ($/CMD)
+            plexos_res_wv = plexos_data.get("res_wv", {})
+            try:
+                gtopt_res_wv = compute_gtopt_reservoir_water_value(case_dir)
+            except FileNotFoundError:
+                gtopt_res_wv = {}
             # Step 9 — battery operation
             plexos_bat = plexos_data["bat"]
             gtopt_bat = compute_gtopt_battery_operation(case_dir)
@@ -4256,7 +4565,26 @@ def main(argv: list[str] | None = None) -> int:
             except FileNotFoundError:
                 gtopt_commit = {}
             if plexos_tot and gtopt_tot:
+                # Recompute PLEXOS line losses from PLEXOS's own flows with the
+                # same R/V²·|f|²·dt formula gtopt uses — isolates flow-driven
+                # from model-driven loss differences (PLEXOS models losses
+                # post-solve, not in the objective).
+                if case_dir is not None:
+                    plexos_tot["losses_analytic_from_flows_mwh"] = (
+                        _compute_plexos_line_losses_analytic_mwh(
+                            plexos_data.get("line", {}), case_dir
+                        )
+                    )
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
+                if case_dir is not None:
+                    ps = compute_gtopt_problem_stats(case_dir)
+                    console.print(
+                        "[dim]gtopt problem size & solve time: "
+                        f"{int(ps['rows']):,} rows, {int(ps['cols']):,} cols, "
+                        f"{int(ps['int_vars']):,} integer vars — solved in "
+                        f"{float(ps['solve_s']):.1f}s "
+                        f"({ps['solver']}, {ps['method']}).[/dim]"
+                    )
             else:
                 console.print(
                     "[yellow]Step 3 skipped: could not compute "
@@ -4289,6 +4617,17 @@ def main(argv: list[str] | None = None) -> int:
             if plexos_res and gtopt_res:
                 console.print()
                 _render_reservoir_compare(plexos_res, gtopt_res, console)
+            if plexos_res_wv and gtopt_res_wv:
+                console.print()
+                _render_water_value_compare(plexos_res_wv, gtopt_res_wv, console)
+            elif plexos_res_wv and not gtopt_res_wv:
+                console.print()
+                console.print(
+                    "[yellow]Step 8b (reservoir water value) skipped: gtopt "
+                    "wrote no Reservoir/water_value_dual.parquet (MIP runs do "
+                    "not emit LP duals — re-run an LP-relaxed solve to "
+                    "populate it).[/yellow]"
+                )
             if plexos_bat and gtopt_bat:
                 console.print()
                 _render_battery_compare(plexos_bat, gtopt_bat, console)
