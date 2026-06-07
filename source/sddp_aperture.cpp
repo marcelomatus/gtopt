@@ -229,7 +229,8 @@ auto solve_apertures_for_phase(
     bool use_manual_clone,
     int chunk_size,
     SDDPWorkPool* pool_for_slot_release,
-    std::span<const StateVarLink> cut_links) -> std::optional<SparseRow>
+    std::span<const StateVarLink> cut_links,
+    bool aperture_warm_start) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
@@ -258,7 +259,8 @@ auto solve_apertures_for_phase(
 
   // ── Submit all aperture tasks to the pool ────────────────────────────
   //
-  // Each task is a complete unit: clone → update → warm-start → solve →
+  // Each task is a complete unit: clone → update (apply aperture bounds)
+  // → solve (cold barrier, no warm-start — see the solve site below) →
   // build cut.  Tasks are independent (separate LP clones) and execute
   // concurrently in the SDDP work pool.
 
@@ -428,6 +430,25 @@ auto solve_apertures_for_phase(
           std::vector<MemoEntry> seen;
           seen.reserve(chunk.size());
 
+          // ── Warm-start state (opt-in via `aperture_warm_start`) ──────
+          // The FIRST solved aperture in this chunk runs cold (barrier +
+          // crossover, leaving an optimal basis on the shared clone);
+          // every subsequent aperture re-optimizes that resident basis
+          // with a warm simplex solve.  Bound-only `update_aperture`
+          // deltas keep the basis valid — no basis is saved/restored, the
+          // clone's resident basis is reused in place.
+          SolverOptions warm_opts = aperture_opts;
+          warm_opts.advanced_basis = true;
+          warm_opts.algorithm = LPAlgo::primal;
+          bool clone_has_basis = false;
+
+          // Instrumentation: split solve wall-time into the cold seed and
+          // the warm re-solves so the speedup is observable in the logs.
+          double cold_solve_s = 0.0;
+          double warm_solve_s = 0.0;
+          int n_cold_solves = 0;
+          int n_warm_solves = 0;
+
           for (const auto& entry : chunk) {
             // Each chunk_view entry indexes into `prepared` at the
             // same offset of its own contiguous range.  Because
@@ -541,11 +562,25 @@ auto solve_apertures_for_phase(
               lp_debug_writer->write(clone, dbg_stem);
             }
 
-            // Solve.  After the first aperture in the chunk, every
-            // subsequent solve warm-starts from the previous one's
-            // basis on the shared clone — bound-only deltas keep
-            // the dual basis valid → typically converges in a
-            // fraction of a cold barrier.
+            // Solve.  NOTE: there is currently **no warm-start** between
+            // apertures.  The aperture pass solves with barrier +
+            // crossover (SolverOptions::crossover defaults to true and is
+            // kept on for the backward/aperture pass), so each solve DOES
+            // leave an optimal simplex basis on the shared clone — but the
+            // next aperture's resolve() re-runs a full cold barrier
+            // (LPMethod stays barrier) and discards it.  CPLEX barrier (an
+            // interior-point method) does not warm-start off a basis;
+            // only the simplex methods do.  So the per-chunk clone saves
+            // only the LP *reconstruction* cost, not the solve.
+            //
+            // The `update_aperture` deltas are bound-only, so the basis
+            // left by the previous aperture stays dual-feasible (changing
+            // column bounds does NOT destroy a basis).  Warm-starting is
+            // therefore available essentially for free: set
+            // CPX_PARAM_ADVIND=1 and switch the in-chunk re-solves to dual
+            // simplex (LPMethod = dual) to re-optimize off the retained
+            // basis in a handful of pivots instead of a fresh barrier.
+            // Not wired today.
             //
             // Relax every integer column on the clone to continuous
             // before solving.  Benders / SDDP subproblem clones must
@@ -559,8 +594,30 @@ auto solve_apertures_for_phase(
             // chunk-shared clones (cheap noop after the first
             // aperture).
             clone.relax_integers();
-            [[maybe_unused]] auto solve_result = clone.resolve(aperture_opts);
+            // Warm-start the re-solve once the shared clone already holds
+            // an optimal basis from a previous aperture in this chunk.
+            const bool use_warm = aperture_warm_start && clone_has_basis;
+            const auto solve_t0 = std::chrono::steady_clock::now();
+            [[maybe_unused]] auto solve_result =
+                clone.resolve(use_warm ? warm_opts : aperture_opts);
+            const auto solve_s =
+                std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                              - solve_t0)
+                    .count();
             const bool feasible = clone.is_optimal();
+            if (use_warm) {
+              warm_solve_s += solve_s;
+              ++n_warm_solves;
+            } else {
+              cold_solve_s += solve_s;
+              ++n_cold_solves;
+            }
+            // A successful solve leaves an optimal basis resident on the
+            // shared clone (barrier+crossover on the cold seed, simplex on
+            // the warm re-solves), so the next aperture can warm-start.
+            if (feasible) {
+              clone_has_basis = true;
+            }
             if (!feasible) {
               const auto status = clone.get_status();
               if (spdlog::should_log(spdlog::level::trace)) {
@@ -652,6 +709,27 @@ auto solve_apertures_for_phase(
                 std::hash<std::thread::id> {}(task_tid) % 10000);
           }
 
+          // ── Warm-start timing summary (opt-in path only) ────────────
+          // Reports the cold-seed vs warm-resolve cost so the speedup is
+          // measurable from the logs without a profiler.
+          if (aperture_warm_start && n_warm_solves > 0
+              && spdlog::should_log(spdlog::level::debug))
+          {
+            const double cold_avg_ms =
+                n_cold_solves > 0 ? (cold_solve_s / n_cold_solves) * 1e3 : 0.0;
+            const double warm_avg_ms = (warm_solve_s / n_warm_solves) * 1e3;
+            spdlog::debug(
+                "SDDP Aperture warm-start [s{} p{}]: {} cold {:.1f}ms/avg "
+                "+ {} warm {:.1f}ms/avg (warm/cold={:.2f})",
+                scene_uid_val,
+                phase_uid_val,
+                n_cold_solves,
+                cold_avg_ms,
+                n_warm_solves,
+                warm_avg_ms,
+                cold_avg_ms > 0.0 ? warm_avg_ms / cold_avg_ms : 0.0);
+          }
+
           return results;
         }));
   }
@@ -672,7 +750,7 @@ auto solve_apertures_for_phase(
     // counts it as "active", and once the gate threshold trips the
     // pool wedges (every cell task waiting on chunk futures, no chunk
     // worker dispatched).  No-op when `pool_for_slot_release == nullptr`.
-    auto slot_guard = pool_for_slot_release
+    auto slot_guard = (pool_for_slot_release != nullptr)
         ? pool_for_slot_release->release_slot_while_blocking()
         : SDDPWorkPool::SlotReleaseGuard {nullptr};
 

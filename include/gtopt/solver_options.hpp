@@ -155,6 +155,37 @@ struct SolverOptions
    */
   bool crossover {true};
 
+  /** @brief Warm-start this solve from the resident (advanced) basis.
+   *
+   *  Cross-solver primitive for re-optimizing a problem object IN PLACE
+   *  after a small modification (typically column-bound changes) without
+   *  rebuilding or re-solving from scratch.  Changing variable bounds
+   *  does NOT invalidate a simplex basis — it stays dual-feasible — so a
+   *  warm simplex re-solve off the previous optimal basis is usually a
+   *  handful of pivots.  No basis is saved/restored: the backend reuses
+   *  whatever basis is currently resident on its problem object.
+   *
+   *  Only the SIMPLEX methods can warm-start; barrier (interior point)
+   *  cannot.  So when this is true the backend forces a simplex method,
+   *  taking `algorithm` as the warm method (primal/dual); when
+   *  `algorithm` is `default_algo`/`barrier`, the backend picks primal.
+   *
+   *  Pre-condition for any speedup: the problem object must already hold
+   *  an optimal basis from a prior solve (e.g. a barrier solve WITH
+   *  crossover, or any simplex solve).  On a cold object it degrades to a
+   *  normal (cold) simplex solve.
+   *
+   *  Backend mapping:
+   *  - CPLEX: `CPX_PARAM_ADVIND = 1` + `CPX_PARAM_LPMETHOD = primal|dual`,
+   *    applied AFTER any `.prm` file so it wins over a pinned `LPMethod`.
+   *  - Others (HiGHS/CLP/CBC/OSI/MindOpt/Gurobi): not yet wired — the
+   *    field is ignored and the solve proceeds normally (still correct,
+   *    just not warm).  This is the documented extension point.
+   *
+   *  Default: false (no warm start; preserves legacy behaviour).
+   */
+  bool advanced_basis {false};
+
   /** @brief Path to a backend-native parameter file applied before the
    *  fields above (so the typed gtopt fields keep priority on conflict).
    *

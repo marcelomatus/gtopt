@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <format>
 #include <numeric>
 #include <stdexcept>
@@ -247,6 +248,23 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
                    "override the gtopt defaults set above)\n",
                    opts.param_file->c_str());
     }
+  }
+
+  // Advanced (warm) basis start — applied LAST so it wins over any
+  // LPMethod the .prm pins (the bundled cplex.prm forces barrier).
+  // The barrier optimizer cannot warm-start off a basis; only the
+  // simplex methods can.  Reuse the basis already resident on this
+  // problem object (left by the previous solve) and re-optimize with a
+  // simplex method.  Changing column bounds between solves keeps that
+  // basis valid (it stays dual-feasible), so this is a few pivots, not
+  // a fresh barrier.  `algorithm` selects the warm method; barrier /
+  // default fall back to primal simplex (empirically best on the GTEP
+  // aperture subproblems).
+  if (opts.advanced_basis) {
+    CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
+    const int warm_method =
+        (opts.algorithm == LPAlgo::dual) ? CPX_ALG_DUAL : CPX_ALG_PRIMAL;
+    CPXsetintparam(env, CPX_PARAM_LPMETHOD, warm_method);
   }
 }
 
@@ -1087,27 +1105,59 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
     return -1;
   }
 
-  // 5. Apply the caller options FIRST so the bundled `cplex.prm` loads
-  //    (it forces `LPMethod 4` = barrier), THEN override the LP method to
-  //    warm dual simplex for this throwaway fixed-LP pass only.  Save the
-  //    current method and restore it afterwards so the global `cplex.prm`
-  //    barrier setting still governs the cold MIP-root relaxation solves.
-  apply_options(opts);
+  // 5. Apply the caller options for the fixed pass, but DO NOT re-read the
+  //    bundled barrier `cplex.prm` — that file forces `LPMethod 4` (barrier)
+  //    and, re-loaded here, would re-presolve the fixed LP from scratch
+  //    (barrier root relaxation, crossover), turning the supposedly-warm
+  //    fixed pass into a full cold re-solve as expensive as the MIP itself.
+  //    Instead, prefer a sibling `cplex_fixed_milp.prm` (next to the case's
+  //    `cplex.prm` in its `solvers/` dir) tuned for the warm fixed pass.
+  //    `opts.param_file` points at `.../solvers/cplex.prm`; swap the basename
+  //    to `cplex_fixed_milp.prm`.  If it exists, load THAT; otherwise fall
+  //    back to setting the warm-start params directly in code below.
+  SolverOptions fixed_opts = opts;
+  fixed_opts.param_file.reset();
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    const std::filesystem::path base {*opts.param_file};
+    const std::filesystem::path sibling =
+        base.parent_path() / "cplex_fixed_milp.prm";
+    std::error_code ec;
+    if (std::filesystem::exists(sibling, ec) && !ec) {
+      fixed_opts.param_file = sibling.string();
+    }
+  }
+
+  // Save the current LP method (the cold MIP-root barrier setting) and
+  // restore it afterwards so subsequent cold solves keep using barrier.
   int saved_lpmethod = CPX_ALG_AUTOMATIC;
   CPXgetintparam(env, CPX_PARAM_LPMETHOD, &saved_lpmethod);
-  CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_DUAL);
+  int saved_advance = 1;
+  CPXgetintparam(env, CPX_PARAM_ADVIND, &saved_advance);
 
-  // 6. Warm dual-simplex solve of the fixed LP.  If it does not reach
-  //    optimality, retry once with barrier on the still-fixed problem as a
-  //    safety net (matches the cold-start fallback the `.prm` documents).
+  apply_options(fixed_opts);
+
+  // The four requirements that make `CPXPROB_FIXEDMILP` warm: (1) same live
+  // object / no reconstruct between MIP solve and here [satisfied by the
+  // caller], (2) CPXPARAM_Advance=1 to USE the incumbent's advanced basis,
+  // (3) primal simplex (a few pivots off the incumbent basis), not barrier,
+  // (4) MIP solved to optimality first [checked above].  Set (2) and (3)
+  // explicitly AFTER apply_options so they win over any loaded .prm.
+  CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
+  CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_PRIMAL);
+
+  // 6. Warm primal-simplex solve of the fixed LP off the incumbent basis.
+  //    If it does not reach optimality, retry once with barrier on the
+  //    still-fixed problem as a safety net.
   m_solve_status_ = CPXlpopt(env, lp);
   if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
     CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
     m_solve_status_ = CPXlpopt(env, lp);
   }
 
-  // 7. Restore the saved LP method so subsequent cold solves keep barrier.
+  // 7. Restore the saved LP method + advance flag so subsequent cold solves
+  //    keep barrier / their prior advanced-start behaviour.
   CPXsetintparam(env, CPX_PARAM_LPMETHOD, saved_lpmethod);
+  CPXsetintparam(env, CPX_PARAM_ADVIND, saved_advance);
 
   // 8. Report the fixed count, or -1 if the fixed-LP solve still failed.
   if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {

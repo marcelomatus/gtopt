@@ -760,6 +760,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the JSON-facing field documentation.
   int aperture_chunk_size {0};
 
+  /// Opt-in warm-start of in-chunk aperture re-solves: the first aperture
+  /// in a chunk seeds a basis (barrier + crossover) and every subsequent
+  /// aperture re-optimizes it with a warm simplex solve instead of a cold
+  /// barrier.  See `sddp_options.hpp::aperture_warm_start` for the full
+  /// rationale.  Default false (cold barrier each aperture).
+  bool aperture_warm_start {false};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass

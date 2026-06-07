@@ -169,6 +169,73 @@ TEST_CASE("LinearInterface - Variable types and bounds")
   REQUIRE(col_upp[continuous_var] == doctest::Approx(8.0));
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface - advanced_basis warm-start after a column-bound change")
+{
+  using namespace gtopt;
+
+  // This is exactly what an SDDP aperture re-solve does: change only
+  // column bounds, then re-optimize off the resident basis with a warm
+  // simplex solve (`SolverOptions::advanced_basis`).  Model:
+  //   maximize 3 x1 + 2 x2  s.t.  x1 + 2 x2 <= 10,  0<=x1<=U,  0<=x2<=3
+  // (stored as a minimization of -3 x1 - 2 x2).
+  auto add_problem = [](LinearInterface& iface)
+  {
+    const auto x1 = iface.add_col(SparseCol {.uppb = 4.0, .cost = -3.0});
+    const auto x2 = iface.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
+    SparseRow row1;
+    row1[x1] = 1.0;
+    row1[x2] = 2.0;
+    row1.uppb = 10.0;
+    (void)iface.add_row(row1);  // NOLINT
+    return std::pair {x1, x2};
+  };
+
+  // ── Reference: cold solve of the LP with x1 capped at 2.0 ──
+  double cold_obj = 0.0;
+  {
+    LinearInterface iface;
+    const auto [x1, x2] = add_problem(iface);
+    iface.set_col_upp(x1, 2.0);
+    const auto r = iface.initial_solve(SolverOptions {});
+    REQUIRE(r.has_value());
+    REQUIRE(r.value() == 0);
+    cold_obj = iface.get_obj_value_raw();
+  }
+  // x1=2 → x2=min((10-2)/2, 3)=3 → obj = 3·2 + 2·3 = 12 (raw -12).
+  REQUIRE(cold_obj == doctest::Approx(-12.0));
+
+  // ── Warm path: seed a basis at x1<=4, change the bound, warm-resolve ──
+  LinearInterface iface;
+  const auto [x1, x2] = add_problem(iface);
+
+  // Cold seed solve — leaves an optimal basis resident on the backend.
+  const auto r0 = iface.initial_solve(SolverOptions {});
+  REQUIRE(r0.has_value());
+  REQUIRE(r0.value() == 0);
+  // x1=4, x2=3 → obj 18 (raw -18).
+  REQUIRE(iface.get_obj_value_raw() == doctest::Approx(-18.0));
+
+  // The "aperture delta": tighten only a column bound.
+  iface.set_col_upp(x1, 2.0);
+
+  // Warm re-solve off the resident basis: ADVIND=1 + primal simplex on
+  // CPLEX; on backends without `advanced_basis` it degrades to a normal
+  // solve.  Either way the optimum must match the cold reference — a
+  // bound change keeps the basis valid (it stays dual-feasible).
+  SolverOptions warm;
+  warm.advanced_basis = true;
+  warm.algorithm = LPAlgo::primal;
+  const auto r1 = iface.resolve(warm);
+  REQUIRE(r1.has_value());
+  REQUIRE(r1.value() == 0);
+
+  CHECK(iface.get_obj_value_raw() == doctest::Approx(cold_obj));
+  const auto sol = iface.get_col_sol();
+  CHECK(sol[x1] == doctest::Approx(2.0));
+  CHECK(sol[x2] == doctest::Approx(3.0));
+}
+
 TEST_CASE("LinearInterface - relax_integers flips MIP columns to continuous")
 {
   using namespace gtopt;

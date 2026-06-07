@@ -52,6 +52,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "aperture_use_manual_clone",
         "aperture_drop_fcuts",
         "aperture_chunk_size",
+        "aperture_warm_start",
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_cuts_mean_shift",

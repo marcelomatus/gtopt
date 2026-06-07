@@ -93,9 +93,12 @@ template<typename Range>
         .uid = link.uid,
         .col_name = link.col_name,
         .class_name = link.class_name,
-        .lp_key = {.scene_index = scene_index,
-                   .phase_index = link.source_phase_index,
-                   .kind = SystemKind::aperture},
+        .lp_key =
+            {
+                .scene_index = scene_index,
+                .phase_index = link.source_phase_index,
+                .kind = SystemKind::aperture,
+            },
     });
     if (!ap_prod) {
       continue;
@@ -411,8 +414,11 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
   // Submit aperture chunk tasks to the SDDP work pool.  Each chunk
   // task operates on its OWN LP clone — clones are independent and
   // execute concurrently across chunks; apertures WITHIN a chunk
-  // run serially on the shared clone (warm-start reuse).  The
-  // calling scene thread blocks on the returned futures while pool
+  // run serially on the shared clone, which amortizes the LP
+  // *reconstruction* cost (one clone per chunk).  NB: the solves
+  // themselves are cold barrier — there is no inter-aperture
+  // warm-start today (see the solve site in `sddp_aperture.cpp`).
+  // The calling scene thread blocks on the returned futures while pool
   // threads process the chunks.
   //
   // Fallback to synchronous execution when no pool is available (e.g.
@@ -597,7 +603,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.aperture_use_manual_clone,
       m_options_.aperture_chunk_size,
       m_pool_,
-      aperture_cut_links);
+      aperture_cut_links,
+      m_options_.aperture_warm_start);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -853,7 +860,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.aperture_use_manual_clone,
         m_options_.aperture_chunk_size,
         m_pool_,
-        aperture_cut_links);
+        aperture_cut_links,
+        m_options_.aperture_warm_start);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));

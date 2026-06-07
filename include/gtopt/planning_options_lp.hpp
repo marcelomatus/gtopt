@@ -1011,6 +1011,13 @@ public:
     return m_options_.sddp_options.aperture_chunk_size.value_or(0);
   }
 
+  /// Opt-in warm-start of in-chunk aperture re-solves.  Default false.
+  /// See `SddpOptions::aperture_warm_start` for documentation.
+  [[nodiscard]] constexpr auto sddp_aperture_warm_start() const noexcept
+  {
+    return m_options_.sddp_options.aperture_warm_start.value_or(false);
+  }
+
   /**
    * @brief Gets the effective monolithic solver options.
    *

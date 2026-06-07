@@ -283,11 +283,12 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *
    * Controls the chunked aperture pass.  Each chunk is submitted as
    * **one** SDDP work-pool task that clones the phase LP **once**
-   * and solves its inner apertures sequentially — every aperture
-   * after the first warms-starts from the previous one's basis on
-   * the shared clone.  Bound-only deltas keep the dual basis valid,
-   * so warm resolves typically converge in a small fraction of a
-   * cold barrier.
+   * and solves its inner apertures sequentially.  By default each
+   * inner solve is an independent cold barrier (the shared clone only
+   * amortizes the LP reconstruction); set `aperture_warm_start = true`
+   * to additionally warm-start every aperture after the first off the
+   * previous one's resident basis (a few simplex pivots instead of a
+   * fresh barrier).
    *
    * Pairs with the per-phase aperture wetness sort applied by
    * `plp2gtopt` (driest → wettest within each phase): consecutive
@@ -315,6 +316,30 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: `nullopt` (auto = 1).
    */
   OptInt aperture_chunk_size {};
+
+  /** @brief Warm-start in-chunk aperture re-solves (opt-in).
+   *
+   * Only meaningful when more than one aperture is solved per chunk
+   * (`aperture_chunk_size > 1`).  When true, the first aperture in each
+   * chunk is solved normally (barrier + crossover, which leaves an
+   * optimal simplex basis on the shared clone); every subsequent
+   * aperture re-optimizes that resident basis with a warm simplex solve
+   * (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1` + primal
+   * simplex) instead of a fresh cold barrier.
+   *
+   * Aperture deltas are bound-only (`update_aperture` rewrites flow-col
+   * bounds), so the basis stays valid across apertures — no basis is
+   * saved or restored; the clone's resident basis is reused in place.
+   *
+   * NOTE: warm and cold solves reach the same optimum but may land on
+   * different optimal vertices under degeneracy, so the per-aperture cut
+   * (built from reduced costs) can differ from the cold reference and the
+   * SDDP iteration path may shift.  Hence opt-in; default false keeps the
+   * legacy cold-barrier behaviour byte-for-byte.
+   *
+   * Default: false.
+   */
+  OptBool aperture_warm_start {};
 
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
@@ -725,6 +750,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
+    merge_opt(aperture_warm_start, opts.aperture_warm_start);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);

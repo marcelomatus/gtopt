@@ -726,7 +726,7 @@ TEST_CASE(  // NOLINT
     return planning;
   };
 
-  auto run_at = [&](int chunk_size) -> double
+  auto run_at = [&](int chunk_size, bool warm_start = false) -> double
   {
     auto planning = build_planning();
     PlanningLP plp(std::move(planning));
@@ -742,6 +742,7 @@ TEST_CASE(  // NOLINT
     sddp_opts.enable_api = false;
     sddp_opts.apertures = std::nullopt;  // use per-phase apertures
     sddp_opts.aperture_chunk_size = chunk_size;
+    sddp_opts.aperture_warm_start = warm_start;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
@@ -752,12 +753,23 @@ TEST_CASE(  // NOLINT
   // K=1: legacy 1-task-per-aperture, fully parallel across the work pool.
   const double ub_k1 = run_at(1);
   // K=4: a single task per (scene, phase) holds all 4 apertures and
-  // solves them serially on a shared LP clone — full warm-start reuse.
+  // solves them serially on a shared LP clone.
   const double ub_k4 = run_at(4);
 
   // Equivalence within solver tolerance: chunked path is a pure
   // scheduling optimisation, expected cut geometry is unchanged.
   CHECK(ub_k4 == doctest::Approx(ub_k1).epsilon(1e-3));
+
+  // K=4 with opt-in warm-start: apertures 2-4 in the single chunk
+  // warm-start (CPLEX ADVIND=1 + primal simplex) off aperture 1's
+  // resident basis across REAL bound changes (the 4 apertures span a
+  // drier→wetter inflow range).  Warm-start swaps the LP *algorithm*
+  // per aperture, not the LP itself, so the value function / cuts — and
+  // therefore the UB — must match the cold reference within tolerance.
+  // On backends that don't implement `advanced_basis` (e.g. CLP) the
+  // flag is a no-op and this run is identical to the cold one.
+  const double ub_k4_warm = run_at(4, /*warm_start=*/true);
+  CHECK(ub_k4_warm == doctest::Approx(ub_k1).epsilon(1e-3));
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────

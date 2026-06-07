@@ -63,6 +63,7 @@ struct SddpOptionsConstructor
       OptBool aperture_use_manual_clone,
       OptBool aperture_drop_fcuts,
       OptInt aperture_chunk_size,
+      OptBool aperture_warm_start,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptBool boundary_cuts_mean_shift,
@@ -138,6 +139,7 @@ struct SddpOptionsConstructor
     opts.aperture_use_manual_clone = aperture_use_manual_clone;
     opts.aperture_drop_fcuts = aperture_drop_fcuts;
     opts.aperture_chunk_size = aperture_chunk_size;
+    opts.aperture_warm_start = aperture_warm_start;
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
@@ -230,6 +232,7 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"aperture_use_manual_clone", OptBool>,
       json_bool_null<"aperture_drop_fcuts", OptBool>,
       json_number_null<"aperture_chunk_size", OptInt>,
+      json_bool_null<"aperture_warm_start", OptBool>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_bool_null<"boundary_cuts_mean_shift", OptBool>,
@@ -292,6 +295,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_use_manual_clone,
         opt.aperture_drop_fcuts,
         opt.aperture_chunk_size,
+        opt.aperture_warm_start,
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_cuts_mean_shift,
