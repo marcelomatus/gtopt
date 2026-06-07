@@ -122,9 +122,11 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
 /// In-code default: `ADVIND=1` + primal/dual simplex (per `opts.algorithm`,
 /// default primal — empirically best on the GTEP subproblems).  Users can
 /// override the whole warm pass with a `cplex_warmstart.prm` sibling next
-/// to the case's main `.prm` (the legacy `cplex_fixed_milp.prm` name is
-/// still honoured).  Call this AFTER the main `.prm` so it wins over a
-/// pinned `LPMethod` (the bundled `cplex.prm` forces barrier).
+/// to the case's main `.prm` — the SINGLE shared warm-start param file
+/// (carries `CPXPARAM_LPMethod 1` primal + `CPXPARAM_Advance 1`), shipped by
+/// plp2gtopt / plexos2gtopt and loaded for BOTH warm paths.  Call this AFTER
+/// the main `.prm` so it wins over a pinned `LPMethod` (the bundled
+/// `cplex.prm` forces barrier).
 void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
 {
   CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
@@ -132,18 +134,18 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
       (opts.algorithm == LPAlgo::dual) ? CPX_ALG_DUAL : CPX_ALG_PRIMAL;
   CPXsetintparam(env, CPX_PARAM_LPMETHOD, warm_method);
 
-  // Optional user override: a sibling parameter file next to the case's
-  // main `.prm`.  Loaded last so it wins over the defaults above.
+  // Optional user override: the case's `cplex_warmstart.prm` sibling (next
+  // to its main `cplex.prm`) — the single shared warm-start param file
+  // (`LPMethod 1` primal + `Advance 1`), shipped by plp2gtopt / plexos2gtopt
+  // and used by BOTH the fixed-MILP dual pass and the aperture warm-start.
+  // Loaded last so it wins over the in-code defaults above.
   if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const std::filesystem::path base {*opts.param_file};
-    for (const auto* name : {"cplex_warmstart.prm", "cplex_fixed_milp.prm"}) {
-      const std::filesystem::path sibling = base.parent_path() / name;
-      std::error_code ec;
-      if (std::filesystem::exists(sibling, ec) && !ec) {
-        if (CPXreadcopyparam(env, sibling.string().c_str()) == 0) {
-          break;
-        }
-      }
+    const std::filesystem::path sibling =
+        std::filesystem::path {*opts.param_file}.parent_path()
+        / "cplex_warmstart.prm";
+    std::error_code ec;
+    if (std::filesystem::exists(sibling, ec) && !ec) {
+      CPXreadcopyparam(env, sibling.string().c_str());
     }
   }
 }

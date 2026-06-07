@@ -72,7 +72,7 @@ TEST_CASE("fix_mip_and_resolve_duals warm-starts on CPLEX")  // NOLINT
 
   const auto dir = make_tmp_dir();
   const auto prm = dir / "solvers" / "cplex.prm";
-  const auto prm_fixed = dir / "solvers" / "cplex_fixed_milp.prm";
+  const auto prm_fixed = dir / "solvers" / "cplex_warmstart.prm";
   const auto logbase = dir / "cplex";  // backend appends ".log"
 
   {

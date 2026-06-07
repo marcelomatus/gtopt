@@ -1,5 +1,7 @@
 CPLEX Parameter File Version 22.1.1.0
-# Parameters for the post-MIP FIXED-MILP dual-recovery pass ONLY.
+# Warm-start parameters for gtopt's basis-resident simplex re-solves:
+# the post-MIP FIXED-MILP dual-recovery pass AND the SDDP aperture
+# warm-start (SolverOptions::advanced_basis) both load this sibling.
 #
 # After a MIP solve, gtopt switches the live problem to CPXPROB_FIXEDMILP
 # (integers pinned at the incumbent, the incumbent node's optimal simplex
