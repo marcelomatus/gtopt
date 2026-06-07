@@ -370,10 +370,27 @@ def build_planning(
 
 
 def write_planning(planning: dict[str, Any], output_path: Path) -> Path:
-    """Write the planning to ``output_path`` (parents created on demand)."""
+    """Write the planning to ``output_path`` (parents created on demand).
+
+    Sanitises Inf / -Inf / NaN sentinels via
+    :func:`gtopt_shared.json_utils.sanitize_inf` and strips converter-
+    internal bookkeeping keys via
+    :func:`gtopt_shared.json_utils.strip_internal_keys` before
+    serialising — the C++ daw::json parser rejects literal ``Infinity``
+    and treats unknown keys as schema errors under StrictParsePolicy.
+    """
+    # Imported lazily so existing ``from sddp2gtopt.gtopt_writer import …``
+    # doesn't transitively pull pyarrow when consumers only need the
+    # builder helpers.
+    from gtopt_shared.json_utils import (  # pylint: disable=import-outside-toplevel
+        sanitize_inf,
+        strip_internal_keys,
+    )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned = sanitize_inf(strip_internal_keys(planning))
     with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(planning, fh, indent=2)
+        json.dump(cleaned, fh, indent=2)
         fh.write("\n")
     logger.info("wrote gtopt planning: %s", output_path)
     return output_path

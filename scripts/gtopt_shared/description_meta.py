@@ -50,7 +50,7 @@ churn.
 from __future__ import annotations
 
 import re
-from typing import Mapping, Union
+from typing import Union
 
 #: Sentinel-bounded regex.  Captures the inner key=value tokens.
 _META_RE = re.compile(r"\[gtopt-meta\s+([^\]]*?)\]")

@@ -796,7 +796,6 @@ def test_extract_generators_aux_use_percent_to_pu(
       * -1.0   → DROPPED silently (invalid)
     """
     import csv as _csv
-    import logging
 
     bundle, xml_path = _build_bundle(tmp_path)
     _write_csv(
@@ -2283,10 +2282,10 @@ def test_extract_config_mutex_groups_no_uniq_returns_empty(tmp_path: Path) -> No
 # --------------------------------------------------------------------------- #
 # Adaptive per-line loss-segment count (cube-root rule)
 # --------------------------------------------------------------------------- #
-import os as _os
+import os as _os  # noqa: E402
 
-from plexos2gtopt.entities import LineSpec
-from plexos2gtopt.parsers import _apply_adaptive_loss_segments
+from plexos2gtopt.entities import LineSpec  # noqa: E402
+from plexos2gtopt.parsers import _apply_adaptive_loss_segments  # noqa: E402
 
 
 def _reset_loss_env() -> None:
@@ -2351,7 +2350,7 @@ def test_adaptive_k_cube_root_allocates_more_to_bigger_lines() -> None:
             _ls("sml", 0.10, 40.0),
         )
     )
-    by_name = {l.name: l.loss_segments for l in out}
+    by_name = {ln.name: ln.loss_segments for ln in out}
     # Cube-root ordering must hold strictly: bigger L → at least as many K.
     assert by_name["big"] >= by_name["mid"] >= by_name["sml"]
     # Default ceiling caps the biggest at 6.
@@ -2418,7 +2417,7 @@ def test_adaptive_k_uniform_mode_when_error_pct_zero() -> None:
             _ls("zero", 0.0, 1000.0),
         )
     )
-    by_name = {l.name: l.loss_segments for l in out}
+    by_name = {ln.name: ln.loss_segments for ln in out}
     # All lossy lines collapse to the same K=4 default.
     assert by_name["big"] == 4
     assert by_name["mid"] == 4
@@ -2461,7 +2460,7 @@ def test_adaptive_k_dlr_profile_used_for_envelope() -> None:
             _ls("static_peak", 0.05, 2078.0),
         )
     )
-    by_name = {l.name: l.loss_segments for l in out}
+    by_name = {ln.name: ln.loss_segments for ln in out}
     # The DLR-aware envelope makes 'dlr' equivalent to 'static_peak' for
     # K-sizing, both bigger than 'static_low'.
     assert by_name["dlr"] == by_name["static_peak"]
@@ -2482,11 +2481,11 @@ def test_adaptive_k_extend_overload_bumps_soft_cap_lines() -> None:
         _ls("soft_lifted", 0.05, 500.0, soft_cap=True, soft_cap_lifted=True),  # 4×
     )
     # Without the flag: all three see the same K (same R, same tmax).
-    off = {l.name: l.loss_segments for l in _apply_adaptive_loss_segments(lines)}
+    off = {ln.name: ln.loss_segments for ln in _apply_adaptive_loss_segments(lines)}
     assert off["hard_only"] == off["soft_reg"] == off["soft_lifted"]
     # With the flag: soft-cap lines get the wider envelope, K shifts.
     _os.environ["GTOPT_LOSS_EXTEND_OVERLOAD"] = "1"
-    on = {l.name: l.loss_segments for l in _apply_adaptive_loss_segments(lines)}
+    on = {ln.name: ln.loss_segments for ln in _apply_adaptive_loss_segments(lines)}
     # Hard-only EL=2 is unaffected (LP can't exceed tmax anyway).
     # Soft-cap and lifted get the wider envelope: K ranks them higher.
     assert on["hard_only"] <= on["soft_reg"] <= on["soft_lifted"]
@@ -2528,7 +2527,8 @@ def test_adaptive_k_total_error_budget_bounded() -> None:
 # Adaptive K — full error/tolerance sweep (Python-side companion to the C++
 # test_line_losses_decoupled_envelope.cpp K∈{1,2,4,8,16,128} sweep)
 # --------------------------------------------------------------------------- #
-import pytest
+# pytest is imported at the top of the file; the redundant mid-file import
+# was removed.
 
 
 def _realistic_line_mix() -> tuple[LineSpec, ...]:

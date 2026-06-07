@@ -192,7 +192,7 @@ def test_missing_emission_rate_yields_nan():
 # ---------------------------------------------------------------------------
 # Issue #525 — phantom-bus / storage-marginal classification
 # ---------------------------------------------------------------------------
-from gtopt_marginal_units._zones import is_phantom_bus
+from gtopt_marginal_units._zones import is_phantom_bus  # noqa: E402
 
 
 def _make_gen(uid: int, name: str, bus_uid: int = 0, kind: str = "thermal"):
