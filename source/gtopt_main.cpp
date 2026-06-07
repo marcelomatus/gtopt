@@ -548,7 +548,7 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     // self-contained JSON the solver is about to consume.
     //
     // Reproducibility contract: re-running ``gtopt -s
-    // <output_directory>/planning_state.json`` with no other CLI flags
+    // <output_directory>/gtopt_state.json`` with no other CLI flags
     // produces a byte-identical LP and (modulo solver non-determinism)
     // a byte-identical solution.  The snapshot is the canonical
     // "this is what was solved" record — drop it into a bug report,
