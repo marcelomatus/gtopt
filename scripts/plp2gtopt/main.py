@@ -3,11 +3,14 @@
 
 import argparse
 import logging
-import signal
 import sys
 from pathlib import Path
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
+from gtopt_shared.cli_signals import (
+    install_termination_handlers,
+    signal_handler,  # noqa: F401  re-export for back-compat / tests
+)
 from gtopt_shared.state_snapshot import (
     write_plp2gtopt_readme,
     write_state_snapshot,
@@ -162,11 +165,9 @@ def _parse_lift_line_caps(spec: str) -> dict[str, float]:
     return result
 
 
-def signal_handler(sig, _frame):
-    """Handle termination signals gracefully."""
-    signame = signal.strsignal(sig)
-    print(f"\nCaught signal {signame}. Exiting...")
-    sys.exit(0)
+# ``signal_handler`` is re-exported from gtopt_shared.cli_signals at the
+# top of this module.  Existing imports from ``plp2gtopt.main`` continue
+# to work.
 
 
 _CONF_SECTION = "plp2gtopt"
@@ -628,8 +629,7 @@ def build_options(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and initiate conversion."""
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    install_termination_handlers()
 
     no_args = len(sys.argv) == 1
 

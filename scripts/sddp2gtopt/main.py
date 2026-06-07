@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import signal
 import sys
 from pathlib import Path
 
 from gtopt_config import add_color_argument
+from gtopt_shared.cli_signals import (
+    install_termination_handlers,
+    signal_handler as _signal_handler,  # noqa: F401  re-export for back-compat / tests
+)
 
 from .info_display import display_sddp_info
 from .sddp2gtopt import convert_sddp_case, validate_sddp_case
@@ -46,10 +49,9 @@ Examples:
 """
 
 
-def _signal_handler(sig: int, _frame: object) -> None:
-    """Terminate cleanly on SIGINT/SIGTERM."""
-    print(f"\nCaught signal {signal.strsignal(sig)}. Exiting...")
-    sys.exit(0)
+# ``_signal_handler`` is re-exported from gtopt_shared.cli_signals at the
+# top of this module (see the import block).  Existing test scaffolding
+# that imports ``sddp2gtopt.main._signal_handler`` continues to work.
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -120,8 +122,7 @@ def _resolve_input_dir(args: argparse.Namespace) -> Path | None:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and dispatch to the right action."""
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    install_termination_handlers()
 
     parser = make_parser()
     args = parser.parse_args(argv)

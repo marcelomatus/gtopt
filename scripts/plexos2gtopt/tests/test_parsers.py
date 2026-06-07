@@ -780,8 +780,23 @@ def test_extract_generators(tmp_path: Path) -> None:
     assert by_name["solar_b"].pmax_profile[11] == 80.0
 
 
+@pytest.fixture
+def _opt_in_aux_use(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt in to the ``Gen_AuxUse.csv`` parsing path.
+
+    Upstream commit ``bf87282a0`` made the parser ignore Gen_AuxUse.csv
+    by default (PLEXOS itself doesn't apply it); opt-in via the
+    ``GTOPT_APPLY_GENERATION_AUX_USE`` env var (or the
+    ``--apply-generation-aux-use`` CLI flag).  These three tests
+    exercise the opt-in branch.
+    """
+    monkeypatch.setenv("GTOPT_APPLY_GENERATION_AUX_USE", "1")
+
+
 def test_extract_generators_aux_use_percent_to_pu(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    _opt_in_aux_use: None,
 ) -> None:
     """``Gen_AuxUse.csv`` ships PLEXOS ``Auxiliary Use`` in PERCENT
     (0-100), NOT p.u. fraction.  The parser must divide by 100 and
@@ -831,7 +846,9 @@ def test_extract_generators_aux_use_percent_to_pu(
 
 
 def test_extract_generators_aux_use_above_max_is_dropped(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    _opt_in_aux_use: None,
 ) -> None:
     """Values above the 50% physical aux-use envelope are dropped and
     surface as a WARNING (operator can audit)."""
@@ -867,6 +884,7 @@ def test_extract_generators_aux_use_above_max_is_dropped(
 
 def test_extract_generators_aux_use_negative_dropped_silently(
     tmp_path: Path,
+    _opt_in_aux_use: None,
 ) -> None:
     """Non-positive aux-use is invalid data (no station service can
     consume <0% of gross).  Drop silently — no warning needed."""
