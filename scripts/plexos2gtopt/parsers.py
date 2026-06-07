@@ -8994,7 +8994,23 @@ def extract_user_constraints(
             )
         if is_daily_energy:
             rhs_val *= _DAILY_ENERGY_RHS_SCALE
-        expression = "".join(terms) + f" {op} {rhs_val:g}"
+        # Render the OPERATIVE per-day bound in the expression tail for
+        # daily-energy ramp rows.  Their base ``RHS`` property is often a
+        # 0/sentinel (the live cap ships in ``RHS Day`` / the ramp-day
+        # overlay applied to ``rhs_profile`` below), so the inline tail would
+        # otherwise read a misleading ``<op> 0`` — looking like a forced
+        # shutdown when the LP actually enforces ``Σ_day gen ≤ <day cap>``.
+        # Purely cosmetic: ``rhs_profile`` (set from ``ramp_day_rhs`` further
+        # down) is what reaches the LP row; this only fixes the displayed
+        # expression so it matches the assembled constraint.
+        _expr_rhs = rhs_val
+        if is_daily_energy:
+            _day_rhs_tail = ramp_day_rhs.get(constr.name)
+            if _day_rhs_tail:
+                # ``RHS Day`` ships in GWh; the LP row is MWh — match the
+                # ×1000 daily-energy scale so the tail equals the LP RHS.
+                _expr_rhs = _day_rhs_tail[0] * _DAILY_ENERGY_RHS_SCALE
+        expression = "".join(terms) + f" {op} {_expr_rhs:g}"
         # PLEXOS-authoritative activation flag.  Two recognisers:
         #   (a) ``Include in ST Schedule`` ∈ {-1, 0} ⇒ PLEXOS itself
         #       excludes this constraint from the daily PCP run.
