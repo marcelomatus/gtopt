@@ -66,7 +66,6 @@ struct SddpOptionsConstructor
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptBool boundary_cuts_mean_shift,
-      OptBool boundary_cut_pin_eini,
       OptInt boundary_max_iterations,
       OptName boundary_cut_soft_cost_str,
       OptName missing_cut_var_mode_str,
@@ -145,7 +144,6 @@ struct SddpOptionsConstructor
           "boundary_cuts_mode", *boundary_cuts_mode_str);
     }
     opts.boundary_cuts_mean_shift = boundary_cuts_mean_shift;
-    opts.boundary_cut_pin_eini = boundary_cut_pin_eini;
     opts.boundary_max_iterations = boundary_max_iterations;
     if (boundary_cut_soft_cost_str) {
       opts.boundary_cut_soft_cost = gtopt::require_enum<BoundaryCutSoftCost>(
@@ -235,7 +233,6 @@ struct json_data_contract<SddpOptions>
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_bool_null<"boundary_cuts_mean_shift", OptBool>,
-      json_bool_null<"boundary_cut_pin_eini", OptBool>,
       json_number_null<"boundary_max_iterations", OptInt>,
       json_string_null<"boundary_cut_soft_cost", OptName>,
       json_string_null<"missing_cut_var_mode", OptName>,
@@ -298,7 +295,6 @@ struct json_data_contract<SddpOptions>
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         opt.boundary_cuts_mean_shift,
-        opt.boundary_cut_pin_eini,
         opt.boundary_max_iterations,
         detail::enum_to_opt_name(opt.boundary_cut_soft_cost),
         detail::enum_to_opt_name(opt.missing_cut_var_mode),

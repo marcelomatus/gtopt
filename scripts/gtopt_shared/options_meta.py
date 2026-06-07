@@ -55,7 +55,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_cuts_mean_shift",
-        "boundary_cut_pin_eini",
         "boundary_max_iterations",
         "boundary_cut_soft_cost",
         "cut_drain_mode",

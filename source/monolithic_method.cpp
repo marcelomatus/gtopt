@@ -64,8 +64,6 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     // methods.
     bc_opts.boundary_cuts_mean_shift =
         planning_lp.options().sddp_boundary_cuts_mean_shift();
-    bc_opts.boundary_cut_pin_eini =
-        planning_lp.options().sddp_boundary_cut_pin_eini();
     bc_opts.missing_cut_var_mode =
         planning_lp.options().sddp_missing_cut_var_mode();
     bc_opts.cut_coeff_eps = planning_lp.options().sddp_cut_coeff_eps();

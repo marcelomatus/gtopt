@@ -402,21 +402,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool boundary_cuts_mean_shift {};
 
-  /**
-   * @brief Single-cut terminal-volume cap target: pin at `eini` instead of
-   * `efin`.
-   *
-   * When a scene has exactly ONE boundary cut, the loader pins each cut
-   * reservoir's last-block storage by capping `vol_end <= target` (the soft
-   * `vol_end >= efin` floor is untouched).  The target defaults to the
-   * reservoir's `efin` (the operational end-of-horizon floor from the input
-   * files).  Set this to use `eini` (the initial/maintain level) instead —
-   * PLEXOS's PCP daily runs tend to end near `eini` rather than drawing down
-   * to the `efin` floor, so `eini` is the closer match on those cases.
-   * Default unset = use `efin`.
-   */
-  OptBool boundary_cut_pin_eini {};
-
   // ``named_cuts_file`` (the CSV-based "named hot-start cuts" option)
   // was retired in 2026-05.  Internal hot-start cuts now travel via
   // ``cuts_input_file`` (Parquet) only — the typed schema is faster
@@ -745,7 +730,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     merge_opt(boundary_cut_soft_cost, opts.boundary_cut_soft_cost);
     merge_opt(boundary_cuts_mean_shift, opts.boundary_cuts_mean_shift);
-    merge_opt(boundary_cut_pin_eini, opts.boundary_cut_pin_eini);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);

@@ -1559,14 +1559,6 @@ public:
     return m_options_.sddp_options.boundary_cuts_mean_shift.value_or(true);
   }
 
-  /// Single-cut terminal-volume cap target: pin at `eini` (true) instead of
-  /// `efin` (false, default).  Single source of truth for both monolithic and
-  /// SDDP boundary-cut loading.
-  [[nodiscard]] constexpr auto sddp_boundary_cut_pin_eini() const -> bool
-  {
-    return m_options_.sddp_options.boundary_cut_pin_eini.value_or(false);
-  }
-
   // ``sddp_named_cuts_file`` accessor retired 2026-05 along with the
   // CSV named-cut path; hot-start cuts come from ``cuts_input_file``
   // (Parquet) only.
