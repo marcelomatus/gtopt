@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -322,7 +323,7 @@ def test_build_planning_includes_hydro_after_thermal() -> None:
 
 def test_write_planning_creates_parents(tmp_path: Path) -> None:
     out = tmp_path / "deep" / "tree" / "plan.json"
-    plan = {"options": {}, "simulation": {}, "system": {}}
+    plan: dict[str, Any] = {"options": {}, "simulation": {}, "system": {}}
     write_planning(plan, out)
     assert out.is_file()
     assert json.loads(out.read_text(encoding="utf-8")) == plan

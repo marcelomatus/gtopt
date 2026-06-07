@@ -35,7 +35,6 @@ The two physical anchors (Marcelo, 2026-06-02):
 from __future__ import annotations
 
 import copy
-import math
 from pathlib import Path
 
 import pytest

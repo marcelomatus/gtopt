@@ -8,7 +8,6 @@ and writing it to files. Specific writers should inherit from this class and imp
 the required methods for their specific data formats.
 """
 
-import functools
 import json
 import sys
 from abc import ABC
@@ -20,56 +19,21 @@ import pandas as pd
 
 from gtopt_shared.csv_io import write_csv
 
+# Re-export the shared parquet codec helpers from gtopt_shared.parquet.
+# The original ``_probe_parquet_codec`` / ``_DEFAULT_COMPRESSION`` names
+# stay valid so every existing ``from .base_writer import _DEFAULT_COMPRESSION``
+# import keeps working — the implementation now lives in one place.
+# See ``gtopt_shared/parquet.py`` for the canonical bodies.
+from gtopt_shared.parquet import (  # noqa: F401
+    DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
+    probe_parquet_codec as _probe_parquet_codec,
+)
+
 from .block_parser import BlockParser
 from .stage_parser import StageParser
 from .base_parser import BaseParser
 
 ParserVar = TypeVar("ParserVar", bound=BaseParser)  # Used in type hints
-
-
-@functools.lru_cache(maxsize=8)
-def _probe_parquet_codec(requested: str) -> str:
-    """Return the best available PyArrow Parquet codec for *requested*.
-
-    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
-    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
-    unavailable, logging a warning to *stderr*.  Results are cached via
-    ``lru_cache`` so the probe runs **at most once per unique codec name**
-    across the entire program run.
-
-    Parameters
-    ----------
-    requested:
-        Codec name to probe (e.g. ``"zstd"``, ``"gzip"``).
-        Empty string / ``"none"`` / ``"uncompressed"`` → returns as-is
-        (uncompressed; no probe needed).
-    """
-    if not requested or requested in ("none", "uncompressed"):
-        return requested
-    try:
-        import pyarrow as pa  # noqa: PLC0415 (local import OK inside cached fn)
-
-        pa.Codec(requested)
-        return requested
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        print(
-            f"Warning: Parquet codec '{requested}' is not available in this "
-            "Arrow build; falling back to gzip",
-            file=sys.stderr,
-        )
-        return "gzip"
-
-
-# Best available Parquet codec — probed once at module import time.
-# "zstd" is preferred: best ratio × decode-speed for the wide input
-# field tables we emit, it matches the gtopt C++ default
-# (`PlanningOptionsLP::default_output_compression`), and unlike "lz4" it
-# is a single unambiguous codec that every downstream reader — including
-# Power BI / Power Query — opens natively (lz4 has the deprecated
-# Hadoop-framed vs LZ4_RAW split and is frequently unreadable).  Falls
-# back to "gzip" when the linked Arrow library was built without zstd
-# support.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 
 class BaseWriter(ABC):
