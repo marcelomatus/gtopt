@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <expected>
 #include <span>
 #include <string>
@@ -102,6 +101,20 @@ struct BoundaryCutCoeffStats
   double min {};  ///< minimum coefficient seen for this state column
   double avg {};  ///< mean coefficient over all cut rows
   double max {};  ///< maximum coefficient seen for this state column
+  /// Maximum *negative* coefficient (closest to 0 from below) seen for this
+  /// column.  For the ``efin >= target`` soft floor (water is an asset:
+  /// coeff = -water_value < 0) the smallest positive water value is
+  /// ``-max_neg_coeff``; ``cut_soft_cost`` floors there when the chosen
+  /// bound is non-positive.  ``0.0`` ⇒ no negative coefficient occurred
+  /// (no positive water value anywhere ⇒ floor falls back to 1.0).
+  double max_neg_coeff {};
+  /// Minimum *positive* coefficient (closest to 0 from above) seen for this
+  /// column — the mirror of ``max_neg_coeff`` for a state variable bounded
+  /// the OTHER way (``efin <= target``, terminal storage a liability:
+  /// coeff > 0).  Provided so a future ``<=``-sense soft cost can floor at
+  /// the column's own smallest positive coefficient.  ``0.0`` ⇒ no positive
+  /// coefficient occurred.
+  double min_pos_coeff {};
 };
 
 /// Terminal soft cost (marginal water value) for the chosen bound.
@@ -128,10 +141,15 @@ struct BoundaryCutCoeffStats
       break;
   }
   // The soft-efin slack penalises ending BELOW the target, forcing the
-  // reservoir to refill, so the cost MUST be positive.  Floor at 1 so a
-  // bad/negative cut coefficient (terminal storage priced as a liability)
-  // can't flip the floor into a drawdown reward.
-  return std::max(1.0, cost);
+  // reservoir to refill, so the cost MUST be positive.  When the chosen
+  // bound is non-positive (a bad cut prices terminal storage as a
+  // liability), floor at the reservoir's OWN smallest positive water value
+  // (``-max_neg_coeff``) rather than an arbitrary constant — and only fall
+  // back to 1.0 when the reservoir has no positive water value at all.
+  if (cost <= 0.0) {
+    cost = (s.max_neg_coeff < 0.0) ? -s.max_neg_coeff : 1.0;
+  }
+  return cost;
 }
 
 /// Extract the per-state-variable coefficient statistics from a boundary-cut
