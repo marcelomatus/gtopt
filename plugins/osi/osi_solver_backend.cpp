@@ -180,6 +180,38 @@ void apply_options_to_solver(OsiSolverInterface* solver,
     case LPAlgo::last_algo:
       break;
   }
+
+  // Warm-start (advanced-basis) re-solve.  Cross-solver primitive mirroring
+  // the CPLEX plugin's `apply_cplex_warmstart` (`ADVIND=1` +
+  // `LPMethod=primal|dual`).  Two facts make the CLP mapping much lighter:
+  //
+  //   1. OsiClpSolverInterface ALWAYS warm-starts the simplex from the
+  //      resident basis when the re-solve path calls `resolve()` (as
+  //      gtopt's `OsiSolverBackend::resolve()` does) rather than
+  //      `initialSolve()`.  The basis is kept on the solver across calls,
+  //      so for CLP there is no explicit "use the advanced basis" flag to
+  //      flip — warm-starting is the default `resolve()` behaviour.  The
+  //      only precondition is that a prior solve left an optimal basis
+  //      resident, exactly the doc-comment's precondition.
+  //
+  //   2. Only the simplex methods can warm-start (barrier cannot).  So the
+  //      single thing `advanced_basis` must guarantee on the CLP side is
+  //      that the resolve uses a SIMPLEX method, not barrier, and that it
+  //      picks primal/dual per `opts.algorithm`.  We therefore force the
+  //      `OsiDoDualInResolve` hint here, overriding any barrier selection
+  //      the `algorithm` switch above may have left in place (CLP's
+  //      barrier path sets the algorithm via the ClpSimplex model, but the
+  //      `OsiDoDualInResolve` hint governs the simplex `resolve()` and so
+  //      keeps the warm re-solve on simplex).
+  //
+  // Mapping: dual simplex -> OsiDoDualInResolve = true; primal -> false.
+  // Default per `opts.algorithm`: `dual` -> dual; everything else
+  // (`primal`, `barrier`, `default_algo`) -> primal, matching the
+  // doc-comment's "picks primal when algorithm is default/barrier".
+  if (opts.advanced_basis) {
+    const bool dual_in_resolve = (opts.algorithm == LPAlgo::dual);
+    solver->setHintParam(OsiDoDualInResolve, dual_in_resolve, OsiHintDo);
+  }
 }
 
 }  // namespace

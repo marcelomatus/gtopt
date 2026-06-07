@@ -116,6 +116,38 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
     }
   }
 
+  // Warm-start (advanced-basis) re-solve.  Applied LAST so it wins over the
+  // `solver`/`simplex_strategy`/`presolve`/`run_crossover` settings chosen
+  // above (mirrors the CPLEX plugin applying `apply_cplex_warmstart` after
+  // the `.prm`).  See SolverOptions::advanced_basis: re-optimize off the
+  // basis already resident on this `Highs` object after a small (typically
+  // column-bound) modification, instead of a cold solve.
+  //
+  // HiGHS retains the basis across `run()` calls on the same `Highs`
+  // instance and warm-starts the simplex automatically when presolve and
+  // crossover are off — there is no explicit "load basis" call needed.  The
+  // key is therefore: force SIMPLEX (the IPM/interior-point solver cannot
+  // warm-start), and turn OFF presolve and crossover so HiGHS reuses the
+  // resident basis rather than re-presolving from scratch.
+  if (opts.advanced_basis) {
+    highs.setOptionValue("solver", "simplex");
+    // Re-optimize off the resident basis: presolve would discard it and
+    // re-reduce from scratch; crossover is a barrier-only post-step that
+    // has no role in a warm simplex re-solve.
+    highs.setOptionValue("presolve", "off");
+    highs.setOptionValue("run_crossover", "off");
+    // Map the warm method from `algorithm` when a clean primal/dual choice
+    // exists.  HiGHS `simplex_strategy`: 1 = dual, 4 = primal (same mapping
+    // used for the cold simplex path above).  Default to PRIMAL when the
+    // algorithm is barrier/default (those cannot warm-start, and primal is
+    // the documented warm default — matching the CPLEX plugin).
+    if (opts.algorithm == LPAlgo::dual) {
+      highs.setOptionValue("simplex_strategy", 1);  // dual
+    } else {
+      highs.setOptionValue("simplex_strategy", 4);  // primal
+    }
+  }
+
   // Never enable console output here — logging is managed by the
   // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface, which
   // direct output to a log file when log_mode is enabled.

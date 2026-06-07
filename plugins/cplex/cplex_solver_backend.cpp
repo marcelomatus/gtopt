@@ -109,6 +109,45 @@ double cplex_row_ub(char sense, double rhs, double range, double cpx_inf)
   }
 }
 
+/// Configure a warm (advanced-basis) simplex re-solve on `env`.  Shared by
+/// the two warm-start paths so they stay in lock-step:
+///   1. the `SolverOptions::advanced_basis` option (SDDP aperture
+///      warm-start — re-optimize off the previous aperture's basis after a
+///      column-bound change), and
+///   2. the fixed-MILP dual-extraction pass (`fix_mip_and_resolve_duals` —
+///      re-optimize off the incumbent node's basis after fixing integers).
+/// Both re-optimize off a basis already resident on the problem object,
+/// which only the simplex methods can do — barrier cannot warm-start.
+///
+/// In-code default: `ADVIND=1` + primal/dual simplex (per `opts.algorithm`,
+/// default primal — empirically best on the GTEP subproblems).  Users can
+/// override the whole warm pass with a `cplex_warmstart.prm` sibling next
+/// to the case's main `.prm` (the legacy `cplex_fixed_milp.prm` name is
+/// still honoured).  Call this AFTER the main `.prm` so it wins over a
+/// pinned `LPMethod` (the bundled `cplex.prm` forces barrier).
+void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
+{
+  CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
+  const int warm_method =
+      (opts.algorithm == LPAlgo::dual) ? CPX_ALG_DUAL : CPX_ALG_PRIMAL;
+  CPXsetintparam(env, CPX_PARAM_LPMETHOD, warm_method);
+
+  // Optional user override: a sibling parameter file next to the case's
+  // main `.prm`.  Loaded last so it wins over the defaults above.
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    const std::filesystem::path base {*opts.param_file};
+    for (const auto* name : {"cplex_warmstart.prm", "cplex_fixed_milp.prm"}) {
+      const std::filesystem::path sibling = base.parent_path() / name;
+      std::error_code ec;
+      if (std::filesystem::exists(sibling, ec) && !ec) {
+        if (CPXreadcopyparam(env, sibling.string().c_str()) == 0) {
+          break;
+        }
+      }
+    }
+  }
+}
+
 /// Apply a SolverOptions bundle onto a CPLEX env.  Pure env-level mutation
 /// — never touches backend member fields.  Shared between CplexEnvLp's
 /// ctor (fresh env preparation) and CplexSolverBackend::apply_options()
@@ -250,21 +289,12 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
     }
   }
 
-  // Advanced (warm) basis start — applied LAST so it wins over any
-  // LPMethod the .prm pins (the bundled cplex.prm forces barrier).
-  // The barrier optimizer cannot warm-start off a basis; only the
-  // simplex methods can.  Reuse the basis already resident on this
-  // problem object (left by the previous solve) and re-optimize with a
-  // simplex method.  Changing column bounds between solves keeps that
-  // basis valid (it stays dual-feasible), so this is a few pivots, not
-  // a fresh barrier.  `algorithm` selects the warm method; barrier /
-  // default fall back to primal simplex (empirically best on the GTEP
-  // aperture subproblems).
+  // Advanced (warm) basis start — applied LAST (after the main .prm) via
+  // the shared helper, so it wins over any LPMethod the .prm pins (the
+  // bundled cplex.prm forces barrier, which cannot warm-start).  Reuses
+  // the basis resident on this problem object after a column-bound change.
   if (opts.advanced_basis) {
-    CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
-    const int warm_method =
-        (opts.algorithm == LPAlgo::dual) ? CPX_ALG_DUAL : CPX_ALG_PRIMAL;
-    CPXsetintparam(env, CPX_PARAM_LPMETHOD, warm_method);
+    apply_cplex_warmstart(env, opts);
   }
 }
 
@@ -1110,22 +1140,8 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   //    and, re-loaded here, would re-presolve the fixed LP from scratch
   //    (barrier root relaxation, crossover), turning the supposedly-warm
   //    fixed pass into a full cold re-solve as expensive as the MIP itself.
-  //    Instead, prefer a sibling `cplex_fixed_milp.prm` (next to the case's
-  //    `cplex.prm` in its `solvers/` dir) tuned for the warm fixed pass.
-  //    `opts.param_file` points at `.../solvers/cplex.prm`; swap the basename
-  //    to `cplex_fixed_milp.prm`.  If it exists, load THAT; otherwise fall
-  //    back to setting the warm-start params directly in code below.
   SolverOptions fixed_opts = opts;
   fixed_opts.param_file.reset();
-  if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const std::filesystem::path base {*opts.param_file};
-    const std::filesystem::path sibling =
-        base.parent_path() / "cplex_fixed_milp.prm";
-    std::error_code ec;
-    if (std::filesystem::exists(sibling, ec) && !ec) {
-      fixed_opts.param_file = sibling.string();
-    }
-  }
 
   // Save the current LP method (the cold MIP-root barrier setting) and
   // restore it afterwards so subsequent cold solves keep using barrier.
@@ -1137,13 +1153,16 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   apply_options(fixed_opts);
 
   // The four requirements that make `CPXPROB_FIXEDMILP` warm: (1) same live
-  // object / no reconstruct between MIP solve and here [satisfied by the
-  // caller], (2) CPXPARAM_Advance=1 to USE the incumbent's advanced basis,
-  // (3) primal simplex (a few pivots off the incumbent basis), not barrier,
-  // (4) MIP solved to optimality first [checked above].  Set (2) and (3)
-  // explicitly AFTER apply_options so they win over any loaded .prm.
-  CPXsetintparam(env, CPX_PARAM_ADVIND, 1);
-  CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_PRIMAL);
+  // object / no reconstruct between MIP solve and here [caller], (2)
+  // ADVIND=1 to USE the incumbent's advanced basis, (3) primal simplex (a
+  // few pivots off the incumbent basis), not barrier, (4) MIP solved to
+  // optimality first [checked above].  (2)+(3) are configured by the
+  // SHARED `apply_cplex_warmstart` helper — the SAME warm-start path the
+  // `advanced_basis` option uses for SDDP apertures — applied AFTER
+  // `apply_options` so it wins over any loaded `.prm`.  Pass the ORIGINAL
+  // `opts` (with its `param_file`) so the helper can resolve the optional
+  // `cplex_warmstart.prm` sibling relative to the case's main `.prm`.
+  apply_cplex_warmstart(env, opts);
 
   // 6. Warm primal-simplex solve of the fixed LP off the incumbent basis.
   //    If it does not reach optimality, retry once with barrier on the

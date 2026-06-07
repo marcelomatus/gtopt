@@ -89,6 +89,38 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
   }
 
   MDOsetintparam(env, MDO_INT_PAR_OUTPUT_FLAG, opts.log_level > 0 ? 1 : 0);
+
+  // Advanced (warm) basis start — applied LAST so it wins over the
+  // algorithm switch above.  Counterpart to the CPLEX `advanced_basis`
+  // path (`ADVIND=1` + primal/dual `LPMethod`), but MindOpt's API differs:
+  //
+  //   * MindOpt has NO explicit "use advanced start" toggle (no ADVIND
+  //     analogue).  Its simplex automatically re-optimizes off the basis
+  //     resident on the model when one is present — which, after a prior
+  //     solve + an in-place column-bound change, is exactly the optimal
+  //     basis we want to warm-start from.  So the only thing we MUST do is
+  //     force a SIMPLEX method (barrier/IPM cannot warm-start).
+  //   * MindOpt's `SPX/CrashStart` builds a *crash* starting basis, which
+  //     would DISCARD the resident advanced basis.  We do not touch it
+  //     here: its default already prefers the resident basis when present,
+  //     and overriding it risks throwing away the warm start.
+  //
+  // What is supported: simplex method selection (primal/dual) + presolve
+  // disabled so the resident basis maps 1:1 onto the (un-reduced) model.
+  // What is NOT supported: an explicit advanced-start flag — left as a
+  // documented no-op because MindOpt exposes no such parameter (2.3.0).
+  if (opts.advanced_basis) {
+    // Pick a simplex method from `algorithm`, defaulting to primal when
+    // `algorithm` is barrier/default (which cannot warm-start), matching
+    // the CPLEX warm path.  MindOpt Method: 0=primal simplex, 1=dual.
+    const int warm_method = (opts.algorithm == LPAlgo::dual) ? 1 : 0;
+    MDOsetintparam(env, MDO_INT_PAR_METHOD, warm_method);
+
+    // Disable presolve for the warm pass so the resident basis is reused
+    // as-is: presolve reductions remap variables/rows and would invalidate
+    // the basis currently on the model, defeating the warm start.
+    MDOsetintparam(env, MDO_INT_PAR_PRESOLVE, 0);
+  }
 }
 
 /// Apply cached log-filename settings to a fresh env.  level<=0 or empty

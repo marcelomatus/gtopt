@@ -88,6 +88,32 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
   }
 
   GRBsetintparam(env, GRB_INT_PAR_OUTPUTFLAG, opts.log_level > 0 ? 1 : 0);
+
+  // Advanced (warm) basis start — applied LAST so it wins over the Method
+  // the algorithm switch set above (the gtopt-optimal default is barrier,
+  // which cannot warm-start).  Mirrors the CPLEX backend's
+  // `apply_cplex_warmstart` (ADVIND=1 + LPMethod=primal|dual) — see the
+  // `SolverOptions::advanced_basis` doc-comment.
+  //
+  // Re-optimizing a problem object IN PLACE after a small modification
+  // (typically a column-bound change) keeps the previous optimal simplex
+  // basis valid, so a warm simplex re-solve is usually a handful of pivots.
+  // Gurobi keeps the resident basis (VBasis/CBasis) on the model and
+  // automatically warm-starts the simplex from it — no explicit basis load
+  // is needed.  All we must do is force a SIMPLEX Method (barrier cannot
+  // warm-start, so Method=2 is never selected here) per `opts.algorithm`,
+  // defaulting to primal simplex when the algorithm is barrier/default.
+  //
+  // Presolve is intentionally left untouched: it is already driven by
+  // `opts.presolve` above, matching CPLEX (whose `apply_cplex_warmstart`
+  // does not disable re-presolve either).  Callers wanting the basis
+  // reused without presolve interference pass `presolve=false` — the same
+  // contract documented for the CPLEX warm path and SDDP cell replay.
+  if (opts.advanced_basis) {
+    const int warm_method =
+        (opts.algorithm == LPAlgo::dual) ? GRB_METHOD_DUAL : GRB_METHOD_PRIMAL;
+    GRBsetintparam(env, GRB_INT_PAR_METHOD, warm_method);
+  }
 }
 
 /// Apply cached log-filename settings to a fresh env.  level<=0 or empty
