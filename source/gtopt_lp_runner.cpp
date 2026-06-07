@@ -354,7 +354,10 @@ void log_pre_solve_stats(
   {
     return *planning_lp.output_delegate();
   }
-  return planning_lp;
+  // Returning the parameter by const-ref is intentional: every caller passes
+  // a long-lived `PlanningLP` lvalue (never a temporary), so the delegate
+  // chain (depth 1) cannot dangle.
+  return planning_lp;  // NOLINT(bugprone-return-const-ref-from-parameter)
 }
 
 /// Aggregate solver activity counters across every (scene, phase) LP.

@@ -17,7 +17,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/error.hpp>

@@ -118,7 +118,7 @@ using namespace gtopt::detail;
                                  maybe_table.status().ToString()),
       });
     }
-    const auto table = *maybe_table;
+    const auto& table = *maybe_table;
     const auto schema = table->schema();
 
     // Extract header names from the Arrow schema, preserving file
@@ -306,7 +306,7 @@ using namespace gtopt::detail;
     // to surface (defensive — should not happen with valid CSV).
     std::vector<std::shared_ptr<arrow::ChunkedArray>> state_cols;
     state_cols.reserve(static_cast<std::size_t>(num_state_cols));
-    for (std::size_t hi = static_cast<std::size_t>(state_var_start);
+    for (auto hi = static_cast<std::size_t>(state_var_start);
          hi < headers.size();
          ++hi)
     {
