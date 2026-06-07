@@ -1241,6 +1241,84 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
   return make_result("barrier_resolve", /*test_passed=*/ctx.ok(), ctx.failures);
 }
 
+/// Validate the `SolverOptions::advanced_basis` warm-start contract for a
+/// solver backend: after a cold solve leaves a basis resident on the
+/// problem object, a bound/RHS change followed by a warm
+/// (`advanced_basis = true`) re-solve must reach the SAME optimum a cold
+/// re-solve would.  Each backend maps `advanced_basis` to its native
+/// warm-start (CPLEX ADVIND+simplex, HiGHS simplex+no-presolve, Gurobi
+/// Method=simplex, MindOpt Method+no-presolve, OSI/CLP resolve() hint);
+/// this is the self-check that the mapping exists and produces correct
+/// numbers rather than silently breaking the solve.  Backends that cannot
+/// warm-start must still solve correctly (the flag degrades to a normal
+/// re-solve), so a failure here means a real regression in that plugin.
+SolverTestResult test_advanced_basis(std::string_view solver)
+{
+  TestContext ctx;
+  const double kEps = 1e-6;
+
+  try {
+    // Reuse the 4-variable / 3-row LP from `test_barrier_resolve`:
+    //   minimize  x1 + 2 x2 + 3 x3 + 4 x4
+    //   s.t. x1+x2 >= 5,  x2+x3 >= 3,  x3+x4 >= 4,  x >= 0.
+    LinearProblem lp("advanced_basis");
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
+
+    const auto r1 = lp.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r1, x1, 1.0);
+    lp.set_coeff(r1, x2, 1.0);
+
+    const auto r2 = lp.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r2, x2, 1.0);
+    lp.set_coeff(r2, x3, 1.0);
+
+    const auto r3 = lp.add_row(SparseRow {
+        .lowb = 4.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r3, x3, 1.0);
+    lp.set_coeff(r3, x4, 1.0);
+
+    LpMatrixOptions mopts;
+    mopts.col_with_names = true;
+    mopts.row_with_names = true;
+    const auto flat = lp.flatten(mopts);
+
+    LinearInterface li(solver, flat);
+
+    // Step 1: cold solve — seeds a basis resident on the problem object.
+    const auto r_init = li.initial_solve(SolverOptions {});
+    TC_CHECK(ctx, r_init.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
+
+    // Step 2: tighten a constraint (a bound/RHS-only delta keeps the basis
+    // valid), then WARM re-solve off the resident basis via advanced_basis.
+    li.set_row_low(RowIndex {0}, 6.0);  // x1 + x2 >= 6
+    const auto r_warm = li.resolve(SolverOptions {
+        .algorithm = LPAlgo::primal,
+        .advanced_basis = true,
+    });
+    TC_CHECK(ctx, r_warm.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    // Obj rises by 1 (cheapest variable x1 absorbs the +1 on r1).
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 18.0, kEps);
+
+  } catch (const std::exception& ex) {
+    return make_result("advanced_basis", /*test_passed=*/false, ex.what());
+  }
+  return make_result("advanced_basis", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
 // ---------------------------------------------------------------------------
 // Test registry: ordered list of (name, function) pairs
 // ---------------------------------------------------------------------------
@@ -1279,6 +1357,7 @@ struct TestEntry
       {.name = "col_scales", .fn = test_col_scales},
       {.name = "barrier_threads", .fn = test_barrier_threads},
       {.name = "barrier_resolve", .fn = test_barrier_resolve},
+      {.name = "advanced_basis", .fn = test_advanced_basis},
   };
   return tests;
 }

@@ -381,6 +381,21 @@ TEST_CASE("check_solvers - barrier_resolve")  // NOLINT
 
   run_named_test("barrier_resolve");
 }
+TEST_CASE("check_solvers - advanced_basis")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Validates the SolverOptions::advanced_basis warm-start mapping per
+  // backend (cold solve → bound change → warm re-solve → same optimum).
+  // `check_all_solvers` below runs the full self-test suite — including
+  // this one — against EVERY available solver plugin.
+  //
+  // Ensure plugins are loaded so this entry actually runs in isolation
+  // (`run_named_test` resolves the default solver, which is empty until
+  // the plugins are loaded).
+  SolverRegistry::instance().load_all_plugins();
+  run_named_test("advanced_basis");
+}
 
 // ---------------------------------------------------------------------------
 // check_all_solvers smoke test (only verifies exit code)
