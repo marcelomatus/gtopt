@@ -160,6 +160,33 @@ public:
   /// so it can be exercised by unit tests without a full PlanningLP.
   static void validate_line_resistance(Planning& planning);
 
+  /// Validate generator power bounds and clamp tiny ones to zero.
+  ///
+  /// Rewrites any `Generator::pmax` / `Generator::pmin` whose raw MW value is
+  /// nonzero but below `1e-4` MW to scalar `0.0` (clamping offending entries
+  /// inside 2-D vector schedules in place; `FileSched` schedules are skipped —
+  /// they can't be validated statically).  Making such a degenerate bound
+  /// *exactly* zero lets the LP-assembly zero-column skip eliminate the dead
+  /// generation column cleanly.
+  ///
+  /// Unlike `validate_line_reactance` / `validate_line_resistance` the MW
+  /// threshold is a fixed compile-time constant (no voltage to divide by, no
+  /// model_options knob).  Static so it can be exercised by unit tests without
+  /// standing up a full PlanningLP.
+  static void validate_power_bounds(Planning& planning);
+
+  /// Validate line transmission bounds and clamp tiny ones to zero.
+  ///
+  /// Rewrites any `Line::tmax_ab` / `Line::tmax_ba` whose raw MW value is
+  /// nonzero but below `1e-4` MW to scalar `0.0` (same scalar / 2-D-vector /
+  /// FileSched handling as `validate_power_bounds`).  Making the degenerate
+  /// transfer limit *exactly* zero lets the LP-assembly zero-row/column skip
+  /// eliminate the dead flow column / capacity row cleanly.
+  ///
+  /// Static so it can be exercised by unit tests without standing up a full
+  /// PlanningLP.
+  static void validate_line_transmission(Planning& planning);
+
   /// Compute adaptive `scale_loss_link` from `median(R/V²)` when not
   /// explicitly set.  Picks a power-of-10 multiplier `s = 10^round(
   /// −log10(median(R/V²)))` so the smallest segment coefficient
@@ -219,6 +246,8 @@ public:
                                 std::remove_reference_t<PlanningT>>) {
                 validate_line_reactance(planning);
                 validate_line_resistance(planning);
+                validate_power_bounds(planning);
+                validate_line_transmission(planning);
                 auto_scale_theta(planning);
                 auto_scale_loss_link(planning);
                 // Query the default solver's `+infinity` value from the

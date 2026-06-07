@@ -25,6 +25,8 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/constraint_names.hpp>
+#include <gtopt/generator.hpp>
+#include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
@@ -165,6 +167,92 @@ namespace
   }
   return clamped;
 }
+
+// Raw-MW threshold below which a nonzero power/transmission bound is treated as
+// degenerate noise and rewritten to exactly 0.0.  Unlike the per-unit X/R
+// thresholds (which scale by V² and are exposed as model_options knobs), MW
+// bounds carry no voltage so the probe is the raw value directly, and the
+// threshold is a fixed compile-time constant — these bounds are physical MW and
+// 1e-4 MW (= 0.1 W) is unambiguously "should be zero".  Clamping the tiny
+// nonzero value to *exactly* zero lets the LP-assembly zero-column/row skip
+// eliminate the dead column/row cleanly (see source/*_lp.cpp).
+constexpr double k_power_bound_threshold = 1e-4;
+
+// Rewrite to 0, in place, any nonzero schedule entry whose |value| is below
+// `threshold` on the `member` schedule of every element in `array`.  Returns
+// the number of elements touched.  Handles the three `OptTBRealFieldSched`
+// alternatives: scalar `double`, 2-D `vector<vector<double>>` (each entry
+// clamped), and `FileSched` (skipped — can't validate statically).  Warns once
+// per element, mirroring `clamp_line_pu_schedule_below`.  `kind`/`field`
+// flavour the warning text (e.g. "Generator"/"pmax").
+template<class Element>
+[[nodiscard]] std::size_t clamp_tb_sched_below(
+    std::vector<Element>& array,
+    double threshold,
+    OptTBRealFieldSched Element::* member,
+    std::string_view kind,
+    std::string_view field)
+{
+  std::size_t clamped = 0;
+  for (auto& elem : array) {
+    auto& opt = elem.*member;
+    if (!opt.has_value()) {
+      continue;
+    }
+    auto& sched = *opt;
+
+    // Scalar schedule.
+    if (std::holds_alternative<double>(sched)) {
+      const double val = std::get<double>(sched);
+      if (val != 0.0 && std::abs(val) < threshold) {
+        spdlog::warn(
+            "({0}_{1}) {0} '{2}' (uid={3}): {1}={4:.3e} MW is below {5:.0e} "
+            "MW — clamping to 0.",
+            kind,
+            field,
+            elem.name,
+            elem.uid,
+            val,
+            threshold);
+        sched = 0.0;
+        ++clamped;
+      }
+      continue;
+    }
+
+    // 2-D vector schedule: clamp any offending entry in place.
+    if (std::holds_alternative<std::vector<std::vector<double>>>(sched)) {
+      auto& mat = std::get<std::vector<std::vector<double>>>(sched);
+      bool any_small = false;
+      double min_bad = std::numeric_limits<double>::infinity();
+      for (auto& row : mat) {
+        for (auto& val : row) {
+          if (val != 0.0 && std::abs(val) < threshold) {
+            any_small = true;
+            min_bad = std::min(min_bad, std::abs(val));
+            val = 0.0;
+          }
+        }
+      }
+      if (any_small) {
+        spdlog::warn(
+            "({0}_{1}) {0} '{2}' (uid={3}): {1} schedule has entries below "
+            "{4:.0e} MW (min |{1}|={5:.3e}) — clamped to 0.",
+            kind,
+            field,
+            elem.name,
+            elem.uid,
+            threshold,
+            min_bad);
+        ++clamped;
+      }
+      continue;
+    }
+
+    // FileSched — can't validate statically; leave alone.
+  }
+  return clamped;
+}
 }  // namespace
 
 // ── Line reactance validation ────────────────────────────────────────────
@@ -273,6 +361,67 @@ void PlanningLP::validate_line_resistance(Planning& planning)
         "below {:.0e} to zero.",
         clamped,
         threshold);
+  }
+}
+
+// ── Power bound validation ─────────────────────────────────────────────────
+
+void PlanningLP::validate_power_bounds(Planning& planning)
+{
+  // Generator pmax/pmin carried in raw MW.  A nonzero bound below
+  // `k_power_bound_threshold` (1e-4 MW) is degenerate noise — almost always a
+  // rounding artefact of an input pipeline (e.g. a capacity that should be 0
+  // but ended up at 1e-5).  Rewriting it to *exactly* 0.0 lets the LP-assembly
+  // zero-column skip drop the dead generation column cleanly.  Unlike the X/R
+  // per-unit thresholds there is no voltage to divide by and no knob — the
+  // probe is the raw value and the threshold is fixed.
+  const std::size_t clamped =
+      clamp_tb_sched_below(planning.system.generator_array,
+                           k_power_bound_threshold,
+                           &Generator::pmax,
+                           "Generator",
+                           "pmax")
+      + clamp_tb_sched_below(planning.system.generator_array,
+                             k_power_bound_threshold,
+                             &Generator::pmin,
+                             "Generator",
+                             "pmin");
+
+  if (clamped > 0) {
+    spdlog::info(
+        "  Power bound validation: clamped {} generator bound(s) with "
+        "|value| below {:.0e} MW to zero.",
+        clamped,
+        k_power_bound_threshold);
+  }
+}
+
+// ── Line transmission validation ───────────────────────────────────────────
+
+void PlanningLP::validate_line_transmission(Planning& planning)
+{
+  // Line tmax_ab/tmax_ba carried in raw MW.  Same rationale as
+  // `validate_power_bounds`: a nonzero transfer limit below
+  // `k_power_bound_threshold` (1e-4 MW) is rewritten to exactly 0.0 so the
+  // LP-assembly zero-row/column skip eliminates the dead flow column/capacity
+  // row cleanly.
+  const std::size_t clamped = clamp_tb_sched_below(planning.system.line_array,
+                                                   k_power_bound_threshold,
+                                                   &Line::tmax_ab,
+                                                   "Line",
+                                                   "tmax_ab")
+      + clamp_tb_sched_below(planning.system.line_array,
+                             k_power_bound_threshold,
+                             &Line::tmax_ba,
+                             "Line",
+                             "tmax_ba");
+
+  if (clamped > 0) {
+    spdlog::info(
+        "  Line transmission validation: clamped {} line bound(s) with "
+        "|value| below {:.0e} MW to zero.",
+        clamped,
+        k_power_bound_threshold);
   }
 }
 
