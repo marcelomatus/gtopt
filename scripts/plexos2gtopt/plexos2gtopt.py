@@ -20,6 +20,7 @@ from .gtopt_writer import (
     build_planning,
     build_provenance,
     filter_user_constraints,
+    parse_water_value_factor,
     write_boundary_cut_csv,
     write_planning,
     write_provenance,
@@ -450,8 +451,15 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             reservoir_names = frozenset(
                 r["name"] for r in planning["system"].get("reservoir_array", [])
             )
+            import os as _os
+
             cut_file = write_boundary_cut_csv(
-                case.boundary_cut, reservoir_names, output_dir
+                case.boundary_cut,
+                reservoir_names,
+                output_dir,
+                water_value_factor=parse_water_value_factor(
+                    _os.environ.get("GTOPT_WATER_VALUE_FACTOR")
+                ),
             )
             if cut_file is not None:
                 # The monolithic method reads the cut file from

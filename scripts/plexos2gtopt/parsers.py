@@ -3811,12 +3811,41 @@ def _vert_waterways_referenced_by_constraints(db: PlexosDb) -> frozenset[str]:
     )
 
 
+def _reservoir_is_pure_pondage(r: ReservoirSpec) -> bool:
+    """True when a Reservoir is a pass-through / RoR pondage node.
+
+    A reservoir qualifies for Junction-only demotion when its storage
+    envelope is entirely zero AND nobody attaches a water-value /
+    penalty / efin target / profile to it.  ``eini = 0`` is the
+    discriminator: real reservoirs with any initial volume (PANGUE,
+    MACHICURA, POLCURA, …) stay Reservoirs even if other fields are
+    zero.  Shared by :func:`extract_case` (the actual demotion) and by
+    the early real-reservoir set passed to :func:`extract_waterways`
+    so the ``Vert_*`` spill collapse can avoid putting a drain on a
+    real reservoir's own junction (drains belong on ending/ocean
+    junctions only).
+    """
+    return (
+        r.eini == 0.0
+        and r.emin == 0.0
+        and r.emax == 0.0
+        and r.efin == 0.0
+        and r.water_value == 0.0
+        and r.spill_penalty_per_mwh == 0.0
+        and not r.never_drain
+        and not r.emin_profile
+        and not r.emax_profile
+        and not r.inflow_profile
+    )
+
+
 def extract_waterways(
     db: PlexosDb,
     bundle: PlexosBundle | None = None,
     forced_targets_out: list[tuple[str, str, float, tuple[float, ...]]] | None = None,
     ocean_sources_out: set[str] | None = None,
     junction_drain_configs_out: dict[str, dict[str, float | None]] | None = None,
+    real_reservoir_names: frozenset[str] | None = None,
 ) -> tuple[WaterwaySpec, ...]:
     """One :class:`WaterwaySpec` per PLEXOS Waterway object.
 
@@ -3964,9 +3993,69 @@ def extract_waterways(
             # synthetic ``<source>_ocean`` drain Junction).  The set is
             # auto-derived from the PLEXOS input — not a fixed allowlist
             # — so this stays correct when new spillway constraints land.
-            if (
+            # DOMAIN RULE (2026-06): a ``Junction.drain`` belongs ONLY on
+            # the ENDING / ocean junctions, never on a real reservoir's
+            # own junction.  A reservoir already disposes of excess water
+            # through its internal ``spillway_cost`` drain
+            # (storage_lp.cpp) — collapsing ``Vert_<reservoir>`` onto the
+            # source junction would put a SECOND, redundant drain on a
+            # node that does not need one, and (worse) lets the LP dump a
+            # real reservoir's whole stored volume out of the basin for
+            # free, suppressing downstream turbine dispatch (RALCO,
+            # COLBUN, PEHUENCHE, …).  So when the spillway source is a
+            # REAL reservoir (survives the pondage/RoR demotion below),
+            # SKIP the collapse and fall through to the ocean-redirect
+            # path: the drain then lands on the synthetic
+            # ``<source>_ocean`` ENDING junction, where it belongs.
+            #
+            # Pass-through / RoR pondage junctions (zero-storage nodes
+            # that get demoted to Junction-only — ISLA, LAJA_I, RUCUE, …)
+            # are NOT in ``real_reservoir_names``.
+            _src_is_real_reservoir = (
+                real_reservoir_names is not None and f_name in real_reservoir_names
+            )
+            # MASS-CONSERVATION FIX (2026-06): a zero-storage pass-through
+            # node CANNOT lose water — collapsing its ``Vert_*`` spill onto
+            # a ``Junction.drain`` makes excess inflow VANISH instead of
+            # flowing downstream (e.g. on 20251005 RUCUE took 14,606,
+            # turbined 9,711 → QUILLECO and DRAINED the 1,317 excess away;
+            # PLEXOS routes ``Vert_RUCUE`` → LAJA_I, keeping the spill in
+            # the Laja cascade).  So for a pass-through SOURCE we DO NOT
+            # drain: we emit ``Vert_*`` as a REAL Waterway from its
+            # ``Storage From`` to its ``Storage To`` (PLEXOS membership),
+            # letting the excess flow downstream where it can be re-turbined
+            # or spilled further down the cascade.
+            #
+            # CAVEAT: if the pass-through spill's ``Storage To`` is a REAL
+            # reservoir, routing into it would re-introduce the
+            # reservoir→reservoir spill arbitrage the ocean-redirect path
+            # below guards against (the LP could spill the upstream node to
+            # cheaply fill a downstream storage).  Routing into ANOTHER
+            # pass-through (RUCUE→LAJA_I, …) creates no such arbitrage
+            # because a zero-storage node cannot accumulate.  So only keep
+            # the spill as a downstream waterway when the destination is
+            # itself a pass-through; otherwise fall back to the drain/ocean
+            # path.
+            _dst_is_real_reservoir = (
+                real_reservoir_names is not None
+                and t_name is not None
+                and t_name in real_reservoir_names
+            )
+            _passthrough_route_downstream = (
+                not _src_is_real_reservoir
+                and ww.name not in keep_as_waterway
+                and t_name is not None
+                and not _dst_is_real_reservoir
+            )
+            if _passthrough_route_downstream:
+                # Emit Vert_* as a real downstream Waterway (no drain).
+                # Fall through to the normal WaterwaySpec emission below
+                # with the PLEXOS-published ``t_name`` kept as junction_b.
+                pass
+            elif (
                 junction_drain_configs_out is not None
                 and ww.name not in keep_as_waterway
+                and not _src_is_real_reservoir
             ):
                 fmax_raw = db.static_property("Waterway", ww.object_id, "Max Flow")
                 fcost_raw = db.static_property(
@@ -4105,8 +4194,16 @@ def extract_waterways(
             # manual override for diagnostic / dispatch-tuning runs.
             # ──────────────────────────────────────────────────────────
             kept_default_cascade = ww.name in keep_as_waterway
-            if (_routing == "cascade" or kept_default_cascade) and t_name is not None:
+            if (
+                _routing == "cascade"
+                or kept_default_cascade
+                or _passthrough_route_downstream
+            ) and t_name is not None:
                 # Keep the PLEXOS-published junction_b — no override.
+                # ``_passthrough_route_downstream`` reaches here from the
+                # mass-conservation fix above: a zero-storage source spilling
+                # into another pass-through must route the water downstream,
+                # never to ocean (which would re-introduce the lost-water bug).
                 pass
             else:
                 t_name = f"{f_name}_ocean"
@@ -5986,8 +6083,15 @@ def _synthesise_pinned_flow_rights(
     # than thermal generation and the LP avoids them by default.
     fcost_per_cumec_hour = 1000.0
     out: list[FlowRightSpec] = []
+    dropped: list[tuple[str, str]] = []
     for name, source_junction, target, profile in forced_waterway_targets:
         if source_junction not in known_junction_names:
+            # The forced obligation (irrigation / ecological / filtration)
+            # cannot be attached — its source junction was never emitted, so
+            # the FlowRight would silently vanish and the obligation would be
+            # un-modelled (water free-routes through penstocks).  Record it so
+            # the drop is visible instead of silent.
+            dropped.append((name, source_junction))
             continue
         # Carry the per-hour profile only when the obligation varies; a flat
         # obligation collapses to the scalar ``target``.
@@ -6015,6 +6119,16 @@ def _synthesise_pinned_flow_rights(
             "shortfall penalty ($10/m³).",
             len(out),
             fcost_per_cumec_hour,
+        )
+    if dropped:
+        logger.warning(
+            "_synthesise_pinned_flow_rights: DROPPED %d forced-flow "
+            "obligation(s) whose source junction was not emitted — the "
+            "irrigation/ecological/filtration target is UN-MODELLED and its "
+            "water will free-route through penstocks (inflating hydro "
+            "generation). Fix the source-junction emission. Dropped: %s",
+            len(dropped),
+            ", ".join(f"{n}@{j}" for n, j in dropped),
         )
     return tuple(out)
 
@@ -10333,11 +10447,21 @@ def extract_case(
     # below to set the new ``Junction.drain_capacity`` / ``drain_cost``
     # fields on the corresponding junction.
     junction_drain_configs: dict[str, dict[str, float | None]] = {}
+    # Real reservoirs = those that will SURVIVE the pondage/RoR demotion
+    # below.  A ``Vert_<src>`` spill whose source is a real reservoir must
+    # NOT be collapsed onto that reservoir's junction (a drain belongs on
+    # ending/ocean junctions only — the reservoir already drains via its
+    # own ``spillway_cost``).  Computed here so ``extract_waterways`` can
+    # route those spills to the ``<source>_ocean`` ending junction instead.
+    real_reservoir_names = frozenset(
+        r.name for r in reservoirs if not _reservoir_is_pure_pondage(r)
+    )
     waterways = extract_waterways(
         db,
         bundle,
         forced_targets_out=forced_waterway_targets,
         junction_drain_configs_out=junction_drain_configs,
+        real_reservoir_names=real_reservoir_names,
     )
     # GTOPT_RESERVOIR_SPILL=1 (--reservoir-spillway) shifts spillage
     # from the Junction.drain collapse onto Reservoir.spillway_cost=0.
@@ -10521,37 +10645,19 @@ def extract_case(
     # uses them only as a junction-name string for the synthetic
     # ``penstock_*`` waterway's ``junction_b``.  Waterway endpoint
     # references resolve through the Junction list — also unchanged.
-    def _is_pure_pondage(r: ReservoirSpec) -> bool:
-        # A reservoir qualifies for Junction-only demotion when its
-        # storage envelope is entirely zero AND nobody attaches a
-        # water-value / penalty / efin target to it.  We DO allow
-        # demotion when the reservoir is still a turbine
-        # ``main_reservoir`` reference, because the writer will
-        # synthesise a Junction with the same name (extract_junctions
-        # adds ``extra_junction_names`` below) and the turbine's
-        # head_storage lookup resolves through that Junction.  This
-        # cleans up degenerate run-of-river plants (ISLA, LA_MINA,
-        # LAJA_I, LOMAALTA, RUCUE, QUILLECO, CURILLINQUE,
-        # SANIGNACIO on CEN PCP) that currently emit a dummy
-        # ``vol[t] = 0`` reservoir balance row per block — pure LP
-        # overhead with no information.  ``eini = 0`` is the
-        # discriminator: real reservoirs with any initial volume
-        # (PANGUE 773, MACHICURA 152, POLCURA 7) stay Reservoirs even
-        # if their other fields are zero.
-        return (
-            r.eini == 0.0
-            and r.emin == 0.0
-            and r.emax == 0.0
-            and r.efin == 0.0
-            and r.water_value == 0.0
-            and r.spill_penalty_per_mwh == 0.0
-            and not r.never_drain
-            and not r.emin_profile
-            and not r.emax_profile
-            and not r.inflow_profile
-        )
-
-    pondage_names = tuple(sorted(r.name for r in reservoirs if _is_pure_pondage(r)))
+    # Demotion predicate lives at module scope (``_reservoir_is_pure_
+    # pondage``) so the same definition feeds both this demotion and the
+    # early ``real_reservoir_names`` set passed to ``extract_waterways``.
+    # We DO allow demotion when the reservoir is still a turbine
+    # ``main_reservoir`` reference, because the writer synthesises a
+    # Junction with the same name (extract_junctions adds
+    # ``extra_junction_names`` below) and the turbine's head_storage
+    # lookup resolves through that Junction.  This cleans up degenerate
+    # run-of-river plants (ISLA, LA_MINA, LAJA_I, LOMAALTA, RUCUE,
+    # QUILLECO, CURILLINQUE, SANIGNACIO on CEN PCP).
+    pondage_names = tuple(
+        sorted(r.name for r in reservoirs if _reservoir_is_pure_pondage(r))
+    )
     if pondage_names:
         logger.info(
             "extract_case: demoted %d pondage/tailrace Reservoir(s) to "

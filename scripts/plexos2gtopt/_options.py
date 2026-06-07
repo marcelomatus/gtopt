@@ -58,6 +58,9 @@ class ConversionOptions:
     # ── hydro / waterway topology ────────────────────────────────────────
     vert_routing: str | None = None
     reservoir_spillway: str | None = None
+    # Per-reservoir terminal water-value factor for boundary_cuts.csv,
+    # e.g. "COLBUN:0.9,RALCO:0.85" (see parse_water_value_factor).
+    water_value_factor: str | None = None
     spill_fcost: float | None = None
     spill_fcost_scale: float | None = None
     emin_eod_day1: bool | None = None
@@ -170,6 +173,7 @@ _ENV_BRIDGE: tuple[tuple[str, str, Any], ...] = (
     ("no_lift_lines", "GTOPT_NO_LIFT_LINES", str),
     ("el0_lines", "GTOPT_EL0_LINES", str),
     ("reservoir_spillway", "GTOPT_RESERVOIR_SPILL", str),
+    ("water_value_factor", "GTOPT_WATER_VALUE_FACTOR", str),
     ("spill_fcost", "GTOPT_SPILL_FCOST", lambda v: f"{float(v)}"),
     ("spill_fcost_scale", "GTOPT_SPILL_FCOST_SCALE", lambda v: f"{float(v)}"),
     ("nseg_losses", "GTOPT_NSEG_LOSSES", lambda v: str(int(v))),

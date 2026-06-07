@@ -1726,6 +1726,50 @@ def test_write_boundary_cut_csv_emits_row_per_bundle_reservoir(tmp_path) -> None
     assert float(rows[1][3]) == pytest.approx(-6683.819)
 
 
+def test_parse_water_value_factor_parses_pairs() -> None:
+    """``--water-value-factor`` spec → {reservoir: factor}, strict on errors."""
+    from plexos2gtopt.gtopt_writer import parse_water_value_factor
+
+    assert parse_water_value_factor("COLBUN:0.9,RALCO:0.85") == {
+        "COLBUN": 0.9,
+        "RALCO": 0.85,
+    }
+    assert not parse_water_value_factor(None)
+    assert not parse_water_value_factor("")
+    assert parse_water_value_factor(" COLBUN : 0.9 ") == {"COLBUN": 0.9}
+    for bad in ("COLBUN", "COLBUN:x", "COLBUN:-1", ":0.9"):
+        with pytest.raises(ValueError):
+            parse_water_value_factor(bad)
+
+
+def test_write_boundary_cut_csv_applies_water_value_factor(tmp_path) -> None:
+    """``water_value_factor`` multiplies named slopes; unlisted keep 1.0."""
+    import csv as _csv
+
+    from plexos2gtopt.entities import BoundaryCutSpec
+    from plexos2gtopt.gtopt_writer import write_boundary_cut_csv
+
+    cut = BoundaryCutSpec(
+        fcf=1.0e9,
+        slopes={"COLBUN": 2658.467, "RALCO": 3440.711, "PEHUENCHE": 3053.312},
+    )
+    reservoirs = frozenset({"COLBUN", "RALCO", "PEHUENCHE"})
+    write_boundary_cut_csv(
+        cut,
+        reservoirs,
+        tmp_path,
+        water_value_factor={"COLBUN": 0.9, "RALCO": 0.85},
+    )
+    with (tmp_path / "boundary_cuts.csv").open(encoding="utf-8") as fh:
+        rows = list(_csv.reader(fh))
+    hdr, data = rows[0], rows[1]
+    val = {c: float(data[hdr.index(c)]) for c in ("COLBUN", "RALCO", "PEHUENCHE")}
+    # Coefficient is -water_value; the factor multiplies the magnitude.
+    assert val["COLBUN"] == pytest.approx(-2658.467 * 0.9)
+    assert val["RALCO"] == pytest.approx(-3440.711 * 0.85)
+    assert val["PEHUENCHE"] == pytest.approx(-3053.312)  # unlisted → 1.0
+
+
 def test_write_boundary_cut_csv_warns_on_non_bundle_drop(
     tmp_path, caplog: pytest.LogCaptureFixture
 ) -> None:

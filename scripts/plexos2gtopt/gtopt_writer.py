@@ -2942,6 +2942,127 @@ def build_reserve_provision_array(
     return out
 
 
+def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
+    """Replace a real reservoir's ``Vert_<src> → <src>_ocean`` spillway arc
+    with the reservoir's own internal ``spillway_cost`` drain.
+
+    A terminal real reservoir (e.g. COLBUN) whose ``Vert_*`` spillway was
+    redirected to a synthetic ``<src>_ocean`` drain junction normally
+    collapses to outflow mode (``junction_b`` unset) just like every other
+    terminal reservoir (RALCO, CANUTILLAR, …).  But when a **consumptive
+    FlowRight** at the SAME source junction (filtration / irrigation —
+    ``soft_Filt_*`` / ``soft_Riego_*``) auto-resolves its
+    ``bypass_junction`` onto that same ``<src>_ocean`` junction, the ocean
+    junction stays referenced and ``_collapse_orphan_drain_outflows``
+    cannot drop it — leaving a lone ``Vert_<src>`` waterway + ``<src>_ocean``
+    junction where every sibling terminal reservoir has neither.
+
+    DOMAIN RULE (2026-06): a real reservoir disposes of excess water
+    through its OWN internal ``spillway_cost`` drain (``storage_lp.cpp``),
+    so the external ``Vert_<src>`` + ``<src>_ocean`` pair is redundant.
+    This pass eliminates both and activates ``spillway_cost = 0.0`` on the
+    source reservoir instead (cost 0 — it is an internal drain; the
+    pre-existing ``Vert_*`` ``fcost`` of $3.6/(m³/s)/h is irrelevant
+    because the optimal spill at these terminal reservoirs is 0).  The
+    consumptive FlowRight loses its (no-longer-existent) ``bypass_junction``
+    — correct, because the water it routes is consumptive (leaves the basin
+    either way), so the bypass column was never load-bearing.
+
+    LP-neutral: terminal-reservoir spill is 0 in the solution, so dropping
+    the waterway, dropping the ocean junction (capacity unbounded, cost
+    0/$3.6 — unused either way), and adding the cost-0 internal drain do
+    not change dispatch.  ``never_drain`` reservoirs (ELTORO,
+    ``spillway_capacity = 0``) are left untouched.
+
+    Returns the number of reservoirs converted.
+    """
+    juncs = system.get("junction_array", [])
+    waterways = system.get("waterway_array", [])
+    reservoirs = system.get("reservoir_array", [])
+    flow_rights = system.get("flow_right_array", [])
+
+    by_uid: dict[int, str] = {j["uid"]: j["name"] for j in juncs}
+
+    def _ref_name(ref: Any) -> str | None:
+        if isinstance(ref, str):
+            return ref
+        if isinstance(ref, int):
+            return by_uid.get(ref)
+        return None
+
+    # Real reservoirs = positive storage AND not a never_drain sentinel
+    # (``spillway_capacity == 0`` pins the drain off).
+    real_res: dict[str, dict[str, Any]] = {
+        r["name"]: r
+        for r in reservoirs
+        if r.get("emax", 0.0) > 0.0 and r.get("spillway_capacity") != 0.0
+    }
+
+    # Ocean drain junctions PINNED by a consumptive FlowRight bypass.
+    # These are exactly the ocean junctions ``_collapse_orphan_drain_
+    # outflows`` cannot drop (a FlowRight ``bypass_junction`` keeps them
+    # referenced) — i.e. the COLBUN case.  Every OTHER terminal reservoir's
+    # ``<src>_ocean`` is unreferenced once its waterway collapses to
+    # outflow mode, so it is left to the orphan-collapse pass and is NOT
+    # touched here.  Scoping to the pinned set keeps RALCO / CANUTILLAR /
+    # ANGOSTURA / … on their existing ``Vert_* → outflow`` topology.
+    fr_bypass_names: set[str] = set()
+    for fr in flow_rights:
+        nm = _ref_name(fr.get("bypass_junction"))
+        if nm is not None:
+            fr_bypass_names.add(nm)
+    ocean_juncs: dict[str, dict[str, Any]] = {
+        j["name"]: j
+        for j in juncs
+        if j.get("drain")
+        and str(j.get("name", "")).endswith("_ocean")
+        and j["name"] in fr_bypass_names
+    }
+
+    converted: set[str] = set()
+    dropped_ww: set[int] = set()
+    dropped_ocean: set[str] = set()
+    for ww in waterways:
+        if not str(ww.get("name", "")).startswith("Vert_"):
+            continue
+        src = _ref_name(ww.get("junction_a"))
+        dst = _ref_name(ww.get("junction_b"))
+        if src is None or src not in real_res:
+            continue
+        if dst is None or dst not in ocean_juncs:
+            continue
+        # Activate the reservoir's internal drain (cost 0) and drop the
+        # external spillway arc + ocean junction.
+        res = real_res[src]
+        if "spillway_cost" not in res:
+            res["spillway_cost"] = 0.0
+        converted.add(src)
+        dropped_ww.add(ww["uid"])
+        dropped_ocean.add(dst)
+
+    if not converted:
+        return 0
+
+    # Strip any FlowRight bypass that pointed at a now-dropped ocean
+    # junction (consumptive — water leaves the basin via the FlowRight's
+    # own debit, so the bypass column was never load-bearing).
+    for fr in flow_rights:
+        if _ref_name(fr.get("bypass_junction")) in dropped_ocean:
+            fr.pop("bypass_junction", None)
+            fr.pop("bypass_cost", None)
+
+    system["waterway_array"] = [w for w in waterways if w["uid"] not in dropped_ww]
+    system["junction_array"] = [j for j in juncs if j["name"] not in dropped_ocean]
+    logger.info(
+        "build_planning: internalised %d real-reservoir Vert_* spillway(s) "
+        "to Reservoir.spillway_cost=0 (dropped the Vert_* waterway + "
+        "<src>_ocean drain junction): %s",
+        len(converted),
+        ", ".join(sorted(converted)),
+    )
+    return len(converted)
+
+
 def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
     """Convert waterway / turbine `junction_b` refs that target an orphan
     drain-only sink junction to **outflow mode** (drop ``junction_b``) and
@@ -3235,6 +3356,14 @@ def build_planning(
                 penalty,
             )
 
+    # Internalise a terminal real reservoir's ``Vert_<src> → <src>_ocean``
+    # spillway onto the reservoir's own ``spillway_cost`` drain when the
+    # ocean junction is pinned by a consumptive FlowRight bypass (COLBUN:
+    # ``soft_Filt_Colb`` / ``soft_Riego_NoGen_Colbun`` auto-resolve their
+    # bypass to ``COLBUN_ocean``, blocking the orphan collapse below).  Runs
+    # FIRST so the dropped ocean junction is gone before the orphan pass.
+    _internalise_real_reservoir_ocean_spill(system)
+
     # Collapse orphan ``*_sink`` / ``*_ocean`` drain junctions whose only
     # purpose is to receive one waterway's outflow.  With the new Waterway /
     # Turbine ``junction_b`` optional ("outflow" mode), those consumers can
@@ -3297,6 +3426,51 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     return installed
 
 
+def parse_water_value_factor(spec: str | None) -> dict[str, float]:
+    """Parse a ``--water-value-factor`` spec into ``{reservoir: factor}``.
+
+    Spec form: ``"COLBUN:0.9,RALCO:0.85"`` — a comma-separated list of
+    ``<reservoir-name>:<factor>`` pairs.  Each factor multiplies that
+    reservoir's terminal water-value slope in ``boundary_cuts.csv`` (the
+    coefficient gtopt applies to the reservoir's terminal-volume state
+    variable), moving the terminal valuation of stored water up (``>1``)
+    or down (``<1``).  A factor ``<1`` makes hoarding inflow less
+    rewarding, releasing the LP to turbine it; ``>1`` does the reverse.
+
+    Returns an empty dict for an empty / ``None`` spec.  Raises
+    :class:`ValueError` on a malformed pair or a non-positive / non-numeric
+    factor so a CLI typo fails loudly rather than silently no-op'ing.
+    """
+    if not spec:
+        return {}
+    out: dict[str, float] = {}
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" not in token:
+            raise ValueError(
+                f"water-value-factor: '{token}' is not a "
+                f"<reservoir>:<factor> pair (e.g. COLBUN:0.9)"
+            )
+        name, _, factor_s = token.partition(":")
+        name = name.strip()
+        try:
+            factor = float(factor_s.strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"water-value-factor: factor '{factor_s}' for '{name}' is not a number"
+            ) from exc
+        if not name:
+            raise ValueError(f"water-value-factor: empty reservoir name in '{token}'")
+        if factor < 0.0:
+            raise ValueError(
+                f"water-value-factor: factor {factor} for '{name}' is negative"
+            )
+        out[name] = factor
+    return out
+
+
 def write_boundary_cut_csv(
     boundary_cut: BoundaryCutSpec,
     reservoir_names: frozenset[str],
@@ -3304,6 +3478,7 @@ def write_boundary_cut_csv(
     *,
     scene: int = 0,
     filename: str = "boundary_cuts.csv",
+    water_value_factor: dict[str, float] | None = None,
 ) -> str | None:
     """Write the single FCF boundary cut as a gtopt ``boundary_cuts.csv``.
 
@@ -3318,7 +3493,12 @@ def write_boundary_cut_csv(
     exist in the bundle are emitted (the loader matches by element
     name).  Returns the basename to set on ``simulation.boundary_cuts_file``,
     or ``None`` when no slope maps onto a bundle reservoir.
+
+    ``water_value_factor`` (from ``--water-value-factor``) multiplies named
+    reservoirs' slopes before emission — see :func:`parse_water_value_factor`.
+    Unlisted reservoirs keep factor ``1.0``.
     """
+    factors = water_value_factor or {}
     cols = [name for name in boundary_cut.slopes if name in reservoir_names]
     if not cols:
         logger.warning(
@@ -3351,12 +3531,23 @@ def write_boundary_cut_csv(
             [
                 scene,
                 float(boundary_cut.fcf),
-                *(float(-boundary_cut.slopes[c]) for c in cols),
+                *(float(-boundary_cut.slopes[c] * factors.get(c, 1.0)) for c in cols),
             ]
         ],
         path,
         headers=["scene", "rhs", *cols],
     )
+    applied = {c: factors[c] for c in cols if c in factors}
+    if applied:
+        logger.info("boundary cut: applied --water-value-factor %s", applied)
+    ignored = sorted(set(factors) - set(cols))
+    if ignored:
+        logger.warning(
+            "boundary cut: --water-value-factor named %d reservoir(s) absent "
+            "from the cut, ignored: %s",
+            len(ignored),
+            ignored,
+        )
     logger.info(
         "wrote boundary cut: %s (scene=%d, rhs=%.3e, %d reservoir slopes)",
         path,

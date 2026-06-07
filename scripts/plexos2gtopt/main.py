@@ -826,6 +826,24 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--water-value-factor",
+        metavar="RES:FACTOR[,RES:FACTOR...]",
+        default=None,
+        help=(
+            "Apply a per-reservoir factor to the terminal water-value slope "
+            "of named reservoirs in boundary_cuts.csv, moving the valuation of "
+            "stored water up/down (a real economic change, NOT a numerical "
+            "scale).\n"
+            "  Form: 'COLBUN:0.9,RALCO:0.85' — multiply each reservoir's "
+            "boundary-cut coefficient by the given factor (unlisted reservoirs "
+            "keep 1.0).  A factor <1 makes hoarding inflow less rewarding so the "
+            "LP turbines it (releases the over-conservation); >1 does the "
+            "reverse.  Use to calibrate gtopt's single flat terminal cut toward "
+            "the observed PLEXOS dispatch on heads that over-bank (e.g. "
+            "RALCO/COLBUN)."
+        ),
+    )
+    parser.add_argument(
         "--reservoir-spillway",
         nargs="?",
         const="basic",
@@ -1104,6 +1122,7 @@ def main(argv: list[str] | None = None) -> None:
         "auto_lift_lines": args.auto_lift_lines,
         "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,
+        "water_value_factor": args.water_value_factor,
         "lift_line_caps": args.lift_line_caps,
         "no_lift_lines": args.no_lift_lines,
         "el0_lines": args.el0_lines,
