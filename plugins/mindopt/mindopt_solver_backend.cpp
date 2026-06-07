@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <vector>
@@ -120,6 +121,26 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
     // as-is: presolve reductions remap variables/rows and would invalidate
     // the basis currently on the model, defeating the warm start.
     MDOsetintparam(env, MDO_INT_PAR_PRESOLVE, 0);
+
+    // Optional user override of the warm pass: a `mindopt_warmstart.prm`
+    // sibling next to the case's main `.prm` (the file named by
+    // `opts.param_file`).  Counterpart to the CPLEX `cplex_warmstart.prm`
+    // path — the single shared warm-start param file, here in MindOpt's
+    // native `.prm` format (one `ParamName Value` pair per line, the same
+    // format `MDOwriteparams` emits and `MDOreadparams` consumes; `.gz` /
+    // `.bz2` compression suffixes are accepted by the reader).  Loaded LAST
+    // via `MDOreadparams` so its values win over the in-code Method /
+    // Presolve defaults set just above.  Inert when `opts.param_file` is
+    // unset (no file is read; the in-code warm defaults stand).
+    if (opts.param_file.has_value() && !opts.param_file->empty()) {
+      const std::filesystem::path sibling =
+          std::filesystem::path {*opts.param_file}.parent_path()
+          / "mindopt_warmstart.prm";
+      std::error_code ec;
+      if (std::filesystem::exists(sibling, ec) && !ec) {
+        MDOreadparams(env, sibling.string().c_str());
+      }
+    }
   }
 }
 

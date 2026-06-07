@@ -6,6 +6,7 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <thread>
@@ -145,6 +146,27 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
       highs.setOptionValue("simplex_strategy", 1);  // dual
     } else {
       highs.setOptionValue("simplex_strategy", 4);  // primal
+    }
+
+    // Optional user override: a `highs_warmstart.opts` sibling next to the
+    // case's main param file (`opts.param_file`).  Mirrors the CPLEX plugin's
+    // `apply_cplex_warmstart`, which loads a `cplex_warmstart.prm` sibling of
+    // the case's `cplex.prm` after the in-code warm defaults.  HiGHS options
+    // files are plain `key = value` / `key value` text (the same format the
+    // HiGHS CLI consumes via `--options_file`); `.opts` is the conventional
+    // extension.  `Highs::readOptions` parses it and applies every listed
+    // option.  Loaded LAST so its values win over the in-code warm defaults
+    // (`solver=simplex` / `presolve=off` / `run_crossover=off` /
+    // `simplex_strategy`) set just above.  Inert when `param_file` is unset
+    // (the default) — no behaviour change.
+    if (opts.param_file.has_value() && !opts.param_file->empty()) {
+      const std::filesystem::path sibling =
+          std::filesystem::path {*opts.param_file}.parent_path()
+          / "highs_warmstart.opts";
+      std::error_code ec;
+      if (std::filesystem::exists(sibling, ec) && !ec) {
+        highs.readOptions(sibling.string());
+      }
     }
   }
 

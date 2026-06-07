@@ -113,6 +113,24 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
     const int warm_method =
         (opts.algorithm == LPAlgo::dual) ? GRB_METHOD_DUAL : GRB_METHOD_PRIMAL;
     GRBsetintparam(env, GRB_INT_PAR_METHOD, warm_method);
+
+    // Optional user override: a `gurobi_warmstart.prm` sibling next to the
+    // case's main param file (`opts.param_file`).  Mirrors the CPLEX backend's
+    // `apply_cplex_warmstart`, which loads a `cplex_warmstart.prm` sibling via
+    // `CPXreadcopyparam`.  Gurobi reads the SAME `.prm` text format through its
+    // native `GRBreadparams(env, filename)`.  Loaded LAST so its values win
+    // over the in-code Method default set just above.  Inert when
+    // `opts.param_file` is unset (the current default state) — no behaviour
+    // change for callers that never set a param file.
+    if (opts.param_file.has_value() && !opts.param_file->empty()) {
+      const std::filesystem::path sibling =
+          std::filesystem::path {*opts.param_file}.parent_path()
+          / "gurobi_warmstart.prm";
+      std::error_code ec;
+      if (std::filesystem::exists(sibling, ec) && !ec) {
+        GRBreadparams(env, sibling.string().c_str());
+      }
+    }
   }
 }
 

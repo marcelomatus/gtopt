@@ -535,15 +535,17 @@ _BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
 
 
 def install_solver_param_files(output_dir: Path) -> list[Path]:
-    """Copy every bundled ``<solver>.prm`` into ``<output_dir>/solvers/``.
+    """Copy every bundled solver param file into ``<output_dir>/solvers/``.
 
     gtopt's ``prepare_matrix_options`` auto-loads
     ``<input_directory>/solvers/<solver_name>.prm`` when the user does
     not pass ``solver_options.param_file`` explicitly, so shipping the
     curated parameter files next to the JSON case means a fresh
-    plp2gtopt output is solver-tuned out of the box.
+    plp2gtopt output is solver-tuned out of the box.  Covers ``.prm``
+    (CPLEX / Gurobi / MindOpt) and ``.opts`` (HiGHS) — including the
+    ``<solver>_warmstart`` siblings loaded for the advanced-basis pass.
 
-    Returns the list of installed file paths (empty when no bundled prm).
+    Returns the list of installed file paths (empty when no bundled files).
     """
     if not _BUNDLED_SOLVERS_DIR.is_dir():
         return []
@@ -551,7 +553,9 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     target_dir.mkdir(parents=True, exist_ok=True)
     installed: list[Path] = []
     logger = logging.getLogger(__name__)
-    for src in sorted(_BUNDLED_SOLVERS_DIR.glob("*.prm")):
+    for src in sorted(
+        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
+    ):
         dst = target_dir / src.name
         shutil.copyfile(src, dst)
         installed.append(dst)

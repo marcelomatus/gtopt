@@ -1,0 +1,9 @@
+# HiGHS warm-start options — loaded by the gtopt HiGHS backend (via
+# Highs::readOptions) as a sibling of the case's main highs options file
+# when SolverOptions::advanced_basis is active.  Mirrors cplex_warmstart.prm.
+# Warm primal simplex off the resident basis; presolve/crossover off so the
+# basis is reused.  simplex_strategy 4 = primal (1 = dual).
+solver = simplex
+presolve = off
+run_crossover = off
+simplex_strategy = 4
