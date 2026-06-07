@@ -843,22 +843,20 @@ using namespace gtopt::detail;
       if (cuts.empty()) {
         continue;
       }
-      // Single linear terminal value (the typical PLP / PLEXOS boundary
-      // cut, one row per scene): install it as an EQUALITY and free α, so
-      // the cut becomes the *continuous* terminal value (PLEXOS-style
-      // ``+ Σ wvᵣ·efinᵣ``) rather than a slack-able ``≥`` lower bound that
-      // is ignored above the efin target.  With ``α + Σ wvᵣ·efinᵣ = FCF``
-      // and α free, α is pinned to ``FCF − Σ wvᵣ·efinᵣ``, so its dual is 1
-      // and every reservoir's terminal storage is priced at ``wvᵣ`` on
-      // both sides of the target — matching how PLEXOS applies its single
-      // MT water value.  With MANY cuts (a piecewise-linear future cost)
-      // we keep the ``≥`` Benders form (the value function is the max of
-      // its supporting cuts).
+      // Single boundary cut (the typical PLP / PLEXOS case, one row per
+      // scene): a single linear cut has no future-cost CURVE to locate the
+      // optimal terminal storage — the lone MT water value is the marginal
+      // *at the target* and says nothing about storage above/below it.  So
+      // install the cut as a plain ``≥`` (it becomes a constant once the
+      // terminal volume is pinned) and pin the LAST-block storage var to its
+      // target: set ``uppb = efin`` on each reservoir/battery terminal state
+      // column, keeping the soft ``vol_end >= efin`` floor untouched.
+      // Together ⇒ ``vol_end = efin``.  This avoids both the slack-≥ dump
+      // (water value collapses to the in-week marginal) and the equality-cut
+      // hoard (storage rewarded up to emax).  MANY cuts keep the ``≥``
+      // Benders curve, where the marginal correctly decreases with storage.
       const bool single_cut = cuts.size() == 1;
-      for (auto& cut : cuts) {
-        if (single_cut) {
-          cut.uppb = cut.lowb;  // ``≥``  →  ``=``
-        }
+      for (const auto& cut : cuts) {
         (void)gtopt::add_cut_row(planning_lp,
                                  si,
                                  last_phase,
@@ -867,14 +865,57 @@ using namespace gtopt::detail;
                                  options.cut_coeff_eps);
       }
       if (single_cut) {
-        // Free α (override the cut-derived floor `bound_alpha_for_cut`
-        // installs) so the equality is feasible when Σ wvᵣ·efinᵣ > FCF —
-        // α must be able to go negative for the reward to keep applying as
-        // the reservoir conserves above the target.
-        const auto* asv = find_alpha_state_var(sim, si, last_phase);
-        if (asv != nullptr) {
-          auto& li = planning_lp.system(si, last_phase).linear_interface();
-          li.set_col_low_raw(asv->col(), -li.infinity());
+        // Cap ONLY the state variables that appear in this boundary cut
+        // (its column set), not every reservoir — the cut's columns are the
+        // terminal state vars the single MT value prices.  The cap target is
+        // the reservoir's `efin` (input operational floor) by default, or
+        // `eini` (initial/maintain level) when boundary_cut_pin_eini is set
+        // — PLEXOS PCP runs tend to end near eini, not draw down to efin.
+        const bool pin_eini = options.boundary_cut_pin_eini;
+        // Target = efin (default) or max(eini, efin) when pinning at eini.
+        // The max() guard keeps the cap from ever dropping below the efin
+        // floor — e.g. ELTORO has eini < efin (must-fill) and is never_drain,
+        // so a bare eini cap would put the cap below the floor with no spill
+        // to shed inflow → the reservoir balance becomes infeasible.
+        const auto cap_target =
+            [pin_eini](const OptReal& eini,
+                       const OptReal& efin) -> std::optional<double>
+        {
+          if (!pin_eini) {
+            return efin;
+          }
+          if (eini.has_value() && efin.has_value()) {
+            return std::max(*eini, *efin);
+          }
+          return eini.has_value() ? eini : efin;
+        };
+        const auto& cut = cuts.front();
+        auto& li = planning_lp.system(si, last_phase).linear_interface();
+        for (const auto& [key, svar] : sim.state_variables(si, last_phase)) {
+          if (!is_final_state_col(key.col_name)
+              || !cut.cmap.contains(svar.col()))
+          {
+            continue;
+          }
+          std::optional<double> target;
+          if (key.class_name == std::string_view {"Reservoir"}) {
+            for (const auto& r : sys.reservoir_array) {
+              if (r.uid == key.uid) {
+                target = cap_target(r.eini, r.efin);
+                break;
+              }
+            }
+          } else if (key.class_name == std::string_view {"Battery"}) {
+            for (const auto& b : sys.battery_array) {
+              if (b.uid == key.uid) {
+                target = cap_target(b.eini, b.efin);
+                break;
+              }
+            }
+          }
+          if (target.has_value()) {
+            li.set_col_upp(svar.col(), *target);  // cap last-block vol_end
+          }
         }
       }
       // Log the per-scene mean-shift (the shift itself was applied

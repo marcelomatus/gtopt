@@ -852,6 +852,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// default as the input-option path.
   bool boundary_cuts_mean_shift {true};
 
+  /// Single-cut terminal-volume cap target: when a scene has exactly one
+  /// boundary cut, pin each cut reservoir's last-block storage at `eini`
+  /// (true) instead of `efin` (false, default).  See
+  /// `SddpOptions::boundary_cut_pin_eini` (input-side) and
+  /// `source/sddp_boundary_cuts.cpp` (the cap).
+  bool boundary_cut_pin_eini {false};
+
   // ``named_cuts_file`` was retired in 2026-05.  Internal hot-start
   // cuts now use the typed Parquet path (``cuts_input_file``); the
   // legacy CSV-with-column-per-state-variable format is no longer
