@@ -2044,7 +2044,14 @@ def build_reservoir_array(
         # unset across CEN PCP), the extractor populates
         # ``spill_penalty_per_mwh`` and we honour it here.  Otherwise the
         # field is omitted and ``storage_lp.cpp`` skips the drain column.
-        if res.spill_penalty_per_mwh > 0.0:
+        if res.never_drain:
+            # never_drain (ELTORO): disable the drain (spill) variable so
+            # water leaves ONLY through turbines.  Leave ``spillway_cost``
+            # UNSET so ``storage_lp`` adds no drain column, and pin
+            # ``spillway_capacity = 0`` as a guard so any drain that a spill
+            # mode would otherwise activate is bounded to zero.
+            entry["spillway_capacity"] = 0.0
+        elif res.spill_penalty_per_mwh > 0.0:
             # gtopt ``spillway_cost`` is per-(m³/s)/h, PLEXOS reports
             # per-MWh — multiply by the global default productibility
             # (DESIGN.md §6).

@@ -100,6 +100,11 @@ class UnresolvedConstraintReferenceError(RuntimeError):
 # would impose at LP-decision time.
 _SENSE_OP = {-1.0: "<=", 1.0: ">=", 0.0: ">="}
 
+# Reservoirs whose drain (spill) variable is disabled (``spillway_capacity =
+# 0``) so water leaves only through turbines.  Reserved for ELTORO — the head
+# of the Laja cascade, which PLEXOS forces to refill and never spills.
+_NEVER_DRAIN_RESERVOIRS = frozenset({"ELTORO"})
+
 
 # Coefficient kinds that map 1:1 to a single gtopt LP variable.
 # Each entry is (parent_class, coll_name, property, gtopt_class, accessor,
@@ -3700,12 +3705,15 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         water_value_gwh = (
             db.static_property("Storage", storage.object_id, "Water Value") or 0.0
         )
-        never_drain = False  # retired sentinel; field retained on
-        # ``ReservoirSpec`` for backward compatibility with downstream
-        # consumers (writer, integration tests).  ``never_drain`` means
-        # "disable the drain (spill) variable" (drain_max=0) — a spill
-        # restriction reserved for ELTORO, NOT a hard-efin constraint and
-        # unrelated to terminal pricing.
+        # ``never_drain`` disables the reservoir's drain (spill) variable
+        # (writer sets ``spillway_capacity = 0``) so water can leave ONLY
+        # through turbines, never spilled.  Reserved for ELTORO — the head
+        # of the Laja cascade, which PLEXOS forces to refill to ``efin``
+        # and never spills; without this guard a global spill mode
+        # (``GTOPT_RESERVOIR_SPILL``) or an added ``Vert_*`` waterway would
+        # give it a free spill escape.  NOT a hard-efin and unrelated to
+        # terminal pricing (efin stays soft, cost derived in C++).
+        never_drain = name in _NEVER_DRAIN_RESERVOIRS
         # ── Pass-through PLEXOS Storage objects ─────────────────
         # CEN PCP "Storage" entries that are topology-only nodes
         # (bocatomas ``B_*``, ``Post_*``, run-of-river intakes,
