@@ -880,6 +880,20 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--apply-generation-aux-use",
+        action="store_true",
+        default=False,
+        help=(
+            "Apply Gen_AuxUse.csv (PLEXOS generation Auxiliary Use) as "
+            "Generator.lossfactor — the LP injects (1 - lossfactor) x "
+            "generation to the bus, modelling station-service "
+            "self-consumption.  DEFAULT (flag off) IGNORES it: PLEXOS ships "
+            "the file but does NOT apply it (solution prop 81 = 0, no aux "
+            "fuel in its cost), so applying it makes gtopt burn ~54 GWh of "
+            "fuel PLEXOS never spends (~+13% op cost on CEN PCP)."
+        ),
+    )
+    parser.add_argument(
         "--vert-routing",
         choices=("ocean", "cascade"),
         default="ocean",
@@ -1064,6 +1078,7 @@ def main(argv: list[str] | None = None) -> None:
         "use_plexos_commit": args.use_plexos_commit,
         "use_plexos_gen_cap": args.use_plexos_gen_cap,
         "use_plexos_efin": args.use_plexos_efin,
+        "apply_generation_aux_use": args.apply_generation_aux_use,
         "nseg_losses": args.nseg_losses,
         "loss_error_pct": args.loss_error_pct,
         "loss_extend_overload": args.loss_extend_overload,

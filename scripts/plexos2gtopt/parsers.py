@@ -1830,7 +1830,23 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
     # rows (negative, NaN, or above the cap) with a per-row warning.
     AUX_USE_MAX_PERCENT = 50.0  # physical aux-use upper bound
     aux_use_map: dict[str, float] = {}
-    if bundle.has("Gen_AuxUse.csv"):
+    # PLEXOS ships Gen_AuxUse.csv in the bundle but does NOT apply it: the
+    # solution's Auxiliary Use (prop 81) is 0 and its Total Generation Cost
+    # carries no aux fuel.  Applying it makes gtopt burn ~54 GWh of
+    # station-service fuel PLEXOS never spends — ≈ the entire +13% op-cost
+    # gap on CEN PCP cases (and the raw values, e.g. COCHRANE 30.058, are
+    # implausibly high for real station service).  Default to IGNORING it so
+    # gtopt matches PLEXOS; opt in with --apply-generation-aux-use
+    # (GTOPT_APPLY_GENERATION_AUX_USE=1) to model the generators'
+    # station-service self-consumption.
+    import os as _os
+
+    _apply_aux = _os.environ.get("GTOPT_APPLY_GENERATION_AUX_USE", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if _apply_aux and bundle.has("Gen_AuxUse.csv"):
         n_skipped_high = 0
         sample_skipped: list[tuple[str, float]] = []
         with bundle.csv("Gen_AuxUse.csv").open(encoding="utf-8", newline="") as _aux_fh:

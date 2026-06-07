@@ -85,6 +85,9 @@ class ConversionOptions:
     use_plexos_commit: bool | None = None
     use_plexos_gen_cap: bool | None = None
     use_plexos_efin: bool | None = None
+    # Apply Gen_AuxUse.csv generation auxiliary use as Generator.lossfactor.
+    # Default off (PLEXOS applies zero aux); opt in to model self-consumption.
+    apply_generation_aux_use: bool | None = None
 
     # ── Constructors ────────────────────────────────────────────────────
     @classmethod
@@ -158,6 +161,11 @@ _ENV_BRIDGE: tuple[tuple[str, str, Any], ...] = (
     ("use_plexos_commit", "GTOPT_USE_PLEXOS_COMMIT", _str_bool_one_only),
     ("use_plexos_gen_cap", "GTOPT_USE_PLEXOS_GEN_CAP", _str_bool_one_only),
     ("use_plexos_efin", "GTOPT_USE_PLEXOS_EFIN", _str_bool_one_only),
+    (
+        "apply_generation_aux_use",
+        "GTOPT_APPLY_GENERATION_AUX_USE",
+        _str_bool_one_only,
+    ),
     ("lift_line_caps", "GTOPT_LIFT_LINE_CAPS", str),
     ("no_lift_lines", "GTOPT_NO_LIFT_LINES", str),
     ("el0_lines", "GTOPT_EL0_LINES", str),
