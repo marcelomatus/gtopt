@@ -326,3 +326,35 @@ def test_write_planning_creates_parents(tmp_path: Path) -> None:
     write_planning(plan, out)
     assert out.is_file()
     assert json.loads(out.read_text(encoding="utf-8")) == plan
+
+
+def test_write_planning_sanitises_inf_and_strips_internal_keys(
+    tmp_path: Path,
+) -> None:
+    """Inf sentinels and ``_internal`` keys are scrubbed before write.
+
+    The gtopt C++ daw::json parser rejects literal ``Infinity`` /
+    ``NaN`` numerics under StrictParsePolicy and treats unknown
+    keys as schema errors.  ``write_planning`` must run the shared
+    ``sanitize_inf`` + ``strip_internal_keys`` helpers from
+    ``gtopt_shared.json_utils`` to keep the output parse-clean.
+    """
+    import math  # local — keep test header lean.
+
+    out = tmp_path / "plan.json"
+    plan = {
+        "options": {"scale_objective": math.inf},  # Inf → sanitised
+        "simulation": {},
+        "system": {"name": "x"},
+        # Top-level ``_``-prefixed keys are filtered by
+        # ``strip_internal_keys``; nested ones are out of scope
+        # (caller's responsibility per the helper's docstring).
+        "_internal_breadcrumb": "drop-me",
+    }
+    write_planning(plan, out)
+    text = out.read_text(encoding="utf-8")
+    # Raw "Infinity" literal must not survive serialisation.
+    assert "Infinity" not in text
+    payload = json.loads(text)
+    # Top-level internal bookkeeping key dropped.
+    assert "_internal_breadcrumb" not in payload
