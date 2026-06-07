@@ -160,6 +160,13 @@ auto select_apertures(std::span<const Uid> phase_apertures,
 
 // ─── partition_apertures ────────────────────────────────────────────────────
 
+// Split ONE phase's aperture list into contiguous chunks of `chunk_size`.
+// `apertures` is always the `effective_apertures` of a single
+// (scene, phase) — the caller (`solve_apertures_for_phase`) runs per
+// (scene, phase) — so every returned chunk holds only same-(scene, phase)
+// apertures.  The aperture-warm-start path depends on this: a chunk's
+// apertures share one LP clone and differ only by `update_aperture`
+// bound deltas (see the warm-start block in `solve_apertures_for_phase`).
 auto partition_apertures(std::span<const ApertureEntry> apertures,
                          int chunk_size)
     -> std::vector<std::span<const ApertureEntry>>
@@ -437,6 +444,20 @@ auto solve_apertures_for_phase(
           // with a warm simplex solve.  Bound-only `update_aperture`
           // deltas keep the basis valid — no basis is saved/restored, the
           // clone's resident basis is reused in place.
+          //
+          // INVARIANT this relies on: every aperture in a chunk belongs
+          // to the SAME (scene, phase).  This holds by construction —
+          // `solve_apertures_for_phase` is called once per
+          // (scene_index, phase_index); `partition_apertures` only splits
+          // that single phase's `effective_apertures` into contiguous
+          // subspans; the clone is that phase's LP; and the aperture
+          // system (hence the LP *matrix* and replayed cuts) is resolved
+          // per (scene, phase), not per aperture.  So all apertures in a
+          // chunk share an identical matrix and differ only in the
+          // flow-col bounds `update_aperture` rewrites — exactly the
+          // condition under which the resident basis stays valid.  A
+          // future refactor that batched apertures across phases/scenes
+          // into one chunk would break this and must NOT reuse the clone.
           SolverOptions warm_opts = aperture_opts;
           warm_opts.advanced_basis = true;
           warm_opts.algorithm = LPAlgo::primal;
