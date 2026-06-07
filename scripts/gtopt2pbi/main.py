@@ -29,9 +29,12 @@ from typing import Optional, Sequence
 import pandas as pd
 import pyarrow as pa
 
-# The wide→long reshape is shared with the plp2gtopt conversion pipeline so the
-# two stay in lock-step (a wide field table ⇒ a long one; anything else ⇒ None).
-from plp2gtopt.base_writer import to_long_layout
+# The wide→long reshape is shared across every converter via gtopt_shared so the
+# layouts stay in lock-step (a wide field table ⇒ a long one; anything else ⇒
+# None).  Previously imported from ``plp2gtopt.base_writer`` — kept working
+# through a re-export shim there, but new code should reach for the shared
+# canonical location.
+from gtopt_shared.dataframe import to_long_layout
 
 _DEFAULT_CODEC = "zstd"
 _UNCOMPRESSED_ALIASES = {"none", "", "uncompressed"}
