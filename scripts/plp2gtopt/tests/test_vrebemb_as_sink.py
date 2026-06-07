@@ -225,15 +225,14 @@ def test_vrebemb_as_sink_non_vrebemb_unchanged():
 
 
 def test_vrebemb_as_sink_existing_ocean_drops_fcost():
-    """Vrebemb embalse with ser_ver = 0: spillway encoded as junction drain.
+    """Vrebemb embalse with ser_ver = 0: spill rides a ``_ver`` arc to ocean.
 
     LMAULE / RAPEL / CANUTILLAR / COLBUN have ser_ver = 0; the
-    architectural fix collapses the legacy ``_ver → <central>_ocean``
-    arc + ocean Junction into ``Junction{drain: true}`` on the source.
-    Under ``--vrebemb-as-sink`` the rebalse cost is also dropped, so
-    ``drain_cost`` is omitted (no per-flow penalty) and
-    ``drain_capacity`` is omitted (PLP qrb-to-sink semantics:
-    uncapped, costless).
+    mass-conserving fix routes the spill via an explicit
+    ``Term_ver → Term_ocean`` arc (the ocean node owns ``drain = True``).
+    Under ``--vrebemb-as-sink`` the rebalse cost is dropped (qrb-to-sink
+    semantics: uncapped, costless), so the ``_ver`` arc has no ``fcost``
+    and an unbounded ``fmax``.  The source junction stays a balance node.
     """
     cent = _embalse_in_network("Term", 1, ser_hid=0, ser_ver=0)
     system = _run(
@@ -242,14 +241,18 @@ def test_vrebemb_as_sink_existing_ocean_drops_fcost():
         options={"vrebemb_as_sink": True},
     )
 
-    # No ``_ver`` arc — it collapsed into Junction.drain on the source.
+    # The ``_ver`` arc routes the spill to the synthetic ocean drain.
     ver = [w for w in system["waterway_array"] if "Term_ver" in w.get("name", "")]
-    assert ver == []
+    assert len(ver) == 1
+    assert ver[0]["junction_b"] == "Term_ocean"
+    # qrb-to-sink: no per-flow cost on the spill arc.
+    assert "fcost" not in ver[0], ver[0].get("fcost")
     src = next(j for j in system["junction_array"] if j["name"] == "Term")
-    assert src["drain"] is True
-    # vrebemb-as-sink + qrb-to-sink: no cap, no cost on the drain column.
+    assert src["drain"] is False
     assert "drain_capacity" not in src, src.get("drain_capacity")
     assert "drain_cost" not in src, src.get("drain_cost")
+    ocean = next(j for j in system["junction_array"] if j["name"] == "Term_ocean")
+    assert ocean["drain"] is True
 
 
 # ---------------------------------------------------------------------------

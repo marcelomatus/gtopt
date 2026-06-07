@@ -242,23 +242,24 @@ def test_pasada_in_hydro_mode_drain_on_source():
 
 
 def test_legacy_mode_emits_ver_waterway_and_no_drain():
-    """``drop_spillway_waterway = False`` keeps the in-network spillway
-    arc; for ``ser_ver = 0`` the spillway is now encoded on
-    ``Junction.drain_capacity`` / ``drain_cost`` instead of a synthetic
-    ``_ver → <central>_ocean`` arc (the C++ ``Junction.drain``-capacity
-    patch collapses that pair losslessly).
+    """``drop_spillway_waterway = False`` keeps the spillway arc; for
+    ``ser_ver = 0`` the spill rides an explicit ``_ver`` waterway to a
+    synthetic ``<central>_ocean`` drain (mass conservation).  The
+    central's own junction stays a pure balance node — never a self-drain.
     """
     cent = _serie("CentA", 1, ser_hid=0, ser_ver=0, vert_max=50.0)
     system = _run([cent], drop=False)
 
     ver_arcs = [w for w in system["waterway_array"] if "_ver_" in w["name"]]
-    # No ``_ver`` arc remains — the spillway capacity now rides on the
-    # source junction's drain column.
-    assert ver_arcs == []
+    # The ``_ver`` arc now routes the spill to the ocean drain.
+    assert len(ver_arcs) == 1
+    assert ver_arcs[0]["junction_b"] == "CentA_ocean"
+    assert ver_arcs[0]["fmax"] == 50.0
     junctions = {j["name"]: j for j in system["junction_array"]}
     src = junctions["CentA"]
-    assert src["drain"] is True
-    assert src["drain_capacity"] == 50.0
+    assert src["drain"] is False
+    assert "drain_capacity" not in src
+    assert junctions["CentA_ocean"]["drain"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -646,6 +646,47 @@ class JunctionWriter(BaseWriter):
 
         return waterway
 
+    def _ensure_ocean_drain(
+        self,
+        system: HydroSystemOutput,
+        central_name: str,
+        existing_uid: Optional[int],
+    ) -> int:
+        """Create (or reuse) the ``<central>_ocean`` drain junction.
+
+        ONLY ocean / ending junctions may carry ``drain = True``.  When
+        a reservoir / RoR / pass-through junction can no longer balance
+        its inflow (spillway-to-sea, ``--drop-spillway-waterway``, or a
+        genuine dead-end with no physical outlet), the surplus must be
+        routed to a synthetic ``<central>_ocean`` junction that owns the
+        ``drain = True`` flag — never drained at the central node itself.
+
+        ``existing_uid`` lets the spill (`_ver`) and gen (`_gen`) ocean
+        fallbacks share a single ``<central>_ocean`` junction when both
+        paths are terminal for the same central (avoids emitting two
+        drains for one plant).  Returns the ocean junction uid (newly
+        created or reused).
+        """
+        if existing_uid is not None:
+            return existing_uid
+        self._ocean_junction_counter += 1
+        ocean_uid = _OCEAN_UID_OFFSET + self._ocean_junction_counter
+        ocean_name = f"{central_name}_ocean"
+        ocean_junction: Junction = {
+            "uid": ocean_uid,
+            "name": ocean_name,
+            "drain": True,
+        }
+        system["junction_array"].append(ocean_junction)
+        self._junction_names[ocean_uid] = ocean_name
+        _logger.debug(
+            "Created ocean drain junction '%s' (uid=%d) for central '%s'",
+            ocean_name,
+            ocean_uid,
+            central_name,
+        )
+        return ocean_uid
+
     def to_json_array(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
@@ -1237,9 +1278,6 @@ class JunctionWriter(BaseWriter):
         #       (126.3 m³/s) exceeded gen cap (85.1 m³/s); the
         #       junction-drain replacement keeps the spill path open
         #       with the same cost.
-        junction_drain_from_spill = False
-        junction_drain_capacity: Optional[float] = None
-        junction_drain_cost: Optional[float] = None
         if (
             ver_waterway is None
             and not self._drop_spillway_waterway
@@ -1275,17 +1313,37 @@ class JunctionWriter(BaseWriter):
                 self._vrebemb_as_sink and in_vrebemb
             )
             if emit_spill:
-                # Surface as junction-drain instead of ocean+waterway.
-                # ``+∞`` capacity maps to None so JunctionLP's default
-                # (DblMax / solver infinity) applies — the JSON field
-                # is omitted and Junction.drain_capacity stays at
-                # default-empty.  ``cost`` 0 / None is also omitted
-                # via the value_or(0.0) default in JunctionLP.
-                if spill_fmax is not None and math.isfinite(spill_fmax):
-                    junction_drain_capacity = float(spill_fmax)
-                if spill_fcost is not None and spill_fcost > 0.0:
-                    junction_drain_cost = float(spill_fcost)
-                junction_drain_from_spill = True
+                # **Route the spill to a synthetic ``<central>_ocean``
+                # junction** — ONLY ocean / ending junctions may carry
+                # ``drain = True``.  Previously this case stamped a
+                # junction-level drain (``drain_capacity`` /
+                # ``drain_cost``) on the reservoir's own node, which the
+                # domain expert flagged as wrong: the reservoir junction
+                # must stay a balance node.  Instead we synthesise the
+                # ocean junction (sharing one with the gen-path fallback
+                # via ``synthetic_drain_uid``) and connect a ``_ver``
+                # waterway central → ocean carrying the spill cap
+                # (``spill_fmax``) and cost (``spill_fcost``).  ``+∞``
+                # fmax maps to None so the waterway is left unbounded.
+                synthetic_drain_uid = self._ensure_ocean_drain(
+                    system, central_name, synthetic_drain_uid
+                )
+                ver_waterway = self._create_waterway(
+                    central_name + "_ver",
+                    central_id,
+                    synthetic_drain_uid,
+                    vert_fmin,
+                    (
+                        spill_fmax
+                        if spill_fmax is not None and math.isfinite(spill_fmax)
+                        else math.inf
+                    ),
+                    fcost=(
+                        spill_fcost
+                        if spill_fcost is not None and spill_fcost > 0.0
+                        else None
+                    ),
+                )
 
         # For embalse/serie/pasada centrals with ser_hid=0, the gen arc
         # has no PLP downstream junction.
@@ -1453,20 +1511,26 @@ class JunctionWriter(BaseWriter):
         # 115-758 Hm³ all year.  The cascade-infeasibility chain at
         # p27/p28 collapsed once this drain was removed.
         #
-        # New rule: drain is enabled ONLY when there is NO physical
-        # outlet (``gen_waterway is None and ver_waterway is None``),
-        # OR when the spillway-ocean fallback above chose to encode
-        # the spill capacity on this junction instead of synthesising
-        # a separate ``<central>_ocean`` Junction + ``_ver`` Waterway
-        # (``junction_drain_from_spill`` flag).
+        # New rule (mass conservation): a reservoir / RoR / pass-through
+        # junction NEVER carries ``drain = True`` — water there is either
+        # stored, turbined, or spilled downstream, but never lost.  The
+        # only junctions that may drain are:
+        #   * a synthetic ``<central>_ocean`` node (created by
+        #     ``_ensure_ocean_drain`` for a genuine basin exit, i.e. PLP
+        #     ``ser_ver = 0`` / ``ser_hid = 0`` with a real spill/gen
+        #     capacity to dispose of), or
+        #   * the central's own junction ONLY when it has no physical
+        #     outlet at all (``gen_waterway is None and
+        #     ver_waterway is None``) — a true topological dead-end.
         #
-        # In the spill-encoded-as-junction-drain case we also forward
-        # the ``drain_capacity`` (= PLP ``VertMax``) and ``drain_cost``
-        # (= ``CVert`` / ``Costo de Rebalse``) onto the Junction so
-        # gtopt's ``JunctionLP::add_to_lp`` builds the per-block drain
-        # column with the right ``uppb`` and ``cost`` — preserving the
-        # LMAULE / ELTORO storage-release cap that the legacy
-        # ocean-Waterway arc carried via ``fmax`` / ``fcost``.
+        # The spillway-to-sea case (PLP ``ser_ver = 0`` with a non-zero
+        # ``VertMax`` / vrebemb rebalse) is handled by the ocean-fallback
+        # above, which now synthesises ``<central>_ocean`` (drain) and a
+        # ``_ver`` waterway central → ocean carrying ``spill_fmax`` /
+        # ``spill_fcost``.  After that fallback ``ver_waterway`` is set,
+        # so this central's own junction stays a balance node — the LP
+        # cannot teleport storage out of the reservoir node (the
+        # LMAULE-class free-escape-valve bug).
         #
         # ``--drop-spillway-waterway`` (opt-in, default False since the
         # 2026-04-28 LMAULE / ELTORO fix): the spillway arc has been
@@ -1480,8 +1544,6 @@ class JunctionWriter(BaseWriter):
             "pasada",
         ):
             drain = True
-        elif junction_drain_from_spill:
-            drain = True
         elif use_builtin_turbine_waterway:
             # Built-in Turbine waterway IS the central's physical
             # outlet (debits this junction every block).  Stamping
@@ -1492,16 +1554,16 @@ class JunctionWriter(BaseWriter):
             drain = False
         else:
             drain = gen_waterway is None and ver_waterway is None
+        # The reservoir / pass-through junction is a pure balance node:
+        # ``drain_capacity`` / ``drain_cost`` are never stamped here.
+        # Any spill capacity / cost now rides the synthetic
+        # ``<central>_ocean`` drain via the ``_ver`` waterway emitted by
+        # the ocean-fallback above, so mass is conserved at this node.
         junction: Junction = {
             "uid": central_id,
             "name": central_name,
             "drain": drain,
         }
-        if junction_drain_from_spill:
-            if junction_drain_capacity is not None:
-                junction["drain_capacity"] = junction_drain_capacity
-            if junction_drain_cost is not None:
-                junction["drain_cost"] = junction_drain_cost
         system["junction_array"].append(junction)
 
         # Promote to a daily-cycle reservoir when the central appears in

@@ -276,20 +276,22 @@ def test_to_json_array_single_plant():
 
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
-    capacity is encoded as ``Junction.drain_capacity`` on the central's
-    own junction, the gen path uses the built-in Turbine waterway
-    (``Turbine.junction_a``), and no synthetic ``<central>_ocean``
-    Junction or ``<central>_gen`` Waterway is emitted.
+    capacity rides a ``_ver`` waterway to a synthetic ``<central>_ocean``
+    drain junction (the genuine basin exit), while the gen path uses the
+    built-in Turbine waterway (``Turbine.junction_a``).
 
-    Two LP outlets remain on the same junction:
+    Mass conservation: the central's OWN junction is a pure balance node
+    (``drain = False``, no ``drain_capacity`` / ``drain_cost``) — water
+    can only leave via the turbine (power) or the ``_ver`` arc (spill to
+    the ocean drain).  This is the LMAULE-class fix: a reservoir /
+    pass-through node never owns a free escape valve.
+
+    Two LP outlets:
 
     * **Turbine.junction_a** (debit, capped at ``PotMax / Rendi``) — the
       power-producing path.
-    * **Junction.drain_capacity** (free escape, capped at ``VertMax``,
-      priced at ``CVert``) — the spillway path.
-
-    Same LP physics as the legacy ocean+Waterway emission, minus one
-    Junction and one Waterway.
+    * **``PlantDrain_ver`` waterway → ``PlantDrain_ocean`` drain** (capped
+      at ``VertMax``, priced at ``CVert``) — the spillway path.
     """
     central = {
         "name": "PlantDrain",
@@ -309,20 +311,27 @@ def test_drain_junction():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Only the central's own junction — no synthetic ocean junction.
-    assert len(result["junction_array"]) == 1
-    plant_junction = result["junction_array"][0]
-    assert plant_junction["name"] == "PlantDrain"
+    # Central's own junction + a synthetic ocean drain.
+    junctions = {j["name"]: j for j in result["junction_array"]}
+    assert set(junctions) == {"PlantDrain", "PlantDrain_ocean"}
+    plant_junction = junctions["PlantDrain"]
     assert plant_junction["uid"] == 5
-    # Source junction carries the spillway capacity as its own drain
-    # column (drain=True chosen by ``junction_drain_from_spill`` path
-    # which precedes the built-in turbine drain rule).
-    assert plant_junction["drain"] is True
-    assert plant_junction["drain_capacity"] == pytest.approx(50.0)
+    # Mass-conserving balance node: never a drain, never drain_capacity.
+    assert plant_junction["drain"] is False
+    assert "drain_capacity" not in plant_junction
     assert "drain_cost" not in plant_junction
+    # Only the synthetic ocean node drains.
+    ocean = junctions["PlantDrain_ocean"]
+    assert ocean["drain"] is True
 
-    # No waterways at all — the gen arc lives inside Turbine.junction_a.
-    assert not result["waterway_array"]
+    # The spillway is now a real ``_ver`` waterway PlantDrain → ocean,
+    # capped at VertMax.
+    assert len(result["waterway_array"]) == 1
+    ver = result["waterway_array"][0]
+    assert ver["name"].startswith("PlantDrain_ver")
+    assert ver["junction_a"] == "PlantDrain"
+    assert ver["junction_b"] == "PlantDrain_ocean"
+    assert ver["fmax"] == pytest.approx(50.0)
 
     # Terminal turbine uses the built-in waterway form.
     turbines = result["turbine_array"]
@@ -354,17 +363,27 @@ def test_no_turbine_creation():
     result = writer.to_json_array()[0]
 
     assert len(result["turbine_array"]) == 0
-    # Single waterway: `_gen` (to junction 7).  The legacy ``_ver`` to a
-    # synthetic spill drain has been collapsed into Junction.drain_capacity
-    # / drain_cost on the source junction (``PlantNoBus``).
-    assert len(result["waterway_array"]) == 1
+    # Two waterways: `_gen` (to junction 7) and `_ver` (spill to the
+    # synthetic ``PlantNoBus_ocean`` drain).  Mass conservation: the
+    # source junction itself never drains — the spill leaves only via
+    # the ``_ver`` arc to the ocean node.
+    waterway_names = sorted(w["name"] for w in result["waterway_array"])
+    assert len(waterway_names) == 2
+    assert any(n.startswith("PlantNoBus_ver") for n in waterway_names)
     junctions = {j["name"]: j for j in result["junction_array"]}
     src = junctions["PlantNoBus"]
-    assert src["drain"] is True
-    assert src["drain_capacity"] == pytest.approx(50.0)
-    # drain_cost is omitted when ``plpmat_parser`` is absent — no
-    # CVert default available, so the drain column gets cost 0.
+    assert src["drain"] is False
+    assert "drain_capacity" not in src
     assert "drain_cost" not in src
+    # Only the synthetic ocean node drains.
+    assert junctions["PlantNoBus_ocean"]["drain"] is True
+    # The _ver arc carries the VertMax cap that used to live on the
+    # (wrongly drained) source junction.
+    ver = next(
+        w for w in result["waterway_array"] if w["name"].startswith("PlantNoBus_ver")
+    )
+    assert ver["junction_b"] == "PlantNoBus_ocean"
+    assert ver["fmax"] == pytest.approx(50.0)
 
 
 def test_process_reservoirs(reservoir_parser):
@@ -483,19 +502,25 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
     # PlantB: ver (in-network → PlantC) only — gen path moved to
     #   built-in Turbine waterway (no Waterway).
-    # PlantC (bus=0): gen(ocean) only — the legacy ver-to-ocean arc was
-    #   already collapsed into Junction.drain_capacity on PlantC.
-    # plus 1 extraction = 5 total.
-    assert len(result["waterway_array"]) == 5
-    # PlantC carries the spillway capacity as a junction-level drain.
+    # PlantC (bus=0): gen(ocean) + ver(ocean) = 2 — the spill is now a
+    #   real ``PlantC_ver`` arc to the shared ``PlantC_ocean`` drain
+    #   (mass conservation), no longer a junction-level drain on PlantC.
+    # plus 1 extraction = 6 total.
+    assert len(result["waterway_array"]) == 6
+    # PlantC's own junction is a pure balance node — its spill leaves via
+    # the ``PlantC_ver`` arc to the ocean drain, not a self-drain.
     plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
-    assert plantc["drain"] is True
-    assert plantc["drain_capacity"] == pytest.approx(50.0)
+    assert plantc["drain"] is False
+    assert "drain_capacity" not in plantc
+    plantc_ocean = next(
+        j for j in result["junction_array"] if j["name"] == "PlantC_ocean"
+    )
+    assert plantc_ocean["drain"] is True
 
     # PlantA (bus=101) + PlantB (bus=102) = 2 turbines (PlantC bus=0, no turbine)
     assert len(result["turbine_array"]) == 2
 
-    # 2 flows: PlantA + PlantC (PlantC kept as drain sink)
+    # 2 flows: PlantA + PlantC (PlantC's afluent still injects at its junction)
     assert len(result["flow_array"]) == 2
 
 
@@ -788,45 +813,49 @@ def _rapel_parser() -> MockCentralParser:
 
 
 def test_embalse_ocean_junction_created():
-    """Embalse (bus>0, ser_hid/ser_ver=0): no synthetic ocean junction.
+    """Embalse (bus>0, ser_hid/ser_ver=0): the spillway needs a drain.
 
-    The terminal turbine now uses the built-in
-    ``Turbine.junction_a`` waterway, eliding the legacy
-    ``<name>_ocean`` drain junction.  The spillway capacity remains on
-    the source junction via ``drain_capacity``.
+    The terminal turbine uses the built-in ``Turbine.junction_a``
+    waterway (no ``<name>_gen`` Waterway, no gen-side ocean junction),
+    but the spillway (``ser_ver = 0``, ``VertMax > 0``) must dispose of
+    surplus water at a genuine basin exit — a synthetic ``RAPEL_ocean``
+    drain junction reached by an explicit ``RAPEL_ver`` waterway.  Mass
+    is conserved: the spill is never teleported out of RAPEL's own node.
     """
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
     ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
-    assert not ocean_junctions
+    assert len(ocean_junctions) == 1
+    assert ocean_junctions[0]["name"] == "RAPEL_ocean"
+    assert ocean_junctions[0]["drain"] is True
 
 
 def test_embalse_ocean_junction_waterways_created():
-    """No waterways head to the ocean — the gen path is on the Turbine.
+    """Gen path is on the Turbine; spill rides a ``_ver`` arc to the ocean.
 
-    Both the ``_gen`` (turbine flow) and the ``_ver`` (spillway) arcs
-    that used to terminate at a synthetic ``RAPEL_ocean`` Junction are
-    now expressed on the source junction itself:
-
-    * gen via ``Turbine.junction_a`` (built-in waterway)
-    * spill via ``Junction.drain_capacity`` (per-block drain column)
+    * gen via ``Turbine.junction_a`` (built-in waterway, no gen ocean arc)
+    * spill via an explicit ``RAPEL_ver`` waterway → ``RAPEL_ocean`` drain
+      (per-flow cap = VertMax) — mass-conserving, never a self-drain.
     """
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # No waterway terminates at any synthetic ocean junction.
+    # The spillway terminates at the synthetic ocean drain.
     to_ocean = [
         w for w in result["waterway_array"] if w["junction_b"].endswith("_ocean")
     ]
-    assert not to_ocean
+    assert len(to_ocean) == 1
+    ver = to_ocean[0]
+    assert ver["name"].startswith("RAPEL_ver")
+    assert ver["junction_a"] == "RAPEL"
+    assert ver["junction_b"] == "RAPEL_ocean"
+    assert ver["fmax"] == pytest.approx(6000.0)
 
-    # The RAPEL source junction carries the spillway capacity (drain
-    # column with uppb = 6000).  drain_cost is omitted because the test
-    # parser has no plpmat (no CVert default available).
+    # The RAPEL source junction is a pure balance node — no self-drain.
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is True
-    assert rapel_junction["drain_capacity"] == pytest.approx(6000.0)
+    assert rapel_junction["drain"] is False
+    assert "drain_capacity" not in rapel_junction
     assert "drain_cost" not in rapel_junction
 
 
@@ -924,32 +953,39 @@ def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
 
 
 def test_embalse_no_ver_waterway_junction_is_drain():
-    """Embalse with ser_ver==0 encodes the spillway as Junction.drain_*.
+    """Embalse with ser_ver==0 spills via a ``_ver`` arc to an ocean drain.
 
     Pre-86616b80 the spillway (ser_ver=0) was modelled by ``drain=True``
     on the central's own junction with no bound or cost — that
     free-drain shortcut caused LMAULE / RALCO cascade infeasibilities.
-    The 2026-04-28 fix routed the spill via an explicit ``_ver`` arc to
-    a synthetic ``<central>_ocean`` Junction with ``fmax = VertMax`` /
-    ``fcost = CVert``.  The current architectural fix collapses that
-    arc + ocean Junction pair into ``Junction.drain_capacity`` /
-    ``drain_cost`` on the source junction itself — same LP behaviour
-    (per-block drain column with the same bound and cost), without
-    the per-central topology boilerplate.
+    The mass-conserving fix routes the spill via an explicit ``_ver``
+    arc to a synthetic ``<central>_ocean`` drain Junction with
+    ``fmax = VertMax`` / ``fcost = CVert``.  The reservoir's own node
+    stays a pure balance node (no self-drain), so the LP cannot teleport
+    storage out of the reservoir.
     """
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
+    # RAPEL itself does not drain.
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is True
-    assert rapel_junction["drain_capacity"] == pytest.approx(6000.0)
-    # drain_cost is omitted when the test parser has no plpmat — no
-    # CVert default to apply.
-    assert "drain_cost" not in rapel_junction
+    assert rapel_junction["drain"] is False
+    assert "drain_capacity" not in rapel_junction
 
-    # No `_ver` arc exists — the constraint moved to Junction.drain_*.
+    # The spill leaves only via the ``_ver`` arc to the ocean drain,
+    # capped at VertMax.
+    ver = next(
+        w
+        for w in result["waterway_array"]
+        if w["junction_b"] == "RAPEL_ocean" and w["name"].startswith("RAPEL_ver")
+    )
+    assert ver["fmax"] == pytest.approx(6000.0)
+    # fcost is omitted when the test parser has no plpmat (no CVert).
+    assert "fcost" not in ver
+
+    # Exactly one `_ver` arc exists — the spill-to-ocean waterway.
     ver_ww = [w for w in result["waterway_array"] if w["name"].startswith("RAPEL_ver")]
-    assert ver_ww == []
+    assert len(ver_ww) == 1
 
 
 def test_embalse_with_ver_waterway_junction_not_drain():
