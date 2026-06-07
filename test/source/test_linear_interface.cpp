@@ -309,6 +309,63 @@ TEST_CASE(  // NOLINT
   }
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface - advanced_basis warm-start across every available solver")
+{
+  using namespace gtopt;
+
+  // `advanced_basis` is a cross-solver primitive: every backend maps it to
+  // its native warm-start (CPLEX ADVIND+simplex, HiGHS simplex+no-presolve,
+  // Gurobi Method=simplex, MindOpt Method+no-presolve, OSI/CLP resolve()
+  // hint).  Exercise the cold-seed → bound-change → warm-resolve sequence
+  // on EVERY loaded solver plugin and assert the warm path reproduces the
+  // cold optimum.  Model: maximize 3 x1 + 2 x2  s.t.  x1 + 2 x2 <= 10,
+  // x1<=cap, x2<=3 (stored as minimize -3 x1 - 2 x2).
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  const auto solvers = reg.available_solvers();
+  REQUIRE_FALSE(solvers.empty());
+
+  int tested = 0;
+  for (const auto& name : solvers) {
+    CAPTURE(name);
+
+    LinearInterface iface(name);
+    const auto x1 = iface.add_col(SparseCol {.uppb = 4.0, .cost = -3.0});
+    const auto x2 = iface.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
+    SparseRow row1;
+    row1[x1] = 1.0;
+    row1[x2] = 2.0;
+    row1.uppb = 10.0;
+    (void)iface.add_row(row1);  // NOLINT
+
+    // Cold seed.  A solver that is present but not usable here (e.g. an
+    // unlicensed commercial backend) fails to reach optimal — skip it.
+    const auto r0 = iface.initial_solve(SolverOptions {});
+    if (!r0.has_value() || r0.value() != 0) {
+      MESSAGE("solver '" << name << "' cold solve unavailable — skipping");
+      continue;
+    }
+    ++tested;
+    CHECK(iface.get_obj_value_raw() == doctest::Approx(-18.0));
+
+    // Aperture-style bound delta + warm re-solve via advanced_basis.  The
+    // warm path must reproduce the cold optimum on every backend (a bound
+    // change keeps the basis valid; backends that cannot warm-start degrade
+    // to a normal solve — still correct).
+    iface.set_col_upp(x1, 2.0);
+    SolverOptions warm;
+    warm.advanced_basis = true;
+    warm.algorithm = LPAlgo::primal;
+    const auto r1 = iface.resolve(warm);
+    REQUIRE(r1.has_value());
+    CHECK(r1.value() == 0);
+    CHECK(iface.get_obj_value_raw() == doctest::Approx(-12.0));
+  }
+  // At least one real solver must have exercised the warm path.
+  REQUIRE(tested >= 1);
+}
+
 TEST_CASE("LinearInterface - relax_integers flips MIP columns to continuous")
 {
   using namespace gtopt;
