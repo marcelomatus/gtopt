@@ -80,6 +80,18 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
+    // LP-size: a reservoir that cannot extract (``fmin == fmax == 0``,
+    // a pure pass-through / accumulation node) has a degenerate
+    // extraction column fixed at 0.  Its junction-balance and
+    // energy-balance coefficients are then dead, so skip the column
+    // entirely — mirrors the waterway zero-flow skip.  StorageBase's
+    // ``has_fout`` / ``has_finp`` ``.contains(buid)`` checks tolerate
+    // the missing block.  Write-out rule: an absent extraction column
+    // reads 0 (no water extracted this block).
+    if (fmin == 0.0 && fmax == 0.0) [[unlikely]] {
+      continue;
+    }
+
     // rsv_fext: physical flow bounds [m³/s].
     // add_col auto-resolves flow_scale from VariableScaleMap metadata.
     const auto rc = lp.add_col(SparseCol {

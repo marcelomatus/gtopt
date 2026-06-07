@@ -78,6 +78,27 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     return true;
   }
 
+  // ── LP-size: skip the whole commitment when the generator elided
+  // every generation column for this (scenario, stage) ───────────────
+  // ``lookup_generation_cols`` is empty precisely when the generator
+  // emitted no dispatch column at all — every block was P1-skipped
+  // (all-zero pmax) or ``--use-plexos-gen-cap`` forced the unit OFF.
+  // In that case the status/startup/shutdown binaries (u/v/w) and all
+  // the C1/C3/min-up/min-down/max-starts rows would couple to nothing
+  // physical: Phase B already `continue`s on every block (no gcol to
+  // bind), leaving the binaries orphaned.  Returning here drops those
+  // orphan columns and rows entirely, consistent with the elided
+  // generation column.
+  //
+  // Write-out rule: a generator with no dispatch column is OFF for the
+  // whole (scenario, stage), so its commitment is identically
+  // ``status = startup = shutdown = 0``.  The output holders stay
+  // empty, which the writer renders as "no rows" (long) / "no uid
+  // column" (wide) — the natural zero, matching the absent generation.
+  if (generation_cols.empty()) {
+    return true;
+  }
+
   static constexpr std::string_view cname = Element::class_name.full_name();
   const auto cuid = uid();
 
@@ -1221,7 +1242,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
         const auto row_idx = lp.add_row(std::move(bound));
         ms_rows[window_end_block] = row_idx;
       }
-      if (has_min_starts) {
+      // LP-size: a ``min_starts`` of 0 makes the lower row ``Σ v ≥ 0``,
+      // which is trivially satisfied (every ``v`` has lowb ≥ 0) and can
+      // never bind — skip it.  The row index is never stored, so no
+      // dual output is lost.  Write-out rule: none — a constraint that
+      // is always slack contributes no primal/dual to any stream.
+      if (has_min_starts && min_starts_v > 0.0) {
         SparseRow lower_row {window_row};
         auto bound = std::move(lower_row).greater_equal(min_starts_v);
         // Capture the row index but don't store it in a dedicated

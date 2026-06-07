@@ -80,8 +80,21 @@ bool PumpLP::add_to_lp(const SystemContext& sc,
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
-    const auto fcol = flow_cols.at(buid);
-    const auto lcol = load_cols.at(buid);
+
+    // LP-size / robustness: the upstream waterway may have P1-elided a
+    // zero-flow block (waterway_lp zero-bound skip), and the synthetic
+    // pump demand may likewise be absent.  Without a flow column the
+    // conversion row ``rate · flow − load ≤ 0`` reduces to
+    // ``−load ≤ 0`` (always true) and the capacity row is vacuous —
+    // skip both rather than throwing on ``.at``.  Write-out rule: an
+    // absent conversion/capacity row has a 0 dual (never bound).
+    const auto fcol_it = flow_cols.find(buid);
+    const auto lcol_it = load_cols.find(buid);
+    if (fcol_it == flow_cols.end() || lcol_it == load_cols.end()) {
+      continue;
+    }
+    const auto fcol = fcol_it->second;
+    const auto lcol = lcol_it->second;
 
     // Conversion constraint: pump_factor/efficiency × flow - load <= 0
     // Equivalently: load >= (pump_factor / efficiency) × flow

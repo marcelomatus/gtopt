@@ -133,6 +133,18 @@ std::expected<void, Error> add_provision(
     // X MW" semantic on this gen.
     const auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
 
+    // LP-size: when both bounds collapse to zero the provision column is
+    // fixed at 0 — the capacity row ``cap_factor · cap − prov ≥ 0``
+    // reduces to ``cap ≥ 0`` (always true), the provision-bound row is
+    // already implied by the generation column's own bounds, and the
+    // ``pf · prov`` coefficient stamped into every zone requirement row
+    // is identically 0.  Skip the fixed-zero column and its rows.
+    // Write-out rule: an absent provision column reads 0 (no reserve
+    // provided this block).
+    if (block_rmax.value() == 0.0 && block_rmin == 0.0) {
+      continue;
+    }
+
     const auto prov_col = lp.add_col({
         .lowb = block_rmin,
         .uppb = block_rmax.value(),

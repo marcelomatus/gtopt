@@ -53,7 +53,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   auto&& blocks = stage.blocks();
 
   auto&& generator = sc.element<GeneratorLP>(generator_sid());
-  auto&& gen_cols = generator.generation_cols_at(scenario, stage);
+  // Tolerant lookup: the synthetic discharge generator may have
+  // P1-elided blocks (zero discharge envelope); a missing block has no
+  // column to couple, so the conversion / capacity rows are skipped
+  // below rather than throwing on ``.at``.
+  auto&& gen_cols = generator.lookup_generation_cols(scenario, stage);
 
   auto&& demand = sc.element<DemandLP>(demand_sid());
   auto&& demand_cols = demand.load_cols_at(scenario, stage);
@@ -72,9 +76,20 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
   for (const auto& block : blocks) {
     const auto buid = block.uid();
 
+    // LP-size / robustness: when the synthetic discharge generator or
+    // charge demand elided this block (gold-standard zero-envelope P1
+    // skip), there is no column to couple — skip the conversion and
+    // capacity rows entirely.  Write-out rule: an absent coupling row
+    // has a 0 dual (it never bound), the natural zero.
+    const auto gcol_it = gen_cols.find(buid);
+    const auto dcol_it = demand_cols.find(buid);
+    if (gcol_it == gen_cols.end() || dcol_it == demand_cols.end()) {
+      continue;
+    }
+
     const auto block_context =
         make_block_context(scenario.uid(), stage.uid(), block.uid());
-    const auto gcol = gen_cols.at(buid);
+    const auto gcol = gcol_it->second;
     {
       auto grow =
           SparseRow {
@@ -91,7 +106,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       grows[buid] = lp.add_row(std::move(grow));
     }
 
-    const auto dcol = demand_cols.at(buid);
+    const auto dcol = dcol_it->second;
     {
       const auto icol = finp_cols.at(buid);
       auto drow =
@@ -164,8 +179,13 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
       const auto buid = block.uid();
       const auto block_ctx =
           make_block_context(scenario.uid(), stage.uid(), buid);
-      const auto gcol = gen_cols.at(buid);
-      const auto dcol = demand_cols.at(buid);
+      const auto gcol_it = gen_cols.find(buid);
+      const auto dcol_it = demand_cols.find(buid);
+      if (gcol_it == gen_cols.end() || dcol_it == demand_cols.end()) {
+        continue;
+      }
+      const auto gcol = gcol_it->second;
+      const auto dcol = dcol_it->second;
       const auto block_pmin = lp.get_col_lowb(gcol);
       const auto block_pmax = lp.get_col_uppb(gcol);
       const auto block_lmin = lp.get_col_lowb(dcol);

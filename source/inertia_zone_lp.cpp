@@ -49,6 +49,15 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
       continue;
     }
 
+    // LP-size: a zero requirement makes the row ``Σ pf · r_inertia ≥ 0``
+    // — trivially satisfied (pf > 0, r_inertia ≥ 0) and never binding.
+    // The priced branch would also create a fixed-zero slack column
+    // (uppb = block_rreq = 0).  Skip both.  Write-out rule: the absent
+    // requirement column reads 0 and the absent row dual is 0.
+    if (*block_rreq == 0.0) {
+      continue;
+    }
+
     // `rr.cost` is now per-(stage, block): resolve per block via the
     // overload that consults `model_options.reserve_shortage_cost` as
     // fallback (mirrors the ReserveZoneLP path).

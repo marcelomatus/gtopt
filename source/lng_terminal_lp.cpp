@@ -152,11 +152,27 @@ bool LngTerminalLP::add_to_lp(SystemContext& sc,
       continue;
     }
 
-    auto&& gen_cols = gen.generation_cols_at(scenario, stage);
+    // LP-size: a zero heat rate means this generator draws no fuel from
+    // the tank, so ``fcr · heat_rate · generation`` is identically 0 in
+    // every block.  Skip the link entirely rather than stamping explicit
+    // zero coefficients into the energy-balance rows.  Write-out rule:
+    // none — the energy-balance row is unchanged (a zero term is the
+    // same as no term).
+    if (link.heat_rate == 0.0) {
+      continue;
+    }
+
+    // Tolerant lookup: the generator may have P1-elided some blocks
+    // (zero pmax); a missing block contributes no fuel draw.
+    auto&& gen_cols = gen.lookup_generation_cols(scenario, stage);
 
     for (auto&& block : blocks) {
       const auto buid = block.uid();
-      const auto gen_col = gen_cols.at(buid);
+      const auto gen_col_it = gen_cols.find(buid);
+      if (gen_col_it == gen_cols.end()) {
+        continue;
+      }
+      const auto gen_col = gen_col_it->second;
       const auto erow_idx = energy_rows_map.at(buid);
 
       auto& erow = lp.row_at(erow_idx);

@@ -336,7 +336,7 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
         const auto big_m_override = lc.kvl_big_m.value_or(0.0);
         const double big_m = (big_m_override > 0.0)
             ? big_m_override
-            : (2.0 * theta_max + std::abs(phi_rad));
+            : ((2.0 * theta_max) + std::abs(phi_rad));
 
         auto& original = lp.row_at(trow_it->second);
         // Original is an equality: lowb == uppb == -φ_rad.  Capture
@@ -672,7 +672,10 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
           const auto idx = lp.add_row(std::move(bound));
           ms_rows[window_end_block] = idx;
         }
-        if (has_min_starts) {
+        // LP-size: ``min_starts == 0`` makes the lower row ``Σ v ≥ 0``,
+        // trivially satisfied (v ≥ 0) and never binding — skip it.  The
+        // row index is never stored, so no dual output is lost.
+        if (has_min_starts && min_starts_v > 0.0) {
           SparseRow lower {window_row};
           // Distinct constraint_name so the row metadata dedup in
           // LinearProblem::add_row doesn't collide with the upper

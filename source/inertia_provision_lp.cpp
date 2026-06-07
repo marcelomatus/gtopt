@@ -84,7 +84,13 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
   }
 
   try {
-    auto&& generation_cols = generator_lp.generation_cols_at(scenario, stage);
+    // Tolerant lookup (mirrors reserve_provision_lp / emission_source_lp):
+    // when every block was elided by the P1 zero-pmax optimization the
+    // outer key is absent.  ``generation_cols_at`` would throw; the
+    // empty map returned here makes the per-block ``find`` below iterate
+    // zero times so no inertia constraint is emitted for an OFF unit.
+    auto&& generation_cols =
+        generator_lp.lookup_generation_cols(scenario, stage);
     const auto& blocks = stage.blocks();
 
     // `provision_factor_` / `cost_` are now per-(stage, block); the
@@ -132,6 +138,17 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       // Resolve provision_max: schedule > gen_pmin > gen_pmax
       auto block_pmax = provision_max_.optval(stage.uid(), buid)
                             .value_or(gen_pmin > 0.0 ? gen_pmin : gen_pmax);
+
+      // LP-size: a zero provision ceiling fixes ``r_inertia`` at 0 — the
+      // coupling row ``p − r_inertia ≥ 0`` reduces to ``p ≥ 0`` (already
+      // implied by the generation column's lower bound) and the
+      // ``pf · r_inertia`` term injected into every zone requirement row
+      // is identically 0.  Skip the fixed-zero column, the coupling row,
+      // and the zone-coefficient stamps.  Write-out rule: an absent
+      // provision column reads 0 (no inertia provided this block).
+      if (block_pmax <= 0.0) {
+        continue;
+      }
 
       const auto block_cost = cost_.optval(stage.uid(), buid).value_or(0.0);
 

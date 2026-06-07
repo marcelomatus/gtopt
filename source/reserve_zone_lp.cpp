@@ -56,6 +56,19 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     }
     const double block_rreq_eff = effective;
 
+    // LP-size: a zero effective requirement makes the requirement row
+    // ``Σ pf · prov ≥ 0`` — trivially satisfied because every provision
+    // factor ``pf > 0`` and every provision column has lowb ≥ 0, so it
+    // can never bind.  The priced branch would also create a fixed-zero
+    // slack column (uppb = block_rreq_eff = 0).  Skip both.
+    //
+    // Write-out rule: a zero-requirement block needs zero reserve
+    // shortage, so the (absent) requirement column reads 0 and the
+    // (absent) row dual is 0 — the natural zero rendered as no-row.
+    if (block_rreq_eff == 0.0) {
+      continue;
+    }
+
     // `rr.cost` is now per-(stage, block): resolve per block via the
     // overload that consults `model_options.reserve_shortage_cost` as
     // fallback (mirrors PR-A's `demand_fail_cost(stage, block, fcost)`).
