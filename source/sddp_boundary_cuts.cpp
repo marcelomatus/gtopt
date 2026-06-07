@@ -167,7 +167,8 @@ using namespace gtopt::detail;
         name_to_class_uid;
     map_reserve(name_to_class_uid,
                 sys.junction_array.size() + sys.battery_array.size()
-                    + sys.reservoir_array.size());
+                    + sys.reservoir_array.size()
+                    + sys.volume_right_array.size());
     for (const auto& junc : sys.junction_array) {
       name_to_class_uid[junc.name] = {"Junction", junc.uid};
     }
@@ -184,6 +185,14 @@ using namespace gtopt::detail;
     // ``test_sddp_boundary_cuts_reservoir_name_map.cpp``.
     for (const auto& rsv : sys.reservoir_array) {
       name_to_class_uid[rsv.name] = {"Reservoir", rsv.uid};
+    }
+    // VolumeRights are Tilmant "dummy reservoir" SDDP couplers (default
+    // ``use_state_variable = true``) and register the same storage
+    // ``efin`` state variable — so ``VolumeRight:<name>`` cut columns
+    // (incl. the irrigation economy accumulators) must resolve too.
+    // Captured by ``test_sddp_boundary_cuts_volume_right.cpp``.
+    for (const auto& vr : sys.volume_right_array) {
+      name_to_class_uid[vr.name] = {"VolumeRight", vr.uid};
     }
 
     // For each state-variable header column, find the
