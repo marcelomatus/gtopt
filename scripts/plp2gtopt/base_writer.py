@@ -261,15 +261,28 @@ class BaseWriter(ABC):
         options: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """Write *df* as ``<stem>.parquet`` or ``<stem>.csv`` depending on
-        ``output_format``.  Returns the path written."""
-        fmt = self.get_output_format(options)
-        if fmt == "csv":
-            out = output_dir / f"{stem}.csv"
-            write_csv(df, out)
-        else:
-            out = output_dir / f"{stem}.parquet"
-            df.to_parquet(out, index=False, **self.get_compression_kwargs(options))
-        return out
+        ``output_format``.  Returns the path written.
+
+        Delegates to :func:`gtopt_shared.output_format.write_dataframe` for
+        the actual dispatch — see that helper for the shared format-suffix
+        + compression-kwargs handling.  This thin wrapper translates the
+        BaseWriter options-dict shape into the shared helper's keyword
+        signature.
+        """
+        # pylint: disable=import-outside-toplevel
+        from gtopt_shared.output_format import (
+            write_dataframe as _shared_write_dataframe,
+        )
+
+        kw = self.get_compression_kwargs(options)
+        return _shared_write_dataframe(
+            df,
+            output_dir,
+            stem,
+            output_format=self.get_output_format(options),
+            compression=kw.get("compression"),
+            compression_level=kw.get("compression_level"),
+        )
 
     def pcol_name(
         self,
@@ -336,57 +349,16 @@ class BaseWriter(ABC):
 # intermediate read-modify-write cleanups (e.g. pmin→FlowRight) are
 # unaffected.
 
-_INDEX_COLS: tuple[str, ...] = ("scenario", "stage", "block")
-
-
-def _col_to_uid(col: str) -> Optional[int]:
-    """Parse the integer uid out of a wide value-column name.
-
-    Accepts ``uid:<N>`` and ``<name>:<N>`` (the two forms ``pcol_name``
-    produces).  Returns ``None`` for anything else, so the caller can tell a
-    field table from a structural one.
-    """
-    if ":" not in col:
-        return None
-    try:
-        return int(col.rsplit(":", 1)[1])
-    except ValueError:
-        return None
-
-
-def to_long_layout(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Reshape a wide field table into long ``[<index cols>, uid, value]``.
-
-    Index columns are the subset of ``scenario``/``stage``/``block`` present;
-    every other column must be a ``uid:N`` / ``name:N`` value column.
-    Returns ``None`` when *df* is not a recognizable wide field table (e.g. a
-    block or stage definition table), so structural files pass through
-    untouched.  The reshape is dense — every wide cell becomes one row — so
-    the gtopt long→wide pivot reconstructs the original table exactly.
-    """
-    if df is None or df.empty:
-        return None
-    id_vars = [c for c in df.columns if c in _INDEX_COLS]
-    value_vars = [c for c in df.columns if c not in id_vars]
-    if not id_vars or not value_vars:
-        return None
-    uid_map: Dict[Any, int] = {}
-    for col in value_vars:
-        uid = _col_to_uid(str(col))
-        if uid is None:
-            return None
-        uid_map[col] = uid
-    long_df = df.melt(
-        id_vars=id_vars,
-        value_vars=value_vars,
-        var_name="_col",
-        value_name="value",
-    )
-    long_df["uid"] = long_df["_col"].map(uid_map).astype(np.int32)
-    long_df = long_df.drop(columns="_col")
-    for col in id_vars:
-        long_df[col] = long_df[col].astype(np.int32)
-    return long_df[[*id_vars, "uid", "value"]]
+# Re-export wide→long primitives from gtopt_shared.dataframe.  Lifted on
+# 2026-06-06 to break the cross-package import smell where gtopt2pbi was
+# pulling ``to_long_layout`` straight out of ``plp2gtopt.base_writer``.
+# Legacy names preserved (``_INDEX_COLS``, ``_col_to_uid``,
+# ``to_long_layout``) so existing imports continue to work.
+from gtopt_shared.dataframe import (  # noqa: E402,F401
+    INDEX_COLS as _INDEX_COLS,
+    column_to_uid as _col_to_uid,
+    to_long_layout,
+)
 
 
 def convert_tree_to_long(root: Path, options: Optional[Dict[str, Any]] = None) -> int:
