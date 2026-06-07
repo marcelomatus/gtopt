@@ -206,6 +206,13 @@ def compute_plexos_problem_stats(log_path: Path) -> dict[str, float]:
     if done:
         h, m, s = done.groups()
         stats["run_s"] = int(h) * 3600 + int(m) * 60 + float(s)
+
+    # Final MIP gap (%) from the objective lines, mirroring the gtopt side.
+    objs = parse_plexos_log(log_path)
+    bi = objs.get("Best Integer Solution")
+    bb = objs.get("Best Bound")
+    if bi and bb:
+        stats["gap_pct"] = 100.0 * (bi - bb) / abs(bi)
     return stats
 
 
@@ -891,6 +898,12 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
         m = re.search(r"Reduced MIP has\s+(\d+)\s+binaries,\s+(\d+)\s+generals", text)
         if m:
             stats["int_vars"] = float(int(m.group(1)) + int(m.group(2)))
+        # Final MIP gap = the last "X.XX%" in the CPLEX B&C node table's Gap
+        # column (the last incumbent/node line before the run summary).  gtopt
+        # typically reaches ~0; PLEXOS stops at its configured gap tolerance.
+        gap_hits = re.findall(r"(\d+(?:\.\d+)?)\s*%\s*$", text, re.MULTILINE)
+        if gap_hits:
+            stats["gap_pct"] = float(gap_hits[-1])
     return stats
 
 
@@ -921,6 +934,17 @@ def _render_problem_size_compare(
         float(gtopt_ps["int_vars"]),
         "{:>12,.0f}",
     )
+    # MIP gap at termination (%): PLEXOS often stops at its gap tolerance;
+    # gtopt runs to ~0.  A gap ratio is not meaningful, so no ratio column.
+    pgap = plexos_ps.get("gap_pct")
+    ggap = gtopt_ps.get("gap_pct")
+    if pgap is not None or ggap is not None:
+        table.add_row(
+            "Final MIP gap [%]",
+            f"{pgap:.2f}%" if pgap is not None else "—",
+            f"{float(ggap):.2f}%" if ggap is not None else "—",
+            "—",
+        )
     console.print(table)
     console.print(
         "[dim]Total run time = full wall clock: PLEXOS "
