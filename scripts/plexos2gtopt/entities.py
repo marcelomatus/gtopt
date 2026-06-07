@@ -478,6 +478,15 @@ class WaterwaySpec:
     # producing phantom hydro generation and accumulating water at
     # synthetic sinks.
     forced_flow_profile: tuple[float, ...] = ()
+    # Explicit "no flow" signal: pin ``fmin = fmax = 0`` on the emitted
+    # JSON, deactivating the waterway in the LP.  Used for
+    # ``Caudal_Eco_*`` / ``Riego_*`` / ``Ext_*`` diversion waterways
+    # that ship with zero CSV AND no static Min/Max Flow — without it
+    # the writer's ``if fmax > 0.0`` check leaves the arc uncapped and
+    # the LP can discover it as a free water path (e.g. ``Ext_Maule``:
+    # L_Maule -> LA_MINA, an uncapped diversion arc that the boundary-cut
+    # water value currently keeps idle but does not structurally close).
+    inactive: bool = False
     # PLEXOS ``Max Flow Penalty`` ($/(m³/s)/h or $/MWh-equivalent) —
     # per-flow cost on the waterway column.  Maps to gtopt's
     # ``Waterway.fcost``.  ``-1.0`` in PLEXOS means "feature disabled"

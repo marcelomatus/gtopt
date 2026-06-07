@@ -2179,6 +2179,13 @@ def build_waterway_array(
             # waterways (Riego_, Caudal_Eco_, Filt_) keep fmin == fmax.
             if ww.pin_fmax_from_profile:
                 entry["fmax"] = [per_block]
+        elif ww.inactive:
+            # Explicitly pinned to zero — diversion waterway with no
+            # static cap and no CSV-forced value.  Emit fmin = fmax = 0
+            # so the LP can't route water through this arc; the default
+            # (unset fmax -> +inf) would leave it a free water path.
+            entry["fmin"] = 0.0
+            entry["fmax"] = 0.0
         else:
             if ww.fmax > 0.0:
                 entry["fmax"] = ww.fmax

@@ -4313,6 +4313,33 @@ def extract_waterways(
             if t_name in synthetic_sinks:
                 synthetic_sinks.remove(t_name)
             continue
+        # INACTIVE diversion waterway — ``Caudal_Eco_*`` / ``Riego_*`` /
+        # ``Ext_*`` whose Hydro_WaterFlows.csv column is all zeros AND
+        # whose PLEXOS Min Flow / Max Flow static properties are unset.
+        # Without fmin/fmax the writer leaves the arc UNCAPPED (default
+        # ``fmax`` -> +inf), so the LP can discover it as a free water
+        # path and drain the upstream reservoir (e.g. ``Ext_Maule``:
+        # L_Maule -> LA_MINA).  The correct boundary-cut water value
+        # currently keeps it idle, but pinning ``fmax = 0`` closes the
+        # path structurally (mass-conservation hardening).
+        _diversion_prefixes = ("Caudal_Eco", "Riego_", "Ext_")
+        inactive = (
+            ww.name.startswith(_diversion_prefixes)
+            and not has_forced
+            and not (fmin and fmin > 0.0)
+            and not (fmax and fmax > 0.0)
+        )
+        if inactive:
+            fmin = 0.0
+            fmax = 0.0
+            logger.info(
+                "extract_waterways: inactivating %s (%s -> %s) — diversion "
+                "waterway with zero CSV and no static Min/Max Flow; pin "
+                "fmax = 0 so it can't leak water.",
+                ww.name,
+                f_name,
+                t_name,
+            )
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -4322,6 +4349,7 @@ def extract_waterways(
                 fmin=fmin,
                 fmax=fmax,
                 forced_flow_profile=forced_profile,
+                inactive=inactive,
                 fcost=fcost,
                 pin_fmax_from_profile=not is_bypass,
             )
