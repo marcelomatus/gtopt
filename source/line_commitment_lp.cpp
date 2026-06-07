@@ -205,27 +205,33 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     const auto u_domain =
         is_relax ? IntegerDomain::Relaxed : IntegerDomain::Binary;
     const std::array<BlockUid, 1> u_blocks {buid};
-    auto ucol = sc.add_integer_col(lp,
-                                   IntegerVariable::key(scenario,
-                                                        stage,
-                                                        Element::class_name,
-                                                        cuid,
-                                                        StatusName,
-                                                        IntegerScope::Block,
-                                                        buid),
-                                   SparseCol {
-                                       .lowb = u_lowb,
-                                       .uppb = u_uppb,
-                                       .cost = 0.0,
-                                       .class_name = cname,
-                                       .variable_name = StatusName,
-                                       .variable_uid = cuid,
-                                       .context = ctx,
-                                   },
-                                   u_domain,
-                                   IntegerScope::Block,
-                                   buid,
-                                   std::span<const BlockUid> {u_blocks});
+    auto ucol =
+        sc.add_integer_col(lp,
+                           IntegerVariable::key(scenario,
+                                                stage,
+                                                Element::class_name,
+                                                cuid,
+                                                StatusName,
+                                                IntegerScope::Block,
+                                                buid),
+                           SparseCol {
+                               .lowb = u_lowb,
+                               .uppb = u_uppb,
+                               .cost = 0.0,
+                               // pin scale on all three commitment
+                               // vars (status u + startup v + shutdown
+                               // w), not just the integer one — u is
+                               // semantically binary even when LP-relaxed
+                               .pin_scale = true,
+                               .class_name = cname,
+                               .variable_name = StatusName,
+                               .variable_uid = cuid,
+                               .context = ctx,
+                           },
+                           u_domain,
+                           IntegerScope::Block,
+                           buid,
+                           std::span<const BlockUid> {u_blocks});
     ucols[buid] = ucol;
 
     // ── Capacity gating ────────────────────────────────────────────

@@ -1798,6 +1798,10 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
           .lowb = 0.0,
           .uppb = 1.0,
           .cost = 0.0,
+          // SOS2 lambda weight — keep the [0,1] convex weight scale-exempt
+          // (pin_scale) so Ruiz/equilibration cannot expand its bound and
+          // distort the SOS2 ladder.
+          .pin_scale = true,
           .class_name = Line::class_name.full_name(),
           .variable_name = LineLP::FlowLambdaName,
           .variable_uid = uid,

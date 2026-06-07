@@ -302,6 +302,11 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
                                .lowb = u_lowb,
                                .uppb = u_uppb,
                                .cost = u_cost,
+                               // pin scale on all three commitment vars (status
+                               // u + startup v + shutdown w), not just the
+                               // integer one — u is semantically binary even
+                               // when LP-relaxed (--no-mip drops is_integer).
+                               .pin_scale = true,
                                .class_name = cname,
                                .variable_name = StatusName,
                                .variable_uid = cuid,
