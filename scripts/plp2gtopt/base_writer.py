@@ -261,15 +261,28 @@ class BaseWriter(ABC):
         options: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """Write *df* as ``<stem>.parquet`` or ``<stem>.csv`` depending on
-        ``output_format``.  Returns the path written."""
-        fmt = self.get_output_format(options)
-        if fmt == "csv":
-            out = output_dir / f"{stem}.csv"
-            write_csv(df, out)
-        else:
-            out = output_dir / f"{stem}.parquet"
-            df.to_parquet(out, index=False, **self.get_compression_kwargs(options))
-        return out
+        ``output_format``.  Returns the path written.
+
+        Delegates to :func:`gtopt_shared.output_format.write_dataframe` for
+        the actual dispatch — see that helper for the shared format-suffix
+        + compression-kwargs handling.  This thin wrapper translates the
+        BaseWriter options-dict shape into the shared helper's keyword
+        signature.
+        """
+        # pylint: disable=import-outside-toplevel
+        from gtopt_shared.output_format import (
+            write_dataframe as _shared_write_dataframe,
+        )
+
+        kw = self.get_compression_kwargs(options)
+        return _shared_write_dataframe(
+            df,
+            output_dir,
+            stem,
+            output_format=self.get_output_format(options),
+            compression=kw.get("compression"),
+            compression_level=kw.get("compression_level"),
+        )
 
     def pcol_name(
         self,
