@@ -236,6 +236,79 @@ TEST_CASE(  // NOLINT
   CHECK(sol[x2] == doctest::Approx(3.0));
 }
 
+TEST_CASE(  // NOLINT
+    "LinearInterface - warm-start across a chunk of aperture-style bound "
+    "changes")
+{
+  using namespace gtopt;
+
+  // Faithful unit-level model of the SDDP aperture chunk loop: ONE LP
+  // ("the clone"), solved cold once to seed a basis, then a sequence of
+  // "apertures" — each a column-bound delta — re-solved WARM off the
+  // resident basis.  Mirrors `solve_apertures_for_phase`: aperture 0 is
+  // the cold seed, apertures 1..K-1 warm-start.  Same model as above:
+  //   maximize 3 x1 + 2 x2  s.t.  x1 + 2 x2 <= 10,  0<=x1<=cap, 0<=x2<=3.
+  // Per unit of the constraint x1 yields 3 vs x2's 1, so the optimum is
+  // x1=min(cap,10), x2=min((10-x1)/2, 3).
+  LinearInterface iface;
+  const auto x1 = iface.add_col(SparseCol {.uppb = 4.0, .cost = -3.0});
+  const auto x2 = iface.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
+  SparseRow row1;
+  row1[x1] = 1.0;
+  row1[x2] = 2.0;
+  row1.uppb = 10.0;
+  (void)iface.add_row(row1);  // NOLINT
+
+  // The four "apertures" (distinct x1 caps) and their analytic optima
+  // (raw = negated maximization objective).
+  struct Ap
+  {
+    double cap;
+    double raw_obj;
+  };
+  const std::array<Ap, 4> apertures {{
+      {.cap = 4.0, .raw_obj = -18.0},  // x1=4, x2=3
+      {.cap = 2.0, .raw_obj = -12.0},  // x1=2, x2=3
+      {.cap = 1.0, .raw_obj = -9.0},  // x1=1, x2=3
+      {.cap = 3.0, .raw_obj = -15.0},  // x1=3, x2=3
+  }};
+
+  SolverOptions warm;
+  warm.advanced_basis = true;
+  warm.algorithm = LPAlgo::primal;
+
+  bool seeded = false;
+  for (const auto& ap : apertures) {
+    iface.set_col_upp(x1, ap.cap);  // apply the aperture bound delta
+
+    // First aperture = cold seed (no resident basis yet); the rest
+    // warm-start off the basis left by the previous aperture — exactly
+    // the chunk loop's `clone_has_basis` gate.
+    const auto r =
+        seeded ? iface.resolve(warm) : iface.initial_solve(SolverOptions {});
+    seeded = true;
+    REQUIRE(r.has_value());
+    REQUIRE(r.value() == 0);
+    CHECK(iface.get_obj_value_raw() == doctest::Approx(ap.raw_obj));
+
+    // Cross-check against a fresh COLD solve of the same bounded LP: the
+    // warm re-solve must reproduce the cold optimum exactly (a bound
+    // change keeps the basis valid; the optimum is unchanged).
+    LinearInterface cold;
+    const auto cx1 = cold.add_col(SparseCol {.uppb = ap.cap, .cost = -3.0});
+    const auto cx2 = cold.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
+    SparseRow crow;
+    crow[cx1] = 1.0;
+    crow[cx2] = 2.0;
+    crow.uppb = 10.0;
+    (void)cold.add_row(crow);  // NOLINT
+    const auto cr = cold.initial_solve(SolverOptions {});
+    REQUIRE(cr.has_value());
+    CHECK(iface.get_obj_value_raw()
+          == doctest::Approx(cold.get_obj_value_raw()));
+  }
+}
+
 TEST_CASE("LinearInterface - relax_integers flips MIP columns to continuous")
 {
   using namespace gtopt;
