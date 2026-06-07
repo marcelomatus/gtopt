@@ -278,7 +278,12 @@ def _parse_results_zip(zip_bytes):
                             if len(row) >= 2:
                                 results["solution"][row[0]] = row[1]
                     else:
-                        key = f"{parent}/{base}" if parent else base
+                        # Strip the ``.csv`` suffix to match the lookup key
+                        # convention used by ``gtopt_results_summary``
+                        # (parent/basename, no extension) — mirrors the
+                        # ``.csv.gz`` and ``.parquet`` branches below.
+                        base_no_ext = base[: -len(".csv")]
+                        key = f"{parent}/{base_no_ext}" if parent else base_no_ext
                         if rows:
                             results["outputs"][key] = {
                                 "columns": rows[0],

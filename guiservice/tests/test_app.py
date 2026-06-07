@@ -468,7 +468,7 @@ class TestRoutes:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["solution"]["obj_value"] == "123.45"
-        assert "Generator/generation_sol.csv" in data["outputs"]
+        assert "Generator/generation_sol" in data["outputs"]
 
 
 class TestRoundTrip:
@@ -878,9 +878,9 @@ class TestWebserviceEndToEnd:
         assert results["solution"]["status"] == "0"
 
         # Verify output data
-        assert "Generator/generation_sol.csv" in results["outputs"]
-        assert "Bus/marginal_cost_sol.csv" in results["outputs"]
-        gen_data = results["outputs"]["Generator/generation_sol.csv"]
+        assert "Generator/generation_sol" in results["outputs"]
+        assert "Bus/marginal_cost_sol" in results["outputs"]
+        gen_data = results["outputs"]["Generator/generation_sol"]
         assert gen_data["columns"] == ["scenario", "stage", "block", "uid:1"]
         assert len(gen_data["data"]) == 2
 
@@ -976,17 +976,17 @@ class TestWebserviceEndToEnd:
         assert data["solution"]["solver_time"] == "5.2"
 
         # Verify multiple output files parsed
-        assert "Generator/generation_sol.csv" in data["outputs"]
-        assert "Bus/marginal_cost_sol.csv" in data["outputs"]
-        assert "Demand/demand_sol.csv" in data["outputs"]
+        assert "Generator/generation_sol" in data["outputs"]
+        assert "Bus/marginal_cost_sol" in data["outputs"]
+        assert "Demand/demand_sol" in data["outputs"]
 
         # Verify generator output has multiple columns and rows
-        gen = data["outputs"]["Generator/generation_sol.csv"]
+        gen = data["outputs"]["Generator/generation_sol"]
         assert gen["columns"] == ["scenario", "stage", "block", "uid:1", "uid:2"]
         assert len(gen["data"]) == 3
 
         # Verify bus marginal cost output
-        bus = data["outputs"]["Bus/marginal_cost_sol.csv"]
+        bus = data["outputs"]["Bus/marginal_cost_sol"]
         assert bus["columns"] == ["scenario", "stage", "block", "uid:1"]
         assert len(bus["data"]) == 3
 
@@ -2257,7 +2257,7 @@ class TestParquetNanHandling:
         data = json.loads(resp.data)
 
         # CSV output: missing values are empty strings
-        csv_out = data["outputs"]["Generator/generation_sol.csv"]
+        csv_out = data["outputs"]["Generator/generation_sol"]
         assert csv_out["data"][0][3] == "42.0"
         assert csv_out["data"][1][3] == ""  # missing → empty string
         assert csv_out["data"][2][3] == ""  # missing → empty string
