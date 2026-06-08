@@ -36,6 +36,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/coordinator_pool.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -824,10 +825,10 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 
 // ── Cut sharing (delegated to sddp_cut_sharing.hpp free function) ───────────
 
-auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
-                                             const SolverOptions& opts,
-                                             IterationIndex iteration_index)
-    -> std::expected<ForwardPassOutcome, Error>
+auto SDDPMethod::run_forward_pass_all_scenes(
+    [[maybe_unused]] SDDPWorkPool& pool,
+    const SolverOptions& opts,
+    IterationIndex iteration_index) -> std::expected<ForwardPassOutcome, Error>
 {
   const auto num_scenes = planning_lp().simulation().scene_count();
 
@@ -1013,24 +1014,25 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Forward-pass scene tasks: lower iteration = higher priority via
-  // `SDDPTaskKey`; all sit at TaskPriority::Medium.
-  const auto fwd_req = make_forward_lp_task_req(iteration_index);
+  // Forward-pass scene drivers run on the coordinator tier: one dedicated
+  // thread per scene, each solving its 51 phases inline (sequential).  This
+  // restores true num_scenes-wide parallelism without the shared solver
+  // pool's burst-submit dispatch race.  See
+  // docs/analysis/sddp-two-tier-workpool-migration.md.
+  CoordinatorPool coord {static_cast<std::size_t>(num_scenes)};
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (skip_scene[scene_index]) {
-      // Terminal-skip: no task submitted; the result-collection loop
+      // Terminal-skip: no driver spawned; the result-collection loop
       // below distinguishes this case via ``skip_scene[i]`` and
       // synthesises an infeasible outcome without calling ``.get()``
       // on the (default-constructed, invalid) future.
       futures.emplace_back();
       continue;
     }
-    auto fut = pool.submit(
+    futures.push_back(coord.run_driver(
         [this, scene_index, iteration_index, &opts]
-        { return forward_pass(scene_index, opts, iteration_index); },
-        fwd_req);
-    futures.push_back(std::move(fut.value()));
+        { return forward_pass(scene_index, opts, iteration_index); }));
   }
 
   ForwardPassOutcome out;
