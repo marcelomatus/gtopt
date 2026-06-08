@@ -1681,8 +1681,11 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                        &bwd_opts,
                        iteration_index = sp.current_iteration_index]
                       {
+                        // Async/cascade path runs the scene driver ON a pool
+                        // worker, so keep aperture chunks + slot-release on
+                        // the pool (exec_pool = m_pool_).
                         return backward_pass_with_apertures(
-                            scene, bwd_opts, iteration_index);
+                            scene, bwd_opts, iteration_index, m_pool_);
                       },
                       bwd_req)
                 : pool.submit(

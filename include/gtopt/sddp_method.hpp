@@ -686,10 +686,17 @@ private:
    *
    * Uses the work pool for parallel aperture solves when available.
    */
+  /// @param exec_pool  Pool that runs aperture chunks + owns the slot
+  /// release.  `nullptr` (default) runs apertures inline on the calling
+  /// thread — used by the coordinator-driven training backward (one driver
+  /// thread per scene).  The async/cascade path passes the live pool so its
+  /// scene tasks (which run ON pool workers) keep submitting chunks + releasing
+  /// their slot while blocking.
   [[nodiscard]] auto backward_pass_with_apertures(
       SceneIndex scene_index,
       const SolverOptions& opts,
-      IterationIndex iteration_index = {}) -> std::expected<int, Error>;
+      IterationIndex iteration_index = {},
+      SDDPWorkPool* exec_pool = nullptr) -> std::expected<int, Error>;
 
   // ─── Iteration helpers (public for testability) ──────────────────
   // Promoted 2026-04-28 to support the Group D unit tests in
@@ -794,7 +801,8 @@ private:
   /// @param phase      Phase index (for pool priority ordering)
   /// @param iteration  SDDP iteration index (for pool priority ordering)
   [[nodiscard]] auto make_aperture_submit_fn(PhaseIndex phase_index,
-                                             IterationIndex iteration_index)
+                                             IterationIndex iteration_index,
+                                             SDDPWorkPool* pool)
       -> ApertureChunkSubmitFunc;
 
   /// Prune inactive cuts from all (scene, phase) LPs.

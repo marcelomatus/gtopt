@@ -1249,30 +1249,31 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   std::vector<std::future<std::expected<int, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Backward-pass scene tasks at TaskPriority::Medium; lower iteration
-  // = higher priority via `SDDPTaskKey`.  All scenes in this submission
-  // burst share the same key (one (iter, is_backward, kind) tuple) so
-  // dequeue order across scenes is FIFO.
-  const auto bwd_req = make_backward_lp_task_req(iteration_index);
+  // Backward-pass scene drivers run on the coordinator tier: one thread
+  // per scene, each solving its apertures inline (exec_pool=nullptr) so
+  // num_scenes scenes run wide without funnelling aperture chunks through
+  // the shared pool's dispatch.  See
+  // docs/analysis/sddp-two-tier-workpool-migration.md.
+  CoordinatorPool coord {static_cast<std::size_t>(num_scenes)};
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[scene_index] == 0U) {
       continue;
     }
     const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
-    auto fut = use_ap
-        ? pool.submit(
-              [this, scene_index, &bwd_opts, iteration_index]
-              {
-                return backward_pass_with_apertures(
-                    scene_index, bwd_opts, iteration_index);
-              },
-              bwd_req)
-        : pool.submit(
-              [this, scene_index, &bwd_opts, iteration_index]
-              { return backward_pass(scene_index, bwd_opts, iteration_index); },
-              bwd_req);
-    futures.push_back(std::move(fut.value()));
+    futures.push_back(use_ap
+                          ? coord.run_driver(
+                                [this, scene_index, &bwd_opts, iteration_index]
+                                {
+                                  return backward_pass_with_apertures(
+                                      scene_index, bwd_opts, iteration_index);
+                                })
+                          : coord.run_driver(
+                                [this, scene_index, &bwd_opts, iteration_index]
+                                {
+                                  return backward_pass(
+                                      scene_index, bwd_opts, iteration_index);
+                                }));
   }
 
   BackwardPassOutcome out;

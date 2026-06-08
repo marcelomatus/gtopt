@@ -408,7 +408,8 @@ auto SDDPMethod::install_aperture_backward_cut(
 // ── Helper: build the ApertureChunkSubmitFunc callback ─────────────────────
 
 auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
-                                         IterationIndex iteration_index)
+                                         IterationIndex iteration_index,
+                                         SDDPWorkPool* pool)
     -> ApertureChunkSubmitFunc
 {
   // Submit aperture chunk tasks to the SDDP work pool.  Each chunk
@@ -421,9 +422,12 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
   // The calling scene thread blocks on the returned futures while pool
   // threads process the chunks.
   //
-  // Fallback to synchronous execution when no pool is available (e.g.
-  // during unit tests).
-  auto* pool = m_pool_;
+  // When @p pool is null the returned submit fn runs each chunk
+  // synchronously on the caller thread (inline apertures) — used by the
+  // coordinator-driven training backward, where the calling scene driver
+  // is its own thread, so 16 drivers solving inline gives num_scenes-wide
+  // parallelism without funnelling chunks through the shared pool.  A
+  // non-null pool (async/cascade path) submits chunks to it as before.
   // TaskPriority::Medium is the scheduling tier (controls CPU threshold);
   // the SDDPTaskKey tuple provides the secondary sort within that tier.
   // `phase_index` is no longer encoded in the key — see the rationale
@@ -593,7 +597,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.log_directory,
       uid_of(scene_index),
       uid_of(phase_index),
-      make_aperture_submit_fn(phase_index, iteration_index),
+      make_aperture_submit_fn(phase_index, iteration_index, nullptr),
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
       m_aperture_cache_,
@@ -602,7 +606,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_lp_debug,
       m_options_.aperture_use_manual_clone,
       m_options_.aperture_chunk_size,
-      m_pool_,
+      /*pool_for_slot_release=*/nullptr,
       aperture_cut_links,
       m_options_.aperture_warm_start);
 
@@ -699,7 +703,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
 
 auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                                               const SolverOptions& opts,
-                                              IterationIndex iteration_index)
+                                              IterationIndex iteration_index,
+                                              SDDPWorkPool* exec_pool)
     -> std::expected<int, Error>
 {
   const auto& simulation = planning_lp().simulation();
@@ -850,7 +855,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.log_directory,
         uid_of(scene_index),
         uid_of(phase_index),
-        make_aperture_submit_fn(phase_index, iteration_index),
+        make_aperture_submit_fn(phase_index, iteration_index, exec_pool),
         0.0,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
@@ -859,7 +864,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         aperture_lp_debug,
         m_options_.aperture_use_manual_clone,
         m_options_.aperture_chunk_size,
-        m_pool_,
+        exec_pool,
         aperture_cut_links,
         m_options_.aperture_warm_start);
 
