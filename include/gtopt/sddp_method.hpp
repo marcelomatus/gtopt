@@ -82,6 +82,7 @@
 #include <gtopt/sddp_scene_tracker.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/solver_monitor.hpp>
+#include <gtopt/solver_tier.hpp>
 #include <gtopt/state_variable.hpp>
 
 namespace gtopt
@@ -1173,6 +1174,10 @@ private:
   /// Set to non-null while solve() is running; reset to nullptr on return.
   /// Used by resolve_via_pool() and resolve_clone_via_pool().
   SDDPWorkPool* m_pool_ {nullptr};
+
+  /// Tier-2 LP-solve executor (seam).  Wraps `m_pool_` today; later steps
+  /// swap the engine behind it.  Kept in sync with `m_pool_` via set_pool().
+  SolverTier m_solver_tier_ {};
 
   /// Non-owning pointer to the auxiliary AdaptiveWorkPool used by
   /// BendersCut (elastic LP solves) and LpDebugWriter (gzip compression).

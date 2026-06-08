@@ -251,6 +251,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
             /*pool_label=*/"SDDP aux pool")
       : std::unique_ptr<AdaptiveWorkPool> {};
   m_pool_ = sddp_pool.get();
+  m_solver_tier_.set_pool(m_pool_);
   m_aux_pool_ = aux_pool.get();  // nullptr when not needed
   m_benders_cut_.set_pool(m_aux_pool_);
   m_lp_debug_writer_ = LpDebugWriter(
@@ -1178,6 +1179,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
+  m_solver_tier_.set_pool(nullptr);
   m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
   const auto t_after_reset = TailClock::now();
@@ -2398,6 +2400,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
 
   m_benders_cut_.set_pool(nullptr);
   m_pool_ = nullptr;
+  m_solver_tier_.set_pool(nullptr);
   m_aux_pool_ = nullptr;
   m_lp_debug_writer_ = {};
   const auto t_after_reset = TailClock::now();

@@ -343,19 +343,8 @@ auto SDDPMethod::resolve_via_pool(
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
-  if (m_pool_ == nullptr) {
-    // No pool available — fall back to direct solve
-    return li.resolve(opts);
-  }
-
-  auto fut =
-      m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
-  return li.resolve(opts);
+  // Seam: all pool-backed LP solves go through the Tier-2 executor.
+  return m_solver_tier_.resolve_via_pool(li, opts, task_req);
 }
 
 // ── Helper: resolve a clone via the work pool ───────────────────────────────
@@ -366,21 +355,7 @@ auto SDDPMethod::resolve_clone_via_pool(
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
-  if (m_pool_ == nullptr) {
-    return clone.resolve(opts);
-  }
-
-  // Submit resolve to the pool.  The clone reference is safe because we
-  // call future.get() synchronously before this scope exits.
-  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
-                             task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN(
-      "resolve_clone_via_pool: pool submit failed, falling back to direct");
-  return clone.resolve(opts);
+  return m_solver_tier_.resolve_clone_via_pool(clone, opts, task_req);
 }
 
 // ── feasibility_backpropagate() removed — forward pass installs fcuts ──────
