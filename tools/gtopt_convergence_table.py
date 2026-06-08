@@ -875,18 +875,32 @@ def main(argv: list[str] | None = None) -> int:
         case_dir.parent / "output" / "logs",
     ]
 
-    def _dir_has_log(d: Path) -> bool:
+    def _newest_log_mtime(d: Path) -> float:
+        """Newest ``gtopt_*.log`` mtime in ``d``; -1.0 if none / not a dir."""
         if not d.is_dir():
-            return False
+            return -1.0
         try:
-            return any(LOG_FILE_RE.match(p.name) for p in d.iterdir())
+            return max(
+                (p.stat().st_mtime for p in d.iterdir() if LOG_FILE_RE.match(p.name)),
+                default=-1.0,
+            )
         except OSError:
-            return False
+            return -1.0
 
-    logs_dir = next(
-        (d for d in log_search_dirs if _dir_has_log(d)),
-        next((d for d in log_search_dirs if d.is_dir()), log_search_dirs[0]),
-    )
+    # Choose the log directory so a stale ``output/logs/`` from an earlier
+    # (killed) run can't shadow the run we're actually rendering:
+    #   1. An explicit ``--results`` points at one run's cuts; its sibling
+    #      ``logs/`` is THAT run's log — use it whenever it has one.
+    #   2. Otherwise pick the candidate whose NEWEST log is the most recent,
+    #      not merely the first candidate that happens to contain any log.
+    if args.results_dir is not None and _newest_log_mtime(results_dir / "logs") >= 0.0:
+        logs_dir = results_dir / "logs"
+    else:
+        logs_dir = max(log_search_dirs, key=_newest_log_mtime)
+        if _newest_log_mtime(logs_dir) < 0.0:
+            logs_dir = next(
+                (d for d in log_search_dirs if d.is_dir()), log_search_dirs[0]
+            )
 
     cfgs = parse_level_configs(input_json)
 
