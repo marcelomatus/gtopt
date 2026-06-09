@@ -5,6 +5,7 @@
 
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/json_schema.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/names_registry.hpp>
 #include <gtopt/resolve_planning_args.hpp>
@@ -134,6 +135,11 @@ int main(int argc, char** argv)
   prints the registry table — pipe to grep / awk to filter):
     gtopt --list-dialects
     gtopt --list-dialects plexos
+
+  Dump the JSON Schema of the input options model (no run; pipe to a
+  schema validator or save for editor autocompletion):
+    gtopt --json-schema
+    gtopt --json-schema options
 
 Outputs
 =======
@@ -319,6 +325,22 @@ record — `--quiet` further silences the log file too.
         std::cout << std::format(
             "\n# {} rows matching dialect '{}'\n", printed, filter);
       }
+      return 0;
+    }
+
+    if (vm.contains("json-schema")) {
+      // Diagnostic dump of the input data-model JSON Schema, generated
+      // from the daw_json_link contracts.  Mirrors --list-dialects: an
+      // empty argument dumps the full Planning schema; a name selects a
+      // known top-level type; an unknown name is reported on stderr (by
+      // dump_json_schema, which then returns an empty string) and exits
+      // non-zero.
+      const auto name = get_opt<std::string>(vm, "json-schema").value_or("");
+      const auto schema = gtopt::dump_json_schema(name);
+      if (schema.empty()) {
+        return 1;
+      }
+      std::cout << schema << '\n';
       return 0;
     }
 

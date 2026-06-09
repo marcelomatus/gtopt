@@ -203,6 +203,14 @@ template<typename T>
        "Without an argument, dumps every (canonical, dialect, alias, "
        "unit) row.  With an argument, filters by that dialect name "
        "(e.g. --list-dialects plexos).")  //
+      ("json-schema",
+       po::value<std::string>().implicit_value(""),
+       "dump the JSON Schema of the gtopt input options model to stdout "
+       "and exit.  Without an argument, dumps the default "
+       "(PlanningOptions) schema.  With an argument, selects a known "
+       "top-level type (e.g. --json-schema options).  The full "
+       "Planning/System schema is not emitted (its field-schedule "
+       "variants are not renderable by the JSON-schema generator).")  //
       ("solver",
        po::value<std::string>(),
        "LP/MIP solver backend: cplex, gurobi, highs, mindopt, cbc, clp "
