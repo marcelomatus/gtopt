@@ -505,6 +505,14 @@ void CuOptSolverBackend::solve_()
         settings, CUOPT_NUM_CPU_THREADS, m_options_.threads);
   }
 
+  // File-based logging: when the framework requested ``log_mode=detailed`` it
+  // calls ``set_log_filename`` with a per-(scene/phase) stem; route cuOpt's
+  // solve log there via the ``CUOPT_LOG_FILE`` string parameter, mirroring the
+  // CPLEX backend's per-solve ``.log`` file.
+  if (!m_log_filename_.empty()) {
+    cuOptSetParameter(settings, CUOPT_LOG_FILE, m_log_filename_.c_str());
+  }
+
   // 3b) Optional user parameter file: ``<solvers>/cuopt.prm``.  gtopt's
   // ``param_file`` is solver-agnostic and the case typically pins it to the
   // CPLEX ``solvers/cplex.prm`` (whose ``CPXPARAM_*`` keys are meaningless to
@@ -708,6 +716,24 @@ void CuOptSolverBackend::open_log(FILE* /*file*/, int level)
 void CuOptSolverBackend::close_log()
 {
   m_options_.log_level = 0;
+}
+
+void CuOptSolverBackend::set_log_filename(const std::string& filename,
+                                          int level)
+{
+  // Mirror the CPLEX backend: enable file logging only when the caller wants
+  // it (level > 0), so we never drop a stray log file otherwise.  The path is
+  // applied to ``CUOPT_LOG_FILE`` in ``solve_()`` (the cuOpt settings object
+  // lives there); cuOpt writes its solve log to that file.
+  if (level > 0 && !filename.empty()) {
+    m_log_filename_ = filename + ".log";
+    m_options_.log_level = level;
+  }
+}
+
+void CuOptSolverBackend::clear_log_filename()
+{
+  m_log_filename_.clear();
 }
 
 // ---- names & LP output ----------------------------------------------------

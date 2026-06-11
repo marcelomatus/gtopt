@@ -239,6 +239,8 @@ public:
   // ---- logging ----
   void open_log(FILE* file, int level) override;
   void close_log() override;
+  void set_log_filename(const std::string& filename, int level) override;
+  void clear_log_filename() override;
 
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,
@@ -258,6 +260,7 @@ private:
   CuOptSolutionCache m_sol_ {};
   SolverOptions m_options_ {};
   std::string m_prob_name_ {"gtopt_cuopt"};
+  std::string m_log_filename_ {};  ///< CUOPT_LOG_FILE path (set_log_filename)
 
   // Scratch buffers reused across getters so the const pointer-getters can
   // hand back stable storage.  `m_model_` already owns col_lb/col_ub/etc.
