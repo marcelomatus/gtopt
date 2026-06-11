@@ -379,15 +379,15 @@ TEST_CASE("tangent_signed_flow: tangent row coefs at f_k = fmax·(2k−K−1)/K"
   }
 }
 
-// ── (4) Loss column upper bound moved from column to chord row ───────
+// ── (4) Loss column UB: physical cap on the column + tighter chord row ──
 //
-// Post-2026-05-31 the loss column no longer carries the loose constant
-// upper bound ``(R/V²) · fmax²``.  Instead it is unbounded above at the
-// column level, and the tighter LINEAR-IN-|f| bound
-// ``ℓ ≤ (R · fmax / V²) · v`` is enforced by a row that references the
-// new ``flow_abs`` auxiliary column ``v ≥ |f|``.  This test pins both:
-// the column UB is released to ``DblMax`` AND the chord row carries the
-// correct coefficients.
+// The tighter LINEAR-IN-|f| bound ``ℓ ≤ (R · fmax / V²) · v`` is enforced by
+// a row referencing the ``flow_abs`` auxiliary column ``v ≥ |f|``.  P0-A
+// (cuOpt conditioning) ALSO caps the column itself at the physical max
+// ``(R/V²) · fmax²`` instead of leaving it ``DblMax`` — a NON-binding cap
+// (the chord row is strictly tighter for |f| < fmax), but it removes the
+// unboxed column that made first-order / dual-simplex solvers diverge.
+// This test pins both: the finite physical column UB AND the chord row.
 
 TEST_CASE("tangent_signed_flow: loss column UB replaced by linear chord row")
 {
@@ -402,11 +402,15 @@ TEST_CASE("tangent_signed_flow: loss column UB replaced by linear chord row")
   const auto loss_col = find_col(li, "line_lossp_");
   const auto v_col = find_col(li, "line_flow_abs_");
 
-  SUBCASE("loss column is unbounded above at the column level")
+  SUBCASE("loss column carries a finite physical UB; chord row tightens it")
   {
     CHECK(li.get_col_low()[value_of(loss_col)] == doctest::Approx(0.0));
-    // No finite uppb — chord row enforces it.
-    CHECK(li.get_col_upp()[value_of(loss_col)] >= 1e18);
+    // P0-A: column UB capped at the physical max ``(R/V²)·fmax²`` (a
+    // NON-binding cap — the chord row still enforces the tighter
+    // linear-in-|f| bound).  Leaving it at ``DblMax`` made cuOpt's
+    // first-order / dual-simplex root diverge on unboxed columns.
+    CHECK(li.get_col_upp()[value_of(loss_col)]
+          == doctest::Approx((R / V2) * tmax * tmax));
   }
 
   SUBCASE("v column is bounded [0, fmax]")
