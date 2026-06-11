@@ -1654,9 +1654,23 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
 
+  // Physical upper bound on ℓ instead of an unbounded (``DblMax``) column.
+  // The chord row above already drives ℓ to its tangent envelope, so this
+  // bound is NON-BINDING — ``ℓ ≤ (R/V²)·f²`` and ``|f| ≤ effective_fmax``
+  // give ``ℓ ≤ k_loss·m²`` with ``m = max(fmax_phys, effective_fmax)``,
+  // which dominates every secant/piecewise-secant chord value on
+  // ``[0, effective_fmax]`` for any ``nseg``.  Leaving it at +∞ instead
+  // hands first-order / dual-simplex solvers (cuOpt PDLP) an unboxed
+  // direction: the iterate escapes to ~1e22 and the solve diverges.  The
+  // optimum and all duals are unchanged (CPLEX value identical).  When
+  // ``k_loss == 0`` (lossless line) the bound is 0, pinning the vestigial
+  // column at ℓ = 0, which the zero-slope chord already implies.
+  const double loss_fmax = std::max(fmax_phys, effective_fmax);
+  const double loss_uppb = k_loss * loss_fmax * loss_fmax;
+
   const auto loss_col = lp.add_col({
       .lowb = 0.0,
-      .uppb = LinearProblem::DblMax,
+      .uppb = loss_uppb,
       .cost = loss_block_cost,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::LosspName,
